@@ -59,6 +59,52 @@ app.get("/api/export", async (_req, res, next) => {
     }
 });
 
+app.post("/api/master-location", async (req, res, next) => {
+    try {
+        const entry = sanitizeLocationMasterInput(req.body);
+        if (!entry) {
+            throw httpError(400, "A BIN or location code is required.");
+        }
+
+        await withTransaction(async (client) => {
+            await upsertLocationMaster(client, entry.code, entry.note);
+            await insertActivity(
+                client,
+                "setup",
+                `Saved BIN ${entry.code}`,
+                entry.note ? entry.note : "BIN/location added to the shared quick-pick library."
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/master-item", async (req, res, next) => {
+    try {
+        const entry = sanitizeItemMasterInput(req.body);
+        if (!entry) {
+            throw httpError(400, "A SKU is required to save an item.");
+        }
+
+        await withTransaction(async (client) => {
+            await upsertItemMaster(client, entry.sku, entry.upc, entry.description);
+            await insertActivity(
+                client,
+                "setup",
+                `Saved item ${entry.sku}`,
+                [entry.upc ? `UPC ${entry.upc}` : "", entry.description].filter(Boolean).join(" | ") || "Item added to the shared quick-pick library."
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/batch-save", async (req, res, next) => {
     try {
         const inputItems = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -73,6 +119,8 @@ app.post("/api/batch-save", async (req, res, next) => {
         await withTransaction(async (client) => {
             for (const item of items) {
                 await upsertInventoryLine(client, item.location, item.sku, item.upc, item.quantity);
+                await upsertLocationMaster(client, item.location);
+                await upsertItemMaster(client, item.sku, item.upc);
             }
 
             await insertActivity(
@@ -179,6 +227,9 @@ app.post("/api/transfer", async (req, res, next) => {
 
             await setInventoryQuantity(client, line.id, Number(line.quantity) - quantity);
             await upsertInventoryLine(client, toLocation, line.sku, line.upc, quantity);
+            await upsertLocationMaster(client, fromLocation);
+            await upsertLocationMaster(client, toLocation);
+            await upsertItemMaster(client, line.sku, line.upc);
             await insertActivity(
                 client,
                 "transfer",
@@ -219,8 +270,11 @@ app.post("/api/move-location", async (req, res, next) => {
             for (const line of linesResult.rows) {
                 totalUnits += Number(line.quantity);
                 await upsertInventoryLine(client, toLocation, line.sku, line.upc, Number(line.quantity));
+                await upsertItemMaster(client, line.sku, line.upc);
             }
 
+            await upsertLocationMaster(client, fromLocation);
+            await upsertLocationMaster(client, toLocation);
             await client.query("delete from inventory_lines where location = $1", [fromLocation]);
             await insertActivity(
                 client,
@@ -240,9 +294,11 @@ app.post("/api/import", async (req, res, next) => {
     try {
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
         const importedActivity = Array.isArray(req.body?.activity) ? req.body.activity.map(sanitizeActivityInput).filter(Boolean) : [];
+        const importedLocations = Array.isArray(req.body?.masters?.locations) ? req.body.masters.locations.map(sanitizeLocationMasterInput).filter(Boolean) : [];
+        const importedItems = Array.isArray(req.body?.masters?.items) ? req.body.masters.items.map(sanitizeItemMasterInput).filter(Boolean) : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, inventory_lines restart identity");
+            await client.query("truncate table activity_log, inventory_lines, bin_locations, item_catalog restart identity");
 
             for (const line of importedInventory) {
                 await client.query(
@@ -264,11 +320,36 @@ app.post("/api/import", async (req, res, next) => {
                 );
             }
 
+            for (const location of importedLocations) {
+                await client.query(
+                    `
+                        insert into bin_locations (code, note, created_at, updated_at)
+                        values ($1, $2, $3, $4)
+                    `,
+                    [location.code, location.note, location.createdAt, location.updatedAt]
+                );
+            }
+
+            for (const item of importedItems) {
+                await client.query(
+                    `
+                        insert into item_catalog (sku, upc, description, created_at, updated_at)
+                        values ($1, $2, $3, $4, $5)
+                    `,
+                    [item.sku, item.upc, item.description, item.createdAt, item.updatedAt]
+                );
+            }
+
+            for (const line of importedInventory) {
+                await upsertLocationMaster(client, line.location);
+                await upsertItemMaster(client, line.sku, line.upc);
+            }
+
             await insertActivity(
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, plus ${formatCount(importedLocations.length, "BIN")} and ${formatCount(importedItems.length, "item")}.`
             );
         });
 
@@ -337,10 +418,59 @@ async function initializeDatabase() {
         );
     `);
 
+    await pool.query(`
+        create table if not exists bin_locations (
+            id bigserial primary key,
+            code text not null unique,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists item_catalog (
+            id bigserial primary key,
+            sku text not null unique,
+            upc text not null default '',
+            description text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
     await pool.query("create index if not exists idx_inventory_lines_location on inventory_lines (location);");
     await pool.query("create index if not exists idx_inventory_lines_sku on inventory_lines (sku);");
     await pool.query("create index if not exists idx_inventory_lines_upc on inventory_lines (upc);");
+    await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
+    await pool.query("create index if not exists idx_item_catalog_sku on item_catalog (sku);");
+    await pool.query("create index if not exists idx_item_catalog_upc on item_catalog (upc);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
+
+    await pool.query(`
+        insert into bin_locations (code)
+        select distinct location
+        from inventory_lines
+        where location <> ''
+        on conflict (code) do nothing
+    `);
+
+    await pool.query(`
+        insert into item_catalog (sku, upc)
+        select
+            sku,
+            coalesce(max(nullif(upc, '')), '') as upc
+        from inventory_lines
+        where sku <> ''
+        group by sku
+        on conflict (sku)
+        do update set
+            upc = case
+                when item_catalog.upc = '' and excluded.upc <> '' then excluded.upc
+                else item_catalog.upc
+            end,
+            updated_at = now()
+    `);
 }
 
 async function initializeDatabaseWithRetry() {
@@ -363,14 +493,18 @@ async function initializeDatabaseWithRetry() {
 }
 
 async function getServerState(client = pool) {
-    const [inventoryResult, activityResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, itemResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
+        client.query("select * from bin_locations order by code asc"),
+        client.query("select * from item_catalog order by sku asc"),
         client.query(`
             select nullif(
                 greatest(
                     coalesce((select max(updated_at) from inventory_lines), to_timestamp(0)),
-                    coalesce((select max(created_at) from activity_log), to_timestamp(0))
+                    coalesce((select max(created_at) from activity_log), to_timestamp(0)),
+                    coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
+                    coalesce((select max(updated_at) from item_catalog), to_timestamp(0))
                 ),
                 to_timestamp(0)
             ) as last_changed_at
@@ -380,8 +514,12 @@ async function getServerState(client = pool) {
     return {
         inventory: inventoryResult.rows.map(mapInventoryRow),
         activity: activityResult.rows.map(mapActivityRow),
+        masters: {
+            locations: locationResult.rows.map(mapLocationMasterRow),
+            items: itemResult.rows.map(mapItemMasterRow)
+        },
         meta: {
-            version: 2,
+            version: 3,
             lastChangedAt: metaResult.rows[0].last_changed_at ? new Date(metaResult.rows[0].last_changed_at).toISOString() : null,
             serverSyncedAt: new Date().toISOString()
         }
@@ -418,6 +556,53 @@ async function upsertInventoryLine(client, location, sku, upc, quantity) {
                 updated_at = now()
         `,
         [location, sku, upc, quantity]
+    );
+}
+
+async function upsertLocationMaster(client, code, note = "") {
+    const normalizedCode = normalizeText(code);
+    if (!normalizedCode) return;
+    const normalizedNote = normalizeFreeText(note);
+
+    await client.query(
+        `
+            insert into bin_locations (code, note)
+            values ($1, $2)
+            on conflict (code)
+            do update set
+                note = case
+                    when excluded.note <> '' then excluded.note
+                    else bin_locations.note
+                end,
+                updated_at = now()
+        `,
+        [normalizedCode, normalizedNote]
+    );
+}
+
+async function upsertItemMaster(client, sku, upc = "", description = "") {
+    const normalizedSku = normalizeText(sku);
+    if (!normalizedSku) return;
+    const normalizedUpc = normalizeText(upc || "");
+    const normalizedDescription = normalizeFreeText(description);
+
+    await client.query(
+        `
+            insert into item_catalog (sku, upc, description)
+            values ($1, $2, $3)
+            on conflict (sku)
+            do update set
+                upc = case
+                    when excluded.upc <> '' then excluded.upc
+                    else item_catalog.upc
+                end,
+                description = case
+                    when excluded.description <> '' then excluded.description
+                    else item_catalog.description
+                end,
+                updated_at = now()
+        `,
+        [normalizedSku, normalizedUpc, normalizedDescription]
     );
 }
 
@@ -489,6 +674,29 @@ function sanitizeInventoryLineInput(line) {
     };
 }
 
+function sanitizeLocationMasterInput(item) {
+    const code = normalizeText(item?.code ?? item?.location);
+    if (!code) return null;
+    return {
+        code,
+        note: normalizeFreeText(item?.note),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
+function sanitizeItemMasterInput(item) {
+    const sku = normalizeText(item?.sku);
+    if (!sku) return null;
+    return {
+        sku,
+        upc: normalizeText(item?.upc || ""),
+        description: normalizeFreeText(item?.description),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
 function sanitizeActivityInput(item) {
     const title = typeof item?.title === "string" ? item.title.trim() : "";
     if (!title) return null;
@@ -522,8 +730,33 @@ function mapActivityRow(row) {
     };
 }
 
+function mapLocationMasterRow(row) {
+    return {
+        id: String(row.id),
+        code: row.code,
+        note: row.note || "",
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapItemMasterRow(row) {
+    return {
+        id: String(row.id),
+        sku: row.sku,
+        upc: row.upc || "",
+        description: row.description || "",
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
 function normalizeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function normalizeFreeText(value) {
+    return String(value || "").trim().replace(/\s+/g, " ");
 }
 
 function toPositiveInt(value) {

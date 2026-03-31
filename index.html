@@ -196,6 +196,7 @@
         .panel.active { display: block; }
 
         .card { padding: 1.15rem; }
+        .full-span { grid-column: 1 / -1; }
 
         .card-head {
             display: flex;
@@ -410,10 +411,64 @@
         .badge.delete { background: rgba(255, 141, 141, 0.15); color: #ffdcdc; }
         .badge.move { background: rgba(255, 210, 111, 0.18); color: #ffe8aa; }
         .badge.import { background: rgba(214, 170, 255, 0.16); color: #efdfff; }
+        .badge.setup { background: rgba(89, 183, 255, 0.16); color: #d8edff; }
 
         .activity-item strong { display: block; margin: 0.35rem 0 0.25rem; }
         .activity-item p { margin: 0; color: var(--muted); }
         .activity-meta { margin-top: 0.65rem; color: #96b2ca; font-size: 0.88rem; }
+
+        .library-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .stack-list {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .stack-list .empty {
+            padding: 0.9rem;
+            text-align: left;
+        }
+
+        .list-head {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 0.6rem;
+            align-items: center;
+            margin-bottom: 0.85rem;
+        }
+
+        .quick-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.9rem 1rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .quick-main {
+            min-width: 0;
+            display: grid;
+            gap: 0.2rem;
+        }
+
+        .quick-main strong {
+            font-size: 1rem;
+            word-break: break-word;
+        }
+
+        .quick-meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+            word-break: break-word;
+        }
 
         .footer {
             margin-top: 1rem;
@@ -428,6 +483,7 @@
             .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
             .section-grid, .search-grid, .inventory-grid { grid-template-columns: minmax(330px, 420px) minmax(0, 1fr); }
             .action-grid, .backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
         @media (max-width: 640px) {
@@ -438,6 +494,7 @@
             .button-row, .inline-actions { flex-direction: column; align-items: stretch; }
             .btn, .tab { width: 100%; }
             table { min-width: 560px; }
+            .quick-row { flex-direction: column; align-items: stretch; }
         }
     </style>
 </head>
@@ -478,7 +535,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Scan & Stage</h2>
-                            <p class="lead">Add scans to a batch first, then save the batch into local inventory.</p>
+                            <p class="lead">Add scans to a batch first, then save the batch into the shared inventory server.</p>
                         </div>
                         <span class="meta" id="lastLocationMeta">No saved location yet</span>
                     </div>
@@ -551,6 +608,92 @@
                         </table>
                     </div>
                 </article>
+
+                <article class="card full-span">
+                    <div class="card-head">
+                        <div>
+                            <h2>BIN & Item Library</h2>
+                            <p class="lead">Save common BINs and item masters so typing, scanning, and mobile quick-picks find matches faster.</p>
+                        </div>
+                    </div>
+
+                    <div class="library-grid">
+                        <div class="helper">
+                            <h3>Add BIN Location</h3>
+                            <form id="masterLocationForm" class="form-grid" autocomplete="off">
+                                <label class="field">
+                                    <span>BIN / Location</span>
+                                    <input id="masterLocationCode" list="locationList" type="text" placeholder="Example: A1-01-03" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Zone / Note</span>
+                                    <input id="masterLocationNote" type="text" placeholder="Optional note for the team" enterkeyhint="done">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save BIN</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="helper">
+                            <h3>Add Item Master</h3>
+                            <form id="masterItemForm" class="form-grid" autocomplete="off">
+                                <label class="field">
+                                    <span>SKU</span>
+                                    <input id="masterItemSku" list="skuList" type="text" placeholder="Required SKU" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>UPC</span>
+                                    <input id="masterItemUpc" list="skuList" type="text" placeholder="Optional UPC" enterkeyhint="next">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Description</span>
+                                    <input id="masterItemDescription" type="text" placeholder="Optional item description" enterkeyhint="done">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Item</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="button-row" style="margin-top: 1rem; margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 280px;">
+                            <span>Quick Filter</span>
+                            <input id="masterFilter" type="text" placeholder="Filter BINs, SKUs, UPCs, or descriptions">
+                        </label>
+                    </div>
+
+                    <div class="library-grid">
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved BINs</h3>
+                                    <p class="meta">Tap Use to fill the scan location on mobile or desktop.</p>
+                                </div>
+                                <span class="meta" id="masterLocationCount">0 saved</span>
+                            </div>
+                            <div id="masterLocationList" class="stack-list">
+                                <p class="empty">No BINs saved yet. Add your most-used locations here for faster lookup.</p>
+                            </div>
+                        </div>
+
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved Items</h3>
+                                    <p class="meta">Tap Use to load the item into the scan form and fill the SKU / UPC faster.</p>
+                                </div>
+                                <span class="meta" id="masterItemCount">0 saved</span>
+                            </div>
+                            <div id="masterItemList" class="stack-list">
+                                <p class="empty">No items saved yet. Add your common SKUs here to speed up repeat work.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="status" id="catalogMessage"></div>
+                </article>
             </div>
         </section>
 
@@ -571,7 +714,7 @@
                         </div>
                         <label class="field span-2">
                             <span id="singleSearchLabel">SKU or UPC</span>
-                            <input id="singleSearchInput" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
+                            <input id="singleSearchInput" list="skuList" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
                         </label>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Run Search</button>
@@ -691,11 +834,11 @@
                     <div class="card-head">
                         <div>
                             <h2>Recent Activity</h2>
-                            <p class="lead">The latest inventory changes saved on this device.</p>
+                            <p class="lead">The latest inventory and library changes saved on the shared server.</p>
                         </div>
                     </div>
                     <div id="activityList">
-                        <p class="empty">Inventory changes will appear here after you save, delete, transfer, move, or import data.</p>
+                        <p class="empty">Inventory and library changes will appear here after you save, delete, transfer, move, import, or add master data.</p>
                     </div>
                 </article>
             </div>
@@ -767,7 +910,7 @@
                         <button class="btn" id="exportJsonBtn" type="button">Export JSON Backup</button>
                         <button class="btn secondary" id="exportCsvBtn" type="button">Export CSV Snapshot</button>
                     </div>
-                    <p class="lead">JSON includes the shared server inventory and recent activity. CSV exports the current inventory table for spreadsheets.</p>
+                    <p class="lead">JSON includes the shared server inventory, recent activity, saved BINs, and item masters. CSV exports the current inventory table for spreadsheets.</p>
                 </article>
 
                 <article class="card">
@@ -780,7 +923,7 @@
                     <div class="button-row">
                         <button class="btn warn" id="importJsonBtn" type="button">Import JSON Backup</button>
                     </div>
-                    <p class="lead">Import replaces the shared server inventory and recent activity for everyone using this app.</p>
+                    <p class="lead">Import replaces the shared server inventory, recent activity, saved BINs, and item masters for everyone using this app.</p>
                 </article>
             </div>
             <div class="status" id="backupMessage"></div>
@@ -812,6 +955,17 @@
             scanUom: document.getElementById("scanUom"),
             scanCases: document.getElementById("scanCases"),
             scanMessage: document.getElementById("scanMessage"),
+            masterLocationCode: document.getElementById("masterLocationCode"),
+            masterLocationNote: document.getElementById("masterLocationNote"),
+            masterItemSku: document.getElementById("masterItemSku"),
+            masterItemUpc: document.getElementById("masterItemUpc"),
+            masterItemDescription: document.getElementById("masterItemDescription"),
+            masterFilter: document.getElementById("masterFilter"),
+            masterLocationCount: document.getElementById("masterLocationCount"),
+            masterItemCount: document.getElementById("masterItemCount"),
+            masterLocationList: document.getElementById("masterLocationList"),
+            masterItemList: document.getElementById("masterItemList"),
+            catalogMessage: document.getElementById("catalogMessage"),
             lastLocationMeta: document.getElementById("lastLocationMeta"),
             batchMeta: document.getElementById("batchMeta"),
             batchEmpty: document.getElementById("batchEmpty"),
@@ -867,6 +1021,16 @@
             document.getElementById("clearBatchBtn").addEventListener("click", clearBatch);
             ui.batchTableBody.addEventListener("click", onBatchTableClick);
             [ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
+            [ui.scanSku, ui.scanUpc].forEach((el) => {
+                el.addEventListener("change", syncScanFieldsFromCatalog);
+                el.addEventListener("blur", syncScanFieldsFromCatalog);
+            });
+
+            document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
+            document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
+            ui.masterFilter.addEventListener("input", renderMasterLibrary);
+            ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
+            ui.masterItemList.addEventListener("click", onMasterItemListClick);
 
             ui.searchBySkuBtn.addEventListener("click", () => setSearchMode("sku"));
             ui.searchByLocationBtn.addEventListener("click", () => setSearchMode("location"));
@@ -921,6 +1085,7 @@
             ui.searchByLocationBtn.classList.toggle("active", mode === "location");
             ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
             ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
+            ui.singleSearchInput.setAttribute("list", mode === "sku" ? "skuList" : "locationList");
         }
 
         function scanEnterFlow(event) {
@@ -950,6 +1115,7 @@
 
         function addToBatch(event) {
             event.preventDefault();
+            syncScanFieldsFromCatalog();
             const location = norm(ui.scanLocation.value || state.preferences.lastLocation);
             const upc = norm(ui.scanUpc.value);
             const sku = norm(ui.scanSku.value);
@@ -1100,6 +1266,7 @@
             renderBatch();
             renderStats();
             renderDatalists();
+            renderMasterLibrary();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
             renderSummary();
@@ -1141,10 +1308,218 @@
         }
 
         function renderDatalists() {
-            const locations = [...new Set(state.inventory.map((line) => line.location).concat(state.batch.map((line) => line.location)))].sort();
-            const codes = [...new Set(state.inventory.flatMap((line) => [line.sku, line.upc].filter(Boolean)).concat(state.batch.flatMap((line) => [line.sku, line.upc].filter(Boolean))))].sort();
-            ui.locationList.innerHTML = locations.map((value) => `<option value="${attr(value)}"></option>`).join("");
-            ui.skuList.innerHTML = codes.map((value) => `<option value="${attr(value)}"></option>`).join("");
+            const locationMap = new Map();
+            state.masters.locations.forEach((entry) => {
+                locationMap.set(entry.code, { value: entry.code, label: entry.note || "" });
+            });
+            state.inventory.forEach((line) => {
+                if (!locationMap.has(line.location)) {
+                    locationMap.set(line.location, { value: line.location, label: "" });
+                }
+            });
+            state.batch.forEach((line) => {
+                if (!locationMap.has(line.location)) {
+                    locationMap.set(line.location, { value: line.location, label: "" });
+                }
+            });
+
+            const itemMap = new Map();
+            state.masters.items.forEach((item) => {
+                const skuLabel = [item.upc ? `UPC ${item.upc}` : "", item.description].filter(Boolean).join(" | ");
+                itemMap.set(item.sku, { value: item.sku, label: skuLabel });
+                if (item.upc) {
+                    itemMap.set(item.upc, { value: item.upc, label: [item.sku, item.description].filter(Boolean).join(" | ") });
+                }
+            });
+            state.inventory.forEach((line) => {
+                if (!itemMap.has(line.sku)) itemMap.set(line.sku, { value: line.sku, label: line.upc ? `UPC ${line.upc}` : "" });
+                if (line.upc && !itemMap.has(line.upc)) itemMap.set(line.upc, { value: line.upc, label: line.sku });
+            });
+            state.batch.forEach((line) => {
+                if (!itemMap.has(line.sku)) itemMap.set(line.sku, { value: line.sku, label: line.upc ? `UPC ${line.upc}` : "" });
+                if (line.upc && !itemMap.has(line.upc)) itemMap.set(line.upc, { value: line.upc, label: line.sku });
+            });
+
+            ui.locationList.innerHTML = [...locationMap.values()]
+                .sort((a, b) => a.value.localeCompare(b.value))
+                .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
+                .join("");
+            ui.skuList.innerHTML = [...itemMap.values()]
+                .sort((a, b) => a.value.localeCompare(b.value))
+                .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
+                .join("");
+        }
+
+        async function saveMasterLocation(event) {
+            event.preventDefault();
+            const code = norm(ui.masterLocationCode.value);
+            const note = String(ui.masterLocationNote.value || "").trim().replace(/\s+/g, " ");
+            if (!code) return fail(ui.catalogMessage, "Enter a BIN or location code to save.", ui.masterLocationCode);
+
+            try {
+                await requestJson("/api/master-location", {
+                    method: "POST",
+                    body: JSON.stringify({ code, note })
+                });
+                await syncServerState(true);
+                showMessage(ui.catalogMessage, `Saved BIN ${code} to the shared library.`, "success");
+                document.getElementById("masterLocationForm").reset();
+                ui.masterLocationCode.focus();
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        async function saveMasterItem(event) {
+            event.preventDefault();
+            const sku = norm(ui.masterItemSku.value);
+            const upc = norm(ui.masterItemUpc.value);
+            const description = String(ui.masterItemDescription.value || "").trim().replace(/\s+/g, " ");
+            if (!sku) return fail(ui.catalogMessage, "Enter a SKU to save an item master.", ui.masterItemSku);
+
+            try {
+                await requestJson("/api/master-item", {
+                    method: "POST",
+                    body: JSON.stringify({ sku, upc, description })
+                });
+                await syncServerState(true);
+                showMessage(ui.catalogMessage, `Saved item ${sku} to the shared library.`, "success");
+                document.getElementById("masterItemForm").reset();
+                ui.masterItemSku.focus();
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        function renderMasterLibrary() {
+            const query = norm(ui.masterFilter.value);
+            const locationMatches = [...state.masters.locations]
+                .filter((entry) => !query || entry.code.includes(query) || norm(entry.note).includes(query))
+                .sort((a, b) => a.code.localeCompare(b.code));
+            const itemMatches = [...state.masters.items]
+                .filter((item) => !query || item.sku.includes(query) || item.upc.includes(query) || norm(item.description).includes(query))
+                .sort((a, b) => a.sku.localeCompare(b.sku));
+
+            const visibleLocations = locationMatches.slice(0, query ? 24 : 12);
+            const visibleItems = itemMatches.slice(0, query ? 24 : 12);
+
+            ui.masterLocationCount.textContent = query
+                ? `${num(locationMatches.length)} shown / ${num(state.masters.locations.length)} saved`
+                : `${num(state.masters.locations.length)} saved`;
+            ui.masterItemCount.textContent = query
+                ? `${num(itemMatches.length)} shown / ${num(state.masters.items.length)} saved`
+                : `${num(state.masters.items.length)} saved`;
+
+            ui.masterLocationList.innerHTML = renderMasterLocationRows(visibleLocations, locationMatches.length, query);
+            ui.masterItemList.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
+        }
+
+        function renderMasterLocationRows(locations, totalMatches, query) {
+            if (!locations.length) {
+                return `<p class="empty">${query ? `No saved BINs matched "${esc(query)}".` : "No BINs saved yet. Add your most-used locations here for faster lookup."}</p>`;
+            }
+
+            const rows = locations.map((entry) => `
+                <div class="quick-row">
+                    <div class="quick-main">
+                        <strong>${esc(entry.code)}</strong>
+                        <div class="quick-meta">${esc(entry.note || "Saved BIN location")}</div>
+                    </div>
+                    <button class="btn ghost mini" type="button" data-use-location="${attr(entry.code)}">Use In Scan</button>
+                </div>
+            `).join("");
+
+            if (locations.length < totalMatches) {
+                return `${rows}<p class="meta">Showing the first ${num(locations.length)} of ${num(totalMatches)} BINs. Narrow the filter to see more.</p>`;
+            }
+
+            return rows;
+        }
+
+        function renderMasterItemRows(items, totalMatches, query) {
+            if (!items.length) {
+                return `<p class="empty">${query ? `No saved items matched "${esc(query)}".` : "No items saved yet. Add common SKUs here to speed up repeat work."}</p>`;
+            }
+
+            const rows = items.map((item) => {
+                const meta = [item.upc ? `UPC ${item.upc}` : "", item.description].filter(Boolean).join(" | ") || "Saved item master";
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(item.sku)}</strong>
+                            <div class="quick-meta">${esc(meta)}</div>
+                        </div>
+                        <button class="btn ghost mini" type="button" data-use-item="${attr(item.sku)}">Use In Scan</button>
+                    </div>
+                `;
+            }).join("");
+
+            if (items.length < totalMatches) {
+                return `${rows}<p class="meta">Showing the first ${num(items.length)} of ${num(totalMatches)} items. Narrow the filter to see more.</p>`;
+            }
+
+            return rows;
+        }
+
+        function onMasterLocationListClick(event) {
+            const button = event.target.closest("[data-use-location]");
+            if (!button) return;
+            fillScanFromMasterLocation(button.dataset.useLocation);
+        }
+
+        function onMasterItemListClick(event) {
+            const button = event.target.closest("[data-use-item]");
+            if (!button) return;
+            fillScanFromMasterItem(button.dataset.useItem);
+        }
+
+        function fillScanFromMasterLocation(code) {
+            const normalized = norm(code);
+            if (!normalized) return;
+            ui.scanLocation.value = normalized;
+            state.preferences.lastLocation = normalized;
+            saveState();
+            ui.scanSku.focus();
+            showMessage(ui.catalogMessage, `Loaded BIN ${normalized} into the scan form.`, "info");
+        }
+
+        function fillScanFromMasterItem(code) {
+            const item = findMasterItemByCode(code);
+            if (!item) return;
+            ui.scanSku.value = item.sku;
+            ui.scanUpc.value = item.upc || ui.scanUpc.value;
+            ui.scanQuantity.focus();
+            showMessage(ui.catalogMessage, `Loaded item ${item.sku} into the scan form.`, "info");
+        }
+
+        function syncScanFieldsFromCatalog() {
+            const sku = norm(ui.scanSku.value);
+            const upc = norm(ui.scanUpc.value);
+
+            if (upc) {
+                const upcMatch = state.masters.items.find((item) => item.upc === upc);
+                if (upcMatch) {
+                    ui.scanSku.value = upcMatch.sku;
+                    ui.scanUpc.value = upcMatch.upc;
+                    return upcMatch;
+                }
+            }
+
+            if (sku) {
+                const skuMatch = state.masters.items.find((item) => item.sku === sku);
+                if (skuMatch) {
+                    ui.scanSku.value = skuMatch.sku;
+                    if (!upc && skuMatch.upc) ui.scanUpc.value = skuMatch.upc;
+                    return skuMatch;
+                }
+            }
+
+            return null;
+        }
+
+        function findMasterItemByCode(code) {
+            const query = norm(code);
+            return state.masters.items.find((item) => item.sku === query || item.upc === query) || null;
         }
 
         function renderSingleSearch(query, mode, matches) {
@@ -1214,7 +1589,7 @@
 
         function renderActivity() {
             if (!state.activity.length) {
-                ui.activityList.innerHTML = `<p class="empty">Inventory changes will appear here after you save, delete, transfer, move, or import data.</p>`;
+                ui.activityList.innerHTML = `<p class="empty">Inventory and library changes will appear here after you save, delete, transfer, move, import, or add master data.</p>`;
                 return;
             }
             ui.activityList.innerHTML = state.activity.slice(0, 12).map((item) => `
@@ -1553,6 +1928,8 @@
         function applyServerState(payload) {
             state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
+            state.masters.locations = Array.isArray(payload?.masters?.locations) ? payload.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [];
+            state.masters.items = Array.isArray(payload?.masters?.items) ? payload.masters.items.map(sanitizeMasterItem).filter(Boolean) : [];
             state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             renderAll();
@@ -1589,8 +1966,9 @@
                 inventory: [],
                 batch: [],
                 activity: [],
+                masters: { locations: [], items: [] },
                 preferences: { lastLocation: "" },
-                meta: { version: 2, lastChangedAt: null, serverSyncedAt: null }
+                meta: { version: 3, lastChangedAt: null, serverSyncedAt: null }
             };
         }
 
@@ -1599,15 +1977,20 @@
                 inventory: [],
                 batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
                 activity: [],
+                masters: { locations: [], items: [] },
                 preferences: { lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "" },
-                meta: { version: 2, lastChangedAt: null, serverSyncedAt: null }
+                meta: { version: 3, lastChangedAt: null, serverSyncedAt: null }
             };
         }
 
         function sanitizeServerImport(raw) {
             return {
                 inventory: Array.isArray(raw.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
-                activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : []
+                activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
+                masters: {
+                    locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
+                    items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : []
+                }
             };
         }
 
@@ -1676,6 +2059,31 @@
                 title,
                 details: typeof item.details === "string" ? item.details.trim() : "",
                 timestamp: typeof item.timestamp === "string" ? item.timestamp : new Date().toISOString()
+            };
+        }
+
+        function sanitizeMasterLocation(item) {
+            const code = norm(item?.code ?? item?.location);
+            if (!code) return null;
+            return {
+                id: typeof item.id === "string" ? item.id : makeId("loc"),
+                code,
+                note: String(item?.note || "").trim().replace(/\s+/g, " "),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeMasterItem(item) {
+            const sku = norm(item?.sku);
+            if (!sku) return null;
+            return {
+                id: typeof item.id === "string" ? item.id : makeId("item"),
+                sku,
+                upc: norm(item?.upc || ""),
+                description: String(item?.description || "").trim().replace(/\s+/g, " "),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
         }
 
