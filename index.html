@@ -1103,6 +1103,31 @@
                 padding: 0;
                 overflow: hidden;
             }
+            .app,
+            .panel,
+            .panel.active,
+            .card,
+            .section-grid,
+            .search-grid,
+            .inventory-grid,
+            .action-grid,
+            .backup-grid,
+            .labels-tool-grid,
+            .form-grid,
+            .button-row,
+            .inline-actions,
+            .field,
+            .helper,
+            .summary,
+            .table-wrap,
+            .quick-row,
+            .quick-main,
+            .quick-row-actions,
+            .image-preview,
+            .mobile-typeahead {
+                min-width: 0;
+                max-width: 100%;
+            }
             .hero { display: none; }
             .tabbar { display: none; }
             .panel {
@@ -1110,10 +1135,12 @@
                 margin-top: 0;
                 height: 100%;
                 min-height: 0;
+                overflow-x: hidden;
             }
             .panel.active {
                 display: block !important;
                 overflow-y: auto;
+                overflow-x: hidden;
                 overscroll-behavior: contain;
                 -webkit-overflow-scrolling: touch;
             }
@@ -1167,6 +1194,8 @@
             .mobile-typeahead {
                 border-radius: 12px;
                 box-shadow: 0 12px 24px rgba(17, 38, 57, 0.18);
+                max-width: calc(100vw - 16px);
+                overflow-x: hidden;
             }
             .mobile-typeahead-item {
                 padding: 0.75rem;
@@ -1267,7 +1296,16 @@
                 color: #667788;
             }
             .desktop-complex { display: none !important; }
-            table { min-width: 520px; }
+            table {
+                min-width: 0;
+                width: 100%;
+                table-layout: fixed;
+            }
+            th, td {
+                white-space: normal;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
             .quick-row { flex-direction: column; align-items: stretch; }
             .quick-row-actions { justify-content: stretch; }
             .quick-media,
@@ -1329,6 +1367,31 @@
             padding: 0;
             overflow: hidden;
         }
+        body.device-mobile .app,
+        body.device-mobile .panel,
+        body.device-mobile .panel.active,
+        body.device-mobile .card,
+        body.device-mobile .section-grid,
+        body.device-mobile .search-grid,
+        body.device-mobile .inventory-grid,
+        body.device-mobile .action-grid,
+        body.device-mobile .backup-grid,
+        body.device-mobile .labels-tool-grid,
+        body.device-mobile .form-grid,
+        body.device-mobile .button-row,
+        body.device-mobile .inline-actions,
+        body.device-mobile .field,
+        body.device-mobile .helper,
+        body.device-mobile .summary,
+        body.device-mobile .table-wrap,
+        body.device-mobile .quick-row,
+        body.device-mobile .quick-main,
+        body.device-mobile .quick-row-actions,
+        body.device-mobile .image-preview,
+        body.device-mobile .mobile-typeahead {
+            min-width: 0;
+            max-width: 100%;
+        }
         body.device-mobile .hero-grid,
         body.device-mobile .section-grid,
         body.device-mobile .search-grid,
@@ -1343,10 +1406,12 @@
             margin-top: 0;
             height: 100%;
             min-height: 0;
+            overflow-x: hidden;
         }
         body.device-mobile .panel.active {
             display: block !important;
             overflow-y: auto;
+            overflow-x: hidden;
             overscroll-behavior: contain;
             -webkit-overflow-scrolling: touch;
         }
@@ -1384,6 +1449,8 @@
             border-color: #dbe3ec;
             background: rgba(255, 255, 255, 0.98);
             box-shadow: 0 12px 24px rgba(17, 38, 57, 0.18);
+            max-width: calc(100vw - 16px);
+            overflow-x: hidden;
         }
         body.device-mobile .mobile-typeahead-item {
             padding: 0.75rem;
@@ -1479,7 +1546,17 @@
             color: #667788;
         }
         body.device-mobile .desktop-complex { display: none !important; }
-        body.device-mobile table { min-width: 520px; }
+        body.device-mobile table {
+            min-width: 0;
+            width: 100%;
+            table-layout: fixed;
+        }
+        body.device-mobile th,
+        body.device-mobile td {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
         body.device-mobile .quick-row { flex-direction: column; align-items: stretch; }
         body.device-mobile .quick-row-actions { justify-content: stretch; }
         body.device-mobile .quick-media,
