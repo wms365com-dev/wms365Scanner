@@ -479,6 +479,7 @@
 
         .mobile-only { display: none !important; }
         .hidden { display: none !important; }
+        .mobile-subview.active { display: block; }
 
         @media (min-width: 860px) {
             .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
@@ -581,6 +582,23 @@
             .helper, .summary, .stat, .result-group, .activity-item, .table-wrap, .quick-row {
                 background: #f5f8fb;
                 border-color: #dbe3ec;
+            }
+            .mobile-task-picker {
+                padding: 0.85rem;
+            }
+            .mobile-task-picker .button-row {
+                gap: 0.6rem;
+            }
+            .mobile-task-picker .btn.active {
+                color: white;
+                background: linear-gradient(45deg, var(--brand), var(--brand-2));
+                border-color: transparent;
+            }
+            .mobile-subview {
+                display: none !important;
+            }
+            .mobile-subview.active {
+                display: block !important;
             }
             .empty {
                 text-align: left;
@@ -713,7 +731,7 @@
                     <div class="status" id="scanMessage"></div>
                 </article>
 
-                <article class="card">
+                <article class="card desktop-complex">
                     <div class="card-head">
                         <div>
                             <h2>Current Batch</h2>
@@ -876,6 +894,18 @@
             <div class="mobile-panel-head mobile-only">
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
+            <article class="card mobile-only mobile-task-picker">
+                <div class="card-head" style="margin-bottom: 0.75rem;">
+                    <div>
+                        <h2>Search Tasks</h2>
+                        <p class="lead">Pick one search tool at a time, like the original mobile flow.</p>
+                    </div>
+                </div>
+                <div class="button-row">
+                    <button class="btn ghost active" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="single">Search One</button>
+                    <button class="btn ghost" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="multi">Search Multiple</button>
+                </div>
+            </article>
             <div class="search-grid">
                 <article class="card">
                     <div class="card-head">
@@ -885,39 +915,43 @@
                         </div>
                     </div>
 
-                    <form id="singleSearchForm" class="form-grid" autocomplete="off">
-                        <label class="field span-2">
-                            <span>Vendor / Customer (Optional)</span>
-                            <input id="searchAccount" list="ownerList" type="text" placeholder="Filter by vendor / customer">
-                        </label>
-                        <div class="span-2 segmented" role="tablist" aria-label="Search type">
-                            <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
-                            <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
-                        </div>
-                        <label class="field span-2">
-                            <span id="singleSearchLabel">SKU or UPC</span>
-                            <input id="singleSearchInput" list="skuList" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
-                        </label>
-                        <div class="button-row span-2">
-                            <button class="btn" type="submit">Run Search</button>
-                            <button class="btn ghost hidden" id="printSingleSearchBtn" type="button">Print Results</button>
-                        </div>
-                    </form>
+                    <div id="searchSingleView" class="mobile-subview active" data-mobile-subview-group="search" data-mobile-subview="single">
+                        <form id="singleSearchForm" class="form-grid" autocomplete="off">
+                            <label class="field span-2">
+                                <span>Vendor / Customer (Optional)</span>
+                                <input id="searchAccount" list="ownerList" type="text" placeholder="Filter by vendor / customer">
+                            </label>
+                            <div class="span-2 segmented" role="tablist" aria-label="Search type">
+                                <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
+                                <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
+                            </div>
+                            <label class="field span-2">
+                                <span id="singleSearchLabel">SKU or UPC</span>
+                                <input id="singleSearchInput" list="skuList" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn" type="submit">Run Search</button>
+                                <button class="btn ghost hidden" id="printSingleSearchBtn" type="button">Print Results</button>
+                            </div>
+                        </form>
+                    </div>
 
-                    <form id="multiSearchForm" class="form-grid" autocomplete="off">
-                        <label class="field span-2">
-                            <span>Find Multiple SKUs / UPCs</span>
-                            <textarea id="multiSearchInput" rows="6" placeholder="Paste or scan item codes separated by commas, spaces, or new lines"></textarea>
-                        </label>
-                        <div class="button-row span-2">
-                            <button class="btn secondary" type="submit">Search Multiple Items</button>
-                            <button class="btn ghost hidden" id="printMultiSearchBtn" type="button">Print Multi Search</button>
-                        </div>
-                    </form>
+                    <div id="searchMultiView" class="mobile-subview" data-mobile-subview-group="search" data-mobile-subview="multi">
+                        <form id="multiSearchForm" class="form-grid" autocomplete="off">
+                            <label class="field span-2">
+                                <span>Find Multiple SKUs / UPCs</span>
+                                <textarea id="multiSearchInput" rows="6" placeholder="Paste or scan item codes separated by commas, spaces, or new lines"></textarea>
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn secondary" type="submit">Search Multiple Items</button>
+                                <button class="btn ghost hidden" id="printMultiSearchBtn" type="button">Print Multi Search</button>
+                            </div>
+                        </form>
+                    </div>
                     <div class="status" id="searchMessage"></div>
                 </article>
 
-                <article class="card">
+                <article class="card" id="searchResultsCard">
                     <div class="card-head">
                         <div>
                             <h2>Search Results</h2>
@@ -935,8 +969,21 @@
             <div class="mobile-panel-head mobile-only">
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
+            <article class="card mobile-only mobile-task-picker">
+                <div class="card-head" style="margin-bottom: 0.75rem;">
+                    <div>
+                        <h2>Action Tasks</h2>
+                        <p class="lead">Open one action at a time so the mobile flow stays simple.</p>
+                    </div>
+                </div>
+                <div class="button-row">
+                    <button class="btn ghost active" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="adjust">Remove / Delete</button>
+                    <button class="btn ghost" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="transfer">Transfer</button>
+                    <button class="btn ghost" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="move">BIN Move</button>
+                </div>
+            </article>
             <div class="action-grid">
-                <article class="card">
+                <article class="card mobile-subview active" data-mobile-subview-group="actions" data-mobile-subview="adjust">
                     <div class="card-head">
                         <div>
                             <h2>Remove Or Delete</h2>
@@ -967,7 +1014,7 @@
                     </form>
                 </article>
 
-                <article class="card">
+                <article class="card mobile-subview" data-mobile-subview-group="actions" data-mobile-subview="transfer">
                     <div class="card-head">
                         <div>
                             <h2>Transfer Stock</h2>
@@ -1001,7 +1048,7 @@
                     </form>
                 </article>
 
-                <article class="card">
+                <article class="card mobile-subview" data-mobile-subview-group="actions" data-mobile-subview="move">
                     <div class="card-head">
                         <div>
                             <h2>BIN To BIN Move</h2>
@@ -1027,7 +1074,7 @@
                     </form>
                 </article>
 
-                <article class="card">
+                <article class="card desktop-complex">
                     <div class="card-head">
                         <div>
                             <h2>Recent Activity</h2>
@@ -1279,6 +1326,8 @@
         const state = loadState();
         let activeSection = "scan";
         let searchMode = "sku";
+        let activeSearchSubview = "single";
+        let activeActionSubview = "adjust";
         let lastSingleSearch = null;
         let lastMultiSearch = null;
         let currentSearchView = null;
@@ -1290,6 +1339,7 @@
             panels: [...document.querySelectorAll(".panel")],
             mobileNavButtons: [...document.querySelectorAll("[data-mobile-nav]")],
             mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
+            mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
             scanAccount: document.getElementById("scanAccount"),
             scanLocation: document.getElementById("scanLocation"),
             scanUpc: document.getElementById("scanUpc"),
@@ -1336,6 +1386,7 @@
             multiSearchInput: document.getElementById("multiSearchInput"),
             printSingleSearchBtn: document.getElementById("printSingleSearchBtn"),
             printMultiSearchBtn: document.getElementById("printMultiSearchBtn"),
+            searchResultsCard: document.getElementById("searchResultsCard"),
             searchResultsContent: document.getElementById("searchResultsContent"),
             actionMessage: document.getElementById("actionMessage"),
             adjustAccount: document.getElementById("adjustAccount"),
@@ -1400,6 +1451,11 @@
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
             ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
+            ui.mobileSubviewButtons.forEach((button) => button.addEventListener("click", () => {
+                const group = button.dataset.mobileSubviewBtnGroup;
+                const target = button.dataset.mobileSubviewTarget;
+                if (group && target) setMobileSubview(group, target);
+            }));
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
             document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
@@ -1462,6 +1518,8 @@
             ui.scanLocation.value = state.preferences.lastLocation || "";
             ui.masterItemAccount.value = state.preferences.lastAccount || "";
             setSearchMode("sku");
+            setMobileSubview("search", activeSearchSubview);
+            setMobileSubview("actions", activeActionSubview);
             updateScanTrackingUi();
             renderAll();
             setSection(isMobileView() ? "mobile-home" : "scan");
@@ -1484,7 +1542,14 @@
             ui.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === section));
             if (section === "mobile-home") return;
             if (section === "scan") focusScanStart();
-            if (section === "search") ui.singleSearchInput.focus();
+            if (section === "search") {
+                if (isMobileView()) setMobileSubview("search", activeSearchSubview);
+                else ui.singleSearchInput.focus();
+            }
+            if (section === "actions" && isMobileView()) {
+                setMobileSubview("actions", activeActionSubview);
+            }
+            updateMobileSearchResultsVisibility();
             if (section === "inventory") ui.inventoryFilter.focus();
             if (section === "reports") ui.reportFilter.focus();
             if (section !== "scan") syncServerState(true).catch(() => {});
@@ -1494,6 +1559,7 @@
             if (!event.matches && activeSection === "mobile-home") {
                 setSection("scan");
             }
+            updateMobileSearchResultsVisibility();
         }
 
         function isMobileView() {
@@ -1507,6 +1573,38 @@
             ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
             ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
             ui.singleSearchInput.setAttribute("list", mode === "sku" ? "skuList" : "locationList");
+        }
+
+        function setMobileSubview(group, view) {
+            if (group === "search") activeSearchSubview = view;
+            if (group === "actions") activeActionSubview = view;
+
+            document.querySelectorAll(`[data-mobile-subview-group="${group}"]`).forEach((element) => {
+                element.classList.toggle("active", element.dataset.mobileSubview === view);
+            });
+            ui.mobileSubviewButtons
+                .filter((button) => button.dataset.mobileSubviewBtnGroup === group)
+                .forEach((button) => {
+                    const isActive = button.dataset.mobileSubviewTarget === view;
+                    button.classList.toggle("active", isActive);
+                    button.classList.toggle("ghost", !isActive);
+                });
+
+            if (!isMobileView()) return;
+            if (group === "search") {
+                if (view === "multi") ui.multiSearchInput.focus();
+                else ui.singleSearchInput.focus();
+            }
+            if (group === "actions") {
+                if (view === "transfer") ui.transferAccount.focus();
+                else if (view === "move") ui.moveAccount.focus();
+                else ui.adjustAccount.focus();
+            }
+        }
+
+        function updateMobileSearchResultsVisibility() {
+            if (!ui.searchResultsCard) return;
+            ui.searchResultsCard.classList.toggle("hidden", isMobileView() && !currentSearchView);
         }
 
         function scanEnterFlow(event) {
@@ -2419,6 +2517,7 @@
         function renderSingleSearch(query, mode, matches) {
             ui.printSingleSearchBtn.classList.toggle("hidden", !matches.length);
             ui.printMultiSearchBtn.classList.add("hidden");
+            updateMobileSearchResultsVisibility();
 
             if (!matches.length) {
                 ui.searchResultsContent.innerHTML = `<p class="empty">No matching inventory lines were found for <strong>${esc(query)}</strong>.</p>`;
@@ -2453,6 +2552,7 @@
         function renderMultiSearch(groups) {
             ui.printSingleSearchBtn.classList.add("hidden");
             ui.printMultiSearchBtn.classList.toggle("hidden", !groups.some((group) => group.matches.length));
+            updateMobileSearchResultsVisibility();
 
             const found = groups.filter((group) => group.matches.length).length;
             const overallTotals = groups.reduce((totals, group) => {
