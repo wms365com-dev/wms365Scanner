@@ -196,6 +196,7 @@
         .panel.active { display: block; }
 
         .card { padding: 1.15rem; }
+        .full-span { grid-column: 1 / -1; }
 
         .card-head {
             display: flex;
@@ -410,10 +411,64 @@
         .badge.delete { background: rgba(255, 141, 141, 0.15); color: #ffdcdc; }
         .badge.move { background: rgba(255, 210, 111, 0.18); color: #ffe8aa; }
         .badge.import { background: rgba(214, 170, 255, 0.16); color: #efdfff; }
+        .badge.setup { background: rgba(89, 183, 255, 0.16); color: #d8edff; }
 
         .activity-item strong { display: block; margin: 0.35rem 0 0.25rem; }
         .activity-item p { margin: 0; color: var(--muted); }
         .activity-meta { margin-top: 0.65rem; color: #96b2ca; font-size: 0.88rem; }
+
+        .library-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .stack-list {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .stack-list .empty {
+            padding: 0.9rem;
+            text-align: left;
+        }
+
+        .list-head {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 0.6rem;
+            align-items: center;
+            margin-bottom: 0.85rem;
+        }
+
+        .quick-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.9rem 1rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .quick-main {
+            min-width: 0;
+            display: grid;
+            gap: 0.2rem;
+        }
+
+        .quick-main strong {
+            font-size: 1rem;
+            word-break: break-word;
+        }
+
+        .quick-meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+            word-break: break-word;
+        }
 
         .footer {
             margin-top: 1rem;
@@ -422,22 +477,125 @@
             font-size: 0.92rem;
         }
 
+        .mobile-only { display: none !important; }
         .hidden { display: none !important; }
 
         @media (min-width: 860px) {
             .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
             .section-grid, .search-grid, .inventory-grid { grid-template-columns: minmax(330px, 420px) minmax(0, 1fr); }
             .action-grid, .backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (min-width: 641px) {
+            #mobileHomePanel { display: none !important; }
         }
 
         @media (max-width: 640px) {
-            .app { width: calc(100vw - 0.8rem); }
-            .hero, .card { padding: 1rem; }
+            :root {
+                --panel: rgba(255, 255, 255, 0.95);
+                --panel-2: #f5f8fb;
+                --line: rgba(28, 43, 59, 0.12);
+                --text: #1c2b39;
+                --muted: #5f7082;
+                --brand: #007bff;
+                --brand-2: #00b4d8;
+                --shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+                --radius: 10px;
+                --radius-sm: 6px;
+            }
+
+            html {
+                background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            }
+
+            body {
+                padding: 5px;
+                background: transparent;
+            }
+
+            .mobile-only { display: block !important; }
+            .app { width: 100%; max-width: 600px; padding: 0 0 1rem; }
+            .hero { display: none; }
+            .tabbar { display: none; }
+            .card {
+                padding: 1rem;
+                background: var(--panel);
+                border-color: var(--line);
+                backdrop-filter: none;
+                box-shadow: var(--shadow);
+            }
+            .mobile-home-card {
+                min-height: calc(100vh - 20px);
+            }
+            .mobile-home-card h1 {
+                margin-bottom: 0.65rem;
+                font-size: 1.95rem;
+                text-align: center;
+                letter-spacing: -0.02em;
+            }
+            .mobile-home-card .lead,
+            .mobile-home-card .meta {
+                text-align: center;
+            }
+            .mobile-panel-head {
+                margin-bottom: 0.75rem;
+            }
+            .mobile-panel-head .btn {
+                width: 100%;
+            }
             .form-grid { grid-template-columns: 1fr; }
             .span-2 { grid-column: auto; }
             .button-row, .inline-actions { flex-direction: column; align-items: stretch; }
-            .btn, .tab { width: 100%; }
-            table { min-width: 560px; }
+            .btn, .tab {
+                width: 100%;
+                padding: 10px;
+                font-size: 14px;
+                box-shadow: none;
+                min-height: 46px;
+            }
+            input, select, textarea {
+                padding: 10px;
+                font-size: 14px;
+                border: 2px solid #d6dde6;
+                background: #ffffff;
+                color: var(--text);
+            }
+            input:focus, select:focus, textarea:focus {
+                border-color: var(--brand);
+                box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+            }
+            .field span, h2, h3 { color: var(--text); }
+            .btn {
+                background: linear-gradient(45deg, var(--brand), var(--brand-2));
+            }
+            .btn.secondary {
+                color: white;
+                background: linear-gradient(45deg, var(--brand), var(--brand-2));
+            }
+            .btn.ghost {
+                color: #124164;
+                background: #ffffff;
+                border: 2px solid #d6dde6;
+            }
+            .helper, .summary, .stat, .result-group, .activity-item, .table-wrap, .quick-row {
+                background: #f5f8fb;
+                border-color: #dbe3ec;
+            }
+            .empty {
+                text-align: left;
+                background: #f5f8fb;
+                border-color: #dbe3ec;
+                color: var(--muted);
+            }
+            .footer {
+                margin-top: 0.85rem;
+                font-size: 12px;
+                color: #667788;
+            }
+            .desktop-complex { display: none !important; }
+            table { min-width: 520px; }
+            .quick-row { flex-direction: column; align-items: stretch; }
         }
     </style>
 </head>
@@ -456,7 +614,7 @@
                     </div>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
-                    <div class="stat"><span>Total Units</span><strong id="statUnits">0</strong></div>
+                    <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
                     <div class="stat"><span>Locations</span><strong id="statLocations">0</strong></div>
                     <div class="stat"><span>Open Batch</span><strong id="statBatch">0</strong></div>
@@ -469,21 +627,42 @@
             <button class="tab" data-section="search" type="button">Search</button>
             <button class="tab" data-section="actions" type="button">Actions</button>
             <button class="tab" data-section="inventory" type="button">Inventory</button>
+            <button class="tab" data-section="reports" type="button">Reports</button>
             <button class="tab" data-section="backup" type="button">Backup</button>
         </nav>
 
+        <section class="panel mobile-only" id="mobileHomePanel" data-panel="mobile-home">
+            <article class="card mobile-home-card">
+                <h1>WMS365 Scanner</h1>
+                <p class="lead">Simple mobile workflow for scanning, searching, moving stock, and managing BINs.</p>
+                <p class="meta" style="margin-bottom: 1rem;">Choose one task at a time, just like your original mobile version.</p>
+                <div class="button-row">
+                    <button class="btn" type="button" data-mobile-nav="scan">Scan & Store</button>
+                    <button class="btn" type="button" data-mobile-nav="search">Find Items</button>
+                    <button class="btn" type="button" data-mobile-nav="actions">Transfer / Delete / Move</button>
+                </div>
+            </article>
+        </section>
+
         <section class="panel active" id="scanPanel" data-panel="scan">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="section-grid">
                 <article class="card">
                     <div class="card-head">
                         <div>
                             <h2>Scan & Stage</h2>
-                            <p class="lead">Add scans to a batch first, then save the batch into local inventory.</p>
+                            <p class="lead">Add scans to a batch first, then save the batch into the shared inventory server.</p>
                         </div>
                         <span class="meta" id="lastLocationMeta">No saved location yet</span>
                     </div>
 
                     <form id="scanForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Vendor / Customer</span>
+                            <input id="scanAccount" list="ownerList" type="text" placeholder="Scan or enter vendor / customer" enterkeyhint="next">
+                        </label>
                         <label class="field span-2">
                             <span>Location</span>
                             <input id="scanLocation" list="locationList" type="text" placeholder="Scan or enter location" enterkeyhint="next">
@@ -500,8 +679,16 @@
                             <span>Quantity</span>
                             <input id="scanQuantity" type="number" min="1" inputmode="numeric" placeholder="Enter quantity" enterkeyhint="done">
                         </label>
+                        <label class="field">
+                            <span>Tracking</span>
+                            <select id="scanTrackingLevel">
+                                <option value="UNIT">Units</option>
+                                <option value="PALLET">Pallets</option>
+                            </select>
+                        </label>
                         <div class="helper span-2">
-                            <h3>Quick Qty Helper</h3>
+                            <h3 id="scanHelperTitle">Quick Qty Helper</h3>
+                            <p class="meta" id="scanHelperMeta">Use case pack math for unit-tracked inventory.</p>
                             <div class="form-grid">
                                 <label class="field">
                                     <span>Units per Case</span>
@@ -539,9 +726,11 @@
                         <table>
                             <thead>
                                 <tr>
+                                    <th>Owner</th>
                                     <th>Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
+                                    <th>Tracking</th>
                                     <th>Qty</th>
                                     <th>Added</th>
                                     <th>Action</th>
@@ -551,10 +740,142 @@
                         </table>
                     </div>
                 </article>
+
+                <article class="card full-span desktop-complex">
+                    <div class="card-head">
+                        <div>
+                            <h2>BIN & Item Library</h2>
+                            <p class="lead">Save common BINs and item masters so typing, scanning, and mobile quick-picks find matches faster.</p>
+                        </div>
+                    </div>
+
+                    <div class="library-grid">
+                        <div class="helper">
+                            <h3>Add BIN Location</h3>
+                            <form id="masterLocationForm" class="form-grid" autocomplete="off">
+                                <label class="field">
+                                    <span>BIN / Location</span>
+                                    <input id="masterLocationCode" list="locationList" type="text" placeholder="Example: A1-01-03" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Zone / Note</span>
+                                    <input id="masterLocationNote" type="text" placeholder="Optional note for the team" enterkeyhint="done">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save BIN</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="helper">
+                            <h3>Add Item Master</h3>
+                            <form id="masterItemForm" class="form-grid" autocomplete="off">
+                                <label class="field span-2">
+                                    <span>Vendor / Customer</span>
+                                    <input id="masterItemAccount" list="ownerList" type="text" placeholder="Required vendor / customer" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>SKU</span>
+                                    <input id="masterItemSku" list="skuList" type="text" placeholder="Required SKU" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>UPC</span>
+                                    <input id="masterItemUpc" list="skuList" type="text" placeholder="Optional UPC" enterkeyhint="next">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Description</span>
+                                    <input id="masterItemDescription" type="text" placeholder="Optional item description" enterkeyhint="done">
+                                </label>
+                                <label class="field">
+                                    <span>Tracking</span>
+                                    <select id="masterItemTrackingLevel">
+                                        <option value="UNIT">Units</option>
+                                        <option value="PALLET">Pallets</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Units Per Case</span>
+                                    <input id="masterItemUnitsPerCase" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Each Length</span>
+                                    <input id="masterItemEachLength" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Each Width</span>
+                                    <input id="masterItemEachWidth" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Each Height</span>
+                                    <input id="masterItemEachHeight" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Case Length</span>
+                                    <input id="masterItemCaseLength" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Case Width</span>
+                                    <input id="masterItemCaseWidth" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Case Height</span>
+                                    <input id="masterItemCaseHeight" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Item</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="button-row" style="margin-top: 1rem; margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 280px;">
+                            <span>Quick Filter</span>
+                            <input id="masterFilter" type="text" placeholder="Filter BINs, SKUs, UPCs, or descriptions">
+                        </label>
+                        <button class="btn ghost" id="exportLocationCsvBtn" type="button">Export BINs CSV</button>
+                        <button class="btn ghost" id="importLocationCsvBtn" type="button">Import BINs CSV</button>
+                    </div>
+                    <p class="lead">Excel upload/export uses CSV. Save your spreadsheet as CSV, then import it here with columns like <strong>BIN</strong> and <strong>NOTE</strong>.</p>
+
+                    <div class="library-grid">
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved BINs</h3>
+                                    <p class="meta">Tap Use to fill the scan location on mobile or desktop.</p>
+                                </div>
+                                <span class="meta" id="masterLocationCount">0 saved</span>
+                            </div>
+                            <div id="masterLocationList" class="stack-list">
+                                <p class="empty">No BINs saved yet. Add your most-used locations here for faster lookup.</p>
+                            </div>
+                        </div>
+
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved Items</h3>
+                                    <p class="meta">Tap Use to load the item into the scan form and fill the SKU / UPC faster.</p>
+                                </div>
+                                <span class="meta" id="masterItemCount">0 saved</span>
+                            </div>
+                            <div id="masterItemList" class="stack-list">
+                                <p class="empty">No items saved yet. Add your common SKUs here to speed up repeat work.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="status" id="catalogMessage"></div>
+                    <input id="importLocationCsvInput" class="hidden" type="file" accept=".csv,text/csv">
+                </article>
             </div>
         </section>
 
         <section class="panel" id="searchPanel" data-panel="search">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="search-grid">
                 <article class="card">
                     <div class="card-head">
@@ -565,13 +886,17 @@
                     </div>
 
                     <form id="singleSearchForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Vendor / Customer (Optional)</span>
+                            <input id="searchAccount" list="ownerList" type="text" placeholder="Filter by vendor / customer">
+                        </label>
                         <div class="span-2 segmented" role="tablist" aria-label="Search type">
                             <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
                             <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
                         </div>
                         <label class="field span-2">
                             <span id="singleSearchLabel">SKU or UPC</span>
-                            <input id="singleSearchInput" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
+                            <input id="singleSearchInput" list="skuList" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
                         </label>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Run Search</button>
@@ -607,6 +932,9 @@
         </section>
 
         <section class="panel" id="actionsPanel" data-panel="actions">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="action-grid">
                 <article class="card">
                     <div class="card-head">
@@ -616,6 +944,10 @@
                         </div>
                     </div>
                     <form id="adjustForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Vendor / Customer</span>
+                            <input id="adjustAccount" list="ownerList" type="text" placeholder="Required vendor / customer">
+                        </label>
                         <label class="field span-2">
                             <span>Location</span>
                             <input id="adjustLocation" list="locationList" type="text" placeholder="Enter location">
@@ -643,6 +975,10 @@
                         </div>
                     </div>
                     <form id="transferForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Vendor / Customer</span>
+                            <input id="transferAccount" list="ownerList" type="text" placeholder="Required vendor / customer">
+                        </label>
                         <label class="field">
                             <span>From Location</span>
                             <input id="transferFrom" list="locationList" type="text" placeholder="Source location">
@@ -673,6 +1009,10 @@
                         </div>
                     </div>
                     <form id="moveForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Vendor / Customer</span>
+                            <input id="moveAccount" list="ownerList" type="text" placeholder="Required vendor / customer">
+                        </label>
                         <label class="field">
                             <span>From Location</span>
                             <input id="moveFrom" list="locationList" type="text" placeholder="Source location">
@@ -691,11 +1031,11 @@
                     <div class="card-head">
                         <div>
                             <h2>Recent Activity</h2>
-                            <p class="lead">The latest inventory changes saved on this device.</p>
+                            <p class="lead">The latest inventory and library changes saved on the shared server.</p>
                         </div>
                     </div>
                     <div id="activityList">
-                        <p class="empty">Inventory changes will appear here after you save, delete, transfer, move, or import data.</p>
+                        <p class="empty">Inventory and library changes will appear here after you save, delete, transfer, move, import, or add master data.</p>
                     </div>
                 </article>
             </div>
@@ -703,6 +1043,9 @@
         </section>
 
         <section class="panel" id="inventoryPanel" data-panel="inventory">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="inventory-grid">
                 <article class="card">
                     <div class="card-head">
@@ -715,7 +1058,7 @@
                     <div class="button-row" style="margin-bottom: 1rem;">
                         <label class="field" style="flex: 1 1 280px;">
                             <span>Filter Inventory</span>
-                            <input id="inventoryFilter" type="text" placeholder="Type a location, SKU, or UPC">
+                            <input id="inventoryFilter" type="text" placeholder="Type a vendor, location, SKU, or UPC">
                         </label>
                         <button class="btn ghost" id="clearInventoryFilterBtn" type="button">Clear Filter</button>
                     </div>
@@ -724,9 +1067,11 @@
                         <table>
                             <thead>
                                 <tr>
+                                    <th>Owner</th>
                                     <th>Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
+                                    <th>Tracking</th>
                                     <th>Qty</th>
                                     <th>Updated</th>
                                 </tr>
@@ -745,8 +1090,9 @@
                     </div>
                     <div class="summary-grid">
                         <div class="summary"><span>Total Locations</span><strong id="summaryLocations">0</strong></div>
-                        <div class="summary"><span>Unique SKUs</span><strong id="summarySkus">0</strong></div>
-                        <div class="summary"><span>Total Units</span><strong id="summaryUnits">0</strong></div>
+                        <div class="summary"><span>Total Owners</span><strong id="summaryOwners">0</strong></div>
+                        <div class="summary"><span>Owner / SKU Pairs</span><strong id="summarySkus">0</strong></div>
+                        <div class="summary"><span>Tracked Qty</span><strong id="summaryUnits">0</strong></div>
                         <div class="summary"><span>Server Updated</span><strong id="summarySaved">Never</strong></div>
                     </div>
                     <p class="lead">Use the Backup tab to move or restore the shared server data when needed.</p>
@@ -754,7 +1100,142 @@
             </div>
         </section>
 
+        <section class="panel" id="reportsPanel" data-panel="reports">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
+            <div class="inventory-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Desktop Reports</h2>
+                            <p class="lead">Filter live inventory, print report snapshots, and export Excel-friendly CSV files from the desktop view.</p>
+                        </div>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 240px;">
+                            <span>Vendor / Customer</span>
+                            <input id="reportOwner" list="ownerList" type="text" placeholder="Optional owner filter">
+                        </label>
+                        <label class="field" style="flex: 1 1 280px;">
+                            <span>Filter Reports</span>
+                            <input id="reportFilter" type="text" placeholder="Type a BIN, SKU, UPC, or item description">
+                        </label>
+                        <button class="btn ghost" id="clearReportFilterBtn" type="button">Clear Filter</button>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn" id="exportOwnerReportBtn" type="button">Export Owner Report</button>
+                        <button class="btn" id="exportLocationReportBtn" type="button">Export Location Report</button>
+                        <button class="btn secondary" id="exportItemReportBtn" type="button">Export Item Report</button>
+                        <button class="btn ghost" id="printReportsBtn" type="button">Print Reports</button>
+                    </div>
+                    <div class="status" id="reportMessage"></div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Report Snapshot</h2>
+                            <p class="lead">Designed to stay readable on mobile, but especially useful on desktop for quick reporting and exports.</p>
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div class="summary"><span>Reported Owners</span><strong id="reportOwnersCount">0</strong></div>
+                        <div class="summary"><span>Pallet Locations</span><strong id="reportPalletLocationsCount">0</strong></div>
+                        <div class="summary"><span>Reported Units</span><strong id="reportUnitsCount">0</strong></div>
+                        <div class="summary"><span>Reported Pallets</span><strong id="reportPalletsCount">0</strong></div>
+                    </div>
+                    <p class="lead">Owner utilization shows pallet usage by vendor/customer. Location and item reports stay on the desktop side for deeper review.</p>
+                </article>
+            </div>
+
+            <div class="action-grid" style="margin-top: 1rem;">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Owner Utilization</h2>
+                            <p class="lead">Shows how many pallet locations and total pallets each vendor/customer is using in the building.</p>
+                        </div>
+                        <span class="meta" id="ownerReportMeta">0 rows</span>
+                    </div>
+                    <p class="empty" id="ownerReportEmpty">No owner utilization rows are available for the current report filter.</p>
+                    <div class="table-wrap hidden" id="ownerReportWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Owner</th>
+                                    <th>Locations</th>
+                                    <th>Pallet Locations</th>
+                                    <th>Total Pallets</th>
+                                    <th>Total Units</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ownerReportBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Location Report</h2>
+                            <p class="lead">Grouped by BIN or location with total units and item counts.</p>
+                        </div>
+                        <span class="meta" id="locationReportMeta">0 rows</span>
+                    </div>
+                    <p class="empty" id="locationReportEmpty">No inventory is available for the current report filter.</p>
+                    <div class="table-wrap hidden" id="locationReportWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Owner</th>
+                                    <th>Location</th>
+                                    <th>Note</th>
+                                    <th>Lines</th>
+                                    <th>Pallets</th>
+                                    <th>Unique SKUs</th>
+                                    <th>Total Units</th>
+                                </tr>
+                            </thead>
+                            <tbody id="locationReportBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Item Report</h2>
+                            <p class="lead">Grouped by owner and SKU with UPC, tracking, locations, and total quantity.</p>
+                        </div>
+                        <span class="meta" id="itemReportMeta">0 rows</span>
+                    </div>
+                    <p class="empty" id="itemReportEmpty">No items are available for the current report filter.</p>
+                    <div class="table-wrap hidden" id="itemReportWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Owner</th>
+                                    <th>SKU</th>
+                                    <th>UPC</th>
+                                    <th>Description</th>
+                                    <th>Tracking</th>
+                                    <th>Locations</th>
+                                    <th>Lines</th>
+                                    <th>Total Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody id="itemReportBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+        </section>
+
         <section class="panel" id="backupPanel" data-panel="backup">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="backup-grid">
                 <article class="card">
                     <div class="card-head">
@@ -767,7 +1248,7 @@
                         <button class="btn" id="exportJsonBtn" type="button">Export JSON Backup</button>
                         <button class="btn secondary" id="exportCsvBtn" type="button">Export CSV Snapshot</button>
                     </div>
-                    <p class="lead">JSON includes the shared server inventory and recent activity. CSV exports the current inventory table for spreadsheets.</p>
+                    <p class="lead">JSON includes the shared server inventory, recent activity, saved BINs, and item masters. CSV exports the current inventory table for spreadsheets.</p>
                 </article>
 
                 <article class="card">
@@ -780,7 +1261,7 @@
                     <div class="button-row">
                         <button class="btn warn" id="importJsonBtn" type="button">Import JSON Backup</button>
                     </div>
-                    <p class="lead">Import replaces the shared server inventory and recent activity for everyone using this app.</p>
+                    <p class="lead">Import replaces the shared server inventory, recent activity, saved BINs, and item masters for everyone using this app.</p>
                 </article>
             </div>
             <div class="status" id="backupMessage"></div>
@@ -791,6 +1272,7 @@
     </div>
 
     <datalist id="locationList"></datalist>
+    <datalist id="ownerList"></datalist>
     <datalist id="skuList"></datalist>
     <script>
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
@@ -801,17 +1283,45 @@
         let lastMultiSearch = null;
         let currentSearchView = null;
         let syncTimer = null;
+        const mobileQuery = window.matchMedia("(max-width: 640px)");
 
         const ui = {
             tabs: [...document.querySelectorAll(".tab")],
             panels: [...document.querySelectorAll(".panel")],
+            mobileNavButtons: [...document.querySelectorAll("[data-mobile-nav]")],
+            mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
+            scanAccount: document.getElementById("scanAccount"),
             scanLocation: document.getElementById("scanLocation"),
             scanUpc: document.getElementById("scanUpc"),
             scanSku: document.getElementById("scanSku"),
             scanQuantity: document.getElementById("scanQuantity"),
+            scanTrackingLevel: document.getElementById("scanTrackingLevel"),
+            scanHelperTitle: document.getElementById("scanHelperTitle"),
+            scanHelperMeta: document.getElementById("scanHelperMeta"),
             scanUom: document.getElementById("scanUom"),
             scanCases: document.getElementById("scanCases"),
             scanMessage: document.getElementById("scanMessage"),
+            masterLocationCode: document.getElementById("masterLocationCode"),
+            masterLocationNote: document.getElementById("masterLocationNote"),
+            masterItemAccount: document.getElementById("masterItemAccount"),
+            masterItemSku: document.getElementById("masterItemSku"),
+            masterItemUpc: document.getElementById("masterItemUpc"),
+            masterItemDescription: document.getElementById("masterItemDescription"),
+            masterItemTrackingLevel: document.getElementById("masterItemTrackingLevel"),
+            masterItemUnitsPerCase: document.getElementById("masterItemUnitsPerCase"),
+            masterItemEachLength: document.getElementById("masterItemEachLength"),
+            masterItemEachWidth: document.getElementById("masterItemEachWidth"),
+            masterItemEachHeight: document.getElementById("masterItemEachHeight"),
+            masterItemCaseLength: document.getElementById("masterItemCaseLength"),
+            masterItemCaseWidth: document.getElementById("masterItemCaseWidth"),
+            masterItemCaseHeight: document.getElementById("masterItemCaseHeight"),
+            masterFilter: document.getElementById("masterFilter"),
+            masterLocationCount: document.getElementById("masterLocationCount"),
+            masterItemCount: document.getElementById("masterItemCount"),
+            masterLocationList: document.getElementById("masterLocationList"),
+            masterItemList: document.getElementById("masterItemList"),
+            catalogMessage: document.getElementById("catalogMessage"),
+            importLocationCsvInput: document.getElementById("importLocationCsvInput"),
             lastLocationMeta: document.getElementById("lastLocationMeta"),
             batchMeta: document.getElementById("batchMeta"),
             batchEmpty: document.getElementById("batchEmpty"),
@@ -821,19 +1331,23 @@
             searchBySkuBtn: document.getElementById("searchBySkuBtn"),
             searchByLocationBtn: document.getElementById("searchByLocationBtn"),
             singleSearchLabel: document.getElementById("singleSearchLabel"),
+            searchAccount: document.getElementById("searchAccount"),
             singleSearchInput: document.getElementById("singleSearchInput"),
             multiSearchInput: document.getElementById("multiSearchInput"),
             printSingleSearchBtn: document.getElementById("printSingleSearchBtn"),
             printMultiSearchBtn: document.getElementById("printMultiSearchBtn"),
             searchResultsContent: document.getElementById("searchResultsContent"),
             actionMessage: document.getElementById("actionMessage"),
+            adjustAccount: document.getElementById("adjustAccount"),
             adjustLocation: document.getElementById("adjustLocation"),
             adjustSku: document.getElementById("adjustSku"),
             adjustQuantity: document.getElementById("adjustQuantity"),
+            transferAccount: document.getElementById("transferAccount"),
             transferFrom: document.getElementById("transferFrom"),
             transferTo: document.getElementById("transferTo"),
             transferSku: document.getElementById("transferSku"),
             transferQty: document.getElementById("transferQty"),
+            moveAccount: document.getElementById("moveAccount"),
             moveFrom: document.getElementById("moveFrom"),
             moveTo: document.getElementById("moveTo"),
             activityList: document.getElementById("activityList"),
@@ -842,13 +1356,37 @@
             inventoryEmpty: document.getElementById("inventoryEmpty"),
             inventoryTableWrap: document.getElementById("inventoryTableWrap"),
             inventoryTableBody: document.getElementById("inventoryTableBody"),
+            reportFilter: document.getElementById("reportFilter"),
+            reportMessage: document.getElementById("reportMessage"),
+            reportLocationsCount: document.getElementById("reportLocationsCount"),
+            reportItemsCount: document.getElementById("reportItemsCount"),
+            reportUnitsCount: document.getElementById("reportUnitsCount"),
+            reportMasterBinsCount: document.getElementById("reportMasterBinsCount"),
+            locationReportMeta: document.getElementById("locationReportMeta"),
+            locationReportEmpty: document.getElementById("locationReportEmpty"),
+            locationReportWrap: document.getElementById("locationReportWrap"),
+            locationReportBody: document.getElementById("locationReportBody"),
+            itemReportMeta: document.getElementById("itemReportMeta"),
+            itemReportEmpty: document.getElementById("itemReportEmpty"),
+            itemReportWrap: document.getElementById("itemReportWrap"),
+            itemReportBody: document.getElementById("itemReportBody"),
+            ownerReportMeta: document.getElementById("ownerReportMeta"),
+            ownerReportEmpty: document.getElementById("ownerReportEmpty"),
+            ownerReportWrap: document.getElementById("ownerReportWrap"),
+            ownerReportBody: document.getElementById("ownerReportBody"),
+            reportOwner: document.getElementById("reportOwner"),
+            reportOwnersCount: document.getElementById("reportOwnersCount"),
+            reportPalletLocationsCount: document.getElementById("reportPalletLocationsCount"),
+            reportPalletsCount: document.getElementById("reportPalletsCount"),
             summaryLocations: document.getElementById("summaryLocations"),
+            summaryOwners: document.getElementById("summaryOwners"),
             summarySkus: document.getElementById("summarySkus"),
             summaryUnits: document.getElementById("summaryUnits"),
             summarySaved: document.getElementById("summarySaved"),
             backupMessage: document.getElementById("backupMessage"),
             importFileInput: document.getElementById("importFileInput"),
             locationList: document.getElementById("locationList"),
+            ownerList: document.getElementById("ownerList"),
             skuList: document.getElementById("skuList"),
             statUnits: document.getElementById("statUnits"),
             statLines: document.getElementById("statLines"),
@@ -860,13 +1398,29 @@
 
         function init() {
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
+            ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
+            ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
             document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
             document.getElementById("saveBatchBtn").addEventListener("click", saveBatchToInventory);
             document.getElementById("clearBatchBtn").addEventListener("click", clearBatch);
             ui.batchTableBody.addEventListener("click", onBatchTableClick);
-            [ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
+            [ui.scanAccount, ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
+            [ui.scanSku, ui.scanUpc, ui.scanAccount].forEach((el) => {
+                el.addEventListener("change", syncScanFieldsFromCatalog);
+                el.addEventListener("blur", syncScanFieldsFromCatalog);
+            });
+            ui.scanTrackingLevel.addEventListener("change", updateScanTrackingUi);
+
+            document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
+            document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
+            ui.masterFilter.addEventListener("input", renderMasterLibrary);
+            ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
+            ui.masterItemList.addEventListener("click", onMasterItemListClick);
+            document.getElementById("exportLocationCsvBtn").addEventListener("click", exportLocationCsv);
+            document.getElementById("importLocationCsvBtn").addEventListener("click", () => ui.importLocationCsvInput.click());
+            ui.importLocationCsvInput.addEventListener("change", importLocationCsv);
 
             ui.searchBySkuBtn.addEventListener("click", () => setSearchMode("sku"));
             ui.searchByLocationBtn.addEventListener("click", () => setSearchMode("location"));
@@ -886,16 +1440,31 @@
                 renderInventory("");
                 ui.inventoryFilter.focus();
             });
+            ui.reportFilter.addEventListener("input", () => renderReports(ui.reportFilter.value));
+            ui.reportOwner.addEventListener("input", () => renderReports(ui.reportFilter.value));
+            document.getElementById("clearReportFilterBtn").addEventListener("click", () => {
+                ui.reportFilter.value = "";
+                ui.reportOwner.value = "";
+                renderReports("");
+                ui.reportOwner.focus();
+            });
+            document.getElementById("exportOwnerReportBtn").addEventListener("click", exportOwnerReportCsv);
+            document.getElementById("exportLocationReportBtn").addEventListener("click", exportLocationReportCsv);
+            document.getElementById("exportItemReportBtn").addEventListener("click", exportItemReportCsv);
+            document.getElementById("printReportsBtn").addEventListener("click", printReports);
 
             document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
 
+            ui.scanAccount.value = state.preferences.lastAccount || "";
             ui.scanLocation.value = state.preferences.lastLocation || "";
+            ui.masterItemAccount.value = state.preferences.lastAccount || "";
             setSearchMode("sku");
+            updateScanTrackingUi();
             renderAll();
-            setSection("scan");
+            setSection(isMobileView() ? "mobile-home" : "scan");
             syncServerState(false).catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
@@ -903,16 +1472,32 @@
                 }
             }, 30000);
             window.addEventListener("focus", () => syncServerState(true).catch(() => {}));
+            mobileQuery.addEventListener("change", handleViewportChange);
         }
 
         function setSection(section) {
+            if (!isMobileView() && section === "mobile-home") {
+                section = "scan";
+            }
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             ui.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === section));
+            if (section === "mobile-home") return;
             if (section === "scan") focusScanStart();
             if (section === "search") ui.singleSearchInput.focus();
             if (section === "inventory") ui.inventoryFilter.focus();
+            if (section === "reports") ui.reportFilter.focus();
             if (section !== "scan") syncServerState(true).catch(() => {});
+        }
+
+        function handleViewportChange(event) {
+            if (!event.matches && activeSection === "mobile-home") {
+                setSection("scan");
+            }
+        }
+
+        function isMobileView() {
+            return mobileQuery.matches;
         }
 
         function setSearchMode(mode) {
@@ -921,11 +1506,18 @@
             ui.searchByLocationBtn.classList.toggle("active", mode === "location");
             ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
             ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
+            ui.singleSearchInput.setAttribute("list", mode === "sku" ? "skuList" : "locationList");
         }
 
         function scanEnterFlow(event) {
             if (event.key !== "Enter") return;
-            if (event.target === ui.scanLocation || event.target === ui.scanUpc) {
+            if (event.target === ui.scanAccount) {
+                event.preventDefault();
+                ui.scanLocation.focus();
+            } else if (event.target === ui.scanLocation) {
+                event.preventDefault();
+                ui.scanUpc.focus();
+            } else if (event.target === ui.scanUpc) {
                 event.preventDefault();
                 ui.scanSku.focus();
             } else if (event.target === ui.scanSku) {
@@ -935,8 +1527,40 @@
         }
 
         function focusScanStart() {
-            if ((ui.scanLocation.value || "").trim()) ui.scanSku.focus();
-            else ui.scanLocation.focus();
+            if (!(ui.scanAccount.value || "").trim()) {
+                ui.scanAccount.focus();
+                return;
+            }
+            if (!(ui.scanLocation.value || "").trim()) {
+                ui.scanLocation.focus();
+                return;
+            }
+            ui.scanSku.focus();
+        }
+
+        function updateScanTrackingUi(item = null) {
+            const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value);
+            const isPallet = trackingLevel === "PALLET";
+            const casePack = item?.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "";
+            const eachDims = formatDimensions(item?.eachLength, item?.eachWidth, item?.eachHeight, "Each");
+            const caseDims = formatDimensions(item?.caseLength, item?.caseWidth, item?.caseHeight, "Case");
+
+            ui.scanHelperTitle.textContent = isPallet ? "Pallet Qty Helper" : "Quick Qty Helper";
+            ui.scanHelperMeta.textContent = isPallet
+                ? [item?.description || "", "Enter pallet quantity directly.", eachDims, caseDims].filter(Boolean).join(" | ") || "Use quantity for pallet counts. Case math is disabled for pallet-tracked inventory."
+                : [item?.description || "", casePack, eachDims, caseDims].filter(Boolean).join(" | ") || "Use case pack math for unit-tracked inventory.";
+
+            ui.scanUom.disabled = isPallet;
+            ui.scanCases.disabled = isPallet;
+            ui.scanUom.placeholder = isPallet ? "Not used" : "Optional";
+            ui.scanCases.placeholder = isPallet ? "Not used" : "Optional";
+
+            if (isPallet) {
+                ui.scanUom.value = "";
+                ui.scanCases.value = "";
+            } else if (!ui.scanUom.value && item?.unitsPerCase) {
+                ui.scanUom.value = String(item.unitsPerCase);
+            }
         }
 
         function useLastLocation() {
@@ -950,22 +1574,29 @@
 
         function addToBatch(event) {
             event.preventDefault();
+            const matchedItem = syncScanFieldsFromCatalog();
+            const accountName = norm(ui.scanAccount.value || state.preferences.lastAccount);
             const location = norm(ui.scanLocation.value || state.preferences.lastLocation);
             const upc = norm(ui.scanUpc.value);
             const sku = norm(ui.scanSku.value);
+            const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value || matchedItem?.trackingLevel);
             let quantity = toPositiveInt(ui.scanQuantity.value);
 
+            if (!accountName) return fail(ui.scanMessage, "Please scan or enter a vendor / customer.", ui.scanAccount);
             if (!location) return fail(ui.scanMessage, "Please scan or enter a location.", ui.scanLocation);
             if (!sku) return fail(ui.scanMessage, "Please scan or enter a SKU.", ui.scanSku);
             if (!quantity) quantity = calculateQuantity(false);
             if (!quantity) return fail(ui.scanMessage, "Enter a quantity, or use Units per Case and Cases to calculate one.", ui.scanQuantity);
 
+            state.preferences.lastAccount = accountName;
             state.preferences.lastLocation = location;
             state.batch.push({
                 id: makeId("batch"),
+                accountName,
                 location,
                 sku,
                 upc,
+                trackingLevel,
                 quantity,
                 addedAt: new Date().toISOString()
             });
@@ -974,18 +1605,24 @@
             renderStats();
             renderDatalists();
             renderSummary();
-            showMessage(ui.scanMessage, `Added ${sku} (${num(quantity)} units) to the batch for ${location}.`, "success");
+            showMessage(ui.scanMessage, `Added ${accountName} / ${sku} (${formatTrackedQuantity(quantity, trackingLevel)}) to the batch for ${location}.`, "success");
 
+            ui.scanAccount.value = accountName;
             ui.scanLocation.value = location;
             ui.scanUpc.value = "";
             ui.scanSku.value = "";
             ui.scanQuantity.value = "";
             ui.scanUom.value = "";
             ui.scanCases.value = "";
+            updateScanTrackingUi();
             ui.scanSku.focus();
         }
 
         function calculateQuantity(announce) {
+            if (normalizeTrackingLevel(ui.scanTrackingLevel.value) === "PALLET") {
+                if (announce) showMessage(ui.scanMessage, "Pallet-tracked inventory uses the Quantity field directly.", "info");
+                return toPositiveInt(ui.scanQuantity.value);
+            }
             const uom = toPositiveInt(ui.scanUom.value);
             const cases = toPositiveInt(ui.scanCases.value);
             if (!uom || !cases) {
@@ -1004,10 +1641,18 @@
 
             const grouped = new Map();
             state.batch.forEach((line) => {
-                const key = `${line.location}::${line.sku}`;
-                const current = grouped.get(key) || { location: line.location, sku: line.sku, upc: line.upc, quantity: 0 };
+                const key = `${line.accountName}::${line.location}::${line.sku}`;
+                const current = grouped.get(key) || {
+                    accountName: line.accountName,
+                    location: line.location,
+                    sku: line.sku,
+                    upc: line.upc,
+                    trackingLevel: line.trackingLevel,
+                    quantity: 0
+                };
                 current.quantity += line.quantity;
                 if (!current.upc && line.upc) current.upc = line.upc;
+                current.trackingLevel = line.trackingLevel || current.trackingLevel || "UNIT";
                 grouped.set(key, current);
             });
 
@@ -1053,18 +1698,19 @@
 
         async function performSingleSearch(rawValue, announce = true) {
             const query = norm(rawValue);
+            const ownerFilter = norm(ui.searchAccount.value);
             if (!query) return showMessage(ui.searchMessage, "Enter a SKU, UPC, or location to search.", "error");
             try {
                 await syncServerState(true);
 
-                const matches = sortedInventory().filter((line) => searchMode === "sku"
+                const matches = filterInventoryByOwner(ownerFilter).filter((line) => searchMode === "sku"
                     ? line.sku.includes(query) || (line.upc || "").includes(query)
                     : line.location.includes(query)
                 );
 
-                lastSingleSearch = { mode: searchMode, query, matches };
+                lastSingleSearch = { mode: searchMode, query, ownerFilter, matches };
                 lastMultiSearch = null;
-                currentSearchView = { kind: "single", mode: searchMode, query };
+                currentSearchView = { kind: "single", mode: searchMode, query, ownerFilter };
                 renderSingleSearch(query, searchMode, matches);
                 if (announce) showMessage(ui.searchMessage, matches.length ? `Found ${num(matches.length)} matching line${matches.length === 1 ? "" : "s"}.` : `No matches found for ${query}.`, matches.length ? "success" : "info");
             } catch (error) {
@@ -1074,18 +1720,19 @@
 
         async function performMultiSearch(rawValue, announce = true) {
             const terms = [...new Set(String(rawValue || "").split(/[\s,]+/).map(norm).filter(Boolean))];
+            const ownerFilter = norm(ui.searchAccount.value);
             if (!terms.length) return showMessage(ui.searchMessage, "Enter at least one SKU or UPC for multi-search.", "error");
             try {
                 await syncServerState(true);
 
                 const groups = terms.map((term) => {
-                    const matches = sortedInventory().filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
-                    return { term, matches, total: matches.reduce((sum, line) => sum + line.quantity, 0) };
+                    const matches = filterInventoryByOwner(ownerFilter).filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
+                    return { term, matches, totals: summarizeTrackedTotals(matches) };
                 });
 
-                lastMultiSearch = { terms, groups };
+                lastMultiSearch = { terms, ownerFilter, groups };
                 lastSingleSearch = null;
-                currentSearchView = { kind: "multi", terms };
+                currentSearchView = { kind: "multi", terms, ownerFilter };
                 renderMultiSearch(groups);
                 if (announce) {
                     const found = groups.filter((group) => group.matches.length).length;
@@ -1100,8 +1747,10 @@
             renderBatch();
             renderStats();
             renderDatalists();
+            renderMasterLibrary();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
+            renderReports(ui.reportFilter.value);
             renderSummary();
         }
 
@@ -1121,9 +1770,11 @@
             ui.batchTableWrap.classList.remove("hidden");
             ui.batchTableBody.innerHTML = batch.map((line) => `
                 <tr>
+                    <td>${esc(line.accountName || "-")}</td>
                     <td>${esc(line.location)}</td>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.upc || "-")}</td>
+                    <td>${esc(trackingLabel(line.trackingLevel))}</td>
                     <td>${num(line.quantity)}</td>
                     <td>${esc(formatDate(line.addedAt))}</td>
                     <td><button class="btn ghost mini" type="button" data-batch-remove="${line.id}">Remove</button></td>
@@ -1132,19 +1783,637 @@
         }
 
         function renderStats() {
-            const totalUnits = state.inventory.reduce((sum, line) => sum + line.quantity, 0);
+            const trackedTotals = summarizeTrackedTotals(state.inventory);
             const locations = new Set(state.inventory.map((line) => line.location)).size;
-            ui.statUnits.textContent = num(totalUnits);
+            ui.statUnits.textContent = formatTrackedSummary(trackedTotals);
             ui.statLines.textContent = num(state.inventory.length);
             ui.statLocations.textContent = num(locations);
             ui.statBatch.textContent = num(state.batch.length);
         }
 
         function renderDatalists() {
-            const locations = [...new Set(state.inventory.map((line) => line.location).concat(state.batch.map((line) => line.location)))].sort();
-            const codes = [...new Set(state.inventory.flatMap((line) => [line.sku, line.upc].filter(Boolean)).concat(state.batch.flatMap((line) => [line.sku, line.upc].filter(Boolean))))].sort();
-            ui.locationList.innerHTML = locations.map((value) => `<option value="${attr(value)}"></option>`).join("");
-            ui.skuList.innerHTML = codes.map((value) => `<option value="${attr(value)}"></option>`).join("");
+            const locationMap = new Map();
+            state.masters.locations.forEach((entry) => {
+                locationMap.set(entry.code, { value: entry.code, label: entry.note || "" });
+            });
+            state.inventory.forEach((line) => {
+                if (!locationMap.has(line.location)) {
+                    locationMap.set(line.location, { value: line.location, label: "" });
+                }
+            });
+            state.batch.forEach((line) => {
+                if (!locationMap.has(line.location)) {
+                    locationMap.set(line.location, { value: line.location, label: "" });
+                }
+            });
+
+            const ownerSet = new Set();
+            getOwnerOptions().forEach((owner) => ownerSet.add(owner));
+
+            const itemMap = new Map();
+            state.masters.items.forEach((item) => {
+                const skuLabel = [item.accountName, item.upc ? `UPC ${item.upc}` : "", item.description].filter(Boolean).join(" | ");
+                itemMap.set(`SKU::${item.accountName}::${item.sku}`, { value: item.sku, label: skuLabel });
+                if (item.upc) {
+                    itemMap.set(`UPC::${item.accountName}::${item.upc}`, { value: item.upc, label: [item.accountName, item.sku, item.description].filter(Boolean).join(" | ") });
+                }
+            });
+            state.inventory.forEach((line) => {
+                ownerSet.add(line.accountName);
+                const skuKey = `SKU::${line.accountName}::${line.sku}`;
+                const upcKey = `UPC::${line.accountName}::${line.upc}`;
+                if (!itemMap.has(skuKey)) itemMap.set(skuKey, { value: line.sku, label: [line.accountName, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ") });
+                if (line.upc && !itemMap.has(upcKey)) itemMap.set(upcKey, { value: line.upc, label: `${line.accountName} | ${line.sku}` });
+            });
+            state.batch.forEach((line) => {
+                ownerSet.add(line.accountName);
+                const skuKey = `SKU::${line.accountName}::${line.sku}`;
+                const upcKey = `UPC::${line.accountName}::${line.upc}`;
+                if (!itemMap.has(skuKey)) itemMap.set(skuKey, { value: line.sku, label: [line.accountName, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ") });
+                if (line.upc && !itemMap.has(upcKey)) itemMap.set(upcKey, { value: line.upc, label: `${line.accountName} | ${line.sku}` });
+            });
+
+            ui.locationList.innerHTML = [...locationMap.values()]
+                .sort((a, b) => a.value.localeCompare(b.value))
+                .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
+                .join("");
+            ui.ownerList.innerHTML = [...ownerSet]
+                .sort((a, b) => a.localeCompare(b))
+                .map((owner) => `<option value="${attr(owner)}"></option>`)
+                .join("");
+            ui.skuList.innerHTML = [...itemMap.values()]
+                .sort((a, b) => a.value.localeCompare(b.value) || a.label.localeCompare(b.label))
+                .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
+                .join("");
+        }
+
+        async function saveMasterLocation(event) {
+            event.preventDefault();
+            const code = norm(ui.masterLocationCode.value);
+            const note = String(ui.masterLocationNote.value || "").trim().replace(/\s+/g, " ");
+            if (!code) return fail(ui.catalogMessage, "Enter a BIN or location code to save.", ui.masterLocationCode);
+
+            try {
+                await requestJson("/api/master-location", {
+                    method: "POST",
+                    body: JSON.stringify({ code, note })
+                });
+                await syncServerState(true);
+                showMessage(ui.catalogMessage, `Saved BIN ${code} to the shared library.`, "success");
+                document.getElementById("masterLocationForm").reset();
+                ui.masterLocationCode.focus();
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        async function saveMasterItem(event) {
+            event.preventDefault();
+            const accountName = norm(ui.masterItemAccount.value);
+            const sku = norm(ui.masterItemSku.value);
+            const upc = norm(ui.masterItemUpc.value);
+            const description = String(ui.masterItemDescription.value || "").trim().replace(/\s+/g, " ");
+            const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel.value);
+            const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase.value);
+            const eachLength = toPositiveNumber(ui.masterItemEachLength.value);
+            const eachWidth = toPositiveNumber(ui.masterItemEachWidth.value);
+            const eachHeight = toPositiveNumber(ui.masterItemEachHeight.value);
+            const caseLength = toPositiveNumber(ui.masterItemCaseLength.value);
+            const caseWidth = toPositiveNumber(ui.masterItemCaseWidth.value);
+            const caseHeight = toPositiveNumber(ui.masterItemCaseHeight.value);
+            if (!accountName) return fail(ui.catalogMessage, "Enter the vendor / customer before saving an item master.", ui.masterItemAccount);
+            if (!sku) return fail(ui.catalogMessage, "Enter a SKU to save an item master.", ui.masterItemSku);
+
+            try {
+                await requestJson("/api/master-item", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        accountName,
+                        sku,
+                        upc,
+                        description,
+                        trackingLevel,
+                        unitsPerCase,
+                        eachLength,
+                        eachWidth,
+                        eachHeight,
+                        caseLength,
+                        caseWidth,
+                        caseHeight
+                    })
+                });
+                await syncServerState(true);
+                state.preferences.lastAccount = accountName;
+                saveState();
+                showMessage(ui.catalogMessage, `Saved item ${accountName} / ${sku} to the shared library.`, "success");
+                document.getElementById("masterItemForm").reset();
+                ui.masterItemAccount.value = accountName;
+                ui.masterItemSku.focus();
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        function renderMasterLibrary() {
+            const query = norm(ui.masterFilter.value);
+            const locationMatches = [...state.masters.locations]
+                .filter((entry) => !query || entry.code.includes(query) || norm(entry.note).includes(query))
+                .sort((a, b) => a.code.localeCompare(b.code));
+            const itemMatches = [...state.masters.items]
+                .filter((item) => !query
+                    || item.accountName.includes(query)
+                    || item.sku.includes(query)
+                    || item.upc.includes(query)
+                    || norm(item.description).includes(query))
+                .sort((a, b) => a.accountName.localeCompare(b.accountName) || a.sku.localeCompare(b.sku));
+
+            const visibleLocations = locationMatches.slice(0, query ? 24 : 12);
+            const visibleItems = itemMatches.slice(0, query ? 24 : 12);
+
+            ui.masterLocationCount.textContent = query
+                ? `${num(locationMatches.length)} shown / ${num(state.masters.locations.length)} saved`
+                : `${num(state.masters.locations.length)} saved`;
+            ui.masterItemCount.textContent = query
+                ? `${num(itemMatches.length)} shown / ${num(state.masters.items.length)} saved`
+                : `${num(state.masters.items.length)} saved`;
+
+            ui.masterLocationList.innerHTML = renderMasterLocationRows(visibleLocations, locationMatches.length, query);
+            ui.masterItemList.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
+        }
+
+        function renderMasterLocationRows(locations, totalMatches, query) {
+            if (!locations.length) {
+                return `<p class="empty">${query ? `No saved BINs matched "${esc(query)}".` : "No BINs saved yet. Add your most-used locations here for faster lookup."}</p>`;
+            }
+
+            const rows = locations.map((entry) => `
+                <div class="quick-row">
+                    <div class="quick-main">
+                        <strong>${esc(entry.code)}</strong>
+                        <div class="quick-meta">${esc(entry.note || "Saved BIN location")}</div>
+                    </div>
+                    <button class="btn ghost mini" type="button" data-use-location="${attr(entry.code)}">Use In Scan</button>
+                </div>
+            `).join("");
+
+            if (locations.length < totalMatches) {
+                return `${rows}<p class="meta">Showing the first ${num(locations.length)} of ${num(totalMatches)} BINs. Narrow the filter to see more.</p>`;
+            }
+
+            return rows;
+        }
+
+        function renderMasterItemRows(items, totalMatches, query) {
+            if (!items.length) {
+                return `<p class="empty">${query ? `No saved items matched "${esc(query)}".` : "No items saved yet. Add common SKUs here to speed up repeat work."}</p>`;
+            }
+
+            const rows = items.map((item) => {
+                const meta = formatItemMasterMeta(item);
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(item.accountName)} / ${esc(item.sku)}</strong>
+                            <div class="quick-meta">${esc(meta)}</div>
+                        </div>
+                        <button class="btn ghost mini" type="button" data-use-item="${attr(item.id)}">Use In Scan</button>
+                    </div>
+                `;
+            }).join("");
+
+            if (items.length < totalMatches) {
+                return `${rows}<p class="meta">Showing the first ${num(items.length)} of ${num(totalMatches)} items. Narrow the filter to see more.</p>`;
+            }
+
+            return rows;
+        }
+
+        async function exportLocationCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["BIN", "NOTE"]].concat(
+                    [...state.masters.locations]
+                        .sort((a, b) => a.code.localeCompare(b.code))
+                        .map((entry) => [entry.code, entry.note || ""])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-bins-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.catalogMessage, "BIN library exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        function importLocationCsv(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const rows = parseCsv(String(reader.result || ""));
+                    const locations = mapLocationCsvRows(rows);
+                    if (!locations.length) {
+                        throw new Error("No BIN rows were found. Use columns like BIN and NOTE.");
+                    }
+
+                    await requestJson("/api/master-locations/import", {
+                        method: "POST",
+                        body: JSON.stringify({ locations })
+                    });
+
+                    await syncServerState(true);
+                    showMessage(ui.catalogMessage, `Imported ${num(locations.length)} BIN location${locations.length === 1 ? "" : "s"} from CSV.`, "success");
+                } catch (error) {
+                    showMessage(ui.catalogMessage, `BIN import failed: ${error.message}`, "error");
+                } finally {
+                    ui.importLocationCsvInput.value = "";
+                }
+            };
+            reader.onerror = () => {
+                showMessage(ui.catalogMessage, "Unable to read the selected CSV file.", "error");
+                ui.importLocationCsvInput.value = "";
+            };
+            reader.readAsText(file);
+        }
+
+        function onMasterLocationListClick(event) {
+            const button = event.target.closest("[data-use-location]");
+            if (!button) return;
+            fillScanFromMasterLocation(button.dataset.useLocation);
+        }
+
+        function onMasterItemListClick(event) {
+            const button = event.target.closest("[data-use-item]");
+            if (!button) return;
+            fillScanFromMasterItem(button.dataset.useItem);
+        }
+
+        function fillScanFromMasterLocation(code) {
+            const normalized = norm(code);
+            if (!normalized) return;
+            ui.scanLocation.value = normalized;
+            state.preferences.lastLocation = normalized;
+            saveState();
+            if (norm(ui.scanAccount.value)) ui.scanSku.focus();
+            else ui.scanAccount.focus();
+            showMessage(ui.catalogMessage, `Loaded BIN ${normalized} into the scan form.`, "info");
+        }
+
+        function fillScanFromMasterItem(code) {
+            const item = state.masters.items.find((entry) => entry.id === code) || findMasterItemByCode(code, ui.scanAccount.value);
+            if (!item) return;
+            ui.scanAccount.value = item.accountName;
+            state.preferences.lastAccount = item.accountName;
+            saveState();
+            ui.scanSku.value = item.sku;
+            ui.scanUpc.value = item.upc || ui.scanUpc.value;
+            ui.scanTrackingLevel.value = normalizeTrackingLevel(item.trackingLevel);
+            updateScanTrackingUi(item);
+            ui.scanQuantity.focus();
+            showMessage(ui.catalogMessage, `Loaded item ${item.accountName} / ${item.sku} into the scan form.`, "info");
+        }
+
+        function syncScanFieldsFromCatalog() {
+            const accountName = norm(ui.scanAccount.value);
+            const sku = norm(ui.scanSku.value);
+            const upc = norm(ui.scanUpc.value);
+
+            if (upc) {
+                const upcMatches = findMasterItemsByCode(upc, accountName);
+                const upcMatch = upcMatches.length === 1 ? upcMatches[0] : null;
+                if (upcMatch) {
+                    if (!accountName) ui.scanAccount.value = upcMatch.accountName;
+                    ui.scanSku.value = upcMatch.sku;
+                    ui.scanUpc.value = upcMatch.upc;
+                    ui.scanTrackingLevel.value = normalizeTrackingLevel(upcMatch.trackingLevel);
+                    updateScanTrackingUi(upcMatch);
+                    return upcMatch;
+                }
+            }
+
+            if (sku) {
+                const skuMatches = findMasterItemsByCode(sku, accountName);
+                const skuMatch = skuMatches.length === 1 ? skuMatches[0] : null;
+                if (skuMatch) {
+                    if (!accountName) ui.scanAccount.value = skuMatch.accountName;
+                    ui.scanSku.value = skuMatch.sku;
+                    if (!upc && skuMatch.upc) ui.scanUpc.value = skuMatch.upc;
+                    ui.scanTrackingLevel.value = normalizeTrackingLevel(skuMatch.trackingLevel);
+                    updateScanTrackingUi(skuMatch);
+                    return skuMatch;
+                }
+            }
+
+            updateScanTrackingUi();
+            return null;
+        }
+
+        function findMasterItemByCode(code, accountName = "") {
+            const query = norm(code);
+            const owner = norm(accountName);
+            const matches = findMasterItemsByCode(query, owner);
+            return matches.length === 1 ? matches[0] : null;
+        }
+
+        function renderReports(filterText) {
+            const ownerFilter = norm(ui.reportOwner.value);
+            const ownerRows = getOwnerReportRows(filterText, ownerFilter);
+            const locationRows = getLocationReportRows(filterText);
+            const itemRows = getItemReportRows(filterText);
+            const totalUnits = ownerRows.reduce((sum, row) => sum + row.totalUnits, 0);
+            const totalPallets = ownerRows.reduce((sum, row) => sum + row.totalPallets, 0);
+            const palletLocations = new Set();
+
+            ownerRows.forEach((row) => {
+                row.palletLocations.forEach((location) => palletLocations.add(`${row.owner}::${location}`));
+            });
+
+            ui.reportOwnersCount.textContent = num(ownerRows.length);
+            ui.reportPalletLocationsCount.textContent = num(palletLocations.size);
+            ui.reportUnitsCount.textContent = num(totalUnits);
+            ui.reportPalletsCount.textContent = num(totalPallets);
+
+            ui.ownerReportMeta.textContent = `${num(ownerRows.length)} row${ownerRows.length === 1 ? "" : "s"}`;
+            if (!ownerRows.length) {
+                ui.ownerReportEmpty.classList.remove("hidden");
+                ui.ownerReportWrap.classList.add("hidden");
+                ui.ownerReportBody.innerHTML = "";
+            } else {
+                ui.ownerReportEmpty.classList.add("hidden");
+                ui.ownerReportWrap.classList.remove("hidden");
+                ui.ownerReportBody.innerHTML = ownerRows.map((row) => `
+                    <tr>
+                        <td>${esc(row.owner)}</td>
+                        <td>${num(row.locationCount)}</td>
+                        <td>${num(row.palletLocationCount)}</td>
+                        <td>${num(row.totalPallets)}</td>
+                        <td>${num(row.totalUnits)}</td>
+                    </tr>
+                `).join("");
+            }
+
+            ui.locationReportMeta.textContent = `${num(locationRows.length)} row${locationRows.length === 1 ? "" : "s"}`;
+            if (!locationRows.length) {
+                ui.locationReportEmpty.classList.remove("hidden");
+                ui.locationReportWrap.classList.add("hidden");
+                ui.locationReportBody.innerHTML = "";
+            } else {
+                ui.locationReportEmpty.classList.add("hidden");
+                ui.locationReportWrap.classList.remove("hidden");
+                ui.locationReportBody.innerHTML = locationRows.map((row) => `
+                    <tr>
+                        <td>${esc(row.owner)}</td>
+                        <td>${esc(row.location)}</td>
+                        <td>${esc(row.note || "-")}</td>
+                        <td>${num(row.lineCount)}</td>
+                        <td>${num(row.palletCount)}</td>
+                        <td>${num(row.skuCount)}</td>
+                        <td>${num(row.totalUnits)}</td>
+                    </tr>
+                `).join("");
+            }
+
+            ui.itemReportMeta.textContent = `${num(itemRows.length)} row${itemRows.length === 1 ? "" : "s"}`;
+            if (!itemRows.length) {
+                ui.itemReportEmpty.classList.remove("hidden");
+                ui.itemReportWrap.classList.add("hidden");
+                ui.itemReportBody.innerHTML = "";
+            } else {
+                ui.itemReportEmpty.classList.add("hidden");
+                ui.itemReportWrap.classList.remove("hidden");
+                ui.itemReportBody.innerHTML = itemRows.map((row) => `
+                    <tr>
+                        <td>${esc(row.owner)}</td>
+                        <td>${esc(row.sku)}</td>
+                        <td>${esc(row.upc || "-")}</td>
+                        <td>${esc(row.description || "-")}</td>
+                        <td>${esc(trackingLabel(row.trackingLevel))}</td>
+                        <td>${num(row.locationCount)}</td>
+                        <td>${num(row.lineCount)}</td>
+                        <td>${num(row.totalUnits)}</td>
+                    </tr>
+                `).join("");
+            }
+        }
+
+        async function exportOwnerReportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Owner", "Locations", "PalletLocations", "TotalPallets", "TotalUnits"]].concat(
+                    getOwnerReportRows(ui.reportFilter.value, norm(ui.reportOwner.value)).map((row) => [
+                        row.owner,
+                        String(row.locationCount),
+                        String(row.palletLocationCount),
+                        String(row.totalPallets),
+                        String(row.totalUnits)
+                    ])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-owner-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.reportMessage, "Owner utilization report exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.reportMessage, error.message, "error");
+            }
+        }
+
+        async function exportLocationReportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Owner", "Location", "Note", "Lines", "Pallets", "UniqueSkus", "TotalUnits"]].concat(
+                    getLocationReportRows(ui.reportFilter.value).map((row) => [
+                        row.owner,
+                        row.location,
+                        row.note || "",
+                        String(row.lineCount),
+                        String(row.palletCount),
+                        String(row.skuCount),
+                        String(row.totalUnits)
+                    ])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-location-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.reportMessage, "Location report exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.reportMessage, error.message, "error");
+            }
+        }
+
+        async function exportItemReportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Owner", "SKU", "UPC", "Description", "Tracking", "Locations", "Lines", "TotalQty"]].concat(
+                    getItemReportRows(ui.reportFilter.value).map((row) => [
+                        row.owner,
+                        row.sku,
+                        row.upc || "",
+                        row.description || "",
+                        trackingLabel(row.trackingLevel),
+                        String(row.locationCount),
+                        String(row.lineCount),
+                        String(row.totalUnits)
+                    ])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-item-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.reportMessage, "Item report exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.reportMessage, error.message, "error");
+            }
+        }
+
+        function printReports() {
+            const ownerFilter = norm(ui.reportOwner.value);
+            const ownerRows = getOwnerReportRows(ui.reportFilter.value, ownerFilter);
+            const locationRows = getLocationReportRows(ui.reportFilter.value);
+            const itemRows = getItemReportRows(ui.reportFilter.value);
+            if (!ownerRows.length && !locationRows.length && !itemRows.length) {
+                showMessage(ui.reportMessage, "There is no report data to print for the current filter.", "error");
+                return;
+            }
+
+            openPrintWindow(
+                "WMS365 Scanner - Reports",
+                `
+                    <h1>WMS365 Scanner</h1>
+                    <p><strong>Inventory Reports</strong></p>
+                    <p>Owner Filter: ${esc(ownerFilter || "ALL")}</p>
+                    <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
+                    <section>
+                        <h2>Owner Utilization</h2>
+                        ${reportTableMarkup(
+                            ["Owner", "Locations", "Pallet Locations", "Total Pallets", "Total Units"],
+                            ownerRows.map((row) => [row.owner, num(row.locationCount), num(row.palletLocationCount), num(row.totalPallets), num(row.totalUnits)])
+                        )}
+                    </section>
+                    <section>
+                        <h2>Location Report</h2>
+                        ${reportTableMarkup(
+                            ["Owner", "Location", "Note", "Lines", "Pallets", "Unique SKUs", "Total Units"],
+                            locationRows.map((row) => [row.owner, row.location, row.note || "-", num(row.lineCount), num(row.palletCount), num(row.skuCount), num(row.totalUnits)])
+                        )}
+                    </section>
+                    <section>
+                        <h2>Item Report</h2>
+                        ${reportTableMarkup(
+                            ["Owner", "SKU", "UPC", "Description", "Tracking", "Locations", "Lines", "Total Qty"],
+                            itemRows.map((row) => [row.owner, row.sku, row.upc || "-", row.description || "-", trackingLabel(row.trackingLevel), num(row.locationCount), num(row.lineCount), num(row.totalUnits)])
+                        )}
+                    </section>
+                `
+            );
+        }
+
+        function getLocationReportRows(filterText = "") {
+            const query = norm(filterText);
+            const ownerFilter = norm(ui.reportOwner.value);
+            const locationMasterMap = new Map(state.masters.locations.map((entry) => [entry.code, entry]));
+            const grouped = new Map();
+
+            filterInventoryByOwner(ownerFilter).forEach((line) => {
+                if (!inventoryMatchesQuery(line, query) && !norm(locationMasterMap.get(line.location)?.note).includes(query)) return;
+                const key = `${line.accountName}::${line.location}`;
+                const current = grouped.get(key) || {
+                    owner: line.accountName,
+                    location: line.location,
+                    note: locationMasterMap.get(line.location)?.note || "",
+                    lineCount: 0,
+                    skuSet: new Set(),
+                    palletCount: 0,
+                    totalUnits: 0
+                };
+                current.lineCount += 1;
+                current.skuSet.add(line.sku);
+                if (normalizeTrackingLevel(line.trackingLevel) === "PALLET") current.palletCount += line.quantity;
+                else current.totalUnits += line.quantity;
+                grouped.set(key, current);
+            });
+
+            return [...grouped.values()]
+                .map((row) => ({
+                    owner: row.owner,
+                    location: row.location,
+                    note: row.note,
+                    lineCount: row.lineCount,
+                    palletCount: row.palletCount,
+                    skuCount: row.skuSet.size,
+                    totalUnits: row.totalUnits
+                }))
+                .sort((a, b) => a.owner.localeCompare(b.owner) || a.location.localeCompare(b.location));
+        }
+
+        function getItemReportRows(filterText = "") {
+            const query = norm(filterText);
+            const ownerFilter = norm(ui.reportOwner.value);
+            const itemMasterMap = new Map(state.masters.items.map((item) => [`${item.accountName}::${item.sku}`, item]));
+            const grouped = new Map();
+
+            filterInventoryByOwner(ownerFilter).forEach((line) => {
+                const master = itemMasterMap.get(`${line.accountName}::${line.sku}`);
+                const key = `${line.accountName}::${line.sku}`;
+                const current = grouped.get(key) || {
+                    owner: line.accountName,
+                    sku: line.sku,
+                    upc: master?.upc || line.upc || "",
+                    description: master?.description || "",
+                    trackingLevel: normalizeTrackingLevel(master?.trackingLevel || line.trackingLevel),
+                    lineCount: 0,
+                    locationSet: new Set(),
+                    totalUnits: 0
+                };
+                if (!current.upc && line.upc) current.upc = line.upc;
+                current.lineCount += 1;
+                current.locationSet.add(line.location);
+                current.totalUnits += line.quantity;
+                grouped.set(key, current);
+            });
+
+            return [...grouped.values()]
+                .map((row) => ({
+                    owner: row.owner,
+                    sku: row.sku,
+                    upc: row.upc,
+                    description: row.description,
+                    trackingLevel: row.trackingLevel,
+                    lineCount: row.lineCount,
+                    locationCount: row.locationSet.size,
+                    totalUnits: row.totalUnits
+                }))
+                .filter((row) => !query || row.owner.includes(query) || row.sku.includes(query) || row.upc.includes(query) || norm(row.description).includes(query))
+                .sort((a, b) => a.owner.localeCompare(b.owner) || a.sku.localeCompare(b.sku));
+        }
+
+        function getOwnerReportRows(filterText = "", ownerFilter = "") {
+            const query = norm(filterText);
+            const grouped = new Map();
+
+            filterInventoryByOwner(ownerFilter).forEach((line) => {
+                if (!inventoryMatchesQuery(line, query)) {
+                    return;
+                }
+                const current = grouped.get(line.accountName) || {
+                    owner: line.accountName,
+                    locationSet: new Set(),
+                    palletLocations: new Set(),
+                    totalPallets: 0,
+                    totalUnits: 0
+                };
+                current.locationSet.add(line.location);
+                if (normalizeTrackingLevel(line.trackingLevel) === "PALLET") {
+                    current.palletLocations.add(line.location);
+                    current.totalPallets += line.quantity;
+                } else {
+                    current.totalUnits += line.quantity;
+                }
+                grouped.set(line.accountName, current);
+            });
+
+            return [...grouped.values()]
+                .map((row) => ({
+                    owner: row.owner,
+                    locationCount: row.locationSet.size,
+                    palletLocationCount: row.palletLocations.size,
+                    palletLocations: [...row.palletLocations],
+                    totalPallets: row.totalPallets,
+                    totalUnits: row.totalUnits
+                }))
+                .sort((a, b) => a.owner.localeCompare(b.owner));
         }
 
         function renderSingleSearch(query, mode, matches) {
@@ -1156,19 +2425,20 @@
                 return;
             }
 
-            const totalUnits = matches.reduce((sum, line) => sum + line.quantity, 0);
+            const trackedTotals = summarizeTrackedTotals(matches);
             const locations = new Set(matches.map((line) => line.location)).size;
             const skus = new Set(matches.map((line) => line.sku)).size;
+            const owners = new Set(matches.map((line) => line.accountName)).size;
             const title = mode === "sku"
                 ? `Showing inventory matches for <strong>${esc(query)}</strong>.`
                 : `Showing inventory in locations matching <strong>${esc(query)}</strong>.`;
 
             ui.searchResultsContent.innerHTML = `
                 <div class="summary-grid">
-                    <div class="summary"><span>Matched Units</span><strong>${num(totalUnits)}</strong></div>
+                    <div class="summary"><span>Matched Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
                     <div class="summary"><span>Matched Lines</span><strong>${num(matches.length)}</strong></div>
                     <div class="summary"><span>Locations</span><strong>${num(locations)}</strong></div>
-                    <div class="summary"><span>Unique SKUs</span><strong>${num(skus)}</strong></div>
+                    <div class="summary"><span>Owners / SKUs</span><strong>${num(owners)} / ${num(skus)}</strong></div>
                 </div>
                 <div class="result-group">
                     <header>
@@ -1185,18 +2455,22 @@
             ui.printMultiSearchBtn.classList.toggle("hidden", !groups.some((group) => group.matches.length));
 
             const found = groups.filter((group) => group.matches.length).length;
-            const totalUnits = groups.reduce((sum, group) => sum + group.total, 0);
+            const overallTotals = groups.reduce((totals, group) => {
+                totals.UNIT += group.totals.UNIT;
+                totals.PALLET += group.totals.PALLET;
+                return totals;
+            }, { UNIT: 0, PALLET: 0 });
             ui.searchResultsContent.innerHTML = `
                 <div class="summary-grid">
                     <div class="summary"><span>Items Requested</span><strong>${num(groups.length)}</strong></div>
                     <div class="summary"><span>Items Found</span><strong>${num(found)}</strong></div>
-                    <div class="summary"><span>Total Matched Units</span><strong>${num(totalUnits)}</strong></div>
+                    <div class="summary"><span>Total Matched Qty</span><strong>${esc(formatTrackedSummary(overallTotals))}</strong></div>
                 </div>
                 ${groups.map((group) => group.matches.length ? `
                     <div class="result-group">
                         <header>
                             <strong>${esc(group.term)}</strong>
-                            <span class="muted">${num(group.total)} total units</span>
+                            <span class="muted">${esc(formatTrackedSummary(group.totals))}</span>
                         </header>
                         ${inventoryTableHtml(group.matches)}
                     </div>
@@ -1214,7 +2488,7 @@
 
         function renderActivity() {
             if (!state.activity.length) {
-                ui.activityList.innerHTML = `<p class="empty">Inventory changes will appear here after you save, delete, transfer, move, or import data.</p>`;
+                ui.activityList.innerHTML = `<p class="empty">Inventory and library changes will appear here after you save, delete, transfer, move, import, or add master data.</p>`;
                 return;
             }
             ui.activityList.innerHTML = state.activity.slice(0, 12).map((item) => `
@@ -1229,7 +2503,7 @@
 
         function renderInventory(filterText) {
             const query = norm(filterText || "");
-            const matches = sortedInventory().filter((line) => !query || line.location.includes(query) || line.sku.includes(query) || (line.upc || "").includes(query));
+            const matches = sortedInventory().filter((line) => inventoryMatchesQuery(line, query));
             ui.inventoryMeta.textContent = `${num(matches.length)} matching line${matches.length === 1 ? "" : "s"}`;
 
             if (!matches.length) {
@@ -1244,9 +2518,11 @@
             ui.inventoryTableWrap.classList.remove("hidden");
             ui.inventoryTableBody.innerHTML = matches.map((line) => `
                 <tr>
+                    <td>${esc(line.accountName)}</td>
                     <td>${esc(line.location)}</td>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.upc || "-")}</td>
+                    <td>${esc(trackingLabel(line.trackingLevel))}</td>
                     <td>${num(line.quantity)}</td>
                     <td>${esc(formatDate(line.updatedAt))}</td>
                 </tr>
@@ -1255,24 +2531,27 @@
 
         function renderSummary() {
             const locations = new Set(state.inventory.map((line) => line.location)).size;
-            const skus = new Set(state.inventory.map((line) => line.sku)).size;
-            const units = state.inventory.reduce((sum, line) => sum + line.quantity, 0);
+            const owners = getOwnerOptions().length;
+            const ownerSkus = new Set(state.inventory.map((line) => `${line.accountName}::${line.sku}`)).size;
+            const trackedTotals = summarizeTrackedTotals(state.inventory);
             ui.summaryLocations.textContent = num(locations);
-            ui.summarySkus.textContent = num(skus);
-            ui.summaryUnits.textContent = num(units);
+            ui.summaryOwners.textContent = num(owners);
+            ui.summarySkus.textContent = num(ownerSkus);
+            ui.summaryUnits.textContent = formatTrackedSummary(trackedTotals);
             ui.summarySaved.textContent = state.meta.lastChangedAt ? formatDate(state.meta.lastChangedAt) : (state.meta.serverSyncedAt ? formatDate(state.meta.serverSyncedAt) : "Never");
         }
 
         async function removeQuantity() {
+            const accountName = norm(ui.adjustAccount.value);
             const location = norm(ui.adjustLocation.value);
             const skuOrUpc = norm(ui.adjustSku.value);
             const quantity = toPositiveInt(ui.adjustQuantity.value);
-            if (!location || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Enter location, SKU or UPC, and a quantity to remove.", "error");
+            if (!accountName || !location || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Enter vendor/customer, location, SKU or UPC, and a quantity to remove.", "error");
 
             try {
                 await requestJson("/api/remove-quantity", {
                     method: "POST",
-                    body: JSON.stringify({ location, skuOrUpc, quantity })
+                    body: JSON.stringify({ accountName, location, skuOrUpc, quantity })
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, "Quantity removed successfully.", "success");
@@ -1283,16 +2562,17 @@
         }
 
         async function deleteLine() {
+            const accountName = norm(ui.adjustAccount.value);
             const location = norm(ui.adjustLocation.value);
             const skuOrUpc = norm(ui.adjustSku.value);
-            if (!location || !skuOrUpc) return showMessage(ui.actionMessage, "Enter a location and SKU or UPC to delete the line.", "error");
+            if (!accountName || !location || !skuOrUpc) return showMessage(ui.actionMessage, "Enter vendor/customer, location, and SKU or UPC to delete the line.", "error");
 
-            if (!window.confirm(`Delete ${skuOrUpc} from ${location}?`)) return;
+            if (!window.confirm(`Delete ${accountName} / ${skuOrUpc} from ${location}?`)) return;
 
             try {
                 await requestJson("/api/delete-line", {
                     method: "POST",
-                    body: JSON.stringify({ location, skuOrUpc })
+                    body: JSON.stringify({ accountName, location, skuOrUpc })
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, "Inventory line deleted.", "success");
@@ -1304,17 +2584,18 @@
 
         async function transferQuantity(event) {
             event.preventDefault();
+            const accountName = norm(ui.transferAccount.value);
             const from = norm(ui.transferFrom.value);
             const to = norm(ui.transferTo.value);
             const skuOrUpc = norm(ui.transferSku.value);
             const quantity = toPositiveInt(ui.transferQty.value);
-            if (!from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Fill in from location, to location, SKU or UPC, and quantity.", "error");
+            if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Fill in vendor/customer, from location, to location, SKU or UPC, and quantity.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
 
             try {
                 await requestJson("/api/transfer", {
                     method: "POST",
-                    body: JSON.stringify({ fromLocation: from, toLocation: to, skuOrUpc, quantity })
+                    body: JSON.stringify({ accountName, fromLocation: from, toLocation: to, skuOrUpc, quantity })
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, "Transfer completed successfully.", "success");
@@ -1326,15 +2607,16 @@
 
         async function moveAllItems(event) {
             event.preventDefault();
+            const accountName = norm(ui.moveAccount.value);
             const from = norm(ui.moveFrom.value);
             const to = norm(ui.moveTo.value);
-            if (!from || !to) return showMessage(ui.actionMessage, "Enter both the source and destination locations.", "error");
+            if (!accountName || !from || !to) return showMessage(ui.actionMessage, "Enter vendor/customer plus both the source and destination locations.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
 
             try {
                 await requestJson("/api/move-location", {
                     method: "POST",
-                    body: JSON.stringify({ fromLocation: from, toLocation: to })
+                    body: JSON.stringify({ accountName, fromLocation: from, toLocation: to })
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, "BIN to BIN move completed.", "success");
@@ -1349,14 +2631,15 @@
                 showMessage(ui.searchMessage, "Run a search before printing results.", "error");
                 return;
             }
-            const totalUnits = lastSingleSearch.matches.reduce((sum, line) => sum + line.quantity, 0);
+            const trackedTotals = summarizeTrackedTotals(lastSingleSearch.matches);
             openPrintWindow(
                 `WMS365 Scanner - ${lastSingleSearch.mode === "sku" ? "SKU / UPC Search" : "Location Search"}`,
                 `
                     <h1>WMS365 Scanner</h1>
                     <p><strong>${lastSingleSearch.mode === "sku" ? "SKU / UPC Search" : "Location Search"}</strong></p>
+                    <p>Owner Filter: ${esc(lastSingleSearch.ownerFilter || "ALL")}</p>
                     <p>Query: ${esc(lastSingleSearch.query)}</p>
-                    <p>Matches: ${num(lastSingleSearch.matches.length)} | Total Units: ${num(totalUnits)}</p>
+                    <p>Matches: ${num(lastSingleSearch.matches.length)} | Total Qty: ${esc(formatTrackedSummary(trackedTotals))}</p>
                     ${printTableHtml(lastSingleSearch.matches)}
                 `
             );
@@ -1372,11 +2655,12 @@
                 `
                     <h1>WMS365 Scanner</h1>
                     <p><strong>Multi Search Results</strong></p>
+                    <p>Owner Filter: ${esc(lastMultiSearch.ownerFilter || "ALL")}</p>
                     <p>Requested Items: ${num(lastMultiSearch.groups.length)}</p>
                     ${lastMultiSearch.groups.map((group) => group.matches.length ? `
                         <section>
                             <h2>${esc(group.term)}</h2>
-                            <p>Total Units: ${num(group.total)}</p>
+                            <p>Total Qty: ${esc(formatTrackedSummary(group.totals))}</p>
                             ${printTableHtml(group.matches)}
                         </section>
                     ` : `
@@ -1402,8 +2686,17 @@
         async function exportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Location", "SKU", "UPC", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
-                    sortedInventory().map((line) => [line.location, line.sku, line.upc || "", String(line.quantity), line.createdAt, line.updatedAt])
+                const rows = [["Owner", "Location", "SKU", "UPC", "Tracking", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
+                    sortedInventory().map((line) => [
+                        line.accountName,
+                        line.location,
+                        line.sku,
+                        line.upc || "",
+                        line.trackingLevel,
+                        String(line.quantity),
+                        line.createdAt,
+                        line.updatedAt
+                    ])
                 );
                 const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
                 downloadBlob(csv, `wms365-scanner-inventory-${fileStamp()}.csv`, "text/csv;charset=utf-8");
@@ -1452,9 +2745,11 @@
                     <table>
                         <thead>
                             <tr>
+                                <th>Owner</th>
                                 <th>Location</th>
                                 <th>SKU</th>
                                 <th>UPC</th>
+                                <th>Tracking</th>
                                 <th>Qty</th>
                                 <th>Updated</th>
                             </tr>
@@ -1462,9 +2757,11 @@
                         <tbody>
                             ${lines.map((line) => `
                                 <tr>
+                                    <td>${esc(line.accountName)}</td>
                                     <td>${esc(line.location)}</td>
                                     <td>${esc(line.sku)}</td>
                                     <td>${esc(line.upc || "-")}</td>
+                                    <td>${esc(trackingLabel(line.trackingLevel))}</td>
                                     <td>${num(line.quantity)}</td>
                                     <td>${esc(formatDate(line.updatedAt))}</td>
                                 </tr>
@@ -1480,9 +2777,11 @@
                 <table>
                     <thead>
                         <tr>
+                            <th>Owner</th>
                             <th>Location</th>
                             <th>SKU</th>
                             <th>UPC</th>
+                            <th>Tracking</th>
                             <th>Qty</th>
                             <th>Updated</th>
                         </tr>
@@ -1490,9 +2789,11 @@
                     <tbody>
                         ${lines.map((line) => `
                             <tr>
+                                <td>${esc(line.accountName)}</td>
                                 <td>${esc(line.location)}</td>
                                 <td>${esc(line.sku)}</td>
                                 <td>${esc(line.upc || "-")}</td>
+                                <td>${esc(trackingLabel(line.trackingLevel))}</td>
                                 <td>${num(line.quantity)}</td>
                                 <td>${esc(formatDate(line.updatedAt))}</td>
                             </tr>
@@ -1533,7 +2834,7 @@
         }
 
         function sortedInventory() {
-            return [...state.inventory].sort((a, b) => a.location.localeCompare(b.location) || a.sku.localeCompare(b.sku));
+            return [...state.inventory].sort((a, b) => a.accountName.localeCompare(b.accountName) || a.location.localeCompare(b.location) || a.sku.localeCompare(b.sku));
         }
 
         async function syncServerState(silent = false) {
@@ -1553,6 +2854,11 @@
         function applyServerState(payload) {
             state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
+            state.masters.locations = Array.isArray(payload?.masters?.locations) ? payload.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [];
+            state.masters.items = Array.isArray(payload?.masters?.items) ? payload.masters.items.map(sanitizeMasterItem).filter(Boolean) : [];
+            state.masters.owners = Array.isArray(payload?.masters?.owners)
+                ? payload.masters.owners.map((owner) => norm(owner)).filter(Boolean)
+                : getOwnerOptions();
             state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             renderAll();
@@ -1589,8 +2895,9 @@
                 inventory: [],
                 batch: [],
                 activity: [],
-                preferences: { lastLocation: "" },
-                meta: { version: 2, lastChangedAt: null, serverSyncedAt: null }
+                masters: { locations: [], items: [], owners: [] },
+                preferences: { lastLocation: "", lastAccount: "" },
+                meta: { version: 4, lastChangedAt: null, serverSyncedAt: null }
             };
         }
 
@@ -1599,15 +2906,24 @@
                 inventory: [],
                 batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
                 activity: [],
-                preferences: { lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "" },
-                meta: { version: 2, lastChangedAt: null, serverSyncedAt: null }
+                masters: { locations: [], items: [], owners: [] },
+                preferences: {
+                    lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
+                    lastAccount: typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : ""
+                },
+                meta: { version: 4, lastChangedAt: null, serverSyncedAt: null }
             };
         }
 
         function sanitizeServerImport(raw) {
             return {
                 inventory: Array.isArray(raw.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
-                activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : []
+                activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
+                masters: {
+                    locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
+                    items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
+                    owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
+                }
             };
         }
 
@@ -1615,36 +2931,40 @@
             if (activeSection !== "search" || !currentSearchView) return;
 
             if (currentSearchView.kind === "single") {
-                const matches = sortedInventory().filter((line) => currentSearchView.mode === "sku"
+                const matches = filterInventoryByOwner(currentSearchView.ownerFilter).filter((line) => currentSearchView.mode === "sku"
                     ? line.sku.includes(currentSearchView.query) || (line.upc || "").includes(currentSearchView.query)
                     : line.location.includes(currentSearchView.query)
                 );
-                lastSingleSearch = { mode: currentSearchView.mode, query: currentSearchView.query, matches };
+                lastSingleSearch = { mode: currentSearchView.mode, query: currentSearchView.query, ownerFilter: currentSearchView.ownerFilter, matches };
                 lastMultiSearch = null;
                 renderSingleSearch(currentSearchView.query, currentSearchView.mode, matches);
                 return;
             }
 
             const groups = currentSearchView.terms.map((term) => {
-                const matches = sortedInventory().filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
-                return { term, matches, total: matches.reduce((sum, line) => sum + line.quantity, 0) };
+                const matches = filterInventoryByOwner(currentSearchView.ownerFilter).filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
+                return { term, matches, totals: summarizeTrackedTotals(matches) };
             });
-            lastMultiSearch = { terms: currentSearchView.terms, groups };
+            lastMultiSearch = { terms: currentSearchView.terms, ownerFilter: currentSearchView.ownerFilter, groups };
             lastSingleSearch = null;
             renderMultiSearch(groups);
         }
 
         function sanitizeInventoryLine(line) {
+            const accountName = norm(line?.accountName || line?.owner || line?.vendor || line?.customer || "LEGACY");
             const location = norm(line?.location);
             const sku = norm(line?.sku);
             const upc = norm(line?.upc || "");
+            const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
             const quantity = toPositiveInt(line?.quantity);
-            if (!location || !sku || !quantity) return null;
+            if (!accountName || !location || !sku || !quantity) return null;
             return {
                 id: typeof line.id === "string" ? line.id : makeId("inv"),
+                accountName,
                 location,
                 sku,
                 upc,
+                trackingLevel,
                 quantity,
                 createdAt: typeof line.createdAt === "string" ? line.createdAt : new Date().toISOString(),
                 updatedAt: typeof line.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
@@ -1652,16 +2972,20 @@
         }
 
         function sanitizeBatchLine(line) {
+            const accountName = norm(line?.accountName || line?.owner || line?.vendor || line?.customer || "LEGACY");
             const location = norm(line?.location);
             const sku = norm(line?.sku);
             const upc = norm(line?.upc || "");
+            const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
             const quantity = toPositiveInt(line?.quantity);
-            if (!location || !sku || !quantity) return null;
+            if (!accountName || !location || !sku || !quantity) return null;
             return {
                 id: typeof line.id === "string" ? line.id : makeId("batch"),
+                accountName,
                 location,
                 sku,
                 upc,
+                trackingLevel,
                 quantity,
                 addedAt: typeof line.addedAt === "string" ? line.addedAt : new Date().toISOString()
             };
@@ -1676,6 +3000,41 @@
                 title,
                 details: typeof item.details === "string" ? item.details.trim() : "",
                 timestamp: typeof item.timestamp === "string" ? item.timestamp : new Date().toISOString()
+            };
+        }
+
+        function sanitizeMasterLocation(item) {
+            const code = norm(item?.code ?? item?.location);
+            if (!code) return null;
+            return {
+                id: typeof item.id === "string" ? item.id : makeId("loc"),
+                code,
+                note: String(item?.note || "").trim().replace(/\s+/g, " "),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeMasterItem(item) {
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer || "LEGACY");
+            const sku = norm(item?.sku);
+            if (!accountName || !sku) return null;
+            return {
+                id: typeof item.id === "string" ? item.id : makeId("item"),
+                accountName,
+                sku,
+                upc: norm(item?.upc || ""),
+                description: String(item?.description || "").trim().replace(/\s+/g, " "),
+                trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+                unitsPerCase: toPositiveInt(item?.unitsPerCase),
+                eachLength: toPositiveNumber(item?.eachLength),
+                eachWidth: toPositiveNumber(item?.eachWidth),
+                eachHeight: toPositiveNumber(item?.eachHeight),
+                caseLength: toPositiveNumber(item?.caseLength),
+                caseWidth: toPositiveNumber(item?.caseWidth),
+                caseHeight: toPositiveNumber(item?.caseHeight),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
         }
 
@@ -1702,8 +3061,102 @@
             return Number.isFinite(numValue) && numValue > 0 ? numValue : null;
         }
 
+        function toPositiveNumber(value) {
+            const numValue = Number.parseFloat(String(value));
+            return Number.isFinite(numValue) && numValue > 0 ? numValue : null;
+        }
+
         function norm(value) {
             return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+        }
+
+        function normalizeTrackingLevel(value) {
+            const normalized = norm(value || "UNIT");
+            return normalized === "PALLET" || normalized === "PALLETS" ? "PALLET" : "UNIT";
+        }
+
+        function trackingLabel(value) {
+            return normalizeTrackingLevel(value) === "PALLET" ? "Pallets" : "Units";
+        }
+
+        function formatTrackedQuantity(value, trackingLevel) {
+            const noun = normalizeTrackingLevel(trackingLevel) === "PALLET" ? "pallet" : "unit";
+            return `${num(value)} ${noun}${value === 1 ? "" : "s"}`;
+        }
+
+        function summarizeTrackedTotals(lines) {
+            return lines.reduce((totals, line) => {
+                totals[normalizeTrackingLevel(line?.trackingLevel)] += Number(line?.quantity) || 0;
+                return totals;
+            }, { UNIT: 0, PALLET: 0 });
+        }
+
+        function formatTrackedSummary(totals) {
+            const parts = [];
+            if (totals.UNIT) parts.push(formatTrackedQuantity(totals.UNIT, "UNIT"));
+            if (totals.PALLET) parts.push(formatTrackedQuantity(totals.PALLET, "PALLET"));
+            return parts.join(" | ") || "0 units";
+        }
+
+        function formatMeasure(value) {
+            if (value == null) return "";
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) return "";
+            return parsed % 1 === 0 ? String(parsed) : parsed.toFixed(2).replace(/\.?0+$/, "");
+        }
+
+        function formatDimensions(length, width, height, prefix = "") {
+            if (!(length && width && height)) return "";
+            const dims = [formatMeasure(length), formatMeasure(width), formatMeasure(height)].join(" x ");
+            return prefix ? `${prefix} ${dims}` : dims;
+        }
+
+        function formatItemMasterMeta(item) {
+            const parts = [
+                item.upc ? `UPC ${item.upc}` : "",
+                item.description,
+                trackingLabel(item.trackingLevel),
+                item.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "",
+                formatDimensions(item.eachLength, item.eachWidth, item.eachHeight, "Each"),
+                formatDimensions(item.caseLength, item.caseWidth, item.caseHeight, "Case")
+            ];
+            return parts.filter(Boolean).join(" | ") || "Saved item master";
+        }
+
+        function getOwnerOptions() {
+            const owners = new Set();
+            (state.masters.owners || []).forEach((owner) => owners.add(norm(owner)));
+            state.masters.items.forEach((item) => owners.add(item.accountName));
+            state.inventory.forEach((line) => owners.add(line.accountName));
+            state.batch.forEach((line) => owners.add(line.accountName));
+            return [...owners].filter(Boolean);
+        }
+
+        function findMasterItemsByCode(code, accountName = "") {
+            const query = norm(code);
+            const owner = norm(accountName);
+            if (!query) return [];
+            return state.masters.items.filter((item) => (!owner || item.accountName === owner) && (item.sku === query || item.upc === query));
+        }
+
+        function getMasterItemForLine(line) {
+            return state.masters.items.find((item) => item.accountName === line.accountName && item.sku === line.sku) || null;
+        }
+
+        function filterInventoryByOwner(ownerFilter = "") {
+            const query = norm(ownerFilter);
+            return sortedInventory().filter((line) => !query || line.accountName.includes(query));
+        }
+
+        function inventoryMatchesQuery(line, query) {
+            if (!query) return true;
+            const master = getMasterItemForLine(line);
+            return line.accountName.includes(query)
+                || line.location.includes(query)
+                || line.sku.includes(query)
+                || (line.upc || "").includes(query)
+                || normalizeTrackingLevel(line.trackingLevel).includes(query)
+                || norm(master?.description).includes(query);
         }
 
         function num(value) {
@@ -1754,6 +3207,97 @@
         function csvCell(value) {
             const text = String(value ?? "");
             return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+        }
+
+        function parseCsv(text) {
+            const rows = [];
+            let row = [];
+            let value = "";
+            let inQuotes = false;
+
+            for (let index = 0; index < text.length; index += 1) {
+                const char = text[index];
+                const next = text[index + 1];
+
+                if (inQuotes) {
+                    if (char === `"` && next === `"`) {
+                        value += `"`;
+                        index += 1;
+                    } else if (char === `"`) {
+                        inQuotes = false;
+                    } else {
+                        value += char;
+                    }
+                    continue;
+                }
+
+                if (char === `"`) {
+                    inQuotes = true;
+                    continue;
+                }
+
+                if (char === ",") {
+                    row.push(value.trim());
+                    value = "";
+                    continue;
+                }
+
+                if (char === "\n") {
+                    row.push(value.trim());
+                    if (row.some((cell) => cell !== "")) rows.push(row);
+                    row = [];
+                    value = "";
+                    continue;
+                }
+
+                if (char !== "\r") {
+                    value += char;
+                }
+            }
+
+            row.push(value.trim());
+            if (row.some((cell) => cell !== "")) rows.push(row);
+            return rows;
+        }
+
+        function mapLocationCsvRows(rows) {
+            if (!rows.length) return [];
+            const headers = rows[0].map((value) => norm(value));
+            const hasHeader = headers.some((value) => ["BIN", "LOCATION", "CODE", "NOTE", "ZONE", "DESCRIPTION"].includes(value));
+            const bodyRows = hasHeader ? rows.slice(1) : rows;
+
+            return bodyRows.map((cells) => {
+                if (!hasHeader) {
+                    return {
+                        code: norm(cells[0]),
+                        note: String(cells[1] || "").trim().replace(/\s+/g, " ")
+                    };
+                }
+
+                const record = Object.fromEntries(headers.map((header, index) => [header, String(cells[index] || "").trim()]));
+                return {
+                    code: norm(record.BIN || record.LOCATION || record.CODE || record["BIN LOCATION"] || ""),
+                    note: String(record.NOTE || record.ZONE || record.DESCRIPTION || record.COMMENT || "").trim().replace(/\s+/g, " ")
+                };
+            }).filter((row) => row.code);
+        }
+
+        function reportTableMarkup(headers, rows) {
+            if (!rows.length) {
+                return "<p>No rows found for this report.</p>";
+            }
+            return `
+                <table>
+                    <thead>
+                        <tr>${headers.map((header) => `<th>${esc(header)}</th>`).join("")}</tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `;
         }
     </script>
 </body>
