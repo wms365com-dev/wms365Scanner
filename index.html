@@ -135,6 +135,15 @@
             gap: 0.7rem;
         }
 
+        .hero-topline,
+        .hero-copy,
+        .hero-mode,
+        .desktop-nav-head,
+        .tab-copy {
+            display: grid;
+            gap: 0.4rem;
+        }
+
         .tag {
             padding: 0.55rem 0.85rem;
             border-radius: 999px;
@@ -188,6 +197,21 @@
             background: transparent;
             color: #c7dbed;
             white-space: nowrap;
+            text-align: left;
+        }
+
+        .tab-label {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: inherit;
+        }
+
+        .tab-meta {
+            display: none;
+            color: var(--muted);
+            line-height: 1.4;
+            font-size: 0.84rem;
         }
 
         .tab.active {
@@ -820,8 +844,213 @@
         }
 
         @media (min-width: 860px) {
-            .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
-            .section-grid, .search-grid, .inventory-grid { grid-template-columns: minmax(330px, 420px) minmax(0, 1fr); }
+            .app {
+                width: min(1680px, calc(100vw - 2rem));
+                padding: 0.85rem 0 1.5rem;
+                display: grid;
+                grid-template-columns: 290px minmax(0, 1fr);
+                grid-template-areas:
+                    "header header"
+                    "nav workspace";
+                gap: 1rem;
+                align-items: start;
+            }
+
+            .hero {
+                grid-area: header;
+                padding: 1rem 1.15rem;
+                border-radius: 20px;
+                backdrop-filter: none;
+                background: linear-gradient(180deg, rgba(11, 24, 36, 0.98) 0%, rgba(8, 18, 29, 0.98) 100%);
+            }
+
+            .hero-grid {
+                grid-template-columns: minmax(0, 1.7fr) minmax(280px, 360px);
+                align-items: start;
+            }
+
+            .hero-topline {
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: start;
+                gap: 1rem;
+            }
+
+            .hero-copy { gap: 0.85rem; }
+
+            .hero h1 {
+                font-size: clamp(2rem, 3vw, 2.55rem);
+                line-height: 1;
+            }
+
+            .hero p {
+                margin: 0;
+                max-width: none;
+            }
+
+            .hero-mode {
+                min-width: 180px;
+                padding: 0.85rem 0.95rem;
+                border-radius: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.04);
+                justify-items: start;
+            }
+
+            .hero-mode span {
+                color: #8db9d9;
+                font-size: 0.72rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+            }
+
+            .hero-mode strong {
+                font-size: 1rem;
+                color: #eef6ff;
+            }
+
+            .workflow-strip {
+                margin-top: 0.1rem;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .workflow-step {
+                padding: 0.85rem 0.95rem;
+                border-radius: 16px;
+                background: rgba(255, 255, 255, 0.04);
+            }
+
+            .workflow-step strong {
+                width: auto;
+                min-width: 3rem;
+                height: 2rem;
+                padding: 0 0.55rem;
+                border-radius: 10px;
+                font-size: 0.76rem;
+                letter-spacing: 0.08em;
+            }
+
+            .quick-jumps {
+                margin-top: 0.1rem;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+            }
+
+            .quick-link {
+                min-height: 0;
+                padding: 0.85rem 0.95rem;
+                border-radius: 16px;
+                background: rgba(255, 255, 255, 0.04);
+            }
+
+            .quick-link strong { font-size: 0.94rem; }
+            .quick-link span { font-size: 0.83rem; }
+
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.75rem;
+            }
+
+            .stat {
+                min-height: 102px;
+                border-radius: 16px;
+                padding: 0.9rem;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.025));
+            }
+
+            .tabbar {
+                grid-area: nav;
+                display: grid;
+                gap: 0.55rem;
+                align-self: start;
+                position: sticky;
+                top: 0.85rem;
+                margin-top: 0;
+                padding: 1rem;
+                border-radius: 20px;
+                overflow: visible;
+                background: rgba(11, 24, 36, 0.97);
+                backdrop-filter: none;
+            }
+
+            .desktop-nav-head {
+                padding: 0 0.25rem 0.85rem;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                margin-bottom: 0.25rem;
+            }
+
+            .desktop-nav-head span {
+                color: #8db9d9;
+                font-size: 0.72rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+            }
+
+            .desktop-nav-head strong {
+                font-size: 1.05rem;
+                color: #eef6ff;
+            }
+
+            .desktop-nav-head .meta {
+                margin: 0;
+                font-size: 0.86rem;
+                line-height: 1.45;
+            }
+
+            .tab {
+                width: 100%;
+                min-height: 0;
+                padding: 0.8rem 0.9rem;
+                border-radius: 14px;
+                border: 1px solid transparent;
+                display: grid;
+                gap: 0.2rem;
+                align-items: start;
+                white-space: normal;
+            }
+
+            .tab:hover {
+                background: rgba(255, 255, 255, 0.04);
+                border-color: rgba(255, 255, 255, 0.06);
+            }
+
+            .tab-meta { display: block; }
+
+            .tab.active {
+                border-color: transparent;
+                box-shadow: 0 10px 20px rgba(35, 142, 246, 0.18);
+            }
+
+            .tab.active .tab-meta { color: rgba(4, 21, 35, 0.76); }
+
+            .panel {
+                grid-area: workspace;
+                margin-top: 0;
+                min-width: 0;
+            }
+
+            .panel.active { display: block; }
+
+            .card {
+                padding: 1rem 1.05rem;
+                border-radius: 18px;
+                background: rgba(11, 24, 36, 0.96);
+                backdrop-filter: none;
+            }
+
+            .card-head {
+                padding-bottom: 0.85rem;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+                margin-bottom: 0.95rem;
+            }
+
+            input, select, textarea {
+                padding: 0.8rem 0.9rem;
+                background: rgba(5, 14, 23, 0.9);
+            }
+
+            .section-grid, .search-grid, .inventory-grid { grid-template-columns: minmax(350px, 430px) minmax(0, 1fr); }
             .action-grid, .backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
@@ -1191,58 +1420,70 @@
     <div class="app">
         <header class="hero">
             <div class="hero-grid">
-                <div>
-                    <p class="eyebrow">Standalone Inventory Workflow</p>
-                    <h1>WMS365 Scanner</h1>
-                    <p>Scan locations, enter SKU and quantity, search inventory, move stock, and keep shared data on the server without relying on a Google Sheet.</p>
-                    <div class="hero-tags">
-                        <span class="tag">Desktop + mobile</span>
-                        <span class="tag">Shared server data</span>
-                        <span class="tag">Import / export backups</span>
+                <div class="hero-copy">
+                    <div class="hero-topline">
+                        <div>
+                            <p class="eyebrow">Warehouse Operations Console</p>
+                            <h1>WMS365 Scanner</h1>
+                        </div>
+                        <div class="hero-mode desktop-only">
+                            <span>Desktop Workspace</span>
+                            <strong>Shared WMS Control</strong>
+                        </div>
                     </div>
-                    <div class="workflow-strip desktop-only" aria-label="How to use WMS365 Scanner">
+                    <p>Run receiving, inventory lookup, stock adjustments, reporting, and label creation from one warehouse desktop. Mobile stays quick for operators while desktop handles the heavier WMS work.</p>
+                    <div class="hero-tags">
+                        <span class="tag">Vendor-safe inventory</span>
+                        <span class="tag">Units / cases / pallets</span>
+                        <span class="tag">Shared live warehouse data</span>
+                    </div>
+                    <div class="workflow-strip desktop-only" aria-label="Warehouse workstreams">
                         <div class="workflow-step">
-                            <strong>1</strong>
+                            <strong>RCV</strong>
                             <div>
-                                <span>Stage inventory fast</span>
-                                <p>Pick the vendor, scan the BIN, then scan or type the item and quantity.</p>
+                                <span>Receiving & Putaway</span>
+                                <p>Select the owner, scan the BIN, stage the item, then save the batch to shared inventory.</p>
                             </div>
                         </div>
                         <div class="workflow-step">
-                            <strong>2</strong>
+                            <strong>CTL</strong>
                             <div>
-                                <span>Save once per batch</span>
-                                <p>Keep scanning into the open batch, then save everything to the shared server together.</p>
+                                <span>Inventory Control</span>
+                                <p>Search, transfer, delete, move BINs, and maintain item, vendor, and location master data.</p>
                             </div>
                         </div>
                         <div class="workflow-step">
-                            <strong>3</strong>
+                            <strong>RPT</strong>
                             <div>
-                                <span>Search and report</span>
-                                <p>Use the desktop side for deeper reports, owner utilization, uploads, and cleanup work.</p>
+                                <span>Reporting & Labels</span>
+                                <p>Review owner utilization, pallet usage, exports, uploads, and location label generation.</p>
                             </div>
                         </div>
                     </div>
                     <div class="quick-jumps desktop-only">
                         <button class="quick-link" type="button" data-jump-section="scan">
-                            <strong>Scan</strong>
-                            <span>Fast day-to-day receiving and putaway.</span>
+                            <strong>Receiving</strong>
+                            <span>Stage scans and save the open batch.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="search">
-                            <strong>Search</strong>
-                            <span>Find one item, one BIN, or a list of SKUs.</span>
+                            <strong>Lookup</strong>
+                            <span>Find one item, one BIN, or multiple codes fast.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="actions">
-                            <strong>Actions</strong>
-                            <span>Delete, transfer, or move full BINs.</span>
+                            <strong>Adjustments</strong>
+                            <span>Delete, transfer, or move stock between BINs.</span>
+                        </button>
+                        <button class="quick-link" type="button" data-jump-section="inventory">
+                            <strong>Inventory Control</strong>
+                            <span>Filter live stock and maintain master records.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="reports">
                             <strong>Reports</strong>
                             <span>Review owner usage, pallet positions, and exports.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="labels">
-                            <strong>Labels</strong>
-                            <span>Build and print location labels from saved BINs or pasted codes.</span>
+                            <strong>Location Labels</strong>
+                            <span>Build label runs from rack codes or saved BINs.</span>
                         </button>
                     </div>
                 </div>
@@ -1256,13 +1497,39 @@
         </header>
 
         <nav class="tabbar" aria-label="Sections">
-            <button class="tab active" data-section="scan" type="button">Scan</button>
-            <button class="tab" data-section="search" type="button">Search</button>
-            <button class="tab" data-section="actions" type="button">Actions</button>
-            <button class="tab" data-section="inventory" type="button">Inventory</button>
-            <button class="tab" data-section="reports" type="button">Reports</button>
-            <button class="tab" data-section="labels" type="button">Labels</button>
-            <button class="tab" data-section="backup" type="button">Backup</button>
+            <div class="desktop-nav-head desktop-only">
+                <span>Desktop Navigation</span>
+                <strong>Warehouse Work Areas</strong>
+                <p class="meta">Use the left rail like a WMS menu: move between receiving, lookup, control, reporting, labels, and data tools.</p>
+            </div>
+            <button class="tab active" data-section="scan" type="button">
+                <span class="tab-label">Receiving</span>
+                <span class="tab-meta">Scan, stage, and save inbound inventory batches.</span>
+            </button>
+            <button class="tab" data-section="search" type="button">
+                <span class="tab-label">Lookup</span>
+                <span class="tab-meta">Find inventory by vendor, BIN, SKU, UPC, or list.</span>
+            </button>
+            <button class="tab" data-section="actions" type="button">
+                <span class="tab-label">Adjustments</span>
+                <span class="tab-meta">Delete, transfer, or move inventory between BINs.</span>
+            </button>
+            <button class="tab" data-section="inventory" type="button">
+                <span class="tab-label">Inventory Control</span>
+                <span class="tab-meta">Review live inventory and maintain setup records.</span>
+            </button>
+            <button class="tab" data-section="reports" type="button">
+                <span class="tab-label">Reports</span>
+                <span class="tab-meta">Check owner usage, pallet locations, and exports.</span>
+            </button>
+            <button class="tab" data-section="labels" type="button">
+                <span class="tab-label">Location Labels</span>
+                <span class="tab-meta">Generate rack and BIN labels for the floor.</span>
+            </button>
+            <button class="tab" data-section="backup" type="button">
+                <span class="tab-label">Data Admin</span>
+                <span class="tab-meta">Import, export, backup, and restore warehouse data.</span>
+            </button>
         </nav>
 
         <section class="panel mobile-only" id="mobileHomePanel" data-panel="mobile-home">
