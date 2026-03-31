@@ -134,6 +134,35 @@ app.post("/api/master-item", async (req, res, next) => {
     }
 });
 
+app.post("/api/master-items/import", async (req, res, next) => {
+    try {
+        const inputItems = Array.isArray(req.body?.items) ? req.body.items : [];
+        if (!inputItems.length) {
+            throw httpError(400, "At least one item master row is required.");
+        }
+
+        const items = groupItemMasterInputs(inputItems);
+
+        await withTransaction(async (client) => {
+            for (const item of items) {
+                await upsertOwnerMaster(client, item.accountName);
+                await upsertItemMaster(client, item);
+            }
+
+            await insertActivity(
+                client,
+                "setup",
+                `Imported ${formatCount(items.length, "item master")} from CSV`,
+                "Shared item library updated from spreadsheet import."
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/master-locations/import", async (req, res, next) => {
     try {
         const inputLocations = Array.isArray(req.body?.locations) ? req.body.locations : [];
@@ -981,6 +1010,46 @@ function groupLocationMasterInputs(items) {
         const current = grouped.get(item.code) || { code: item.code, note: "" };
         if (!current.note && item.note) current.note = item.note;
         grouped.set(item.code, current);
+    }
+    return [...grouped.values()];
+}
+
+function groupItemMasterInputs(items) {
+    const grouped = new Map();
+    for (const rawItem of items) {
+        const item = sanitizeItemMasterInput(rawItem);
+        if (!item || !item.accountName || !item.sku) {
+            throw httpError(400, "Each item row must include Vendor / Customer and SKU.");
+        }
+
+        const key = `${item.accountName}::${item.sku}`;
+        const current = grouped.get(key) || {
+            accountName: item.accountName,
+            sku: item.sku,
+            upc: "",
+            description: "",
+            trackingLevel: "UNIT",
+            unitsPerCase: null,
+            eachLength: null,
+            eachWidth: null,
+            eachHeight: null,
+            caseLength: null,
+            caseWidth: null,
+            caseHeight: null
+        };
+
+        if (!current.upc && item.upc) current.upc = item.upc;
+        if (!current.description && item.description) current.description = item.description;
+        if ((current.trackingLevel === "UNIT" || !current.trackingLevel) && item.trackingLevel) current.trackingLevel = item.trackingLevel;
+        if (!current.unitsPerCase && item.unitsPerCase) current.unitsPerCase = item.unitsPerCase;
+        if (!current.eachLength && item.eachLength) current.eachLength = item.eachLength;
+        if (!current.eachWidth && item.eachWidth) current.eachWidth = item.eachWidth;
+        if (!current.eachHeight && item.eachHeight) current.eachHeight = item.eachHeight;
+        if (!current.caseLength && item.caseLength) current.caseLength = item.caseLength;
+        if (!current.caseWidth && item.caseWidth) current.caseWidth = item.caseWidth;
+        if (!current.caseHeight && item.caseHeight) current.caseHeight = item.caseHeight;
+
+        grouped.set(key, current);
     }
     return [...grouped.values()];
 }

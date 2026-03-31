@@ -875,15 +875,35 @@
                         </div>
                     </div>
 
-                    <div class="button-row" style="margin-top: 1rem; margin-bottom: 1rem;">
+                    <div class="library-grid" style="margin-top: 1rem; margin-bottom: 1rem;">
+                        <div class="helper">
+                            <h3>Bulk Upload BIN Locations</h3>
+                            <p class="meta">Desktop only. Save your Excel sheet as CSV, then upload BINs with columns like <strong>BIN</strong> and <strong>NOTE</strong>.</p>
+                            <p class="meta">Example columns: BIN, NOTE</p>
+                            <div class="button-row">
+                                <button class="btn ghost" id="importLocationCsvBtn" type="button">Upload BINs CSV</button>
+                                <button class="btn ghost" id="exportLocationCsvBtn" type="button">Export BINs CSV</button>
+                            </div>
+                        </div>
+
+                        <div class="helper">
+                            <h3>Bulk Upload Item Masters</h3>
+                            <p class="meta">Desktop only. Save one row per vendor / customer plus SKU so scan autofill, item lookup, and reports stay clean.</p>
+                            <p class="meta">Example columns: VENDOR_CUSTOMER, SKU, UPC, DESCRIPTION, TRACKING, UNITS_PER_CASE, EACH_LENGTH, EACH_WIDTH, EACH_HEIGHT, CASE_LENGTH, CASE_WIDTH, CASE_HEIGHT</p>
+                            <div class="button-row">
+                                <button class="btn ghost" id="importItemCsvBtn" type="button">Upload Items CSV</button>
+                                <button class="btn ghost" id="exportItemCsvBtn" type="button">Export Items CSV</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="button-row" style="margin-bottom: 1rem;">
                         <label class="field" style="flex: 1 1 280px;">
                             <span>Quick Filter</span>
                             <input id="masterFilter" type="text" placeholder="Filter BINs, SKUs, UPCs, or descriptions">
                         </label>
-                        <button class="btn ghost" id="exportLocationCsvBtn" type="button">Export BINs CSV</button>
-                        <button class="btn ghost" id="importLocationCsvBtn" type="button">Import BINs CSV</button>
                     </div>
-                    <p class="lead">Excel upload/export uses CSV. Save your spreadsheet as CSV, then import it here with columns like <strong>BIN</strong> and <strong>NOTE</strong>.</p>
+                    <p class="lead">Bulk uploads use CSV so Excel files can be saved, imported, edited, and exported again without extra tooling.</p>
 
                     <div class="library-grid">
                         <div class="helper">
@@ -928,6 +948,7 @@
 
                     <div class="status" id="catalogMessage"></div>
                     <input id="importLocationCsvInput" class="hidden" type="file" accept=".csv,text/csv">
+                    <input id="importItemCsvInput" class="hidden" type="file" accept=".csv,text/csv">
                 </article>
             </div>
         </section>
@@ -1424,6 +1445,7 @@
             masterItemList: document.getElementById("masterItemList"),
             catalogMessage: document.getElementById("catalogMessage"),
             importLocationCsvInput: document.getElementById("importLocationCsvInput"),
+            importItemCsvInput: document.getElementById("importItemCsvInput"),
             lastLocationMeta: document.getElementById("lastLocationMeta"),
             batchMeta: document.getElementById("batchMeta"),
             batchEmpty: document.getElementById("batchEmpty"),
@@ -1536,6 +1558,9 @@
             document.getElementById("exportLocationCsvBtn").addEventListener("click", exportLocationCsv);
             document.getElementById("importLocationCsvBtn").addEventListener("click", () => ui.importLocationCsvInput.click());
             ui.importLocationCsvInput.addEventListener("change", importLocationCsv);
+            document.getElementById("exportItemCsvBtn").addEventListener("click", exportItemCsv);
+            document.getElementById("importItemCsvBtn").addEventListener("click", () => ui.importItemCsvInput.click());
+            ui.importItemCsvInput.addEventListener("change", importItemCsv);
 
             ui.searchBySkuBtn.addEventListener("click", () => setSearchMode("sku"));
             ui.searchByLocationBtn.addEventListener("click", () => setSearchMode("location"));
@@ -2265,6 +2290,50 @@
             }
         }
 
+        async function exportItemCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [[
+                    "VENDOR_CUSTOMER",
+                    "SKU",
+                    "UPC",
+                    "DESCRIPTION",
+                    "TRACKING",
+                    "UNITS_PER_CASE",
+                    "EACH_LENGTH",
+                    "EACH_WIDTH",
+                    "EACH_HEIGHT",
+                    "CASE_LENGTH",
+                    "CASE_WIDTH",
+                    "CASE_HEIGHT"
+                ]].concat(
+                    [...state.masters.items]
+                        .sort((a, b) => {
+                            const accountSort = a.accountName.localeCompare(b.accountName);
+                            return accountSort || a.sku.localeCompare(b.sku);
+                        })
+                        .map((entry) => [
+                            entry.accountName,
+                            entry.sku,
+                            entry.upc || "",
+                            entry.description || "",
+                            normalizeTrackingLevel(entry.trackingLevel),
+                            entry.unitsPerCase ?? "",
+                            entry.eachLength ?? "",
+                            entry.eachWidth ?? "",
+                            entry.eachHeight ?? "",
+                            entry.caseLength ?? "",
+                            entry.caseWidth ?? "",
+                            entry.caseHeight ?? ""
+                        ])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-items-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.catalogMessage, "Item master library exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
         function importLocationCsv(event) {
             const file = event.target.files && event.target.files[0];
             if (!file) return;
@@ -2294,6 +2363,39 @@
             reader.onerror = () => {
                 showMessage(ui.catalogMessage, "Unable to read the selected CSV file.", "error");
                 ui.importLocationCsvInput.value = "";
+            };
+            reader.readAsText(file);
+        }
+
+        function importItemCsv(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const rows = parseCsv(String(reader.result || ""));
+                    const items = mapItemCsvRows(rows);
+                    if (!items.length) {
+                        throw new Error("No item rows were found. Use columns like VENDOR_CUSTOMER and SKU.");
+                    }
+
+                    await requestJson("/api/master-items/import", {
+                        method: "POST",
+                        body: JSON.stringify({ items })
+                    });
+
+                    await syncServerState(true);
+                    showMessage(ui.catalogMessage, `Imported ${num(items.length)} item master${items.length === 1 ? "" : "s"} from CSV.`, "success");
+                } catch (error) {
+                    showMessage(ui.catalogMessage, `Item import failed: ${error.message}`, "error");
+                } finally {
+                    ui.importItemCsvInput.value = "";
+                }
+            };
+            reader.onerror = () => {
+                showMessage(ui.catalogMessage, "Unable to read the selected CSV file.", "error");
+                ui.importItemCsvInput.value = "";
             };
             reader.readAsText(file);
         }
@@ -3596,10 +3698,22 @@
             return rows;
         }
 
+        function csvHeaderKey(value) {
+            return norm(value).replace(/[^A-Z0-9]+/g, "");
+        }
+
+        function csvRecordValue(record, aliases) {
+            for (const alias of aliases) {
+                const value = record[alias];
+                if (typeof value === "string" && value.trim()) return value.trim();
+            }
+            return "";
+        }
+
         function mapLocationCsvRows(rows) {
             if (!rows.length) return [];
-            const headers = rows[0].map((value) => norm(value));
-            const hasHeader = headers.some((value) => ["BIN", "LOCATION", "CODE", "NOTE", "ZONE", "DESCRIPTION"].includes(value));
+            const headers = rows[0].map(csvHeaderKey);
+            const hasHeader = headers.some((value) => ["BIN", "LOCATION", "CODE", "BINLOCATION", "NOTE", "ZONE", "DESCRIPTION", "COMMENT"].includes(value));
             const bodyRows = hasHeader ? rows.slice(1) : rows;
 
             return bodyRows.map((cells) => {
@@ -3612,10 +3726,107 @@
 
                 const record = Object.fromEntries(headers.map((header, index) => [header, String(cells[index] || "").trim()]));
                 return {
-                    code: norm(record.BIN || record.LOCATION || record.CODE || record["BIN LOCATION"] || ""),
-                    note: String(record.NOTE || record.ZONE || record.DESCRIPTION || record.COMMENT || "").trim().replace(/\s+/g, " ")
+                    code: norm(csvRecordValue(record, ["BIN", "LOCATION", "CODE", "BINLOCATION"])),
+                    note: String(csvRecordValue(record, ["NOTE", "ZONE", "DESCRIPTION", "COMMENT"])).trim().replace(/\s+/g, " ")
                 };
             }).filter((row) => row.code);
+        }
+
+        function mapItemCsvRows(rows) {
+            if (!rows.length) return [];
+            const headers = rows[0].map(csvHeaderKey);
+            const hasHeader = headers.some((value) => [
+                "ACCOUNT",
+                "ACCOUNTNAME",
+                "OWNER",
+                "OWNERNAME",
+                "VENDOR",
+                "VENDORNAME",
+                "CUSTOMER",
+                "CUSTOMERNAME",
+                "VENDORCUSTOMER",
+                "VENDORORCUSTOMER",
+                "VENDORCUSTOMERNAME",
+                "SKU",
+                "UPC",
+                "DESCRIPTION",
+                "TRACKING",
+                "TRACKINGLEVEL",
+                "UNITSPERCASE",
+                "CASEPACK",
+                "PACK",
+                "EACHLENGTH",
+                "CASELENGTH"
+            ].includes(value));
+            const bodyRows = hasHeader ? rows.slice(1) : rows;
+
+            return bodyRows.map((cells, index) => {
+                const rowNumber = hasHeader ? index + 2 : index + 1;
+                if (!cells.some((cell) => String(cell || "").trim())) return null;
+
+                let accountName = "";
+                let sku = "";
+                let upc = "";
+                let description = "";
+                let trackingLevel = "UNIT";
+                let unitsPerCase = null;
+                let eachLength = null;
+                let eachWidth = null;
+                let eachHeight = null;
+                let caseLength = null;
+                let caseWidth = null;
+                let caseHeight = null;
+
+                if (!hasHeader) {
+                    accountName = String(cells[0] || "").trim();
+                    sku = String(cells[1] || "").trim();
+                    upc = String(cells[2] || "").trim();
+                    description = String(cells[3] || "").trim();
+                    trackingLevel = String(cells[4] || "UNIT").trim() || "UNIT";
+                    unitsPerCase = toPositiveInt(cells[5]);
+                    eachLength = toPositiveNumber(cells[6]);
+                    eachWidth = toPositiveNumber(cells[7]);
+                    eachHeight = toPositiveNumber(cells[8]);
+                    caseLength = toPositiveNumber(cells[9]);
+                    caseWidth = toPositiveNumber(cells[10]);
+                    caseHeight = toPositiveNumber(cells[11]);
+                } else {
+                    const record = Object.fromEntries(headers.map((header, cellIndex) => [header, String(cells[cellIndex] || "").trim()]));
+                    accountName = csvRecordValue(record, ["ACCOUNTNAME", "ACCOUNT", "OWNERNAME", "OWNER", "VENDORCUSTOMERNAME", "VENDORCUSTOMER", "VENDORORCUSTOMER", "VENDORNAME", "VENDOR", "CUSTOMERNAME", "CUSTOMER"]);
+                    sku = csvRecordValue(record, ["SKU", "ITEMSKU", "PRODUCTSKU"]);
+                    upc = csvRecordValue(record, ["UPC", "UPCCODE", "UPCNUMBER", "BARCODE"]);
+                    description = csvRecordValue(record, ["DESCRIPTION", "DESC", "ITEMDESCRIPTION", "ITEMNAME", "NAME"]);
+                    trackingLevel = csvRecordValue(record, ["TRACKING", "TRACKINGLEVEL", "LEVEL", "UOM"]) || "UNIT";
+                    unitsPerCase = toPositiveInt(csvRecordValue(record, ["UNITSPERCASE", "CASEPACK", "PACK", "QTYPERCASE"]));
+                    eachLength = toPositiveNumber(csvRecordValue(record, ["EACHLENGTH", "UNITLENGTH"]));
+                    eachWidth = toPositiveNumber(csvRecordValue(record, ["EACHWIDTH", "UNITWIDTH"]));
+                    eachHeight = toPositiveNumber(csvRecordValue(record, ["EACHHEIGHT", "UNITHEIGHT"]));
+                    caseLength = toPositiveNumber(csvRecordValue(record, ["CASELENGTH", "OUTERLENGTH"]));
+                    caseWidth = toPositiveNumber(csvRecordValue(record, ["CASEWIDTH", "OUTERWIDTH"]));
+                    caseHeight = toPositiveNumber(csvRecordValue(record, ["CASEHEIGHT", "OUTERHEIGHT"]));
+                }
+
+                const normalizedAccountName = norm(accountName);
+                const normalizedSku = norm(sku);
+                if (!normalizedAccountName || !normalizedSku) {
+                    throw new Error(`Row ${rowNumber} is missing Vendor / Customer or SKU.`);
+                }
+
+                return {
+                    accountName: normalizedAccountName,
+                    sku: normalizedSku,
+                    upc: norm(upc),
+                    description: String(description || "").trim().replace(/\s+/g, " "),
+                    trackingLevel: normalizeTrackingLevel(trackingLevel),
+                    unitsPerCase,
+                    eachLength,
+                    eachWidth,
+                    eachHeight,
+                    caseLength,
+                    caseWidth,
+                    caseHeight
+                };
+            }).filter(Boolean);
         }
 
         function reportTableMarkup(headers, rows) {
