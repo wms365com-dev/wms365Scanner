@@ -373,6 +373,7 @@ app.post("/api/transfer", async (req, res, next) => {
             if (quantity > Number(line.quantity)) {
                 throw httpError(400, `Cannot transfer ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(Number(line.quantity), line.tracking_level)} are available.`);
             }
+            await assertLocationCompatibleForOwner(client, accountName, toLocation);
 
             await setInventoryQuantity(client, line.id, Number(line.quantity) - quantity);
             await upsertInventoryLine(client, {
@@ -427,6 +428,7 @@ app.post("/api/move-location", async (req, res, next) => {
             if (linesResult.rowCount === 0) {
                 throw httpError(404, `No inventory lines were found for ${accountName} at ${fromLocation}.`);
             }
+            await assertLocationCompatibleForOwner(client, accountName, toLocation);
 
             for (const line of linesResult.rows) {
                 await upsertInventoryLine(client, {
@@ -1145,6 +1147,27 @@ async function findInventoryLine(client, accountName, location, skuOrUpc) {
     }
 
     return upcMatches.rowCount === 1 ? upcMatches.rows[0] : null;
+}
+
+async function assertLocationCompatibleForOwner(client, accountName, location) {
+    const conflicts = await client.query(
+        `
+            select distinct account_name
+            from inventory_lines
+            where location = $1 and account_name <> $2
+            order by account_name asc
+            limit 5
+        `,
+        [location, accountName]
+    );
+
+    if (conflicts.rowCount > 0) {
+        const conflictNames = conflicts.rows.map((row) => row.account_name).filter(Boolean);
+        throw httpError(
+            400,
+            `Location ${location} already contains another vendor/customer${conflictNames.length ? `: ${conflictNames.join(", ")}` : ""}. Mixed-owner locations are not allowed.`
+        );
+    }
 }
 
 async function findCatalogItem(client, accountName, sku, upc = "") {

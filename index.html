@@ -2183,11 +2183,11 @@
                         </label>
                         <label class="field span-2">
                             <span>Location</span>
-                            <input id="adjustLocation" list="locationList" type="text" placeholder="Enter location">
+                            <input id="adjustLocation" list="adjustLocationList" type="text" placeholder="Choose vendor/customer first">
                         </label>
                         <label class="field span-2">
                             <span>SKU or UPC</span>
-                            <input id="adjustSku" list="skuList" type="text" placeholder="Enter SKU or UPC">
+                            <input id="adjustSku" list="adjustSkuList" type="text" placeholder="Choose vendor/customer and location first">
                         </label>
                         <label class="field span-2">
                             <span>Quantity To Remove</span>
@@ -2214,15 +2214,15 @@
                         </label>
                         <label class="field">
                             <span>From Location</span>
-                            <input id="transferFrom" list="locationList" type="text" placeholder="Source location">
+                            <input id="transferFrom" list="transferFromList" type="text" placeholder="Choose vendor/customer first">
                         </label>
                         <label class="field">
                             <span>To Location</span>
-                            <input id="transferTo" list="locationList" type="text" placeholder="Destination location">
+                            <input id="transferTo" list="transferToList" type="text" placeholder="Choose vendor/customer and source location first">
                         </label>
                         <label class="field span-2">
                             <span>SKU or UPC</span>
-                            <input id="transferSku" list="skuList" type="text" placeholder="Item to transfer">
+                            <input id="transferSku" list="transferSkuList" type="text" placeholder="Choose vendor/customer and source location first">
                         </label>
                         <label class="field span-2">
                             <span>Quantity</span>
@@ -2248,11 +2248,11 @@
                         </label>
                         <label class="field">
                             <span>From Location</span>
-                            <input id="moveFrom" list="locationList" type="text" placeholder="Source location">
+                            <input id="moveFrom" list="moveFromList" type="text" placeholder="Choose vendor/customer first">
                         </label>
                         <label class="field">
                             <span>To Location</span>
-                            <input id="moveTo" list="locationList" type="text" placeholder="Destination location">
+                            <input id="moveTo" list="moveToList" type="text" placeholder="Choose vendor/customer and source location first">
                         </label>
                         <div class="button-row span-2">
                             <button class="btn secondary" type="submit">Move All Items</button>
@@ -2595,6 +2595,13 @@
     <datalist id="locationList"></datalist>
     <datalist id="ownerList"></datalist>
     <datalist id="skuList"></datalist>
+    <datalist id="adjustLocationList"></datalist>
+    <datalist id="transferFromList"></datalist>
+    <datalist id="transferToList"></datalist>
+    <datalist id="moveFromList"></datalist>
+    <datalist id="moveToList"></datalist>
+    <datalist id="adjustSkuList"></datalist>
+    <datalist id="transferSkuList"></datalist>
     <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="listbox" aria-label="Mobile suggestions"></div>
     <script>
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
@@ -2775,6 +2782,13 @@
             locationList: document.getElementById("locationList"),
             ownerList: document.getElementById("ownerList"),
             skuList: document.getElementById("skuList"),
+            adjustLocationList: document.getElementById("adjustLocationList"),
+            transferFromList: document.getElementById("transferFromList"),
+            transferToList: document.getElementById("transferToList"),
+            moveFromList: document.getElementById("moveFromList"),
+            moveToList: document.getElementById("moveToList"),
+            adjustSkuList: document.getElementById("adjustSkuList"),
+            transferSkuList: document.getElementById("transferSkuList"),
             mobileAutocomplete: document.getElementById("mobileAutocomplete"),
             statUnits: document.getElementById("statUnits"),
             statLines: document.getElementById("statLines"),
@@ -2893,6 +2907,9 @@
             document.getElementById("deleteLineBtn").addEventListener("click", deleteLine);
             document.getElementById("transferForm").addEventListener("submit", transferQuantity);
             document.getElementById("moveForm").addEventListener("submit", moveAllItems);
+            [ui.adjustAccount, ui.adjustLocation, ui.transferAccount, ui.transferFrom, ui.transferTo, ui.moveAccount, ui.moveFrom, ui.moveTo].forEach((input) => {
+                ["input", "change", "blur"].forEach((eventName) => input.addEventListener(eventName, syncActionItemSelectors));
+            });
 
             ui.inventoryFilter.addEventListener("input", () => renderInventory(ui.inventoryFilter.value));
             document.getElementById("clearInventoryFilterBtn").addEventListener("click", () => {
@@ -3036,7 +3053,9 @@
 
         function applyManagedInputLists() {
             managedListInputs.forEach((input) => {
-                input.removeAttribute("list");
+                const listId = input.dataset.desktopList || "";
+                if (isMobileView() || !listId) input.removeAttribute("list");
+                else input.setAttribute("list", listId);
             });
         }
 
@@ -3150,7 +3169,7 @@
                         return true;
                     }
                 }));
-            [ui.scanLocation, ui.adjustLocation, ui.transferFrom, ui.transferTo, ui.moveFrom, ui.moveTo, ui.masterLocationCode]
+            [ui.scanLocation, ui.masterLocationCode]
                 .forEach((input) => registerMobileAutocomplete(input, {
                     getSuggestions: (query) => getLocationSuggestions(query),
                     onSelect: (option, currentInput) => {
@@ -3164,6 +3183,47 @@
                         return true;
                     }
                 }));
+            registerMobileAutocomplete(ui.adjustLocation, {
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.adjustAccount.value, { mode: "source" }),
+                onSelect: () => {
+                    syncActionItemSelectors();
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.transferFrom, {
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.transferAccount.value, { mode: "source" }),
+                onSelect: () => {
+                    syncActionItemSelectors();
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.transferTo, {
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.transferAccount.value, {
+                    mode: "destination",
+                    excludeLocation: ui.transferFrom.value
+                }),
+                onSelect: () => {
+                    syncActionItemSelectors();
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.moveFrom, {
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.moveAccount.value, { mode: "source" }),
+                onSelect: () => {
+                    syncActionItemSelectors();
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.moveTo, {
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.moveAccount.value, {
+                    mode: "destination",
+                    excludeLocation: ui.moveFrom.value
+                }),
+                onSelect: () => {
+                    syncActionItemSelectors();
+                    return true;
+                }
+            });
             registerMobileAutocomplete(ui.scanUpc, {
                 getSuggestions: (query) => getItemSuggestions(query, ui.scanAccount.value, { preferUpc: true }),
                 onSelect: (option) => {
@@ -3191,14 +3251,14 @@
                 }
             });
             registerMobileAutocomplete(ui.adjustSku, {
-                getSuggestions: (query) => getItemSuggestions(query, ui.adjustAccount.value, { preferUpc: looksNumeric(query) }),
+                getSuggestions: (query) => getLocationScopedItemSuggestions(query, ui.adjustAccount.value, ui.adjustLocation.value, { preferUpc: looksNumeric(query) }),
                 onSelect: (option) => {
                     if (!norm(ui.adjustAccount.value) && option.accountName) ui.adjustAccount.value = option.accountName;
                     return true;
                 }
             });
             registerMobileAutocomplete(ui.transferSku, {
-                getSuggestions: (query) => getItemSuggestions(query, ui.transferAccount.value, { preferUpc: looksNumeric(query) }),
+                getSuggestions: (query) => getLocationScopedItemSuggestions(query, ui.transferAccount.value, ui.transferFrom.value, { preferUpc: looksNumeric(query) }),
                 onSelect: (option) => {
                     if (!norm(ui.transferAccount.value) && option.accountName) ui.transferAccount.value = option.accountName;
                     return true;
@@ -3393,6 +3453,138 @@
             state.inventory.forEach((line) => addLocation(line.location));
             state.batch.forEach((line) => addLocation(line.location));
             return rankMobileAutocompleteOptions([...locationMap.values()], query);
+        }
+
+        function getLocationOwnerSet(location) {
+            const normalizedLocation = norm(location);
+            const owners = new Set();
+            if (!normalizedLocation) return owners;
+            state.inventory.forEach((line) => {
+                if (norm(line.location) === normalizedLocation && norm(line.accountName)) {
+                    owners.add(norm(line.accountName));
+                }
+            });
+            return owners;
+        }
+
+        function isLocationCompatibleForOwner(accountName = "", location = "") {
+            const owner = norm(accountName);
+            const normalizedLocation = norm(location);
+            if (!owner || !normalizedLocation) return false;
+            const owners = getLocationOwnerSet(normalizedLocation);
+            return owners.size === 0 || (owners.size === 1 && owners.has(owner));
+        }
+
+        function getOwnerScopedLocationOptions(accountName = "", { mode = "source", excludeLocation = "" } = {}) {
+            const owner = norm(accountName);
+            const exclude = norm(excludeLocation);
+            if (!owner) return [];
+
+            const locationMap = new Map();
+            const addLocation = (code, note = "") => {
+                const normalized = norm(code);
+                if (!normalized || normalized === exclude || locationMap.has(normalized)) return;
+                locationMap.set(normalized, {
+                    value: normalized,
+                    title: normalized,
+                    meta: note,
+                    searchText: [normalized, note].filter(Boolean).join(" | ")
+                });
+            };
+
+            if (mode === "source") {
+                state.inventory.forEach((line) => {
+                    if (norm(line.accountName) !== owner) return;
+                    addLocation(line.location, `${line.accountName} inventory`);
+                });
+                return [...locationMap.values()].sort((a, b) => a.value.localeCompare(b.value));
+            }
+
+            const noteByLocation = new Map();
+            state.masters.locations.forEach((location) => {
+                noteByLocation.set(norm(location.code), location.note || "");
+            });
+
+            const allLocations = new Set();
+            state.masters.locations.forEach((location) => allLocations.add(norm(location.code)));
+            state.inventory.forEach((line) => allLocations.add(norm(line.location)));
+
+            [...allLocations].forEach((location) => {
+                if (!location || location === exclude) return;
+                if (!isLocationCompatibleForOwner(owner, location)) return;
+                const owners = getLocationOwnerSet(location);
+                const note = owners.size
+                    ? `${owner} location`
+                    : (noteByLocation.get(location) || "Open location");
+                addLocation(location, note);
+            });
+
+            return [...locationMap.values()].sort((a, b) => a.value.localeCompare(b.value));
+        }
+
+        function getOwnerScopedLocationSuggestions(query, accountName = "", options = {}) {
+            return rankMobileAutocompleteOptions(getOwnerScopedLocationOptions(accountName, options), query);
+        }
+
+        function getLocationInventoryItems(accountName = "", location = "") {
+            const owner = norm(accountName);
+            const sourceLocation = norm(location);
+            if (!owner || !sourceLocation) return [];
+
+            const itemMap = new Map();
+            state.inventory.forEach((line) => {
+                if (norm(line.accountName) !== owner || norm(line.location) !== sourceLocation) return;
+                const sku = norm(line.sku);
+                if (!sku) return;
+
+                const key = sku;
+                const trackingLevel = norm(line.trackingLevel || line.tracking || "UNIT");
+                const existing = itemMap.get(key) || {
+                    accountName: owner,
+                    location: sourceLocation,
+                    sku,
+                    upc: norm(line.upc || ""),
+                    description: String(line.description || "").trim().replace(/\s+/g, " "),
+                    trackingLevel,
+                    quantity: 0
+                };
+
+                if (!existing.upc && line.upc) existing.upc = norm(line.upc);
+                if (!existing.description && line.description) existing.description = String(line.description).trim().replace(/\s+/g, " ");
+                if (!existing.trackingLevel && trackingLevel) existing.trackingLevel = trackingLevel;
+                if (existing.trackingLevel === trackingLevel) {
+                    existing.quantity += toPositiveNumber(line.quantity) || 0;
+                }
+                itemMap.set(key, existing);
+            });
+
+            return [...itemMap.values()]
+                .sort((a, b) => a.sku.localeCompare(b.sku) || a.upc.localeCompare(b.upc));
+        }
+
+        function getLocationScopedItemSuggestions(query, accountName = "", location = "", { preferUpc = false } = {}) {
+            const items = getLocationInventoryItems(accountName, location);
+            const normalizedQuery = norm(query);
+
+            return rankMobileAutocompleteOptions(items.map((item) => {
+                const useUpc = !!item.upc && (preferUpc || (normalizedQuery && item.upc.includes(normalizedQuery) && !item.sku.includes(normalizedQuery)));
+                const primaryValue = useUpc ? item.upc : item.sku;
+                const title = useUpc && item.sku ? `${item.upc} (${item.sku})` : primaryValue;
+                const meta = [
+                    item.location,
+                    formatTrackedQuantity(item.quantity, item.trackingLevel || "UNIT"),
+                    useUpc && item.sku ? `SKU ${item.sku}` : item.upc ? `UPC ${item.upc}` : "",
+                    item.description
+                ].filter(Boolean).join(" | ");
+                return {
+                    value: primaryValue,
+                    title,
+                    meta,
+                    searchText: [item.accountName, item.location, item.sku, item.upc, item.description].filter(Boolean).join(" | "),
+                    accountName: item.accountName,
+                    item
+                };
+            }), normalizedQuery);
         }
 
         function getItemSuggestions(query, accountName = "", { preferUpc = false } = {}) {
@@ -3861,7 +4053,134 @@
                 .sort((a, b) => a.value.localeCompare(b.value) || a.label.localeCompare(b.label))
                 .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
                 .join("");
+            renderActionSkuDatalists();
             refreshMobileAutocomplete();
+        }
+
+        function renderActionSkuDatalists() {
+            const renderLocationOptions = (entries) => entries
+                .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.meta || "")}</option>`)
+                .join("");
+            const renderOptions = (items) => items
+                .map((item) => {
+                    const label = [
+                        formatTrackedQuantity(item.quantity, item.trackingLevel || "UNIT"),
+                        item.upc ? `UPC ${item.upc}` : "",
+                        item.description
+                    ].filter(Boolean).join(" | ");
+                    return `<option value="${attr(item.sku)}">${esc(label)}</option>`;
+                })
+                .join("");
+
+            const adjustLocations = getOwnerScopedLocationOptions(ui.adjustAccount?.value || "", { mode: "source" });
+            const transferFromLocations = getOwnerScopedLocationOptions(ui.transferAccount?.value || "", { mode: "source" });
+            const transferToLocations = getOwnerScopedLocationOptions(ui.transferAccount?.value || "", {
+                mode: "destination",
+                excludeLocation: ui.transferFrom?.value || ""
+            });
+            const moveFromLocations = getOwnerScopedLocationOptions(ui.moveAccount?.value || "", { mode: "source" });
+            const moveToLocations = getOwnerScopedLocationOptions(ui.moveAccount?.value || "", {
+                mode: "destination",
+                excludeLocation: ui.moveFrom?.value || ""
+            });
+
+            const adjustItems = getLocationInventoryItems(ui.adjustAccount?.value || "", ui.adjustLocation?.value || "");
+            const transferItems = getLocationInventoryItems(ui.transferAccount?.value || "", ui.transferFrom?.value || "");
+
+            if (ui.adjustLocationList) ui.adjustLocationList.innerHTML = renderLocationOptions(adjustLocations);
+            if (ui.transferFromList) ui.transferFromList.innerHTML = renderLocationOptions(transferFromLocations);
+            if (ui.transferToList) ui.transferToList.innerHTML = renderLocationOptions(transferToLocations);
+            if (ui.moveFromList) ui.moveFromList.innerHTML = renderLocationOptions(moveFromLocations);
+            if (ui.moveToList) ui.moveToList.innerHTML = renderLocationOptions(moveToLocations);
+            if (ui.adjustSkuList) ui.adjustSkuList.innerHTML = renderOptions(adjustItems);
+            if (ui.transferSkuList) ui.transferSkuList.innerHTML = renderOptions(transferItems);
+
+            const syncLocationField = (input, locations, waitingText, readyText) => {
+                if (!input) return;
+                const currentValue = norm(input.value);
+                const scopeReady = input === ui.adjustLocation
+                    ? !!norm(ui.adjustAccount?.value)
+                    : input === ui.transferFrom
+                        ? !!norm(ui.transferAccount?.value)
+                        : input === ui.transferTo
+                            ? !!norm(ui.transferAccount?.value) && !!norm(ui.transferFrom?.value)
+                            : input === ui.moveFrom
+                                ? !!norm(ui.moveAccount?.value)
+                                : !!norm(ui.moveAccount?.value) && !!norm(ui.moveFrom?.value);
+
+                input.disabled = !scopeReady;
+                input.placeholder = scopeReady
+                    ? (locations.length ? readyText : "No valid locations available")
+                    : waitingText;
+
+                if (currentValue && !locations.some((entry) => entry.value === currentValue)) {
+                    input.value = "";
+                }
+            };
+
+            const syncField = (input, items, waitingText, readyText) => {
+                if (!input) return;
+                const isReady = items.length > 0;
+                const scopeReady = input === ui.transferSku
+                    ? !!norm(ui.transferAccount?.value) && !!norm(ui.transferFrom?.value)
+                    : !!norm(ui.adjustAccount?.value) && !!norm(ui.adjustLocation?.value);
+
+                input.disabled = !scopeReady;
+                input.placeholder = scopeReady
+                    ? (isReady ? readyText : "No matching SKUs in the selected location")
+                    : waitingText;
+
+                const currentValue = norm(input.value);
+                if (currentValue && !items.some((item) => item.sku === currentValue || item.upc === currentValue)) {
+                    input.value = "";
+                }
+            };
+
+            syncLocationField(ui.adjustLocation, adjustLocations, "Choose vendor/customer first", "Select a location for this vendor/customer");
+            syncLocationField(ui.transferFrom, transferFromLocations, "Choose vendor/customer first", "Select the source location");
+            syncLocationField(ui.transferTo, transferToLocations, "Choose vendor/customer and source location first", "Select a valid destination location");
+            syncLocationField(ui.moveFrom, moveFromLocations, "Choose vendor/customer first", "Select the source location");
+            syncLocationField(ui.moveTo, moveToLocations, "Choose vendor/customer and source location first", "Select a valid destination location");
+            syncField(ui.adjustSku, adjustItems, "Choose vendor/customer and location first", "Select a SKU from this location");
+            syncField(ui.transferSku, transferItems, "Choose vendor/customer and source location first", "Select a SKU from the source location");
+        }
+
+        function syncActionItemSelectors() {
+            renderActionSkuDatalists();
+            refreshMobileAutocomplete();
+        }
+
+        function findClientInventoryLine(accountName = "", location = "", skuOrUpc = "") {
+            const owner = norm(accountName);
+            const normalizedLocation = norm(location);
+            const itemCode = norm(skuOrUpc);
+            if (!owner || !normalizedLocation || !itemCode) return null;
+
+            const skuMatches = state.inventory.filter((line) =>
+                norm(line.accountName) === owner &&
+                norm(line.location) === normalizedLocation &&
+                norm(line.sku) === itemCode
+            );
+            if (skuMatches.length === 1) return skuMatches[0];
+
+            const upcMatches = state.inventory.filter((line) =>
+                norm(line.accountName) === owner &&
+                norm(line.location) === normalizedLocation &&
+                norm(line.upc) === itemCode
+            );
+            if (upcMatches.length > 1) return { duplicateUpc: true };
+            return upcMatches[0] || null;
+        }
+
+        function getForeignOwnersAtLocation(accountName = "", location = "") {
+            const owner = norm(accountName);
+            const normalizedLocation = norm(location);
+            if (!owner || !normalizedLocation) return [];
+            return [...new Set(
+                state.inventory
+                    .filter((line) => norm(line.location) === normalizedLocation && norm(line.accountName) && norm(line.accountName) !== owner)
+                    .map((line) => norm(line.accountName))
+            )].sort((a, b) => a.localeCompare(b));
         }
 
         function renderLocationLabelTool() {
@@ -4055,23 +4374,36 @@
                     <meta charset="UTF-8">
                     <title>Location Labels</title>
                     <style>
+                        * { box-sizing: border-box; }
                         html, body {
                             background: #fff;
                             margin: 0;
                             padding: 0;
+                            width: 6in;
+                            height: 4in;
+                            overflow: hidden;
                         }
-                        .labels { display: block; }
+                        .labels {
+                            display: block;
+                            width: 6in;
+                        }
                         .label-card {
-                            width: 100%;
+                            width: 6in;
+                            height: 4in;
                             break-inside: avoid;
                             page-break-inside: avoid;
+                            break-after: page;
                             page-break-after: always;
+                            overflow: hidden;
                         }
-                        .label-card:last-child { page-break-after: auto; }
+                        .label-card:last-child {
+                            break-after: auto;
+                            page-break-after: auto;
+                        }
                         .location-print-label {
-                            width: 5.84in;
-                            height: 3.84in;
-                            margin: 0.08in;
+                            width: 6in;
+                            height: 4in;
+                            margin: 0;
                             background: #fff;
                             overflow: hidden;
                             display: grid;
@@ -4127,7 +4459,7 @@
                             color: #374151;
                         }
                         @page {
-                            size: 6in 4in;
+                            size: 4in 6in landscape;
                             margin: 0;
                         }
                     </style>
@@ -5188,6 +5520,16 @@
             const skuOrUpc = norm(ui.adjustSku.value);
             const quantity = toPositiveInt(ui.adjustQuantity.value);
             if (!accountName || !location || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Enter vendor/customer, location, SKU or UPC, and a quantity to remove.", "error");
+            const matchingLine = findClientInventoryLine(accountName, location, skuOrUpc);
+            if (matchingLine?.duplicateUpc) {
+                return showMessage(ui.actionMessage, "Multiple items matched that UPC in the selected location. Use the SKU instead.", "error");
+            }
+            if (!matchingLine) {
+                return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected vendor/customer and location.", "error");
+            }
+            if (quantity > Number(matchingLine.quantity || 0)) {
+                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(Number(matchingLine.quantity || 0), matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} are available in that location.`, "error");
+            }
 
             try {
                 await requestJson("/api/remove-quantity", {
@@ -5207,6 +5549,13 @@
             const location = norm(ui.adjustLocation.value);
             const skuOrUpc = norm(ui.adjustSku.value);
             if (!accountName || !location || !skuOrUpc) return showMessage(ui.actionMessage, "Enter vendor/customer, location, and SKU or UPC to delete the line.", "error");
+            const matchingLine = findClientInventoryLine(accountName, location, skuOrUpc);
+            if (matchingLine?.duplicateUpc) {
+                return showMessage(ui.actionMessage, "Multiple items matched that UPC in the selected location. Use the SKU instead.", "error");
+            }
+            if (!matchingLine) {
+                return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected vendor/customer and location.", "error");
+            }
 
             if (!window.confirm(`Delete ${accountName} / ${skuOrUpc} from ${location}?`)) return;
 
@@ -5232,6 +5581,20 @@
             const quantity = toPositiveInt(ui.transferQty.value);
             if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Fill in vendor/customer, from location, to location, SKU or UPC, and quantity.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
+            const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
+            if (matchingLine?.duplicateUpc) {
+                return showMessage(ui.actionMessage, "Multiple items matched that UPC in the source location. Use the SKU instead.", "error");
+            }
+            if (!matchingLine) {
+                return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected source location for this vendor/customer.", "error");
+            }
+            if (quantity > Number(matchingLine.quantity || 0)) {
+                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(Number(matchingLine.quantity || 0), matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} are available in the source location.`, "error");
+            }
+            const conflictingOwners = getForeignOwnersAtLocation(accountName, to);
+            if (conflictingOwners.length) {
+                return showMessage(ui.actionMessage, `Cannot transfer into ${to} because it already contains another vendor/customer: ${conflictingOwners.join(", ")}.`, "error");
+            }
 
             try {
                 await requestJson("/api/transfer", {
@@ -5253,6 +5616,14 @@
             const to = norm(ui.moveTo.value);
             if (!accountName || !from || !to) return showMessage(ui.actionMessage, "Enter vendor/customer plus both the source and destination locations.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
+            const sourceLines = state.inventory.filter((line) => norm(line.accountName) === accountName && norm(line.location) === from);
+            if (!sourceLines.length) {
+                return showMessage(ui.actionMessage, "The selected source location does not have inventory for that vendor/customer.", "error");
+            }
+            const conflictingOwners = getForeignOwnersAtLocation(accountName, to);
+            if (conflictingOwners.length) {
+                return showMessage(ui.actionMessage, `Cannot move into ${to} because it already contains another vendor/customer: ${conflictingOwners.join(", ")}.`, "error");
+            }
 
             try {
                 await requestJson("/api/move-location", {
