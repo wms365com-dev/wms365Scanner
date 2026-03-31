@@ -98,7 +98,7 @@ app.post("/api/master-item", async (req, res, next) => {
                 `Saved item ${entry.accountName} / ${entry.sku}`,
                 [
                     entry.upc ? `UPC ${entry.upc}` : "",
-                    entry.trackingLevel === "PALLET" ? "Pallet tracking" : "Unit tracking",
+                    entry.trackingLevel === "PALLET" ? "Pallet tracking" : (entry.trackingLevel === "CASE" ? "Case tracking" : "Unit tracking"),
                     entry.description
                 ].filter(Boolean).join(" | ") || "Item master saved."
             );
@@ -1003,7 +1003,9 @@ function normalizeFreeText(value) {
 
 function normalizeTrackingLevel(value) {
     const normalized = normalizeText(value || "UNIT");
-    return normalized === "PALLET" || normalized === "PALLETS" ? "PALLET" : "UNIT";
+    if (normalized === "PALLET" || normalized === "PALLETS") return "PALLET";
+    if (normalized === "CASE" || normalized === "CASES") return "CASE";
+    return "UNIT";
 }
 
 function toPositiveInt(value) {
@@ -1045,12 +1047,13 @@ function formatCount(value, noun) {
 }
 
 function formatTrackedQuantity(value, trackingLevel) {
-    const noun = normalizeTrackingLevel(trackingLevel) === "PALLET" ? "pallet" : "unit";
+    const normalized = normalizeTrackingLevel(trackingLevel);
+    const noun = normalized === "PALLET" ? "pallet" : (normalized === "CASE" ? "case" : "unit");
     return `${formatNumber(value)} ${noun}${value === 1 ? "" : "s"}`;
 }
 
 function formatTrackedSummaryFromItems(items) {
-    const totals = { UNIT: 0, PALLET: 0 };
+    const totals = { UNIT: 0, CASE: 0, PALLET: 0 };
     items.forEach((item) => {
         totals[normalizeTrackingLevel(item.trackingLevel)] += Number(item.quantity) || 0;
     });
@@ -1058,7 +1061,7 @@ function formatTrackedSummaryFromItems(items) {
 }
 
 function formatTrackedSummaryFromRows(rows) {
-    const totals = { UNIT: 0, PALLET: 0 };
+    const totals = { UNIT: 0, CASE: 0, PALLET: 0 };
     rows.forEach((row) => {
         totals[normalizeTrackingLevel(row.tracking_level || row.trackingLevel)] += Number(row.quantity) || 0;
     });
@@ -1068,8 +1071,9 @@ function formatTrackedSummaryFromRows(rows) {
 function formatTrackedSummary(totals) {
     const parts = [];
     if (totals.UNIT) parts.push(formatTrackedQuantity(totals.UNIT, "UNIT"));
+    if (totals.CASE) parts.push(formatTrackedQuantity(totals.CASE, "CASE"));
     if (totals.PALLET) parts.push(formatTrackedQuantity(totals.PALLET, "PALLET"));
-    return parts.join(" | ") || "0 units";
+    return parts.join(" | ") || "0 qty";
 }
 
 function delay(ms) {

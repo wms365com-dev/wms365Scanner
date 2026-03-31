@@ -701,6 +701,7 @@
                             <span>Tracking</span>
                             <select id="scanTrackingLevel">
                                 <option value="UNIT">Units</option>
+                                <option value="CASE">Cases</option>
                                 <option value="PALLET">Pallets</option>
                             </select>
                         </label>
@@ -808,6 +809,7 @@
                                     <span>Tracking</span>
                                     <select id="masterItemTrackingLevel">
                                         <option value="UNIT">Units</option>
+                                        <option value="CASE">Cases</option>
                                         <option value="PALLET">Pallets</option>
                                     </select>
                                 </label>
@@ -1189,7 +1191,7 @@
                     <div class="summary-grid">
                         <div class="summary"><span>Reported Owners</span><strong id="reportOwnersCount">0</strong></div>
                         <div class="summary"><span>Pallet Locations</span><strong id="reportPalletLocationsCount">0</strong></div>
-                        <div class="summary"><span>Reported Units</span><strong id="reportUnitsCount">0</strong></div>
+                        <div class="summary"><span>Reported Qty</span><strong id="reportUnitsCount">0</strong></div>
                         <div class="summary"><span>Reported Pallets</span><strong id="reportPalletsCount">0</strong></div>
                     </div>
                     <p class="lead">Owner utilization shows pallet usage by vendor/customer. Location and item reports stay on the desktop side for deeper review.</p>
@@ -1214,7 +1216,7 @@
                                     <th>Locations</th>
                                     <th>Pallet Locations</th>
                                     <th>Total Pallets</th>
-                                    <th>Total Units</th>
+                                    <th>Units / Cases</th>
                                 </tr>
                             </thead>
                             <tbody id="ownerReportBody"></tbody>
@@ -1241,7 +1243,7 @@
                                     <th>Lines</th>
                                     <th>Pallets</th>
                                     <th>Unique SKUs</th>
-                                    <th>Total Units</th>
+                                    <th>Units / Cases</th>
                                 </tr>
                             </thead>
                             <tbody id="locationReportBody"></tbody>
@@ -1638,22 +1640,30 @@
 
         function updateScanTrackingUi(item = null) {
             const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value);
-            const isPallet = trackingLevel === "PALLET";
+            const directQuantity = trackingLevel !== "UNIT";
             const casePack = item?.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "";
             const eachDims = formatDimensions(item?.eachLength, item?.eachWidth, item?.eachHeight, "Each");
             const caseDims = formatDimensions(item?.caseLength, item?.caseWidth, item?.caseHeight, "Case");
 
-            ui.scanHelperTitle.textContent = isPallet ? "Pallet Qty Helper" : "Quick Qty Helper";
-            ui.scanHelperMeta.textContent = isPallet
-                ? [item?.description || "", "Enter pallet quantity directly.", eachDims, caseDims].filter(Boolean).join(" | ") || "Use quantity for pallet counts. Case math is disabled for pallet-tracked inventory."
+            ui.scanHelperTitle.textContent = trackingLevel === "PALLET"
+                ? "Pallet Qty Entry"
+                : (trackingLevel === "CASE" ? "Case Qty Entry" : "Quick Qty Helper");
+            ui.scanHelperMeta.textContent = directQuantity
+                ? [
+                    item?.description || "",
+                    trackingLevel === "CASE" ? "Enter case quantity directly." : "Enter pallet quantity directly.",
+                    casePack,
+                    eachDims,
+                    caseDims
+                ].filter(Boolean).join(" | ") || `Use quantity for ${trackingLabel(trackingLevel).toLowerCase()}. Case math is disabled for this tracking type.`
                 : [item?.description || "", casePack, eachDims, caseDims].filter(Boolean).join(" | ") || "Use case pack math for unit-tracked inventory.";
 
-            ui.scanUom.disabled = isPallet;
-            ui.scanCases.disabled = isPallet;
-            ui.scanUom.placeholder = isPallet ? "Not used" : "Optional";
-            ui.scanCases.placeholder = isPallet ? "Not used" : "Optional";
+            ui.scanUom.disabled = directQuantity;
+            ui.scanCases.disabled = directQuantity;
+            ui.scanUom.placeholder = directQuantity ? "Not used" : "Optional";
+            ui.scanCases.placeholder = directQuantity ? "Not used" : "Optional";
 
-            if (isPallet) {
+            if (directQuantity) {
                 ui.scanUom.value = "";
                 ui.scanCases.value = "";
             } else if (!ui.scanUom.value && item?.unitsPerCase) {
@@ -1684,7 +1694,7 @@
             if (!location) return fail(ui.scanMessage, "Please scan or enter a location.", ui.scanLocation);
             if (!sku) return fail(ui.scanMessage, "Please scan or enter a SKU.", ui.scanSku);
             if (!quantity) quantity = calculateQuantity(false);
-            if (!quantity) return fail(ui.scanMessage, "Enter a quantity, or use Units per Case and Cases to calculate one.", ui.scanQuantity);
+            if (!quantity) return fail(ui.scanMessage, "Enter a quantity. Unit-tracked items can also use Units per Case and Cases to calculate one.", ui.scanQuantity);
 
             state.preferences.lastAccount = accountName;
             state.preferences.lastLocation = location;
@@ -1717,8 +1727,9 @@
         }
 
         function calculateQuantity(announce) {
-            if (normalizeTrackingLevel(ui.scanTrackingLevel.value) === "PALLET") {
-                if (announce) showMessage(ui.scanMessage, "Pallet-tracked inventory uses the Quantity field directly.", "info");
+            const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value);
+            if (trackingLevel !== "UNIT") {
+                if (announce) showMessage(ui.scanMessage, `${trackingLabel(trackingLevel)} use the Quantity field directly.`, "info");
                 return toPositiveInt(ui.scanQuantity.value);
             }
             const uom = toPositiveInt(ui.scanUom.value);
@@ -2218,7 +2229,12 @@
             const ownerRows = getOwnerReportRows(filterText, ownerFilter);
             const locationRows = getLocationReportRows(filterText);
             const itemRows = getItemReportRows(filterText);
-            const totalUnits = ownerRows.reduce((sum, row) => sum + row.totalUnits, 0);
+            const overallTotals = ownerRows.reduce((totals, row) => {
+                totals.UNIT += row.unitCount;
+                totals.CASE += row.caseCount;
+                totals.PALLET += row.totalPallets;
+                return totals;
+            }, { UNIT: 0, CASE: 0, PALLET: 0 });
             const totalPallets = ownerRows.reduce((sum, row) => sum + row.totalPallets, 0);
             const palletLocations = new Set();
 
@@ -2228,7 +2244,7 @@
 
             ui.reportOwnersCount.textContent = num(ownerRows.length);
             ui.reportPalletLocationsCount.textContent = num(palletLocations.size);
-            ui.reportUnitsCount.textContent = num(totalUnits);
+            ui.reportUnitsCount.textContent = formatTrackedSummary(overallTotals);
             ui.reportPalletsCount.textContent = num(totalPallets);
 
             ui.ownerReportMeta.textContent = `${num(ownerRows.length)} row${ownerRows.length === 1 ? "" : "s"}`;
@@ -2245,7 +2261,7 @@
                         <td>${num(row.locationCount)}</td>
                         <td>${num(row.palletLocationCount)}</td>
                         <td>${num(row.totalPallets)}</td>
-                        <td>${num(row.totalUnits)}</td>
+                        <td>${esc(row.quantitySummary)}</td>
                     </tr>
                 `).join("");
             }
@@ -2266,7 +2282,7 @@
                         <td>${num(row.lineCount)}</td>
                         <td>${num(row.palletCount)}</td>
                         <td>${num(row.skuCount)}</td>
-                        <td>${num(row.totalUnits)}</td>
+                        <td>${esc(row.quantitySummary)}</td>
                     </tr>
                 `).join("");
             }
@@ -2297,13 +2313,14 @@
         async function exportOwnerReportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Owner", "Locations", "PalletLocations", "TotalPallets", "TotalUnits"]].concat(
+                const rows = [["Owner", "Locations", "PalletLocations", "TotalPallets", "TotalCases", "TotalUnits"]].concat(
                     getOwnerReportRows(ui.reportFilter.value, norm(ui.reportOwner.value)).map((row) => [
                         row.owner,
                         String(row.locationCount),
                         String(row.palletLocationCount),
                         String(row.totalPallets),
-                        String(row.totalUnits)
+                        String(row.caseCount),
+                        String(row.unitCount)
                     ])
                 );
                 downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-owner-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
@@ -2316,7 +2333,7 @@
         async function exportLocationReportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Owner", "Location", "Note", "Lines", "Pallets", "UniqueSkus", "TotalUnits"]].concat(
+                const rows = [["Owner", "Location", "Note", "Lines", "Pallets", "UniqueSkus", "TotalCases", "TotalUnits"]].concat(
                     getLocationReportRows(ui.reportFilter.value).map((row) => [
                         row.owner,
                         row.location,
@@ -2324,7 +2341,8 @@
                         String(row.lineCount),
                         String(row.palletCount),
                         String(row.skuCount),
-                        String(row.totalUnits)
+                        String(row.caseCount),
+                        String(row.unitCount)
                     ])
                 );
                 downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-location-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
@@ -2376,15 +2394,15 @@
                     <section>
                         <h2>Owner Utilization</h2>
                         ${reportTableMarkup(
-                            ["Owner", "Locations", "Pallet Locations", "Total Pallets", "Total Units"],
-                            ownerRows.map((row) => [row.owner, num(row.locationCount), num(row.palletLocationCount), num(row.totalPallets), num(row.totalUnits)])
+                            ["Owner", "Locations", "Pallet Locations", "Total Pallets", "Units / Cases"],
+                            ownerRows.map((row) => [row.owner, num(row.locationCount), num(row.palletLocationCount), num(row.totalPallets), row.quantitySummary])
                         )}
                     </section>
                     <section>
                         <h2>Location Report</h2>
                         ${reportTableMarkup(
-                            ["Owner", "Location", "Note", "Lines", "Pallets", "Unique SKUs", "Total Units"],
-                            locationRows.map((row) => [row.owner, row.location, row.note || "-", num(row.lineCount), num(row.palletCount), num(row.skuCount), num(row.totalUnits)])
+                            ["Owner", "Location", "Note", "Lines", "Pallets", "Unique SKUs", "Units / Cases"],
+                            locationRows.map((row) => [row.owner, row.location, row.note || "-", num(row.lineCount), num(row.palletCount), num(row.skuCount), row.quantitySummary])
                         )}
                     </section>
                     <section>
@@ -2414,12 +2432,14 @@
                     lineCount: 0,
                     skuSet: new Set(),
                     palletCount: 0,
-                    totalUnits: 0
+                    unitCount: 0,
+                    caseCount: 0
                 };
                 current.lineCount += 1;
                 current.skuSet.add(line.sku);
                 if (normalizeTrackingLevel(line.trackingLevel) === "PALLET") current.palletCount += line.quantity;
-                else current.totalUnits += line.quantity;
+                else if (normalizeTrackingLevel(line.trackingLevel) === "CASE") current.caseCount += line.quantity;
+                else current.unitCount += line.quantity;
                 grouped.set(key, current);
             });
 
@@ -2431,7 +2451,9 @@
                     lineCount: row.lineCount,
                     palletCount: row.palletCount,
                     skuCount: row.skuSet.size,
-                    totalUnits: row.totalUnits
+                    unitCount: row.unitCount,
+                    caseCount: row.caseCount,
+                    quantitySummary: row.unitCount || row.caseCount ? formatTrackedSummary({ UNIT: row.unitCount, CASE: row.caseCount, PALLET: 0 }) : "-"
                 }))
                 .sort((a, b) => a.owner.localeCompare(b.owner) || a.location.localeCompare(b.location));
         }
@@ -2490,14 +2512,17 @@
                     locationSet: new Set(),
                     palletLocations: new Set(),
                     totalPallets: 0,
-                    totalUnits: 0
+                    unitCount: 0,
+                    caseCount: 0
                 };
                 current.locationSet.add(line.location);
                 if (normalizeTrackingLevel(line.trackingLevel) === "PALLET") {
                     current.palletLocations.add(line.location);
                     current.totalPallets += line.quantity;
+                } else if (normalizeTrackingLevel(line.trackingLevel) === "CASE") {
+                    current.caseCount += line.quantity;
                 } else {
-                    current.totalUnits += line.quantity;
+                    current.unitCount += line.quantity;
                 }
                 grouped.set(line.accountName, current);
             });
@@ -2509,7 +2534,9 @@
                     palletLocationCount: row.palletLocations.size,
                     palletLocations: [...row.palletLocations],
                     totalPallets: row.totalPallets,
-                    totalUnits: row.totalUnits
+                    unitCount: row.unitCount,
+                    caseCount: row.caseCount,
+                    quantitySummary: row.unitCount || row.caseCount ? formatTrackedSummary({ UNIT: row.unitCount, CASE: row.caseCount, PALLET: 0 }) : "-"
                 }))
                 .sort((a, b) => a.owner.localeCompare(b.owner));
         }
@@ -2557,9 +2584,10 @@
             const found = groups.filter((group) => group.matches.length).length;
             const overallTotals = groups.reduce((totals, group) => {
                 totals.UNIT += group.totals.UNIT;
+                totals.CASE += group.totals.CASE;
                 totals.PALLET += group.totals.PALLET;
                 return totals;
-            }, { UNIT: 0, PALLET: 0 });
+            }, { UNIT: 0, CASE: 0, PALLET: 0 });
             ui.searchResultsContent.innerHTML = `
                 <div class="summary-grid">
                     <div class="summary"><span>Items Requested</span><strong>${num(groups.length)}</strong></div>
@@ -3172,15 +3200,21 @@
 
         function normalizeTrackingLevel(value) {
             const normalized = norm(value || "UNIT");
-            return normalized === "PALLET" || normalized === "PALLETS" ? "PALLET" : "UNIT";
+            if (normalized === "PALLET" || normalized === "PALLETS") return "PALLET";
+            if (normalized === "CASE" || normalized === "CASES") return "CASE";
+            return "UNIT";
         }
 
         function trackingLabel(value) {
-            return normalizeTrackingLevel(value) === "PALLET" ? "Pallets" : "Units";
+            const normalized = normalizeTrackingLevel(value);
+            if (normalized === "PALLET") return "Pallets";
+            if (normalized === "CASE") return "Cases";
+            return "Units";
         }
 
         function formatTrackedQuantity(value, trackingLevel) {
-            const noun = normalizeTrackingLevel(trackingLevel) === "PALLET" ? "pallet" : "unit";
+            const normalized = normalizeTrackingLevel(trackingLevel);
+            const noun = normalized === "PALLET" ? "pallet" : (normalized === "CASE" ? "case" : "unit");
             return `${num(value)} ${noun}${value === 1 ? "" : "s"}`;
         }
 
@@ -3188,14 +3222,15 @@
             return lines.reduce((totals, line) => {
                 totals[normalizeTrackingLevel(line?.trackingLevel)] += Number(line?.quantity) || 0;
                 return totals;
-            }, { UNIT: 0, PALLET: 0 });
+            }, { UNIT: 0, CASE: 0, PALLET: 0 });
         }
 
         function formatTrackedSummary(totals) {
             const parts = [];
             if (totals.UNIT) parts.push(formatTrackedQuantity(totals.UNIT, "UNIT"));
+            if (totals.CASE) parts.push(formatTrackedQuantity(totals.CASE, "CASE"));
             if (totals.PALLET) parts.push(formatTrackedQuantity(totals.PALLET, "PALLET"));
-            return parts.join(" | ") || "0 units";
+            return parts.join(" | ") || "0 qty";
         }
 
         function formatMeasure(value) {
