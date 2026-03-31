@@ -519,6 +519,48 @@
         .mobile-subview.active { display: block; }
         .mobile-drill-menu.active,
         .mobile-drill-card.active { display: block; }
+        .mobile-typeahead {
+            position: fixed;
+            z-index: 1000;
+            padding: 0.35rem;
+            border-radius: 18px;
+            border: 1px solid rgba(140, 177, 208, 0.35);
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 18px 40px rgba(5, 20, 36, 0.22);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+
+        .mobile-typeahead-item {
+            width: 100%;
+            display: grid;
+            gap: 0.18rem;
+            padding: 0.8rem 0.85rem;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--text);
+            text-align: left;
+        }
+
+        .mobile-typeahead-item + .mobile-typeahead-item {
+            margin-top: 0.18rem;
+        }
+
+        .mobile-typeahead-item:active,
+        .mobile-typeahead-item:focus-visible {
+            outline: none;
+            background: rgba(89, 183, 255, 0.12);
+        }
+
+        .mobile-typeahead-title {
+            font-weight: 700;
+        }
+
+        .mobile-typeahead-meta {
+            color: var(--muted);
+            font-size: 0.86rem;
+            line-height: 1.35;
+        }
 
         @media (min-width: 860px) {
             .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
@@ -583,6 +625,20 @@
             }
             .mobile-panel-head .btn {
                 width: 100%;
+            }
+            .mobile-typeahead {
+                border-radius: 12px;
+                box-shadow: 0 12px 24px rgba(17, 38, 57, 0.18);
+            }
+            .mobile-typeahead-item {
+                padding: 0.75rem;
+                border-radius: 10px;
+            }
+            .mobile-typeahead-title {
+                font-size: 0.98rem;
+            }
+            .mobile-typeahead-meta {
+                font-size: 0.8rem;
             }
             .form-grid { grid-template-columns: 1fr; }
             .span-2 { grid-column: auto; }
@@ -1483,6 +1539,7 @@
     <datalist id="locationList"></datalist>
     <datalist id="ownerList"></datalist>
     <datalist id="skuList"></datalist>
+    <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="listbox" aria-label="Mobile suggestions"></div>
     <script>
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
         const state = loadState();
@@ -1496,6 +1553,13 @@
         let editingMasterItem = null;
         let syncTimer = null;
         const mobileQuery = window.matchMedia("(max-width: 640px)");
+        const mobileAutocompleteConfigs = new Map();
+        const mobileAutocompleteState = {
+            input: null,
+            config: null,
+            options: [],
+            hideTimer: null
+        };
 
         const ui = {
             tabs: [...document.querySelectorAll(".tab")],
@@ -1632,6 +1696,7 @@
             locationList: document.getElementById("locationList"),
             ownerList: document.getElementById("ownerList"),
             skuList: document.getElementById("skuList"),
+            mobileAutocomplete: document.getElementById("mobileAutocomplete"),
             statUnits: document.getElementById("statUnits"),
             statLines: document.getElementById("statLines"),
             statLocations: document.getElementById("statLocations"),
@@ -1784,9 +1849,11 @@
             }, 30000);
             window.addEventListener("focus", () => syncServerState(true).catch(() => {}));
             mobileQuery.addEventListener("change", handleViewportChange);
+            initMobileAutocomplete();
         }
 
         function setSection(section) {
+            hideMobileAutocomplete();
             if (!isMobileView() && section === "mobile-home") {
                 section = "scan";
             }
@@ -1809,6 +1876,7 @@
         }
 
         function handleViewportChange(event) {
+            hideMobileAutocomplete();
             if (!event.matches && activeSection === "mobile-home") {
                 setSection("scan");
             }
@@ -1830,9 +1898,11 @@
             ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
             ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
             ui.singleSearchInput.setAttribute("list", mode === "sku" ? "skuList" : "locationList");
+            refreshMobileAutocomplete();
         }
 
         function setMobileSubview(group, view) {
+            hideMobileAutocomplete();
             if (group === "search") activeSearchSubview = view;
             if (group === "actions") activeActionSubview = view;
 
@@ -1895,6 +1965,364 @@
                 if (activeActionSubview === "menu") setSection("mobile-home");
                 else setMobileSubview("actions", "menu");
             }
+        }
+
+        function initMobileAutocomplete() {
+            if (!ui.mobileAutocomplete) return;
+
+            registerMobileAutocomplete(ui.scanAccount, {
+                getSuggestions: (query) => getOwnerSuggestions(query),
+                onSelect: (option) => {
+                    ui.scanAccount.value = option.value;
+                    state.preferences.lastAccount = option.value;
+                    saveState();
+                    syncScanFieldsFromCatalog();
+                    if (!(ui.scanLocation.value || "").trim()) ui.scanLocation.focus();
+                    else if (!(ui.scanSku.value || "").trim() && !(ui.scanUpc.value || "").trim()) ui.scanUpc.focus();
+                    return false;
+                }
+            });
+            registerMobileAutocomplete(ui.scanLocation, {
+                getSuggestions: (query) => getLocationSuggestions(query),
+                onSelect: (option) => {
+                    ui.scanLocation.value = option.value;
+                    state.preferences.lastLocation = option.value;
+                    saveState();
+                    if (!(ui.scanAccount.value || "").trim()) ui.scanAccount.focus();
+                    else ui.scanUpc.focus();
+                    return false;
+                }
+            });
+            registerMobileAutocomplete(ui.scanUpc, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.scanAccount.value, { preferUpc: true }),
+                onSelect: (option) => {
+                    applyMobileScanItem(option);
+                    return false;
+                }
+            });
+            registerMobileAutocomplete(ui.scanSku, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.scanAccount.value, { preferUpc: false }),
+                onSelect: (option) => {
+                    applyMobileScanItem(option);
+                    return false;
+                }
+            });
+            registerMobileAutocomplete(ui.searchAccount, {
+                getSuggestions: (query) => getOwnerSuggestions(query)
+            });
+            registerMobileAutocomplete(ui.singleSearchInput, {
+                getSuggestions: (query, input) => input.getAttribute("list") === "locationList"
+                    ? getLocationSuggestions(query)
+                    : getItemSuggestions(query, ui.searchAccount.value, { preferUpc: looksNumeric(query) }),
+                onSelect: (option, input) => {
+                    if (input.getAttribute("list") === "locationList") return true;
+                    if (!norm(ui.searchAccount.value) && option.accountName) {
+                        ui.searchAccount.value = option.accountName;
+                    }
+                    return true;
+                }
+            });
+            [
+                ui.adjustAccount,
+                ui.transferAccount,
+                ui.moveAccount,
+                ui.reportOwner
+            ].forEach((input) => registerMobileAutocomplete(input, {
+                getSuggestions: (query) => getOwnerSuggestions(query)
+            }));
+            [
+                ui.adjustLocation,
+                ui.transferFrom,
+                ui.transferTo,
+                ui.moveFrom,
+                ui.moveTo
+            ].forEach((input) => registerMobileAutocomplete(input, {
+                getSuggestions: (query) => getLocationSuggestions(query)
+            }));
+            registerMobileAutocomplete(ui.adjustSku, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.adjustAccount.value, { preferUpc: looksNumeric(query) }),
+                onSelect: (option) => {
+                    if (!norm(ui.adjustAccount.value) && option.accountName) ui.adjustAccount.value = option.accountName;
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.transferSku, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.transferAccount.value, { preferUpc: looksNumeric(query) }),
+                onSelect: (option) => {
+                    if (!norm(ui.transferAccount.value) && option.accountName) ui.transferAccount.value = option.accountName;
+                    return true;
+                }
+            });
+
+            ui.mobileAutocomplete.addEventListener("pointerdown", (event) => {
+                if (event.target.closest("[data-mobile-autocomplete-index]")) {
+                    event.preventDefault();
+                }
+            });
+            ui.mobileAutocomplete.addEventListener("click", onMobileAutocompleteClick);
+            document.addEventListener("pointerdown", (event) => {
+                if (!mobileAutocompleteState.input) return;
+                if (event.target.closest("#mobileAutocomplete")) return;
+                if (event.target === mobileAutocompleteState.input) return;
+                hideMobileAutocomplete();
+            });
+            document.addEventListener("scroll", refreshMobileAutocompletePosition, true);
+            window.addEventListener("resize", refreshMobileAutocompletePosition);
+        }
+
+        function registerMobileAutocomplete(input, config) {
+            if (!input) return;
+            mobileAutocompleteConfigs.set(input.id, { ...config, input });
+            ["input", "focus", "click"].forEach((eventName) => input.addEventListener(eventName, () => refreshMobileAutocomplete(input)));
+            input.addEventListener("blur", scheduleHideMobileAutocomplete);
+        }
+
+        function refreshMobileAutocomplete(input = mobileAutocompleteState.input) {
+            clearMobileAutocompleteHideTimer();
+            if (!isMobileView()) return hideMobileAutocomplete();
+            if (!input) return hideMobileAutocomplete();
+            const config = mobileAutocompleteConfigs.get(input.id);
+            if (!config || !document.body.contains(input) || input.offsetParent === null) return hideMobileAutocomplete();
+
+            const query = norm(input.value);
+            const options = (config.getSuggestions ? config.getSuggestions(query, input) : []).slice(0, 8);
+            if (!options.length) return hideMobileAutocomplete();
+
+            mobileAutocompleteState.input = input;
+            mobileAutocompleteState.config = config;
+            mobileAutocompleteState.options = options;
+            ui.mobileAutocomplete.innerHTML = options.map((option, index) => `
+                <button class="mobile-typeahead-item" type="button" data-mobile-autocomplete-index="${index}">
+                    <span class="mobile-typeahead-title">${esc(option.title || option.value)}</span>
+                    ${option.meta ? `<span class="mobile-typeahead-meta">${esc(option.meta)}</span>` : ""}
+                </button>
+            `).join("");
+            ui.mobileAutocomplete.classList.remove("hidden");
+            refreshMobileAutocompletePosition();
+        }
+
+        function refreshMobileAutocompletePosition() {
+            if (!ui.mobileAutocomplete || ui.mobileAutocomplete.classList.contains("hidden")) return;
+            if (!isMobileView()) return hideMobileAutocomplete();
+            const input = mobileAutocompleteState.input;
+            if (!input || input.offsetParent === null) return hideMobileAutocomplete();
+
+            const rect = input.getBoundingClientRect();
+            const viewportPadding = 8;
+            const width = Math.min(rect.width, window.innerWidth - (viewportPadding * 2));
+            const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+            const roomBelow = window.innerHeight - rect.bottom - viewportPadding - 6;
+            const roomAbove = rect.top - viewportPadding - 6;
+
+            let maxHeight = Math.min(280, Math.max(roomBelow, roomAbove));
+            let top = rect.bottom + 6;
+            if (roomBelow < 140 && roomAbove > roomBelow) {
+                maxHeight = Math.min(280, roomAbove);
+                top = Math.max(viewportPadding, rect.top - maxHeight - 6);
+            } else {
+                maxHeight = Math.min(280, roomBelow);
+                top = Math.min(window.innerHeight - maxHeight - viewportPadding, rect.bottom + 6);
+            }
+
+            if (maxHeight < 96) return hideMobileAutocomplete();
+
+            ui.mobileAutocomplete.style.left = `${left}px`;
+            ui.mobileAutocomplete.style.top = `${Math.max(viewportPadding, top)}px`;
+            ui.mobileAutocomplete.style.width = `${width}px`;
+            ui.mobileAutocomplete.style.maxHeight = `${maxHeight}px`;
+        }
+
+        function scheduleHideMobileAutocomplete() {
+            clearMobileAutocompleteHideTimer();
+            mobileAutocompleteState.hideTimer = window.setTimeout(() => {
+                hideMobileAutocomplete();
+            }, 140);
+        }
+
+        function clearMobileAutocompleteHideTimer() {
+            if (mobileAutocompleteState.hideTimer) {
+                window.clearTimeout(mobileAutocompleteState.hideTimer);
+                mobileAutocompleteState.hideTimer = null;
+            }
+        }
+
+        function hideMobileAutocomplete() {
+            clearMobileAutocompleteHideTimer();
+            mobileAutocompleteState.input = null;
+            mobileAutocompleteState.config = null;
+            mobileAutocompleteState.options = [];
+            if (!ui.mobileAutocomplete) return;
+            ui.mobileAutocomplete.classList.add("hidden");
+            ui.mobileAutocomplete.innerHTML = "";
+        }
+
+        function onMobileAutocompleteClick(event) {
+            const optionButton = event.target.closest("[data-mobile-autocomplete-index]");
+            if (!optionButton) return;
+            const option = mobileAutocompleteState.options[Number(optionButton.dataset.mobileAutocompleteIndex)];
+            const input = mobileAutocompleteState.input;
+            const config = mobileAutocompleteState.config;
+            if (!option || !input || !config) return;
+
+            input.value = option.value;
+            hideMobileAutocomplete();
+            const shouldDispatch = typeof config.onSelect === "function" ? config.onSelect(option, input, config) : true;
+            if (shouldDispatch) {
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+        }
+
+        function applyMobileScanItem(option) {
+            const record = option?.item;
+            if (!record) return;
+            if (record.itemId) {
+                fillScanFromMasterItem(record.itemId, { silent: true });
+                return;
+            }
+            ui.scanAccount.value = record.accountName || ui.scanAccount.value;
+            state.preferences.lastAccount = ui.scanAccount.value;
+            saveState();
+            ui.scanSku.value = record.sku || ui.scanSku.value;
+            ui.scanUpc.value = record.upc || ui.scanUpc.value;
+            ui.scanDescription.value = record.description || ui.scanDescription.value;
+            updateScanTrackingUi(record.item || null);
+            ui.scanQuantity.focus();
+        }
+
+        function getOwnerSuggestions(query) {
+            const ownerMap = new Map();
+            (state.masters.ownerRecords || []).forEach((owner) => {
+                ownerMap.set(owner.name, {
+                    value: owner.name,
+                    title: owner.name,
+                    meta: owner.note || "",
+                    searchText: [owner.name, owner.note || ""].filter(Boolean).join(" | ")
+                });
+            });
+            getOwnerOptions().forEach((owner) => {
+                if (!ownerMap.has(owner)) {
+                    ownerMap.set(owner, {
+                        value: owner,
+                        title: owner,
+                        meta: "",
+                        searchText: owner
+                    });
+                }
+            });
+            return rankMobileAutocompleteOptions([...ownerMap.values()], query);
+        }
+
+        function getLocationSuggestions(query) {
+            const locationMap = new Map();
+            const addLocation = (code, note = "") => {
+                const normalized = norm(code);
+                if (!normalized || locationMap.has(normalized)) return;
+                locationMap.set(normalized, {
+                    value: normalized,
+                    title: normalized,
+                    meta: note,
+                    searchText: [normalized, note].filter(Boolean).join(" | ")
+                });
+            };
+
+            state.masters.locations.forEach((location) => addLocation(location.code, location.note || ""));
+            state.inventory.forEach((line) => addLocation(line.location));
+            state.batch.forEach((line) => addLocation(line.location));
+            return rankMobileAutocompleteOptions([...locationMap.values()], query);
+        }
+
+        function getItemSuggestions(query, accountName = "", { preferUpc = false } = {}) {
+            const owner = norm(accountName);
+            const items = getMobileItemSuggestionPool().filter((item) => !owner || item.accountName === owner);
+            const normalizedQuery = norm(query);
+
+            return rankMobileAutocompleteOptions(items.map((item) => {
+                const useUpc = !!item.upc && (preferUpc || (normalizedQuery && item.upc.includes(normalizedQuery) && !item.sku.includes(normalizedQuery)));
+                const primaryValue = useUpc ? item.upc : item.sku;
+                const title = useUpc && item.sku ? `${item.upc} (${item.sku})` : primaryValue;
+                const meta = [
+                    item.accountName,
+                    useUpc && item.sku ? `SKU ${item.sku}` : item.upc ? `UPC ${item.upc}` : "",
+                    item.description
+                ].filter(Boolean).join(" | ");
+                return {
+                    value: primaryValue,
+                    title,
+                    meta,
+                    searchText: [item.accountName, item.sku, item.upc, item.description].filter(Boolean).join(" | "),
+                    accountName: item.accountName,
+                    itemId: item.itemId,
+                    item
+                };
+            }), normalizedQuery);
+        }
+
+        function getMobileItemSuggestionPool() {
+            const itemMap = new Map();
+            const addItem = (item, isMaster = false) => {
+                const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer || "");
+                const sku = norm(item?.sku);
+                if (!accountName || !sku) return;
+                const key = `${accountName}::${sku}`;
+                const existing = itemMap.get(key) || {
+                    accountName,
+                    sku,
+                    upc: "",
+                    description: "",
+                    itemId: "",
+                    item: null
+                };
+                itemMap.set(key, {
+                    accountName,
+                    sku,
+                    upc: existing.upc || norm(item?.upc || ""),
+                    description: existing.description || String(item?.description || "").trim().replace(/\s+/g, " "),
+                    itemId: existing.itemId || (isMaster && typeof item?.id === "string" ? item.id : ""),
+                    item: existing.item || (isMaster ? item : null)
+                });
+            };
+
+            state.masters.items.forEach((item) => addItem(item, true));
+            state.inventory.forEach((line) => addItem(line, false));
+            state.batch.forEach((line) => addItem(line, false));
+            return [...itemMap.values()];
+        }
+
+        function rankMobileAutocompleteOptions(options, query) {
+            const normalizedQuery = norm(query);
+            return options
+                .map((option) => ({ option, score: scoreMobileAutocompleteOption(option, normalizedQuery) }))
+                .filter((entry) => entry.score > 0)
+                .sort((a, b) => b.score - a.score || a.option.value.localeCompare(b.option.value) || (a.option.meta || "").localeCompare(b.option.meta || ""))
+                .map((entry) => entry.option);
+        }
+
+        function scoreMobileAutocompleteOption(option, query) {
+            const value = norm(option.value);
+            const title = norm(option.title || option.value);
+            const meta = norm(option.meta || "");
+            const searchText = norm(option.searchText || `${option.value} ${option.meta || ""}`);
+
+            if (!query) {
+                return value ? 1 : 0;
+            }
+
+            let score = 0;
+            if (value === query) score += 1200;
+            if (title === query) score += 1100;
+            if (value.startsWith(query)) score += 700;
+            if (title.startsWith(query)) score += 650;
+            if (searchText.startsWith(query)) score += 500;
+            if (value.includes(query)) score += 320;
+            if (title.includes(query)) score += 280;
+            if (meta.startsWith(query)) score += 180;
+            if (meta.includes(query)) score += 120;
+            if (searchText.includes(query)) score += 80;
+            return score;
+        }
+
+        function looksNumeric(value) {
+            return /^\d+$/.test(String(value || "").trim());
         }
 
         function scanEnterFlow(event) {
@@ -2266,6 +2694,7 @@
                 .sort((a, b) => a.value.localeCompare(b.value) || a.label.localeCompare(b.label))
                 .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
                 .join("");
+            refreshMobileAutocomplete();
         }
 
         async function saveMasterOwner(event) {
@@ -2712,7 +3141,8 @@
             showMessage(ui.catalogMessage, `Loaded BIN ${normalized} into the scan form.`, "info");
         }
 
-        function fillScanFromMasterItem(code) {
+        function fillScanFromMasterItem(code, options = {}) {
+            const silent = !!options.silent;
             const item = state.masters.items.find((entry) => entry.id === code) || findMasterItemByCode(code, ui.scanAccount.value);
             if (!item) return;
             ui.scanAccount.value = item.accountName;
@@ -2733,7 +3163,9 @@
                 defaultMeta: "Compressed photo preview"
             });
             ui.scanQuantity.focus();
-            showMessage(ui.catalogMessage, `Loaded item ${item.accountName} / ${item.sku} into the scan form.`, "info");
+            if (!silent) {
+                showMessage(ui.catalogMessage, `Loaded item ${item.accountName} / ${item.sku} into the scan form.`, "info");
+            }
         }
 
         function syncScanFieldsFromCatalog() {
