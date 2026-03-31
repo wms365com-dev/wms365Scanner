@@ -2066,11 +2066,11 @@
                         </label>
                         <label class="field">
                             <span>UPC (Optional)</span>
-                            <input id="scanUpc" list="skuList" type="text" placeholder="Scan UPC" enterkeyhint="next">
+                            <input id="scanUpc" list="scanUpcList" type="text" placeholder="Scan UPC" enterkeyhint="next">
                         </label>
                         <label class="field">
                             <span>SKU</span>
-                            <input id="scanSku" list="skuList" type="text" placeholder="Scan or enter SKU" enterkeyhint="next">
+                            <input id="scanSku" list="scanSkuList" type="text" placeholder="Scan or enter SKU" enterkeyhint="next">
                         </label>
                         <label class="field">
                             <span>Quantity</span>
@@ -2917,6 +2917,8 @@
 
     <datalist id="locationList"></datalist>
     <datalist id="ownerList"></datalist>
+    <datalist id="scanUpcList"></datalist>
+    <datalist id="scanSkuList"></datalist>
     <datalist id="skuList"></datalist>
     <datalist id="adjustLocationList"></datalist>
     <datalist id="transferFromList"></datalist>
@@ -3128,6 +3130,8 @@
             clearLabelsBtn: document.getElementById("clearLabelsBtn"),
             locationList: document.getElementById("locationList"),
             ownerList: document.getElementById("ownerList"),
+            scanUpcList: document.getElementById("scanUpcList"),
+            scanSkuList: document.getElementById("scanSkuList"),
             skuList: document.getElementById("skuList"),
             adjustLocationList: document.getElementById("adjustLocationList"),
             transferFromList: document.getElementById("transferFromList"),
@@ -3314,6 +3318,7 @@
             setMobileSubview("search", isMobileView() ? "menu" : "single");
             setMobileSubview("actions", isMobileView() ? "menu" : "adjust");
             updateScanTrackingUi();
+            syncScanItemSelectors();
             renderAll();
             setSection(isMobileView() ? "mobile-home" : "scan");
             syncServerState(false).catch(() => {});
@@ -3600,14 +3605,26 @@
                 }
             });
             registerMobileAutocomplete(ui.scanUpc, {
-                getSuggestions: (query) => getItemSuggestions(query, ui.scanAccount.value, { preferUpc: true }),
+                getSuggestions: (query) => norm(ui.scanAccount.value)
+                    ? getItemSuggestions(query, ui.scanAccount.value, { preferUpc: true })
+                    : [],
+                allowCustom: () => !!norm(ui.scanAccount.value),
+                getEmptyState: () => norm(ui.scanAccount.value)
+                    ? "No UPCs are saved for this vendor / customer yet."
+                    : "Choose vendor / customer first. Then the UPC wheel will only show that owner's items.",
                 onSelect: (option) => {
                     applyMobileScanItem(option);
                     return false;
                 }
             });
             registerMobileAutocomplete(ui.scanSku, {
-                getSuggestions: (query) => getItemSuggestions(query, ui.scanAccount.value, { preferUpc: false }),
+                getSuggestions: (query) => norm(ui.scanAccount.value)
+                    ? getItemSuggestions(query, ui.scanAccount.value, { preferUpc: false })
+                    : [],
+                allowCustom: () => !!norm(ui.scanAccount.value),
+                getEmptyState: () => norm(ui.scanAccount.value)
+                    ? "No SKUs are saved for this vendor / customer yet."
+                    : "Choose vendor / customer first. Then the SKU wheel will only show that owner's items.",
                 onSelect: (option) => {
                     applyMobileScanItem(option);
                     return false;
@@ -3766,8 +3783,13 @@
 
         function buildTypedMobileAutocompleteOption() {
             const rawValue = String(ui.mobilePickerSearchInput?.value || mobileAutocompleteState.query || "").trim();
-            if (!rawValue) return null;
             const input = mobileAutocompleteState.input;
+            const config = mobileAutocompleteState.config;
+            const allowCustom = typeof config?.allowCustom === "function"
+                ? !!config.allowCustom(input, config)
+                : config?.allowCustom !== false;
+            if (!allowCustom) return null;
+            if (!rawValue) return null;
             const label = input ? getMobilePickerTitle(input).replace(/^Choose\s+/i, "") : "value";
             return {
                 value: rawValue,
@@ -3878,9 +3900,12 @@
             );
 
             if (!options.length) {
+                const emptyMessage = typeof config.getEmptyState === "function"
+                    ? String(config.getEmptyState(input, normalizedQuery) || "").trim()
+                    : "";
                 ui.mobilePickerOptions.innerHTML = `
                     <div class="mobile-picker-empty">
-                        Scroll is ready once saved values exist. You can also type a new value above and tap Done.
+                        ${esc(emptyMessage || "Scroll is ready once saved values exist. You can also type a new value above and tap Done.")}
                     </div>
                 `;
                 updateMobilePickerSelected(buildTypedMobileAutocompleteOption());
@@ -4522,6 +4547,7 @@
             renderInventory(ui.inventoryFilter.value);
             renderReports(ui.reportFilter.value);
             renderSummary();
+            syncScanItemSelectors();
         }
 
         function renderBatch() {
@@ -4718,6 +4744,67 @@
         function syncActionItemSelectors() {
             renderActionSkuDatalists();
             refreshMobileAutocomplete();
+        }
+
+        function clearScanCatalogFields() {
+            ui.scanSku.value = "";
+            ui.scanUpc.value = "";
+            ui.scanDescription.value = "";
+            ui.scanImageUrl.value = "";
+            ui.scanTrackingLevel.value = "UNIT";
+            refreshImagePreview({
+                urlInput: ui.scanImageUrl,
+                previewWrap: ui.scanImagePreviewWrap,
+                previewImg: ui.scanImagePreview,
+                previewMeta: ui.scanImagePreviewMeta,
+                clearBtn: ui.scanImageClearBtn,
+                defaultMeta: "Compressed photo preview"
+            });
+            updateScanTrackingUi();
+        }
+
+        function syncScanItemSelectors() {
+            const owner = norm(ui.scanAccount.value);
+            const ownerItems = owner ? getMobileItemSuggestionPool().filter((item) => item.accountName === owner) : [];
+            const skuCode = norm(ui.scanSku.value);
+            const upcCode = norm(ui.scanUpc.value);
+            const hasValidCurrentItem = !owner
+                || (!skuCode && !upcCode)
+                || ownerItems.some((item) => item.sku === skuCode || (!!upcCode && item.upc === upcCode));
+
+            ui.scanSku.disabled = !owner;
+            ui.scanUpc.disabled = !owner;
+            ui.scanSku.placeholder = owner
+                ? (ownerItems.length ? "Select a SKU for this vendor / customer" : "No saved SKUs for this vendor / customer")
+                : "Choose vendor / customer first";
+            ui.scanUpc.placeholder = owner
+                ? (ownerItems.some((item) => !!item.upc) ? "Select a UPC for this vendor / customer" : "No saved UPCs for this vendor / customer")
+                : "Choose vendor / customer first";
+
+            if (ui.scanSkuList) {
+                ui.scanSkuList.innerHTML = ownerItems
+                    .sort((a, b) => a.sku.localeCompare(b.sku) || (a.upc || "").localeCompare(b.upc || ""))
+                    .map((item) => {
+                        const label = [item.upc ? `UPC ${item.upc}` : "", item.description].filter(Boolean).join(" | ");
+                        return `<option value="${attr(item.sku)}">${esc(label)}</option>`;
+                    })
+                    .join("");
+            }
+
+            if (ui.scanUpcList) {
+                ui.scanUpcList.innerHTML = ownerItems
+                    .filter((item) => !!item.upc)
+                    .sort((a, b) => (a.upc || "").localeCompare(b.upc || "") || a.sku.localeCompare(b.sku))
+                    .map((item) => {
+                        const label = [item.sku, item.description].filter(Boolean).join(" | ");
+                        return `<option value="${attr(item.upc)}">${esc(label)}</option>`;
+                    })
+                    .join("");
+            }
+
+            if (!hasValidCurrentItem) {
+                clearScanCatalogFields();
+            }
         }
 
         function findClientInventoryLine(accountName = "", location = "", skuOrUpc = "") {
@@ -5546,6 +5633,7 @@
             ui.scanAccount.value = item.accountName;
             state.preferences.lastAccount = item.accountName;
             saveState();
+            syncScanItemSelectors();
             ui.scanSku.value = item.sku;
             ui.scanUpc.value = item.upc || ui.scanUpc.value;
             ui.scanDescription.value = item.description || "";
@@ -5567,9 +5655,15 @@
         }
 
         function syncScanFieldsFromCatalog() {
+            syncScanItemSelectors();
             const accountName = norm(ui.scanAccount.value);
             const sku = norm(ui.scanSku.value);
             const upc = norm(ui.scanUpc.value);
+
+            if (!accountName) {
+                updateScanTrackingUi();
+                return null;
+            }
 
             if (upc) {
                 const upcMatches = findMasterItemsByCode(upc, accountName);
