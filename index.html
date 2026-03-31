@@ -770,6 +770,23 @@
 
                     <div class="library-grid">
                         <div class="helper">
+                            <h3>Add Vendor / Customer</h3>
+                            <form id="masterOwnerForm" class="form-grid" autocomplete="off">
+                                <label class="field">
+                                    <span>Name</span>
+                                    <input id="masterOwnerName" list="ownerList" type="text" placeholder="Required vendor / customer name" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Note</span>
+                                    <input id="masterOwnerNote" type="text" placeholder="Optional note for the team" enterkeyhint="done">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Vendor / Customer</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="helper">
                             <h3>Add BIN Location</h3>
                             <form id="masterLocationForm" class="form-grid" autocomplete="off">
                                 <label class="field">
@@ -859,6 +876,19 @@
                     <p class="lead">Excel upload/export uses CSV. Save your spreadsheet as CSV, then import it here with columns like <strong>BIN</strong> and <strong>NOTE</strong>.</p>
 
                     <div class="library-grid">
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved Vendors / Customers</h3>
+                                    <p class="meta">Tap Use to load the vendor / customer into the scan form faster.</p>
+                                </div>
+                                <span class="meta" id="masterOwnerCount">0 saved</span>
+                            </div>
+                            <div id="masterOwnerList" class="stack-list">
+                                <p class="empty">No vendors / customers saved yet. Add them here so they show up as autocomplete options.</p>
+                            </div>
+                        </div>
+
                         <div class="helper">
                             <div class="list-head">
                                 <div>
@@ -1353,6 +1383,8 @@
             scanUom: document.getElementById("scanUom"),
             scanCases: document.getElementById("scanCases"),
             scanMessage: document.getElementById("scanMessage"),
+            masterOwnerName: document.getElementById("masterOwnerName"),
+            masterOwnerNote: document.getElementById("masterOwnerNote"),
             masterLocationCode: document.getElementById("masterLocationCode"),
             masterLocationNote: document.getElementById("masterLocationNote"),
             masterItemAccount: document.getElementById("masterItemAccount"),
@@ -1368,8 +1400,10 @@
             masterItemCaseWidth: document.getElementById("masterItemCaseWidth"),
             masterItemCaseHeight: document.getElementById("masterItemCaseHeight"),
             masterFilter: document.getElementById("masterFilter"),
+            masterOwnerCount: document.getElementById("masterOwnerCount"),
             masterLocationCount: document.getElementById("masterLocationCount"),
             masterItemCount: document.getElementById("masterItemCount"),
+            masterOwnerList: document.getElementById("masterOwnerList"),
             masterLocationList: document.getElementById("masterLocationList"),
             masterItemList: document.getElementById("masterItemList"),
             catalogMessage: document.getElementById("catalogMessage"),
@@ -1458,6 +1492,7 @@
                 const target = button.dataset.mobileSubviewTarget;
                 if (group && target) setMobileSubview(group, target);
             }));
+            document.getElementById("masterOwnerForm").addEventListener("submit", saveMasterOwner);
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
             document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
@@ -1474,6 +1509,7 @@
             document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             ui.masterFilter.addEventListener("input", renderMasterLibrary);
+            ui.masterOwnerList.addEventListener("click", onMasterOwnerListClick);
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             document.getElementById("exportLocationCsvBtn").addEventListener("click", exportLocationCsv);
@@ -1916,8 +1952,13 @@
                 }
             });
 
-            const ownerSet = new Set();
-            getOwnerOptions().forEach((owner) => ownerSet.add(owner));
+            const ownerMap = new Map();
+            (state.masters.ownerRecords || []).forEach((owner) => {
+                ownerMap.set(owner.name, { value: owner.name, label: owner.note || "" });
+            });
+            getOwnerOptions().forEach((owner) => {
+                if (!ownerMap.has(owner)) ownerMap.set(owner, { value: owner, label: "" });
+            });
 
             const itemMap = new Map();
             state.masters.items.forEach((item) => {
@@ -1928,14 +1969,14 @@
                 }
             });
             state.inventory.forEach((line) => {
-                ownerSet.add(line.accountName);
+                if (!ownerMap.has(line.accountName)) ownerMap.set(line.accountName, { value: line.accountName, label: "" });
                 const skuKey = `SKU::${line.accountName}::${line.sku}`;
                 const upcKey = `UPC::${line.accountName}::${line.upc}`;
                 if (!itemMap.has(skuKey)) itemMap.set(skuKey, { value: line.sku, label: [line.accountName, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ") });
                 if (line.upc && !itemMap.has(upcKey)) itemMap.set(upcKey, { value: line.upc, label: `${line.accountName} | ${line.sku}` });
             });
             state.batch.forEach((line) => {
-                ownerSet.add(line.accountName);
+                if (!ownerMap.has(line.accountName)) ownerMap.set(line.accountName, { value: line.accountName, label: "" });
                 const skuKey = `SKU::${line.accountName}::${line.sku}`;
                 const upcKey = `UPC::${line.accountName}::${line.upc}`;
                 if (!itemMap.has(skuKey)) itemMap.set(skuKey, { value: line.sku, label: [line.accountName, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ") });
@@ -1946,14 +1987,38 @@
                 .sort((a, b) => a.value.localeCompare(b.value))
                 .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
                 .join("");
-            ui.ownerList.innerHTML = [...ownerSet]
-                .sort((a, b) => a.localeCompare(b))
-                .map((owner) => `<option value="${attr(owner)}"></option>`)
+            ui.ownerList.innerHTML = [...ownerMap.values()]
+                .sort((a, b) => a.value.localeCompare(b.value))
+                .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
                 .join("");
             ui.skuList.innerHTML = [...itemMap.values()]
                 .sort((a, b) => a.value.localeCompare(b.value) || a.label.localeCompare(b.label))
                 .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
                 .join("");
+        }
+
+        async function saveMasterOwner(event) {
+            event.preventDefault();
+            const name = norm(ui.masterOwnerName.value);
+            const note = String(ui.masterOwnerNote.value || "").trim().replace(/\s+/g, " ");
+            if (!name) return fail(ui.catalogMessage, "Enter a vendor / customer name to save.", ui.masterOwnerName);
+
+            try {
+                await requestJson("/api/master-owner", {
+                    method: "POST",
+                    body: JSON.stringify({ name, note })
+                });
+                state.preferences.lastAccount = name;
+                saveState();
+                await syncServerState(true);
+                ui.scanAccount.value = name;
+                ui.masterItemAccount.value = name;
+                showMessage(ui.catalogMessage, `Saved vendor / customer ${name} to the shared library.`, "success");
+                document.getElementById("masterOwnerForm").reset();
+                ui.masterOwnerName.focus();
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
         }
 
         async function saveMasterLocation(event) {
@@ -2025,6 +2090,9 @@
 
         function renderMasterLibrary() {
             const query = norm(ui.masterFilter.value);
+            const ownerMatches = [...state.masters.ownerRecords]
+                .filter((entry) => !query || entry.name.includes(query) || norm(entry.note).includes(query))
+                .sort((a, b) => a.name.localeCompare(b.name));
             const locationMatches = [...state.masters.locations]
                 .filter((entry) => !query || entry.code.includes(query) || norm(entry.note).includes(query))
                 .sort((a, b) => a.code.localeCompare(b.code));
@@ -2036,9 +2104,13 @@
                     || norm(item.description).includes(query))
                 .sort((a, b) => a.accountName.localeCompare(b.accountName) || a.sku.localeCompare(b.sku));
 
+            const visibleOwners = ownerMatches.slice(0, query ? 24 : 12);
             const visibleLocations = locationMatches.slice(0, query ? 24 : 12);
             const visibleItems = itemMatches.slice(0, query ? 24 : 12);
 
+            ui.masterOwnerCount.textContent = query
+                ? `${num(ownerMatches.length)} shown / ${num(state.masters.ownerRecords.length)} saved`
+                : `${num(state.masters.ownerRecords.length)} saved`;
             ui.masterLocationCount.textContent = query
                 ? `${num(locationMatches.length)} shown / ${num(state.masters.locations.length)} saved`
                 : `${num(state.masters.locations.length)} saved`;
@@ -2046,8 +2118,31 @@
                 ? `${num(itemMatches.length)} shown / ${num(state.masters.items.length)} saved`
                 : `${num(state.masters.items.length)} saved`;
 
+            ui.masterOwnerList.innerHTML = renderMasterOwnerRows(visibleOwners, ownerMatches.length, query);
             ui.masterLocationList.innerHTML = renderMasterLocationRows(visibleLocations, locationMatches.length, query);
             ui.masterItemList.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
+        }
+
+        function renderMasterOwnerRows(owners, totalMatches, query) {
+            if (!owners.length) {
+                return `<p class="empty">${query ? `No saved vendors / customers matched "${esc(query)}".` : "No vendors / customers saved yet. Add them here so they show up in autocomplete."}</p>`;
+            }
+
+            const rows = owners.map((entry) => `
+                <div class="quick-row">
+                    <div class="quick-main">
+                        <strong>${esc(entry.name)}</strong>
+                        <div class="quick-meta">${esc(entry.note || "Saved vendor / customer")}</div>
+                    </div>
+                    <button class="btn ghost mini" type="button" data-use-owner="${attr(entry.name)}">Use In Scan</button>
+                </div>
+            `).join("");
+
+            if (owners.length < totalMatches) {
+                return `${rows}<p class="meta">Showing the first ${num(owners.length)} of ${num(totalMatches)} vendors / customers. Narrow the filter to see more.</p>`;
+            }
+
+            return rows;
         }
 
         function renderMasterLocationRows(locations, totalMatches, query) {
@@ -2151,10 +2246,28 @@
             fillScanFromMasterLocation(button.dataset.useLocation);
         }
 
+        function onMasterOwnerListClick(event) {
+            const button = event.target.closest("[data-use-owner]");
+            if (!button) return;
+            fillScanFromOwner(button.dataset.useOwner);
+        }
+
         function onMasterItemListClick(event) {
             const button = event.target.closest("[data-use-item]");
             if (!button) return;
             fillScanFromMasterItem(button.dataset.useItem);
+        }
+
+        function fillScanFromOwner(name) {
+            const normalized = norm(name);
+            if (!normalized) return;
+            ui.scanAccount.value = normalized;
+            ui.masterItemAccount.value = normalized;
+            state.preferences.lastAccount = normalized;
+            saveState();
+            if ((ui.scanLocation.value || "").trim()) ui.scanSku.focus();
+            else ui.scanLocation.focus();
+            showMessage(ui.catalogMessage, `Loaded vendor / customer ${normalized} into the scan form.`, "info");
         }
 
         function fillScanFromMasterLocation(code) {
@@ -2983,6 +3096,7 @@
             state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
             state.masters.locations = Array.isArray(payload?.masters?.locations) ? payload.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [];
+            state.masters.ownerRecords = Array.isArray(payload?.masters?.ownerRecords) ? payload.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [];
             state.masters.items = Array.isArray(payload?.masters?.items) ? payload.masters.items.map(sanitizeMasterItem).filter(Boolean) : [];
             state.masters.owners = Array.isArray(payload?.masters?.owners)
                 ? payload.masters.owners.map((owner) => norm(owner)).filter(Boolean)
@@ -3023,7 +3137,7 @@
                 inventory: [],
                 batch: [],
                 activity: [],
-                masters: { locations: [], items: [], owners: [] },
+                masters: { locations: [], ownerRecords: [], items: [], owners: [] },
                 preferences: { lastLocation: "", lastAccount: "" },
                 meta: { version: 4, lastChangedAt: null, serverSyncedAt: null }
             };
@@ -3034,7 +3148,7 @@
                 inventory: [],
                 batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
                 activity: [],
-                masters: { locations: [], items: [], owners: [] },
+                masters: { locations: [], ownerRecords: [], items: [], owners: [] },
                 preferences: {
                     lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
                     lastAccount: typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : ""
@@ -3049,6 +3163,11 @@
                 activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
                 masters: {
                     locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
+                    ownerRecords: Array.isArray(raw?.masters?.ownerRecords)
+                        ? raw.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean)
+                        : Array.isArray(raw?.masters?.owners)
+                            ? raw.masters.owners.map(sanitizeMasterOwner).filter(Boolean)
+                            : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
                 }
@@ -3140,6 +3259,19 @@
                 note: String(item?.note || "").trim().replace(/\s+/g, " "),
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeMasterOwner(item) {
+            const value = typeof item === "string" ? item : item?.name ?? item?.owner ?? item?.vendor ?? item?.customer;
+            const name = norm(value);
+            if (!name) return null;
+            return {
+                id: typeof item?.id === "string" ? item.id : makeId("owner"),
+                name,
+                note: String(typeof item === "string" ? "" : item?.note || "").trim().replace(/\s+/g, " "),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
         }
 
@@ -3261,6 +3393,7 @@
         function getOwnerOptions() {
             const owners = new Set();
             (state.masters.owners || []).forEach((owner) => owners.add(norm(owner)));
+            (state.masters.ownerRecords || []).forEach((owner) => owners.add(owner.name));
             state.masters.items.forEach((item) => owners.add(item.accountName));
             state.inventory.forEach((line) => owners.add(line.accountName));
             state.batch.forEach((line) => owners.add(line.accountName));

@@ -83,6 +83,29 @@ app.post("/api/master-location", async (req, res, next) => {
     }
 });
 
+app.post("/api/master-owner", async (req, res, next) => {
+    try {
+        const entry = sanitizeOwnerMasterInput(req.body);
+        if (!entry) {
+            throw httpError(400, "A vendor / customer name is required.");
+        }
+
+        await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, entry.name, entry.note);
+            await insertActivity(
+                client,
+                "setup",
+                `Saved vendor / customer ${entry.name}`,
+                entry.note ? entry.note : "Vendor / customer added to the shared quick-pick library."
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/master-item", async (req, res, next) => {
     try {
         const entry = sanitizeItemMasterInput(req.body);
@@ -91,6 +114,7 @@ app.post("/api/master-item", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, entry.accountName);
             await upsertItemMaster(client, entry);
             await insertActivity(
                 client,
@@ -158,6 +182,7 @@ app.post("/api/batch-save", async (req, res, next) => {
                     trackingLevel: rawItem.trackingLevel || master?.trackingLevel || "UNIT"
                 };
 
+                await upsertOwnerMaster(client, item.accountName);
                 await upsertInventoryLine(client, item);
                 await upsertLocationMaster(client, item.location);
                 await upsertItemMaster(client, {
@@ -375,9 +400,14 @@ app.post("/api/import", async (req, res, next) => {
         const importedActivity = Array.isArray(req.body?.activity) ? req.body.activity.map(sanitizeActivityInput).filter(Boolean) : [];
         const importedLocations = Array.isArray(req.body?.masters?.locations) ? req.body.masters.locations.map(sanitizeLocationMasterInput).filter(Boolean) : [];
         const importedItems = Array.isArray(req.body?.masters?.items) ? req.body.masters.items.map(sanitizeItemMasterInput).filter(Boolean) : [];
+        const importedOwners = Array.isArray(req.body?.masters?.ownerRecords)
+            ? req.body.masters.ownerRecords.map(sanitizeOwnerMasterInput).filter(Boolean)
+            : Array.isArray(req.body?.masters?.owners)
+                ? req.body.masters.owners.map((owner) => sanitizeOwnerMasterInput(owner)).filter(Boolean)
+                : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, inventory_lines, bin_locations, item_catalog restart identity");
+            await client.query("truncate table activity_log, inventory_lines, bin_locations, item_catalog, owner_accounts restart identity");
 
             for (const line of importedInventory) {
                 await client.query(
@@ -396,6 +426,16 @@ app.post("/api/import", async (req, res, next) => {
                         values ($1, $2, $3, $4)
                     `,
                     [item.type, item.title, item.details, item.timestamp]
+                );
+            }
+
+            for (const owner of importedOwners) {
+                await client.query(
+                    `
+                        insert into owner_accounts (name, note, created_at, updated_at)
+                        values ($1, $2, $3, $4)
+                    `,
+                    [owner.name, owner.note, owner.createdAt, owner.updatedAt]
                 );
             }
 
@@ -440,6 +480,7 @@ app.post("/api/import", async (req, res, next) => {
             }
 
             for (const line of importedInventory) {
+                await upsertOwnerMaster(client, line.accountName);
                 await upsertLocationMaster(client, line.location);
                 await upsertItemMaster(client, {
                     accountName: line.accountName,
@@ -453,7 +494,7 @@ app.post("/api/import", async (req, res, next) => {
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored, plus ${formatCount(importedLocations.length, "BIN")} and ${formatCount(importedItems.length, "item master")}.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
             );
         });
 
@@ -537,6 +578,16 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
+        create table if not exists owner_accounts (
+            id bigserial primary key,
+            name text not null unique,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
         create table if not exists item_catalog (
             id bigserial primary key,
             sku text not null,
@@ -567,10 +618,23 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_lines_upc on inventory_lines (upc);");
     await pool.query("create index if not exists idx_inventory_lines_tracking_level on inventory_lines (tracking_level);");
     await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
+    await pool.query("create index if not exists idx_owner_accounts_name on owner_accounts (name);");
     await pool.query("create index if not exists idx_item_catalog_account_name on item_catalog (account_name);");
     await pool.query("create index if not exists idx_item_catalog_sku on item_catalog (sku);");
     await pool.query("create index if not exists idx_item_catalog_upc on item_catalog (upc);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
+
+    await pool.query(`
+        insert into owner_accounts (name)
+        select distinct account_name
+        from (
+            select account_name from inventory_lines
+            union
+            select account_name from item_catalog
+        ) owners
+        where account_name <> ''
+        on conflict (name) do nothing
+    `);
 
     await pool.query(`
         insert into bin_locations (code)
@@ -625,10 +689,11 @@ async function initializeDatabaseWithRetry() {
 }
 
 async function getServerState(client = pool) {
-    const [inventoryResult, activityResult, locationResult, itemResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
+        client.query("select * from owner_accounts order by name asc"),
         client.query("select * from item_catalog order by account_name asc, sku asc"),
         client.query(`
             select nullif(
@@ -636,6 +701,7 @@ async function getServerState(client = pool) {
                     coalesce((select max(updated_at) from inventory_lines), to_timestamp(0)),
                     coalesce((select max(created_at) from activity_log), to_timestamp(0)),
                     coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
+                    coalesce((select max(updated_at) from owner_accounts), to_timestamp(0)),
                     coalesce((select max(updated_at) from item_catalog), to_timestamp(0))
                 ),
                 to_timestamp(0)
@@ -644,7 +710,9 @@ async function getServerState(client = pool) {
     ]);
 
     const owners = [...new Set(
-        inventoryResult.rows.map((row) => row.account_name).concat(itemResult.rows.map((row) => row.account_name))
+        ownerResult.rows.map((row) => row.name)
+            .concat(inventoryResult.rows.map((row) => row.account_name))
+            .concat(itemResult.rows.map((row) => row.account_name))
     )].filter(Boolean).sort();
 
     return {
@@ -652,6 +720,7 @@ async function getServerState(client = pool) {
         activity: activityResult.rows.map(mapActivityRow),
         masters: {
             locations: locationResult.rows.map(mapLocationMasterRow),
+            ownerRecords: ownerResult.rows.map(mapOwnerMasterRow),
             items: itemResult.rows.map(mapItemMasterRow),
             owners
         },
@@ -715,6 +784,27 @@ async function upsertLocationMaster(client, code, note = "") {
                 updated_at = now()
         `,
         [normalizedCode, normalizedNote]
+    );
+}
+
+async function upsertOwnerMaster(client, name, note = "") {
+    const normalizedName = normalizeText(name);
+    if (!normalizedName) return;
+    const normalizedNote = normalizeFreeText(note);
+
+    await client.query(
+        `
+            insert into owner_accounts (name, note)
+            values ($1, $2)
+            on conflict (name)
+            do update set
+                note = case
+                    when excluded.note <> '' then excluded.note
+                    else owner_accounts.note
+                end,
+                updated_at = now()
+        `,
+        [normalizedName, normalizedNote]
     );
 }
 
@@ -906,6 +996,18 @@ function sanitizeLocationMasterInput(item) {
     };
 }
 
+function sanitizeOwnerMasterInput(item) {
+    const value = typeof item === "string" ? item : item?.name ?? item?.owner ?? item?.vendor ?? item?.customer;
+    const name = normalizeText(value);
+    if (!name) return null;
+    return {
+        name,
+        note: normalizeFreeText(typeof item === "string" ? "" : item?.note),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
 function sanitizeItemMasterInput(item) {
     const accountName = normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer || "");
     const sku = normalizeText(item?.sku);
@@ -967,6 +1069,16 @@ function mapLocationMasterRow(row) {
     return {
         id: String(row.id),
         code: row.code,
+        note: row.note || "",
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapOwnerMasterRow(row) {
+    return {
+        id: String(row.id),
+        name: row.name,
         note: row.note || "",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
