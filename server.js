@@ -105,6 +105,34 @@ app.post("/api/master-item", async (req, res, next) => {
     }
 });
 
+app.post("/api/master-locations/import", async (req, res, next) => {
+    try {
+        const inputLocations = Array.isArray(req.body?.locations) ? req.body.locations : [];
+        if (!inputLocations.length) {
+            throw httpError(400, "At least one BIN location is required.");
+        }
+
+        const locations = groupLocationMasterInputs(inputLocations);
+
+        await withTransaction(async (client) => {
+            for (const location of locations) {
+                await upsertLocationMaster(client, location.code, location.note);
+            }
+
+            await insertActivity(
+                client,
+                "setup",
+                `Imported ${formatCount(locations.length, "BIN")} from CSV`,
+                "Shared BIN library updated from spreadsheet import."
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/batch-save", async (req, res, next) => {
     try {
         const inputItems = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -672,6 +700,20 @@ function sanitizeInventoryLineInput(line) {
         createdAt: typeof line?.createdAt === "string" ? line.createdAt : new Date().toISOString(),
         updatedAt: typeof line?.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
     };
+}
+
+function groupLocationMasterInputs(items) {
+    const grouped = new Map();
+    for (const rawItem of items) {
+        const item = sanitizeLocationMasterInput(rawItem);
+        if (!item) {
+            throw httpError(400, "Each BIN row must include a location code.");
+        }
+        const current = grouped.get(item.code) || { code: item.code, note: "" };
+        if (!current.note && item.note) current.note = item.note;
+        grouped.set(item.code, current);
+    }
+    return [...grouped.values()];
 }
 
 function sanitizeLocationMasterInput(item) {

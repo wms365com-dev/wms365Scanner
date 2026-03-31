@@ -526,6 +526,7 @@
             <button class="tab" data-section="search" type="button">Search</button>
             <button class="tab" data-section="actions" type="button">Actions</button>
             <button class="tab" data-section="inventory" type="button">Inventory</button>
+            <button class="tab" data-section="reports" type="button">Reports</button>
             <button class="tab" data-section="backup" type="button">Backup</button>
         </nav>
 
@@ -662,7 +663,10 @@
                             <span>Quick Filter</span>
                             <input id="masterFilter" type="text" placeholder="Filter BINs, SKUs, UPCs, or descriptions">
                         </label>
+                        <button class="btn ghost" id="exportLocationCsvBtn" type="button">Export BINs CSV</button>
+                        <button class="btn ghost" id="importLocationCsvBtn" type="button">Import BINs CSV</button>
                     </div>
+                    <p class="lead">Excel upload/export uses CSV. Save your spreadsheet as CSV, then import it here with columns like <strong>BIN</strong> and <strong>NOTE</strong>.</p>
 
                     <div class="library-grid">
                         <div class="helper">
@@ -693,6 +697,7 @@
                     </div>
 
                     <div class="status" id="catalogMessage"></div>
+                    <input id="importLocationCsvInput" class="hidden" type="file" accept=".csv,text/csv">
                 </article>
             </div>
         </section>
@@ -897,6 +902,101 @@
             </div>
         </section>
 
+        <section class="panel" id="reportsPanel" data-panel="reports">
+            <div class="inventory-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Desktop Reports</h2>
+                            <p class="lead">Filter live inventory, print report snapshots, and export Excel-friendly CSV files from the desktop view.</p>
+                        </div>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 280px;">
+                            <span>Filter Reports</span>
+                            <input id="reportFilter" type="text" placeholder="Type a BIN, SKU, UPC, or item description">
+                        </label>
+                        <button class="btn ghost" id="clearReportFilterBtn" type="button">Clear Filter</button>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn" id="exportLocationReportBtn" type="button">Export Location Report</button>
+                        <button class="btn secondary" id="exportItemReportBtn" type="button">Export Item Report</button>
+                        <button class="btn ghost" id="printReportsBtn" type="button">Print Reports</button>
+                    </div>
+                    <div class="status" id="reportMessage"></div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Report Snapshot</h2>
+                            <p class="lead">Designed to stay readable on mobile, but especially useful on desktop for quick reporting and exports.</p>
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div class="summary"><span>Reported BINs</span><strong id="reportLocationsCount">0</strong></div>
+                        <div class="summary"><span>Reported Items</span><strong id="reportItemsCount">0</strong></div>
+                        <div class="summary"><span>Reported Units</span><strong id="reportUnitsCount">0</strong></div>
+                        <div class="summary"><span>Saved BIN Library</span><strong id="reportMasterBinsCount">0</strong></div>
+                    </div>
+                    <p class="lead">Location report totals by BIN. Item report totals by SKU, UPC, and description where available.</p>
+                </article>
+            </div>
+
+            <div class="action-grid" style="margin-top: 1rem;">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Location Report</h2>
+                            <p class="lead">Grouped by BIN or location with total units and item counts.</p>
+                        </div>
+                        <span class="meta" id="locationReportMeta">0 rows</span>
+                    </div>
+                    <p class="empty" id="locationReportEmpty">No inventory is available for the current report filter.</p>
+                    <div class="table-wrap hidden" id="locationReportWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Location</th>
+                                    <th>Note</th>
+                                    <th>Lines</th>
+                                    <th>Unique SKUs</th>
+                                    <th>Total Units</th>
+                                </tr>
+                            </thead>
+                            <tbody id="locationReportBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Item Report</h2>
+                            <p class="lead">Grouped by SKU with UPC, description, locations, and total units.</p>
+                        </div>
+                        <span class="meta" id="itemReportMeta">0 rows</span>
+                    </div>
+                    <p class="empty" id="itemReportEmpty">No items are available for the current report filter.</p>
+                    <div class="table-wrap hidden" id="itemReportWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>SKU</th>
+                                    <th>UPC</th>
+                                    <th>Description</th>
+                                    <th>Locations</th>
+                                    <th>Lines</th>
+                                    <th>Total Units</th>
+                                </tr>
+                            </thead>
+                            <tbody id="itemReportBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+        </section>
+
         <section class="panel" id="backupPanel" data-panel="backup">
             <div class="backup-grid">
                 <article class="card">
@@ -966,6 +1066,7 @@
             masterLocationList: document.getElementById("masterLocationList"),
             masterItemList: document.getElementById("masterItemList"),
             catalogMessage: document.getElementById("catalogMessage"),
+            importLocationCsvInput: document.getElementById("importLocationCsvInput"),
             lastLocationMeta: document.getElementById("lastLocationMeta"),
             batchMeta: document.getElementById("batchMeta"),
             batchEmpty: document.getElementById("batchEmpty"),
@@ -996,6 +1097,20 @@
             inventoryEmpty: document.getElementById("inventoryEmpty"),
             inventoryTableWrap: document.getElementById("inventoryTableWrap"),
             inventoryTableBody: document.getElementById("inventoryTableBody"),
+            reportFilter: document.getElementById("reportFilter"),
+            reportMessage: document.getElementById("reportMessage"),
+            reportLocationsCount: document.getElementById("reportLocationsCount"),
+            reportItemsCount: document.getElementById("reportItemsCount"),
+            reportUnitsCount: document.getElementById("reportUnitsCount"),
+            reportMasterBinsCount: document.getElementById("reportMasterBinsCount"),
+            locationReportMeta: document.getElementById("locationReportMeta"),
+            locationReportEmpty: document.getElementById("locationReportEmpty"),
+            locationReportWrap: document.getElementById("locationReportWrap"),
+            locationReportBody: document.getElementById("locationReportBody"),
+            itemReportMeta: document.getElementById("itemReportMeta"),
+            itemReportEmpty: document.getElementById("itemReportEmpty"),
+            itemReportWrap: document.getElementById("itemReportWrap"),
+            itemReportBody: document.getElementById("itemReportBody"),
             summaryLocations: document.getElementById("summaryLocations"),
             summarySkus: document.getElementById("summarySkus"),
             summaryUnits: document.getElementById("summaryUnits"),
@@ -1031,6 +1146,9 @@
             ui.masterFilter.addEventListener("input", renderMasterLibrary);
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
+            document.getElementById("exportLocationCsvBtn").addEventListener("click", exportLocationCsv);
+            document.getElementById("importLocationCsvBtn").addEventListener("click", () => ui.importLocationCsvInput.click());
+            ui.importLocationCsvInput.addEventListener("change", importLocationCsv);
 
             ui.searchBySkuBtn.addEventListener("click", () => setSearchMode("sku"));
             ui.searchByLocationBtn.addEventListener("click", () => setSearchMode("location"));
@@ -1050,6 +1168,15 @@
                 renderInventory("");
                 ui.inventoryFilter.focus();
             });
+            ui.reportFilter.addEventListener("input", () => renderReports(ui.reportFilter.value));
+            document.getElementById("clearReportFilterBtn").addEventListener("click", () => {
+                ui.reportFilter.value = "";
+                renderReports("");
+                ui.reportFilter.focus();
+            });
+            document.getElementById("exportLocationReportBtn").addEventListener("click", exportLocationReportCsv);
+            document.getElementById("exportItemReportBtn").addEventListener("click", exportItemReportCsv);
+            document.getElementById("printReportsBtn").addEventListener("click", printReports);
 
             document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
@@ -1076,6 +1203,7 @@
             if (section === "scan") focusScanStart();
             if (section === "search") ui.singleSearchInput.focus();
             if (section === "inventory") ui.inventoryFilter.focus();
+            if (section === "reports") ui.reportFilter.focus();
             if (section !== "scan") syncServerState(true).catch(() => {});
         }
 
@@ -1269,6 +1397,7 @@
             renderMasterLibrary();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
+            renderReports(ui.reportFilter.value);
             renderSummary();
         }
 
@@ -1461,6 +1590,54 @@
             return rows;
         }
 
+        async function exportLocationCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["BIN", "NOTE"]].concat(
+                    [...state.masters.locations]
+                        .sort((a, b) => a.code.localeCompare(b.code))
+                        .map((entry) => [entry.code, entry.note || ""])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-bins-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.catalogMessage, "BIN library exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        function importLocationCsv(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const rows = parseCsv(String(reader.result || ""));
+                    const locations = mapLocationCsvRows(rows);
+                    if (!locations.length) {
+                        throw new Error("No BIN rows were found. Use columns like BIN and NOTE.");
+                    }
+
+                    await requestJson("/api/master-locations/import", {
+                        method: "POST",
+                        body: JSON.stringify({ locations })
+                    });
+
+                    await syncServerState(true);
+                    showMessage(ui.catalogMessage, `Imported ${num(locations.length)} BIN location${locations.length === 1 ? "" : "s"} from CSV.`, "success");
+                } catch (error) {
+                    showMessage(ui.catalogMessage, `BIN import failed: ${error.message}`, "error");
+                } finally {
+                    ui.importLocationCsvInput.value = "";
+                }
+            };
+            reader.onerror = () => {
+                showMessage(ui.catalogMessage, "Unable to read the selected CSV file.", "error");
+                ui.importLocationCsvInput.value = "";
+            };
+            reader.readAsText(file);
+        }
+
         function onMasterLocationListClick(event) {
             const button = event.target.closest("[data-use-location]");
             if (!button) return;
@@ -1520,6 +1697,180 @@
         function findMasterItemByCode(code) {
             const query = norm(code);
             return state.masters.items.find((item) => item.sku === query || item.upc === query) || null;
+        }
+
+        function renderReports(filterText) {
+            const locationRows = getLocationReportRows(filterText);
+            const itemRows = getItemReportRows(filterText);
+            const totalUnits = locationRows.reduce((sum, row) => sum + row.totalUnits, 0);
+
+            ui.reportLocationsCount.textContent = num(locationRows.length);
+            ui.reportItemsCount.textContent = num(itemRows.length);
+            ui.reportUnitsCount.textContent = num(totalUnits);
+            ui.reportMasterBinsCount.textContent = num(state.masters.locations.length);
+
+            ui.locationReportMeta.textContent = `${num(locationRows.length)} row${locationRows.length === 1 ? "" : "s"}`;
+            if (!locationRows.length) {
+                ui.locationReportEmpty.classList.remove("hidden");
+                ui.locationReportWrap.classList.add("hidden");
+                ui.locationReportBody.innerHTML = "";
+            } else {
+                ui.locationReportEmpty.classList.add("hidden");
+                ui.locationReportWrap.classList.remove("hidden");
+                ui.locationReportBody.innerHTML = locationRows.map((row) => `
+                    <tr>
+                        <td>${esc(row.location)}</td>
+                        <td>${esc(row.note || "-")}</td>
+                        <td>${num(row.lineCount)}</td>
+                        <td>${num(row.skuCount)}</td>
+                        <td>${num(row.totalUnits)}</td>
+                    </tr>
+                `).join("");
+            }
+
+            ui.itemReportMeta.textContent = `${num(itemRows.length)} row${itemRows.length === 1 ? "" : "s"}`;
+            if (!itemRows.length) {
+                ui.itemReportEmpty.classList.remove("hidden");
+                ui.itemReportWrap.classList.add("hidden");
+                ui.itemReportBody.innerHTML = "";
+            } else {
+                ui.itemReportEmpty.classList.add("hidden");
+                ui.itemReportWrap.classList.remove("hidden");
+                ui.itemReportBody.innerHTML = itemRows.map((row) => `
+                    <tr>
+                        <td>${esc(row.sku)}</td>
+                        <td>${esc(row.upc || "-")}</td>
+                        <td>${esc(row.description || "-")}</td>
+                        <td>${num(row.locationCount)}</td>
+                        <td>${num(row.lineCount)}</td>
+                        <td>${num(row.totalUnits)}</td>
+                    </tr>
+                `).join("");
+            }
+        }
+
+        async function exportLocationReportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Location", "Note", "Lines", "UniqueSkus", "TotalUnits"]].concat(
+                    getLocationReportRows(ui.reportFilter.value).map((row) => [row.location, row.note || "", String(row.lineCount), String(row.skuCount), String(row.totalUnits)])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-location-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.reportMessage, "Location report exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.reportMessage, error.message, "error");
+            }
+        }
+
+        async function exportItemReportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["SKU", "UPC", "Description", "Locations", "Lines", "TotalUnits"]].concat(
+                    getItemReportRows(ui.reportFilter.value).map((row) => [row.sku, row.upc || "", row.description || "", String(row.locationCount), String(row.lineCount), String(row.totalUnits)])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-item-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.reportMessage, "Item report exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.reportMessage, error.message, "error");
+            }
+        }
+
+        function printReports() {
+            const locationRows = getLocationReportRows(ui.reportFilter.value);
+            const itemRows = getItemReportRows(ui.reportFilter.value);
+            if (!locationRows.length && !itemRows.length) {
+                showMessage(ui.reportMessage, "There is no report data to print for the current filter.", "error");
+                return;
+            }
+
+            openPrintWindow(
+                "WMS365 Scanner - Reports",
+                `
+                    <h1>WMS365 Scanner</h1>
+                    <p><strong>Inventory Reports</strong></p>
+                    <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
+                    <section>
+                        <h2>Location Report</h2>
+                        ${reportTableMarkup(
+                            ["Location", "Note", "Lines", "Unique SKUs", "Total Units"],
+                            locationRows.map((row) => [row.location, row.note || "-", num(row.lineCount), num(row.skuCount), num(row.totalUnits)])
+                        )}
+                    </section>
+                    <section>
+                        <h2>Item Report</h2>
+                        ${reportTableMarkup(
+                            ["SKU", "UPC", "Description", "Locations", "Lines", "Total Units"],
+                            itemRows.map((row) => [row.sku, row.upc || "-", row.description || "-", num(row.locationCount), num(row.lineCount), num(row.totalUnits)])
+                        )}
+                    </section>
+                `
+            );
+        }
+
+        function getLocationReportRows(filterText = "") {
+            const query = norm(filterText);
+            const locationMasterMap = new Map(state.masters.locations.map((entry) => [entry.code, entry]));
+            const grouped = new Map();
+
+            sortedInventory().forEach((line) => {
+                const current = grouped.get(line.location) || {
+                    location: line.location,
+                    note: locationMasterMap.get(line.location)?.note || "",
+                    lineCount: 0,
+                    skuSet: new Set(),
+                    totalUnits: 0
+                };
+                current.lineCount += 1;
+                current.skuSet.add(line.sku);
+                current.totalUnits += line.quantity;
+                grouped.set(line.location, current);
+            });
+
+            return [...grouped.values()]
+                .map((row) => ({
+                    location: row.location,
+                    note: row.note,
+                    lineCount: row.lineCount,
+                    skuCount: row.skuSet.size,
+                    totalUnits: row.totalUnits
+                }))
+                .filter((row) => !query || row.location.includes(query) || norm(row.note).includes(query))
+                .sort((a, b) => a.location.localeCompare(b.location));
+        }
+
+        function getItemReportRows(filterText = "") {
+            const query = norm(filterText);
+            const itemMasterMap = new Map(state.masters.items.map((item) => [item.sku, item]));
+            const grouped = new Map();
+
+            sortedInventory().forEach((line) => {
+                const master = itemMasterMap.get(line.sku);
+                const current = grouped.get(line.sku) || {
+                    sku: line.sku,
+                    upc: master?.upc || line.upc || "",
+                    description: master?.description || "",
+                    lineCount: 0,
+                    locationSet: new Set(),
+                    totalUnits: 0
+                };
+                if (!current.upc && line.upc) current.upc = line.upc;
+                current.lineCount += 1;
+                current.locationSet.add(line.location);
+                current.totalUnits += line.quantity;
+                grouped.set(line.sku, current);
+            });
+
+            return [...grouped.values()]
+                .map((row) => ({
+                    sku: row.sku,
+                    upc: row.upc,
+                    description: row.description,
+                    lineCount: row.lineCount,
+                    locationCount: row.locationSet.size,
+                    totalUnits: row.totalUnits
+                }))
+                .filter((row) => !query || row.sku.includes(query) || row.upc.includes(query) || norm(row.description).includes(query))
+                .sort((a, b) => a.sku.localeCompare(b.sku));
         }
 
         function renderSingleSearch(query, mode, matches) {
@@ -2162,6 +2513,97 @@
         function csvCell(value) {
             const text = String(value ?? "");
             return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+        }
+
+        function parseCsv(text) {
+            const rows = [];
+            let row = [];
+            let value = "";
+            let inQuotes = false;
+
+            for (let index = 0; index < text.length; index += 1) {
+                const char = text[index];
+                const next = text[index + 1];
+
+                if (inQuotes) {
+                    if (char === `"` && next === `"`) {
+                        value += `"`;
+                        index += 1;
+                    } else if (char === `"`) {
+                        inQuotes = false;
+                    } else {
+                        value += char;
+                    }
+                    continue;
+                }
+
+                if (char === `"`) {
+                    inQuotes = true;
+                    continue;
+                }
+
+                if (char === ",") {
+                    row.push(value.trim());
+                    value = "";
+                    continue;
+                }
+
+                if (char === "\n") {
+                    row.push(value.trim());
+                    if (row.some((cell) => cell !== "")) rows.push(row);
+                    row = [];
+                    value = "";
+                    continue;
+                }
+
+                if (char !== "\r") {
+                    value += char;
+                }
+            }
+
+            row.push(value.trim());
+            if (row.some((cell) => cell !== "")) rows.push(row);
+            return rows;
+        }
+
+        function mapLocationCsvRows(rows) {
+            if (!rows.length) return [];
+            const headers = rows[0].map((value) => norm(value));
+            const hasHeader = headers.some((value) => ["BIN", "LOCATION", "CODE", "NOTE", "ZONE", "DESCRIPTION"].includes(value));
+            const bodyRows = hasHeader ? rows.slice(1) : rows;
+
+            return bodyRows.map((cells) => {
+                if (!hasHeader) {
+                    return {
+                        code: norm(cells[0]),
+                        note: String(cells[1] || "").trim().replace(/\s+/g, " ")
+                    };
+                }
+
+                const record = Object.fromEntries(headers.map((header, index) => [header, String(cells[index] || "").trim()]));
+                return {
+                    code: norm(record.BIN || record.LOCATION || record.CODE || record["BIN LOCATION"] || ""),
+                    note: String(record.NOTE || record.ZONE || record.DESCRIPTION || record.COMMENT || "").trim().replace(/\s+/g, " ")
+                };
+            }).filter((row) => row.code);
+        }
+
+        function reportTableMarkup(headers, rows) {
+            if (!rows.length) {
+                return "<p>No rows found for this report.</p>";
+            }
+            return `
+                <table>
+                    <thead>
+                        <tr>${headers.map((header) => `<th>${esc(header)}</th>`).join("")}</tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `;
         }
     </script>
 </body>
