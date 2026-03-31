@@ -175,6 +175,10 @@
             border: 1px solid var(--line);
             background: rgba(255, 255, 255, 0.05);
             overflow-x: auto;
+            position: sticky;
+            top: 0.75rem;
+            z-index: 30;
+            backdrop-filter: blur(18px);
         }
 
         .tab {
@@ -234,6 +238,155 @@
             background: var(--panel-2);
         }
 
+        .desktop-only { display: block; }
+
+        .workflow-strip,
+        .quick-jumps,
+        .menu-stack {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .workflow-strip {
+            margin-top: 1rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .workflow-step {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0.8rem;
+            padding: 0.95rem 1rem;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .workflow-step strong {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(89, 183, 255, 0.22), rgba(35, 142, 246, 0.36));
+            color: #dff3ff;
+            font-size: 0.95rem;
+        }
+
+        .workflow-step span {
+            display: block;
+            font-weight: 700;
+            color: #eaf5ff;
+        }
+
+        .workflow-step p {
+            margin: 0.18rem 0 0;
+            color: var(--muted);
+            font-size: 0.94rem;
+            line-height: 1.45;
+        }
+
+        .quick-jumps {
+            margin-top: 0.9rem;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .quick-link {
+            min-height: 78px;
+            padding: 0.95rem 1rem;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text);
+            text-align: left;
+        }
+
+        .quick-link strong,
+        .menu-card-title {
+            display: block;
+            font-size: 1rem;
+            font-weight: 700;
+            color: inherit;
+        }
+
+        .quick-link span,
+        .menu-card-meta {
+            display: block;
+            margin-top: 0.25rem;
+            color: var(--muted);
+            line-height: 1.4;
+            font-size: 0.92rem;
+        }
+
+        .form-section-note {
+            display: grid;
+            gap: 0.35rem;
+            margin-top: 0.1rem;
+        }
+
+        .form-section-note strong {
+            font-size: 0.98rem;
+            color: #edf7ff;
+        }
+
+        .fold {
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .fold summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 0.95rem 1rem;
+        }
+
+        .fold summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .fold summary strong {
+            display: block;
+            color: #edf7ff;
+            font-size: 1rem;
+        }
+
+        .fold summary span {
+            display: block;
+            margin-top: 0.22rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .fold-content {
+            padding: 0 1rem 1rem;
+            display: grid;
+            gap: 0.9rem;
+        }
+
+        .scan-action-bar {
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .scan-action-note {
+            flex: 1 1 240px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .menu-card-btn {
+            width: 100%;
+            display: grid;
+            gap: 0.22rem;
+            justify-items: start;
+            padding: 0.95rem 1rem;
+            border-radius: 18px;
+            text-align: left;
+        }
+
         .btn {
             display: inline-flex;
             align-items: center;
@@ -268,6 +421,12 @@
         .btn.bad {
             background: linear-gradient(135deg, #ff8d8d, #f15d5d);
             box-shadow: 0 16px 30px rgba(241, 93, 93, 0.2);
+        }
+
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            box-shadow: none;
         }
 
         .status {
@@ -597,6 +756,7 @@
             }
 
             .mobile-only { display: block !important; }
+            .desktop-only { display: none !important; }
             .app { width: 100%; max-width: 600px; padding: 0 0 1rem; }
             .hero { display: none; }
             .tabbar { display: none; }
@@ -692,6 +852,20 @@
             .mobile-task-picker .button-row {
                 gap: 0.6rem;
             }
+            .menu-stack {
+                gap: 0.65rem;
+            }
+            .menu-card-btn {
+                min-height: 72px;
+                padding: 0.95rem 1rem;
+                border-radius: 12px;
+            }
+            .menu-card-title {
+                font-size: 1.04rem;
+            }
+            .menu-card-meta {
+                font-size: 0.84rem;
+            }
             .mobile-task-picker .btn.active {
                 color: white;
                 background: linear-gradient(45deg, var(--brand), var(--brand-2));
@@ -729,6 +903,18 @@
                 flex-direction: column;
                 align-items: stretch;
             }
+            .scan-action-bar {
+                gap: 0.65rem;
+            }
+            .scan-action-note {
+                font-size: 0.84rem;
+            }
+            .fold summary {
+                padding: 0.85rem 0.95rem;
+            }
+            .fold-content {
+                padding: 0 0.95rem 0.95rem;
+            }
         }
     </style>
 </head>
@@ -744,6 +930,47 @@
                         <span class="tag">Desktop + mobile</span>
                         <span class="tag">Shared server data</span>
                         <span class="tag">Import / export backups</span>
+                    </div>
+                    <div class="workflow-strip desktop-only" aria-label="How to use WMS365 Scanner">
+                        <div class="workflow-step">
+                            <strong>1</strong>
+                            <div>
+                                <span>Stage inventory fast</span>
+                                <p>Pick the vendor, scan the BIN, then scan or type the item and quantity.</p>
+                            </div>
+                        </div>
+                        <div class="workflow-step">
+                            <strong>2</strong>
+                            <div>
+                                <span>Save once per batch</span>
+                                <p>Keep scanning into the open batch, then save everything to the shared server together.</p>
+                            </div>
+                        </div>
+                        <div class="workflow-step">
+                            <strong>3</strong>
+                            <div>
+                                <span>Search and report</span>
+                                <p>Use the desktop side for deeper reports, owner utilization, uploads, and cleanup work.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quick-jumps desktop-only">
+                        <button class="quick-link" type="button" data-jump-section="scan">
+                            <strong>Scan</strong>
+                            <span>Fast day-to-day receiving and putaway.</span>
+                        </button>
+                        <button class="quick-link" type="button" data-jump-section="search">
+                            <strong>Search</strong>
+                            <span>Find one item, one BIN, or a list of SKUs.</span>
+                        </button>
+                        <button class="quick-link" type="button" data-jump-section="actions">
+                            <strong>Actions</strong>
+                            <span>Delete, transfer, or move full BINs.</span>
+                        </button>
+                        <button class="quick-link" type="button" data-jump-section="reports">
+                            <strong>Reports</strong>
+                            <span>Review owner usage, pallet positions, and exports.</span>
+                        </button>
                     </div>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
@@ -769,10 +996,19 @@
                 <h1>WMS365 Scanner</h1>
                 <p class="lead">Simple mobile workflow for scanning, searching, moving stock, and managing BINs.</p>
                 <p class="meta" style="margin-bottom: 1rem;">Choose one task at a time, just like your original mobile version.</p>
-                <div class="button-row">
-                    <button class="btn" type="button" data-mobile-nav="scan">Scan & Store</button>
-                    <button class="btn" type="button" data-mobile-nav="search">Find Items</button>
-                    <button class="btn" type="button" data-mobile-nav="actions">Transfer / Delete / Move</button>
+                <div class="menu-stack">
+                    <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
+                        <span class="menu-card-title">Scan & Store</span>
+                        <span class="menu-card-meta">Stage new inventory quickly, then save the full batch.</span>
+                    </button>
+                    <button class="btn menu-card-btn" type="button" data-mobile-nav="search">
+                        <span class="menu-card-title">Find Items</span>
+                        <span class="menu-card-meta">Search one item, one BIN, or multiple item codes.</span>
+                    </button>
+                    <button class="btn menu-card-btn" type="button" data-mobile-nav="actions">
+                        <span class="menu-card-title">Transfer / Delete / Move</span>
+                        <span class="menu-card-meta">Handle stock corrections and BIN moves one task at a time.</span>
+                    </button>
                 </div>
             </article>
         </section>
@@ -792,6 +1028,10 @@
                     </div>
 
                     <form id="scanForm" class="form-grid" autocomplete="off">
+                        <div class="helper span-2 form-section-note">
+                            <strong>Core scan flow</strong>
+                            <div class="meta">Start with vendor, location, item, quantity, and tracking. Open the optional panels only when you need case math, descriptions, or photos.</div>
+                        </div>
                         <label class="field span-2">
                             <span>Vendor / Customer</span>
                             <input id="scanAccount" list="ownerList" type="text" placeholder="Scan or enter vendor / customer" enterkeyhint="next">
@@ -808,10 +1048,6 @@
                             <span>SKU</span>
                             <input id="scanSku" list="skuList" type="text" placeholder="Scan or enter SKU" enterkeyhint="next">
                         </label>
-                        <label class="field span-2">
-                            <span>Description (Optional)</span>
-                            <input id="scanDescription" type="text" placeholder="Optional description so the SKU stays clean" enterkeyhint="done">
-                        </label>
                         <label class="field">
                             <span>Quantity</span>
                             <input id="scanQuantity" type="number" min="1" inputmode="numeric" placeholder="Enter quantity" enterkeyhint="done">
@@ -824,45 +1060,58 @@
                                 <option value="PALLET">Pallets</option>
                             </select>
                         </label>
-                        <div class="helper span-2">
-                            <h3 id="scanHelperTitle">Quick Qty Helper</h3>
-                            <p class="meta" id="scanHelperMeta">Use case pack math for unit-tracked inventory.</p>
-                            <div class="form-grid">
-                                <label class="field">
-                                    <span>Units per Case</span>
-                                    <input id="scanUom" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                        <details class="fold span-2">
+                            <summary>
+                                <strong id="scanHelperTitle">Quick Qty Helper</strong>
+                                <span id="scanHelperMeta">Use case pack math when you are counting unit-tracked inventory by case.</span>
+                            </summary>
+                            <div class="fold-content">
+                                <div class="form-grid">
+                                    <label class="field">
+                                        <span>Units per Case</span>
+                                        <input id="scanUom" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                                    </label>
+                                    <label class="field">
+                                        <span>Cases</span>
+                                        <input id="scanCases" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                                    </label>
+                                </div>
+                                <div class="button-row">
+                                    <button class="btn ghost" id="calcQtyBtn" type="button">Calculate Quantity</button>
+                                    <button class="btn ghost" id="useLastLocationBtn" type="button">Use Last Location</button>
+                                </div>
+                            </div>
+                        </details>
+                        <details class="fold span-2">
+                            <summary>
+                                <strong>Optional Item Details</strong>
+                                <span>Add a description and photo when they help your team identify the item faster later.</span>
+                            </summary>
+                            <div class="fold-content">
+                                <label class="field span-2">
+                                    <span>Description</span>
+                                    <input id="scanDescription" type="text" placeholder="Optional description so the SKU stays clean" enterkeyhint="done">
                                 </label>
-                                <label class="field">
-                                    <span>Cases</span>
-                                    <input id="scanCases" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                                <label class="field span-2">
+                                    <span>Photo URL</span>
+                                    <input id="scanImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
                                 </label>
+                                <div class="button-row">
+                                    <button class="btn ghost" id="scanImagePickBtn" type="button">Take / Choose Photo</button>
+                                    <button class="btn ghost hidden" id="scanImageClearBtn" type="button">Clear Photo</button>
+                                </div>
+                                <div class="image-preview hidden" id="scanImagePreviewWrap">
+                                    <img id="scanImagePreview" alt="Scan item photo preview">
+                                    <div class="image-preview-meta" id="scanImagePreviewMeta">Compressed photo preview</div>
+                                </div>
+                                <input id="scanImageInput" class="hidden" type="file" accept="image/*" capture="environment">
                             </div>
-                            <div class="button-row" style="margin-top: 0.9rem;">
-                                <button class="btn ghost" id="calcQtyBtn" type="button">Calculate Quantity</button>
-                                <button class="btn ghost" id="useLastLocationBtn" type="button">Use Last Location</button>
-                            </div>
-                        </div>
-                        <div class="helper span-2">
-                            <h3>Product Photo (Optional)</h3>
-                            <p class="meta">Take or choose a photo on mobile/desktop, or paste a Google Drive image link. Photos are compressed before saving.</p>
-                            <label class="field span-2">
-                                <span>Photo URL</span>
-                                <input id="scanImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
-                            </label>
-                            <div class="button-row">
-                                <button class="btn ghost" id="scanImagePickBtn" type="button">Take / Choose Photo</button>
-                                <button class="btn ghost hidden" id="scanImageClearBtn" type="button">Clear Photo</button>
-                            </div>
-                            <div class="image-preview hidden" id="scanImagePreviewWrap">
-                                <img id="scanImagePreview" alt="Scan item photo preview">
-                                <div class="image-preview-meta" id="scanImagePreviewMeta">Compressed photo preview</div>
-                            </div>
-                            <input id="scanImageInput" class="hidden" type="file" accept="image/*" capture="environment">
-                        </div>
-                        <div class="button-row span-2">
+                        </details>
+                        <div class="button-row span-2 scan-action-bar">
+                            <div class="scan-action-note">Add items to the open batch as you go. Save to inventory when the batch is ready for everyone to see.</div>
                             <button class="btn" type="submit">Add To Batch</button>
-                            <button class="btn secondary" id="saveBatchBtn" type="button">Save Batch To Inventory</button>
-                            <button class="btn ghost" id="clearBatchBtn" type="button">Clear Batch</button>
+                            <button class="btn secondary" id="saveBatchBtn" data-save-batch type="button">Save Batch To Inventory</button>
+                            <button class="btn ghost" id="clearBatchBtn" data-clear-batch type="button">Clear Batch</button>
                         </div>
                     </form>
                     <div class="status" id="scanMessage"></div>
@@ -874,7 +1123,11 @@
                             <h2>Current Batch</h2>
                             <p class="lead">Review staged scans before saving them.</p>
                         </div>
-                        <span class="meta" id="batchMeta">0 lines staged</span>
+                        <div class="inline-actions">
+                            <span class="meta" id="batchMeta">0 lines staged</span>
+                            <button class="btn secondary" data-save-batch type="button">Save Batch</button>
+                            <button class="btn ghost" data-clear-batch type="button">Clear</button>
+                        </div>
                     </div>
                     <p class="empty" id="batchEmpty">Your batch is empty. Add scans here, then save them to inventory in one step.</p>
                     <div class="table-wrap hidden" id="batchTableWrap">
@@ -1113,9 +1366,15 @@
                         <p class="lead">Pick one search tool at a time, like the original mobile flow.</p>
                     </div>
                 </div>
-                <div class="button-row">
-                    <button class="btn ghost active" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="single">Search One</button>
-                    <button class="btn ghost" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="multi">Search Multiple</button>
+                <div class="menu-stack">
+                    <button class="btn ghost active menu-card-btn" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="single">
+                        <span class="menu-card-title">Search One</span>
+                        <span class="menu-card-meta">Find one SKU, UPC, or BIN with a focused result screen.</span>
+                    </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="multi">
+                        <span class="menu-card-title">Search Multiple</span>
+                        <span class="menu-card-meta">Paste or scan a list of item codes and review them together.</span>
+                    </button>
                 </div>
             </article>
             <div class="search-grid">
@@ -1193,10 +1452,19 @@
                         <p class="lead">Open one action at a time so the mobile flow stays simple.</p>
                     </div>
                 </div>
-                <div class="button-row">
-                    <button class="btn ghost active" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="adjust">Remove / Delete</button>
-                    <button class="btn ghost" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="transfer">Transfer</button>
-                    <button class="btn ghost" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="move">BIN Move</button>
+                <div class="menu-stack">
+                    <button class="btn ghost active menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="adjust">
+                        <span class="menu-card-title">Remove / Delete</span>
+                        <span class="menu-card-meta">Fix counts or remove an inventory line from a BIN.</span>
+                    </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="transfer">
+                        <span class="menu-card-title">Transfer</span>
+                        <span class="menu-card-meta">Move part of a quantity from one location to another.</span>
+                    </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="move">
+                        <span class="menu-card-title">BIN Move</span>
+                        <span class="menu-card-meta">Move every line in a BIN into a new destination BIN.</span>
+                    </button>
                 </div>
             </article>
             <div class="action-grid">
@@ -1564,10 +1832,13 @@
         const ui = {
             tabs: [...document.querySelectorAll(".tab")],
             panels: [...document.querySelectorAll(".panel")],
+            quickSectionButtons: [...document.querySelectorAll("[data-jump-section]")],
             mobileNavButtons: [...document.querySelectorAll("[data-mobile-nav]")],
             mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
             mobileSectionBackButtons: [...document.querySelectorAll("[data-mobile-section-back]")],
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
+            saveBatchButtons: [...document.querySelectorAll("[data-save-batch]")],
+            clearBatchButtons: [...document.querySelectorAll("[data-clear-batch]")],
             scanAccount: document.getElementById("scanAccount"),
             scanLocation: document.getElementById("scanLocation"),
             scanUpc: document.getElementById("scanUpc"),
@@ -1707,6 +1978,7 @@
 
         function init() {
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
+            ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.jumpSection)));
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
             ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
             ui.mobileSectionBackButtons.forEach((button) => button.addEventListener("click", () => handleMobileSectionBack(button.dataset.mobileSectionBack)));
@@ -1719,8 +1991,8 @@
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
             document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
-            document.getElementById("saveBatchBtn").addEventListener("click", saveBatchToInventory);
-            document.getElementById("clearBatchBtn").addEventListener("click", clearBatch);
+            ui.saveBatchButtons.forEach((button) => button.addEventListener("click", saveBatchToInventory));
+            ui.clearBatchButtons.forEach((button) => button.addEventListener("click", clearBatch));
             ui.batchTableBody.addEventListener("click", onBatchTableClick);
             [ui.scanAccount, ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
             [ui.scanSku, ui.scanUpc, ui.scanAccount].forEach((el) => {
@@ -2601,6 +2873,8 @@
             const batch = [...state.batch].sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
             ui.lastLocationMeta.textContent = state.preferences.lastLocation ? `Last location: ${state.preferences.lastLocation}` : "No saved location yet";
             ui.batchMeta.textContent = `${num(batch.length)} line${batch.length === 1 ? "" : "s"} staged`;
+            ui.saveBatchButtons.forEach((button) => { button.disabled = !batch.length; });
+            ui.clearBatchButtons.forEach((button) => { button.disabled = !batch.length; });
 
             if (!batch.length) {
                 ui.batchEmpty.classList.remove("hidden");
