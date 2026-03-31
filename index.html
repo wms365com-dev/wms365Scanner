@@ -781,9 +781,9 @@
             z-index: 1000;
             padding: 0.35rem;
             border-radius: 18px;
-            border: 1px solid rgba(140, 177, 208, 0.35);
-            background: rgba(255, 255, 255, 0.98);
-            box-shadow: 0 18px 40px rgba(5, 20, 36, 0.22);
+            border: 1px solid rgba(140, 177, 208, 0.28);
+            background: rgba(9, 21, 34, 0.98);
+            box-shadow: 0 22px 44px rgba(5, 20, 36, 0.34);
             overflow-y: auto;
             overscroll-behavior: contain;
         }
@@ -1075,6 +1075,8 @@
         body.device-mobile .mobile-panel-head .btn { width: 100%; }
         body.device-mobile .mobile-typeahead {
             border-radius: 12px;
+            border-color: #dbe3ec;
+            background: rgba(255, 255, 255, 0.98);
             box-shadow: 0 12px 24px rgba(17, 38, 57, 0.18);
         }
         body.device-mobile .mobile-typeahead-item {
@@ -2171,6 +2173,7 @@
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
         const LABEL_TOOL_STORAGE_KEY = "wms365-scanner-label-tool-v1";
         const LOCAL_CACHE_ACTIVITY_LIMIT = 30;
+        const AUTOCOMPLETE_OPTION_LIMIT = 24;
         const state = loadState();
         let labelToolState = loadLabelToolState();
         let activeSection = "scan";
@@ -2606,14 +2609,7 @@
 
         function applyManagedInputLists() {
             managedListInputs.forEach((input) => {
-                const desktopList = input.dataset.desktopList || "";
-                if (isMobileView()) {
-                    input.removeAttribute("list");
-                } else if (desktopList) {
-                    input.setAttribute("list", desktopList);
-                } else {
-                    input.removeAttribute("list");
-                }
+                input.removeAttribute("list");
             });
         }
 
@@ -2708,29 +2704,35 @@
         function initMobileAutocomplete() {
             if (!ui.mobileAutocomplete) return;
 
-            registerMobileAutocomplete(ui.scanAccount, {
-                getSuggestions: (query) => getOwnerSuggestions(query),
-                onSelect: (option) => {
-                    ui.scanAccount.value = option.value;
-                    state.preferences.lastAccount = option.value;
-                    saveState();
-                    syncScanFieldsFromCatalog();
-                    if (!(ui.scanLocation.value || "").trim()) ui.scanLocation.focus();
-                    else if (!(ui.scanSku.value || "").trim() && !(ui.scanUpc.value || "").trim()) ui.scanUpc.focus();
-                    return false;
-                }
-            });
-            registerMobileAutocomplete(ui.scanLocation, {
-                getSuggestions: (query) => getLocationSuggestions(query),
-                onSelect: (option) => {
-                    ui.scanLocation.value = option.value;
-                    state.preferences.lastLocation = option.value;
-                    saveState();
-                    if (!(ui.scanAccount.value || "").trim()) ui.scanAccount.focus();
-                    else ui.scanUpc.focus();
-                    return false;
-                }
-            });
+            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount]
+                .forEach((input) => registerMobileAutocomplete(input, {
+                    getSuggestions: (query) => getOwnerSuggestions(query),
+                    onSelect: (option, currentInput) => {
+                        if (currentInput === ui.scanAccount) {
+                            state.preferences.lastAccount = option.value;
+                            saveState();
+                            syncScanFieldsFromCatalog();
+                            if (!(ui.scanLocation.value || "").trim()) ui.scanLocation.focus();
+                            else if (!(ui.scanSku.value || "").trim() && !(ui.scanUpc.value || "").trim()) ui.scanUpc.focus();
+                            return false;
+                        }
+                        return true;
+                    }
+                }));
+            [ui.scanLocation, ui.adjustLocation, ui.transferFrom, ui.transferTo, ui.moveFrom, ui.moveTo, ui.masterLocationCode]
+                .forEach((input) => registerMobileAutocomplete(input, {
+                    getSuggestions: (query) => getLocationSuggestions(query),
+                    onSelect: (option, currentInput) => {
+                        if (currentInput === ui.scanLocation) {
+                            state.preferences.lastLocation = option.value;
+                            saveState();
+                            if (!(ui.scanAccount.value || "").trim()) ui.scanAccount.focus();
+                            else ui.scanUpc.focus();
+                            return false;
+                        }
+                        return true;
+                    }
+                }));
             registerMobileAutocomplete(ui.scanUpc, {
                 getSuggestions: (query) => getItemSuggestions(query, ui.scanAccount.value, { preferUpc: true }),
                 onSelect: (option) => {
@@ -2745,38 +2747,18 @@
                     return false;
                 }
             });
-            registerMobileAutocomplete(ui.searchAccount, {
-                getSuggestions: (query) => getOwnerSuggestions(query)
-            });
             registerMobileAutocomplete(ui.singleSearchInput, {
-                getSuggestions: (query, input) => input.getAttribute("list") === "locationList"
+                getSuggestions: (query, input) => input.dataset.desktopList === "locationList"
                     ? getLocationSuggestions(query)
                     : getItemSuggestions(query, ui.searchAccount.value, { preferUpc: looksNumeric(query) }),
                 onSelect: (option, input) => {
-                    if (input.getAttribute("list") === "locationList") return true;
+                    if (input.dataset.desktopList === "locationList") return true;
                     if (!norm(ui.searchAccount.value) && option.accountName) {
                         ui.searchAccount.value = option.accountName;
                     }
                     return true;
                 }
             });
-            [
-                ui.adjustAccount,
-                ui.transferAccount,
-                ui.moveAccount,
-                ui.reportOwner
-            ].forEach((input) => registerMobileAutocomplete(input, {
-                getSuggestions: (query) => getOwnerSuggestions(query)
-            }));
-            [
-                ui.adjustLocation,
-                ui.transferFrom,
-                ui.transferTo,
-                ui.moveFrom,
-                ui.moveTo
-            ].forEach((input) => registerMobileAutocomplete(input, {
-                getSuggestions: (query) => getLocationSuggestions(query)
-            }));
             registerMobileAutocomplete(ui.adjustSku, {
                 getSuggestions: (query) => getItemSuggestions(query, ui.adjustAccount.value, { preferUpc: looksNumeric(query) }),
                 onSelect: (option) => {
@@ -2788,6 +2770,20 @@
                 getSuggestions: (query) => getItemSuggestions(query, ui.transferAccount.value, { preferUpc: looksNumeric(query) }),
                 onSelect: (option) => {
                     if (!norm(ui.transferAccount.value) && option.accountName) ui.transferAccount.value = option.accountName;
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.masterItemSku, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.masterItemAccount.value, { preferUpc: false }),
+                onSelect: (option) => {
+                    if (!norm(ui.masterItemAccount.value) && option.accountName) ui.masterItemAccount.value = option.accountName;
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.masterItemUpc, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.masterItemAccount.value, { preferUpc: true }),
+                onSelect: (option) => {
+                    if (!norm(ui.masterItemAccount.value) && option.accountName) ui.masterItemAccount.value = option.accountName;
                     return true;
                 }
             });
@@ -2817,13 +2813,12 @@
 
         function refreshMobileAutocomplete(input = mobileAutocompleteState.input) {
             clearMobileAutocompleteHideTimer();
-            if (!isMobileView()) return hideMobileAutocomplete();
             if (!input) return hideMobileAutocomplete();
             const config = mobileAutocompleteConfigs.get(input.id);
             if (!config || !document.body.contains(input) || input.offsetParent === null) return hideMobileAutocomplete();
 
             const query = norm(input.value);
-            const options = (config.getSuggestions ? config.getSuggestions(query, input) : []).slice(0, 8);
+            const options = (config.getSuggestions ? config.getSuggestions(query, input) : []).slice(0, AUTOCOMPLETE_OPTION_LIMIT);
             if (!options.length) return hideMobileAutocomplete();
 
             mobileAutocompleteState.input = input;
@@ -2841,7 +2836,6 @@
 
         function refreshMobileAutocompletePosition() {
             if (!ui.mobileAutocomplete || ui.mobileAutocomplete.classList.contains("hidden")) return;
-            if (!isMobileView()) return hideMobileAutocomplete();
             const input = mobileAutocompleteState.input;
             if (!input || input.offsetParent === null) return hideMobileAutocomplete();
 
@@ -2851,14 +2845,15 @@
             const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
             const roomBelow = window.innerHeight - rect.bottom - viewportPadding - 6;
             const roomAbove = rect.top - viewportPadding - 6;
+            const panelMaxHeight = isMobileView() ? 280 : 360;
 
-            let maxHeight = Math.min(280, Math.max(roomBelow, roomAbove));
+            let maxHeight = Math.min(panelMaxHeight, Math.max(roomBelow, roomAbove));
             let top = rect.bottom + 6;
             if (roomBelow < 140 && roomAbove > roomBelow) {
-                maxHeight = Math.min(280, roomAbove);
+                maxHeight = Math.min(panelMaxHeight, roomAbove);
                 top = Math.max(viewportPadding, rect.top - maxHeight - 6);
             } else {
-                maxHeight = Math.min(280, roomBelow);
+                maxHeight = Math.min(panelMaxHeight, roomBelow);
                 top = Math.min(window.innerHeight - maxHeight - viewportPadding, rect.bottom + 6);
             }
 
