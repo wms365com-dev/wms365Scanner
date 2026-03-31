@@ -843,6 +843,128 @@
             line-height: 1.35;
         }
 
+        .mobile-picker-shell,
+        .mobile-picker-head,
+        .mobile-picker-copy,
+        .mobile-picker-search,
+        .mobile-picker-selected,
+        .mobile-picker-options {
+            display: grid;
+        }
+
+        .mobile-picker-shell { gap: 0.75rem; }
+
+        .mobile-picker-grab {
+            width: 52px;
+            height: 5px;
+            margin: 0 auto;
+            border-radius: 999px;
+            background: rgba(101, 123, 146, 0.4);
+        }
+
+        .mobile-picker-head {
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .mobile-picker-copy { gap: 0.2rem; }
+
+        .mobile-picker-kicker {
+            color: #5f7082;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .mobile-picker-title {
+            color: #1c2b39;
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .mobile-picker-search {
+            gap: 0.35rem;
+        }
+
+        .mobile-picker-search span {
+            color: #5f7082;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .mobile-picker-selected {
+            gap: 0.18rem;
+            padding: 0.75rem 0.85rem;
+            border-radius: 14px;
+            border: 1px solid rgba(0, 123, 255, 0.14);
+            background: rgba(0, 123, 255, 0.06);
+        }
+
+        .mobile-picker-selected strong {
+            color: #1c2b39;
+            font-size: 0.92rem;
+        }
+
+        .mobile-picker-selected span {
+            color: #4d6175;
+            font-size: 0.9rem;
+            line-height: 1.35;
+        }
+
+        .mobile-picker-options {
+            gap: 0.45rem;
+        }
+
+        .mobile-picker-empty {
+            padding: 1rem;
+            border-radius: 14px;
+            border: 1px dashed #d6dde6;
+            background: #f5f8fb;
+            color: #5f7082;
+            line-height: 1.45;
+            text-align: center;
+        }
+
+        .mobile-picker-option {
+            width: 100%;
+            display: grid;
+            gap: 0.18rem;
+            min-height: 62px;
+            padding: 1rem 1rem;
+            border-radius: 16px;
+            border: 1px solid #dbe3ec;
+            background: #ffffff;
+            color: #1c2b39;
+            text-align: left;
+            scroll-snap-align: start;
+        }
+
+        .mobile-picker-option.selected {
+            border-color: rgba(0, 123, 255, 0.24);
+            background: rgba(0, 123, 255, 0.08);
+        }
+
+        .mobile-picker-option:active,
+        .mobile-picker-option:focus-visible {
+            outline: none;
+            border-color: rgba(0, 123, 255, 0.28);
+            background: rgba(0, 123, 255, 0.12);
+        }
+
+        .mobile-picker-option-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #1c2b39;
+        }
+
+        .mobile-picker-option-meta {
+            color: #5f7082;
+            font-size: 0.86rem;
+            line-height: 1.35;
+        }
+
         @media (min-width: 860px) {
             .app {
                 width: min(1680px, calc(100vw - 2rem));
@@ -1193,6 +1315,21 @@
             .mobile-panel-head .btn {
                 width: 100%;
             }
+            input[data-mobile-picker="true"] {
+                cursor: pointer;
+                padding-right: 2.9rem;
+                background-image:
+                    linear-gradient(45deg, transparent 50%, #7e90a3 50%),
+                    linear-gradient(135deg, #7e90a3 50%, transparent 50%);
+                background-position:
+                    calc(100% - 18px) calc(50% - 2px),
+                    calc(100% - 12px) calc(50% - 2px);
+                background-size: 6px 6px, 6px 6px;
+                background-repeat: no-repeat;
+            }
+            input[data-mobile-picker="true"]::placeholder {
+                color: #7b8b9c;
+            }
             .section-grid,
             .search-grid,
             .inventory-grid,
@@ -1202,20 +1339,40 @@
                 align-content: start;
             }
             .mobile-typeahead {
-                border-radius: 12px;
-                box-shadow: 0 12px 24px rgba(17, 38, 57, 0.18);
-                max-width: calc(100vw - 16px);
-                overflow-x: hidden;
+                inset: 0;
+                padding: 0;
+                border: none;
+                border-radius: 0;
+                background: rgba(17, 38, 57, 0.22);
+                box-shadow: none;
+                max-width: none;
+                overflow: hidden;
+                display: grid;
+                align-items: end;
             }
-            .mobile-typeahead-item {
-                padding: 0.75rem;
-                border-radius: 10px;
+            .mobile-picker-shell {
+                width: 100%;
+                max-height: min(84%, 560px);
+                padding: 0.75rem 0.85rem calc(0.95rem + env(safe-area-inset-bottom));
+                border-radius: 22px 22px 0 0;
+                background: rgba(255, 255, 255, 0.98);
+                box-shadow: 0 -24px 44px rgba(17, 38, 57, 0.18);
             }
-            .mobile-typeahead-title {
-                font-size: 0.98rem;
+            .mobile-picker-search input {
+                padding: 0.9rem 0.95rem;
+                border: 1px solid #d6dde6;
+                border-radius: 14px;
+                background: #f9fbfd;
             }
-            .mobile-typeahead-meta {
-                font-size: 0.8rem;
+            .mobile-picker-options {
+                overflow-y: auto;
+                padding-right: 0.1rem;
+                scroll-snap-type: y proximity;
+                -webkit-overflow-scrolling: touch;
+            }
+            .mobile-picker-empty {
+                min-height: 104px;
+                align-content: center;
             }
             .form-grid { grid-template-columns: 1fr; }
             .span-2 { grid-column: auto; }
@@ -1239,6 +1396,7 @@
                 box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
             }
             .field span, h2, h3 { color: var(--text); }
+            .form-section-note { display: none; }
             .btn {
                 background: linear-gradient(45deg, var(--brand), var(--brand-2));
             }
@@ -1331,9 +1489,15 @@
             }
             .scan-action-bar {
                 gap: 0.65rem;
+                position: sticky;
+                bottom: 0;
+                z-index: 3;
+                margin-top: 0.5rem;
+                padding: 0.75rem 0 0;
+                background: linear-gradient(180deg, rgba(245, 247, 250, 0), rgba(245, 247, 250, 0.92) 18%, rgba(245, 247, 250, 1) 100%);
             }
             .scan-action-note {
-                font-size: 0.84rem;
+                display: none;
             }
             .fold summary {
                 padding: 0.85rem 0.95rem;
@@ -1461,20 +1625,57 @@
             background: linear-gradient(180deg, rgba(245, 247, 250, 0.98), rgba(245, 247, 250, 0.82), rgba(245, 247, 250, 0));
         }
         body.device-mobile .mobile-panel-head .btn { width: 100%; }
+        body.device-mobile input[data-mobile-picker="true"] {
+            cursor: pointer;
+            padding-right: 2.9rem;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #7e90a3 50%),
+                linear-gradient(135deg, #7e90a3 50%, transparent 50%);
+            background-position:
+                calc(100% - 18px) calc(50% - 2px),
+                calc(100% - 12px) calc(50% - 2px);
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+        }
+        body.device-mobile input[data-mobile-picker="true"]::placeholder { color: #7b8b9c; }
         body.device-mobile .mobile-typeahead {
-            border-radius: 12px;
-            border-color: #dbe3ec;
+            inset: 0;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: rgba(17, 38, 57, 0.22);
+            box-shadow: none;
+            max-width: none;
+            overflow: hidden;
+            display: grid;
+            align-items: end;
+            justify-items: center;
+        }
+        body.device-mobile .mobile-picker-shell {
+            width: min(100%, 31rem);
+            max-height: min(84%, 560px);
+            padding: 0.75rem 0.85rem calc(0.95rem + env(safe-area-inset-bottom));
+            border-radius: 22px 22px 0 0;
             background: rgba(255, 255, 255, 0.98);
-            box-shadow: 0 12px 24px rgba(17, 38, 57, 0.18);
-            max-width: calc(100vw - 16px);
-            overflow-x: hidden;
+            box-shadow: 0 -24px 44px rgba(17, 38, 57, 0.18);
         }
-        body.device-mobile .mobile-typeahead-item {
-            padding: 0.75rem;
-            border-radius: 10px;
+        body.device-mobile .mobile-picker-search input {
+            padding: 0.9rem 0.95rem;
+            border: 1px solid #d6dde6;
+            border-radius: 14px;
+            background: #f9fbfd;
         }
-        body.device-mobile .mobile-typeahead-title { font-size: 0.98rem; }
-        body.device-mobile .mobile-typeahead-meta { font-size: 0.8rem; }
+        body.device-mobile .mobile-picker-options {
+            overflow-y: auto;
+            padding-right: 0.1rem;
+            max-height: min(48vh, 21rem);
+            scroll-snap-type: y proximity;
+            -webkit-overflow-scrolling: touch;
+        }
+        body.device-mobile .mobile-picker-empty {
+            min-height: 104px;
+            align-content: center;
+        }
         body.device-mobile .form-grid { grid-template-columns: 1fr; }
         body.device-mobile .span-2 { grid-column: auto; }
         body.device-mobile .button-row,
@@ -1505,6 +1706,7 @@
         body.device-mobile .field span,
         body.device-mobile h2,
         body.device-mobile h3 { color: var(--text); }
+        body.device-mobile .form-section-note { display: none; }
         body.device-mobile .btn,
         body.device-mobile .btn.secondary {
             color: white;
@@ -1587,8 +1789,16 @@
             flex-direction: column;
             align-items: stretch;
         }
-        body.device-mobile .scan-action-bar { gap: 0.65rem; }
-        body.device-mobile .scan-action-note { font-size: 0.84rem; }
+        body.device-mobile .scan-action-bar {
+            gap: 0.65rem;
+            position: sticky;
+            bottom: 0;
+            z-index: 3;
+            margin-top: 0.5rem;
+            padding: 0.75rem 0 0;
+            background: linear-gradient(180deg, rgba(245, 247, 250, 0), rgba(245, 247, 250, 0.92) 18%, rgba(245, 247, 250, 1) 100%);
+        }
+        body.device-mobile .scan-action-note { display: none; }
         body.device-mobile .fold summary { padding: 0.85rem 0.95rem; }
         body.device-mobile .fold-content { padding: 0 0.95rem 0.95rem; }
     </style>
@@ -2619,7 +2829,24 @@
     <datalist id="moveToList"></datalist>
     <datalist id="adjustSkuList"></datalist>
     <datalist id="transferSkuList"></datalist>
-    <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="listbox" aria-label="Mobile suggestions"></div>
+    <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="dialog" aria-modal="true" aria-label="Mobile picker">
+        <div class="mobile-picker-shell">
+            <div class="mobile-picker-grab" aria-hidden="true"></div>
+            <div class="mobile-picker-head">
+                <div class="mobile-picker-copy">
+                    <span class="mobile-picker-kicker" id="mobilePickerKicker">One-Hand Picker</span>
+                    <strong class="mobile-picker-title" id="mobilePickerTitle">Choose a value</strong>
+                </div>
+                <button class="btn ghost mini" id="mobilePickerDoneBtn" type="button">Done</button>
+            </div>
+            <label class="mobile-picker-search" for="mobilePickerSearchInput">
+                <span>Scroll or type to filter</span>
+                <input id="mobilePickerSearchInput" type="text" placeholder="Filter options" autocomplete="off" enterkeyhint="search">
+            </label>
+            <div class="mobile-picker-selected hidden" id="mobilePickerSelected"></div>
+            <div id="mobilePickerOptions" class="mobile-picker-options" role="listbox" aria-label="Available options"></div>
+        </div>
+    </div>
     <script>
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
         const LABEL_TOOL_STORAGE_KEY = "wms365-scanner-label-tool-v1";
@@ -2644,7 +2871,8 @@
             input: null,
             config: null,
             options: [],
-            hideTimer: null
+            hideTimer: null,
+            query: ""
         };
 
         const ui = {
@@ -2807,6 +3035,12 @@
             adjustSkuList: document.getElementById("adjustSkuList"),
             transferSkuList: document.getElementById("transferSkuList"),
             mobileAutocomplete: document.getElementById("mobileAutocomplete"),
+            mobilePickerKicker: document.getElementById("mobilePickerKicker"),
+            mobilePickerTitle: document.getElementById("mobilePickerTitle"),
+            mobilePickerDoneBtn: document.getElementById("mobilePickerDoneBtn"),
+            mobilePickerSearchInput: document.getElementById("mobilePickerSearchInput"),
+            mobilePickerSelected: document.getElementById("mobilePickerSelected"),
+            mobilePickerOptions: document.getElementById("mobilePickerOptions"),
             statUnits: document.getElementById("statUnits"),
             statLines: document.getElementById("statLines"),
             statLocations: document.getElementById("statLocations"),
@@ -3066,6 +3300,7 @@
             const useMobileClass = deviceExperienceMode === "mobile";
             document.body.classList.toggle("device-mobile", useMobileClass);
             applyManagedInputLists();
+            syncMobilePickerInputs();
         }
 
         function applyManagedInputLists() {
@@ -3073,6 +3308,21 @@
                 const listId = input.dataset.desktopList || "";
                 if (isMobileView() || !listId) input.removeAttribute("list");
                 else input.setAttribute("list", listId);
+            });
+        }
+
+        function syncMobilePickerInputs() {
+            mobileAutocompleteConfigs.forEach((config) => {
+                const input = config?.input;
+                if (!input) return;
+                input.dataset.mobilePicker = "true";
+                input.readOnly = isMobileView();
+                input.setAttribute("autocomplete", "off");
+                input.setAttribute("autocorrect", "off");
+                input.setAttribute("autocapitalize", "off");
+                input.setAttribute("spellcheck", "false");
+                if (isMobileView()) input.setAttribute("inputmode", "none");
+                else input.removeAttribute("inputmode");
             });
         }
 
@@ -3179,7 +3429,10 @@
                             state.preferences.lastAccount = option.value;
                             saveState();
                             syncScanFieldsFromCatalog();
-                            if (!(ui.scanLocation.value || "").trim()) ui.scanLocation.focus();
+                            if (isMobileView()) {
+                                if (!(ui.scanLocation.value || "").trim()) queueMobilePicker(ui.scanLocation);
+                                else if (!(ui.scanSku.value || "").trim() && !(ui.scanUpc.value || "").trim()) queueMobilePicker(ui.scanSku);
+                            } else if (!(ui.scanLocation.value || "").trim()) ui.scanLocation.focus();
                             else if (!(ui.scanSku.value || "").trim() && !(ui.scanUpc.value || "").trim()) ui.scanUpc.focus();
                             return false;
                         }
@@ -3193,7 +3446,10 @@
                         if (currentInput === ui.scanLocation) {
                             state.preferences.lastLocation = option.value;
                             saveState();
-                            if (!(ui.scanAccount.value || "").trim()) ui.scanAccount.focus();
+                            if (isMobileView()) {
+                                if (!(ui.scanAccount.value || "").trim()) queueMobilePicker(ui.scanAccount);
+                                else queueMobilePicker(ui.scanSku);
+                            } else if (!(ui.scanAccount.value || "").trim()) ui.scanAccount.focus();
                             else ui.scanUpc.focus();
                             return false;
                         }
@@ -3296,88 +3552,181 @@
                 }
             });
 
+            syncMobilePickerInputs();
             ui.mobileAutocomplete.addEventListener("pointerdown", (event) => {
-                if (event.target.closest("[data-mobile-autocomplete-index]")) {
+                if (
+                    event.target.closest("[data-mobile-autocomplete-index]") ||
+                    event.target.closest("#mobilePickerDoneBtn")
+                ) {
                     event.preventDefault();
                 }
             });
             ui.mobileAutocomplete.addEventListener("click", onMobileAutocompleteClick);
-            document.addEventListener("pointerdown", (event) => {
-                if (!mobileAutocompleteState.input) return;
-                if (event.target.closest("#mobileAutocomplete")) return;
-                if (event.target === mobileAutocompleteState.input) return;
-                hideMobileAutocomplete();
-            });
-            document.addEventListener("scroll", refreshMobileAutocompletePosition, true);
-            window.addEventListener("resize", refreshMobileAutocompletePosition);
+            if (ui.mobilePickerSearchInput) {
+                ui.mobilePickerSearchInput.addEventListener("input", () => {
+                    mobileAutocompleteState.query = ui.mobilePickerSearchInput.value || "";
+                    renderMobileAutocompleteOptions();
+                });
+                ui.mobilePickerSearchInput.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitMobileAutocompleteSelection(buildTypedMobileAutocompleteOption(), { dispatchFallback: true });
+                    } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        hideMobileAutocomplete();
+                    }
+                });
+            }
+            window.addEventListener("resize", () => refreshMobileAutocomplete());
         }
 
         function registerMobileAutocomplete(input, config) {
             if (!input) return;
             mobileAutocompleteConfigs.set(input.id, { ...config, input });
-            ["input", "focus", "click"].forEach((eventName) => input.addEventListener(eventName, () => refreshMobileAutocomplete(input)));
-            input.addEventListener("blur", scheduleHideMobileAutocomplete);
+            input.dataset.mobilePicker = "true";
+            ["focus", "click"].forEach((eventName) => input.addEventListener(eventName, () => {
+                if (!isMobileView()) return;
+                openMobileAutocomplete(input);
+            }));
+            input.addEventListener("keydown", (event) => {
+                if (!isMobileView()) return;
+                if (!["Enter", "ArrowDown", " "].includes(event.key)) return;
+                event.preventDefault();
+                openMobileAutocomplete(input);
+            });
         }
 
-        function refreshMobileAutocomplete(input = mobileAutocompleteState.input) {
+        function queueMobilePicker(input) {
+            if (!input) return;
+            window.requestAnimationFrame(() => {
+                if (!isMobileView()) {
+                    input.focus();
+                    return;
+                }
+                openMobileAutocomplete(input);
+            });
+        }
+
+        function openMobileAutocomplete(input, { query = null, focusSearch = false } = {}) {
+            if (!isMobileView()) return hideMobileAutocomplete();
+            mobileAutocompleteState.query = typeof query === "string" ? query : "";
+            refreshMobileAutocomplete(input, { focusSearch });
+        }
+
+        function refreshMobileAutocomplete(input = mobileAutocompleteState.input, { focusSearch = false } = {}) {
             clearMobileAutocompleteHideTimer();
+            if (!isMobileView()) return hideMobileAutocomplete();
             if (!input) return hideMobileAutocomplete();
             const config = mobileAutocompleteConfigs.get(input.id);
             if (!config || !document.body.contains(input) || input.offsetParent === null) return hideMobileAutocomplete();
 
-            const query = norm(input.value);
-            const options = (config.getSuggestions ? config.getSuggestions(query, input) : []).slice(0, AUTOCOMPLETE_OPTION_LIMIT);
-            if (!options.length) return hideMobileAutocomplete();
-
             mobileAutocompleteState.input = input;
             mobileAutocompleteState.config = config;
-            mobileAutocompleteState.options = options;
-            ui.mobileAutocomplete.innerHTML = options.map((option, index) => `
-                <button class="mobile-typeahead-item" type="button" data-mobile-autocomplete-index="${index}">
-                    <span class="mobile-typeahead-title">${esc(option.title || option.value)}</span>
-                    ${option.meta ? `<span class="mobile-typeahead-meta">${esc(option.meta)}</span>` : ""}
-                </button>
-            `).join("");
+            if (typeof mobileAutocompleteState.query !== "string") {
+                mobileAutocompleteState.query = "";
+            }
+            if (ui.mobilePickerTitle) ui.mobilePickerTitle.textContent = getMobilePickerTitle(input);
+            if (ui.mobilePickerKicker) ui.mobilePickerKicker.textContent = getMobilePickerKicker(input);
+            if (ui.mobilePickerSearchInput) {
+                if (ui.mobilePickerSearchInput.value !== mobileAutocompleteState.query) {
+                    ui.mobilePickerSearchInput.value = mobileAutocompleteState.query;
+                }
+                ui.mobilePickerSearchInput.placeholder = `Type to filter ${getMobilePickerTitle(input).replace(/^Choose\s+/i, "").toLowerCase()}`;
+            }
             ui.mobileAutocomplete.classList.remove("hidden");
-            refreshMobileAutocompletePosition();
+            renderMobileAutocompleteOptions();
+            if (focusSearch && ui.mobilePickerSearchInput) {
+                window.requestAnimationFrame(() => {
+                    ui.mobilePickerSearchInput.focus({ preventScroll: true });
+                    ui.mobilePickerSearchInput.select();
+                });
+            }
         }
 
-        function refreshMobileAutocompletePosition() {
-            if (!ui.mobileAutocomplete || ui.mobileAutocomplete.classList.contains("hidden")) return;
+        function getMobilePickerKicker(input) {
+            if (input === ui.scanAccount || input === ui.searchAccount || input === ui.adjustAccount || input === ui.transferAccount || input === ui.moveAccount || input === ui.masterOwnerName || input === ui.masterItemAccount || input === ui.reportOwner) {
+                return "Owner Picker";
+            }
+            if (input === ui.scanLocation || input === ui.adjustLocation || input === ui.transferFrom || input === ui.transferTo || input === ui.moveFrom || input === ui.moveTo || input === ui.masterLocationCode) {
+                return "Location Picker";
+            }
+            return "Item Picker";
+        }
+
+        function getMobilePickerTitle(input) {
+            const field = input?.closest(".field");
+            const label = field?.querySelector("span")?.textContent?.trim();
+            return label ? `Choose ${label}` : "Choose a value";
+        }
+
+        function buildTypedMobileAutocompleteOption() {
+            const rawValue = String(ui.mobilePickerSearchInput?.value || mobileAutocompleteState.query || "").trim();
+            if (!rawValue) return null;
             const input = mobileAutocompleteState.input;
-            if (!input || input.offsetParent === null) return hideMobileAutocomplete();
+            const label = input ? getMobilePickerTitle(input).replace(/^Choose\s+/i, "") : "value";
+            return {
+                value: rawValue,
+                title: rawValue,
+                meta: `Use typed ${label.toLowerCase()}.`,
+                searchText: rawValue,
+                custom: true
+            };
+        }
 
-            const rect = input.getBoundingClientRect();
-            const viewportPadding = 8;
-            const width = Math.min(rect.width, window.innerWidth - (viewportPadding * 2));
-            const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
-            const roomBelow = window.innerHeight - rect.bottom - viewportPadding - 6;
-            const roomAbove = rect.top - viewportPadding - 6;
-            const panelMaxHeight = isMobileView() ? 280 : 360;
+        function renderMobileAutocompleteOptions() {
+            const input = mobileAutocompleteState.input;
+            const config = mobileAutocompleteState.config;
+            if (!input || !config || !ui.mobilePickerOptions) return hideMobileAutocomplete();
 
-            let maxHeight = Math.min(panelMaxHeight, Math.max(roomBelow, roomAbove));
-            let top = rect.bottom + 6;
-            if (roomBelow < 140 && roomAbove > roomBelow) {
-                maxHeight = Math.min(panelMaxHeight, roomAbove);
-                top = Math.max(viewportPadding, rect.top - maxHeight - 6);
-            } else {
-                maxHeight = Math.min(panelMaxHeight, roomBelow);
-                top = Math.min(window.innerHeight - maxHeight - viewportPadding, rect.bottom + 6);
+            const rawQuery = String(mobileAutocompleteState.query || "");
+            const normalizedQuery = norm(rawQuery);
+            let options = (config.getSuggestions ? config.getSuggestions(normalizedQuery, input) : []).slice(0, AUTOCOMPLETE_OPTION_LIMIT);
+            const typedOption = buildTypedMobileAutocompleteOption();
+            const hasExactMatch = typedOption && options.some((option) => norm(option.value) === norm(typedOption.value));
+            if (typedOption && !hasExactMatch) {
+                options = [typedOption, ...options].slice(0, AUTOCOMPLETE_OPTION_LIMIT);
             }
 
-            if (maxHeight < 96) return hideMobileAutocomplete();
+            mobileAutocompleteState.options = options;
 
-            ui.mobileAutocomplete.style.left = `${left}px`;
-            ui.mobileAutocomplete.style.top = `${Math.max(viewportPadding, top)}px`;
-            ui.mobileAutocomplete.style.width = `${width}px`;
-            ui.mobileAutocomplete.style.maxHeight = `${maxHeight}px`;
+            if (ui.mobilePickerSelected) {
+                const currentValue = String(input.value || "").trim();
+                if (currentValue) {
+                    ui.mobilePickerSelected.classList.remove("hidden");
+                    ui.mobilePickerSelected.innerHTML = `
+                        <strong>Current</strong>
+                        <span>${esc(currentValue)}</span>
+                    `;
+                } else {
+                    ui.mobilePickerSelected.classList.add("hidden");
+                    ui.mobilePickerSelected.innerHTML = "";
+                }
+            }
+
+            if (!options.length) {
+                ui.mobilePickerOptions.innerHTML = `
+                    <div class="mobile-picker-empty">
+                        Scroll is ready once saved values exist. You can also type a new value above and tap Done.
+                    </div>
+                `;
+                return;
+            }
+
+            const activeValue = norm(input.value);
+            ui.mobilePickerOptions.innerHTML = options.map((option, index) => `
+                <button
+                    class="mobile-picker-option ${norm(option.value) === activeValue ? "selected" : ""}"
+                    type="button"
+                    data-mobile-autocomplete-index="${index}"
+                >
+                    <span class="mobile-picker-option-title">${esc(option.title || option.value)}</span>
+                    ${option.meta ? `<span class="mobile-picker-option-meta">${esc(option.meta)}</span>` : ""}
+                </button>
+            `).join("");
         }
 
         function scheduleHideMobileAutocomplete() {
             clearMobileAutocompleteHideTimer();
-            mobileAutocompleteState.hideTimer = window.setTimeout(() => {
-                hideMobileAutocomplete();
-            }, 140);
         }
 
         function clearMobileAutocompleteHideTimer() {
@@ -3392,25 +3741,45 @@
             mobileAutocompleteState.input = null;
             mobileAutocompleteState.config = null;
             mobileAutocompleteState.options = [];
+            mobileAutocompleteState.query = "";
             if (!ui.mobileAutocomplete) return;
             ui.mobileAutocomplete.classList.add("hidden");
-            ui.mobileAutocomplete.innerHTML = "";
+            if (ui.mobilePickerSearchInput) ui.mobilePickerSearchInput.value = "";
+            if (ui.mobilePickerOptions) ui.mobilePickerOptions.innerHTML = "";
+            if (ui.mobilePickerSelected) {
+                ui.mobilePickerSelected.classList.add("hidden");
+                ui.mobilePickerSelected.innerHTML = "";
+            }
         }
 
-        function onMobileAutocompleteClick(event) {
-            const optionButton = event.target.closest("[data-mobile-autocomplete-index]");
-            if (!optionButton) return;
-            const option = mobileAutocompleteState.options[Number(optionButton.dataset.mobileAutocompleteIndex)];
+        function commitMobileAutocompleteSelection(option, { dispatchFallback = false } = {}) {
             const input = mobileAutocompleteState.input;
             const config = mobileAutocompleteState.config;
-            if (!option || !input || !config) return;
+            if (!input || !config || !option?.value) return;
 
             input.value = option.value;
             hideMobileAutocomplete();
-            const shouldDispatch = typeof config.onSelect === "function" ? config.onSelect(option, input, config) : true;
+            const shouldDispatch = typeof config.onSelect === "function" ? config.onSelect(option, input, config) : dispatchFallback;
             if (shouldDispatch) {
                 input.dispatchEvent(new Event("change", { bubbles: true }));
             }
+        }
+
+        function onMobileAutocompleteClick(event) {
+            if (event.target === ui.mobileAutocomplete) {
+                hideMobileAutocomplete();
+                return;
+            }
+            if (event.target.closest("#mobilePickerDoneBtn")) {
+                const typedOption = buildTypedMobileAutocompleteOption();
+                if (typedOption) commitMobileAutocompleteSelection(typedOption, { dispatchFallback: true });
+                else hideMobileAutocomplete();
+                return;
+            }
+            const optionButton = event.target.closest("[data-mobile-autocomplete-index]");
+            if (!optionButton) return;
+            const option = mobileAutocompleteState.options[Number(optionButton.dataset.mobileAutocompleteIndex)];
+            commitMobileAutocompleteSelection(option, { dispatchFallback: true });
         }
 
         function applyMobileScanItem(option) {
