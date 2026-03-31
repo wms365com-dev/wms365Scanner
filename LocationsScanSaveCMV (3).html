@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Inventory Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            text-align: center;
+            padding: 10px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background-attachment: fixed;
+            font-size: 18px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+        h2 {
+            font-size: 24px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        h3 {
+            font-size: 20px;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+        .section {
+            display: none;
+            width: 100%;
+            padding: 0;
+        }
+        .section.active {
+            display: block;
+            visibility: visible;
+            opacity: 1;
+        }
+        .menu {
+            width: 100%;
+        }
+        .input-group {
+            margin: 10px 0;
+            width: 100%;
+        }
+        .input-group input, .input-group textarea {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border-radius: 6px;
+            border: 2px solid #ddd;
+            transition: border-color 0.3s;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .input-group input:focus, .input-group textarea:focus {
+            border-color: #007BFF;
+            outline: none;
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 6px;
+            font-size: 16px;
+            background: linear-gradient(45deg, #007BFF, #00b4d8);
+            color: white;
+            border: none;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        button:active {
+            background: #0056b3;
+        }
+        .menu button {
+            display: block;
+            font-size: 18px;
+            font-weight: 500;
+            width: 100%;
+            margin: 8px 0;
+        }
+        .status {
+            margin: 8px 0;
+            padding: 8px;
+            border-radius: 4px;
+            display: none;
+            white-space: pre-wrap;
+            font-size: 14px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .results { 
+            margin: 8px 0;
+            padding: 8px;
+            border-radius: 4px;
+            background: #d4edda;
+            color: #155724;
+            white-space: pre-wrap;
+            text-align: left;
+            font-size: 14px;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 5px;
+                font-size: 16px;
+            }
+            .container {
+                padding: 10px;
+                border-radius: 8px;
+                width: 100vw;
+                max-width: none;
+                margin: 0;
+            }
+            h2 { font-size: 20px; }
+            h3 { font-size: 18px; }
+            .input-group input, .input-group textarea { padding: 10px; font-size: 14px; }
+            button { padding: 10px; font-size: 14px; }
+            .menu button { font-size: 16px; padding: 10px; margin: 6px 0; }
+            .status, .results { font-size: 12px; }
+            .footer { font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Inventory Scanner</h2>
+        <div id="menu" class="menu section active">
+            <button onclick="showSection('scanStore')">Scan & Store</button>
+            <button onclick="showSection('findLocation')">Find Locations</button>
+            <button onclick="showSection('findMultipleLocations')">Find Multiple Locations</button>
+            <button onclick="showSection('deleteItem')">Delete Item</button>
+            <button onclick="showSection('transferItem')">Transfer Items</button>
+            <button onclick="showSection('binToBinMove')">BIN to BIN Move</button>
+        </div>
+
+        <div id="scanStore" class="section">
+            <button onclick="showSection('menu')">Back to Menu</button>
+            <h3>Scan & Store</h3>
+            <div class="input-group">
+                <input type="text" id="location" placeholder="Scan Location" required>
+            </div>
+            <div class="input-group">
+                <input type="text" id="upc" placeholder="Enter UPC (optional)">
+            </div>
+            <div class="input-group">
+                <input type="text" id="sku" placeholder="Enter SKU" required>
+            </div>
+            <div class="input-group">
+                <input type="number" id="uom" placeholder="Units per Case (UOM)" min="1" required inputmode="numeric">
+            </div>
+            <div class="input-group">
+                <input type="number" id="cases" placeholder="Number of Cases" min="1" required inputmode="numeric">
+            </div>
+            <button onclick="addItem()">Add Item</button>
+            <button onclick="submitItems()">Submit All Items</button>
+            <div id="scanStatus" class="status"></div>
+        </div>
+
+        <div id="findLocation" class="section">
+            <button onclick="showSection('menu')">Back to Menu</button>
+            <h3>Search Inventory</h3>
+            <div class="input-group">
+                <input type="text" id="searchSku" placeholder="Enter SKU/UPC (optional)">
+            </div>
+            <div class="input-group">
+                <input type="text" id="searchLocation" placeholder="Enter Location (optional)">
+            </div>
+            <button onclick="searchInventory('sku')">Search by SKU/UPC</button>
+            <button onclick="searchInventory('location')">Search by Location</button>
+            <button id="printLabelBtn" onclick="printSearchLabel()" style="display: none;">Print 4x6 Label</button>
+            <div id="searchStatus" class="status"></div>
+            <div id="searchResult" class="results"></div>
+        </div>
+
+        <div id="findMultipleLocations" class="section">
+            <button onclick="showSection('menu')">Back to Menu</button>
+            <h3>Find Multiple Locations</h3>
+            <div class="input-group">
+                <textarea id="multipleSearchSkus" rows="5" placeholder="Enter SKUs/UPCs (separate by space, comma, or newline)" required style="width: 100%; padding: 12px; font-size: 16px; border-radius: 6px; border: 2px solid #ddd; resize: vertical;"></textarea>
+            </div>
+            <button onclick="searchMultipleInventory()">Search Multiple Items</button>
+            <button id="printMultipleLabelBtn" onclick="printMultipleSearchLabel()" style="display: none;">Print 4x6 Labels</button>
+            <div id="multipleSearchStatus" class="status"></div>
+            <div id="multipleSearchResult" class="results"></div>
+        </div>
+
+        <div id="deleteItem" class="section">
+            <button onclick="showSection('menu')">Back to Menu</button>
+            <h3>Delete Item</h3>
+            <div class="input-group">
+                <input type="text" id="deleteLocation" placeholder="Enter Location" required>
+            </div>
+            <div class="input-group">
+                <input type="text" id="deleteSku" placeholder="Enter SKU/UPC" required>
+            </div>
+            <button onclick="deleteItem()">Delete Item</button>
+            <div id="deleteStatus" class="status"></div>
+        </div>
+
+        <div id="transferItem" class="section">
+            <button onclick="showSection('menu')">Back to Menu</button>
+            <h3>Transfer Items</h3>
+            <div class="input-group">
+                <input type="text" id="fromLocation" placeholder="From Location" required>
+            </div>
+            <div class="input-group">
+                <input type="text" id="toLocation" placeholder="To Location" required>
+            </div>
+            <div class="input-group">
+                <input type="text" id="transferSku" placeholder="Enter SKU/UPC" required>
+            </div>
+            <div class="input-group">
+                <input type="number" id="transferUnits" placeholder="Units to Transfer" min="1" required inputmode="numeric">
+            </div>
+            <button onclick="transferItems()">Transfer Items</button>
+            <div id="transferStatus" class="status"></div>
+        </div>
+
+        <div id="binToBinMove" class="section">
+            <button onclick="showSection('menu')">Back to Menu</button>
+            <h3>BIN to BIN Move</h3>
+            <div class="input-group">
+                <input type="text" id="moveFromLocation" placeholder="From Location" required>
+            </div>
+            <div class="input-group">
+                <input type="text" id="moveToLocation" placeholder="To Location" required>
+            </div>
+            <button onclick="moveBinToBin()">Move All Items</button>
+            <div id="moveStatus" class="status"></div>
+        </div>
+
+        <div class="footer">
+            © <a href="https://www.bluedog3pl.ca" target="_blank">Blue Dog 3PL</a>
+        </div>
+    </div>
+
+    <script>
+        const apiUrl = "https://script.google.com/macros/s/AKfycbyIdTCAG-K1wsJyY37Q2Pz0UQWGYuMHnPvW8OyVANvaXzxtk5QlIm6rbKshZQQNVvMu/exec";
+        let scannedItems = JSON.parse(localStorage.getItem('scannedItems')) || [];
+        const TODAY = new Date().toISOString().split('T')[0];
+        let lastSearchResults = null;
+        let lastMultipleSearchResults = null;
+
+        function showSection(id) {
+            console.log(`Showing section: ${id}`);
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+                section.style.display = 'none';
+            });
+            const section = document.getElementById(id);
+            section.classList.add('active');
+            section.style.display = 'block';
+            clearStatus();
+            clearResults();
+            if (id === 'findLocation') {
+                document.getElementById('printLabelBtn').style.display = lastSearchResults ? 'block' : 'none';
+            } else if (id === 'findMultipleLocations') {
+                document.getElementById('printMultipleLabelBtn').style.display = lastMultipleSearchResults ? 'block' : 'none';
+            } else {
+                document.getElementById('printLabelBtn').style.display = 'none';
+                document.getElementById('printMultipleLabelBtn').style.display = 'none';
+            }
+            if (id !== 'menu') {
+                section.querySelector('input, textarea')?.focus();
+            }
+            setTimeout(() => section.offsetHeight, 0);
+        }
+
+        function showStatus(elementId, message, isSuccess = true) {
+            const status = document.getElementById(elementId);
+            status.textContent = message;
+            status.className = `status ${isSuccess ? 'success' : 'error'}`;
+            status.style.display = 'block';
+            setTimeout(() => status.style.display = 'none', 5000);
+        }
+
+        function showResults(message) {
+            const results = document.getElementById('searchResult');
+            results.textContent = message;
+            results.style.display = 'block';
+            document.getElementById('printLabelBtn').style.display = 'block';
+        }
+
+        function showResultsMultiple(message) {
+            const results = document.getElementById('multipleSearchResult');
+            results.textContent = message;
+            results.style.display = 'block';
+            document.getElementById('printMultipleLabelBtn').style.display = lastMultipleSearchResults && lastMultipleSearchResults.length > 0 ? 'block' : 'none';
+        }
+
+        function clearStatus() {
+            document.querySelectorAll('.status').forEach(status => {
+                status.style.display = 'none';
+            });
+        }
+
+        function clearResults() {
+            document.querySelectorAll('.results').forEach(result => {
+                result.style.display = 'none';
+                result.textContent = '';
+            });
+            document.getElementById('printLabelBtn').style.display = 'none';
+            document.getElementById('printMultipleLabelBtn').style.display = 'none';
+        }
+
+        function validateInput(input) {
+            return input.trim().length > 0;
+        }
+
+        function saveScannedItems() {
+            localStorage.setItem('scannedItems', JSON.stringify(scannedItems));
+        }
+
+        function isOnline() {
+            return navigator.onLine;
+        }
+
+        async function addItem() {
+            const location = document.getElementById("location").value;
+            const upc = document.getElementById("upc").value;
+            const sku = document.getElementById("sku").value;
+            const uom = parseInt(document.getElementById("uom").value);
+            const cases = parseInt(document.getElementById("cases").value);
+
+            if (!validateInput(location) || !validateInput(sku) || isNaN(uom) || isNaN(cases) || uom <= 0 || cases <= 0) {
+                showStatus("scanStatus", "Please fill all required fields with valid values.", false);
+                return;
+            }
+
+            const totalUnits = uom * cases;
+            const item = { 
+                location: location.trim(), 
+                sku: sku.trim(), 
+                upc: upc.trim(), 
+                uom, 
+                cases, 
+                totalUnits,
+                timestamp: TODAY 
+            };
+            
+            scannedItems.push(item);
+            saveScannedItems();
+            showStatus("scanStatus", `Added ${sku}: ${totalUnits} units${isOnline() ? '' : ' (offline - will sync when online)'}`);
+            
+            document.getElementById("upc").value = "";
+            document.getElementById("sku").value = "";
+            document.getElementById("uom").value = "";
+            document.getElementById("cases").value = "";
+            document.getElementById("upc").focus();
+        }
+
+        async function submitItems() {
+            if (scannedItems.length === 0) {
+                showStatus("scanStatus", "No items to submit!", false);
+                return;
+            }
+
+            if (!isOnline()) {
+                showStatus("scanStatus", "No internet connection. Items are saved locally and will sync when online.", false);
+                return;
+            }
+
+            try {
+                showStatus("scanStatus", "Submitting items...");
+                const promises = scannedItems.map(item => 
+                    fetch(`${apiUrl}?action=add&location=${encodeURIComponent(item.location)}&sku=${encodeURIComponent(item.sku)}&upc=${encodeURIComponent(item.upc)}&uom=${item.uom}&cases=${item.cases}&totalUnits=${item.totalUnits}×tamp=${item.timestamp}`, {
+                        method: 'GET',
+                        mode: 'cors'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) throw new Error(data.error || 'Submission failed');
+                        return data;
+                    })
+                );
+
+                await Promise.all(promises);
+                showStatus("scanStatus", `Successfully submitted ${scannedItems.length} items to Google Sheets!`);
+                scannedItems = [];
+                saveScannedItems();
+                document.getElementById("location").value = "";
+                document.getElementById("location").focus();
+            } catch (error) {
+                showStatus("scanStatus", `Error submitting items: ${error.message}. Items remain in local storage.`, false);
+            }
+        }
+
+        async function searchInventory(searchType) {
+            const sku = document.getElementById("searchSku").value.trim();
+            const location = document.getElementById("searchLocation").value.trim();
+
+            if (searchType === 'sku' && !validateInput(sku)) {
+                showStatus("searchStatus", "Please enter a SKU/UPC!", false);
+                return;
+            }
+            if (searchType === 'location' && !validateInput(location)) {
+                showStatus("searchStatus", "Please enter a location!", false);
+                return;
+            }
+
+            if (!isOnline()) {
+                showStatus("searchStatus", "No internet connection. Search requires online access.", false);
+                return;
+            }
+
+            try {
+                showStatus("searchStatus", "Searching...");
+                let url = `${apiUrl}?action=search`;
+                if (searchType === 'sku') {
+                    url += `&sku=${encodeURIComponent(sku)}`;
+                } else {
+                    url += `&location=${encodeURIComponent(location)}`;
+                }
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (!Array.isArray(data) || data.length === 0) {
+                    showResults("No items found.");
+                    lastSearchResults = null;
+                    return;
+                }
+
+                lastSearchResults = data;
+                if (searchType === 'sku') {
+                    const totalQty = data.reduce((sum, item) => sum + (item.totalUnits || 0), 0);
+                    const locationBreakdown = data.map(item => `${item.location}: ${item.totalUnits} units`).join('\n');
+                    showResults(`Total Count for ${sku}: ${totalQty} units\n\nLocation Breakdown:\n${locationBreakdown}`);
+                } else {
+                    const itemsBreakdown = data.map(item => `${item.sku}: ${item.totalUnits} units`).join('\n');
+                    showResults(`Inventory at ${location}:\n${itemsBreakdown}\n\nTotal Items: ${data.length}`);
+                }
+            } catch (error) {
+                showStatus("searchStatus", `Error searching inventory: ${error.message}`, false);
+                showResults("");
+                lastSearchResults = null;
+            }
+        }
+
+        async function searchMultipleInventory() {
+            const skusInput = document.getElementById("multipleSearchSkus").value.trim();
+            const skus = skusInput.split('\n')
+                .flatMap(line => line.split(/[\s,]+/))
+                .map(sku => sku.trim())
+                .filter(sku => sku.length > 0);
+
+            if (skus.length === 0) {
+                showStatus("multipleSearchStatus", "Please enter at least one SKU/UPC!", false);
+                return;
+            }
+
+            if (!isOnline()) {
+                showStatus("multipleSearchStatus", "No internet connection. Search requires online access.", false);
+                return;
+            }
+
+            try {
+                showStatus("multipleSearchStatus", `Searching for ${skus.length} items...`);
+                const searchPromises = skus.map(sku => 
+                    fetch(`${apiUrl}?action=search&sku=${encodeURIComponent(sku)}`)
+                        .then(response => response.json())
+                        .then(data => ({ sku, results: data }))
+                        .catch(error => ({ sku, results: [], error: error.message }))
+                );
+
+                const results = await Promise.all(searchPromises);
+                lastMultipleSearchResults = results;
+
+                const output = results.map(item => {
+                    if (item.error || !Array.isArray(item.results) || item.results.length === 0) {
+                        return `SKU/UPC: ${item.sku}\nNo items found.\n`;
+                    }
+                    const totalQty = item.results.reduce((sum, res) => sum + (res.totalUnits || 0), 0);
+                    const locations = item.results.map(res => `${res.location}: ${res.totalUnits} units`).join('\n');
+                    return `SKU/UPC: ${item.sku}\nTotal Count: ${totalQty} units\nLocations:\n${locations}\n`;
+                }).join('\n');
+
+                showResultsMultiple(output);
+                showStatus("multipleSearchStatus", `Found results for ${results.filter(r => r.results.length > 0).length} out of ${skus.length} items`);
+            } catch (error) {
+                showStatus("multipleSearchStatus", `Error searching inventory: ${error.message}`, false);
+                showResultsMultiple("");
+                lastMultipleSearchResults = null;
+            }
+        }
+
+        function printSearchLabel() {
+            if (!lastSearchResults) {
+                showStatus("searchStatus", "No search results to print!", false);
+                return;
+            }
+
+            let content = "";
+            const searchType = document.getElementById("searchSku").value.trim() ? 'sku' : 'location';
+            const maxLines = 18;
+
+            if (searchType === 'sku') {
+                const sku = document.getElementById("searchSku").value.trim();
+                const totalQty = lastSearchResults.reduce((sum, item) => sum + (item.totalUnits || 0), 0);
+                const locations = lastSearchResults.map(item => `${item.location}: ${item.totalUnits} units`);
+                
+                let pages = [];
+                let currentPage = [];
+                locations.forEach(location => {
+                    if (currentPage.length >= maxLines) {
+                        pages.push(currentPage);
+                        currentPage = [];
+                    }
+                    currentPage.push(location);
+                });
+                if (currentPage.length > 0) pages.push(currentPage);
+
+                pages.forEach((page, index) => {
+                    content += `
+                        <div class="label">
+                            <div class="sku-info">
+                                <div class="sku-title">SKU</div>
+                                <div class="sku-value">${sku}</div>
+                            </div>
+                            <div class="total-units">
+                                <div class="units-title">Total Units Available</div>
+                                <div class="units-value">${totalQty}</div>
+                            </div>
+                            <div class="locations">
+                                <div class="locations-title">Locations</div>
+                                <div class="locations-list">${page.join('\n')}</div>
+                            </div>
+                            <div class="label-footer">Page ${index + 1} of ${pages.length}</div>
+                        </div>`;
+                });
+
+                const filename = `${sku.replace(/[^a-zA-Z0-9]/g, '_')}_${totalQty}_inventory_label.html`;
+                downloadLabel(content, filename);
+            } else {
+                const location = document.getElementById("searchLocation").value.trim();
+                const uniqueSKUs = [...new Set(lastSearchResults.map(item => item.sku))];
+                uniqueSKUs.forEach(sku => {
+                    const skuResults = lastSearchResults.filter(item => item.sku === sku);
+                    const totalQty = skuResults.reduce((sum, item) => sum + (item.totalUnits || 0), 0);
+                    content += `
+                        <div class="label">
+                            <div class="sku-info">
+                                <div class="sku-title">SKU</div>
+                                <div class="sku-value">${sku}</div>
+                            </div>
+                            <div class="total-units">
+                                <div class="units-title">Total Units Available at ${location}</div>
+                                <div class="units-value">${totalQty}</div>
+                            </div>
+                            <div class="locations">
+                                <div class="locations-title">Location</div>
+                                <div class="locations-list">${location}</div>
+                            </div>
+                            <div class="label-footer">Page 1 of 1</div>
+                        </div>`;
+                    const filename = `${sku.replace(/[^a-zA-Z0-9]/g, '_')}_${totalQty}_at_${location.replace(/[^a-zA-Z0-9]/g, '_')}_inventory_label.html`;
+                    downloadLabel(content, filename);
+                    content = "";
+                });
+            }
+        }
+
+        function printMultipleSearchLabel() {
+            if (!lastMultipleSearchResults || lastMultipleSearchResults.length === 0) {
+                showStatus("multipleSearchStatus", "No search results to print!", false);
+                return;
+            }
+
+            let content = "";
+            const maxLinesPerPage = 18;
+
+            lastMultipleSearchResults.forEach(item => {
+                const sku = item.sku;
+                const hasResults = Array.isArray(item.results) && item.results.length > 0;
+                const totalQty = hasResults ? item.results.reduce((sum, res) => sum + (res.totalUnits || 0), 0) : 0;
+                const locations = hasResults ? item.results.map(res => `${res.location}: ${res.totalUnits} units`) : ["Not found"];
+
+                let pages = [];
+                let currentPage = [];
+                locations.forEach(location => {
+                    if (currentPage.length >= maxLinesPerPage) {
+                        pages.push(currentPage);
+                        currentPage = [];
+                    }
+                    currentPage.push(location);
+                });
+                if (currentPage.length > 0) pages.push(currentPage);
+
+                pages.forEach((page, index) => {
+                    content += `
+                        <div class="label">
+                            <div class="sku-info">
+                                <div class="sku-title">SKU</div>
+                                <div class="sku-value">${sku}</div>
+                            </div>
+                            <div class="total-units">
+                                <div class="units-title">Total Units Available</div>
+                                <div class="units-value">${totalQty}</div>
+                            </div>
+                            <div class="locations">
+                                <div class="locations-title">Locations</div>
+                                <div class="locations-list">${page.join('\n')}</div>
+                            </div>
+                            <div class="label-footer">Page ${index + 1} of ${pages.length} - SKU ${sku}</div>
+                        </div>`;
+                });
+            });
+
+            const timestamp = new Date().toISOString().replace(/[^0-9]/g, '');
+            const filename = `multiple_inventory_labels_${timestamp}.html`;
+            downloadLabel(content, filename);
+        }
+
+        function downloadLabel(content, filename) {
+            const htmlContent = `
+                <html>
+                <head>
+                    <title>Inventory Summary Label</title>
+                    <style>
+                        @page { size: 4in 6in; margin: 0; }
+                        body { margin: 0; }
+                        .label {
+                            width: 4in;
+                            height: 6in;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: flex-start;
+                            align-items: center;
+                            padding: 20px;
+                            box-sizing: border-box;
+                            page-break-after: always;
+                            font-family: Arial, sans-serif;
+                        }
+                        .sku-info {
+                            width: 100%;
+                            text-align: center;
+                            margin-bottom: 20px;
+                        }
+                        .sku-title {
+                            font-size: 16px;
+                            font-weight: bold;
+                            margin-bottom: 5px;
+                        }
+                        .sku-value {
+                            font-size: 36px;
+                            font-weight: bold;
+                            word-wrap: break-word;
+                            max-width: 100%;
+                        }
+                        .total-units {
+                            width: 100%;
+                            text-align: center;
+                            margin-bottom: 20px;
+                        }
+                        .units-title {
+                            font-size: 16px;
+                            font-weight: bold;
+                            margin-bottom: 5px;
+                        }
+                        .units-value {
+                            font-size: 36px;
+                            font-weight: bold;
+                        }
+                        .locations {
+                            width: 100%;
+                            text-align: left;
+                            flex-grow: 1;
+                        }
+                        .locations-title {
+                            font-size: 16px;
+                            font-weight: bold;
+                            margin-bottom: 5px;
+                            text-align: center;
+                        }
+                        .locations-list {
+                            font-size: 14px;
+                            white-space: pre-wrap;
+                        }
+                        .label-footer {
+                            width: 100%;
+                            text-align: center;
+                            font-size: 12px;
+                            margin-top: 10px;
+                        }
+                    </style>
+                </head>
+                <body>${content}</body>
+                </html>
+            `;
+
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            const printWindow = window.open(url, '_blank');
+            printWindow.onload = () => {
+                printWindow.print();
+                printWindow.close();
+            };
+        }
+
+        async function deleteItem() {
+            const location = document.getElementById("deleteLocation").value.trim();
+            const sku = document.getElementById("deleteSku").value.trim();
+
+            if (!validateInput(location) || !validateInput(sku)) {
+                showStatus("deleteStatus", "Please enter both location and SKU/UPC!", false);
+                return;
+            }
+
+            if (!isOnline()) {
+                showStatus("deleteStatus", "No internet connection. Delete requires online access.", false);
+                return;
+            }
+
+            try {
+                showStatus("deleteStatus", "Deleting item...");
+                const response = await fetch(`${apiUrl}?action=delete&location=${encodeURIComponent(location)}&sku=${encodeURIComponent(sku)}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Deletion failed');
+                }
+
+                showStatus("deleteStatus", `Successfully deleted ${sku} from ${location}`);
+                document.getElementById("deleteLocation").value = "";
+                document.getElementById("deleteSku").value = "";
+            } catch (error) {
+                showStatus("deleteStatus", `Error deleting item: ${error.message}`, false);
+            }
+        }
+
+        async function transferItems() {
+            const fromLocation = document.getElementById("fromLocation").value.trim();
+            const toLocation = document.getElementById("toLocation").value.trim();
+            const sku = document.getElementById("transferSku").value.trim();
+            const units = parseInt(document.getElementById("transferUnits").value);
+
+            if (!validateInput(fromLocation) || !validateInput(toLocation) || !validateInput(sku) || isNaN(units) || units <= 0) {
+                showStatus("transferStatus", "Please fill all fields with valid values!", false);
+                return;
+            }
+
+            if (fromLocation === toLocation) {
+                showStatus("transferStatus", "Source and destination locations cannot be the same!", false);
+                return;
+            }
+
+            if (!isOnline()) {
+                showStatus("transferStatus", "No internet connection. Transfer requires online access.", false);
+                return;
+            }
+
+            try {
+                showStatus("transferStatus", "Transferring items...");
+                const response = await fetch(`${apiUrl}?action=transfer&fromLocation=${encodeURIComponent(fromLocation)}&toLocation=${encodeURIComponent(toLocation)}&sku=${encodeURIComponent(sku)}&units=${units}×tamp=${TODAY}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Transfer failed');
+                }
+
+                showStatus("transferStatus", `Successfully transferred ${units} units of ${sku} from ${fromLocation} to ${toLocation}`);
+                document.getElementById("fromLocation").value = "";
+                document.getElementById("toLocation").value = "";
+                document.getElementById("transferSku").value = "";
+                document.getElementById("transferUnits").value = "";
+            } catch (error) {
+                showStatus("transferStatus", `Error transferring items: ${error.message}`, false);
+            }
+        }
+
+        async function moveBinToBin() {
+            const fromLocation = document.getElementById("moveFromLocation").value.trim();
+            const toLocation = document.getElementById("moveToLocation").value.trim();
+
+            if (!validateInput(fromLocation) || !validateInput(toLocation)) {
+                showStatus("moveStatus", "Please enter both From and To locations!", false);
+                return;
+            }
+
+            if (fromLocation === toLocation) {
+                showStatus("moveStatus", "Source and destination locations cannot be the same!", false);
+                return;
+            }
+
+            if (!isOnline()) {
+                showStatus("moveStatus", "No internet connection. Move requires online access.", false);
+                return;
+            }
+
+            try {
+                showStatus("moveStatus", "Fetching items from source location...");
+                const searchResponse = await fetch(`${apiUrl}?action=search&location=${encodeURIComponent(fromLocation)}`);
+                const items = await searchResponse.json();
+
+                if (!Array.isArray(items) || items.length === 0) {
+                    showStatus("moveStatus", `No items found at ${fromLocation}!`, false);
+                    return;
+                }
+
+                showStatus("moveStatus", `Moving ${items.length} items from ${fromLocation} to ${toLocation}...`);
+                const transferPromises = items.map(item => 
+                    fetch(`${apiUrl}?action=transfer&fromLocation=${encodeURIComponent(fromLocation)}&toLocation=${encodeURIComponent(toLocation)}&sku=${encodeURIComponent(item.sku)}&units=${item.totalUnits}×tamp=${TODAY}`, {
+                        method: 'GET',
+                        mode: 'cors'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) throw new Error(data.error || `Failed to transfer ${item.sku}`);
+                        return data;
+                    })
+                );
+
+                await Promise.all(transferPromises);
+                showStatus("moveStatus", `Successfully moved ${items.length} items from ${fromLocation} to ${toLocation}`);
+                document.getElementById("moveFromLocation").value = "";
+                document.getElementById("moveToLocation").value = "";
+            } catch (error) {
+                showStatus("moveStatus", `Error moving items: ${error.message}`, false);
+            }
+        }
+
+        window.onload = () => {
+            showSection("menu");
+            document.querySelectorAll('input, textarea').forEach(input => {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        const section = input.closest('.section');
+                        if (section.id === 'scanStore' && input.id !== 'location') {
+                            addItem();
+                        } else if (section.id === 'findLocation' && input.id === 'searchSku') {
+                            searchInventory('sku');
+                        } else if (section.id === 'findLocation' && input.id === 'searchLocation') {
+                            searchInventory('location');
+                        } else if (section.id === 'deleteItem') {
+                            deleteItem();
+                        } else if (section.id === 'transferItem') {
+                            transferItems();
+                        } else if (section.id === 'binToBinMove') {
+                            moveBinToBin();
+                        } else if (section.id === 'findMultipleLocations' && e.shiftKey) {
+                            searchMultipleInventory();
+                        }
+                    }
+                });
+            });
+
+            document.addEventListener('touchstart', (e) => {
+                if (e.touches.length > 1) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            if (!isOnline() && scannedItems.length > 0) {
+                showStatus("scanStatus", `Offline: ${scannedItems.length} items cached locally. Will sync when online.`, false);
+            } else if (isOnline() && scannedItems.length > 0) {
+                submitItems();
+            }
+
+            window.addEventListener('online', () => {
+                if (scannedItems.length > 0) {
+                    submitItems();
+                }
+            });
+        };
+    </script>
+</body>
+</html>

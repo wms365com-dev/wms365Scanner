@@ -1,0 +1,1760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#14304a">
+    <title>WMS365 Scanner</title>
+    <style>
+        :root {
+            --bg: #08121d;
+            --panel: rgba(13, 28, 43, 0.9);
+            --panel-2: rgba(255, 255, 255, 0.05);
+            --line: rgba(255, 255, 255, 0.11);
+            --text: #eef6ff;
+            --muted: #acc0d4;
+            --brand: #59b7ff;
+            --brand-2: #238ef6;
+            --ok: #5dd4a5;
+            --warn: #ffd26f;
+            --bad: #ff8d8d;
+            --radius: 22px;
+            --radius-sm: 12px;
+            --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+        }
+
+        * { box-sizing: border-box; }
+
+        html {
+            background:
+                radial-gradient(circle at top left, rgba(89, 183, 255, 0.18), transparent 34%),
+                radial-gradient(circle at bottom right, rgba(255, 210, 111, 0.09), transparent 38%),
+                linear-gradient(180deg, #091421 0%, #07111b 100%);
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            font-family: "Trebuchet MS", "Segoe UI Variable", "Segoe UI", sans-serif;
+            background: transparent;
+        }
+
+        button, input, select, textarea { font: inherit; }
+        button { border: 0; cursor: pointer; }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.9rem 1rem;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--line);
+            background: rgba(5, 15, 25, 0.65);
+            color: var(--text);
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: rgba(89, 183, 255, 0.9);
+            box-shadow: 0 0 0 4px rgba(89, 183, 255, 0.12);
+        }
+
+        input::placeholder, textarea::placeholder { color: rgba(172, 192, 212, 0.72); }
+
+        .app {
+            width: min(1400px, calc(100vw - 1rem));
+            margin: 0 auto;
+            padding: 0.75rem 0 2rem;
+        }
+
+        .hero, .card {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+        }
+
+        .hero {
+            padding: 1.3rem;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .hero::before {
+            content: "";
+            position: absolute;
+            inset: auto -80px -120px auto;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: rgba(89, 183, 255, 0.14);
+            filter: blur(8px);
+        }
+
+        .hero-grid, .section-grid, .search-grid, .inventory-grid, .action-grid, .backup-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            gap: 0.55rem;
+            align-items: center;
+            margin: 0 0 0.8rem;
+            color: #9fd2ff;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+
+        .eyebrow::before {
+            content: "";
+            width: 0.7rem;
+            height: 0.7rem;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--brand), #9be1ff);
+            box-shadow: 0 0 0 6px rgba(89, 183, 255, 0.12);
+        }
+
+        h1, h2, h3 { margin: 0; }
+        h1 { font-size: clamp(2rem, 5vw, 3.4rem); line-height: 0.95; letter-spacing: -0.03em; }
+        h2 { font-size: 1.3rem; }
+        h3 { font-size: 1rem; }
+
+        .lead, .hero p, .meta, .muted {
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .hero p { margin: 0.75rem 0 0; max-width: 65ch; }
+
+        .hero-tags, .button-row, .tabbar, .summary-grid, .stats-grid, .inline-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.7rem;
+        }
+
+        .tag {
+            padding: 0.55rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.05);
+            font-size: 0.92rem;
+        }
+
+        .stats-grid { align-content: start; }
+
+        .stat {
+            flex: 1 1 140px;
+            padding: 1rem;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .stat span {
+            display: block;
+            color: #a8c1d8;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .stat strong {
+            display: block;
+            margin-top: 0.45rem;
+            font-size: clamp(1.45rem, 3vw, 2.2rem);
+        }
+
+        .tabbar {
+            margin-top: 1rem;
+            padding: 0.35rem;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.05);
+            overflow-x: auto;
+        }
+
+        .tab {
+            min-height: 48px;
+            padding: 0.85rem 1rem;
+            border-radius: 999px;
+            background: transparent;
+            color: #c7dbed;
+            white-space: nowrap;
+        }
+
+        .tab.active {
+            color: #041523;
+            background: linear-gradient(135deg, #8ed7ff, var(--brand));
+            box-shadow: 0 14px 28px rgba(35, 142, 246, 0.22);
+        }
+
+        .panel { display: none; margin-top: 1rem; }
+        .panel.active { display: block; }
+
+        .card { padding: 1.15rem; }
+
+        .card-head {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 0.7rem;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 0.95rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 1rem;
+        }
+
+        .field {
+            display: grid;
+            gap: 0.45rem;
+        }
+
+        .field span {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #d8e6f5;
+        }
+
+        .span-2 { grid-column: 1 / -1; }
+
+        .helper {
+            padding: 1rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: var(--panel-2);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 48px;
+            padding: 0.9rem 1.1rem;
+            border-radius: 999px;
+            color: white;
+            background: linear-gradient(135deg, var(--brand), var(--brand-2));
+            box-shadow: 0 16px 30px rgba(35, 142, 246, 0.22);
+        }
+
+        .btn.secondary {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: none;
+        }
+
+        .btn.ghost {
+            color: #cae2f5;
+            background: transparent;
+            border: 1px solid var(--line);
+            box-shadow: none;
+        }
+
+        .btn.warn {
+            color: #2b1d00;
+            background: linear-gradient(135deg, #ffd67a, #ffc34d);
+            box-shadow: 0 16px 30px rgba(255, 195, 77, 0.18);
+        }
+
+        .btn.bad {
+            background: linear-gradient(135deg, #ff8d8d, #f15d5d);
+            box-shadow: 0 16px 30px rgba(241, 93, 93, 0.2);
+        }
+
+        .status {
+            display: none;
+            margin-top: 1rem;
+            padding: 0.95rem 1rem;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            line-height: 1.5;
+        }
+
+        .status.show { display: block; }
+        .status.success { background: rgba(93, 212, 165, 0.12); border-color: rgba(93, 212, 165, 0.34); color: #cbf4df; }
+        .status.error { background: rgba(255, 141, 141, 0.12); border-color: rgba(255, 141, 141, 0.34); color: #ffd8d8; }
+        .status.info { background: rgba(89, 183, 255, 0.12); border-color: rgba(89, 183, 255, 0.34); color: #d8edff; }
+
+        .empty {
+            margin: 0;
+            padding: 1.1rem;
+            border-radius: 16px;
+            border: 1px dashed var(--line);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--muted);
+            text-align: center;
+            line-height: 1.55;
+        }
+
+        .summary-grid { margin-bottom: 1rem; }
+
+        .summary {
+            flex: 1 1 150px;
+            padding: 0.9rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .summary span {
+            display: block;
+            font-size: 0.78rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .summary strong {
+            display: block;
+            margin-top: 0.45rem;
+            font-size: 1.3rem;
+        }
+
+        .segmented {
+            display: inline-grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.35rem;
+            padding: 0.3rem;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .segmented button {
+            min-height: 42px;
+            padding: 0.75rem 0.95rem;
+            border-radius: 999px;
+            background: transparent;
+            color: #c8ddef;
+        }
+
+        .segmented button.active {
+            background: rgba(89, 183, 255, 0.16);
+            color: var(--text);
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        table {
+            width: 100%;
+            min-width: 620px;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 0.85rem 0.9rem;
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            vertical-align: top;
+        }
+
+        th {
+            color: #9fb9d2;
+            font-size: 0.8rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        tbody tr:last-child td { border-bottom: 0; }
+
+        .mini {
+            min-height: auto;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.88rem;
+        }
+
+        .result-group, .activity-item {
+            padding: 1rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .result-group + .result-group, .activity-item + .activity-item { margin-top: 0.9rem; }
+
+        .result-group header {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 0.5rem 1rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .badge {
+            display: inline-flex;
+            padding: 0.25rem 0.55rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            background: rgba(255, 255, 255, 0.06);
+            color: #d8eafa;
+        }
+
+        .badge.scan { background: rgba(93, 212, 165, 0.15); color: #caf6df; }
+        .badge.transfer { background: rgba(89, 183, 255, 0.15); color: #d7ecff; }
+        .badge.delete { background: rgba(255, 141, 141, 0.15); color: #ffdcdc; }
+        .badge.move { background: rgba(255, 210, 111, 0.18); color: #ffe8aa; }
+        .badge.import { background: rgba(214, 170, 255, 0.16); color: #efdfff; }
+
+        .activity-item strong { display: block; margin: 0.35rem 0 0.25rem; }
+        .activity-item p { margin: 0; color: var(--muted); }
+        .activity-meta { margin-top: 0.65rem; color: #96b2ca; font-size: 0.88rem; }
+
+        .footer {
+            margin-top: 1rem;
+            text-align: center;
+            color: #89a8c2;
+            font-size: 0.92rem;
+        }
+
+        .hidden { display: none !important; }
+
+        @media (min-width: 860px) {
+            .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
+            .section-grid, .search-grid, .inventory-grid { grid-template-columns: minmax(330px, 420px) minmax(0, 1fr); }
+            .action-grid, .backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 640px) {
+            .app { width: calc(100vw - 0.8rem); }
+            .hero, .card { padding: 1rem; }
+            .form-grid { grid-template-columns: 1fr; }
+            .span-2 { grid-column: auto; }
+            .button-row, .inline-actions { flex-direction: column; align-items: stretch; }
+            .btn, .tab { width: 100%; }
+            table { min-width: 560px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="hero">
+            <div class="hero-grid">
+                <div>
+                    <p class="eyebrow">Standalone Inventory Workflow</p>
+                    <h1>WMS365 Scanner</h1>
+                    <p>Scan locations, enter SKU and quantity, search inventory, move stock, and keep shared data on the server without relying on a Google Sheet.</p>
+                    <div class="hero-tags">
+                        <span class="tag">Desktop + mobile</span>
+                        <span class="tag">Shared server data</span>
+                        <span class="tag">Import / export backups</span>
+                    </div>
+                </div>
+                <div class="stats-grid" aria-label="Inventory totals">
+                    <div class="stat"><span>Total Units</span><strong id="statUnits">0</strong></div>
+                    <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
+                    <div class="stat"><span>Locations</span><strong id="statLocations">0</strong></div>
+                    <div class="stat"><span>Open Batch</span><strong id="statBatch">0</strong></div>
+                </div>
+            </div>
+        </header>
+
+        <nav class="tabbar" aria-label="Sections">
+            <button class="tab active" data-section="scan" type="button">Scan</button>
+            <button class="tab" data-section="search" type="button">Search</button>
+            <button class="tab" data-section="actions" type="button">Actions</button>
+            <button class="tab" data-section="inventory" type="button">Inventory</button>
+            <button class="tab" data-section="backup" type="button">Backup</button>
+        </nav>
+
+        <section class="panel active" id="scanPanel" data-panel="scan">
+            <div class="section-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Scan & Stage</h2>
+                            <p class="lead">Add scans to a batch first, then save the batch into local inventory.</p>
+                        </div>
+                        <span class="meta" id="lastLocationMeta">No saved location yet</span>
+                    </div>
+
+                    <form id="scanForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Location</span>
+                            <input id="scanLocation" list="locationList" type="text" placeholder="Scan or enter location" enterkeyhint="next">
+                        </label>
+                        <label class="field">
+                            <span>UPC (Optional)</span>
+                            <input id="scanUpc" list="skuList" type="text" placeholder="Scan UPC" enterkeyhint="next">
+                        </label>
+                        <label class="field">
+                            <span>SKU</span>
+                            <input id="scanSku" list="skuList" type="text" placeholder="Scan or enter SKU" enterkeyhint="next">
+                        </label>
+                        <label class="field">
+                            <span>Quantity</span>
+                            <input id="scanQuantity" type="number" min="1" inputmode="numeric" placeholder="Enter quantity" enterkeyhint="done">
+                        </label>
+                        <div class="helper span-2">
+                            <h3>Quick Qty Helper</h3>
+                            <div class="form-grid">
+                                <label class="field">
+                                    <span>Units per Case</span>
+                                    <input id="scanUom" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Cases</span>
+                                    <input id="scanCases" type="number" min="1" inputmode="numeric" placeholder="Optional">
+                                </label>
+                            </div>
+                            <div class="button-row" style="margin-top: 0.9rem;">
+                                <button class="btn ghost" id="calcQtyBtn" type="button">Calculate Quantity</button>
+                                <button class="btn ghost" id="useLastLocationBtn" type="button">Use Last Location</button>
+                            </div>
+                        </div>
+                        <div class="button-row span-2">
+                            <button class="btn" type="submit">Add To Batch</button>
+                            <button class="btn secondary" id="saveBatchBtn" type="button">Save Batch To Inventory</button>
+                            <button class="btn ghost" id="clearBatchBtn" type="button">Clear Batch</button>
+                        </div>
+                    </form>
+                    <div class="status" id="scanMessage"></div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Current Batch</h2>
+                            <p class="lead">Review staged scans before saving them.</p>
+                        </div>
+                        <span class="meta" id="batchMeta">0 lines staged</span>
+                    </div>
+                    <p class="empty" id="batchEmpty">Your batch is empty. Add scans here, then save them to inventory in one step.</p>
+                    <div class="table-wrap hidden" id="batchTableWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Location</th>
+                                    <th>SKU</th>
+                                    <th>UPC</th>
+                                    <th>Qty</th>
+                                    <th>Added</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="batchTableBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="panel" id="searchPanel" data-panel="search">
+            <div class="search-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Search Inventory</h2>
+                            <p class="lead">Search by SKU, UPC, location, or a list of item codes.</p>
+                        </div>
+                    </div>
+
+                    <form id="singleSearchForm" class="form-grid" autocomplete="off">
+                        <div class="span-2 segmented" role="tablist" aria-label="Search type">
+                            <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
+                            <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
+                        </div>
+                        <label class="field span-2">
+                            <span id="singleSearchLabel">SKU or UPC</span>
+                            <input id="singleSearchInput" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn" type="submit">Run Search</button>
+                            <button class="btn ghost hidden" id="printSingleSearchBtn" type="button">Print Results</button>
+                        </div>
+                    </form>
+
+                    <form id="multiSearchForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Find Multiple SKUs / UPCs</span>
+                            <textarea id="multiSearchInput" rows="6" placeholder="Paste or scan item codes separated by commas, spaces, or new lines"></textarea>
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn secondary" type="submit">Search Multiple Items</button>
+                            <button class="btn ghost hidden" id="printMultiSearchBtn" type="button">Print Multi Search</button>
+                        </div>
+                    </form>
+                    <div class="status" id="searchMessage"></div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Search Results</h2>
+                            <p class="lead">Results are pulled from the shared live inventory on the server.</p>
+                        </div>
+                    </div>
+                    <div id="searchResultsContent">
+                        <p class="empty">Run a search to see location breakdowns, matched quantities, and inventory lines.</p>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="panel" id="actionsPanel" data-panel="actions">
+            <div class="action-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Remove Or Delete</h2>
+                            <p class="lead">Remove part of a quantity or delete the full line from a location.</p>
+                        </div>
+                    </div>
+                    <form id="adjustForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Location</span>
+                            <input id="adjustLocation" list="locationList" type="text" placeholder="Enter location">
+                        </label>
+                        <label class="field span-2">
+                            <span>SKU or UPC</span>
+                            <input id="adjustSku" list="skuList" type="text" placeholder="Enter SKU or UPC">
+                        </label>
+                        <label class="field span-2">
+                            <span>Quantity To Remove</span>
+                            <input id="adjustQuantity" type="number" min="1" inputmode="numeric" placeholder="Required for partial removal">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn warn" id="removeQtyBtn" type="button">Remove Quantity</button>
+                            <button class="btn bad" id="deleteLineBtn" type="button">Delete Entire Line</button>
+                        </div>
+                    </form>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Transfer Stock</h2>
+                            <p class="lead">Move part of an item count from one location to another.</p>
+                        </div>
+                    </div>
+                    <form id="transferForm" class="form-grid" autocomplete="off">
+                        <label class="field">
+                            <span>From Location</span>
+                            <input id="transferFrom" list="locationList" type="text" placeholder="Source location">
+                        </label>
+                        <label class="field">
+                            <span>To Location</span>
+                            <input id="transferTo" list="locationList" type="text" placeholder="Destination location">
+                        </label>
+                        <label class="field span-2">
+                            <span>SKU or UPC</span>
+                            <input id="transferSku" list="skuList" type="text" placeholder="Item to transfer">
+                        </label>
+                        <label class="field span-2">
+                            <span>Quantity</span>
+                            <input id="transferQty" type="number" min="1" inputmode="numeric" placeholder="Units to move">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn" type="submit">Transfer Quantity</button>
+                        </div>
+                    </form>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>BIN To BIN Move</h2>
+                            <p class="lead">Move every inventory line from one location or bin into another.</p>
+                        </div>
+                    </div>
+                    <form id="moveForm" class="form-grid" autocomplete="off">
+                        <label class="field">
+                            <span>From Location</span>
+                            <input id="moveFrom" list="locationList" type="text" placeholder="Source location">
+                        </label>
+                        <label class="field">
+                            <span>To Location</span>
+                            <input id="moveTo" list="locationList" type="text" placeholder="Destination location">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn secondary" type="submit">Move All Items</button>
+                        </div>
+                    </form>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Recent Activity</h2>
+                            <p class="lead">The latest inventory changes saved on this device.</p>
+                        </div>
+                    </div>
+                    <div id="activityList">
+                        <p class="empty">Inventory changes will appear here after you save, delete, transfer, move, or import data.</p>
+                    </div>
+                </article>
+            </div>
+            <div class="status" id="actionMessage"></div>
+        </section>
+
+        <section class="panel" id="inventoryPanel" data-panel="inventory">
+            <div class="inventory-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Inventory Snapshot</h2>
+                            <p class="lead">Browse the full local inventory table and filter it quickly.</p>
+                        </div>
+                        <span class="meta" id="inventoryMeta">0 matching lines</span>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 280px;">
+                            <span>Filter Inventory</span>
+                            <input id="inventoryFilter" type="text" placeholder="Type a location, SKU, or UPC">
+                        </label>
+                        <button class="btn ghost" id="clearInventoryFilterBtn" type="button">Clear Filter</button>
+                    </div>
+                    <p class="empty" id="inventoryEmpty">No inventory saved yet. Save a batch from the Scan tab to start building inventory.</p>
+                    <div class="table-wrap hidden" id="inventoryTableWrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Location</th>
+                                    <th>SKU</th>
+                                    <th>UPC</th>
+                                    <th>Qty</th>
+                                    <th>Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryTableBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Storage Summary</h2>
+                            <p class="lead">This version keeps shared inventory on the server while your open batch stays on this device until you save it.</p>
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div class="summary"><span>Total Locations</span><strong id="summaryLocations">0</strong></div>
+                        <div class="summary"><span>Unique SKUs</span><strong id="summarySkus">0</strong></div>
+                        <div class="summary"><span>Total Units</span><strong id="summaryUnits">0</strong></div>
+                        <div class="summary"><span>Server Updated</span><strong id="summarySaved">Never</strong></div>
+                    </div>
+                    <p class="lead">Use the Backup tab to move or restore the shared server data when needed.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="panel" id="backupPanel" data-panel="backup">
+            <div class="backup-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Export</h2>
+                            <p class="lead">Download a backup or a CSV inventory snapshot whenever you want.</p>
+                        </div>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn" id="exportJsonBtn" type="button">Export JSON Backup</button>
+                        <button class="btn secondary" id="exportCsvBtn" type="button">Export CSV Snapshot</button>
+                    </div>
+                    <p class="lead">JSON includes the shared server inventory and recent activity. CSV exports the current inventory table for spreadsheets.</p>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Import</h2>
+                            <p class="lead">Restore a previously exported JSON backup into this browser.</p>
+                        </div>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn warn" id="importJsonBtn" type="button">Import JSON Backup</button>
+                    </div>
+                    <p class="lead">Import replaces the shared server inventory and recent activity for everyone using this app.</p>
+                </article>
+            </div>
+            <div class="status" id="backupMessage"></div>
+            <input id="importFileInput" class="hidden" type="file" accept="application/json,.json">
+        </section>
+
+        <p class="footer">Built as <strong>WMS365 Scanner</strong>. Shared inventory lives on the server; only the open batch and last location stay local in this browser.</p>
+    </div>
+
+    <datalist id="locationList"></datalist>
+    <datalist id="skuList"></datalist>
+    <script>
+        const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
+        const state = loadState();
+        let activeSection = "scan";
+        let searchMode = "sku";
+        let lastSingleSearch = null;
+        let lastMultiSearch = null;
+        let currentSearchView = null;
+        let syncTimer = null;
+
+        const ui = {
+            tabs: [...document.querySelectorAll(".tab")],
+            panels: [...document.querySelectorAll(".panel")],
+            scanLocation: document.getElementById("scanLocation"),
+            scanUpc: document.getElementById("scanUpc"),
+            scanSku: document.getElementById("scanSku"),
+            scanQuantity: document.getElementById("scanQuantity"),
+            scanUom: document.getElementById("scanUom"),
+            scanCases: document.getElementById("scanCases"),
+            scanMessage: document.getElementById("scanMessage"),
+            lastLocationMeta: document.getElementById("lastLocationMeta"),
+            batchMeta: document.getElementById("batchMeta"),
+            batchEmpty: document.getElementById("batchEmpty"),
+            batchTableWrap: document.getElementById("batchTableWrap"),
+            batchTableBody: document.getElementById("batchTableBody"),
+            searchMessage: document.getElementById("searchMessage"),
+            searchBySkuBtn: document.getElementById("searchBySkuBtn"),
+            searchByLocationBtn: document.getElementById("searchByLocationBtn"),
+            singleSearchLabel: document.getElementById("singleSearchLabel"),
+            singleSearchInput: document.getElementById("singleSearchInput"),
+            multiSearchInput: document.getElementById("multiSearchInput"),
+            printSingleSearchBtn: document.getElementById("printSingleSearchBtn"),
+            printMultiSearchBtn: document.getElementById("printMultiSearchBtn"),
+            searchResultsContent: document.getElementById("searchResultsContent"),
+            actionMessage: document.getElementById("actionMessage"),
+            adjustLocation: document.getElementById("adjustLocation"),
+            adjustSku: document.getElementById("adjustSku"),
+            adjustQuantity: document.getElementById("adjustQuantity"),
+            transferFrom: document.getElementById("transferFrom"),
+            transferTo: document.getElementById("transferTo"),
+            transferSku: document.getElementById("transferSku"),
+            transferQty: document.getElementById("transferQty"),
+            moveFrom: document.getElementById("moveFrom"),
+            moveTo: document.getElementById("moveTo"),
+            activityList: document.getElementById("activityList"),
+            inventoryFilter: document.getElementById("inventoryFilter"),
+            inventoryMeta: document.getElementById("inventoryMeta"),
+            inventoryEmpty: document.getElementById("inventoryEmpty"),
+            inventoryTableWrap: document.getElementById("inventoryTableWrap"),
+            inventoryTableBody: document.getElementById("inventoryTableBody"),
+            summaryLocations: document.getElementById("summaryLocations"),
+            summarySkus: document.getElementById("summarySkus"),
+            summaryUnits: document.getElementById("summaryUnits"),
+            summarySaved: document.getElementById("summarySaved"),
+            backupMessage: document.getElementById("backupMessage"),
+            importFileInput: document.getElementById("importFileInput"),
+            locationList: document.getElementById("locationList"),
+            skuList: document.getElementById("skuList"),
+            statUnits: document.getElementById("statUnits"),
+            statLines: document.getElementById("statLines"),
+            statLocations: document.getElementById("statLocations"),
+            statBatch: document.getElementById("statBatch")
+        };
+
+        init();
+
+        function init() {
+            ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
+            document.getElementById("scanForm").addEventListener("submit", addToBatch);
+            document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
+            document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
+            document.getElementById("saveBatchBtn").addEventListener("click", saveBatchToInventory);
+            document.getElementById("clearBatchBtn").addEventListener("click", clearBatch);
+            ui.batchTableBody.addEventListener("click", onBatchTableClick);
+            [ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
+
+            ui.searchBySkuBtn.addEventListener("click", () => setSearchMode("sku"));
+            ui.searchByLocationBtn.addEventListener("click", () => setSearchMode("location"));
+            document.getElementById("singleSearchForm").addEventListener("submit", (e) => { e.preventDefault(); performSingleSearch(ui.singleSearchInput.value); });
+            document.getElementById("multiSearchForm").addEventListener("submit", (e) => { e.preventDefault(); performMultiSearch(ui.multiSearchInput.value); });
+            ui.printSingleSearchBtn.addEventListener("click", printSingleSearch);
+            ui.printMultiSearchBtn.addEventListener("click", printMultiSearch);
+
+            document.getElementById("removeQtyBtn").addEventListener("click", removeQuantity);
+            document.getElementById("deleteLineBtn").addEventListener("click", deleteLine);
+            document.getElementById("transferForm").addEventListener("submit", transferQuantity);
+            document.getElementById("moveForm").addEventListener("submit", moveAllItems);
+
+            ui.inventoryFilter.addEventListener("input", () => renderInventory(ui.inventoryFilter.value));
+            document.getElementById("clearInventoryFilterBtn").addEventListener("click", () => {
+                ui.inventoryFilter.value = "";
+                renderInventory("");
+                ui.inventoryFilter.focus();
+            });
+
+            document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
+            document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
+            document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
+            ui.importFileInput.addEventListener("change", importJson);
+
+            ui.scanLocation.value = state.preferences.lastLocation || "";
+            setSearchMode("sku");
+            renderAll();
+            setSection("scan");
+            syncServerState(false).catch(() => {});
+            syncTimer = window.setInterval(() => {
+                if (document.visibilityState === "visible") {
+                    syncServerState(true).catch(() => {});
+                }
+            }, 30000);
+            window.addEventListener("focus", () => syncServerState(true).catch(() => {}));
+        }
+
+        function setSection(section) {
+            activeSection = section;
+            ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
+            ui.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === section));
+            if (section === "scan") focusScanStart();
+            if (section === "search") ui.singleSearchInput.focus();
+            if (section === "inventory") ui.inventoryFilter.focus();
+            if (section !== "scan") syncServerState(true).catch(() => {});
+        }
+
+        function setSearchMode(mode) {
+            searchMode = mode;
+            ui.searchBySkuBtn.classList.toggle("active", mode === "sku");
+            ui.searchByLocationBtn.classList.toggle("active", mode === "location");
+            ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
+            ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
+        }
+
+        function scanEnterFlow(event) {
+            if (event.key !== "Enter") return;
+            if (event.target === ui.scanLocation || event.target === ui.scanUpc) {
+                event.preventDefault();
+                ui.scanSku.focus();
+            } else if (event.target === ui.scanSku) {
+                event.preventDefault();
+                ui.scanQuantity.focus();
+            }
+        }
+
+        function focusScanStart() {
+            if ((ui.scanLocation.value || "").trim()) ui.scanSku.focus();
+            else ui.scanLocation.focus();
+        }
+
+        function useLastLocation() {
+            if (!state.preferences.lastLocation) {
+                showMessage(ui.scanMessage, "No previous location has been saved yet.", "info");
+                return;
+            }
+            ui.scanLocation.value = state.preferences.lastLocation;
+            ui.scanSku.focus();
+        }
+
+        function addToBatch(event) {
+            event.preventDefault();
+            const location = norm(ui.scanLocation.value || state.preferences.lastLocation);
+            const upc = norm(ui.scanUpc.value);
+            const sku = norm(ui.scanSku.value);
+            let quantity = toPositiveInt(ui.scanQuantity.value);
+
+            if (!location) return fail(ui.scanMessage, "Please scan or enter a location.", ui.scanLocation);
+            if (!sku) return fail(ui.scanMessage, "Please scan or enter a SKU.", ui.scanSku);
+            if (!quantity) quantity = calculateQuantity(false);
+            if (!quantity) return fail(ui.scanMessage, "Enter a quantity, or use Units per Case and Cases to calculate one.", ui.scanQuantity);
+
+            state.preferences.lastLocation = location;
+            state.batch.push({
+                id: makeId("batch"),
+                location,
+                sku,
+                upc,
+                quantity,
+                addedAt: new Date().toISOString()
+            });
+            saveState();
+            renderBatch();
+            renderStats();
+            renderDatalists();
+            renderSummary();
+            showMessage(ui.scanMessage, `Added ${sku} (${num(quantity)} units) to the batch for ${location}.`, "success");
+
+            ui.scanLocation.value = location;
+            ui.scanUpc.value = "";
+            ui.scanSku.value = "";
+            ui.scanQuantity.value = "";
+            ui.scanUom.value = "";
+            ui.scanCases.value = "";
+            ui.scanSku.focus();
+        }
+
+        function calculateQuantity(announce) {
+            const uom = toPositiveInt(ui.scanUom.value);
+            const cases = toPositiveInt(ui.scanCases.value);
+            if (!uom || !cases) {
+                if (announce) showMessage(ui.scanMessage, "Enter both Units per Case and Cases to calculate quantity.", "info");
+                return null;
+            }
+            const quantity = uom * cases;
+            ui.scanQuantity.value = String(quantity);
+            if (announce) showMessage(ui.scanMessage, `Calculated quantity: ${num(quantity)} units.`, "info");
+            ui.scanQuantity.focus();
+            return quantity;
+        }
+
+        async function saveBatchToInventory() {
+            if (!state.batch.length) return showMessage(ui.scanMessage, "There are no staged items to save.", "error");
+
+            const grouped = new Map();
+            state.batch.forEach((line) => {
+                const key = `${line.location}::${line.sku}`;
+                const current = grouped.get(key) || { location: line.location, sku: line.sku, upc: line.upc, quantity: 0 };
+                current.quantity += line.quantity;
+                if (!current.upc && line.upc) current.upc = line.upc;
+                grouped.set(key, current);
+            });
+
+            try {
+                await requestJson("/api/batch-save", {
+                    method: "POST",
+                    body: JSON.stringify({ items: [...grouped.values()] })
+                });
+
+                state.batch = [];
+                saveState();
+                await syncServerState(true);
+                showMessage(ui.scanMessage, "Batch saved to the shared server inventory.", "success");
+                focusScanStart();
+            } catch (error) {
+                showMessage(ui.scanMessage, error.message, "error");
+            }
+        }
+
+        function clearBatch() {
+            if (!state.batch.length) return showMessage(ui.scanMessage, "The batch is already empty.", "info");
+            if (!window.confirm("Clear all staged scan lines from the current batch?")) return;
+            state.batch = [];
+            saveState();
+            renderBatch();
+            renderStats();
+            renderDatalists();
+            renderSummary();
+            showMessage(ui.scanMessage, "Batch cleared.", "info");
+        }
+
+        function onBatchTableClick(event) {
+            const button = event.target.closest("[data-batch-remove]");
+            if (!button) return;
+            state.batch = state.batch.filter((line) => line.id !== button.dataset.batchRemove);
+            saveState();
+            renderBatch();
+            renderStats();
+            renderDatalists();
+            renderSummary();
+            showMessage(ui.scanMessage, "Removed line from batch.", "info");
+        }
+
+        async function performSingleSearch(rawValue, announce = true) {
+            const query = norm(rawValue);
+            if (!query) return showMessage(ui.searchMessage, "Enter a SKU, UPC, or location to search.", "error");
+            try {
+                await syncServerState(true);
+
+                const matches = sortedInventory().filter((line) => searchMode === "sku"
+                    ? line.sku.includes(query) || (line.upc || "").includes(query)
+                    : line.location.includes(query)
+                );
+
+                lastSingleSearch = { mode: searchMode, query, matches };
+                lastMultiSearch = null;
+                currentSearchView = { kind: "single", mode: searchMode, query };
+                renderSingleSearch(query, searchMode, matches);
+                if (announce) showMessage(ui.searchMessage, matches.length ? `Found ${num(matches.length)} matching line${matches.length === 1 ? "" : "s"}.` : `No matches found for ${query}.`, matches.length ? "success" : "info");
+            } catch (error) {
+                showMessage(ui.searchMessage, error.message, "error");
+            }
+        }
+
+        async function performMultiSearch(rawValue, announce = true) {
+            const terms = [...new Set(String(rawValue || "").split(/[\s,]+/).map(norm).filter(Boolean))];
+            if (!terms.length) return showMessage(ui.searchMessage, "Enter at least one SKU or UPC for multi-search.", "error");
+            try {
+                await syncServerState(true);
+
+                const groups = terms.map((term) => {
+                    const matches = sortedInventory().filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
+                    return { term, matches, total: matches.reduce((sum, line) => sum + line.quantity, 0) };
+                });
+
+                lastMultiSearch = { terms, groups };
+                lastSingleSearch = null;
+                currentSearchView = { kind: "multi", terms };
+                renderMultiSearch(groups);
+                if (announce) {
+                    const found = groups.filter((group) => group.matches.length).length;
+                    showMessage(ui.searchMessage, `Found results for ${num(found)} of ${num(groups.length)} requested item${groups.length === 1 ? "" : "s"}.`, found ? "success" : "info");
+                }
+            } catch (error) {
+                showMessage(ui.searchMessage, error.message, "error");
+            }
+        }
+
+        function renderAll() {
+            renderBatch();
+            renderStats();
+            renderDatalists();
+            renderActivity();
+            renderInventory(ui.inventoryFilter.value);
+            renderSummary();
+        }
+
+        function renderBatch() {
+            const batch = [...state.batch].sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
+            ui.lastLocationMeta.textContent = state.preferences.lastLocation ? `Last location: ${state.preferences.lastLocation}` : "No saved location yet";
+            ui.batchMeta.textContent = `${num(batch.length)} line${batch.length === 1 ? "" : "s"} staged`;
+
+            if (!batch.length) {
+                ui.batchEmpty.classList.remove("hidden");
+                ui.batchTableWrap.classList.add("hidden");
+                ui.batchTableBody.innerHTML = "";
+                return;
+            }
+
+            ui.batchEmpty.classList.add("hidden");
+            ui.batchTableWrap.classList.remove("hidden");
+            ui.batchTableBody.innerHTML = batch.map((line) => `
+                <tr>
+                    <td>${esc(line.location)}</td>
+                    <td>${esc(line.sku)}</td>
+                    <td>${esc(line.upc || "-")}</td>
+                    <td>${num(line.quantity)}</td>
+                    <td>${esc(formatDate(line.addedAt))}</td>
+                    <td><button class="btn ghost mini" type="button" data-batch-remove="${line.id}">Remove</button></td>
+                </tr>
+            `).join("");
+        }
+
+        function renderStats() {
+            const totalUnits = state.inventory.reduce((sum, line) => sum + line.quantity, 0);
+            const locations = new Set(state.inventory.map((line) => line.location)).size;
+            ui.statUnits.textContent = num(totalUnits);
+            ui.statLines.textContent = num(state.inventory.length);
+            ui.statLocations.textContent = num(locations);
+            ui.statBatch.textContent = num(state.batch.length);
+        }
+
+        function renderDatalists() {
+            const locations = [...new Set(state.inventory.map((line) => line.location).concat(state.batch.map((line) => line.location)))].sort();
+            const codes = [...new Set(state.inventory.flatMap((line) => [line.sku, line.upc].filter(Boolean)).concat(state.batch.flatMap((line) => [line.sku, line.upc].filter(Boolean))))].sort();
+            ui.locationList.innerHTML = locations.map((value) => `<option value="${attr(value)}"></option>`).join("");
+            ui.skuList.innerHTML = codes.map((value) => `<option value="${attr(value)}"></option>`).join("");
+        }
+
+        function renderSingleSearch(query, mode, matches) {
+            ui.printSingleSearchBtn.classList.toggle("hidden", !matches.length);
+            ui.printMultiSearchBtn.classList.add("hidden");
+
+            if (!matches.length) {
+                ui.searchResultsContent.innerHTML = `<p class="empty">No matching inventory lines were found for <strong>${esc(query)}</strong>.</p>`;
+                return;
+            }
+
+            const totalUnits = matches.reduce((sum, line) => sum + line.quantity, 0);
+            const locations = new Set(matches.map((line) => line.location)).size;
+            const skus = new Set(matches.map((line) => line.sku)).size;
+            const title = mode === "sku"
+                ? `Showing inventory matches for <strong>${esc(query)}</strong>.`
+                : `Showing inventory in locations matching <strong>${esc(query)}</strong>.`;
+
+            ui.searchResultsContent.innerHTML = `
+                <div class="summary-grid">
+                    <div class="summary"><span>Matched Units</span><strong>${num(totalUnits)}</strong></div>
+                    <div class="summary"><span>Matched Lines</span><strong>${num(matches.length)}</strong></div>
+                    <div class="summary"><span>Locations</span><strong>${num(locations)}</strong></div>
+                    <div class="summary"><span>Unique SKUs</span><strong>${num(skus)}</strong></div>
+                </div>
+                <div class="result-group">
+                    <header>
+                        <strong>${title}</strong>
+                        <span class="muted">${num(matches.length)} line${matches.length === 1 ? "" : "s"}</span>
+                    </header>
+                    ${inventoryTableHtml(matches)}
+                </div>
+            `;
+        }
+
+        function renderMultiSearch(groups) {
+            ui.printSingleSearchBtn.classList.add("hidden");
+            ui.printMultiSearchBtn.classList.toggle("hidden", !groups.some((group) => group.matches.length));
+
+            const found = groups.filter((group) => group.matches.length).length;
+            const totalUnits = groups.reduce((sum, group) => sum + group.total, 0);
+            ui.searchResultsContent.innerHTML = `
+                <div class="summary-grid">
+                    <div class="summary"><span>Items Requested</span><strong>${num(groups.length)}</strong></div>
+                    <div class="summary"><span>Items Found</span><strong>${num(found)}</strong></div>
+                    <div class="summary"><span>Total Matched Units</span><strong>${num(totalUnits)}</strong></div>
+                </div>
+                ${groups.map((group) => group.matches.length ? `
+                    <div class="result-group">
+                        <header>
+                            <strong>${esc(group.term)}</strong>
+                            <span class="muted">${num(group.total)} total units</span>
+                        </header>
+                        ${inventoryTableHtml(group.matches)}
+                    </div>
+                ` : `
+                    <div class="result-group">
+                        <header>
+                            <strong>${esc(group.term)}</strong>
+                            <span class="muted">No inventory found</span>
+                        </header>
+                        <p class="empty">No SKU or UPC match was found for this code.</p>
+                    </div>
+                `).join("")}
+            `;
+        }
+
+        function renderActivity() {
+            if (!state.activity.length) {
+                ui.activityList.innerHTML = `<p class="empty">Inventory changes will appear here after you save, delete, transfer, move, or import data.</p>`;
+                return;
+            }
+            ui.activityList.innerHTML = state.activity.slice(0, 12).map((item) => `
+                <div class="activity-item">
+                    <span class="badge ${attr(item.type)}">${esc(item.type)}</span>
+                    <strong>${esc(item.title)}</strong>
+                    <p>${esc(item.details)}</p>
+                    <div class="activity-meta">${esc(formatDate(item.timestamp))}</div>
+                </div>
+            `).join("");
+        }
+
+        function renderInventory(filterText) {
+            const query = norm(filterText || "");
+            const matches = sortedInventory().filter((line) => !query || line.location.includes(query) || line.sku.includes(query) || (line.upc || "").includes(query));
+            ui.inventoryMeta.textContent = `${num(matches.length)} matching line${matches.length === 1 ? "" : "s"}`;
+
+            if (!matches.length) {
+                ui.inventoryEmpty.textContent = query ? `No inventory lines matched "${query}".` : "No inventory saved yet. Save a batch from the Scan tab to start building inventory.";
+                ui.inventoryEmpty.classList.remove("hidden");
+                ui.inventoryTableWrap.classList.add("hidden");
+                ui.inventoryTableBody.innerHTML = "";
+                return;
+            }
+
+            ui.inventoryEmpty.classList.add("hidden");
+            ui.inventoryTableWrap.classList.remove("hidden");
+            ui.inventoryTableBody.innerHTML = matches.map((line) => `
+                <tr>
+                    <td>${esc(line.location)}</td>
+                    <td>${esc(line.sku)}</td>
+                    <td>${esc(line.upc || "-")}</td>
+                    <td>${num(line.quantity)}</td>
+                    <td>${esc(formatDate(line.updatedAt))}</td>
+                </tr>
+            `).join("");
+        }
+
+        function renderSummary() {
+            const locations = new Set(state.inventory.map((line) => line.location)).size;
+            const skus = new Set(state.inventory.map((line) => line.sku)).size;
+            const units = state.inventory.reduce((sum, line) => sum + line.quantity, 0);
+            ui.summaryLocations.textContent = num(locations);
+            ui.summarySkus.textContent = num(skus);
+            ui.summaryUnits.textContent = num(units);
+            ui.summarySaved.textContent = state.meta.lastChangedAt ? formatDate(state.meta.lastChangedAt) : (state.meta.serverSyncedAt ? formatDate(state.meta.serverSyncedAt) : "Never");
+        }
+
+        async function removeQuantity() {
+            const location = norm(ui.adjustLocation.value);
+            const skuOrUpc = norm(ui.adjustSku.value);
+            const quantity = toPositiveInt(ui.adjustQuantity.value);
+            if (!location || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Enter location, SKU or UPC, and a quantity to remove.", "error");
+
+            try {
+                await requestJson("/api/remove-quantity", {
+                    method: "POST",
+                    body: JSON.stringify({ location, skuOrUpc, quantity })
+                });
+                await syncServerState(true);
+                showMessage(ui.actionMessage, "Quantity removed successfully.", "success");
+                document.getElementById("adjustForm").reset();
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
+        }
+
+        async function deleteLine() {
+            const location = norm(ui.adjustLocation.value);
+            const skuOrUpc = norm(ui.adjustSku.value);
+            if (!location || !skuOrUpc) return showMessage(ui.actionMessage, "Enter a location and SKU or UPC to delete the line.", "error");
+
+            if (!window.confirm(`Delete ${skuOrUpc} from ${location}?`)) return;
+
+            try {
+                await requestJson("/api/delete-line", {
+                    method: "POST",
+                    body: JSON.stringify({ location, skuOrUpc })
+                });
+                await syncServerState(true);
+                showMessage(ui.actionMessage, "Inventory line deleted.", "success");
+                document.getElementById("adjustForm").reset();
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
+        }
+
+        async function transferQuantity(event) {
+            event.preventDefault();
+            const from = norm(ui.transferFrom.value);
+            const to = norm(ui.transferTo.value);
+            const skuOrUpc = norm(ui.transferSku.value);
+            const quantity = toPositiveInt(ui.transferQty.value);
+            if (!from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Fill in from location, to location, SKU or UPC, and quantity.", "error");
+            if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
+
+            try {
+                await requestJson("/api/transfer", {
+                    method: "POST",
+                    body: JSON.stringify({ fromLocation: from, toLocation: to, skuOrUpc, quantity })
+                });
+                await syncServerState(true);
+                showMessage(ui.actionMessage, "Transfer completed successfully.", "success");
+                document.getElementById("transferForm").reset();
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
+        }
+
+        async function moveAllItems(event) {
+            event.preventDefault();
+            const from = norm(ui.moveFrom.value);
+            const to = norm(ui.moveTo.value);
+            if (!from || !to) return showMessage(ui.actionMessage, "Enter both the source and destination locations.", "error");
+            if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
+
+            try {
+                await requestJson("/api/move-location", {
+                    method: "POST",
+                    body: JSON.stringify({ fromLocation: from, toLocation: to })
+                });
+                await syncServerState(true);
+                showMessage(ui.actionMessage, "BIN to BIN move completed.", "success");
+                document.getElementById("moveForm").reset();
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
+        }
+
+        function printSingleSearch() {
+            if (!lastSingleSearch || !lastSingleSearch.matches.length) {
+                showMessage(ui.searchMessage, "Run a search before printing results.", "error");
+                return;
+            }
+            const totalUnits = lastSingleSearch.matches.reduce((sum, line) => sum + line.quantity, 0);
+            openPrintWindow(
+                `WMS365 Scanner - ${lastSingleSearch.mode === "sku" ? "SKU / UPC Search" : "Location Search"}`,
+                `
+                    <h1>WMS365 Scanner</h1>
+                    <p><strong>${lastSingleSearch.mode === "sku" ? "SKU / UPC Search" : "Location Search"}</strong></p>
+                    <p>Query: ${esc(lastSingleSearch.query)}</p>
+                    <p>Matches: ${num(lastSingleSearch.matches.length)} | Total Units: ${num(totalUnits)}</p>
+                    ${printTableHtml(lastSingleSearch.matches)}
+                `
+            );
+        }
+
+        function printMultiSearch() {
+            if (!lastMultiSearch || !lastMultiSearch.groups.length) {
+                showMessage(ui.searchMessage, "Run a multi-search before printing.", "error");
+                return;
+            }
+            openPrintWindow(
+                "WMS365 Scanner - Multi Search",
+                `
+                    <h1>WMS365 Scanner</h1>
+                    <p><strong>Multi Search Results</strong></p>
+                    <p>Requested Items: ${num(lastMultiSearch.groups.length)}</p>
+                    ${lastMultiSearch.groups.map((group) => group.matches.length ? `
+                        <section>
+                            <h2>${esc(group.term)}</h2>
+                            <p>Total Units: ${num(group.total)}</p>
+                            ${printTableHtml(group.matches)}
+                        </section>
+                    ` : `
+                        <section>
+                            <h2>${esc(group.term)}</h2>
+                            <p>No inventory found.</p>
+                        </section>
+                    `).join("")}
+                `
+            );
+        }
+
+        async function exportJson() {
+            try {
+                const payload = await requestJson("/api/export");
+                downloadBlob(JSON.stringify(payload, null, 2), `wms365-scanner-backup-${fileStamp()}.json`, "application/json");
+                showMessage(ui.backupMessage, "Server backup downloaded.", "success");
+            } catch (error) {
+                showMessage(ui.backupMessage, error.message, "error");
+            }
+        }
+
+        async function exportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Location", "SKU", "UPC", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
+                    sortedInventory().map((line) => [line.location, line.sku, line.upc || "", String(line.quantity), line.createdAt, line.updatedAt])
+                );
+                const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+                downloadBlob(csv, `wms365-scanner-inventory-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.backupMessage, "CSV snapshot downloaded.", "success");
+            } catch (error) {
+                showMessage(ui.backupMessage, error.message, "error");
+            }
+        }
+
+        function importJson(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const raw = JSON.parse(String(reader.result || ""));
+                    const imported = sanitizeServerImport(raw.state || raw);
+                    if (!window.confirm("Importing this backup will replace the shared server inventory and recent activity. Continue?")) {
+                        ui.importFileInput.value = "";
+                        return;
+                    }
+
+                    await requestJson("/api/import", {
+                        method: "POST",
+                        body: JSON.stringify(imported)
+                    });
+
+                    await syncServerState(true);
+                    showMessage(ui.backupMessage, "Server backup imported successfully.", "success");
+                } catch (error) {
+                    showMessage(ui.backupMessage, `Import failed: ${error.message}`, "error");
+                } finally {
+                    ui.importFileInput.value = "";
+                }
+            };
+            reader.onerror = () => {
+                showMessage(ui.backupMessage, "Unable to read the selected file.", "error");
+                ui.importFileInput.value = "";
+            };
+            reader.readAsText(file);
+        }
+
+        function inventoryTableHtml(lines) {
+            return `
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Location</th>
+                                <th>SKU</th>
+                                <th>UPC</th>
+                                <th>Qty</th>
+                                <th>Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${lines.map((line) => `
+                                <tr>
+                                    <td>${esc(line.location)}</td>
+                                    <td>${esc(line.sku)}</td>
+                                    <td>${esc(line.upc || "-")}</td>
+                                    <td>${num(line.quantity)}</td>
+                                    <td>${esc(formatDate(line.updatedAt))}</td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function printTableHtml(lines) {
+            return `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            <th>SKU</th>
+                            <th>UPC</th>
+                            <th>Qty</th>
+                            <th>Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${lines.map((line) => `
+                            <tr>
+                                <td>${esc(line.location)}</td>
+                                <td>${esc(line.sku)}</td>
+                                <td>${esc(line.upc || "-")}</td>
+                                <td>${num(line.quantity)}</td>
+                                <td>${esc(formatDate(line.updatedAt))}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function openPrintWindow(title, body) {
+            const popup = window.open("", "_blank", "width=980,height=720");
+            if (!popup) {
+                showMessage(ui.searchMessage, "Pop-up blocking prevented the print preview from opening.", "error");
+                return;
+            }
+            popup.document.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>${esc(title)}</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 24px; color: #12283c; }
+                        h1, h2 { margin: 0 0 12px; }
+                        p { margin: 0 0 10px; line-height: 1.5; }
+                        section { margin-top: 20px; page-break-inside: avoid; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+                        th, td { border: 1px solid #bfd0de; padding: 8px 10px; text-align: left; }
+                        th { background: #ebf4fb; text-transform: uppercase; font-size: 12px; letter-spacing: 0.08em; }
+                    </style>
+                </head>
+                <body>${body}</body>
+                </html>
+            `);
+            popup.document.close();
+            popup.focus();
+            setTimeout(() => popup.print(), 250);
+        }
+
+        function sortedInventory() {
+            return [...state.inventory].sort((a, b) => a.location.localeCompare(b.location) || a.sku.localeCompare(b.sku));
+        }
+
+        async function syncServerState(silent = false) {
+            try {
+                const payload = await requestJson("/api/state");
+                applyServerState(payload);
+                return payload;
+            } catch (error) {
+                if (!silent) {
+                    showMessage(ui.scanMessage, error.message, "error");
+                    showMessage(ui.searchMessage, error.message, "error");
+                }
+                throw error;
+            }
+        }
+
+        function applyServerState(payload) {
+            state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
+            state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
+            state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
+            state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
+            renderAll();
+            refreshSearchFromCurrentState();
+        }
+
+        async function requestJson(url, options = {}) {
+            const response = await fetch(url, {
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(options.headers || {})
+                },
+                ...options
+            });
+            const text = await response.text();
+            const data = text ? JSON.parse(text) : {};
+            if (!response.ok) {
+                throw new Error(data.error || "Request failed.");
+            }
+            return data;
+        }
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                return raw ? sanitizeLocalState(JSON.parse(raw)) : defaultState();
+            } catch {
+                return defaultState();
+            }
+        }
+
+        function defaultState() {
+            return {
+                inventory: [],
+                batch: [],
+                activity: [],
+                preferences: { lastLocation: "" },
+                meta: { version: 2, lastChangedAt: null, serverSyncedAt: null }
+            };
+        }
+
+        function sanitizeLocalState(raw) {
+            return {
+                inventory: [],
+                batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
+                activity: [],
+                preferences: { lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "" },
+                meta: { version: 2, lastChangedAt: null, serverSyncedAt: null }
+            };
+        }
+
+        function sanitizeServerImport(raw) {
+            return {
+                inventory: Array.isArray(raw.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
+                activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : []
+            };
+        }
+
+        function refreshSearchFromCurrentState() {
+            if (activeSection !== "search" || !currentSearchView) return;
+
+            if (currentSearchView.kind === "single") {
+                const matches = sortedInventory().filter((line) => currentSearchView.mode === "sku"
+                    ? line.sku.includes(currentSearchView.query) || (line.upc || "").includes(currentSearchView.query)
+                    : line.location.includes(currentSearchView.query)
+                );
+                lastSingleSearch = { mode: currentSearchView.mode, query: currentSearchView.query, matches };
+                lastMultiSearch = null;
+                renderSingleSearch(currentSearchView.query, currentSearchView.mode, matches);
+                return;
+            }
+
+            const groups = currentSearchView.terms.map((term) => {
+                const matches = sortedInventory().filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
+                return { term, matches, total: matches.reduce((sum, line) => sum + line.quantity, 0) };
+            });
+            lastMultiSearch = { terms: currentSearchView.terms, groups };
+            lastSingleSearch = null;
+            renderMultiSearch(groups);
+        }
+
+        function sanitizeInventoryLine(line) {
+            const location = norm(line?.location);
+            const sku = norm(line?.sku);
+            const upc = norm(line?.upc || "");
+            const quantity = toPositiveInt(line?.quantity);
+            if (!location || !sku || !quantity) return null;
+            return {
+                id: typeof line.id === "string" ? line.id : makeId("inv"),
+                location,
+                sku,
+                upc,
+                quantity,
+                createdAt: typeof line.createdAt === "string" ? line.createdAt : new Date().toISOString(),
+                updatedAt: typeof line.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeBatchLine(line) {
+            const location = norm(line?.location);
+            const sku = norm(line?.sku);
+            const upc = norm(line?.upc || "");
+            const quantity = toPositiveInt(line?.quantity);
+            if (!location || !sku || !quantity) return null;
+            return {
+                id: typeof line.id === "string" ? line.id : makeId("batch"),
+                location,
+                sku,
+                upc,
+                quantity,
+                addedAt: typeof line.addedAt === "string" ? line.addedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeActivityItem(item) {
+            const title = typeof item?.title === "string" ? item.title.trim() : "";
+            if (!title) return null;
+            return {
+                id: typeof item.id === "string" ? item.id : makeId("activity"),
+                type: typeof item.type === "string" ? item.type.toLowerCase() : "scan",
+                title,
+                details: typeof item.details === "string" ? item.details.trim() : "",
+                timestamp: typeof item.timestamp === "string" ? item.timestamp : new Date().toISOString()
+            };
+        }
+
+        function saveState() {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({
+                batch: state.batch,
+                preferences: state.preferences
+            }));
+        }
+
+        function showMessage(element, text, tone) {
+            element.textContent = text;
+            element.className = `status show ${tone}`;
+        }
+
+        function fail(element, text, focusEl) {
+            showMessage(element, text, "error");
+            if (focusEl) focusEl.focus();
+            return null;
+        }
+
+        function toPositiveInt(value) {
+            const numValue = Number.parseInt(String(value), 10);
+            return Number.isFinite(numValue) && numValue > 0 ? numValue : null;
+        }
+
+        function norm(value) {
+            return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+        }
+
+        function num(value) {
+            return new Intl.NumberFormat().format(value || 0);
+        }
+
+        function formatDate(value) {
+            try {
+                return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+            } catch {
+                return value || "";
+            }
+        }
+
+        function makeId(prefix) {
+            return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        function fileStamp() {
+            return new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+/, "");
+        }
+
+        function downloadBlob(content, filename, type) {
+            const blob = new Blob([content], { type });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function esc(value) {
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function attr(value) {
+            return esc(value);
+        }
+
+        function csvCell(value) {
+            const text = String(value ?? "");
+            return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+        }
+    </script>
+</body>
+</html>
