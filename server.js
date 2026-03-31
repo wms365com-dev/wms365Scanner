@@ -123,12 +123,50 @@ app.post("/api/master-item", async (req, res, next) => {
                 [
                     entry.upc ? `UPC ${entry.upc}` : "",
                     entry.trackingLevel === "PALLET" ? "Pallet tracking" : (entry.trackingLevel === "CASE" ? "Case tracking" : "Unit tracking"),
-                    entry.description
+                    entry.description,
+                    entry.imageUrl ? "Photo attached" : ""
                 ].filter(Boolean).join(" | ") || "Item master saved."
             );
         });
 
         res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/master-item/update", async (req, res, next) => {
+    try {
+        const originalAccountName = normalizeText(req.body?.originalAccountName || req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const originalSku = normalizeText(req.body?.originalSku);
+        const entry = sanitizeItemMasterInput(req.body);
+
+        if (!originalAccountName || !originalSku) {
+            throw httpError(400, "The original vendor / customer and SKU are required to update an item.");
+        }
+        if (!entry || !entry.accountName || !entry.sku) {
+            throw httpError(400, "Vendor / Customer and SKU are required.");
+        }
+        if (entry.accountName !== originalAccountName) {
+            throw httpError(400, "Changing vendor / customer from the item editor is not supported.");
+        }
+
+        const updatedItem = await withTransaction(async (client) => {
+            const mergedEntry = await updateItemMasterAndInventory(client, originalAccountName, originalSku, entry);
+            await insertActivity(
+                client,
+                "setup",
+                `Updated item ${originalAccountName} / ${originalSku}${mergedEntry.sku !== originalSku ? ` -> ${mergedEntry.sku}` : ""}`,
+                [
+                    mergedEntry.upc ? `UPC ${mergedEntry.upc}` : "",
+                    mergedEntry.description || "",
+                    mergedEntry.imageUrl ? "Photo attached" : ""
+                ].filter(Boolean).join(" | ") || "Item master updated."
+            );
+            return mergedEntry;
+        });
+
+        res.json({ success: true, item: updatedItem });
     } catch (error) {
         next(error);
     }
@@ -218,7 +256,8 @@ app.post("/api/batch-save", async (req, res, next) => {
                     accountName: item.accountName,
                     sku: item.sku,
                     upc: item.upc,
-                    description: master?.description || "",
+                    description: rawItem.description || master?.description || "",
+                    imageUrl: rawItem.imageUrl || master?.imageUrl || "",
                     trackingLevel: item.trackingLevel,
                     unitsPerCase: master?.unitsPerCase ?? null,
                     eachLength: master?.eachLength ?? null,
@@ -483,11 +522,11 @@ app.post("/api/import", async (req, res, next) => {
                     `
                         insert into item_catalog (
                             account_name, sku, upc, description, tracking_level, units_per_case,
-                            each_length, each_width, each_height,
+                            each_length, each_width, each_height, image_url,
                             case_length, case_width, case_height,
                             created_at, updated_at
                         )
-                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `,
                     [
                         item.accountName,
@@ -499,6 +538,7 @@ app.post("/api/import", async (req, res, next) => {
                         item.eachLength,
                         item.eachWidth,
                         item.eachHeight,
+                        item.imageUrl,
                         item.caseLength,
                         item.caseWidth,
                         item.caseHeight,
@@ -635,6 +675,7 @@ async function initializeDatabase() {
     await pool.query("alter table item_catalog add column if not exists case_length double precision;");
     await pool.query("alter table item_catalog add column if not exists case_width double precision;");
     await pool.query("alter table item_catalog add column if not exists case_height double precision;");
+    await pool.query("alter table item_catalog add column if not exists image_url text not null default '';");
     await pool.query("update item_catalog set account_name = $1 where account_name is null or account_name = ''", [LEGACY_ACCOUNT]);
     await pool.query("update item_catalog set tracking_level = 'UNIT' where tracking_level is null or tracking_level = ''");
     await pool.query("alter table item_catalog drop constraint if exists item_catalog_sku_key");
@@ -845,10 +886,10 @@ async function upsertItemMaster(client, item) {
         `
             insert into item_catalog (
                 account_name, sku, upc, description, tracking_level, units_per_case,
-                each_length, each_width, each_height,
+                each_length, each_width, each_height, image_url,
                 case_length, case_width, case_height
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             on conflict (account_name, sku)
             do update set
                 upc = case
@@ -867,6 +908,10 @@ async function upsertItemMaster(client, item) {
                 each_length = coalesce(excluded.each_length, item_catalog.each_length),
                 each_width = coalesce(excluded.each_width, item_catalog.each_width),
                 each_height = coalesce(excluded.each_height, item_catalog.each_height),
+                image_url = case
+                    when excluded.image_url <> '' then excluded.image_url
+                    else item_catalog.image_url
+                end,
                 case_length = coalesce(excluded.case_length, item_catalog.case_length),
                 case_width = coalesce(excluded.case_width, item_catalog.case_width),
                 case_height = coalesce(excluded.case_height, item_catalog.case_height),
@@ -882,11 +927,188 @@ async function upsertItemMaster(client, item) {
             entry.eachLength,
             entry.eachWidth,
             entry.eachHeight,
+            entry.imageUrl,
             entry.caseLength,
             entry.caseWidth,
             entry.caseHeight
         ]
     );
+}
+
+async function replaceItemMaster(client, item) {
+    const entry = sanitizeItemMasterInput(item);
+    if (!entry || !entry.accountName || !entry.sku) return;
+
+    await client.query(
+        `
+            insert into item_catalog (
+                account_name, sku, upc, description, tracking_level, units_per_case,
+                each_length, each_width, each_height, image_url,
+                case_length, case_width, case_height
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            on conflict (account_name, sku)
+            do update set
+                upc = excluded.upc,
+                description = excluded.description,
+                tracking_level = excluded.tracking_level,
+                units_per_case = excluded.units_per_case,
+                each_length = excluded.each_length,
+                each_width = excluded.each_width,
+                each_height = excluded.each_height,
+                image_url = excluded.image_url,
+                case_length = excluded.case_length,
+                case_width = excluded.case_width,
+                case_height = excluded.case_height,
+                updated_at = now()
+        `,
+        [
+            entry.accountName,
+            entry.sku,
+            entry.upc,
+            entry.description,
+            entry.trackingLevel,
+            entry.unitsPerCase,
+            entry.eachLength,
+            entry.eachWidth,
+            entry.eachHeight,
+            entry.imageUrl,
+            entry.caseLength,
+            entry.caseWidth,
+            entry.caseHeight
+        ]
+    );
+}
+
+async function updateItemMasterAndInventory(client, originalAccountName, originalSku, item) {
+    const normalizedAccountName = normalizeText(originalAccountName);
+    const normalizedOriginalSku = normalizeText(originalSku);
+    const currentMaster = await findCatalogItem(client, normalizedAccountName, normalizedOriginalSku);
+    const originalLines = await client.query(
+        "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc",
+        [normalizedAccountName, normalizedOriginalSku]
+    );
+
+    if (!currentMaster && !originalLines.rowCount) {
+        throw httpError(404, "That saved item could not be found.");
+    }
+
+    const mergedEntry = sanitizeItemMasterInput({
+        accountName: normalizedAccountName,
+        sku: item.sku,
+        upc: item.upc,
+        description: item.description,
+        trackingLevel: item.trackingLevel,
+        unitsPerCase: item.unitsPerCase,
+        eachLength: item.eachLength,
+        eachWidth: item.eachWidth,
+        eachHeight: item.eachHeight,
+        imageUrl: item.imageUrl,
+        caseLength: item.caseLength,
+        caseWidth: item.caseWidth,
+        caseHeight: item.caseHeight
+    });
+
+    if (!mergedEntry || !mergedEntry.accountName || !mergedEntry.sku) {
+        throw httpError(400, "Vendor / Customer and SKU are required.");
+    }
+
+    const targetMaster = mergedEntry.sku !== normalizedOriginalSku
+        ? await findCatalogItem(client, normalizedAccountName, mergedEntry.sku)
+        : null;
+    const finalEntry = targetMaster
+        ? sanitizeItemMasterInput({
+            accountName: normalizedAccountName,
+            sku: mergedEntry.sku,
+            upc: mergedEntry.upc || targetMaster.upc || "",
+            description: mergedEntry.description || targetMaster.description || "",
+            trackingLevel: mergedEntry.trackingLevel || targetMaster.trackingLevel || "UNIT",
+            unitsPerCase: mergedEntry.unitsPerCase ?? targetMaster.unitsPerCase ?? null,
+            eachLength: mergedEntry.eachLength ?? targetMaster.eachLength ?? null,
+            eachWidth: mergedEntry.eachWidth ?? targetMaster.eachWidth ?? null,
+            eachHeight: mergedEntry.eachHeight ?? targetMaster.eachHeight ?? null,
+            imageUrl: mergedEntry.imageUrl || targetMaster.imageUrl || "",
+            caseLength: mergedEntry.caseLength ?? targetMaster.caseLength ?? null,
+            caseWidth: mergedEntry.caseWidth ?? targetMaster.caseWidth ?? null,
+            caseHeight: mergedEntry.caseHeight ?? targetMaster.caseHeight ?? null
+        })
+        : mergedEntry;
+
+    const targetUpc = finalEntry.upc || "";
+    const targetTrackingLevel = finalEntry.trackingLevel || "UNIT";
+
+    if (finalEntry.sku === normalizedOriginalSku) {
+        await client.query(
+            `
+                update inventory_lines
+                set
+                    upc = $3,
+                    tracking_level = $4,
+                    updated_at = now()
+                where account_name = $1 and sku = $2
+            `,
+            [normalizedAccountName, normalizedOriginalSku, targetUpc, targetTrackingLevel]
+        );
+    } else {
+        const targetLines = await client.query(
+            "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc",
+            [normalizedAccountName, finalEntry.sku]
+        );
+        const targetByLocation = new Map(targetLines.rows.map((row) => [row.location, row]));
+
+        for (const line of originalLines.rows) {
+            const existingTarget = targetByLocation.get(line.location);
+            if (existingTarget) {
+                await client.query(
+                    `
+                        update inventory_lines
+                        set
+                            quantity = $1,
+                            upc = $2,
+                            tracking_level = $3,
+                            updated_at = now()
+                        where id = $4
+                    `,
+                    [
+                        Number(existingTarget.quantity) + Number(line.quantity),
+                        targetUpc,
+                        targetTrackingLevel,
+                        existingTarget.id
+                    ]
+                );
+                await client.query("delete from inventory_lines where id = $1", [line.id]);
+            } else {
+                await client.query(
+                    `
+                        update inventory_lines
+                        set
+                            sku = $1,
+                            upc = $2,
+                            tracking_level = $3,
+                            updated_at = now()
+                        where id = $4
+                    `,
+                    [
+                        finalEntry.sku,
+                        targetUpc,
+                        targetTrackingLevel,
+                        line.id
+                    ]
+                );
+            }
+        }
+    }
+
+    await replaceItemMaster(client, finalEntry);
+
+    if (normalizedOriginalSku !== finalEntry.sku) {
+        await client.query(
+            "delete from item_catalog where account_name = $1 and sku = $2",
+            [normalizedAccountName, normalizedOriginalSku]
+        );
+    }
+
+    return finalEntry;
 }
 
 async function setInventoryQuantity(client, lineId, quantity) {
@@ -970,11 +1192,15 @@ function groupInventoryInputs(lines) {
             sku: line.sku,
             upc: line.upc,
             trackingLevel: line.trackingLevel,
-            quantity: 0
+            quantity: 0,
+            description: "",
+            imageUrl: ""
         };
         current.quantity += line.quantity;
         if (!current.upc && line.upc) current.upc = line.upc;
         current.trackingLevel = line.trackingLevel || current.trackingLevel || "UNIT";
+        if (!current.description && line.description) current.description = line.description;
+        if (!current.imageUrl && line.imageUrl) current.imageUrl = line.imageUrl;
         grouped.set(key, current);
     }
     return [...grouped.values()];
@@ -995,6 +1221,8 @@ function sanitizeInventoryLineInput(line) {
         upc,
         trackingLevel,
         quantity,
+        description: normalizeFreeText(line?.description),
+        imageUrl: normalizeImageReference(line?.imageUrl || line?.image || line?.photoUrl || line?.image_url || ""),
         createdAt: typeof line?.createdAt === "string" ? line.createdAt : new Date().toISOString(),
         updatedAt: typeof line?.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
     };
@@ -1033,6 +1261,7 @@ function groupItemMasterInputs(items) {
             eachLength: null,
             eachWidth: null,
             eachHeight: null,
+            imageUrl: "",
             caseLength: null,
             caseWidth: null,
             caseHeight: null
@@ -1045,6 +1274,7 @@ function groupItemMasterInputs(items) {
         if (!current.eachLength && item.eachLength) current.eachLength = item.eachLength;
         if (!current.eachWidth && item.eachWidth) current.eachWidth = item.eachWidth;
         if (!current.eachHeight && item.eachHeight) current.eachHeight = item.eachHeight;
+        if (!current.imageUrl && item.imageUrl) current.imageUrl = item.imageUrl;
         if (!current.caseLength && item.caseLength) current.caseLength = item.caseLength;
         if (!current.caseWidth && item.caseWidth) current.caseWidth = item.caseWidth;
         if (!current.caseHeight && item.caseHeight) current.caseHeight = item.caseHeight;
@@ -1091,6 +1321,7 @@ function sanitizeItemMasterInput(item) {
         eachLength: toPositiveNumber(item?.eachLength),
         eachWidth: toPositiveNumber(item?.eachWidth),
         eachHeight: toPositiveNumber(item?.eachHeight),
+        imageUrl: normalizeImageReference(item?.imageUrl || item?.image || item?.photoUrl || item?.image_url || ""),
         caseLength: toPositiveNumber(item?.caseLength),
         caseWidth: toPositiveNumber(item?.caseWidth),
         caseHeight: toPositiveNumber(item?.caseHeight),
@@ -1166,6 +1397,7 @@ function mapItemMasterRow(row) {
         eachLength: toNullableNumber(row.each_length),
         eachWidth: toNullableNumber(row.each_width),
         eachHeight: toNullableNumber(row.each_height),
+        imageUrl: row.image_url || "",
         caseLength: toNullableNumber(row.case_length),
         caseWidth: toNullableNumber(row.case_width),
         caseHeight: toNullableNumber(row.case_height),
@@ -1201,6 +1433,27 @@ function toPositiveNumber(value) {
 
 function toNullableNumber(value) {
     return value == null ? null : Number(value);
+}
+
+function normalizeImageReference(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return "";
+    if (/^data:image\//i.test(text)) return text;
+
+    const driveId = extractDriveFileId(text);
+    if (driveId) {
+        return `https://drive.google.com/thumbnail?id=${driveId}&sz=w1600`;
+    }
+    return text;
+}
+
+function extractDriveFileId(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return "";
+    const match = text.match(/\/file\/d\/([A-Za-z0-9_-]+)/)
+        || text.match(/[?&]id=([A-Za-z0-9_-]+)/)
+        || text.match(/\/thumbnail\?id=([A-Za-z0-9_-]+)/);
+    return match ? match[1] : "";
 }
 
 function shouldUseSsl(connectionString) {

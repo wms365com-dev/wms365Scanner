@@ -470,6 +470,43 @@
             word-break: break-word;
         }
 
+        .quick-row-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 0.55rem;
+        }
+
+        .quick-media,
+        .image-preview img {
+            width: 72px;
+            height: 72px;
+            object-fit: cover;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.08);
+            flex-shrink: 0;
+        }
+
+        .image-preview {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            padding: 0.85rem 0;
+        }
+
+        .image-preview-meta {
+            min-width: 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .editor-banner strong {
+            display: block;
+            margin-bottom: 0.35rem;
+        }
+
         .footer {
             margin-top: 1rem;
             text-align: center;
@@ -624,6 +661,18 @@
             .desktop-complex { display: none !important; }
             table { min-width: 520px; }
             .quick-row { flex-direction: column; align-items: stretch; }
+            .quick-row-actions { justify-content: stretch; }
+            .quick-media,
+            .image-preview img {
+                width: 100%;
+                max-width: 220px;
+                height: auto;
+                aspect-ratio: 1 / 1;
+            }
+            .image-preview {
+                flex-direction: column;
+                align-items: stretch;
+            }
         }
     </style>
 </head>
@@ -703,6 +752,10 @@
                             <span>SKU</span>
                             <input id="scanSku" list="skuList" type="text" placeholder="Scan or enter SKU" enterkeyhint="next">
                         </label>
+                        <label class="field span-2">
+                            <span>Description (Optional)</span>
+                            <input id="scanDescription" type="text" placeholder="Optional description so the SKU stays clean" enterkeyhint="done">
+                        </label>
                         <label class="field">
                             <span>Quantity</span>
                             <input id="scanQuantity" type="number" min="1" inputmode="numeric" placeholder="Enter quantity" enterkeyhint="done">
@@ -733,6 +786,23 @@
                                 <button class="btn ghost" id="useLastLocationBtn" type="button">Use Last Location</button>
                             </div>
                         </div>
+                        <div class="helper span-2">
+                            <h3>Product Photo (Optional)</h3>
+                            <p class="meta">Take or choose a photo on mobile/desktop, or paste a Google Drive image link. Photos are compressed before saving.</p>
+                            <label class="field span-2">
+                                <span>Photo URL</span>
+                                <input id="scanImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
+                            </label>
+                            <div class="button-row">
+                                <button class="btn ghost" id="scanImagePickBtn" type="button">Take / Choose Photo</button>
+                                <button class="btn ghost hidden" id="scanImageClearBtn" type="button">Clear Photo</button>
+                            </div>
+                            <div class="image-preview hidden" id="scanImagePreviewWrap">
+                                <img id="scanImagePreview" alt="Scan item photo preview">
+                                <div class="image-preview-meta" id="scanImagePreviewMeta">Compressed photo preview</div>
+                            </div>
+                            <input id="scanImageInput" class="hidden" type="file" accept="image/*" capture="environment">
+                        </div>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Add To Batch</button>
                             <button class="btn secondary" id="saveBatchBtn" type="button">Save Batch To Inventory</button>
@@ -759,6 +829,7 @@
                                     <th>Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
+                                    <th>Description</th>
                                     <th>Tracking</th>
                                     <th>Qty</th>
                                     <th>Added</th>
@@ -815,6 +886,10 @@
 
                         <div class="helper">
                             <h3>Add Item Master</h3>
+                            <div class="helper editor-banner hidden" id="masterItemEditorBanner" style="margin-top: 1rem;">
+                                <strong id="masterItemEditorTitle">Editing Saved Item</strong>
+                                <div class="quick-meta" id="masterItemEditorMeta">SKU changes update matching inventory lines for this vendor / customer.</div>
+                            </div>
                             <form id="masterItemForm" class="form-grid" autocomplete="off">
                                 <label class="field span-2">
                                     <span>Vendor / Customer</span>
@@ -832,6 +907,23 @@
                                     <span>Description</span>
                                     <input id="masterItemDescription" type="text" placeholder="Optional item description" enterkeyhint="done">
                                 </label>
+                                <label class="field span-2">
+                                    <span>Photo URL</span>
+                                    <input id="masterItemImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
+                                </label>
+                                <div class="helper span-2">
+                                    <h3>Product Photo</h3>
+                                    <p class="meta">Optional. Paste a Google Drive image link or choose a photo and the app will compress it before saving.</p>
+                                    <div class="button-row">
+                                        <button class="btn ghost" id="masterItemImagePickBtn" type="button">Choose Photo</button>
+                                        <button class="btn ghost hidden" id="masterItemImageClearBtn" type="button">Clear Photo</button>
+                                    </div>
+                                    <div class="image-preview hidden" id="masterItemImagePreviewWrap">
+                                        <img id="masterItemImagePreview" alt="Item photo preview">
+                                        <div class="image-preview-meta" id="masterItemImagePreviewMeta">Compressed item photo preview</div>
+                                    </div>
+                                    <input id="masterItemImageInput" class="hidden" type="file" accept="image/*" capture="environment">
+                                </div>
                                 <label class="field">
                                     <span>Tracking</span>
                                     <select id="masterItemTrackingLevel">
@@ -869,7 +961,8 @@
                                     <input id="masterItemCaseHeight" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
                                 </label>
                                 <div class="button-row span-2">
-                                    <button class="btn secondary" type="submit">Save Item</button>
+                                    <button class="btn secondary" id="masterItemSubmitBtn" type="submit">Save Item</button>
+                                    <button class="btn ghost hidden" id="cancelMasterItemEditBtn" type="button">Cancel Edit</button>
                                 </div>
                             </form>
                         </div>
@@ -889,7 +982,7 @@
                         <div class="helper">
                             <h3>Bulk Upload Item Masters</h3>
                             <p class="meta">Desktop only. Save one row per vendor / customer plus SKU so scan autofill, item lookup, and reports stay clean.</p>
-                            <p class="meta">Example columns: VENDOR_CUSTOMER, SKU, UPC, DESCRIPTION, TRACKING, UNITS_PER_CASE, EACH_LENGTH, EACH_WIDTH, EACH_HEIGHT, CASE_LENGTH, CASE_WIDTH, CASE_HEIGHT</p>
+                            <p class="meta">Example columns: VENDOR_CUSTOMER, SKU, UPC, DESCRIPTION, IMAGE_URL, TRACKING, UNITS_PER_CASE, EACH_LENGTH, EACH_WIDTH, EACH_HEIGHT, CASE_LENGTH, CASE_WIDTH, CASE_HEIGHT</p>
                             <div class="button-row">
                                 <button class="btn ghost" id="importItemCsvBtn" type="button">Upload Items CSV</button>
                                 <button class="btn ghost" id="exportItemCsvBtn" type="button">Export Items CSV</button>
@@ -1173,7 +1266,7 @@
                     <div class="button-row" style="margin-bottom: 1rem;">
                         <label class="field" style="flex: 1 1 280px;">
                             <span>Filter Inventory</span>
-                            <input id="inventoryFilter" type="text" placeholder="Type a vendor, location, SKU, or UPC">
+                            <input id="inventoryFilter" type="text" placeholder="Type a vendor, location, SKU, UPC, or description">
                         </label>
                         <button class="btn ghost" id="clearInventoryFilterBtn" type="button">Clear Filter</button>
                     </div>
@@ -1186,6 +1279,7 @@
                                     <th>Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
+                                    <th>Description</th>
                                     <th>Tracking</th>
                                     <th>Qty</th>
                                     <th>Updated</th>
@@ -1399,6 +1493,7 @@
         let lastSingleSearch = null;
         let lastMultiSearch = null;
         let currentSearchView = null;
+        let editingMasterItem = null;
         let syncTimer = null;
         const mobileQuery = window.matchMedia("(max-width: 640px)");
 
@@ -1413,12 +1508,20 @@
             scanLocation: document.getElementById("scanLocation"),
             scanUpc: document.getElementById("scanUpc"),
             scanSku: document.getElementById("scanSku"),
+            scanDescription: document.getElementById("scanDescription"),
             scanQuantity: document.getElementById("scanQuantity"),
             scanTrackingLevel: document.getElementById("scanTrackingLevel"),
             scanHelperTitle: document.getElementById("scanHelperTitle"),
             scanHelperMeta: document.getElementById("scanHelperMeta"),
             scanUom: document.getElementById("scanUom"),
             scanCases: document.getElementById("scanCases"),
+            scanImageUrl: document.getElementById("scanImageUrl"),
+            scanImageInput: document.getElementById("scanImageInput"),
+            scanImagePickBtn: document.getElementById("scanImagePickBtn"),
+            scanImageClearBtn: document.getElementById("scanImageClearBtn"),
+            scanImagePreviewWrap: document.getElementById("scanImagePreviewWrap"),
+            scanImagePreview: document.getElementById("scanImagePreview"),
+            scanImagePreviewMeta: document.getElementById("scanImagePreviewMeta"),
             scanMessage: document.getElementById("scanMessage"),
             masterOwnerName: document.getElementById("masterOwnerName"),
             masterOwnerNote: document.getElementById("masterOwnerNote"),
@@ -1428,6 +1531,18 @@
             masterItemSku: document.getElementById("masterItemSku"),
             masterItemUpc: document.getElementById("masterItemUpc"),
             masterItemDescription: document.getElementById("masterItemDescription"),
+            masterItemImageUrl: document.getElementById("masterItemImageUrl"),
+            masterItemImageInput: document.getElementById("masterItemImageInput"),
+            masterItemImagePickBtn: document.getElementById("masterItemImagePickBtn"),
+            masterItemImageClearBtn: document.getElementById("masterItemImageClearBtn"),
+            masterItemImagePreviewWrap: document.getElementById("masterItemImagePreviewWrap"),
+            masterItemImagePreview: document.getElementById("masterItemImagePreview"),
+            masterItemImagePreviewMeta: document.getElementById("masterItemImagePreviewMeta"),
+            masterItemEditorBanner: document.getElementById("masterItemEditorBanner"),
+            masterItemEditorTitle: document.getElementById("masterItemEditorTitle"),
+            masterItemEditorMeta: document.getElementById("masterItemEditorMeta"),
+            masterItemSubmitBtn: document.getElementById("masterItemSubmitBtn"),
+            cancelMasterItemEditBtn: document.getElementById("cancelMasterItemEditBtn"),
             masterItemTrackingLevel: document.getElementById("masterItemTrackingLevel"),
             masterItemUnitsPerCase: document.getElementById("masterItemUnitsPerCase"),
             masterItemEachLength: document.getElementById("masterItemEachLength"),
@@ -1548,13 +1663,67 @@
                 el.addEventListener("blur", syncScanFieldsFromCatalog);
             });
             ui.scanTrackingLevel.addEventListener("change", updateScanTrackingUi);
+            ui.scanDescription.addEventListener("input", () => updateScanTrackingUi(findMasterItemByCode(ui.scanSku.value || ui.scanUpc.value, ui.scanAccount.value)));
+            ui.scanImagePickBtn.addEventListener("click", () => ui.scanImageInput.click());
+            ui.scanImageClearBtn.addEventListener("click", () => clearImageField({
+                urlInput: ui.scanImageUrl,
+                previewWrap: ui.scanImagePreviewWrap,
+                previewImg: ui.scanImagePreview,
+                previewMeta: ui.scanImagePreviewMeta,
+                clearBtn: ui.scanImageClearBtn,
+                defaultMeta: "Compressed photo preview"
+            }));
+            ui.scanImageInput.addEventListener("change", (event) => handleImageInputChange(event, {
+                urlInput: ui.scanImageUrl,
+                previewWrap: ui.scanImagePreviewWrap,
+                previewImg: ui.scanImagePreview,
+                previewMeta: ui.scanImagePreviewMeta,
+                clearBtn: ui.scanImageClearBtn,
+                messageElement: ui.scanMessage,
+                defaultMeta: "Compressed photo preview"
+            }));
+            ["change", "blur"].forEach((eventName) => ui.scanImageUrl.addEventListener(eventName, () => refreshImagePreview({
+                urlInput: ui.scanImageUrl,
+                previewWrap: ui.scanImagePreviewWrap,
+                previewImg: ui.scanImagePreview,
+                previewMeta: ui.scanImagePreviewMeta,
+                clearBtn: ui.scanImageClearBtn,
+                defaultMeta: "Compressed photo preview"
+            })));
 
             document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
+            ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
             ui.masterFilter.addEventListener("input", renderMasterLibrary);
             ui.masterOwnerList.addEventListener("click", onMasterOwnerListClick);
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
+            ui.masterItemImagePickBtn.addEventListener("click", () => ui.masterItemImageInput.click());
+            ui.masterItemImageClearBtn.addEventListener("click", () => clearImageField({
+                urlInput: ui.masterItemImageUrl,
+                previewWrap: ui.masterItemImagePreviewWrap,
+                previewImg: ui.masterItemImagePreview,
+                previewMeta: ui.masterItemImagePreviewMeta,
+                clearBtn: ui.masterItemImageClearBtn,
+                defaultMeta: "Compressed item photo preview"
+            }));
+            ui.masterItemImageInput.addEventListener("change", (event) => handleImageInputChange(event, {
+                urlInput: ui.masterItemImageUrl,
+                previewWrap: ui.masterItemImagePreviewWrap,
+                previewImg: ui.masterItemImagePreview,
+                previewMeta: ui.masterItemImagePreviewMeta,
+                clearBtn: ui.masterItemImageClearBtn,
+                messageElement: ui.catalogMessage,
+                defaultMeta: "Compressed item photo preview"
+            }));
+            ["change", "blur"].forEach((eventName) => ui.masterItemImageUrl.addEventListener(eventName, () => refreshImagePreview({
+                urlInput: ui.masterItemImageUrl,
+                previewWrap: ui.masterItemImagePreviewWrap,
+                previewImg: ui.masterItemImagePreview,
+                previewMeta: ui.masterItemImagePreviewMeta,
+                clearBtn: ui.masterItemImageClearBtn,
+                defaultMeta: "Compressed item photo preview"
+            })));
             document.getElementById("exportLocationCsvBtn").addEventListener("click", exportLocationCsv);
             document.getElementById("importLocationCsvBtn").addEventListener("click", () => ui.importLocationCsvInput.click());
             ui.importLocationCsvInput.addEventListener("change", importLocationCsv);
@@ -1760,6 +1929,7 @@
         function updateScanTrackingUi(item = null) {
             const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value);
             const directQuantity = trackingLevel !== "UNIT";
+            const itemDescription = String(item?.description || ui.scanDescription.value || "").trim();
             const casePack = item?.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "";
             const eachDims = formatDimensions(item?.eachLength, item?.eachWidth, item?.eachHeight, "Each");
             const caseDims = formatDimensions(item?.caseLength, item?.caseWidth, item?.caseHeight, "Case");
@@ -1769,13 +1939,13 @@
                 : (trackingLevel === "CASE" ? "Case Qty Entry" : "Quick Qty Helper");
             ui.scanHelperMeta.textContent = directQuantity
                 ? [
-                    item?.description || "",
+                    itemDescription,
                     trackingLevel === "CASE" ? "Enter case quantity directly." : "Enter pallet quantity directly.",
                     casePack,
                     eachDims,
                     caseDims
                 ].filter(Boolean).join(" | ") || `Use quantity for ${trackingLabel(trackingLevel).toLowerCase()}. Case math is disabled for this tracking type.`
-                : [item?.description || "", casePack, eachDims, caseDims].filter(Boolean).join(" | ") || "Use case pack math for unit-tracked inventory.";
+                : [itemDescription, casePack, eachDims, caseDims].filter(Boolean).join(" | ") || "Use case pack math for unit-tracked inventory.";
 
             ui.scanUom.disabled = directQuantity;
             ui.scanCases.disabled = directQuantity;
@@ -1806,6 +1976,8 @@
             const location = norm(ui.scanLocation.value || state.preferences.lastLocation);
             const upc = norm(ui.scanUpc.value);
             const sku = norm(ui.scanSku.value);
+            const description = String(ui.scanDescription.value || matchedItem?.description || "").trim().replace(/\s+/g, " ");
+            const imageUrl = normalizeImageReference(ui.scanImageUrl.value || matchedItem?.imageUrl || "");
             const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value || matchedItem?.trackingLevel);
             let quantity = toPositiveInt(ui.scanQuantity.value);
 
@@ -1823,6 +1995,8 @@
                 location,
                 sku,
                 upc,
+                description,
+                imageUrl,
                 trackingLevel,
                 quantity,
                 addedAt: new Date().toISOString()
@@ -1838,9 +2012,18 @@
             ui.scanLocation.value = location;
             ui.scanUpc.value = "";
             ui.scanSku.value = "";
+            ui.scanDescription.value = "";
             ui.scanQuantity.value = "";
             ui.scanUom.value = "";
             ui.scanCases.value = "";
+            clearImageField({
+                urlInput: ui.scanImageUrl,
+                previewWrap: ui.scanImagePreviewWrap,
+                previewImg: ui.scanImagePreview,
+                previewMeta: ui.scanImagePreviewMeta,
+                clearBtn: ui.scanImageClearBtn,
+                defaultMeta: "Compressed photo preview"
+            });
             updateScanTrackingUi();
             ui.scanSku.focus();
         }
@@ -1875,11 +2058,15 @@
                     location: line.location,
                     sku: line.sku,
                     upc: line.upc,
+                    description: line.description || "",
+                    imageUrl: line.imageUrl || "",
                     trackingLevel: line.trackingLevel,
                     quantity: 0
                 };
                 current.quantity += line.quantity;
                 if (!current.upc && line.upc) current.upc = line.upc;
+                if (!current.description && line.description) current.description = line.description;
+                if (!current.imageUrl && line.imageUrl) current.imageUrl = line.imageUrl;
                 current.trackingLevel = line.trackingLevel || current.trackingLevel || "UNIT";
                 grouped.set(key, current);
             });
@@ -2002,6 +2189,7 @@
                     <td>${esc(line.location)}</td>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.upc || "-")}</td>
+                    <td>${esc(line.description || "-")}</td>
                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
                     <td>${num(line.quantity)}</td>
                     <td>${esc(formatDate(line.addedAt))}</td>
@@ -2130,6 +2318,7 @@
             const sku = norm(ui.masterItemSku.value);
             const upc = norm(ui.masterItemUpc.value);
             const description = String(ui.masterItemDescription.value || "").trim().replace(/\s+/g, " ");
+            const imageUrl = normalizeImageReference(ui.masterItemImageUrl.value);
             const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel.value);
             const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase.value);
             const eachLength = toPositiveNumber(ui.masterItemEachLength.value);
@@ -2142,33 +2331,103 @@
             if (!sku) return fail(ui.catalogMessage, "Enter a SKU to save an item master.", ui.masterItemSku);
 
             try {
-                await requestJson("/api/master-item", {
+                const payload = {
+                    accountName,
+                    sku,
+                    upc,
+                    description,
+                    imageUrl,
+                    trackingLevel,
+                    unitsPerCase,
+                    eachLength,
+                    eachWidth,
+                    eachHeight,
+                    caseLength,
+                    caseWidth,
+                    caseHeight
+                };
+                if (editingMasterItem && editingMasterItem.accountName === accountName && editingMasterItem.sku !== sku) {
+                    const existingTarget = state.masters.items.find((item) => item.accountName === accountName && item.sku === sku && item.id !== editingMasterItem.id);
+                    if (existingTarget && !window.confirm(`An item already exists for ${accountName} / ${sku}. Updating this saved item will merge matching inventory lines into that SKU. Continue?`)) {
+                        return;
+                    }
+                }
+
+                await requestJson(editingMasterItem ? "/api/master-item/update" : "/api/master-item", {
                     method: "POST",
-                    body: JSON.stringify({
-                        accountName,
-                        sku,
-                        upc,
-                        description,
-                        trackingLevel,
-                        unitsPerCase,
-                        eachLength,
-                        eachWidth,
-                        eachHeight,
-                        caseLength,
-                        caseWidth,
-                        caseHeight
-                    })
+                    body: JSON.stringify(editingMasterItem ? {
+                        ...payload,
+                        originalAccountName: editingMasterItem.accountName,
+                        originalSku: editingMasterItem.sku
+                    } : payload)
                 });
                 await syncServerState(true);
                 state.preferences.lastAccount = accountName;
                 saveState();
-                showMessage(ui.catalogMessage, `Saved item ${accountName} / ${sku} to the shared library.`, "success");
-                document.getElementById("masterItemForm").reset();
-                ui.masterItemAccount.value = accountName;
+                showMessage(ui.catalogMessage, `${editingMasterItem ? "Updated" : "Saved"} item ${accountName} / ${sku} in the shared library.`, "success");
+                resetMasterItemForm(accountName);
                 ui.masterItemSku.focus();
             } catch (error) {
                 showMessage(ui.catalogMessage, error.message, "error");
             }
+        }
+
+        function resetMasterItemForm(accountName = "") {
+            editingMasterItem = null;
+            document.getElementById("masterItemForm").reset();
+            ui.masterItemAccount.disabled = false;
+            ui.masterItemSubmitBtn.textContent = "Save Item";
+            ui.cancelMasterItemEditBtn.classList.add("hidden");
+            ui.masterItemEditorBanner.classList.add("hidden");
+            ui.masterItemAccount.value = accountName || "";
+            ui.masterItemTrackingLevel.value = "UNIT";
+            clearImageField({
+                urlInput: ui.masterItemImageUrl,
+                previewWrap: ui.masterItemImagePreviewWrap,
+                previewImg: ui.masterItemImagePreview,
+                previewMeta: ui.masterItemImagePreviewMeta,
+                clearBtn: ui.masterItemImageClearBtn,
+                defaultMeta: "Compressed item photo preview"
+            });
+        }
+
+        function beginMasterItemEdit(item) {
+            if (!item) return;
+            editingMasterItem = { id: item.id, accountName: item.accountName, sku: item.sku };
+            ui.masterItemAccount.value = item.accountName;
+            ui.masterItemAccount.disabled = true;
+            ui.masterItemSku.value = item.sku;
+            ui.masterItemUpc.value = item.upc || "";
+            ui.masterItemDescription.value = item.description || "";
+            ui.masterItemImageUrl.value = item.imageUrl || "";
+            ui.masterItemTrackingLevel.value = normalizeTrackingLevel(item.trackingLevel);
+            ui.masterItemUnitsPerCase.value = item.unitsPerCase ?? "";
+            ui.masterItemEachLength.value = item.eachLength ?? "";
+            ui.masterItemEachWidth.value = item.eachWidth ?? "";
+            ui.masterItemEachHeight.value = item.eachHeight ?? "";
+            ui.masterItemCaseLength.value = item.caseLength ?? "";
+            ui.masterItemCaseWidth.value = item.caseWidth ?? "";
+            ui.masterItemCaseHeight.value = item.caseHeight ?? "";
+            ui.masterItemSubmitBtn.textContent = "Update Item";
+            ui.cancelMasterItemEditBtn.classList.remove("hidden");
+            ui.masterItemEditorBanner.classList.remove("hidden");
+            ui.masterItemEditorTitle.textContent = `Editing ${item.accountName} / ${item.sku}`;
+            ui.masterItemEditorMeta.textContent = "SKU changes update matching inventory lines for this vendor / customer. Vendor / customer stays locked during edit.";
+            refreshImagePreview({
+                urlInput: ui.masterItemImageUrl,
+                previewWrap: ui.masterItemImagePreviewWrap,
+                previewImg: ui.masterItemImagePreview,
+                previewMeta: ui.masterItemImagePreviewMeta,
+                clearBtn: ui.masterItemImageClearBtn,
+                defaultMeta: "Compressed item photo preview"
+            });
+            ui.masterItemSku.focus();
+        }
+
+        function cancelMasterItemEdit() {
+            resetMasterItemForm(state.preferences.lastAccount || "");
+            ui.masterItemAccount.focus();
+            showMessage(ui.catalogMessage, "Item edit canceled.", "info");
         }
 
         function renderMasterLibrary() {
@@ -2259,11 +2518,15 @@
                 const meta = formatItemMasterMeta(item);
                 return `
                     <div class="quick-row">
+                        ${item.imageUrl ? `<img class="quick-media" src="${attr(normalizeImageReference(item.imageUrl))}" alt="${attr(`${item.accountName} ${item.sku}`)}">` : ""}
                         <div class="quick-main">
                             <strong>${esc(item.accountName)} / ${esc(item.sku)}</strong>
                             <div class="quick-meta">${esc(meta)}</div>
                         </div>
-                        <button class="btn ghost mini" type="button" data-use-item="${attr(item.id)}">Use In Scan</button>
+                        <div class="quick-row-actions">
+                            <button class="btn ghost mini" type="button" data-use-item="${attr(item.id)}">Use In Scan</button>
+                            <button class="btn ghost mini" type="button" data-edit-item="${attr(item.id)}">Edit</button>
+                        </div>
                     </div>
                 `;
             }).join("");
@@ -2298,6 +2561,7 @@
                     "SKU",
                     "UPC",
                     "DESCRIPTION",
+                    "IMAGE_URL",
                     "TRACKING",
                     "UNITS_PER_CASE",
                     "EACH_LENGTH",
@@ -2317,6 +2581,7 @@
                             entry.sku,
                             entry.upc || "",
                             entry.description || "",
+                            entry.imageUrl || "",
                             normalizeTrackingLevel(entry.trackingLevel),
                             entry.unitsPerCase ?? "",
                             entry.eachLength ?? "",
@@ -2413,6 +2678,12 @@
         }
 
         function onMasterItemListClick(event) {
+            const editButton = event.target.closest("[data-edit-item]");
+            if (editButton) {
+                const item = state.masters.items.find((entry) => entry.id === editButton.dataset.editItem);
+                beginMasterItemEdit(item);
+                return;
+            }
             const button = event.target.closest("[data-use-item]");
             if (!button) return;
             fillScanFromMasterItem(button.dataset.useItem);
@@ -2449,8 +2720,18 @@
             saveState();
             ui.scanSku.value = item.sku;
             ui.scanUpc.value = item.upc || ui.scanUpc.value;
+            ui.scanDescription.value = item.description || "";
+            ui.scanImageUrl.value = item.imageUrl || "";
             ui.scanTrackingLevel.value = normalizeTrackingLevel(item.trackingLevel);
             updateScanTrackingUi(item);
+            refreshImagePreview({
+                urlInput: ui.scanImageUrl,
+                previewWrap: ui.scanImagePreviewWrap,
+                previewImg: ui.scanImagePreview,
+                previewMeta: ui.scanImagePreviewMeta,
+                clearBtn: ui.scanImageClearBtn,
+                defaultMeta: "Compressed photo preview"
+            });
             ui.scanQuantity.focus();
             showMessage(ui.catalogMessage, `Loaded item ${item.accountName} / ${item.sku} into the scan form.`, "info");
         }
@@ -2467,8 +2748,18 @@
                     if (!accountName) ui.scanAccount.value = upcMatch.accountName;
                     ui.scanSku.value = upcMatch.sku;
                     ui.scanUpc.value = upcMatch.upc;
+                    ui.scanDescription.value = upcMatch.description || "";
+                    ui.scanImageUrl.value = upcMatch.imageUrl || "";
                     ui.scanTrackingLevel.value = normalizeTrackingLevel(upcMatch.trackingLevel);
                     updateScanTrackingUi(upcMatch);
+                    refreshImagePreview({
+                        urlInput: ui.scanImageUrl,
+                        previewWrap: ui.scanImagePreviewWrap,
+                        previewImg: ui.scanImagePreview,
+                        previewMeta: ui.scanImagePreviewMeta,
+                        clearBtn: ui.scanImageClearBtn,
+                        defaultMeta: "Compressed photo preview"
+                    });
                     return upcMatch;
                 }
             }
@@ -2480,8 +2771,18 @@
                     if (!accountName) ui.scanAccount.value = skuMatch.accountName;
                     ui.scanSku.value = skuMatch.sku;
                     if (!upc && skuMatch.upc) ui.scanUpc.value = skuMatch.upc;
+                    ui.scanDescription.value = skuMatch.description || "";
+                    ui.scanImageUrl.value = skuMatch.imageUrl || "";
                     ui.scanTrackingLevel.value = normalizeTrackingLevel(skuMatch.trackingLevel);
                     updateScanTrackingUi(skuMatch);
+                    refreshImagePreview({
+                        urlInput: ui.scanImageUrl,
+                        previewWrap: ui.scanImagePreviewWrap,
+                        previewImg: ui.scanImagePreview,
+                        previewMeta: ui.scanImagePreviewMeta,
+                        clearBtn: ui.scanImageClearBtn,
+                        defaultMeta: "Compressed photo preview"
+                    });
                     return skuMatch;
                 }
             }
@@ -2933,6 +3234,7 @@
                     <td>${esc(line.location)}</td>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.upc || "-")}</td>
+                    <td>${esc(getLineDescription(line) || "-")}</td>
                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
                     <td>${num(line.quantity)}</td>
                     <td>${esc(formatDate(line.updatedAt))}</td>
@@ -3097,12 +3399,13 @@
         async function exportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Owner", "Location", "SKU", "UPC", "Tracking", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
+                const rows = [["Owner", "Location", "SKU", "UPC", "Description", "Tracking", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
                     sortedInventory().map((line) => [
                         line.accountName,
                         line.location,
                         line.sku,
                         line.upc || "",
+                        getLineDescription(line) || "",
                         line.trackingLevel,
                         String(line.quantity),
                         line.createdAt,
@@ -3160,6 +3463,7 @@
                                 <th>Location</th>
                                 <th>SKU</th>
                                 <th>UPC</th>
+                                <th>Description</th>
                                 <th>Tracking</th>
                                 <th>Qty</th>
                                 <th>Updated</th>
@@ -3172,6 +3476,7 @@
                                     <td>${esc(line.location)}</td>
                                     <td>${esc(line.sku)}</td>
                                     <td>${esc(line.upc || "-")}</td>
+                                    <td>${esc(getLineDescription(line) || "-")}</td>
                                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
                                     <td>${num(line.quantity)}</td>
                                     <td>${esc(formatDate(line.updatedAt))}</td>
@@ -3192,6 +3497,7 @@
                             <th>Location</th>
                             <th>SKU</th>
                             <th>UPC</th>
+                            <th>Description</th>
                             <th>Tracking</th>
                             <th>Qty</th>
                             <th>Updated</th>
@@ -3204,6 +3510,7 @@
                                 <td>${esc(line.location)}</td>
                                 <td>${esc(line.sku)}</td>
                                 <td>${esc(line.upc || "-")}</td>
+                                <td>${esc(getLineDescription(line) || "-")}</td>
                                 <td>${esc(trackingLabel(line.trackingLevel))}</td>
                                 <td>${num(line.quantity)}</td>
                                 <td>${esc(formatDate(line.updatedAt))}</td>
@@ -3291,6 +3598,99 @@
                 throw new Error(data.error || "Request failed.");
             }
             return data;
+        }
+
+        function normalizeImageReference(value) {
+            const text = String(value || "").trim();
+            if (!text) return "";
+            if (/^data:image\//i.test(text)) return text;
+            const driveId = extractDriveFileId(text);
+            if (driveId) return `https://drive.google.com/thumbnail?id=${driveId}&sz=w1600`;
+            return text;
+        }
+
+        function extractDriveFileId(value) {
+            const text = String(value || "").trim();
+            if (!text) return "";
+            const match = text.match(/\/file\/d\/([A-Za-z0-9_-]+)/)
+                || text.match(/[?&]id=([A-Za-z0-9_-]+)/)
+                || text.match(/\/thumbnail\?id=([A-Za-z0-9_-]+)/);
+            return match ? match[1] : "";
+        }
+
+        function clearImageField({ urlInput, previewWrap, previewImg, previewMeta, clearBtn, defaultMeta }) {
+            if (urlInput) urlInput.value = "";
+            if (previewImg) previewImg.removeAttribute("src");
+            if (previewWrap) previewWrap.classList.add("hidden");
+            if (clearBtn) clearBtn.classList.add("hidden");
+            if (previewMeta) previewMeta.textContent = defaultMeta || "";
+        }
+
+        function refreshImagePreview({ urlInput, previewWrap, previewImg, previewMeta, clearBtn, defaultMeta }) {
+            const normalized = normalizeImageReference(urlInput?.value);
+            if (!normalized) {
+                clearImageField({ urlInput, previewWrap, previewImg, previewMeta, clearBtn, defaultMeta });
+                return "";
+            }
+            if (urlInput) urlInput.value = normalized;
+            if (previewImg) previewImg.src = normalized;
+            if (previewWrap) previewWrap.classList.remove("hidden");
+            if (clearBtn) clearBtn.classList.remove("hidden");
+            if (previewMeta) {
+                previewMeta.textContent = normalized.startsWith("data:image/")
+                    ? "Compressed photo ready to save with this item."
+                    : "Image link ready to save with this item.";
+            }
+            return normalized;
+        }
+
+        async function handleImageInputChange(event, options) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            try {
+                const compressedImage = await compressImageFile(file);
+                options.urlInput.value = compressedImage;
+                refreshImagePreview(options);
+                if (options.messageElement) {
+                    showMessage(options.messageElement, "Photo compressed and attached to this item.", "success");
+                }
+            } catch (error) {
+                if (options.messageElement) {
+                    showMessage(options.messageElement, error.message, "error");
+                }
+            } finally {
+                event.target.value = "";
+            }
+        }
+
+        function compressImageFile(file, { maxWidth = 900, maxHeight = 900, quality = 0.72 } = {}) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const image = new Image();
+                    image.onload = () => {
+                        const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+                        const width = Math.max(1, Math.round(image.width * scale));
+                        const height = Math.max(1, Math.round(image.height * scale));
+                        const canvas = document.createElement("canvas");
+                        canvas.width = width;
+                        canvas.height = height;
+                        const context = canvas.getContext("2d");
+                        if (!context) {
+                            reject(new Error("Image compression is not available in this browser."));
+                            return;
+                        }
+                        context.fillStyle = "#ffffff";
+                        context.fillRect(0, 0, width, height);
+                        context.drawImage(image, 0, 0, width, height);
+                        resolve(canvas.toDataURL("image/jpeg", quality));
+                    };
+                    image.onerror = () => reject(new Error("The selected image could not be loaded."));
+                    image.src = String(reader.result || "");
+                };
+                reader.onerror = () => reject(new Error("The selected image could not be read."));
+                reader.readAsDataURL(file);
+            });
         }
 
         function loadState() {
@@ -3402,6 +3802,8 @@
                 location,
                 sku,
                 upc,
+                description: String(line?.description || "").trim().replace(/\s+/g, " "),
+                imageUrl: normalizeImageReference(line?.imageUrl || line?.image || line?.photoUrl || line?.image_url || ""),
                 trackingLevel,
                 quantity,
                 addedAt: typeof line.addedAt === "string" ? line.addedAt : new Date().toISOString()
@@ -3460,6 +3862,7 @@
                 eachLength: toPositiveNumber(item?.eachLength),
                 eachWidth: toPositiveNumber(item?.eachWidth),
                 eachHeight: toPositiveNumber(item?.eachHeight),
+                imageUrl: normalizeImageReference(item?.imageUrl || item?.image || item?.photoUrl || item?.image_url || ""),
                 caseLength: toPositiveNumber(item?.caseLength),
                 caseWidth: toPositiveNumber(item?.caseWidth),
                 caseHeight: toPositiveNumber(item?.caseHeight),
@@ -3469,10 +3872,22 @@
         }
 
         function saveState() {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({
+            const payload = {
                 batch: state.batch,
                 preferences: state.preferences
-            }));
+            };
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
+            } catch {
+                try {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({
+                        batch: state.batch.map((line) => ({ ...line, imageUrl: "" })),
+                        preferences: state.preferences
+                    }));
+                } catch {
+                    // Ignore local storage write failures. The shared server remains the source of truth.
+                }
+            }
         }
 
         function showMessage(element, text, tone) {
@@ -3552,6 +3967,7 @@
             const parts = [
                 item.upc ? `UPC ${item.upc}` : "",
                 item.description,
+                item.imageUrl ? "Photo attached" : "",
                 trackingLabel(item.trackingLevel),
                 item.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "",
                 formatDimensions(item.eachLength, item.eachWidth, item.eachHeight, "Each"),
@@ -3579,6 +3995,10 @@
 
         function getMasterItemForLine(line) {
             return state.masters.items.find((item) => item.accountName === line.accountName && item.sku === line.sku) || null;
+        }
+
+        function getLineDescription(line) {
+            return getMasterItemForLine(line)?.description || line.description || "";
         }
 
         function filterInventoryByOwner(ownerFilter = "") {
@@ -3768,6 +4188,7 @@
                 let sku = "";
                 let upc = "";
                 let description = "";
+                let imageUrl = "";
                 let trackingLevel = "UNIT";
                 let unitsPerCase = null;
                 let eachLength = null;
@@ -3782,20 +4203,22 @@
                     sku = String(cells[1] || "").trim();
                     upc = String(cells[2] || "").trim();
                     description = String(cells[3] || "").trim();
-                    trackingLevel = String(cells[4] || "UNIT").trim() || "UNIT";
-                    unitsPerCase = toPositiveInt(cells[5]);
-                    eachLength = toPositiveNumber(cells[6]);
-                    eachWidth = toPositiveNumber(cells[7]);
-                    eachHeight = toPositiveNumber(cells[8]);
-                    caseLength = toPositiveNumber(cells[9]);
-                    caseWidth = toPositiveNumber(cells[10]);
-                    caseHeight = toPositiveNumber(cells[11]);
+                    imageUrl = String(cells[4] || "").trim();
+                    trackingLevel = String(cells[5] || "UNIT").trim() || "UNIT";
+                    unitsPerCase = toPositiveInt(cells[6]);
+                    eachLength = toPositiveNumber(cells[7]);
+                    eachWidth = toPositiveNumber(cells[8]);
+                    eachHeight = toPositiveNumber(cells[9]);
+                    caseLength = toPositiveNumber(cells[10]);
+                    caseWidth = toPositiveNumber(cells[11]);
+                    caseHeight = toPositiveNumber(cells[12]);
                 } else {
                     const record = Object.fromEntries(headers.map((header, cellIndex) => [header, String(cells[cellIndex] || "").trim()]));
                     accountName = csvRecordValue(record, ["ACCOUNTNAME", "ACCOUNT", "OWNERNAME", "OWNER", "VENDORCUSTOMERNAME", "VENDORCUSTOMER", "VENDORORCUSTOMER", "VENDORNAME", "VENDOR", "CUSTOMERNAME", "CUSTOMER"]);
                     sku = csvRecordValue(record, ["SKU", "ITEMSKU", "PRODUCTSKU"]);
                     upc = csvRecordValue(record, ["UPC", "UPCCODE", "UPCNUMBER", "BARCODE"]);
                     description = csvRecordValue(record, ["DESCRIPTION", "DESC", "ITEMDESCRIPTION", "ITEMNAME", "NAME"]);
+                    imageUrl = csvRecordValue(record, ["IMAGEURL", "IMAGE", "PHOTOURL", "PHOTO", "GOOGLEDRIVEURL", "DRIVEURL"]);
                     trackingLevel = csvRecordValue(record, ["TRACKING", "TRACKINGLEVEL", "LEVEL", "UOM"]) || "UNIT";
                     unitsPerCase = toPositiveInt(csvRecordValue(record, ["UNITSPERCASE", "CASEPACK", "PACK", "QTYPERCASE"]));
                     eachLength = toPositiveNumber(csvRecordValue(record, ["EACHLENGTH", "UNITLENGTH"]));
@@ -3817,6 +4240,7 @@
                     sku: normalizedSku,
                     upc: norm(upc),
                     description: String(description || "").trim().replace(/\s+/g, " "),
+                    imageUrl: normalizeImageReference(imageUrl),
                     trackingLevel: normalizeTrackingLevel(trackingLevel),
                     unitsPerCase,
                     eachLength,
