@@ -480,6 +480,8 @@
         .mobile-only { display: none !important; }
         .hidden { display: none !important; }
         .mobile-subview.active { display: block; }
+        .mobile-drill-menu.active,
+        .mobile-drill-card.active { display: block; }
 
         @media (min-width: 860px) {
             .hero-grid { grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.9fr); }
@@ -585,6 +587,14 @@
             }
             .mobile-task-picker {
                 padding: 0.85rem;
+            }
+            .mobile-drill-menu,
+            .mobile-drill-card {
+                display: none !important;
+            }
+            .mobile-drill-menu.active,
+            .mobile-drill-card.active {
+                display: block !important;
             }
             .mobile-task-picker .button-row {
                 gap: 0.6rem;
@@ -924,9 +934,9 @@
 
         <section class="panel" id="searchPanel" data-panel="search">
             <div class="mobile-panel-head mobile-only">
-                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+                <button class="btn" id="searchMobileBackBtn" type="button" data-mobile-section-back="search">Back To Menu</button>
             </div>
-            <article class="card mobile-only mobile-task-picker">
+            <article class="card mobile-only mobile-task-picker mobile-drill-menu active" data-mobile-subview-menu-group="search">
                 <div class="card-head" style="margin-bottom: 0.75rem;">
                     <div>
                         <h2>Search Tasks</h2>
@@ -939,7 +949,7 @@
                 </div>
             </article>
             <div class="search-grid">
-                <article class="card">
+                <article class="card mobile-drill-card" id="searchFormCard" data-mobile-subview-card-group="search">
                     <div class="card-head">
                         <div>
                             <h2>Search Inventory</h2>
@@ -981,9 +991,14 @@
                         </form>
                     </div>
                     <div class="status" id="searchMessage"></div>
+                    <div id="mobileSearchResultsBlock" class="mobile-only hidden" style="margin-top: 1rem;">
+                        <div id="mobileSearchResultsContent">
+                            <p class="empty">Run a search to see location breakdowns, matched quantities, and inventory lines.</p>
+                        </div>
+                    </div>
                 </article>
 
-                <article class="card" id="searchResultsCard">
+                <article class="card desktop-complex" id="searchResultsCard">
                     <div class="card-head">
                         <div>
                             <h2>Search Results</h2>
@@ -999,9 +1014,9 @@
 
         <section class="panel" id="actionsPanel" data-panel="actions">
             <div class="mobile-panel-head mobile-only">
-                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+                <button class="btn" id="actionsMobileBackBtn" type="button" data-mobile-section-back="actions">Back To Menu</button>
             </div>
-            <article class="card mobile-only mobile-task-picker">
+            <article class="card mobile-only mobile-task-picker mobile-drill-menu active" data-mobile-subview-menu-group="actions">
                 <div class="card-head" style="margin-bottom: 0.75rem;">
                     <div>
                         <h2>Action Tasks</h2>
@@ -1358,8 +1373,8 @@
         const state = loadState();
         let activeSection = "scan";
         let searchMode = "sku";
-        let activeSearchSubview = "single";
-        let activeActionSubview = "adjust";
+        let activeSearchSubview = "menu";
+        let activeActionSubview = "menu";
         let lastSingleSearch = null;
         let lastMultiSearch = null;
         let currentSearchView = null;
@@ -1371,6 +1386,7 @@
             panels: [...document.querySelectorAll(".panel")],
             mobileNavButtons: [...document.querySelectorAll("[data-mobile-nav]")],
             mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
+            mobileSectionBackButtons: [...document.querySelectorAll("[data-mobile-section-back]")],
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
             scanAccount: document.getElementById("scanAccount"),
             scanLocation: document.getElementById("scanLocation"),
@@ -1422,7 +1438,11 @@
             multiSearchInput: document.getElementById("multiSearchInput"),
             printSingleSearchBtn: document.getElementById("printSingleSearchBtn"),
             printMultiSearchBtn: document.getElementById("printMultiSearchBtn"),
+            searchMobileBackBtn: document.getElementById("searchMobileBackBtn"),
+            searchFormCard: document.getElementById("searchFormCard"),
             searchResultsCard: document.getElementById("searchResultsCard"),
+            mobileSearchResultsBlock: document.getElementById("mobileSearchResultsBlock"),
+            mobileSearchResultsContent: document.getElementById("mobileSearchResultsContent"),
             searchResultsContent: document.getElementById("searchResultsContent"),
             actionMessage: document.getElementById("actionMessage"),
             adjustAccount: document.getElementById("adjustAccount"),
@@ -1487,6 +1507,7 @@
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
             ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
+            ui.mobileSectionBackButtons.forEach((button) => button.addEventListener("click", () => handleMobileSectionBack(button.dataset.mobileSectionBack)));
             ui.mobileSubviewButtons.forEach((button) => button.addEventListener("click", () => {
                 const group = button.dataset.mobileSubviewBtnGroup;
                 const target = button.dataset.mobileSubviewTarget;
@@ -1556,8 +1577,8 @@
             ui.scanLocation.value = state.preferences.lastLocation || "";
             ui.masterItemAccount.value = state.preferences.lastAccount || "";
             setSearchMode("sku");
-            setMobileSubview("search", activeSearchSubview);
-            setMobileSubview("actions", activeActionSubview);
+            setMobileSubview("search", isMobileView() ? "menu" : "single");
+            setMobileSubview("actions", isMobileView() ? "menu" : "adjust");
             updateScanTrackingUi();
             renderAll();
             setSection(isMobileView() ? "mobile-home" : "scan");
@@ -1581,11 +1602,11 @@
             if (section === "mobile-home") return;
             if (section === "scan") focusScanStart();
             if (section === "search") {
-                if (isMobileView()) setMobileSubview("search", activeSearchSubview);
+                if (isMobileView()) setMobileSubview("search", "menu");
                 else ui.singleSearchInput.focus();
             }
             if (section === "actions" && isMobileView()) {
-                setMobileSubview("actions", activeActionSubview);
+                setMobileSubview("actions", "menu");
             }
             updateMobileSearchResultsVisibility();
             if (section === "inventory") ui.inventoryFilter.focus();
@@ -1596,6 +1617,10 @@
         function handleViewportChange(event) {
             if (!event.matches && activeSection === "mobile-home") {
                 setSection("scan");
+            }
+            if (event.matches) {
+                if (activeSection === "search") setMobileSubview("search", "menu");
+                if (activeSection === "actions") setMobileSubview("actions", "menu");
             }
             updateMobileSearchResultsVisibility();
         }
@@ -1617,6 +1642,12 @@
             if (group === "search") activeSearchSubview = view;
             if (group === "actions") activeActionSubview = view;
 
+            document.querySelectorAll(`[data-mobile-subview-menu-group="${group}"]`).forEach((element) => {
+                element.classList.toggle("active", view === "menu");
+            });
+            document.querySelectorAll(`[data-mobile-subview-card-group="${group}"]`).forEach((element) => {
+                element.classList.toggle("active", view !== "menu");
+            });
             document.querySelectorAll(`[data-mobile-subview-group="${group}"]`).forEach((element) => {
                 element.classList.toggle("active", element.dataset.mobileSubview === view);
             });
@@ -1628,7 +1659,10 @@
                     button.classList.toggle("ghost", !isActive);
                 });
 
-            if (!isMobileView()) return;
+            updateMobileBackButtons();
+            updateMobileSearchResultsVisibility();
+
+            if (!isMobileView() || view === "menu") return;
             if (group === "search") {
                 if (view === "multi") ui.multiSearchInput.focus();
                 else ui.singleSearchInput.focus();
@@ -1641,8 +1675,32 @@
         }
 
         function updateMobileSearchResultsVisibility() {
-            if (!ui.searchResultsCard) return;
-            ui.searchResultsCard.classList.toggle("hidden", isMobileView() && !currentSearchView);
+            if (!ui.searchResultsCard || !ui.mobileSearchResultsBlock) return;
+            const showMobileResults = isMobileView() && activeSection === "search" && activeSearchSubview !== "menu" && !!currentSearchView;
+            ui.searchResultsCard.classList.toggle("hidden", isMobileView());
+            ui.mobileSearchResultsBlock.classList.toggle("hidden", !showMobileResults);
+        }
+
+        function updateMobileBackButtons() {
+            if (ui.searchMobileBackBtn) {
+                ui.searchMobileBackBtn.textContent = activeSearchSubview === "menu" ? "Back To Menu" : "Back To Search Tools";
+            }
+            const actionsBackBtn = document.getElementById("actionsMobileBackBtn");
+            if (actionsBackBtn) {
+                actionsBackBtn.textContent = activeActionSubview === "menu" ? "Back To Menu" : "Back To Action Tools";
+            }
+        }
+
+        function handleMobileSectionBack(group) {
+            if (group === "search") {
+                if (activeSearchSubview === "menu") setSection("mobile-home");
+                else setMobileSubview("search", "menu");
+                return;
+            }
+            if (group === "actions") {
+                if (activeActionSubview === "menu") setSection("mobile-home");
+                else setMobileSubview("actions", "menu");
+            }
         }
 
         function scanEnterFlow(event) {
@@ -2657,10 +2715,11 @@
         function renderSingleSearch(query, mode, matches) {
             ui.printSingleSearchBtn.classList.toggle("hidden", !matches.length);
             ui.printMultiSearchBtn.classList.add("hidden");
-            updateMobileSearchResultsVisibility();
 
+            let markup = "";
             if (!matches.length) {
-                ui.searchResultsContent.innerHTML = `<p class="empty">No matching inventory lines were found for <strong>${esc(query)}</strong>.</p>`;
+                markup = `<p class="empty">No matching inventory lines were found for <strong>${esc(query)}</strong>.</p>`;
+                setSearchResultsMarkup(markup);
                 return;
             }
 
@@ -2672,7 +2731,7 @@
                 ? `Showing inventory matches for <strong>${esc(query)}</strong>.`
                 : `Showing inventory in locations matching <strong>${esc(query)}</strong>.`;
 
-            ui.searchResultsContent.innerHTML = `
+            markup = `
                 <div class="summary-grid">
                     <div class="summary"><span>Matched Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
                     <div class="summary"><span>Matched Lines</span><strong>${num(matches.length)}</strong></div>
@@ -2687,12 +2746,12 @@
                     ${inventoryTableHtml(matches)}
                 </div>
             `;
+            setSearchResultsMarkup(markup);
         }
 
         function renderMultiSearch(groups) {
             ui.printSingleSearchBtn.classList.add("hidden");
             ui.printMultiSearchBtn.classList.toggle("hidden", !groups.some((group) => group.matches.length));
-            updateMobileSearchResultsVisibility();
 
             const found = groups.filter((group) => group.matches.length).length;
             const overallTotals = groups.reduce((totals, group) => {
@@ -2701,7 +2760,7 @@
                 totals.PALLET += group.totals.PALLET;
                 return totals;
             }, { UNIT: 0, CASE: 0, PALLET: 0 });
-            ui.searchResultsContent.innerHTML = `
+            const markup = `
                 <div class="summary-grid">
                     <div class="summary"><span>Items Requested</span><strong>${num(groups.length)}</strong></div>
                     <div class="summary"><span>Items Found</span><strong>${num(found)}</strong></div>
@@ -2725,6 +2784,15 @@
                     </div>
                 `).join("")}
             `;
+            setSearchResultsMarkup(markup);
+        }
+
+        function setSearchResultsMarkup(markup) {
+            ui.searchResultsContent.innerHTML = markup;
+            if (ui.mobileSearchResultsContent) {
+                ui.mobileSearchResultsContent.innerHTML = markup;
+            }
+            updateMobileSearchResultsVisibility();
         }
 
         function renderActivity() {
