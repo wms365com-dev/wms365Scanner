@@ -289,7 +289,7 @@
 
         .quick-jumps {
             margin-top: 0.9rem;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         }
 
         .quick-link {
@@ -375,6 +375,104 @@
             flex: 1 1 240px;
             color: var(--muted);
             line-height: 1.45;
+        }
+
+        .labels-tool-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+        }
+
+        .labels-preview-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 0.75rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .labels-preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1rem;
+            justify-items: center;
+        }
+
+        .location-label-card {
+            width: 100%;
+            padding: 0.85rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .location-print-label {
+            width: 100%;
+            max-width: 6in;
+            aspect-ratio: 6 / 4;
+            background: #fff;
+            border-radius: 16px;
+            overflow: hidden;
+            display: grid;
+            grid-template-rows: 1fr auto;
+            align-items: center;
+            justify-items: center;
+            padding: 0.18in 0.2in;
+            gap: 0.14in;
+            color: #111827;
+        }
+
+        .location-barcode-line {
+            width: 100%;
+            height: 1.55in;
+            border-radius: 4px;
+            background:
+                repeating-linear-gradient(
+                    to right,
+                    #000 0px,
+                    #000 4px,
+                    #fff 4px,
+                    #fff 9px,
+                    #000 9px,
+                    #000 12px,
+                    #fff 12px,
+                    #fff 18px,
+                    #000 18px,
+                    #000 24px,
+                    #fff 24px,
+                    #fff 29px,
+                    #000 29px,
+                    #000 32px,
+                    #fff 32px,
+                    #fff 39px
+                );
+        }
+
+        .location-label-code {
+            width: 100%;
+            margin: 0;
+            text-align: center;
+            font-size: clamp(2.3rem, 5vw, 4.2rem);
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: 0.08rem;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .location-label-meta {
+            width: 100%;
+            margin-top: 0.4rem;
+            text-align: center;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #374151;
+        }
+
+        .location-label-meta.compact,
+        .location-label-code.compact {
+            letter-spacing: 0.03rem;
         }
 
         .menu-card-btn {
@@ -726,6 +824,10 @@
             .section-grid, .search-grid, .inventory-grid { grid-template-columns: minmax(330px, 420px) minmax(0, 1fr); }
             .action-grid, .backup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 980px) {
+            .labels-tool-grid { grid-template-columns: 1fr; }
         }
 
         @media (min-width: 641px) {
@@ -1136,6 +1238,10 @@
                             <strong>Reports</strong>
                             <span>Review owner usage, pallet positions, and exports.</span>
                         </button>
+                        <button class="quick-link" type="button" data-jump-section="labels">
+                            <strong>Labels</strong>
+                            <span>Build and print location labels from saved BINs or pasted codes.</span>
+                        </button>
                     </div>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
@@ -1153,6 +1259,7 @@
             <button class="tab" data-section="actions" type="button">Actions</button>
             <button class="tab" data-section="inventory" type="button">Inventory</button>
             <button class="tab" data-section="reports" type="button">Reports</button>
+            <button class="tab" data-section="labels" type="button">Labels</button>
             <button class="tab" data-section="backup" type="button">Backup</button>
         </nav>
 
@@ -1966,6 +2073,93 @@
             <input id="importFileInput" class="hidden" type="file" accept="application/json,.json">
         </section>
 
+        <section class="panel" id="labelsPanel" data-panel="labels">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
+            <div class="labels-tool-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Location Label Generator</h2>
+                            <p class="lead">Create 4 x 6 landscape location labels from the rack/bin pattern you shared, or build them from saved BINs already in WMS365 Scanner.</p>
+                        </div>
+                    </div>
+                    <div class="helper">
+                        <h3>Create Labels</h3>
+                        <form id="labelToolForm" class="form-grid" autocomplete="off">
+                            <label class="field">
+                                <span>Rack Number</span>
+                                <input id="labelRackInput" type="text" inputmode="numeric" maxlength="3" placeholder="106">
+                            </label>
+                            <label class="field">
+                                <span>Bin Number</span>
+                                <input id="labelBinInput" type="text" inputmode="numeric" maxlength="2" placeholder="01">
+                            </label>
+                            <label class="field">
+                                <span>Level</span>
+                                <input id="labelLevelInput" type="number" min="1" max="9" step="1" placeholder="1">
+                            </label>
+                            <label class="field">
+                                <span>Side</span>
+                                <select id="labelSideInput">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                </select>
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn" id="addSingleLabelBtn" type="button">Add One Label</button>
+                                <button class="btn secondary" id="addLabelPairBtn" type="button">Add Level 1 + 2</button>
+                            </div>
+                            <label class="field span-2">
+                                <span>Bulk Create</span>
+                                <textarea id="labelBulkInput" rows="6" placeholder="Paste one location per line, like&#10;106-01-11&#10;106-01-21&#10;107-02-12"></textarea>
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn secondary" id="addBulkLabelsBtn" type="button">Add Bulk Labels</button>
+                                <button class="btn ghost" id="clearLabelsBtn" type="button">Clear All</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="helper" style="margin-top: 1rem;">
+                        <h3>Pull From Saved BINs</h3>
+                        <p class="meta">Use the shared BIN library or current inventory locations to build labels faster. Only codes that look like rack/bin labels will be added automatically.</p>
+                        <label class="field">
+                            <span>Optional Filter</span>
+                            <input id="labelLibraryFilterInput" type="text" placeholder="Example: 106- or A1">
+                        </label>
+                        <div class="button-row" style="margin-top: 0.9rem;">
+                            <button class="btn secondary" id="addSavedLabelsBtn" type="button">Add Matching Saved BINs</button>
+                        </div>
+                        <p class="meta" id="labelLibraryMeta" style="margin-top: 0.75rem;">0 matching saved BIN labels are available.</p>
+                    </div>
+                    <div class="helper" style="margin-top: 1rem;">
+                        <h3>Printing Note</h3>
+                        <p class="meta">Printing from this page works on the current device right away. Sending jobs to a specific remote computer/printer is possible too, but it needs a small print bridge installed on that target computer.</p>
+                    </div>
+                    <div class="status" id="labelsMessage"></div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Preview & Print</h2>
+                            <p class="lead">Preview 4 x 6 landscape labels before printing. Queue stays on this device so you can build labels without affecting the shared inventory.</p>
+                        </div>
+                    </div>
+                    <div class="labels-preview-toolbar">
+                        <div class="meta" id="labelPreviewMeta">0 labels queued</div>
+                        <div class="button-row">
+                            <button class="btn" id="printLabelsBtn" type="button">Print Labels</button>
+                            <button class="btn ghost" id="exportLabelCodesBtn" type="button">Export Codes CSV</button>
+                        </div>
+                    </div>
+                    <p class="empty" id="labelsPreviewEmpty">No labels queued yet. Add one, paste a list, or pull matching BINs from the shared location library.</p>
+                    <div class="labels-preview-grid" id="labelsPreviewGrid"></div>
+                </article>
+            </div>
+        </section>
+
         <p class="footer">Built as <strong>WMS365 Scanner</strong>. Shared inventory lives on the server; only the open batch and last location stay local in this browser.</p>
     </div>
 
@@ -1975,8 +2169,10 @@
     <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="listbox" aria-label="Mobile suggestions"></div>
     <script>
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
+        const LABEL_TOOL_STORAGE_KEY = "wms365-scanner-label-tool-v1";
         const LOCAL_CACHE_ACTIVITY_LIMIT = 30;
         const state = loadState();
+        let labelToolState = loadLabelToolState();
         let activeSection = "scan";
         let searchMode = "sku";
         let activeSearchSubview = "menu";
@@ -2131,6 +2327,20 @@
             summarySaved: document.getElementById("summarySaved"),
             backupMessage: document.getElementById("backupMessage"),
             importFileInput: document.getElementById("importFileInput"),
+            labelRackInput: document.getElementById("labelRackInput"),
+            labelBinInput: document.getElementById("labelBinInput"),
+            labelLevelInput: document.getElementById("labelLevelInput"),
+            labelSideInput: document.getElementById("labelSideInput"),
+            labelBulkInput: document.getElementById("labelBulkInput"),
+            labelLibraryFilterInput: document.getElementById("labelLibraryFilterInput"),
+            labelLibraryMeta: document.getElementById("labelLibraryMeta"),
+            labelPreviewMeta: document.getElementById("labelPreviewMeta"),
+            labelsMessage: document.getElementById("labelsMessage"),
+            labelsPreviewEmpty: document.getElementById("labelsPreviewEmpty"),
+            labelsPreviewGrid: document.getElementById("labelsPreviewGrid"),
+            printLabelsBtn: document.getElementById("printLabelsBtn"),
+            exportLabelCodesBtn: document.getElementById("exportLabelCodesBtn"),
+            clearLabelsBtn: document.getElementById("clearLabelsBtn"),
             locationList: document.getElementById("locationList"),
             ownerList: document.getElementById("ownerList"),
             skuList: document.getElementById("skuList"),
@@ -2271,10 +2481,29 @@
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
+            document.getElementById("addSingleLabelBtn").addEventListener("click", addSingleLocationLabel);
+            document.getElementById("addLabelPairBtn").addEventListener("click", addLocationLabelPair);
+            document.getElementById("addBulkLabelsBtn").addEventListener("click", addBulkLocationLabels);
+            document.getElementById("addSavedLabelsBtn").addEventListener("click", addSavedLocationLabels);
+            document.getElementById("clearLabelsBtn").addEventListener("click", clearLocationLabels);
+            document.getElementById("printLabelsBtn").addEventListener("click", printLocationLabels);
+            document.getElementById("exportLabelCodesBtn").addEventListener("click", exportLocationLabelCodesCsv);
+            document.getElementById("labelToolForm").addEventListener("submit", (event) => {
+                event.preventDefault();
+                addSingleLocationLabel();
+            });
+            [ui.labelRackInput, ui.labelBinInput, ui.labelLevelInput, ui.labelSideInput, ui.labelBulkInput, ui.labelLibraryFilterInput]
+                .forEach((input) => input?.addEventListener("input", persistLocationLabelDraft));
 
             ui.scanAccount.value = state.preferences.lastAccount || "";
             ui.scanLocation.value = state.preferences.lastLocation || "";
             ui.masterItemAccount.value = state.preferences.lastAccount || "";
+            ui.labelRackInput.value = labelToolState.rack;
+            ui.labelBinInput.value = labelToolState.bin;
+            ui.labelLevelInput.value = String(labelToolState.level);
+            ui.labelSideInput.value = labelToolState.side;
+            ui.labelBulkInput.value = labelToolState.bulk;
+            ui.labelLibraryFilterInput.value = labelToolState.filter;
             setSearchMode("sku");
             setMobileSubview("search", isMobileView() ? "menu" : "single");
             setMobileSubview("actions", isMobileView() ? "menu" : "adjust");
@@ -3058,6 +3287,7 @@
             renderStats();
             renderDatalists();
             renderMasterLibrary();
+            renderLocationLabelTool();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
             renderReports(ui.reportFilter.value);
@@ -3164,6 +3394,326 @@
                 .map((entry) => `<option value="${attr(entry.value)}">${esc(entry.label)}</option>`)
                 .join("");
             refreshMobileAutocomplete();
+        }
+
+        function renderLocationLabelTool() {
+            if (!ui.labelsPreviewGrid) return;
+            const candidates = getLocationLabelCandidates(ui.labelLibraryFilterInput?.value || "");
+            ui.labelLibraryMeta.textContent = `${num(candidates.length)} matching saved BIN label${candidates.length === 1 ? "" : "s"} available.`;
+            ui.labelPreviewMeta.textContent = `${num(labelToolState.labels.length)} label${labelToolState.labels.length === 1 ? "" : "s"} queued`;
+            ui.printLabelsBtn.disabled = !labelToolState.labels.length;
+            ui.exportLabelCodesBtn.disabled = !labelToolState.labels.length;
+            ui.clearLabelsBtn.disabled = !labelToolState.labels.length;
+
+            if (!labelToolState.labels.length) {
+                ui.labelsPreviewEmpty.classList.remove("hidden");
+                ui.labelsPreviewGrid.innerHTML = "";
+                return;
+            }
+
+            ui.labelsPreviewEmpty.classList.add("hidden");
+            ui.labelsPreviewGrid.innerHTML = labelToolState.labels.map((code) => {
+                const details = getLocationLabelDetails(code);
+                const compactClass = details.code.length > 11 ? " compact" : "";
+                return `
+                    <div class="location-label-card">
+                        <div class="location-print-label">
+                            <div class="location-barcode-line" aria-hidden="true"></div>
+                            <div>
+                                <p class="location-label-code${compactClass}">${esc(details.code)}</p>
+                                <div class="location-label-meta${compactClass}">${esc(details.meta)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function persistLocationLabelDraft() {
+            labelToolState.rack = sanitizeLabelDigits(ui.labelRackInput.value, 3) || labelToolState.rack || "106";
+            labelToolState.bin = sanitizeLabelDigits(ui.labelBinInput.value, 2) || labelToolState.bin || "01";
+            labelToolState.level = sanitizeLabelLevel(ui.labelLevelInput.value);
+            labelToolState.side = sanitizeLabelSide(ui.labelSideInput.value);
+            labelToolState.bulk = String(ui.labelBulkInput.value || "");
+            labelToolState.filter = String(ui.labelLibraryFilterInput.value || "").trim().toUpperCase();
+            saveLabelToolState();
+            renderLocationLabelTool();
+        }
+
+        function addSingleLocationLabel() {
+            persistLocationLabelDraft();
+            addLocationLabelsFromCodes([
+                buildRackBinLocationCode(ui.labelRackInput.value, ui.labelBinInput.value, ui.labelLevelInput.value, ui.labelSideInput.value)
+            ], "Added one label.");
+        }
+
+        function addLocationLabelPair() {
+            persistLocationLabelDraft();
+            addLocationLabelsFromCodes([
+                buildRackBinLocationCode(ui.labelRackInput.value, ui.labelBinInput.value, 1, ui.labelSideInput.value),
+                buildRackBinLocationCode(ui.labelRackInput.value, ui.labelBinInput.value, 2, ui.labelSideInput.value)
+            ], "Added paired level labels.");
+        }
+
+        function addBulkLocationLabels() {
+            persistLocationLabelDraft();
+            const codes = String(ui.labelBulkInput.value || "")
+                .split(/\r?\n+/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+            addLocationLabelsFromCodes(codes, "Added bulk labels.");
+        }
+
+        function addSavedLocationLabels() {
+            persistLocationLabelDraft();
+            const codes = getLocationLabelCandidates(ui.labelLibraryFilterInput.value || "");
+            addLocationLabelsFromCodes(codes, "Added matching saved BIN labels.");
+        }
+
+        function addLocationLabelsFromCodes(codes, successPrefix = "Updated labels.") {
+            const existing = new Set(labelToolState.labels);
+            const incoming = [];
+            let invalidCount = 0;
+            let duplicateCount = 0;
+
+            codes.forEach((code) => {
+                const normalized = normalizeLocationLabelCode(code);
+                if (!normalized) {
+                    invalidCount += 1;
+                    return;
+                }
+                if (existing.has(normalized) || incoming.includes(normalized)) {
+                    duplicateCount += 1;
+                    return;
+                }
+                incoming.push(normalized);
+            });
+
+            if (!incoming.length) {
+                const parts = [];
+                if (duplicateCount) parts.push(`${num(duplicateCount)} duplicate${duplicateCount === 1 ? "" : "s"} skipped`);
+                if (invalidCount) parts.push(`${num(invalidCount)} invalid code${invalidCount === 1 ? "" : "s"} skipped`);
+                showMessage(ui.labelsMessage, parts.length ? `No new labels added. ${parts.join(" | ")}.` : "No valid labels were added.", "error");
+                return;
+            }
+
+            labelToolState.labels = [...labelToolState.labels, ...incoming];
+            saveLabelToolState();
+            renderLocationLabelTool();
+
+            const detailParts = [`${num(incoming.length)} label${incoming.length === 1 ? "" : "s"} added`];
+            if (duplicateCount) detailParts.push(`${num(duplicateCount)} duplicate${duplicateCount === 1 ? "" : "s"} skipped`);
+            if (invalidCount) detailParts.push(`${num(invalidCount)} invalid code${invalidCount === 1 ? "" : "s"} skipped`);
+            showMessage(ui.labelsMessage, `${successPrefix} ${detailParts.join(" | ")}.`, "success");
+        }
+
+        function clearLocationLabels() {
+            labelToolState.labels = [];
+            saveLabelToolState();
+            renderLocationLabelTool();
+            showMessage(ui.labelsMessage, "Cleared the queued location labels for this device.", "info");
+        }
+
+        function getLocationLabelCandidates(filterText = "") {
+            const filter = norm(filterText);
+            const codeSet = new Set();
+            const codes = [];
+            const addCode = (rawCode) => {
+                const normalized = normalizeLocationLabelCode(rawCode);
+                if (!normalized || !isRackBinLabelCode(normalized) || codeSet.has(normalized)) return;
+                if (filter && !normalized.includes(filter)) return;
+                codeSet.add(normalized);
+                codes.push(normalized);
+            };
+
+            state.masters.locations.forEach((entry) => addCode(entry.code));
+            state.inventory.forEach((line) => addCode(line.location));
+            state.batch.forEach((line) => addCode(line.location));
+            return codes.sort((a, b) => a.localeCompare(b));
+        }
+
+        function buildRackBinLocationCode(rack, bin, level, side) {
+            const safeRack = sanitizeLabelDigits(rack, 3);
+            const safeBin = sanitizeLabelDigits(bin, 2);
+            const safeLevel = String(sanitizeLabelLevel(level));
+            const safeSide = sanitizeLabelSide(side);
+            if (!safeRack || !safeBin) return "";
+            return `${safeRack.padStart(3, "0")}-${safeBin.padStart(2, "0")}-${safeLevel}${safeSide}`;
+        }
+
+        function normalizeLocationLabelCode(code) {
+            const cleaned = String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+            if (!cleaned) return "";
+            const match = cleaned.match(/^(\d{1,3})-(\d{1,2})-(\d)(\d)$/);
+            if (match) {
+                return `${match[1].padStart(3, "0")}-${match[2].padStart(2, "0")}-${match[3]}${match[4]}`;
+            }
+            const generic = cleaned.replace(/[^A-Z0-9/_-]/g, "");
+            return generic;
+        }
+
+        function isRackBinLabelCode(code) {
+            return /^(\d{3})-(\d{2})-(\d)(\d)$/.test(String(code || ""));
+        }
+
+        function getLocationLabelDetails(code) {
+            const normalized = normalizeLocationLabelCode(code);
+            const match = normalized.match(/^(\d{3})-(\d{2})-(\d)(\d)$/);
+            if (!match) {
+                return { code: normalized, meta: "Location Label" };
+            }
+            return {
+                code: normalized,
+                meta: `Rack ${match[1]} | Bin ${match[2]} | Level ${match[3]} | Side ${match[4]}`
+            };
+        }
+
+        function printLocationLabels() {
+            if (!labelToolState.labels.length) {
+                showMessage(ui.labelsMessage, "Add at least one location label before printing.", "error");
+                return;
+            }
+
+            const popup = window.open("", "_blank", "width=980,height=720");
+            if (!popup) {
+                showMessage(ui.labelsMessage, "Pop-up blocking prevented the label print preview from opening.", "error");
+                return;
+            }
+
+            popup.document.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Location Labels</title>
+                    <style>
+                        html, body {
+                            background: #fff;
+                            margin: 0;
+                            padding: 0;
+                        }
+                        .labels { display: block; }
+                        .label-card {
+                            width: 100%;
+                            break-inside: avoid;
+                            page-break-inside: avoid;
+                            page-break-after: always;
+                        }
+                        .label-card:last-child { page-break-after: auto; }
+                        .location-print-label {
+                            width: 5.84in;
+                            height: 3.84in;
+                            margin: 0.08in;
+                            background: #fff;
+                            overflow: hidden;
+                            display: grid;
+                            grid-template-rows: 1fr auto;
+                            align-items: center;
+                            justify-items: center;
+                            padding: 0.16in 0.18in;
+                            gap: 0.1in;
+                            color: #111827;
+                        }
+                        .location-barcode-line {
+                            width: 100%;
+                            height: 1.45in;
+                            background:
+                                repeating-linear-gradient(
+                                    to right,
+                                    #000 0px,
+                                    #000 4px,
+                                    #fff 4px,
+                                    #fff 9px,
+                                    #000 9px,
+                                    #000 12px,
+                                    #fff 12px,
+                                    #fff 18px,
+                                    #000 18px,
+                                    #000 24px,
+                                    #fff 24px,
+                                    #fff 29px,
+                                    #000 29px,
+                                    #000 32px,
+                                    #fff 32px,
+                                    #fff 39px
+                                );
+                        }
+                        .location-label-code {
+                            margin: 0;
+                            width: 100%;
+                            text-align: center;
+                            font-size: 0.92in;
+                            font-weight: 900;
+                            letter-spacing: 0.02in;
+                            line-height: 1;
+                            white-space: nowrap;
+                            overflow: hidden;
+                        }
+                        .location-label-code.compact { letter-spacing: 0.01in; font-size: 0.78in; }
+                        .location-label-meta {
+                            width: 100%;
+                            margin-top: 0.05in;
+                            text-align: center;
+                            font-size: 0.15in;
+                            font-weight: 700;
+                            color: #374151;
+                        }
+                        @page {
+                            size: 6in 4in;
+                            margin: 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="labels">
+                        ${labelToolState.labels.map((code) => {
+                            const details = getLocationLabelDetails(code);
+                            const compactClass = details.code.length > 11 ? " compact" : "";
+                            return `
+                                <div class="label-card">
+                                    <div class="location-print-label">
+                                        <div class="location-barcode-line"></div>
+                                        <div>
+                                            <p class="location-label-code${compactClass}">${esc(details.code)}</p>
+                                            <div class="location-label-meta">${esc(details.meta)}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                </body>
+                </html>
+            `);
+            popup.document.close();
+            popup.focus();
+            setTimeout(() => popup.print(), 250);
+        }
+
+        function exportLocationLabelCodesCsv() {
+            if (!labelToolState.labels.length) {
+                showMessage(ui.labelsMessage, "Add at least one location label before exporting codes.", "error");
+                return;
+            }
+            const rows = [["CODE", "META"]].concat(labelToolState.labels.map((code) => {
+                const details = getLocationLabelDetails(code);
+                return [details.code, details.meta];
+            }));
+            downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-location-labels-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+            showMessage(ui.labelsMessage, "Location label codes exported.", "success");
+        }
+
+        function sanitizeLabelDigits(value, maxLength) {
+            return String(value || "").replace(/\D+/g, "").slice(0, maxLength);
+        }
+
+        function sanitizeLabelLevel(value) {
+            const parsed = Number.parseInt(String(value || ""), 10);
+            return Number.isFinite(parsed) && parsed >= 1 && parsed <= 9 ? parsed : 1;
+        }
+
+        function sanitizeLabelSide(value) {
+            return String(value || "1") === "2" ? "2" : "1";
         }
 
         async function saveMasterOwner(event) {
@@ -4610,6 +5160,15 @@
             }
         }
 
+        function loadLabelToolState() {
+            try {
+                const raw = localStorage.getItem(LABEL_TOOL_STORAGE_KEY);
+                return raw ? sanitizeLabelToolState(JSON.parse(raw)) : defaultLabelToolState();
+            } catch {
+                return defaultLabelToolState();
+            }
+        }
+
         function defaultState() {
             return {
                 inventory: [],
@@ -4618,6 +5177,31 @@
                 masters: { locations: [], ownerRecords: [], items: [], owners: [] },
                 preferences: { lastLocation: "", lastAccount: "" },
                 meta: { version: 5, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
+            };
+        }
+
+        function defaultLabelToolState() {
+            return {
+                rack: "106",
+                bin: "01",
+                level: 1,
+                side: "1",
+                bulk: "",
+                filter: "",
+                labels: []
+            };
+        }
+
+        function sanitizeLabelToolState(raw) {
+            const base = defaultLabelToolState();
+            return {
+                rack: sanitizeLabelDigits(raw?.rack, 3) || base.rack,
+                bin: sanitizeLabelDigits(raw?.bin, 2) || base.bin,
+                level: sanitizeLabelLevel(raw?.level),
+                side: sanitizeLabelSide(raw?.side),
+                bulk: typeof raw?.bulk === "string" ? raw.bulk : "",
+                filter: typeof raw?.filter === "string" ? raw.filter.trim().toUpperCase() : "",
+                labels: Array.isArray(raw?.labels) ? raw.labels.map(normalizeLocationLabelCode).filter(Boolean) : []
             };
         }
 
@@ -4852,6 +5436,22 @@
                     localCacheAt: new Date().toISOString()
                 }
             };
+        }
+
+        function saveLabelToolState() {
+            try {
+                localStorage.setItem(LABEL_TOOL_STORAGE_KEY, JSON.stringify({
+                    rack: labelToolState.rack,
+                    bin: labelToolState.bin,
+                    level: labelToolState.level,
+                    side: labelToolState.side,
+                    bulk: labelToolState.bulk,
+                    filter: labelToolState.filter,
+                    labels: labelToolState.labels
+                }));
+            } catch {
+                // Ignore device-local label queue save failures.
+            }
         }
 
         function showMessage(element, text, tone) {
