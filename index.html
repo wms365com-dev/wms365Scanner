@@ -477,6 +477,7 @@
             font-size: 0.92rem;
         }
 
+        .mobile-only { display: none !important; }
         .hidden { display: none !important; }
 
         @media (min-width: 860px) {
@@ -486,14 +487,113 @@
             .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
+        @media (min-width: 641px) {
+            #mobileHomePanel { display: none !important; }
+        }
+
         @media (max-width: 640px) {
-            .app { width: calc(100vw - 0.8rem); }
-            .hero, .card { padding: 1rem; }
+            :root {
+                --panel: rgba(255, 255, 255, 0.95);
+                --panel-2: #f5f8fb;
+                --line: rgba(28, 43, 59, 0.12);
+                --text: #1c2b39;
+                --muted: #5f7082;
+                --brand: #007bff;
+                --brand-2: #00b4d8;
+                --shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+                --radius: 10px;
+                --radius-sm: 6px;
+            }
+
+            html {
+                background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            }
+
+            body {
+                padding: 5px;
+                background: transparent;
+            }
+
+            .mobile-only { display: block !important; }
+            .app { width: 100%; max-width: 600px; padding: 0 0 1rem; }
+            .hero { display: none; }
+            .tabbar { display: none; }
+            .card {
+                padding: 1rem;
+                background: var(--panel);
+                border-color: var(--line);
+                backdrop-filter: none;
+                box-shadow: var(--shadow);
+            }
+            .mobile-home-card {
+                min-height: calc(100vh - 20px);
+            }
+            .mobile-home-card h1 {
+                margin-bottom: 0.65rem;
+                font-size: 1.95rem;
+                text-align: center;
+                letter-spacing: -0.02em;
+            }
+            .mobile-home-card .lead,
+            .mobile-home-card .meta {
+                text-align: center;
+            }
+            .mobile-panel-head {
+                margin-bottom: 0.75rem;
+            }
+            .mobile-panel-head .btn {
+                width: 100%;
+            }
             .form-grid { grid-template-columns: 1fr; }
             .span-2 { grid-column: auto; }
             .button-row, .inline-actions { flex-direction: column; align-items: stretch; }
-            .btn, .tab { width: 100%; }
-            table { min-width: 560px; }
+            .btn, .tab {
+                width: 100%;
+                padding: 10px;
+                font-size: 14px;
+                box-shadow: none;
+                min-height: 46px;
+            }
+            input, select, textarea {
+                padding: 10px;
+                font-size: 14px;
+                border: 2px solid #d6dde6;
+                background: #ffffff;
+                color: var(--text);
+            }
+            input:focus, select:focus, textarea:focus {
+                border-color: var(--brand);
+                box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+            }
+            .field span, h2, h3 { color: var(--text); }
+            .btn {
+                background: linear-gradient(45deg, var(--brand), var(--brand-2));
+            }
+            .btn.secondary {
+                color: white;
+                background: linear-gradient(45deg, var(--brand), var(--brand-2));
+            }
+            .btn.ghost {
+                color: #124164;
+                background: #ffffff;
+                border: 2px solid #d6dde6;
+            }
+            .helper, .summary, .stat, .result-group, .activity-item, .table-wrap, .quick-row {
+                background: #f5f8fb;
+                border-color: #dbe3ec;
+            }
+            .empty {
+                text-align: left;
+                background: #f5f8fb;
+                border-color: #dbe3ec;
+                color: var(--muted);
+            }
+            .footer {
+                margin-top: 0.85rem;
+                font-size: 12px;
+                color: #667788;
+            }
+            table { min-width: 520px; }
             .quick-row { flex-direction: column; align-items: stretch; }
         }
     </style>
@@ -530,7 +630,26 @@
             <button class="tab" data-section="backup" type="button">Backup</button>
         </nav>
 
+        <section class="panel mobile-only" id="mobileHomePanel" data-panel="mobile-home">
+            <article class="card mobile-home-card">
+                <h1>WMS365 Scanner</h1>
+                <p class="lead">Simple mobile workflow for scanning, searching, moving stock, and managing BINs.</p>
+                <p class="meta" style="margin-bottom: 1rem;">Choose one task at a time, just like your original mobile version.</p>
+                <div class="button-row">
+                    <button class="btn" type="button" data-mobile-nav="scan">Scan & Store</button>
+                    <button class="btn" type="button" data-mobile-nav="search">Find Items</button>
+                    <button class="btn" type="button" data-mobile-nav="actions">Transfer / Delete / Move</button>
+                    <button class="btn" type="button" data-mobile-nav="inventory">Inventory Snapshot</button>
+                    <button class="btn" type="button" data-mobile-nav="reports">Reports</button>
+                    <button class="btn" type="button" data-mobile-nav="backup">Backup & Restore</button>
+                </div>
+            </article>
+        </section>
+
         <section class="panel active" id="scanPanel" data-panel="scan">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="section-grid">
                 <article class="card">
                     <div class="card-head">
@@ -703,6 +822,9 @@
         </section>
 
         <section class="panel" id="searchPanel" data-panel="search">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="search-grid">
                 <article class="card">
                     <div class="card-head">
@@ -755,6 +877,9 @@
         </section>
 
         <section class="panel" id="actionsPanel" data-panel="actions">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="action-grid">
                 <article class="card">
                     <div class="card-head">
@@ -851,6 +976,9 @@
         </section>
 
         <section class="panel" id="inventoryPanel" data-panel="inventory">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="inventory-grid">
                 <article class="card">
                     <div class="card-head">
@@ -903,6 +1031,9 @@
         </section>
 
         <section class="panel" id="reportsPanel" data-panel="reports">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="inventory-grid">
                 <article class="card">
                     <div class="card-head">
@@ -998,6 +1129,9 @@
         </section>
 
         <section class="panel" id="backupPanel" data-panel="backup">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
             <div class="backup-grid">
                 <article class="card">
                     <div class="card-head">
@@ -1044,10 +1178,13 @@
         let lastMultiSearch = null;
         let currentSearchView = null;
         let syncTimer = null;
+        const mobileQuery = window.matchMedia("(max-width: 640px)");
 
         const ui = {
             tabs: [...document.querySelectorAll(".tab")],
             panels: [...document.querySelectorAll(".panel")],
+            mobileNavButtons: [...document.querySelectorAll("[data-mobile-nav]")],
+            mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
             scanLocation: document.getElementById("scanLocation"),
             scanUpc: document.getElementById("scanUpc"),
             scanSku: document.getElementById("scanSku"),
@@ -1129,6 +1266,8 @@
 
         function init() {
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
+            ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
+            ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
             document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
@@ -1186,7 +1325,7 @@
             ui.scanLocation.value = state.preferences.lastLocation || "";
             setSearchMode("sku");
             renderAll();
-            setSection("scan");
+            setSection(isMobileView() ? "mobile-home" : "scan");
             syncServerState(false).catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
@@ -1194,17 +1333,32 @@
                 }
             }, 30000);
             window.addEventListener("focus", () => syncServerState(true).catch(() => {}));
+            mobileQuery.addEventListener("change", handleViewportChange);
         }
 
         function setSection(section) {
+            if (!isMobileView() && section === "mobile-home") {
+                section = "scan";
+            }
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             ui.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === section));
+            if (section === "mobile-home") return;
             if (section === "scan") focusScanStart();
             if (section === "search") ui.singleSearchInput.focus();
             if (section === "inventory") ui.inventoryFilter.focus();
             if (section === "reports") ui.reportFilter.focus();
             if (section !== "scan") syncServerState(true).catch(() => {});
+        }
+
+        function handleViewportChange(event) {
+            if (!event.matches && activeSection === "mobile-home") {
+                setSection("scan");
+            }
+        }
+
+        function isMobileView() {
+            return mobileQuery.matches;
         }
 
         function setSearchMode(mode) {
