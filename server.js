@@ -16,17 +16,27 @@ const pool = new Pool({
     ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false
 });
 
+let databaseReady = false;
+let databaseErrorMessage = "";
+let databaseInitStartedAt = null;
+
+pool.on("error", (error) => {
+    databaseReady = false;
+    databaseErrorMessage = error.message;
+    console.error("Unexpected PostgreSQL pool error:", error);
+});
+
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
 
-app.get("/api/health", async (_req, res, next) => {
-    try {
-        await pool.query("select 1");
-        res.json({ ok: true });
-    } catch (error) {
-        next(error);
-    }
+app.get("/api/health", (_req, res) => {
+    res.json({
+        ok: true,
+        databaseReady,
+        databaseError: databaseErrorMessage || null,
+        startedInitializingAt: databaseInitStartedAt
+    });
 });
 
 app.get("/api/state", async (_req, res, next) => {
@@ -296,10 +306,11 @@ start().catch((error) => {
 });
 
 async function start() {
-    await initializeDatabase();
     app.listen(PORT, () => {
         console.log(`WMS365 Scanner server listening on port ${PORT}`);
     });
+
+    void initializeDatabaseWithRetry();
 }
 
 async function initializeDatabase() {
@@ -330,6 +341,25 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_lines_sku on inventory_lines (sku);");
     await pool.query("create index if not exists idx_inventory_lines_upc on inventory_lines (upc);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
+}
+
+async function initializeDatabaseWithRetry() {
+    databaseInitStartedAt = new Date().toISOString();
+
+    while (!databaseReady) {
+        try {
+            console.log("Initializing PostgreSQL schema...");
+            await initializeDatabase();
+            databaseReady = true;
+            databaseErrorMessage = "";
+            console.log("PostgreSQL schema ready.");
+        } catch (error) {
+            databaseReady = false;
+            databaseErrorMessage = error.message;
+            console.error("Database initialization failed. Retrying in 5 seconds.", error);
+            await delay(5000);
+        }
+    }
 }
 
 async function getServerState(client = pool) {
@@ -523,4 +553,10 @@ function formatNumber(value) {
 
 function formatCount(value, noun) {
     return `${formatNumber(value)} ${noun}${value === 1 ? "" : "s"}`;
+}
+
+function delay(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
 }
