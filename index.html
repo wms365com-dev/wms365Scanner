@@ -1078,30 +1078,40 @@
             }
 
             html {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
                 background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             }
 
             body {
+                --mobile-safe-top: max(5px, env(safe-area-inset-top));
+                --mobile-safe-right: max(5px, env(safe-area-inset-right));
+                --mobile-safe-bottom: max(5px, env(safe-area-inset-bottom));
+                --mobile-safe-left: max(5px, env(safe-area-inset-left));
                 min-height: 100dvh;
+                width: 100%;
                 overflow: hidden;
-                padding:
-                    max(5px, env(safe-area-inset-top))
-                    max(5px, env(safe-area-inset-right))
-                    max(5px, env(safe-area-inset-bottom))
-                    max(5px, env(safe-area-inset-left));
+                overscroll-behavior: none;
+                padding: 0;
                 background: transparent;
             }
 
             .mobile-only { display: block !important; }
             .desktop-only { display: none !important; }
             .app {
-                width: 100%;
-                max-width: 430px;
-                height: calc(100dvh - 10px);
-                min-height: calc(100dvh - 10px);
-                margin: 0 auto;
+                position: fixed;
+                top: var(--mobile-safe-top);
+                left: 50%;
+                transform: translateX(-50%);
+                width: min(430px, calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right)));
+                max-width: calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right));
+                height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+                min-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+                max-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
                 padding: 0;
                 overflow: hidden;
+                isolation: isolate;
             }
             .app,
             .panel,
@@ -1344,13 +1354,15 @@
             --shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             --radius: 10px;
             --radius-sm: 6px;
-            padding:
-                max(5px, env(safe-area-inset-top))
-                max(5px, env(safe-area-inset-right))
-                max(5px, env(safe-area-inset-bottom))
-                max(5px, env(safe-area-inset-left));
+            --mobile-safe-top: max(5px, env(safe-area-inset-top));
+            --mobile-safe-right: max(5px, env(safe-area-inset-right));
+            --mobile-safe-bottom: max(5px, env(safe-area-inset-bottom));
+            --mobile-safe-left: max(5px, env(safe-area-inset-left));
             min-height: 100dvh;
+            width: 100%;
             overflow: hidden;
+            overscroll-behavior: none;
+            padding: 0;
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         }
 
@@ -1359,13 +1371,18 @@
         body.device-mobile .mobile-only { display: block !important; }
         body.device-mobile .desktop-only { display: none !important; }
         body.device-mobile .app {
-            width: 100%;
-            max-width: 430px;
-            height: calc(100dvh - 10px);
-            min-height: calc(100dvh - 10px);
-            margin: 0 auto;
+            position: fixed;
+            top: var(--mobile-safe-top);
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(430px, calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right)));
+            max-width: calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right));
+            height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+            min-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+            max-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
             padding: 0;
             overflow: hidden;
+            isolation: isolate;
         }
         body.device-mobile .app,
         body.device-mobile .panel,
