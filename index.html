@@ -2184,6 +2184,7 @@
         let syncTimer = null;
         const mobileQuery = window.matchMedia("(max-width: 640px)");
         let deviceExperienceMode = detectDeviceExperienceMode();
+        const managedListInputs = [];
         const mobileAutocompleteConfigs = new Map();
         const mobileAutocompleteState = {
             input: null,
@@ -2350,6 +2351,11 @@
             statLocations: document.getElementById("statLocations"),
             statBatch: document.getElementById("statBatch")
         };
+
+        [...document.querySelectorAll("input[list]")].forEach((input) => {
+            input.dataset.desktopList = input.getAttribute("list") || "";
+            managedListInputs.push(input);
+        });
 
         init();
 
@@ -2531,19 +2537,29 @@
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             ui.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === section));
-            if (section === "mobile-home") return;
-            if (section === "scan") focusScanStart();
+            if (section === "mobile-home") {
+                scrollCurrentViewTop();
+                return;
+            }
+            if (section === "scan") {
+                if (!isMobileView()) focusScanStart();
+                else scrollCurrentViewTop();
+            }
             if (section === "search") {
-                if (isMobileView()) setMobileSubview("search", "menu");
+                if (isMobileView()) {
+                    setMobileSubview("search", "menu");
+                    scrollCurrentViewTop();
+                }
                 else ui.singleSearchInput.focus();
             }
             if (section === "actions" && isMobileView()) {
                 setMobileSubview("actions", "menu");
+                scrollCurrentViewTop();
             }
             updateMobileSearchResultsVisibility();
             if (section === "inventory") ui.inventoryFilter.focus();
             if (section === "reports") ui.reportFilter.focus();
-            if (section !== "scan") syncServerState(true).catch(() => {});
+            syncServerState(true).catch(() => {});
         }
 
         function handleViewportChange() {
@@ -2585,6 +2601,27 @@
             deviceExperienceMode = detectDeviceExperienceMode();
             const useMobileClass = deviceExperienceMode === "mobile";
             document.body.classList.toggle("device-mobile", useMobileClass);
+            applyManagedInputLists();
+        }
+
+        function applyManagedInputLists() {
+            managedListInputs.forEach((input) => {
+                const desktopList = input.dataset.desktopList || "";
+                if (isMobileView()) {
+                    input.removeAttribute("list");
+                } else if (desktopList) {
+                    input.setAttribute("list", desktopList);
+                } else {
+                    input.removeAttribute("list");
+                }
+            });
+        }
+
+        function scrollCurrentViewTop() {
+            if (!isMobileView()) return;
+            window.requestAnimationFrame(() => {
+                window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+            });
         }
 
         function setSearchMode(mode) {
@@ -2593,7 +2630,8 @@
             ui.searchByLocationBtn.classList.toggle("active", mode === "location");
             ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
             ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
-            ui.singleSearchInput.setAttribute("list", mode === "sku" ? "skuList" : "locationList");
+            ui.singleSearchInput.dataset.desktopList = mode === "sku" ? "skuList" : "locationList";
+            applyManagedInputLists();
             refreshMobileAutocomplete();
         }
 
@@ -2622,7 +2660,11 @@
             updateMobileBackButtons();
             updateMobileSearchResultsVisibility();
 
-            if (!isMobileView() || view === "menu") return;
+            if (isMobileView()) {
+                scrollCurrentViewTop();
+                return;
+            }
+            if (view === "menu") return;
             if (group === "search") {
                 if (view === "multi") ui.multiSearchInput.focus();
                 else ui.singleSearchInput.focus();
@@ -3727,8 +3769,17 @@
                     method: "POST",
                     body: JSON.stringify({ name, note })
                 });
+                const existingOwner = (state.masters.ownerRecords || []).find((owner) => owner.name === name);
+                if (existingOwner) {
+                    existingOwner.note = note;
+                    existingOwner.updatedAt = new Date().toISOString();
+                } else {
+                    state.masters.ownerRecords.push(sanitizeMasterOwner({ name, note }));
+                }
+                state.masters.owners = [...new Set([...(state.masters.owners || []), name])];
                 state.preferences.lastAccount = name;
                 saveState();
+                renderDatalists();
                 await syncServerState(true);
                 ui.scanAccount.value = name;
                 ui.masterItemAccount.value = name;
