@@ -541,6 +541,24 @@
             box-shadow: none;
         }
 
+        .desktop-preview-toggle {
+            position: fixed;
+            top: 0.8rem;
+            right: 0.8rem;
+            z-index: 1400;
+            min-height: 42px;
+            padding: 0.7rem 0.95rem;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: #ffffff;
+            color: var(--text);
+            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        }
+
+        .desktop-preview-toggle[hidden] {
+            display: none !important;
+        }
+
         .btn:disabled {
             cursor: not-allowed;
             opacity: 0.55;
@@ -1900,6 +1918,7 @@
     </style>
 </head>
 <body>
+    <button id="desktopPreviewToggle" class="desktop-preview-toggle" type="button" hidden aria-pressed="false">Mobile Preview</button>
     <div class="app">
         <header class="hero">
             <div class="hero-grid">
@@ -2966,7 +2985,8 @@
         let editingMasterItem = null;
         let syncTimer = null;
         const mobileQuery = window.matchMedia("(max-width: 640px)");
-        let deviceExperienceMode = detectDeviceExperienceMode();
+        let detectedDeviceExperienceMode = detectDeviceExperienceMode();
+        let deviceExperienceMode = detectedDeviceExperienceMode;
         const managedListInputs = [];
         const mobileAutocompleteConfigs = new Map();
         const mobileAutocompleteState = {
@@ -2989,6 +3009,7 @@
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
             saveBatchButtons: [...document.querySelectorAll("[data-save-batch]")],
             clearBatchButtons: [...document.querySelectorAll("[data-clear-batch]")],
+            desktopPreviewToggle: document.getElementById("desktopPreviewToggle"),
             scanAccount: document.getElementById("scanAccount"),
             scanLocation: document.getElementById("scanLocation"),
             scanUpc: document.getElementById("scanUpc"),
@@ -3162,6 +3183,7 @@
 
         function init() {
             applyDeviceExperienceMode();
+            ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.jumpSection)));
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
@@ -3334,6 +3356,32 @@
             initMobileAutocomplete();
         }
 
+        function isDesktopMobilePreviewEnabled() {
+            return detectedDeviceExperienceMode !== "mobile" && !!state.preferences.desktopMobilePreview;
+        }
+
+        function syncDesktopPreviewToggle() {
+            if (!ui.desktopPreviewToggle) return;
+            const canPreview = detectedDeviceExperienceMode !== "mobile";
+            ui.desktopPreviewToggle.hidden = !canPreview;
+            if (!canPreview) return;
+            const previewOn = isDesktopMobilePreviewEnabled();
+            ui.desktopPreviewToggle.textContent = previewOn ? "Desktop View" : "Mobile Preview";
+            ui.desktopPreviewToggle.setAttribute("aria-pressed", String(previewOn));
+        }
+
+        function toggleDesktopPreviewMode() {
+            if (detectedDeviceExperienceMode === "mobile") return;
+            state.preferences.desktopMobilePreview = !state.preferences.desktopMobilePreview;
+            saveState();
+            applyDeviceExperienceMode();
+            if (isMobileView()) {
+                setSection("mobile-home");
+                return;
+            }
+            setSection(activeSection === "mobile-home" ? "scan" : activeSection);
+        }
+
         function setSection(section) {
             hideMobileAutocomplete();
             if (!isMobileView() && section === "mobile-home") {
@@ -3381,7 +3429,7 @@
         }
 
         function isMobileView() {
-            return deviceExperienceMode === "mobile" || mobileQuery.matches;
+            return deviceExperienceMode === "mobile";
         }
 
         function detectDeviceExperienceMode() {
@@ -3403,11 +3451,14 @@
         }
 
         function applyDeviceExperienceMode() {
-            deviceExperienceMode = detectDeviceExperienceMode();
+            detectedDeviceExperienceMode = detectDeviceExperienceMode();
+            deviceExperienceMode = isDesktopMobilePreviewEnabled() ? "mobile" : detectedDeviceExperienceMode;
             const useMobileClass = deviceExperienceMode === "mobile";
             document.body.classList.toggle("device-mobile", useMobileClass);
+            document.body.classList.toggle("preview-mobile-desktop", isDesktopMobilePreviewEnabled());
             applyManagedInputLists();
             syncMobilePickerInputs();
+            syncDesktopPreviewToggle();
         }
 
         function applyManagedInputLists() {
@@ -6687,7 +6738,7 @@
                 batch: [],
                 activity: [],
                 masters: { locations: [], ownerRecords: [], items: [], owners: [] },
-                preferences: { lastLocation: "", lastAccount: "" },
+                preferences: { lastLocation: "", lastAccount: "", desktopMobilePreview: false },
                 meta: { version: 5, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
             };
         }
@@ -6726,7 +6777,8 @@
                 masters: cache.masters,
                 preferences: {
                     lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
-                    lastAccount: typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : ""
+                    lastAccount: typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : "",
+                    desktopMobilePreview: raw.preferences?.desktopMobilePreview === true
                 },
                 meta: {
                     version: 5,
