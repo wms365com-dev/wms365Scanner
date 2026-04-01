@@ -690,6 +690,93 @@
             margin-bottom: 0.8rem;
         }
 
+        .mobile-result-list {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .mobile-result-card {
+            display: grid;
+            gap: 0.65rem;
+            padding: 0.9rem;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+        }
+
+        .mobile-result-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
+
+        .mobile-result-owner {
+            display: block;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .mobile-result-sku {
+            display: block;
+            margin-top: 0.2rem;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text);
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .mobile-result-location {
+            padding: 0.3rem 0.55rem;
+            border-radius: 999px;
+            background: var(--panel-2);
+            color: var(--text);
+            font-size: 0.84rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .mobile-result-desc,
+        .mobile-result-upc {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .mobile-result-stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem;
+        }
+
+        .mobile-result-stat {
+            display: grid;
+            gap: 0.18rem;
+            padding: 0.55rem 0.6rem;
+            border-radius: 12px;
+            background: var(--panel-2);
+        }
+
+        .mobile-result-stat span {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .mobile-result-stat strong {
+            font-size: 0.92rem;
+            color: var(--text);
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
         .badge {
             display: inline-flex;
             padding: 0.25rem 0.55rem;
@@ -6094,10 +6181,11 @@
             ui.printSingleSearchBtn.classList.toggle("hidden", !matches.length);
             ui.printMultiSearchBtn.classList.add("hidden");
 
-            let markup = "";
+            let desktopMarkup = "";
+            let mobileMarkup = "";
             if (!matches.length) {
-                markup = `<p class="empty">No matching inventory lines were found for <strong>${esc(query)}</strong>.</p>`;
-                setSearchResultsMarkup(markup);
+                desktopMarkup = `<p class="empty">No matching inventory lines were found for <strong>${esc(query)}</strong>.</p>`;
+                setSearchResultsMarkup(desktopMarkup);
                 return;
             }
 
@@ -6109,7 +6197,7 @@
                 ? `Showing inventory matches for <strong>${esc(query)}</strong>.`
                 : `Showing inventory in locations matching <strong>${esc(query)}</strong>.`;
 
-            markup = `
+            desktopMarkup = `
                 <div class="summary-grid">
                     <div class="summary"><span>Matched Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
                     <div class="summary"><span>Matched Lines</span><strong>${num(matches.length)}</strong></div>
@@ -6124,7 +6212,22 @@
                     ${inventoryTableHtml(matches)}
                 </div>
             `;
-            setSearchResultsMarkup(markup);
+            mobileMarkup = `
+                <div class="summary-grid">
+                    <div class="summary"><span>Matched Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
+                    <div class="summary"><span>Lines</span><strong>${num(matches.length)}</strong></div>
+                    <div class="summary"><span>Locations</span><strong>${num(locations)}</strong></div>
+                    <div class="summary"><span>Owners / SKUs</span><strong>${num(owners)} / ${num(skus)}</strong></div>
+                </div>
+                <div class="result-group">
+                    <header>
+                        <strong>${title}</strong>
+                        <span class="muted">${num(matches.length)} line${matches.length === 1 ? "" : "s"}</span>
+                    </header>
+                    ${inventoryMobileResultsHtml(matches)}
+                </div>
+            `;
+            setSearchResultsMarkup(desktopMarkup, mobileMarkup);
         }
 
         function renderMultiSearch(groups) {
@@ -6138,7 +6241,7 @@
                 totals.PALLET += group.totals.PALLET;
                 return totals;
             }, { UNIT: 0, CASE: 0, PALLET: 0 });
-            const markup = `
+            const desktopMarkup = `
                 <div class="summary-grid">
                     <div class="summary"><span>Items Requested</span><strong>${num(groups.length)}</strong></div>
                     <div class="summary"><span>Items Found</span><strong>${num(found)}</strong></div>
@@ -6162,13 +6265,37 @@
                     </div>
                 `).join("")}
             `;
-            setSearchResultsMarkup(markup);
+            const mobileMarkup = `
+                <div class="summary-grid">
+                    <div class="summary"><span>Requested</span><strong>${num(groups.length)}</strong></div>
+                    <div class="summary"><span>Found</span><strong>${num(found)}</strong></div>
+                    <div class="summary"><span>Total Qty</span><strong>${esc(formatTrackedSummary(overallTotals))}</strong></div>
+                </div>
+                ${groups.map((group) => group.matches.length ? `
+                    <div class="result-group">
+                        <header>
+                            <strong>${esc(group.term)}</strong>
+                            <span class="muted">${esc(formatTrackedSummary(group.totals))}</span>
+                        </header>
+                        ${inventoryMobileResultsHtml(group.matches)}
+                    </div>
+                ` : `
+                    <div class="result-group">
+                        <header>
+                            <strong>${esc(group.term)}</strong>
+                            <span class="muted">No inventory found</span>
+                        </header>
+                        <p class="empty">No SKU or UPC match was found for this code.</p>
+                    </div>
+                `).join("")}
+            `;
+            setSearchResultsMarkup(desktopMarkup, mobileMarkup);
         }
 
-        function setSearchResultsMarkup(markup) {
-            ui.searchResultsContent.innerHTML = markup;
+        function setSearchResultsMarkup(desktopMarkup, mobileMarkup = desktopMarkup) {
+            ui.searchResultsContent.innerHTML = desktopMarkup;
             if (ui.mobileSearchResultsContent) {
-                ui.mobileSearchResultsContent.innerHTML = markup;
+                ui.mobileSearchResultsContent.innerHTML = mobileMarkup;
             }
             updateMobileSearchResultsVisibility();
         }
@@ -6498,6 +6625,40 @@
                             `).join("")}
                         </tbody>
                     </table>
+                </div>
+            `;
+        }
+
+        function inventoryMobileResultsHtml(lines) {
+            return `
+                <div class="mobile-result-list">
+                    ${lines.map((line) => `
+                        <article class="mobile-result-card">
+                            <div class="mobile-result-head">
+                                <div>
+                                    <span class="mobile-result-owner">${esc(line.accountName)}</span>
+                                    <strong class="mobile-result-sku">${esc(line.sku)}</strong>
+                                </div>
+                                <span class="mobile-result-location">${esc(line.location)}</span>
+                            </div>
+                            ${(line.upc || "").trim() ? `<div class="mobile-result-upc">UPC ${esc(line.upc)}</div>` : ""}
+                            ${getLineDescription(line) ? `<div class="mobile-result-desc">${esc(getLineDescription(line))}</div>` : ""}
+                            <div class="mobile-result-stats">
+                                <div class="mobile-result-stat">
+                                    <span>Tracking</span>
+                                    <strong>${esc(trackingLabel(line.trackingLevel))}</strong>
+                                </div>
+                                <div class="mobile-result-stat">
+                                    <span>Qty</span>
+                                    <strong>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</strong>
+                                </div>
+                                <div class="mobile-result-stat">
+                                    <span>Updated</span>
+                                    <strong>${esc(formatDate(line.updatedAt))}</strong>
+                                </div>
+                            </div>
+                        </article>
+                    `).join("")}
                 </div>
             `;
         }
