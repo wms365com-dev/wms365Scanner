@@ -398,6 +398,14 @@
             grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
         }
 
+        .label-mode-switch {
+            margin-bottom: 1rem;
+        }
+
+        .label-tool-panel.hidden {
+            display: none;
+        }
+
         .labels-preview-toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -415,6 +423,14 @@
         }
 
         .location-label-card {
+            width: 100%;
+            padding: 0.85rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .pallet-label-card {
             width: 100%;
             padding: 0.85rem;
             border-radius: 16px;
@@ -488,6 +504,112 @@
         .location-label-meta.compact,
         .location-label-code.compact {
             letter-spacing: 0.03rem;
+        }
+
+        .pallet-print-label {
+            width: 100%;
+            max-width: 6in;
+            aspect-ratio: 6 / 4;
+            background: #fff;
+            border-radius: 16px;
+            overflow: hidden;
+            display: grid;
+            grid-template-rows: auto auto auto 1fr auto;
+            padding: 0.22in 0.24in;
+            gap: 0.12in;
+            color: #111827;
+        }
+
+        .pallet-label-code-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.6rem;
+            align-items: baseline;
+        }
+
+        .pallet-label-code {
+            margin: 0;
+            font-size: clamp(0.95rem, 2.1vw, 1.3rem);
+            font-weight: 900;
+            letter-spacing: 0.1rem;
+            text-transform: uppercase;
+        }
+
+        .pallet-label-location {
+            font-size: clamp(0.82rem, 1.8vw, 1.05rem);
+            font-weight: 800;
+            color: #4b5563;
+            text-transform: uppercase;
+            text-align: right;
+        }
+
+        .pallet-label-vendor {
+            margin: 0;
+            font-size: clamp(1.1rem, 2.4vw, 1.65rem);
+            font-weight: 900;
+            line-height: 1.05;
+            text-transform: uppercase;
+        }
+
+        .pallet-label-sku {
+            margin: 0;
+            font-size: clamp(1.75rem, 4vw, 2.7rem);
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: 0.04rem;
+            text-transform: uppercase;
+            word-break: break-word;
+        }
+
+        .pallet-label-description {
+            margin: 0;
+            font-size: clamp(1rem, 2vw, 1.25rem);
+            line-height: 1.3;
+            color: #374151;
+            overflow: hidden;
+        }
+
+        .pallet-label-barcode {
+            width: 100%;
+            min-height: 54px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pallet-label-barcode svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .pallet-label-footer {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.18in;
+            align-items: stretch;
+        }
+
+        .pallet-label-stat {
+            padding: 0.12in 0.14in;
+            border-radius: 12px;
+            background: #f5f8fb;
+            border: 1px solid #d7e0e8;
+            display: grid;
+            gap: 0.04in;
+        }
+
+        .pallet-label-stat span {
+            font-size: 0.12in;
+            font-weight: 800;
+            letter-spacing: 0.03in;
+            text-transform: uppercase;
+            color: #6b7280;
+        }
+
+        .pallet-label-stat strong {
+            font-size: 0.24in;
+            line-height: 1.1;
         }
 
         .menu-card-btn {
@@ -642,6 +764,35 @@
             border-radius: 16px;
             border: 1px solid var(--line);
             background: rgba(255, 255, 255, 0.03);
+        }
+
+        .report-sheet-wrap {
+            background: #f8fafc;
+        }
+
+        .report-sheet-table {
+            min-width: 1080px;
+        }
+
+        .report-sheet-table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #eef4f8;
+            color: #547086;
+        }
+
+        .report-sheet-table tbody tr:nth-child(even) td {
+            background: rgba(226, 232, 240, 0.35);
+        }
+
+        .report-sheet-table td {
+            white-space: nowrap;
+        }
+
+        .report-sheet-table td.sheet-wrap {
+            white-space: normal;
+            min-width: 220px;
         }
 
         table {
@@ -2071,8 +2222,8 @@
                             <span>Review owner usage, pallet positions, and exports.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="labels">
-                            <strong>Location Labels</strong>
-                            <span>Build label runs from rack codes or saved BINs.</span>
+                            <strong>Labels</strong>
+                            <span>Build location and pallet labels for the floor.</span>
                         </button>
                     </div>
                 </div>
@@ -2112,8 +2263,8 @@
                 <span class="tab-meta">Check owner usage, pallet locations, and exports.</span>
             </button>
             <button class="tab" data-section="labels" type="button">
-                <span class="tab-label">Location Labels</span>
-                <span class="tab-meta">Generate rack and BIN labels for the floor.</span>
+                <span class="tab-label">Labels</span>
+                <span class="tab-meta">Generate location and pallet labels for the floor.</span>
             </button>
             <button class="tab" data-section="backup" type="button">
                 <span class="tab-label">Data Admin</span>
@@ -2138,6 +2289,10 @@
                     <button class="btn menu-card-btn" type="button" data-mobile-nav="actions">
                         <span class="menu-card-title">Adjust</span>
                         <span class="menu-card-meta">Handle stock corrections and BIN moves one task at a time.</span>
+                    </button>
+                    <button class="btn menu-card-btn" type="button" data-mobile-nav="labels" data-mobile-label-mode="pallet">
+                        <span class="menu-card-title">Pallets</span>
+                        <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
                     </button>
                 </div>
             </article>
@@ -2425,6 +2580,48 @@
                             <div class="button-row">
                                 <button class="btn ghost" id="importItemCsvBtn" type="button">Upload Items CSV</button>
                                 <button class="btn ghost" id="exportItemCsvBtn" type="button">Export Items CSV</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="library-grid" style="margin-top: 1rem; margin-bottom: 1rem;">
+                        <div class="helper">
+                            <h3>Vendor Portal Access</h3>
+                            <p class="meta">Create one shared portal login per vendor / customer so they can see only their own inventory and enter their own orders.</p>
+                            <form id="portalAccessForm" class="form-grid" autocomplete="off">
+                                <label class="field span-2">
+                                    <span>Vendor / Customer</span>
+                                    <input id="portalAccessAccount" list="ownerList" type="text" placeholder="Required vendor / customer" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Portal Password</span>
+                                    <input id="portalAccessPassword" type="password" placeholder="At least 8 characters" enterkeyhint="done">
+                                </label>
+                                <label class="field">
+                                    <span>Portal Status</span>
+                                    <select id="portalAccessActive">
+                                        <option value="true">Active</option>
+                                        <option value="false">Disabled</option>
+                                    </select>
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Portal Access</button>
+                                    <button class="btn ghost" id="openPortalBtn" type="button">Open Vendor Portal</button>
+                                </div>
+                            </form>
+                            <div class="status" id="portalAccessMessage"></div>
+                        </div>
+
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved Vendor Portal Access</h3>
+                                    <p class="meta">Shows which vendors have portal access enabled and the last successful portal login.</p>
+                                </div>
+                                <span class="meta" id="portalAccessCount">0 saved</span>
+                            </div>
+                            <div id="portalAccessList" class="stack-list">
+                                <p class="empty">No vendor portal logins saved yet.</p>
                             </div>
                         </div>
                     </div>
@@ -2790,6 +2987,7 @@
                         <button class="btn" id="exportOwnerReportBtn" type="button">Export Owner Report</button>
                         <button class="btn" id="exportLocationReportBtn" type="button">Export Location Report</button>
                         <button class="btn secondary" id="exportItemReportBtn" type="button">Export Item Report</button>
+                        <button class="btn secondary" id="exportVendorInventoryReportBtn" type="button">Export Vendor Inventory</button>
                         <button class="btn ghost" id="printReportsBtn" type="button">Print Reports</button>
                     </div>
                     <div class="status" id="reportMessage"></div>
@@ -2892,7 +3090,48 @@
                         </table>
                     </div>
                 </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Inventory By Vendor</h2>
+                            <p class="lead">Excel-style line view of live inventory by vendor/customer, location, and SKU.</p>
+                        </div>
+                        <span class="meta" id="vendorInventoryReportMeta">0 rows</span>
+                    </div>
+                    <p class="empty" id="vendorInventoryReportEmpty">No inventory lines are available for the current report filter.</p>
+                    <div class="table-wrap report-sheet-wrap hidden" id="vendorInventoryReportWrap">
+                        <table class="report-sheet-table">
+                            <thead>
+                                <tr>
+                                    <th>Owner</th>
+                                    <th>Location</th>
+                                    <th>SKU</th>
+                                    <th>UPC</th>
+                                    <th>Description</th>
+                                    <th>Tracking</th>
+                                    <th>Qty</th>
+                                    <th>Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vendorInventoryReportBody"></tbody>
+                        </table>
+                    </div>
+                </article>
             </div>
+
+            <article class="card desktop-complex" style="margin-top: 1rem;">
+                <div class="card-head">
+                    <div>
+                        <h2>Portal Orders</h2>
+                        <p class="lead">Orders submitted from the vendor portal so your warehouse team can review what customers released.</p>
+                    </div>
+                    <span class="meta" id="portalOrdersMeta">0 orders</span>
+                </div>
+                <div id="portalOrdersList">
+                    <p class="empty">No vendor portal orders yet.</p>
+                </div>
+            </article>
         </section>
 
         <section class="panel" id="backupPanel" data-panel="backup">
@@ -2939,11 +3178,15 @@
                 <article class="card">
                     <div class="card-head">
                         <div>
-                            <h2>Location Label Generator</h2>
-                            <p class="lead">Create 4 x 6 landscape location labels from the rack/bin pattern you shared, or build them from saved BINs already in WMS365 Scanner.</p>
+                            <h2>Label Builder</h2>
+                            <p class="lead">Create location labels, or scan and manage pallet labels that can be reassigned and reprinted.</p>
                         </div>
                     </div>
-                    <div class="helper">
+                    <div class="button-row label-mode-switch">
+                        <button class="btn active" id="locationLabelModeBtn" type="button" data-label-mode="location">Location Labels</button>
+                        <button class="btn ghost" id="palletLabelModeBtn" type="button" data-label-mode="pallet">Pallet Labels</button>
+                    </div>
+                    <div class="helper label-tool-panel" id="locationLabelTool">
                         <h3>Create Labels</h3>
                         <form id="labelToolForm" class="form-grid" autocomplete="off">
                             <label class="field">
@@ -2979,7 +3222,7 @@
                             </div>
                         </form>
                     </div>
-                    <div class="helper" style="margin-top: 1rem;">
+                    <div class="helper label-tool-panel" id="locationLabelLibraryTool" style="margin-top: 1rem;">
                         <h3>Pull From Saved BINs</h3>
                         <p class="meta">Use the shared BIN library or current inventory locations to build labels faster. Only codes that look like rack/bin labels will be added automatically.</p>
                         <label class="field">
@@ -2991,6 +3234,48 @@
                         </div>
                         <p class="meta" id="labelLibraryMeta" style="margin-top: 0.75rem;">0 matching saved BIN labels are available.</p>
                     </div>
+                    <div class="helper label-tool-panel hidden" id="palletLabelTool" style="margin-top: 1rem;">
+                        <h3>Pallet Workflow</h3>
+                        <form id="palletLabelForm" class="form-grid" autocomplete="off">
+                            <label class="field span-2">
+                                <span>Pallet ID</span>
+                                <input id="palletLabelCode" type="text" placeholder="Scan existing pallet ID or leave blank to create a new pallet">
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn ghost" id="loadPalletLabelBtn" type="button">Load Pallet</button>
+                                <button class="btn ghost" id="newPalletLabelBtn" type="button">New Pallet</button>
+                            </div>
+                            <label class="field span-2">
+                                <span>Vendor / Customer</span>
+                                <input id="palletLabelAccount" list="ownerList" type="text" placeholder="Required vendor / customer">
+                            </label>
+                            <label class="field span-2">
+                                <span>SKU</span>
+                                <input id="palletLabelSku" list="palletLabelSkuList" type="text" placeholder="Choose vendor / customer first">
+                            </label>
+                            <label class="field span-2">
+                                <span>Description</span>
+                                <input id="palletLabelDescription" type="text" placeholder="Auto-fills from the saved item when available">
+                            </label>
+                            <label class="field">
+                                <span>Cases On Pallet</span>
+                                <input id="palletLabelCases" type="number" min="1" inputmode="numeric" placeholder="Required">
+                            </label>
+                            <label class="field">
+                                <span>Date</span>
+                                <input id="palletLabelDate" type="date">
+                            </label>
+                            <label class="field span-2">
+                                <span>Location</span>
+                                <input id="palletLabelLocation" list="locationList" type="text" placeholder="Optional until the pallet is assigned to a BIN">
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn" id="savePalletLabelBtn" type="submit">Save Pallet</button>
+                                <button class="btn secondary" id="savePrintPalletLabelBtn" type="button">Save + Print</button>
+                                <button class="btn ghost" id="clearPalletLabelsBtn" type="button">Clear Print Queue</button>
+                            </div>
+                        </form>
+                    </div>
                     <div class="helper" style="margin-top: 1rem;">
                         <h3>Printing Note</h3>
                         <p class="meta">Printing from this page works on the current device right away. Sending jobs to a specific remote computer/printer is possible too, but it needs a small print bridge installed on that target computer.</p>
@@ -3001,8 +3286,8 @@
                 <article class="card">
                     <div class="card-head">
                         <div>
-                            <h2>Preview & Print</h2>
-                            <p class="lead">Preview 4 x 6 landscape labels before printing. Queue stays on this device so you can build labels without affecting the shared inventory.</p>
+                            <h2 id="labelPreviewTitle">Location Label Preview</h2>
+                            <p class="lead" id="labelPreviewLead">Preview 4 x 6 landscape labels before printing. The pallet queue stays on this device, while saved pallet records live on the shared server.</p>
                         </div>
                     </div>
                     <div class="labels-preview-toolbar">
@@ -3033,6 +3318,7 @@
     <datalist id="moveToList"></datalist>
     <datalist id="adjustSkuList"></datalist>
     <datalist id="transferSkuList"></datalist>
+    <datalist id="palletLabelSkuList"></datalist>
     <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="dialog" aria-modal="true" aria-label="Mobile picker">
         <div class="mobile-picker-shell">
             <div class="mobile-picker-grab" aria-hidden="true"></div>
@@ -3070,6 +3356,8 @@
         let lastMultiSearch = null;
         let currentSearchView = null;
         let editingMasterItem = null;
+        let portalAccessRecords = [];
+        let portalOrderRecords = [];
         let syncTimer = null;
         const mobileQuery = window.matchMedia("(max-width: 640px)");
         let detectedDeviceExperienceMode = detectDeviceExperienceMode();
@@ -3151,6 +3439,13 @@
             masterOwnerList: document.getElementById("masterOwnerList"),
             masterLocationList: document.getElementById("masterLocationList"),
             masterItemList: document.getElementById("masterItemList"),
+            portalAccessAccount: document.getElementById("portalAccessAccount"),
+            portalAccessPassword: document.getElementById("portalAccessPassword"),
+            portalAccessActive: document.getElementById("portalAccessActive"),
+            portalAccessMessage: document.getElementById("portalAccessMessage"),
+            portalAccessList: document.getElementById("portalAccessList"),
+            portalAccessCount: document.getElementById("portalAccessCount"),
+            openPortalBtn: document.getElementById("openPortalBtn"),
             catalogMessage: document.getElementById("catalogMessage"),
             importLocationCsvInput: document.getElementById("importLocationCsvInput"),
             importItemCsvInput: document.getElementById("importItemCsvInput"),
@@ -3207,6 +3502,10 @@
             itemReportEmpty: document.getElementById("itemReportEmpty"),
             itemReportWrap: document.getElementById("itemReportWrap"),
             itemReportBody: document.getElementById("itemReportBody"),
+            vendorInventoryReportMeta: document.getElementById("vendorInventoryReportMeta"),
+            vendorInventoryReportEmpty: document.getElementById("vendorInventoryReportEmpty"),
+            vendorInventoryReportWrap: document.getElementById("vendorInventoryReportWrap"),
+            vendorInventoryReportBody: document.getElementById("vendorInventoryReportBody"),
             ownerReportMeta: document.getElementById("ownerReportMeta"),
             ownerReportEmpty: document.getElementById("ownerReportEmpty"),
             ownerReportWrap: document.getElementById("ownerReportWrap"),
@@ -3215,6 +3514,8 @@
             reportOwnersCount: document.getElementById("reportOwnersCount"),
             reportPalletLocationsCount: document.getElementById("reportPalletLocationsCount"),
             reportPalletsCount: document.getElementById("reportPalletsCount"),
+            portalOrdersMeta: document.getElementById("portalOrdersMeta"),
+            portalOrdersList: document.getElementById("portalOrdersList"),
             summaryLocations: document.getElementById("summaryLocations"),
             summaryOwners: document.getElementById("summaryOwners"),
             summarySkus: document.getElementById("summarySkus"),
@@ -3228,6 +3529,20 @@
             labelSideInput: document.getElementById("labelSideInput"),
             labelBulkInput: document.getElementById("labelBulkInput"),
             labelLibraryFilterInput: document.getElementById("labelLibraryFilterInput"),
+            labelModeButtons: [...document.querySelectorAll("[data-label-mode]")],
+            locationLabelTool: document.getElementById("locationLabelTool"),
+            locationLabelLibraryTool: document.getElementById("locationLabelLibraryTool"),
+            palletLabelTool: document.getElementById("palletLabelTool"),
+            palletLabelCode: document.getElementById("palletLabelCode"),
+            palletLabelAccount: document.getElementById("palletLabelAccount"),
+            palletLabelSku: document.getElementById("palletLabelSku"),
+            palletLabelDescription: document.getElementById("palletLabelDescription"),
+            palletLabelCases: document.getElementById("palletLabelCases"),
+            palletLabelDate: document.getElementById("palletLabelDate"),
+            palletLabelLocation: document.getElementById("palletLabelLocation"),
+            palletLabelSkuList: document.getElementById("palletLabelSkuList"),
+            labelPreviewTitle: document.getElementById("labelPreviewTitle"),
+            labelPreviewLead: document.getElementById("labelPreviewLead"),
             labelLibraryMeta: document.getElementById("labelLibraryMeta"),
             labelPreviewMeta: document.getElementById("labelPreviewMeta"),
             labelsMessage: document.getElementById("labelsMessage"),
@@ -3273,7 +3588,12 @@
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.jumpSection)));
-            ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.mobileNav)));
+            ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => {
+                if (button.dataset.mobileLabelMode) {
+                    setLabelToolMode(button.dataset.mobileLabelMode);
+                }
+                setSection(button.dataset.mobileNav);
+            }));
             ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
             ui.mobileSectionBackButtons.forEach((button) => button.addEventListener("click", () => handleMobileSectionBack(button.dataset.mobileSectionBack)));
             ui.mobileSubviewButtons.forEach((button) => button.addEventListener("click", () => {
@@ -3324,11 +3644,14 @@
 
             document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
+            document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
+            ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
             ui.masterFilter.addEventListener("input", renderMasterLibrary);
             ui.masterOwnerList.addEventListener("click", onMasterOwnerListClick);
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
+            ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
             ui.masterItemImagePickBtn.addEventListener("click", () => ui.masterItemImageInput.click());
             ui.masterItemImageClearBtn.addEventListener("click", () => clearImageField({
                 urlInput: ui.masterItemImageUrl,
@@ -3394,6 +3717,7 @@
             document.getElementById("exportOwnerReportBtn").addEventListener("click", exportOwnerReportCsv);
             document.getElementById("exportLocationReportBtn").addEventListener("click", exportLocationReportCsv);
             document.getElementById("exportItemReportBtn").addEventListener("click", exportItemReportCsv);
+            document.getElementById("exportVendorInventoryReportBtn").addEventListener("click", exportVendorInventoryReportCsv);
             document.getElementById("printReportsBtn").addEventListener("click", printReports);
 
             document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
@@ -3405,14 +3729,29 @@
             document.getElementById("addBulkLabelsBtn").addEventListener("click", addBulkLocationLabels);
             document.getElementById("addSavedLabelsBtn").addEventListener("click", addSavedLocationLabels);
             document.getElementById("clearLabelsBtn").addEventListener("click", clearLocationLabels);
+            document.getElementById("palletLabelForm").addEventListener("submit", (event) => savePalletLabelRecord(event, { printAfterSave: false }));
+            document.getElementById("loadPalletLabelBtn").addEventListener("click", loadPalletLabelRecord);
+            document.getElementById("newPalletLabelBtn").addEventListener("click", resetPalletLabelForm);
+            document.getElementById("savePrintPalletLabelBtn").addEventListener("click", (event) => savePalletLabelRecord(event, { printAfterSave: true }));
+            document.getElementById("clearPalletLabelsBtn").addEventListener("click", clearPalletLabels);
             document.getElementById("printLabelsBtn").addEventListener("click", printLocationLabels);
             document.getElementById("exportLabelCodesBtn").addEventListener("click", exportLocationLabelCodesCsv);
             document.getElementById("labelToolForm").addEventListener("submit", (event) => {
                 event.preventDefault();
                 addSingleLocationLabel();
             });
+            ui.labelModeButtons.forEach((button) => button.addEventListener("click", () => setLabelToolMode(button.dataset.labelMode)));
             [ui.labelRackInput, ui.labelBinInput, ui.labelLevelInput, ui.labelSideInput, ui.labelBulkInput, ui.labelLibraryFilterInput]
                 .forEach((input) => input?.addEventListener("input", persistLocationLabelDraft));
+            [ui.palletLabelCode, ui.palletLabelAccount, ui.palletLabelSku, ui.palletLabelDescription, ui.palletLabelCases, ui.palletLabelDate, ui.palletLabelLocation]
+                .forEach((input) => input?.addEventListener("input", persistPalletLabelDraft));
+            ui.palletLabelDescription?.addEventListener("input", () => {
+                ui.palletLabelDescription.dataset.autofilled = "false";
+            });
+            [ui.palletLabelAccount, ui.palletLabelSku].forEach((input) => {
+                input?.addEventListener("change", syncPalletLabelCatalogFields);
+                input?.addEventListener("blur", syncPalletLabelCatalogFields);
+            });
 
             ui.scanAccount.value = state.preferences.lastAccount || "";
             ui.scanLocation.value = state.preferences.lastLocation || "";
@@ -3423,20 +3762,36 @@
             ui.labelSideInput.value = labelToolState.side;
             ui.labelBulkInput.value = labelToolState.bulk;
             ui.labelLibraryFilterInput.value = labelToolState.filter;
+            ui.palletLabelCode.value = labelToolState.palletCode || "";
+            ui.palletLabelAccount.value = labelToolState.palletAccount || state.preferences.lastAccount || "";
+            ui.palletLabelSku.value = labelToolState.palletSku || "";
+            ui.palletLabelDescription.value = labelToolState.palletDescription || "";
+            ui.palletLabelCases.value = labelToolState.palletCases || "";
+            ui.palletLabelDate.value = labelToolState.palletDate || todayInputValue();
+            ui.palletLabelLocation.value = labelToolState.palletLocation || "";
             setSearchMode("sku");
             setMobileSubview("search", isMobileView() ? "menu" : "single");
             setMobileSubview("actions", isMobileView() ? "menu" : "adjust");
             updateScanTrackingUi();
             syncScanItemSelectors();
+            syncPalletLabelSkuOptions();
+            syncPalletLabelCatalogFields();
+            setLabelToolMode(labelToolState.mode || "location");
             renderAll();
             setSection(isMobileView() ? "mobile-home" : "scan");
             syncServerState(false).catch(() => {});
+            refreshPortalAccessList().catch(() => {});
+            refreshPortalOrdersList().catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
                     syncServerState(true).catch(() => {});
+                    refreshPortalOrdersList(true).catch(() => {});
                 }
             }, 30000);
-            window.addEventListener("focus", () => syncServerState(true).catch(() => {}));
+            window.addEventListener("focus", () => {
+                syncServerState(true).catch(() => {});
+                refreshPortalOrdersList(true).catch(() => {});
+            });
             mobileQuery.addEventListener("change", handleViewportChange);
             window.addEventListener("resize", handleViewportChange);
             window.addEventListener("orientationchange", handleViewportChange);
@@ -3494,6 +3849,9 @@
             }
             if (section === "actions" && isMobileView()) {
                 setMobileSubview("actions", "menu");
+                scrollCurrentViewTop();
+            }
+            if (section === "labels" && isMobileView()) {
                 scrollCurrentViewTop();
             }
             updateMobileSearchResultsVisibility();
@@ -3666,7 +4024,7 @@
         function initMobileAutocomplete() {
             if (!ui.mobileAutocomplete) return;
 
-            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount]
+            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount]
                 .forEach((input) => registerMobileAutocomplete(input, {
                     getSuggestions: (query) => getOwnerSuggestions(query),
                     onSelect: (option, currentInput) => {
@@ -3684,7 +4042,7 @@
                         return true;
                     }
                 }));
-            [ui.scanLocation, ui.masterLocationCode]
+            [ui.scanLocation, ui.masterLocationCode, ui.palletLabelLocation]
                 .forEach((input) => registerMobileAutocomplete(input, {
                     getSuggestions: (query) => getLocationSuggestions(query),
                     onSelect: (option, currentInput) => {
@@ -3701,6 +4059,17 @@
                         return true;
                     }
                 }));
+            registerMobileAutocomplete(ui.palletLabelSku, {
+                getSuggestions: (query) => getItemSuggestions(query, ui.palletLabelAccount.value, { preferUpc: false }),
+                allowCustom: () => !!norm(ui.palletLabelAccount.value),
+                getEmptyState: () => norm(ui.palletLabelAccount.value)
+                    ? "No SKUs are saved for this vendor / customer yet."
+                    : "Choose vendor / customer first so the pallet SKU list stays owner-safe.",
+                onSelect: () => {
+                    syncPalletLabelCatalogFields();
+                    return true;
+                }
+            });
             registerMobileAutocomplete(ui.adjustLocation, {
                 getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.adjustAccount.value, { mode: "source" }),
                 onSelect: () => {
@@ -4680,12 +5049,13 @@
             renderStats();
             renderDatalists();
             renderMasterLibrary();
-            renderLocationLabelTool();
+            renderLabelTool();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
             renderReports(ui.reportFilter.value);
             renderSummary();
             syncScanItemSelectors();
+            syncPalletLabelSkuOptions();
         }
 
         function renderBatch() {
@@ -4978,14 +5348,52 @@
             )].sort((a, b) => a.localeCompare(b));
         }
 
-        function renderLocationLabelTool() {
+        function setLabelToolMode(mode) {
+            labelToolState.mode = mode === "pallet" ? "pallet" : "location";
+            ui.labelModeButtons.forEach((button) => {
+                const isActive = button.dataset.labelMode === labelToolState.mode;
+                button.classList.toggle("active", isActive);
+                button.classList.toggle("ghost", !isActive);
+            });
+            ui.locationLabelTool.classList.toggle("hidden", labelToolState.mode !== "location");
+            ui.locationLabelLibraryTool.classList.toggle("hidden", labelToolState.mode !== "location");
+            ui.palletLabelTool.classList.toggle("hidden", labelToolState.mode !== "pallet");
+            saveLabelToolState();
+            renderLabelTool();
+        }
+
+        function renderLabelTool() {
             if (!ui.labelsPreviewGrid) return;
-            const candidates = getLocationLabelCandidates(ui.labelLibraryFilterInput?.value || "");
-            ui.labelLibraryMeta.textContent = `${num(candidates.length)} matching saved BIN label${candidates.length === 1 ? "" : "s"} available.`;
+            const locationCandidates = getLocationLabelCandidates(ui.labelLibraryFilterInput?.value || "");
+            ui.labelLibraryMeta.textContent = `${num(locationCandidates.length)} matching saved BIN label${locationCandidates.length === 1 ? "" : "s"} available.`;
+
+            if (labelToolState.mode === "pallet") {
+                ui.labelPreviewTitle.textContent = "Pallet Label Preview";
+                ui.labelPreviewLead.textContent = "Saved pallet records live on the server. This print queue stays on this device so you can reprint the pallets you just worked on.";
+                ui.labelPreviewMeta.textContent = `${num(labelToolState.palletLabels.length)} pallet label${labelToolState.palletLabels.length === 1 ? "" : "s"} queued`;
+                ui.printLabelsBtn.disabled = !labelToolState.palletLabels.length;
+                ui.exportLabelCodesBtn.disabled = !labelToolState.palletLabels.length;
+                ui.exportLabelCodesBtn.textContent = "Export Pallet CSV";
+                ui.labelsPreviewEmpty.textContent = "No pallet labels queued yet. Save or load a pallet to add it here for printing.";
+
+                if (!labelToolState.palletLabels.length) {
+                    ui.labelsPreviewEmpty.classList.remove("hidden");
+                    ui.labelsPreviewGrid.innerHTML = "";
+                    return;
+                }
+
+                ui.labelsPreviewEmpty.classList.add("hidden");
+                ui.labelsPreviewGrid.innerHTML = labelToolState.palletLabels.map((entry) => buildPalletLabelMarkup(entry)).join("");
+                return;
+            }
+
+            ui.labelPreviewTitle.textContent = "Location Label Preview";
+            ui.labelPreviewLead.textContent = "Preview 4 x 6 landscape location labels before printing. Queue stays on this device so you can build labels without affecting the shared inventory.";
             ui.labelPreviewMeta.textContent = `${num(labelToolState.labels.length)} label${labelToolState.labels.length === 1 ? "" : "s"} queued`;
             ui.printLabelsBtn.disabled = !labelToolState.labels.length;
             ui.exportLabelCodesBtn.disabled = !labelToolState.labels.length;
-            ui.clearLabelsBtn.disabled = !labelToolState.labels.length;
+            ui.exportLabelCodesBtn.textContent = "Export Codes CSV";
+            ui.labelsPreviewEmpty.textContent = "No labels queued yet. Add one, paste a list, or pull matching BINs from the shared location library.";
 
             if (!labelToolState.labels.length) {
                 ui.labelsPreviewEmpty.classList.remove("hidden");
@@ -5019,7 +5427,20 @@
             labelToolState.bulk = String(ui.labelBulkInput.value || "");
             labelToolState.filter = String(ui.labelLibraryFilterInput.value || "").trim().toUpperCase();
             saveLabelToolState();
-            renderLocationLabelTool();
+            renderLabelTool();
+        }
+
+        function persistPalletLabelDraft() {
+            labelToolState.palletCode = norm(ui.palletLabelCode.value || "");
+            labelToolState.palletAccount = norm(ui.palletLabelAccount.value || "");
+            labelToolState.palletSku = norm(ui.palletLabelSku.value || "");
+            labelToolState.palletDescription = String(ui.palletLabelDescription.value || "").trim().replace(/\s+/g, " ");
+            labelToolState.palletCases = String(ui.palletLabelCases.value || "").trim();
+            labelToolState.palletDate = normalizeLabelDate(ui.palletLabelDate.value) || todayInputValue();
+            labelToolState.palletLocation = norm(ui.palletLabelLocation.value || "");
+            saveLabelToolState();
+            syncPalletLabelSkuOptions();
+            renderLabelTool();
         }
 
         function addSingleLocationLabel() {
@@ -5081,7 +5502,7 @@
 
             labelToolState.labels = [...labelToolState.labels, ...incoming];
             saveLabelToolState();
-            renderLocationLabelTool();
+            renderLabelTool();
 
             const detailParts = [`${num(incoming.length)} label${incoming.length === 1 ? "" : "s"} added`];
             if (duplicateCount) detailParts.push(`${num(duplicateCount)} duplicate${duplicateCount === 1 ? "" : "s"} skipped`);
@@ -5092,8 +5513,348 @@
         function clearLocationLabels() {
             labelToolState.labels = [];
             saveLabelToolState();
-            renderLocationLabelTool();
+            renderLabelTool();
             showMessage(ui.labelsMessage, "Cleared the queued location labels for this device.", "info");
+        }
+
+        function syncPalletLabelSkuOptions() {
+            const accountName = norm(ui.palletLabelAccount.value || "");
+            const items = getPalletLabelItems(accountName);
+            ui.palletLabelSku.disabled = !accountName;
+            ui.palletLabelSku.placeholder = accountName
+                ? (items.length ? "Choose a SKU for this vendor / customer" : "No saved SKUs for this vendor / customer")
+                : "Choose vendor / customer first";
+            if (ui.palletLabelSkuList) {
+                ui.palletLabelSkuList.innerHTML = items.map((item) => {
+                    const label = [item.description, item.upc ? `UPC ${item.upc}` : "", formatTrackedQuantity(item.quantity, item.trackingLevel)].filter(Boolean).join(" | ");
+                    return `<option value="${attr(item.sku)}">${esc(label)}</option>`;
+                }).join("");
+            }
+            const currentSku = norm(ui.palletLabelSku.value || "");
+            if (currentSku && !items.some((item) => item.sku === currentSku)) {
+                ui.palletLabelSku.value = "";
+                ui.palletLabelDescription.value = "";
+            }
+        }
+
+        function syncPalletLabelCatalogFields() {
+            syncPalletLabelSkuOptions();
+            const accountName = norm(ui.palletLabelAccount.value || "");
+            const sku = norm(ui.palletLabelSku.value || "");
+            if (accountName) {
+                state.preferences.lastAccount = accountName;
+                saveState();
+            }
+            if (!accountName || !sku) {
+                persistPalletLabelDraft();
+                return;
+            }
+            const master = state.masters.items.find((item) => item.accountName === accountName && item.sku === sku)
+                || state.inventory.find((line) => line.accountName === accountName && line.sku === sku)
+                || null;
+            if (master && (!ui.palletLabelDescription.value.trim() || ui.palletLabelDescription.dataset.autofilled === "true")) {
+                const description = typeof master.description === "string" ? master.description : (getLineDescription(master) || "");
+                ui.palletLabelDescription.value = description || "";
+                ui.palletLabelDescription.dataset.autofilled = "true";
+            }
+            if (!master && !ui.palletLabelDescription.value.trim()) {
+                ui.palletLabelDescription.dataset.autofilled = "true";
+            }
+            persistPalletLabelDraft();
+        }
+
+        async function loadPalletLabelRecord() {
+            const palletCode = norm(ui.palletLabelCode.value || "");
+            if (!palletCode) {
+                return fail(ui.labelsMessage, "Scan or enter a pallet ID first.", ui.palletLabelCode);
+            }
+
+            try {
+                const payload = await requestJson(`/api/pallets/${encodeURIComponent(palletCode)}`);
+                const pallet = sanitizePalletLabelEntry(payload?.pallet);
+                if (!pallet) {
+                    throw new Error("That pallet could not be loaded.");
+                }
+                const existingIndex = state.pallets.findIndex((item) => item.palletCode === pallet.palletCode);
+                if (existingIndex >= 0) state.pallets.splice(existingIndex, 1, pallet);
+                else state.pallets.unshift(pallet);
+                populatePalletLabelForm(pallet);
+                upsertPalletLabelQueueEntry(pallet);
+                saveState({ includeCache: true });
+                saveLabelToolState();
+                showMessage(ui.labelsMessage, `Loaded pallet ${pallet.palletCode}.`, "success");
+            } catch (error) {
+                showMessage(ui.labelsMessage, error.message, "error");
+            }
+        }
+
+        function populatePalletLabelForm(pallet) {
+            const entry = sanitizePalletLabelEntry(pallet);
+            if (!entry) return;
+            ui.palletLabelCode.value = entry.palletCode;
+            ui.palletLabelAccount.value = entry.accountName;
+            ui.palletLabelSku.value = entry.sku;
+            ui.palletLabelDescription.value = entry.description || "";
+            ui.palletLabelDescription.dataset.autofilled = entry.description ? "true" : "false";
+            ui.palletLabelCases.value = entry.cases;
+            ui.palletLabelDate.value = entry.date || todayInputValue();
+            ui.palletLabelLocation.value = entry.location || "";
+            persistPalletLabelDraft();
+        }
+
+        function resetPalletLabelForm() {
+            ui.palletLabelCode.value = "";
+            ui.palletLabelAccount.value = state.preferences.lastAccount || "";
+            ui.palletLabelSku.value = "";
+            ui.palletLabelDescription.value = "";
+            ui.palletLabelDescription.dataset.autofilled = "false";
+            ui.palletLabelCases.value = "";
+            ui.palletLabelDate.value = todayInputValue();
+            ui.palletLabelLocation.value = "";
+            persistPalletLabelDraft();
+            showMessage(ui.labelsMessage, "Ready for a new pallet label.", "info");
+            if (ui.palletLabelCode) ui.palletLabelCode.focus();
+        }
+
+        async function savePalletLabelRecord(event, { printAfterSave = false } = {}) {
+            if (event?.preventDefault) event.preventDefault();
+            persistPalletLabelDraft();
+            const entry = sanitizePalletLabelEntry({
+                palletCode: ui.palletLabelCode.value,
+                accountName: ui.palletLabelAccount.value,
+                sku: ui.palletLabelSku.value,
+                description: ui.palletLabelDescription.value,
+                cases: ui.palletLabelCases.value,
+                date: ui.palletLabelDate.value,
+                location: ui.palletLabelLocation.value
+            });
+
+            if (!entry) {
+                return fail(ui.labelsMessage, "Vendor / Customer, SKU, cases on pallet, and date are required for a pallet label.", ui.palletLabelAccount);
+            }
+
+            try {
+                const payload = await requestJson("/api/pallets/save", {
+                    method: "POST",
+                    body: JSON.stringify(entry)
+                });
+                const saved = sanitizePalletLabelEntry(payload?.pallet);
+                if (!saved) {
+                    throw new Error("The saved pallet response was incomplete.");
+                }
+
+                const existingIndex = state.pallets.findIndex((pallet) => pallet.palletCode === saved.palletCode);
+                if (existingIndex >= 0) state.pallets.splice(existingIndex, 1, saved);
+                else state.pallets.unshift(saved);
+
+                state.preferences.lastAccount = saved.accountName;
+                if (saved.location) state.preferences.lastLocation = saved.location;
+                upsertPalletLabelQueueEntry(saved);
+                populatePalletLabelForm(saved);
+                saveState({ includeCache: true });
+                saveLabelToolState();
+                await syncServerState(true);
+                if (printAfterSave) {
+                    printPalletLabels([saved]);
+                }
+                showMessage(
+                    ui.labelsMessage,
+                    `${entry.palletCode ? "Updated" : "Saved"} pallet ${saved.palletCode}${saved.location ? ` for ${saved.location}` : ""} and queued it for print.`,
+                    "success"
+                );
+            } catch (error) {
+                showMessage(ui.labelsMessage, error.message, "error");
+            }
+        }
+
+        function upsertPalletLabelQueueEntry(entry) {
+            const saved = sanitizePalletLabelEntry(entry);
+            if (!saved) return;
+            const existingIndex = labelToolState.palletLabels.findIndex((item) => item.palletCode === saved.palletCode);
+            if (existingIndex >= 0) {
+                labelToolState.palletLabels.splice(existingIndex, 1, saved);
+            } else {
+                labelToolState.palletLabels.unshift(saved);
+            }
+            saveLabelToolState();
+            renderLabelTool();
+        }
+
+        function clearPalletLabels() {
+            labelToolState.palletLabels = [];
+            saveLabelToolState();
+            renderLabelTool();
+            showMessage(ui.labelsMessage, "Cleared the queued pallet labels for this device.", "info");
+        }
+
+        function getPalletLabelItems(accountName = "") {
+            const owner = norm(accountName);
+            if (!owner) return [];
+            const itemMap = new Map();
+
+            state.inventory
+                .filter((line) => line.accountName === owner)
+                .forEach((line) => {
+                    const current = itemMap.get(line.sku) || {
+                        sku: line.sku,
+                        upc: line.upc || "",
+                        description: getLineDescription(line),
+                        quantity: 0,
+                        trackingLevel: line.trackingLevel
+                    };
+                    current.quantity += Number(line.quantity) || 0;
+                    if (!current.upc && line.upc) current.upc = line.upc;
+                    if (!current.description) current.description = getLineDescription(line);
+                    itemMap.set(line.sku, current);
+                });
+
+            state.masters.items
+                .filter((item) => item.accountName === owner)
+                .forEach((item) => {
+                    if (!itemMap.has(item.sku)) {
+                        itemMap.set(item.sku, {
+                            sku: item.sku,
+                            upc: item.upc || "",
+                            description: item.description || "",
+                            quantity: 0,
+                            trackingLevel: item.trackingLevel
+                        });
+                    } else {
+                        const current = itemMap.get(item.sku);
+                        if (!current.upc && item.upc) current.upc = item.upc;
+                        if (!current.description && item.description) current.description = item.description;
+                    }
+                });
+
+            return [...itemMap.values()].sort((a, b) => a.sku.localeCompare(b.sku));
+        }
+
+        function buildPalletLabelMarkup(entry, { printable = false } = {}) {
+            const saved = sanitizePalletLabelEntry(entry);
+            if (!saved) return "";
+            const trackingText = saved.inventoryQuantity
+                ? formatTrackedQuantity(saved.inventoryQuantity, saved.inventoryTrackingLevel || "CASE")
+                : "Not assigned";
+            const barcodeMarkup = buildCode39Svg(saved.palletCode, printable ? { height: 54, narrow: 2, wide: 5 } : { height: 42, narrow: 2, wide: 4 });
+            return `
+                <div class="${printable ? "label-card" : "pallet-label-card"}">
+                    <div class="pallet-print-label">
+                        <div class="pallet-label-code-row">
+                            <p class="pallet-label-code">${esc(saved.palletCode)}</p>
+                            <span class="pallet-label-location">${esc(saved.location || "UNASSIGNED")}</span>
+                        </div>
+                        <div class="pallet-label-barcode">${barcodeMarkup}</div>
+                        <p class="pallet-label-vendor">${esc(saved.accountName)}</p>
+                        <p class="pallet-label-sku">${esc(saved.sku)}</p>
+                        <p class="pallet-label-description">${esc(saved.description || "NO DESCRIPTION")}</p>
+                        <div class="pallet-label-footer">
+                            <div class="pallet-label-stat">
+                                <span>Cases</span>
+                                <strong>${esc(num(saved.cases))}</strong>
+                            </div>
+                            <div class="pallet-label-stat">
+                                <span>System Qty</span>
+                                <strong>${esc(trackingText)}</strong>
+                            </div>
+                            <div class="pallet-label-stat">
+                                <span>Date</span>
+                                <strong>${esc(formatLabelDate(saved.date))}</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function buildCode39Svg(value, { height = 42, narrow = 2, wide = 4, quiet = 12 } = {}) {
+            const encoded = `*${String(value || "").trim().toUpperCase()}*`;
+            if (!/^[0-9A-Z.\- $/+%*]+$/.test(encoded)) {
+                return `<div class="meta">Barcode unavailable</div>`;
+            }
+
+            const modules = [];
+            for (let index = 0; index < encoded.length; index += 1) {
+                const pattern = code39PatternFor(encoded[index]);
+                if (!pattern) {
+                    return `<div class="meta">Barcode unavailable</div>`;
+                }
+                pattern.split("").forEach((token, patternIndex) => {
+                    modules.push({
+                        color: patternIndex % 2 === 0 ? "#111827" : "#ffffff",
+                        width: token === "w" ? wide : narrow
+                    });
+                });
+                if (index < encoded.length - 1) {
+                    modules.push({ color: "#ffffff", width: narrow });
+                }
+            }
+
+            const totalWidth = modules.reduce((sum, part) => sum + part.width, quiet * 2);
+            let cursor = quiet;
+            const bars = modules.map((part) => {
+                const rect = `<rect x="${cursor}" y="0" width="${part.width}" height="${height}" fill="${part.color}" />`;
+                cursor += part.width;
+                return rect;
+            }).join("");
+            const textY = height + 16;
+
+            return `
+                <svg viewBox="0 0 ${totalWidth} ${height + 18}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${attr(value)} barcode">
+                    <rect width="${totalWidth}" height="${height + 18}" fill="#ffffff" />
+                    ${bars}
+                    <text x="${totalWidth / 2}" y="${textY}" text-anchor="middle" font-size="12" font-family="monospace" fill="#111827">${esc(value)}</text>
+                </svg>
+            `;
+        }
+
+        function code39PatternFor(character) {
+            const patterns = {
+                "0": "nnnwwnwnn",
+                "1": "wnnwnnnnw",
+                "2": "nnwwnnnnw",
+                "3": "wnwwnnnnn",
+                "4": "nnnwwnnnw",
+                "5": "wnnwwnnnn",
+                "6": "nnwwwnnnn",
+                "7": "nnnwnnwnw",
+                "8": "wnnwnnwnn",
+                "9": "nnwwnnwnn",
+                "A": "wnnnnwnnw",
+                "B": "nnwnnwnnw",
+                "C": "wnwnnwnnn",
+                "D": "nnnnwwnnw",
+                "E": "wnnnwwnnn",
+                "F": "nnwnwwnnn",
+                "G": "nnnnnwwnw",
+                "H": "wnnnnwwnn",
+                "I": "nnwnnwwnn",
+                "J": "nnnnwwwnn",
+                "K": "wnnnnnnww",
+                "L": "nnwnnnnww",
+                "M": "wnwnnnnwn",
+                "N": "nnnnwnnww",
+                "O": "wnnnwnnwn",
+                "P": "nnwnwnnwn",
+                "Q": "nnnnnnwww",
+                "R": "wnnnnnwwn",
+                "S": "nnwnnnwwn",
+                "T": "nnnnwnwwn",
+                "U": "wwnnnnnnw",
+                "V": "nwwnnnnnw",
+                "W": "wwwnnnnnn",
+                "X": "nwnnwnnnw",
+                "Y": "wwnnwnnnn",
+                "Z": "nwwnwnnnn",
+                "-": "nwnnnnwnw",
+                ".": "wwnnnnwnn",
+                " ": "nwwnnnwnn",
+                "$": "nwnwnwnnn",
+                "/": "nwnwnnnwn",
+                "+": "nwnnnwnwn",
+                "%": "nnnwnwnwn",
+                "*": "nwnnwnwnn"
+            };
+            return patterns[character] || "";
         }
 
         function getLocationLabelCandidates(filterText = "") {
@@ -5151,6 +5912,10 @@
         }
 
         function printLocationLabels() {
+            if (labelToolState.mode === "pallet") {
+                return printPalletLabels();
+            }
+
             if (!labelToolState.labels.length) {
                 showMessage(ui.labelsMessage, "Add at least one location label before printing.", "error");
                 return;
@@ -5285,7 +6050,186 @@
             setTimeout(() => popup.print(), 250);
         }
 
+        function printPalletLabels(entries = labelToolState.palletLabels) {
+            const printableEntries = Array.isArray(entries)
+                ? entries.map(sanitizePalletLabelEntry).filter(Boolean)
+                : [];
+
+            if (!printableEntries.length) {
+                showMessage(ui.labelsMessage, "Add at least one pallet label before printing.", "error");
+                return;
+            }
+
+            const popup = window.open("", "_blank", "width=980,height=720");
+            if (!popup) {
+                showMessage(ui.labelsMessage, "Pop-up blocking prevented the pallet label print preview from opening.", "error");
+                return;
+            }
+
+            popup.document.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Pallet Labels</title>
+                    <style>
+                        * { box-sizing: border-box; }
+                        html, body {
+                            background: #fff;
+                            margin: 0;
+                            padding: 0;
+                            width: 6in;
+                            height: 4in;
+                            overflow: hidden;
+                            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+                            color: #111827;
+                        }
+                        .labels { display: block; width: 6in; }
+                        .label-card {
+                            width: 6in;
+                            height: 4in;
+                            break-inside: avoid;
+                            page-break-inside: avoid;
+                            break-after: page;
+                            page-break-after: always;
+                            overflow: hidden;
+                        }
+                        .label-card:last-child {
+                            break-after: auto;
+                            page-break-after: auto;
+                        }
+                        .pallet-print-label {
+                            width: 6in;
+                            height: 4in;
+                            margin: 0;
+                            background: #fff;
+                            overflow: hidden;
+                            display: grid;
+                            grid-template-rows: auto auto auto 1fr auto;
+                            padding: 0.22in 0.24in;
+                            gap: 0.12in;
+                        }
+                        .pallet-label-code-row {
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 0.16in;
+                            align-items: baseline;
+                        }
+                        .pallet-label-code {
+                            margin: 0;
+                            font-size: 0.18in;
+                            font-weight: 900;
+                            letter-spacing: 0.05in;
+                            text-transform: uppercase;
+                        }
+                        .pallet-label-location {
+                            font-size: 0.14in;
+                            font-weight: 800;
+                            color: #4b5563;
+                            text-transform: uppercase;
+                            text-align: right;
+                        }
+                        .pallet-label-barcode {
+                            width: 100%;
+                            min-height: 0.7in;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                        .pallet-label-barcode svg {
+                            width: 100%;
+                            height: auto;
+                            display: block;
+                        }
+                        .pallet-label-vendor {
+                            margin: 0;
+                            font-size: 0.32in;
+                            font-weight: 900;
+                            line-height: 1.05;
+                            text-transform: uppercase;
+                        }
+                        .pallet-label-sku {
+                            margin: 0;
+                            font-size: 0.72in;
+                            font-weight: 900;
+                            line-height: 0.95;
+                            letter-spacing: 0.03in;
+                            text-transform: uppercase;
+                            word-break: break-word;
+                        }
+                        .pallet-label-description {
+                            margin: 0;
+                            font-size: 0.24in;
+                            line-height: 1.25;
+                            color: #374151;
+                            overflow: hidden;
+                        }
+                        .pallet-label-footer {
+                            display: grid;
+                            grid-template-columns: repeat(3, minmax(0, 1fr));
+                            gap: 0.18in;
+                            align-items: stretch;
+                        }
+                        .pallet-label-stat {
+                            padding: 0.12in 0.14in;
+                            border-radius: 0.12in;
+                            background: #f5f8fb;
+                            border: 1px solid #d7e0e8;
+                            display: grid;
+                            gap: 0.04in;
+                        }
+                        .pallet-label-stat span {
+                            font-size: 0.12in;
+                            font-weight: 800;
+                            letter-spacing: 0.03in;
+                            text-transform: uppercase;
+                            color: #6b7280;
+                        }
+                        .pallet-label-stat strong {
+                            font-size: 0.24in;
+                            line-height: 1.1;
+                        }
+                        @page {
+                            size: 4in 6in landscape;
+                            margin: 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="labels">
+                        ${printableEntries.map((entry) => buildPalletLabelMarkup(entry, { printable: true })).join("")}
+                    </div>
+                </body>
+                </html>
+            `);
+            popup.document.close();
+            popup.focus();
+            setTimeout(() => popup.print(), 250);
+        }
+
         function exportLocationLabelCodesCsv() {
+            if (labelToolState.mode === "pallet") {
+                if (!labelToolState.palletLabels.length) {
+                    showMessage(ui.labelsMessage, "Add at least one pallet label before exporting.", "error");
+                    return;
+                }
+                const rows = [["PALLET_ID", "VENDOR_CUSTOMER", "LOCATION", "SKU", "DESCRIPTION", "CASES_ON_PALLET", "TRACKING", "SYSTEM_QTY", "DATE"]]
+                    .concat(labelToolState.palletLabels.map((entry) => [
+                        entry.palletCode,
+                        entry.accountName,
+                        entry.location || "",
+                        entry.sku,
+                        entry.description,
+                        entry.cases,
+                        trackingLabel(entry.inventoryTrackingLevel || "CASE"),
+                        entry.inventoryQuantity,
+                        entry.date
+                    ]));
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-pallet-labels-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.labelsMessage, "Pallet labels exported.", "success");
+                return;
+            }
+
             if (!labelToolState.labels.length) {
                 showMessage(ui.labelsMessage, "Add at least one location label before exporting codes.", "error");
                 return;
@@ -5309,6 +6253,51 @@
 
         function sanitizeLabelSide(value) {
             return String(value || "1") === "2" ? "2" : "1";
+        }
+
+        function todayInputValue() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, "0");
+            const day = String(now.getDate()).padStart(2, "0");
+            return `${year}-${month}-${day}`;
+        }
+
+        function normalizeLabelDate(value) {
+            const text = String(value || "").trim();
+            return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+        }
+
+        function formatLabelDate(value) {
+            const normalized = normalizeLabelDate(value);
+            if (!normalized) return "";
+            try {
+                return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${normalized}T00:00:00`));
+            } catch {
+                return normalized;
+            }
+        }
+
+        function sanitizePalletLabelEntry(entry) {
+            const palletCode = norm(entry?.palletCode || entry?.code || entry?.palletId || entry?.pallet_id) || makeId("PLT").toUpperCase();
+            const accountName = norm(entry?.accountName || entry?.owner || entry?.vendor || entry?.customer);
+            const sku = norm(entry?.sku);
+            const cases = toPositiveInt(entry?.cases ?? entry?.casesOnPallet);
+            const date = normalizeLabelDate(entry?.date) || todayInputValue();
+            if (!accountName || !sku || !cases || !date) return null;
+            return {
+                id: typeof entry?.id === "string" ? entry.id : makeId("pallet-label"),
+                palletCode,
+                accountName,
+                sku,
+                upc: norm(entry?.upc || ""),
+                description: String(entry?.description || "").trim().replace(/\s+/g, " "),
+                cases,
+                date,
+                location: norm(entry?.location || ""),
+                inventoryTrackingLevel: normalizeTrackingLevel(entry?.inventoryTrackingLevel || entry?.trackingLevel || "CASE"),
+                inventoryQuantity: toPositiveInt(entry?.inventoryQuantity) || cases
+            };
         }
 
         async function saveMasterOwner(event) {
@@ -5342,6 +6331,131 @@
             } catch (error) {
                 showMessage(ui.catalogMessage, error.message, "error");
             }
+        }
+
+        async function savePortalAccess(event) {
+            event.preventDefault();
+            const accountName = norm(ui.portalAccessAccount.value);
+            const password = String(ui.portalAccessPassword.value || "");
+            const isActive = ui.portalAccessActive.value !== "false";
+
+            if (!accountName) {
+                return fail(ui.portalAccessMessage, "Choose the vendor / customer for this portal login.", ui.portalAccessAccount);
+            }
+            if (!password && !portalAccessRecords.some((entry) => entry.accountName === accountName)) {
+                return fail(ui.portalAccessMessage, "Set a password the first time you enable portal access for a vendor.", ui.portalAccessPassword);
+            }
+
+            try {
+                await requestJson("/api/admin/portal-access", {
+                    method: "POST",
+                    body: JSON.stringify({ accountName, password, isActive })
+                });
+                state.preferences.lastAccount = accountName;
+                saveState();
+                ui.scanAccount.value = accountName;
+                ui.masterItemAccount.value = accountName;
+                ui.portalAccessPassword.value = "";
+                await refreshPortalAccessList();
+                showMessage(
+                    ui.portalAccessMessage,
+                    `${isActive ? "Saved" : "Updated"} portal access for ${accountName}${password ? " with a new password" : ""}.`,
+                    "success"
+                );
+            } catch (error) {
+                showMessage(ui.portalAccessMessage, error.message, "error");
+            }
+        }
+
+        async function refreshPortalAccessList() {
+            try {
+                const payload = await requestJson("/api/admin/portal-access");
+                portalAccessRecords = Array.isArray(payload?.access)
+                    ? payload.access.map(sanitizePortalAccessRecord).filter(Boolean)
+                    : [];
+                renderPortalAccessList();
+            } catch (error) {
+                portalAccessRecords = [];
+                renderPortalAccessList(error.message);
+                throw error;
+            }
+        }
+
+        function renderPortalAccessList(errorText = "") {
+            ui.portalAccessCount.textContent = `${num(portalAccessRecords.length)} saved`;
+
+            if (!portalAccessRecords.length) {
+                ui.portalAccessList.innerHTML = `<p class="empty">${esc(errorText || "No vendor portal logins saved yet.")}</p>`;
+                return;
+            }
+
+            ui.portalAccessList.innerHTML = portalAccessRecords.map((entry) => `
+                <div class="quick-row">
+                    <div class="quick-main">
+                        <strong>${esc(entry.accountName)}</strong>
+                        <div class="quick-meta">
+                            ${entry.isActive ? "Portal active" : "Portal disabled"}
+                            ${entry.lastLoginAt ? ` | Last login ${esc(formatDate(entry.lastLoginAt))}` : " | No portal login yet"}
+                        </div>
+                    </div>
+                    <button class="btn ghost mini" type="button" data-edit-portal-access="${attr(entry.accountName)}">Load</button>
+                </div>
+            `).join("");
+        }
+
+        function onPortalAccessListClick(event) {
+            const editButton = event.target.closest("[data-edit-portal-access]");
+            if (!editButton) return;
+            const accountName = editButton.dataset.editPortalAccess || "";
+            ui.portalAccessAccount.value = accountName;
+            const match = portalAccessRecords.find((entry) => entry.accountName === accountName);
+            ui.portalAccessActive.value = match?.isActive === false ? "false" : "true";
+            ui.portalAccessPassword.value = "";
+            ui.portalAccessPassword.focus();
+        }
+
+        async function refreshPortalOrdersList(silent = false) {
+            try {
+                const payload = await requestJson("/api/admin/portal-orders");
+                portalOrderRecords = Array.isArray(payload?.orders)
+                    ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
+                    : [];
+                renderPortalOrdersList();
+            } catch (error) {
+                if (!silent) {
+                    portalOrderRecords = [];
+                    renderPortalOrdersList(error.message);
+                }
+                throw error;
+            }
+        }
+
+        function renderPortalOrdersList(errorText = "") {
+            ui.portalOrdersMeta.textContent = `${num(portalOrderRecords.length)} order${portalOrderRecords.length === 1 ? "" : "s"}`;
+
+            if (!portalOrderRecords.length) {
+                ui.portalOrdersList.innerHTML = `<p class="empty">${esc(errorText || "No vendor portal orders yet.")}</p>`;
+                return;
+            }
+
+            ui.portalOrdersList.innerHTML = portalOrderRecords.map((order) => {
+                const lineSummary = order.lines.length
+                    ? order.lines.slice(0, 3).map((line) => `${line.sku} (${formatTrackedQuantity(line.quantity, line.trackingLevel)})`).join(" | ")
+                    : "No lines";
+                const hiddenCount = Math.max(0, order.lines.length - 3);
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(order.orderCode)} | ${esc(order.accountName)}</strong>
+                            <div class="quick-meta">${esc(order.status)} | PO ${esc(order.poNumber || "None")} | ${esc(order.shippingReference || "No shipping ref")} | ${esc(formatDate(order.createdAt))}</div>
+                            <div class="quick-meta">${esc(order.contactName || "No contact")} ${order.contactPhone ? `| ${esc(order.contactPhone)}` : ""}</div>
+                            <div class="quick-meta">${esc(order.shipToAddress1 || "")}${order.shipToCity ? ` | ${esc([order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "))}` : ""}</div>
+                            <div class="quick-meta">${esc(lineSummary)}${hiddenCount ? ` | +${hiddenCount} more` : ""}</div>
+                        </div>
+                        <span class="pill ${order.status === "RELEASED" ? "success" : ""}">${esc(order.status)}</span>
+                    </div>
+                `;
+            }).join("");
         }
 
         async function saveMasterLocation(event) {
@@ -5865,6 +6979,7 @@
             const ownerRows = getOwnerReportRows(filterText, ownerFilter);
             const locationRows = getLocationReportRows(filterText);
             const itemRows = getItemReportRows(filterText);
+            const vendorInventoryRows = getVendorInventoryReportRows(filterText, ownerFilter);
             const overallTotals = ownerRows.reduce((totals, row) => {
                 totals.UNIT += row.unitCount;
                 totals.CASE += row.caseCount;
@@ -5944,6 +7059,28 @@
                     </tr>
                 `).join("");
             }
+
+            ui.vendorInventoryReportMeta.textContent = `${num(vendorInventoryRows.length)} row${vendorInventoryRows.length === 1 ? "" : "s"}`;
+            if (!vendorInventoryRows.length) {
+                ui.vendorInventoryReportEmpty.classList.remove("hidden");
+                ui.vendorInventoryReportWrap.classList.add("hidden");
+                ui.vendorInventoryReportBody.innerHTML = "";
+            } else {
+                ui.vendorInventoryReportEmpty.classList.add("hidden");
+                ui.vendorInventoryReportWrap.classList.remove("hidden");
+                ui.vendorInventoryReportBody.innerHTML = vendorInventoryRows.map((row) => `
+                    <tr>
+                        <td>${esc(row.owner)}</td>
+                        <td>${esc(row.location)}</td>
+                        <td>${esc(row.sku)}</td>
+                        <td>${esc(row.upc || "-")}</td>
+                        <td class="sheet-wrap">${esc(row.description || "-")}</td>
+                        <td>${esc(trackingLabel(row.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(row.quantity, row.trackingLevel))}</td>
+                        <td>${esc(formatDate(row.updatedAt))}</td>
+                    </tr>
+                `).join("");
+            }
         }
 
         async function exportOwnerReportCsv() {
@@ -6010,12 +7147,35 @@
             }
         }
 
+        async function exportVendorInventoryReportCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Owner", "Location", "SKU", "UPC", "Description", "Tracking", "Qty", "Updated"]].concat(
+                    getVendorInventoryReportRows(ui.reportFilter.value, norm(ui.reportOwner.value)).map((row) => [
+                        row.owner,
+                        row.location,
+                        row.sku,
+                        row.upc || "",
+                        row.description || "",
+                        trackingLabel(row.trackingLevel),
+                        String(row.quantity),
+                        formatDate(row.updatedAt)
+                    ])
+                );
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-vendor-inventory-report-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.reportMessage, "Vendor inventory report exported as CSV.", "success");
+            } catch (error) {
+                showMessage(ui.reportMessage, error.message, "error");
+            }
+        }
+
         function printReports() {
             const ownerFilter = norm(ui.reportOwner.value);
             const ownerRows = getOwnerReportRows(ui.reportFilter.value, ownerFilter);
             const locationRows = getLocationReportRows(ui.reportFilter.value);
             const itemRows = getItemReportRows(ui.reportFilter.value);
-            if (!ownerRows.length && !locationRows.length && !itemRows.length) {
+            const vendorInventoryRows = getVendorInventoryReportRows(ui.reportFilter.value, ownerFilter);
+            if (!ownerRows.length && !locationRows.length && !itemRows.length && !vendorInventoryRows.length) {
                 showMessage(ui.reportMessage, "There is no report data to print for the current filter.", "error");
                 return;
             }
@@ -6048,8 +7208,38 @@
                             itemRows.map((row) => [row.owner, row.sku, row.upc || "-", row.description || "-", trackingLabel(row.trackingLevel), num(row.locationCount), num(row.lineCount), num(row.totalUnits)])
                         )}
                     </section>
+                    <section>
+                        <h2>Inventory By Vendor</h2>
+                        ${reportTableMarkup(
+                            ["Owner", "Location", "SKU", "UPC", "Description", "Tracking", "Qty", "Updated"],
+                            vendorInventoryRows.map((row) => [row.owner, row.location, row.sku, row.upc || "-", row.description || "-", trackingLabel(row.trackingLevel), formatTrackedQuantity(row.quantity, row.trackingLevel), formatDate(row.updatedAt)])
+                        )}
+                    </section>
                 `
             );
+        }
+
+        function getVendorInventoryReportRows(filterText = "", ownerFilter = "") {
+            const query = norm(filterText);
+
+            return filterInventoryByOwner(ownerFilter)
+                .filter((line) => inventoryMatchesQuery(line, query))
+                .map((line) => ({
+                    owner: line.accountName,
+                    location: line.location,
+                    sku: line.sku,
+                    upc: line.upc || "",
+                    description: getLineDescription(line) || "",
+                    trackingLevel: normalizeTrackingLevel(line.trackingLevel),
+                    quantity: Number(line.quantity) || 0,
+                    updatedAt: line.updatedAt
+                }))
+                .sort((a, b) =>
+                    a.owner.localeCompare(b.owner)
+                    || a.location.localeCompare(b.location)
+                    || a.sku.localeCompare(b.sku)
+                    || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+                );
         }
 
         function getLocationReportRows(filterText = "") {
@@ -6746,6 +7936,7 @@
 
         function applyServerState(payload) {
             state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
+            state.pallets = Array.isArray(payload?.pallets) ? payload.pallets.map(sanitizePalletRecord).filter(Boolean) : [];
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
             state.masters.locations = Array.isArray(payload?.masters?.locations) ? payload.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [];
             state.masters.ownerRecords = Array.isArray(payload?.masters?.ownerRecords) ? payload.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [];
@@ -6896,36 +8087,55 @@
         function defaultState() {
             return {
                 inventory: [],
+                pallets: [],
                 batch: [],
                 activity: [],
                 masters: { locations: [], ownerRecords: [], items: [], owners: [] },
                 preferences: { lastLocation: "", lastAccount: "", desktopMobilePreview: false },
-                meta: { version: 5, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
+                meta: { version: 6, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
             };
         }
 
         function defaultLabelToolState() {
             return {
+                mode: "location",
                 rack: "106",
                 bin: "01",
                 level: 1,
                 side: "1",
                 bulk: "",
                 filter: "",
-                labels: []
+                labels: [],
+                palletCode: "",
+                palletAccount: "",
+                palletSku: "",
+                palletDescription: "",
+                palletCases: "",
+                palletDate: todayInputValue(),
+                palletLocation: "",
+                palletLabels: []
             };
         }
 
         function sanitizeLabelToolState(raw) {
             const base = defaultLabelToolState();
             return {
+                mode: raw?.mode === "pallet" ? "pallet" : "location",
                 rack: sanitizeLabelDigits(raw?.rack, 3) || base.rack,
                 bin: sanitizeLabelDigits(raw?.bin, 2) || base.bin,
                 level: sanitizeLabelLevel(raw?.level),
                 side: sanitizeLabelSide(raw?.side),
                 bulk: typeof raw?.bulk === "string" ? raw.bulk : "",
                 filter: typeof raw?.filter === "string" ? raw.filter.trim().toUpperCase() : "",
-                labels: Array.isArray(raw?.labels) ? raw.labels.map(normalizeLocationLabelCode).filter(Boolean) : []
+                labels: Array.isArray(raw?.labels) ? raw.labels.map(normalizeLocationLabelCode).filter(Boolean) : [],
+                palletCode: typeof raw?.palletCode === "string" ? norm(raw.palletCode) : "",
+                palletAccount: typeof raw?.palletAccount === "string" ? norm(raw.palletAccount) : "",
+                palletSku: typeof raw?.palletSku === "string" ? norm(raw.palletSku) : "",
+                palletDescription: typeof raw?.palletDescription === "string" ? raw.palletDescription.trim().replace(/\s+/g, " ") : "",
+                palletCases: raw?.palletCases == null ? "" : String(raw.palletCases).trim(),
+                palletDate: normalizeLabelDate(raw?.palletDate) || base.palletDate,
+                palletLocation: typeof raw?.palletLocation === "string" ? norm(raw.palletLocation) : "",
+                palletLabels: Array.isArray(raw?.palletLabels) ? raw.palletLabels.map(sanitizePalletLabelEntry).filter(Boolean) : []
             };
         }
 
@@ -6933,6 +8143,7 @@
             const cache = sanitizeLocalCache(raw?.cache);
             return {
                 inventory: cache.inventory,
+                pallets: cache.pallets,
                 batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
                 activity: cache.activity,
                 masters: cache.masters,
@@ -6942,7 +8153,7 @@
                     desktopMobilePreview: raw.preferences?.desktopMobilePreview === true
                 },
                 meta: {
-                    version: 5,
+                    version: 6,
                     lastChangedAt: cache.meta.lastChangedAt,
                     serverSyncedAt: cache.meta.serverSyncedAt,
                     localCacheAt: cache.meta.localCacheAt
@@ -6953,6 +8164,7 @@
         function sanitizeLocalCache(raw) {
             return {
                 inventory: Array.isArray(raw?.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
+                pallets: Array.isArray(raw?.pallets) ? raw.pallets.map(sanitizePalletRecord).filter(Boolean) : [],
                 activity: Array.isArray(raw?.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
                 masters: {
                     locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
@@ -6971,6 +8183,7 @@
         function sanitizeServerImport(raw) {
             return {
                 inventory: Array.isArray(raw.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
+                pallets: Array.isArray(raw?.pallets) ? raw.pallets.map(sanitizePalletRecord).filter(Boolean) : [],
                 activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
                 masters: {
                     locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
@@ -7026,6 +8239,30 @@
                 quantity,
                 createdAt: typeof line.createdAt === "string" ? line.createdAt : new Date().toISOString(),
                 updatedAt: typeof line.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizePalletRecord(entry) {
+            const palletCode = norm(entry?.palletCode || entry?.code || entry?.palletId || entry?.pallet_id);
+            const accountName = norm(entry?.accountName || entry?.owner || entry?.vendor || entry?.customer);
+            const sku = norm(entry?.sku);
+            const cases = toPositiveInt(entry?.cases ?? entry?.casesOnPallet);
+            const date = normalizeLabelDate(entry?.date || entry?.labelDate) || todayInputValue();
+            if (!palletCode || !accountName || !sku || !cases || !date) return null;
+            return {
+                id: typeof entry?.id === "string" ? entry.id : makeId("pallet"),
+                palletCode,
+                accountName,
+                sku,
+                upc: norm(entry?.upc || ""),
+                description: String(entry?.description || "").trim().replace(/\s+/g, " "),
+                cases,
+                date,
+                location: norm(entry?.location || ""),
+                inventoryTrackingLevel: normalizeTrackingLevel(entry?.inventoryTrackingLevel || entry?.trackingLevel),
+                inventoryQuantity: toPositiveInt(entry?.inventoryQuantity) || 0,
+                createdAt: typeof entry?.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
+                updatedAt: typeof entry?.updatedAt === "string" ? entry.updatedAt : new Date().toISOString()
             };
         }
 
@@ -7085,6 +8322,51 @@
                 note: String(typeof item === "string" ? "" : item?.note || "").trim().replace(/\s+/g, " "),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizePortalAccessRecord(item) {
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer);
+            if (!accountName) return null;
+            return {
+                id: typeof item?.id === "string" ? item.id : makeId("portal"),
+                accountName,
+                isActive: item?.isActive !== false,
+                lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : null,
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizePortalOrderRecord(item) {
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer);
+            if (!item?.id || !accountName) return null;
+            return {
+                id: String(item.id),
+                orderCode: String(item.orderCode || "").trim(),
+                accountName,
+                status: norm(item.status || "DRAFT"),
+                poNumber: String(item.poNumber || "").trim(),
+                shippingReference: String(item.shippingReference || "").trim(),
+                contactName: String(item.contactName || "").trim(),
+                contactPhone: String(item.contactPhone || "").trim(),
+                shipToAddress1: String(item.shipToAddress1 || "").trim(),
+                shipToCity: String(item.shipToCity || "").trim(),
+                shipToState: String(item.shipToState || "").trim(),
+                shipToPostalCode: String(item.shipToPostalCode || "").trim(),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : []
+            };
+        }
+
+        function sanitizePortalOrderLineRecord(item) {
+            const sku = norm(item?.sku);
+            const quantity = toPositiveInt(item?.quantity);
+            if (!sku || !quantity) return null;
+            return {
+                sku,
+                quantity,
+                trackingLevel: normalizeTrackingLevel(item?.trackingLevel)
             };
         }
 
@@ -7148,6 +8430,7 @@
 
             return {
                 inventory: state.inventory,
+                pallets: state.pallets,
                 activity: compact ? [] : state.activity.slice(0, LOCAL_CACHE_ACTIVITY_LIMIT),
                 masters: {
                     locations: state.masters.locations,
@@ -7166,13 +8449,22 @@
         function saveLabelToolState() {
             try {
                 localStorage.setItem(LABEL_TOOL_STORAGE_KEY, JSON.stringify({
+                    mode: labelToolState.mode,
                     rack: labelToolState.rack,
                     bin: labelToolState.bin,
                     level: labelToolState.level,
                     side: labelToolState.side,
                     bulk: labelToolState.bulk,
                     filter: labelToolState.filter,
-                    labels: labelToolState.labels
+                    labels: labelToolState.labels,
+                    palletCode: labelToolState.palletCode,
+                    palletAccount: labelToolState.palletAccount,
+                    palletSku: labelToolState.palletSku,
+                    palletDescription: labelToolState.palletDescription,
+                    palletCases: labelToolState.palletCases,
+                    palletDate: labelToolState.palletDate,
+                    palletLocation: labelToolState.palletLocation,
+                    palletLabels: labelToolState.palletLabels
                 }));
             } catch {
                 // Ignore device-local label queue save failures.

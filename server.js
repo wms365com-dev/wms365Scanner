@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const express = require("express");
 const path = require("path");
 const { Pool } = require("pg");
@@ -6,6 +7,9 @@ const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const ROOT_DIR = __dirname;
 const DATABASE_URL = process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_URL;
 const LEGACY_ACCOUNT = "LEGACY";
+const PORTAL_SESSION_COOKIE = "wms365_portal_session";
+const PORTAL_SESSION_TTL_DAYS = 14;
+const PORTAL_SESSION_MAX_AGE = PORTAL_SESSION_TTL_DAYS * 24 * 60 * 60;
 
 if (!DATABASE_URL) {
     console.error("DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.");
@@ -28,6 +32,7 @@ pool.on("error", (error) => {
 });
 
 const app = express();
+app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "3mb" }));
 
@@ -468,6 +473,7 @@ app.post("/api/import", async (req, res, next) => {
     try {
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
         const importedActivity = Array.isArray(req.body?.activity) ? req.body.activity.map(sanitizeActivityInput).filter(Boolean) : [];
+        const importedPallets = Array.isArray(req.body?.pallets) ? req.body.pallets.map(sanitizePalletRecordInput).filter(Boolean) : [];
         const importedLocations = Array.isArray(req.body?.masters?.locations) ? req.body.masters.locations.map(sanitizeLocationMasterInput).filter(Boolean) : [];
         const importedItems = Array.isArray(req.body?.masters?.items) ? req.body.masters.items.map(sanitizeItemMasterInput).filter(Boolean) : [];
         const importedOwners = Array.isArray(req.body?.masters?.ownerRecords)
@@ -477,7 +483,7 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, inventory_lines, bin_locations, item_catalog, owner_accounts restart identity");
+            await client.query("truncate table activity_log, pallet_records, inventory_lines, bin_locations, item_catalog, owner_accounts restart identity");
 
             for (const line of importedInventory) {
                 await client.query(
@@ -496,6 +502,34 @@ app.post("/api/import", async (req, res, next) => {
                         values ($1, $2, $3, $4)
                     `,
                     [item.type, item.title, item.details, item.timestamp]
+                );
+            }
+
+            for (const pallet of importedPallets) {
+                await client.query(
+                    `
+                        insert into pallet_records (
+                            pallet_code, account_name, sku, upc, description,
+                            cases_on_pallet, label_date, location,
+                            inventory_tracking_level, inventory_quantity,
+                            created_at, updated_at
+                        )
+                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    `,
+                    [
+                        pallet.palletCode,
+                        pallet.accountName,
+                        pallet.sku,
+                        pallet.upc,
+                        pallet.description,
+                        pallet.cases,
+                        pallet.date,
+                        pallet.location,
+                        pallet.inventoryTrackingLevel,
+                        pallet.inventoryQuantity,
+                        pallet.createdAt,
+                        pallet.updatedAt
+                    ]
                 );
             }
 
@@ -561,11 +595,25 @@ app.post("/api/import", async (req, res, next) => {
                 });
             }
 
+            for (const pallet of importedPallets) {
+                await upsertOwnerMaster(client, pallet.accountName);
+                if (pallet.location) {
+                    await upsertLocationMaster(client, pallet.location);
+                }
+                await upsertItemMaster(client, {
+                    accountName: pallet.accountName,
+                    sku: pallet.sku,
+                    upc: pallet.upc,
+                    description: pallet.description,
+                    trackingLevel: pallet.inventoryTrackingLevel
+                });
+            }
+
             await insertActivity(
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
             );
         });
 
@@ -573,6 +621,254 @@ app.post("/api/import", async (req, res, next) => {
     } catch (error) {
         next(error);
     }
+});
+
+app.get("/api/pallets/:palletCode", async (req, res, next) => {
+    try {
+        const palletCode = normalizeText(req.params?.palletCode);
+        if (!palletCode) {
+            throw httpError(400, "A pallet code is required.");
+        }
+
+        const pallet = await getPalletRecordByCode(pool, palletCode);
+        if (!pallet) {
+            throw httpError(404, `Pallet ${palletCode} could not be found.`);
+        }
+
+        res.json({ pallet });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/pallets/save", async (req, res, next) => {
+    try {
+        const entry = sanitizePalletRecordInput(req.body);
+        if (!entry || !entry.accountName || !entry.sku || !entry.cases || !entry.date) {
+            throw httpError(400, "Vendor / Customer, SKU, cases on pallet, and date are required.");
+        }
+
+        const pallet = await withTransaction(async (client) => {
+            const saved = await savePalletRecord(client, entry);
+            await insertActivity(
+                client,
+                "pallet",
+                `${entry.palletCode ? "Updated" : "Saved"} pallet ${saved.palletCode}`,
+                [
+                    saved.accountName,
+                    saved.sku,
+                    saved.location ? `Location ${saved.location}` : "Unassigned",
+                    formatTrackedQuantity(saved.inventoryQuantity, saved.inventoryTrackingLevel),
+                    `${saved.cases} case${saved.cases === 1 ? "" : "s"} on pallet`
+                ].join(" | ")
+            );
+            return saved;
+        });
+
+        res.json({ success: true, pallet });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/portal-access", async (_req, res, next) => {
+    try {
+        res.json({
+            access: await getPortalAccessList()
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/portal-orders", async (_req, res, next) => {
+    try {
+        res.json({
+            orders: await getAdminPortalOrders()
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-access", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const password = typeof req.body?.password === "string" ? req.body.password : "";
+        const isActive = req.body?.isActive !== false;
+
+        if (!accountName) {
+            throw httpError(400, "Vendor / Customer is required.");
+        }
+
+        const savedAccess = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, accountName);
+            const access = await savePortalAccess(client, { accountName, password, isActive });
+            await insertActivity(
+                client,
+                "setup",
+                `${access.isActive ? "Enabled" : "Updated"} vendor portal for ${accountName}`,
+                password
+                    ? `Portal password ${access.wasCreated ? "created" : "reset"} for vendor access.`
+                    : "Portal access status updated."
+            );
+            return access;
+        });
+
+        res.json({
+            success: true,
+            access: mapPortalAccessRow(savedAccess)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/portal/login", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+        if (!accountName || !password) {
+            throw httpError(400, "Vendor / Customer and password are required.");
+        }
+
+        const access = await withTransaction(async (client) => {
+            const vendorAccess = await getPortalAccessByAccountName(client, accountName);
+            if (!vendorAccess || !vendorAccess.is_active) {
+                throw httpError(401, "That vendor portal login is not active.");
+            }
+            if (!verifyPortalPassword(password, vendorAccess.password_hash)) {
+                throw httpError(401, "The vendor portal password was not accepted.");
+            }
+
+            const token = await createPortalSession(client, vendorAccess.id);
+            await client.query("update portal_vendor_access set last_login_at = now(), updated_at = now() where id = $1", [vendorAccess.id]);
+            return {
+                token,
+                access: await getPortalAccessById(client, vendorAccess.id)
+            };
+        });
+
+        setPortalSessionCookie(res, access.token, req);
+        res.json({
+            success: true,
+            account: mapPortalAccessRow(access.access)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/portal/logout", async (req, res, next) => {
+    try {
+        const sessionToken = getPortalSessionToken(req);
+        if (sessionToken) {
+            await deletePortalSessionByToken(sessionToken);
+        }
+        clearPortalSessionCookie(res, req);
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/portal/me", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        res.json({
+            authenticated: true,
+            account: mapPortalAccessRow(session.access)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.get("/api/portal/inventory", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        res.json({
+            inventory: await getPortalInventorySummary(session.access.account_name)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.get("/api/portal/orders", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        res.json({
+            orders: await getPortalOrdersForAccount(session.access.account_name)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/orders", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.access, req.body));
+        res.json({ success: true, order });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.put("/api/portal/orders/:id", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.access, req.body, orderId));
+        res.json({ success: true, order });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/orders/:id/release", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => releasePortalOrder(client, session.access, orderId));
+        res.json({ success: true, order });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.get("/portal", (_req, res) => {
+    res.sendFile(path.join(ROOT_DIR, "portal.html"));
+});
+
+app.get("/portal.html", (_req, res) => {
+    res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
 app.get("/", (_req, res) => {
@@ -659,6 +955,29 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
+        create table if not exists portal_vendor_access (
+            id bigserial primary key,
+            account_name text not null unique,
+            password_hash text not null,
+            is_active boolean not null default true,
+            last_login_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists portal_sessions (
+            id bigserial primary key,
+            portal_access_id bigint not null references portal_vendor_access(id) on delete cascade,
+            token_hash text not null unique,
+            expires_at timestamptz not null,
+            created_at timestamptz not null default now(),
+            last_seen_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
         create table if not exists item_catalog (
             id bigserial primary key,
             sku text not null,
@@ -682,8 +1001,72 @@ async function initializeDatabase() {
     await pool.query("update item_catalog set tracking_level = 'UNIT' where tracking_level is null or tracking_level = ''");
     await pool.query("alter table item_catalog drop constraint if exists item_catalog_sku_key");
 
+    await pool.query(`
+        create table if not exists pallet_records (
+            id bigserial primary key,
+            pallet_code text not null unique,
+            account_name text not null,
+            sku text not null,
+            upc text not null default '',
+            description text not null default '',
+            cases_on_pallet integer not null check (cases_on_pallet > 0),
+            label_date date not null,
+            location text not null default '',
+            inventory_tracking_level text not null default 'CASE',
+            inventory_quantity integer not null default 0 check (inventory_quantity >= 0),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists portal_orders (
+            id bigserial primary key,
+            order_code text,
+            account_name text not null,
+            portal_access_id bigint references portal_vendor_access(id) on delete set null,
+            status text not null default 'DRAFT',
+            po_number text not null default '',
+            shipping_reference text not null default '',
+            contact_name text not null default '',
+            contact_phone text not null default '',
+            ship_to_name text not null default '',
+            ship_to_address1 text not null default '',
+            ship_to_address2 text not null default '',
+            ship_to_city text not null default '',
+            ship_to_state text not null default '',
+            ship_to_postal_code text not null default '',
+            ship_to_country text not null default '',
+            released_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED'))
+        );
+    `);
+    await pool.query("alter table portal_orders alter column order_code drop not null");
+    await pool.query("alter table portal_orders alter column order_code drop default");
+
+    await pool.query(`
+        create table if not exists portal_order_lines (
+            id bigserial primary key,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            line_number integer not null default 1,
+            sku text not null,
+            requested_quantity integer not null check (requested_quantity > 0),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("update portal_orders set order_code = null where order_code = ''");
+    await pool.query("update portal_orders set order_code = concat('ORD-', lpad(id::text, 6, '0')) where order_code is null");
+    await pool.query("delete from portal_sessions where expires_at <= now()");
+
     await pool.query("create unique index if not exists idx_inventory_lines_account_location_sku_unique on inventory_lines (account_name, location, sku);");
     await pool.query("create unique index if not exists idx_item_catalog_account_sku_unique on item_catalog (account_name, sku);");
+    await pool.query("create unique index if not exists idx_pallet_records_code_unique on pallet_records (pallet_code);");
+    await pool.query("create index if not exists idx_pallet_records_account_name on pallet_records (account_name);");
+    await pool.query("create index if not exists idx_pallet_records_location on pallet_records (location);");
+    await pool.query("create index if not exists idx_pallet_records_sku on pallet_records (sku);");
     await pool.query("create index if not exists idx_inventory_lines_account_name on inventory_lines (account_name);");
     await pool.query("create index if not exists idx_inventory_lines_location on inventory_lines (location);");
     await pool.query("create index if not exists idx_inventory_lines_sku on inventory_lines (sku);");
@@ -694,6 +1077,13 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_item_catalog_account_name on item_catalog (account_name);");
     await pool.query("create index if not exists idx_item_catalog_sku on item_catalog (sku);");
     await pool.query("create index if not exists idx_item_catalog_upc on item_catalog (upc);");
+    await pool.query("create index if not exists idx_portal_vendor_access_account_name on portal_vendor_access (account_name);");
+    await pool.query("create index if not exists idx_portal_sessions_access_id on portal_sessions (portal_access_id);");
+    await pool.query("create index if not exists idx_portal_sessions_expires_at on portal_sessions (expires_at);");
+    await pool.query("create unique index if not exists idx_portal_orders_order_code_unique on portal_orders (order_code);");
+    await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
+    await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
+    await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
 
     await pool.query(`
@@ -761,12 +1151,13 @@ async function initializeDatabaseWithRetry() {
 }
 
 async function getServerState(client = pool) {
-    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
         client.query("select * from owner_accounts order by name asc"),
         client.query("select * from item_catalog order by account_name asc, sku asc"),
+        client.query("select * from pallet_records order by updated_at desc, pallet_code asc"),
         client.query(`
             select nullif(
                 greatest(
@@ -774,7 +1165,8 @@ async function getServerState(client = pool) {
                     coalesce((select max(created_at) from activity_log), to_timestamp(0)),
                     coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_accounts), to_timestamp(0)),
-                    coalesce((select max(updated_at) from item_catalog), to_timestamp(0))
+                    coalesce((select max(updated_at) from item_catalog), to_timestamp(0)),
+                    coalesce((select max(updated_at) from pallet_records), to_timestamp(0))
                 ),
                 to_timestamp(0)
             ) as last_changed_at
@@ -789,6 +1181,7 @@ async function getServerState(client = pool) {
 
     return {
         inventory: inventoryResult.rows.map(mapInventoryRow),
+        pallets: palletResult.rows.map(mapPalletRecordRow),
         activity: activityResult.rows.map(mapActivityRow),
         masters: {
             locations: locationResult.rows.map(mapLocationMasterRow),
@@ -797,11 +1190,457 @@ async function getServerState(client = pool) {
             owners
         },
         meta: {
-            version: 4,
+            version: 6,
             lastChangedAt: metaResult.rows[0].last_changed_at ? new Date(metaResult.rows[0].last_changed_at).toISOString() : null,
             serverSyncedAt: new Date().toISOString()
         }
     };
+}
+
+async function getPortalAccessList(client = pool) {
+    const result = await client.query("select * from portal_vendor_access order by account_name asc");
+    return result.rows.map(mapPortalAccessRow);
+}
+
+async function getPortalAccessByAccountName(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query("select * from portal_vendor_access where account_name = $1 limit 1", [normalizedAccount]);
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function getPortalAccessById(client, accessId) {
+    const result = await client.query("select * from portal_vendor_access where id = $1 limit 1", [accessId]);
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function savePortalAccess(client, { accountName, password, isActive }) {
+    const normalizedAccount = normalizeText(accountName);
+    const passwordText = typeof password === "string" ? password : "";
+    const existing = await getPortalAccessByAccountName(client, normalizedAccount);
+
+    if (!existing && !passwordText.trim()) {
+        throw httpError(400, "Set a password the first time you enable vendor portal access.");
+    }
+    if (passwordText && passwordText.length < 8) {
+        throw httpError(400, "Portal passwords must be at least 8 characters.");
+    }
+
+    if (existing) {
+        const passwordHash = passwordText ? hashPortalPassword(passwordText) : existing.password_hash;
+        const result = await client.query(
+            `
+                update portal_vendor_access
+                set
+                    password_hash = $2,
+                    is_active = $3,
+                    updated_at = now()
+                where account_name = $1
+                returning *
+            `,
+            [normalizedAccount, passwordHash, isActive !== false]
+        );
+        const row = result.rows[0];
+        row.wasCreated = false;
+        return row;
+    }
+
+    const result = await client.query(
+        `
+            insert into portal_vendor_access (account_name, password_hash, is_active)
+            values ($1, $2, $3)
+            returning *
+        `,
+        [normalizedAccount, hashPortalPassword(passwordText), isActive !== false]
+    );
+    const row = result.rows[0];
+    row.wasCreated = true;
+    return row;
+}
+
+function getPortalSessionToken(req) {
+    const cookies = parseCookies(req.headers.cookie || "");
+    return cookies[PORTAL_SESSION_COOKIE] || "";
+}
+
+async function createPortalSession(client, accessId) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashPortalSessionToken(token);
+    const expiresAt = new Date(Date.now() + (PORTAL_SESSION_MAX_AGE * 1000)).toISOString();
+    await client.query("delete from portal_sessions where portal_access_id = $1 or expires_at <= now()", [accessId]);
+    await client.query(
+        `
+            insert into portal_sessions (portal_access_id, token_hash, expires_at)
+            values ($1, $2, $3)
+        `,
+        [accessId, tokenHash, expiresAt]
+    );
+    return token;
+}
+
+async function deletePortalSessionByToken(token, client = pool) {
+    const normalizedToken = String(token || "").trim();
+    if (!normalizedToken) return;
+    await client.query("delete from portal_sessions where token_hash = $1", [hashPortalSessionToken(normalizedToken)]);
+}
+
+async function requirePortalSession(req, client = pool) {
+    const token = getPortalSessionToken(req);
+    if (!token) {
+        throw httpError(401, "Portal login required.");
+    }
+
+    const result = await client.query(
+        `
+            select
+                s.id as session_id,
+                s.portal_access_id,
+                s.expires_at,
+                a.*
+            from portal_sessions s
+            join portal_vendor_access a on a.id = s.portal_access_id
+            where s.token_hash = $1
+              and s.expires_at > now()
+            limit 1
+        `,
+        [hashPortalSessionToken(token)]
+    );
+
+    if (result.rowCount !== 1) {
+        throw httpError(401, "Portal session expired. Please log in again.");
+    }
+
+    const row = result.rows[0];
+    if (!row.is_active) {
+        throw httpError(401, "That vendor portal login is no longer active.");
+    }
+
+    await client.query("update portal_sessions set last_seen_at = now() where id = $1", [row.session_id]);
+    return {
+        sessionId: String(row.session_id),
+        access: row
+    };
+}
+
+async function getPortalInventorySummary(accountName, client = pool) {
+    const normalizedAccount = normalizeText(accountName);
+    const result = await client.query(
+        `
+            select
+                i.account_name,
+                i.sku,
+                coalesce(max(nullif(i.upc, '')), max(nullif(c.upc, '')), '') as upc,
+                coalesce(max(nullif(c.description, '')), '') as description,
+                coalesce(max(nullif(c.image_url, '')), '') as image_url,
+                coalesce(max(nullif(c.tracking_level, '')), max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
+                sum(i.quantity)::integer as total_quantity,
+                count(distinct i.location)::integer as location_count,
+                array_remove(array_agg(distinct i.location order by i.location), null) as locations
+            from inventory_lines i
+            left join item_catalog c
+              on c.account_name = i.account_name
+             and c.sku = i.sku
+            where i.account_name = $1
+            group by i.account_name, i.sku
+            order by i.sku asc
+        `,
+        [normalizedAccount]
+    );
+    return result.rows.map(mapPortalInventoryRow);
+}
+
+async function getPortalOrdersForAccount(accountName, client = pool) {
+    const normalizedAccount = normalizeText(accountName);
+    const ordersResult = await client.query(
+        `
+            select *
+            from portal_orders
+            where account_name = $1
+            order by created_at desc, id desc
+            limit 100
+        `,
+        [normalizedAccount]
+    );
+
+    const orderIds = ordersResult.rows.map((row) => row.id);
+    const linesResult = orderIds.length
+        ? await client.query(
+            `
+                select
+                    l.*,
+                    o.account_name,
+                    c.description as item_description,
+                    c.upc as item_upc,
+                    c.tracking_level as item_tracking_level
+                from portal_order_lines l
+                join portal_orders o on o.id = l.order_id
+                left join item_catalog c
+                  on c.account_name = o.account_name
+                 and c.sku = l.sku
+                where l.order_id = any($1::bigint[])
+                order by l.order_id desc, l.line_number asc, l.id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+
+    return mapPortalOrders(ordersResult.rows, linesResult.rows);
+}
+
+async function getAdminPortalOrders(client = pool) {
+    const ordersResult = await client.query(
+        `
+            select *
+            from portal_orders
+            order by created_at desc, id desc
+            limit 150
+        `
+    );
+    const orderIds = ordersResult.rows.map((row) => row.id);
+    const linesResult = orderIds.length
+        ? await client.query(
+            `
+                select
+                    l.*,
+                    o.account_name,
+                    c.description as item_description,
+                    c.upc as item_upc,
+                    c.tracking_level as item_tracking_level
+                from portal_order_lines l
+                join portal_orders o on o.id = l.order_id
+                left join item_catalog c
+                  on c.account_name = o.account_name
+                 and c.sku = l.sku
+                where l.order_id = any($1::bigint[])
+                order by l.order_id desc, l.line_number asc, l.id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+
+    return mapPortalOrders(ordersResult.rows, linesResult.rows);
+}
+
+async function getPortalOrderById(client, orderId, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    const orderResult = await client.query(
+        "select * from portal_orders where id = $1 and account_name = $2 limit 1",
+        [orderId, normalizedAccount]
+    );
+    if (orderResult.rowCount !== 1) {
+        return null;
+    }
+
+    const linesResult = await client.query(
+        `
+            select
+                l.*,
+                o.account_name,
+                c.description as item_description,
+                c.upc as item_upc,
+                c.tracking_level as item_tracking_level
+            from portal_order_lines l
+            join portal_orders o on o.id = l.order_id
+            left join item_catalog c
+              on c.account_name = o.account_name
+             and c.sku = l.sku
+            where l.order_id = $1
+            order by l.line_number asc, l.id asc
+        `,
+        [orderId]
+    );
+
+    return mapPortalOrders(orderResult.rows, linesResult.rows)[0] || null;
+}
+
+async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null) {
+    const access = mapPortalAccessRow(accessRow);
+    const order = sanitizePortalOrderInput(rawOrder, access.accountName);
+
+    if (!order.poNumber || !order.shippingReference || !order.contactName || !order.contactPhone) {
+        throw httpError(400, "PO number, shipping reference, contact name, and contact phone are required.");
+    }
+    if (!order.shipToAddress1 || !order.shipToCity || !order.shipToState || !order.shipToPostalCode || !order.shipToCountry) {
+        throw httpError(400, "A full ship-to address is required.");
+    }
+    if (!order.lines.length) {
+        throw httpError(400, "Add at least one order line before saving.");
+    }
+
+    for (const line of order.lines) {
+        await assertPortalOrderSkuAllowed(client, access.accountName, line.sku, line.quantity);
+    }
+
+    let savedOrderId = orderId;
+    if (savedOrderId) {
+        const existing = await getPortalOrderById(client, savedOrderId, access.accountName);
+        if (!existing) {
+            throw httpError(404, "That draft order could not be found.");
+        }
+        if (existing.status !== "DRAFT") {
+            throw httpError(400, "Released orders can no longer be edited from the vendor portal.");
+        }
+
+        await client.query(
+            `
+                update portal_orders
+                set
+                    po_number = $2,
+                    shipping_reference = $3,
+                    contact_name = $4,
+                    contact_phone = $5,
+                    ship_to_name = $6,
+                    ship_to_address1 = $7,
+                    ship_to_address2 = $8,
+                    ship_to_city = $9,
+                    ship_to_state = $10,
+                    ship_to_postal_code = $11,
+                    ship_to_country = $12,
+                    updated_at = now()
+                where id = $1
+            `,
+            [
+                savedOrderId,
+                order.poNumber,
+                order.shippingReference,
+                order.contactName,
+                order.contactPhone,
+                order.shipToName,
+                order.shipToAddress1,
+                order.shipToAddress2,
+                order.shipToCity,
+                order.shipToState,
+                order.shipToPostalCode,
+                order.shipToCountry
+            ]
+        );
+        await client.query("delete from portal_order_lines where order_id = $1", [savedOrderId]);
+    } else {
+        const insertResult = await client.query(
+            `
+                insert into portal_orders (
+                    account_name, portal_access_id, po_number, shipping_reference,
+                    contact_name, contact_phone,
+                    ship_to_name, ship_to_address1, ship_to_address2,
+                    ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country
+                )
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                returning id
+            `,
+            [
+                access.accountName,
+                accessRow.id,
+                order.poNumber,
+                order.shippingReference,
+                order.contactName,
+                order.contactPhone,
+                order.shipToName,
+                order.shipToAddress1,
+                order.shipToAddress2,
+                order.shipToCity,
+                order.shipToState,
+                order.shipToPostalCode,
+                order.shipToCountry
+            ]
+        );
+        savedOrderId = insertResult.rows[0].id;
+        await client.query(
+            "update portal_orders set order_code = $2, updated_at = now() where id = $1",
+            [savedOrderId, makePortalOrderCode(savedOrderId)]
+        );
+    }
+
+    for (const [index, line] of order.lines.entries()) {
+        await client.query(
+            `
+                insert into portal_order_lines (order_id, line_number, sku, requested_quantity)
+                values ($1, $2, $3, $4)
+            `,
+            [savedOrderId, index + 1, line.sku, line.quantity]
+        );
+    }
+
+    const savedOrder = await getPortalOrderById(client, savedOrderId, access.accountName);
+    await insertActivity(
+        client,
+        "order",
+        `${orderId ? "Updated" : "Created"} portal order ${savedOrder.orderCode}`,
+        `${savedOrder.accountName} | ${formatCount(savedOrder.lines.length, "line")} | PO ${savedOrder.poNumber}`
+    );
+    return savedOrder;
+}
+
+async function releasePortalOrder(client, accessRow, orderId) {
+    const access = mapPortalAccessRow(accessRow);
+    const order = await getPortalOrderById(client, orderId, access.accountName);
+    if (!order) {
+        throw httpError(404, "That order could not be found.");
+    }
+    if (order.status === "RELEASED") {
+        return order;
+    }
+    if (!order.lines.length) {
+        throw httpError(400, "Add at least one line before releasing the order.");
+    }
+
+    for (const line of order.lines) {
+        await assertPortalOrderSkuAllowed(client, access.accountName, line.sku, line.quantity);
+    }
+
+    await client.query(
+        `
+            update portal_orders
+            set
+                status = 'RELEASED',
+                released_at = now(),
+                updated_at = now()
+            where id = $1
+        `,
+        [orderId]
+    );
+
+    const releasedOrder = await getPortalOrderById(client, orderId, access.accountName);
+    await insertActivity(
+        client,
+        "order",
+        `Released portal order ${releasedOrder.orderCode}`,
+        `${releasedOrder.accountName} | ${formatCount(releasedOrder.lines.length, "line")} | ${releasedOrder.shippingReference || "No shipping reference"}`
+    );
+    return releasedOrder;
+}
+
+async function assertPortalOrderSkuAllowed(client, accountName, sku, requestedQuantity = null) {
+    const result = await client.query(
+        `
+            select
+                coalesce(sum(quantity), 0)::integer as total_quantity,
+                coalesce(max(nullif(tracking_level, '')), 'UNIT') as tracking_level
+            from inventory_lines
+            where account_name = $1 and sku = $2
+        `,
+        [normalizeText(accountName), normalizeText(sku)]
+    );
+
+    const totalQuantity = Number(result.rows[0]?.total_quantity) || 0;
+    const trackingLevel = result.rows[0]?.tracking_level || "UNIT";
+
+    if (totalQuantity <= 0) {
+        throw httpError(400, `SKU ${normalizeText(sku)} is not currently available for that vendor/customer.`);
+    }
+    if (requestedQuantity && Number(requestedQuantity) > totalQuantity) {
+        throw httpError(400, `SKU ${normalizeText(sku)} only has ${formatTrackedQuantity(totalQuantity, trackingLevel)} available right now.`);
+    }
+}
+
+function mapPortalOrders(orderRows, lineRows) {
+    const linesByOrderId = new Map();
+    lineRows.forEach((row) => {
+        const key = String(row.order_id);
+        if (!linesByOrderId.has(key)) linesByOrderId.set(key, []);
+        linesByOrderId.get(key).push(mapPortalOrderLineRow(row));
+    });
+
+    return orderRows.map((row) => mapPortalOrderRow(row, linesByOrderId.get(String(row.id)) || []));
 }
 
 async function withTransaction(handler) {
@@ -817,6 +1656,108 @@ async function withTransaction(handler) {
     } finally {
         client.release();
     }
+}
+
+async function savePalletRecord(client, palletInput) {
+    const entry = sanitizePalletRecordInput(palletInput);
+    if (!entry || !entry.accountName || !entry.sku || !entry.cases || !entry.date) {
+        throw httpError(400, "Vendor / Customer, SKU, cases on pallet, and date are required.");
+    }
+
+    const existing = entry.palletCode ? await getPalletRecordByCode(client, entry.palletCode) : null;
+    const nextCode = existing?.palletCode || entry.palletCode || await generatePalletCode(client);
+    const derived = await derivePalletInventorySettings(client, entry);
+
+    if (existing && existing.location && existing.inventoryQuantity > 0) {
+        await removeInventoryContribution(client, {
+            accountName: existing.accountName,
+            location: existing.location,
+            sku: existing.sku,
+            quantity: existing.inventoryQuantity
+        });
+    }
+
+    if (entry.location) {
+        await assertLocationCompatibleForOwner(client, entry.accountName, entry.location);
+        if (derived.inventoryQuantity > 0) {
+            await upsertInventoryLine(client, {
+                accountName: entry.accountName,
+                location: entry.location,
+                sku: entry.sku,
+                upc: derived.upc,
+                quantity: derived.inventoryQuantity,
+                trackingLevel: derived.inventoryTrackingLevel
+            });
+            await upsertLocationMaster(client, entry.location);
+        }
+    }
+
+    await upsertOwnerMaster(client, entry.accountName);
+    await upsertItemMaster(client, {
+        accountName: entry.accountName,
+        sku: entry.sku,
+        upc: derived.upc,
+        description: entry.description || derived.description,
+        trackingLevel: derived.inventoryTrackingLevel,
+        unitsPerCase: derived.unitsPerCase
+    });
+
+    const result = existing
+        ? await client.query(
+            `
+                update pallet_records
+                set
+                    account_name = $2,
+                    sku = $3,
+                    upc = $4,
+                    description = $5,
+                    cases_on_pallet = $6,
+                    label_date = $7,
+                    location = $8,
+                    inventory_tracking_level = $9,
+                    inventory_quantity = $10,
+                    updated_at = now()
+                where pallet_code = $1
+                returning *
+            `,
+            [
+                existing.palletCode,
+                entry.accountName,
+                entry.sku,
+                derived.upc,
+                entry.description || derived.description,
+                entry.cases,
+                entry.date,
+                entry.location,
+                derived.inventoryTrackingLevel,
+                derived.inventoryQuantity
+            ]
+        )
+        : await client.query(
+            `
+                insert into pallet_records (
+                    pallet_code, account_name, sku, upc, description,
+                    cases_on_pallet, label_date, location,
+                    inventory_tracking_level, inventory_quantity
+                )
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                returning *
+            `,
+            [
+                nextCode,
+                entry.accountName,
+                entry.sku,
+                derived.upc,
+                entry.description || derived.description,
+                entry.cases,
+                entry.date,
+                entry.location,
+                derived.inventoryTrackingLevel,
+                derived.inventoryQuantity
+            ]
+        );
+
+    return mapPalletRecordRow(result.rows[0]);
 }
 
 async function upsertInventoryLine(client, item) {
@@ -836,6 +1777,30 @@ async function upsertInventoryLine(client, item) {
         `,
         [item.accountName, item.location, item.sku, item.upc || "", item.trackingLevel || "UNIT", item.quantity]
     );
+}
+
+async function removeInventoryContribution(client, item) {
+    const accountName = normalizeText(item?.accountName);
+    const location = normalizeText(item?.location);
+    const sku = normalizeText(item?.sku);
+    const quantity = toPositiveInt(item?.quantity);
+    if (!accountName || !location || !sku || !quantity) return;
+
+    const result = await client.query(
+        "select * from inventory_lines where account_name = $1 and location = $2 and sku = $3 limit 1",
+        [accountName, location, sku]
+    );
+
+    if (result.rowCount !== 1) {
+        throw httpError(409, `Pallet inventory for ${accountName} / ${sku} at ${location} is missing and cannot be updated safely.`);
+    }
+
+    const line = result.rows[0];
+    if (quantity > Number(line.quantity)) {
+        throw httpError(409, `Pallet inventory for ${accountName} / ${sku} at ${location} was changed separately and cannot be reduced by ${formatTrackedQuantity(quantity, line.tracking_level)} safely.`);
+    }
+
+    await setInventoryQuantity(client, line.id, Number(line.quantity) - quantity);
 }
 
 async function upsertLocationMaster(client, code, note = "") {
@@ -1201,6 +2166,50 @@ async function findCatalogItem(client, accountName, sku, upc = "") {
     return null;
 }
 
+async function getPalletRecordByCode(client, palletCode) {
+    const normalizedCode = normalizeText(palletCode);
+    if (!normalizedCode) return null;
+    const result = await client.query("select * from pallet_records where pallet_code = $1 limit 1", [normalizedCode]);
+    return result.rowCount === 1 ? mapPalletRecordRow(result.rows[0]) : null;
+}
+
+async function generatePalletCode(client) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const palletCode = `PLT-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+        const existing = await client.query("select 1 from pallet_records where pallet_code = $1 limit 1", [palletCode]);
+        if (existing.rowCount === 0) {
+            return palletCode;
+        }
+    }
+    throw httpError(500, "A unique pallet code could not be generated. Please try again.");
+}
+
+async function derivePalletInventorySettings(client, entry) {
+    const master = await findCatalogItem(client, entry.accountName, entry.sku, entry.upc);
+    const inventoryTrackingLevel = normalizeTrackingLevel(master?.trackingLevel || "CASE");
+    const unitsPerCase = master?.unitsPerCase ?? null;
+    let inventoryQuantity = 0;
+
+    if (inventoryTrackingLevel === "PALLET") {
+        inventoryQuantity = 1;
+    } else if (inventoryTrackingLevel === "CASE") {
+        inventoryQuantity = entry.cases;
+    } else {
+        if (!unitsPerCase) {
+            throw httpError(400, `Set units per case for ${entry.accountName} / ${entry.sku} before saving pallet labels for a unit-tracked item.`);
+        }
+        inventoryQuantity = entry.cases * unitsPerCase;
+    }
+
+    return {
+        upc: entry.upc || master?.upc || "",
+        description: entry.description || master?.description || "",
+        inventoryTrackingLevel,
+        inventoryQuantity,
+        unitsPerCase
+    };
+}
+
 function groupInventoryInputs(lines) {
     const grouped = new Map();
     for (const rawLine of lines) {
@@ -1364,6 +2373,29 @@ function sanitizeActivityInput(item) {
     };
 }
 
+function sanitizePalletRecordInput(item) {
+    const accountName = normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer || "");
+    const sku = normalizeText(item?.sku);
+    const cases = toPositiveInt(item?.cases ?? item?.casesOnPallet);
+    const date = normalizeDateOnly(item?.date || item?.labelDate);
+    const palletCode = normalizeText(item?.palletCode || item?.code || item?.pallet_id || item?.palletId || "");
+    if (!accountName || !sku || !cases || !date) return null;
+    return {
+        palletCode,
+        accountName,
+        sku,
+        upc: normalizeText(item?.upc || ""),
+        description: normalizeFreeText(item?.description),
+        cases,
+        date,
+        location: normalizeText(item?.location || ""),
+        inventoryTrackingLevel: normalizeTrackingLevel(item?.inventoryTrackingLevel || item?.trackingLevel || "CASE"),
+        inventoryQuantity: toPositiveInt(item?.inventoryQuantity) || 0,
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
 function mapInventoryRow(row) {
     return {
         id: String(row.id),
@@ -1429,8 +2461,145 @@ function mapItemMasterRow(row) {
     };
 }
 
+function mapPalletRecordRow(row) {
+    return {
+        id: String(row.id),
+        palletCode: row.pallet_code,
+        accountName: row.account_name,
+        sku: row.sku,
+        upc: row.upc || "",
+        description: row.description || "",
+        cases: Number(row.cases_on_pallet) || 0,
+        date: normalizeDateOnly(row.label_date),
+        location: row.location || "",
+        inventoryTrackingLevel: normalizeTrackingLevel(row.inventory_tracking_level),
+        inventoryQuantity: Number(row.inventory_quantity) || 0,
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapPortalAccessRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name,
+        isActive: row.is_active === true,
+        lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapPortalInventoryRow(row) {
+    return {
+        accountName: row.account_name,
+        sku: row.sku,
+        upc: row.upc || "",
+        description: row.description || "",
+        imageUrl: row.image_url || "",
+        trackingLevel: normalizeTrackingLevel(row.tracking_level),
+        totalQuantity: Number(row.total_quantity) || 0,
+        locationCount: Number(row.location_count) || 0,
+        locations: Array.isArray(row.locations) ? row.locations.filter(Boolean) : []
+    };
+}
+
+function mapPortalOrderRow(row, lines = []) {
+    return {
+        id: String(row.id),
+        orderCode: row.order_code || makePortalOrderCode(row.id),
+        accountName: row.account_name,
+        status: String(row.status || "DRAFT").toUpperCase(),
+        poNumber: row.po_number || "",
+        shippingReference: row.shipping_reference || "",
+        contactName: row.contact_name || "",
+        contactPhone: row.contact_phone || "",
+        shipToName: row.ship_to_name || "",
+        shipToAddress1: row.ship_to_address1 || "",
+        shipToAddress2: row.ship_to_address2 || "",
+        shipToCity: row.ship_to_city || "",
+        shipToState: row.ship_to_state || "",
+        shipToPostalCode: row.ship_to_postal_code || "",
+        shipToCountry: row.ship_to_country || "",
+        releasedAt: row.released_at ? new Date(row.released_at).toISOString() : null,
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString(),
+        lines
+    };
+}
+
+function mapPortalOrderLineRow(row) {
+    return {
+        id: String(row.id),
+        orderId: String(row.order_id),
+        lineNumber: Number(row.line_number) || 0,
+        sku: row.sku,
+        quantity: Number(row.requested_quantity) || 0,
+        description: row.item_description || "",
+        upc: row.item_upc || "",
+        trackingLevel: normalizeTrackingLevel(row.item_tracking_level),
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function sanitizePortalOrderInput(order, accountName) {
+    return {
+        accountName: normalizeText(accountName),
+        poNumber: normalizeFreeText(order?.poNumber),
+        shippingReference: normalizeFreeText(order?.shippingReference),
+        contactName: normalizeFreeText(order?.contactName),
+        contactPhone: normalizeFreeText(order?.contactPhone),
+        shipToName: normalizeFreeText(order?.shipToName),
+        shipToAddress1: normalizeFreeText(order?.shipToAddress1),
+        shipToAddress2: normalizeFreeText(order?.shipToAddress2),
+        shipToCity: normalizeFreeText(order?.shipToCity),
+        shipToState: normalizeFreeText(order?.shipToState),
+        shipToPostalCode: normalizeFreeText(order?.shipToPostalCode),
+        shipToCountry: normalizeFreeText(order?.shipToCountry || "USA"),
+        lines: groupPortalOrderLines(Array.isArray(order?.lines) ? order.lines : [])
+    };
+}
+
+function groupPortalOrderLines(lines) {
+    const grouped = new Map();
+    for (const rawLine of lines) {
+        const line = sanitizePortalOrderLineInput(rawLine);
+        if (!line) continue;
+        const current = grouped.get(line.sku) || { sku: line.sku, quantity: 0 };
+        current.quantity += line.quantity;
+        grouped.set(line.sku, current);
+    }
+    return [...grouped.values()];
+}
+
+function sanitizePortalOrderLineInput(line) {
+    const sku = normalizeText(line?.sku);
+    const quantity = toPositiveInt(line?.quantity ?? line?.requestedQuantity);
+    if (!sku && !quantity) return null;
+    if (!sku || !quantity) {
+        throw httpError(400, "Each order line must include a SKU and quantity.");
+    }
+    return { sku, quantity };
+}
+
 function normalizeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function normalizeDateOnly(value) {
+    if (!value) return "";
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
+    const text = String(value).trim();
+    const direct = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (direct) {
+        return `${direct[1]}-${direct[2]}-${direct[3]}`;
+    }
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString().slice(0, 10);
 }
 
 function normalizeFreeText(value) {
@@ -1487,6 +2656,78 @@ function shouldUseSsl(connectionString) {
         return false;
     }
     return process.env.PGSSL !== "false";
+}
+
+function hashPortalPassword(password) {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const derived = crypto.scryptSync(password, salt, 64).toString("hex");
+    return `${salt}:${derived}`;
+}
+
+function verifyPortalPassword(password, storedHash) {
+    const [salt, hash] = String(storedHash || "").split(":");
+    if (!salt || !hash) return false;
+    const storedBuffer = Buffer.from(hash, "hex");
+    const derivedBuffer = crypto.scryptSync(password, salt, storedBuffer.length);
+    if (storedBuffer.length !== derivedBuffer.length) return false;
+    return crypto.timingSafeEqual(storedBuffer, derivedBuffer);
+}
+
+function hashPortalSessionToken(token) {
+    return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function parseCookies(cookieHeader) {
+    return String(cookieHeader || "")
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .reduce((cookies, part) => {
+            const separatorIndex = part.indexOf("=");
+            if (separatorIndex < 0) return cookies;
+            const key = part.slice(0, separatorIndex).trim();
+            const value = part.slice(separatorIndex + 1).trim();
+            cookies[key] = decodeURIComponent(value);
+            return cookies;
+        }, {});
+}
+
+function isSecureRequest(req) {
+    if (req.secure) return true;
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+    return forwardedProto === "https";
+}
+
+function setPortalSessionCookie(res, token, req) {
+    const parts = [
+        `${PORTAL_SESSION_COOKIE}=${encodeURIComponent(token)}`,
+        "Path=/",
+        "HttpOnly",
+        "SameSite=Lax",
+        `Max-Age=${PORTAL_SESSION_MAX_AGE}`
+    ];
+    if (isSecureRequest(req)) {
+        parts.push("Secure");
+    }
+    res.append("Set-Cookie", parts.join("; "));
+}
+
+function clearPortalSessionCookie(res, req) {
+    const parts = [
+        `${PORTAL_SESSION_COOKIE}=`,
+        "Path=/",
+        "HttpOnly",
+        "SameSite=Lax",
+        "Max-Age=0"
+    ];
+    if (isSecureRequest(req)) {
+        parts.push("Secure");
+    }
+    res.append("Set-Cookie", parts.join("; "));
+}
+
+function makePortalOrderCode(orderId) {
+    return `ORD-${String(orderId).padStart(6, "0")}`;
 }
 
 function httpError(statusCode, message) {
