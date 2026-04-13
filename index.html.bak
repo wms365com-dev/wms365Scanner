@@ -2445,30 +2445,19 @@
 
                     <div class="library-grid">
                         <div class="helper">
-                            <h3>Vendor / Customer Profile</h3>
-                            <p class="meta">Capture vendor details once and link the portal login email to customer portal access.</p>
+                            <h3>Add Vendor / Customer</h3>
                             <form id="masterOwnerForm" class="form-grid" autocomplete="off">
-                                <label class="field span-2"><span>Vendor / Customer Name</span><input id="masterOwnerName" list="ownerList" type="text" placeholder="Required vendor / customer name" enterkeyhint="next"></label>
-                                <label class="field span-2"><span>Legal Name</span><input id="masterOwnerLegalName" type="text" placeholder="Optional legal company name" enterkeyhint="next"></label>
-                                <label class="field"><span>Account Code</span><input id="masterOwnerCode" type="text" placeholder="Optional internal code" enterkeyhint="next"></label>
-                                <label class="field"><span>Status</span><select id="masterOwnerActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
-                                <label class="field"><span>Main Contact</span><input id="masterOwnerContactName" type="text" placeholder="Primary contact name" enterkeyhint="next"></label>
-                                <label class="field"><span>Contact Title</span><input id="masterOwnerContactTitle" type="text" placeholder="Optional title" enterkeyhint="next"></label>
-                                <label class="field"><span>Main Email</span><input id="masterOwnerEmail" type="email" placeholder="General contact email" enterkeyhint="next"></label>
-                                <label class="field"><span>Phone</span><input id="masterOwnerPhone" type="text" placeholder="Main phone" enterkeyhint="next"></label>
-                                <label class="field"><span>Mobile</span><input id="masterOwnerMobile" type="text" placeholder="Optional mobile / cell" enterkeyhint="next"></label>
-                                <label class="field"><span>Website</span><input id="masterOwnerWebsite" type="text" placeholder="Optional website" enterkeyhint="next"></label>
-                                <label class="field"><span>Billing Email</span><input id="masterOwnerBillingEmail" type="email" placeholder="Optional billing email" enterkeyhint="next"></label>
-                                <label class="field"><span>AP Email</span><input id="masterOwnerApEmail" type="email" placeholder="Optional accounts payable email" enterkeyhint="next"></label>
-                                <label class="field span-2"><span>Portal Login Email</span><input id="masterOwnerPortalEmail" type="email" placeholder="Linked customer portal login email" enterkeyhint="next"></label>
-                                <label class="field span-2"><span>Address 1</span><input id="masterOwnerAddress1" type="text" placeholder="Street address" enterkeyhint="next"></label>
-                                <label class="field span-2"><span>Address 2</span><input id="masterOwnerAddress2" type="text" placeholder="Suite, unit, floor, etc." enterkeyhint="next"></label>
-                                <label class="field"><span>City</span><input id="masterOwnerCity" type="text" placeholder="City" enterkeyhint="next"></label>
-                                <label class="field"><span>Province / State</span><input id="masterOwnerState" type="text" placeholder="Province or state" enterkeyhint="next"></label>
-                                <label class="field"><span>Postal / ZIP</span><input id="masterOwnerPostalCode" type="text" placeholder="Postal or ZIP code" enterkeyhint="next"></label>
-                                <label class="field"><span>Country</span><input id="masterOwnerCountry" type="text" placeholder="Country" enterkeyhint="next"></label>
-                                <label class="field span-2"><span>Note</span><input id="masterOwnerNote" type="text" placeholder="Optional note for the team" enterkeyhint="done"></label>
-                                <div class="button-row span-2"><button class="btn secondary" type="submit">Save Vendor / Customer</button><button class="btn ghost" id="loadVendorToPortalBtn" type="button">Load Into Portal Access</button></div>
+                                <label class="field">
+                                    <span>Name</span>
+                                    <input id="masterOwnerName" list="ownerList" type="text" placeholder="Required vendor / customer name" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Note</span>
+                                    <input id="masterOwnerNote" type="text" placeholder="Optional note for the team" enterkeyhint="done">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Vendor / Customer</button>
+                                </div>
                             </form>
                         </div>
 
@@ -2598,15 +2587,11 @@
                     <div class="library-grid" style="margin-top: 1rem; margin-bottom: 1rem;">
                         <div class="helper">
                             <h3>Vendor Portal Access</h3>
-                            <p class="meta">Use the linked portal login email from the vendor profile or override it here. Password resets stay warehouse-admin only.</p>
+                            <p class="meta">Create one shared portal login per vendor / customer so they can see only their own inventory and enter their own orders.</p>
                             <form id="portalAccessForm" class="form-grid" autocomplete="off">
                                 <label class="field span-2">
                                     <span>Vendor / Customer</span>
                                     <input id="portalAccessAccount" list="ownerList" type="text" placeholder="Required vendor / customer" enterkeyhint="next">
-                                </label>
-                                <label class="field span-2">
-                                    <span>User Email</span>
-                                    <input id="portalAccessEmail" type="email" placeholder="Required login email" enterkeyhint="next">
                                 </label>
                                 <label class="field">
                                     <span>Portal Password</span>
@@ -3452,28 +3437,9 @@
             masterLocationCount: document.getElementById("masterLocationCount"),
             masterItemCount: document.getElementById("masterItemCount"),
             masterOwnerList: document.getElementById("masterOwnerList"),
-            masterOwnerLegalName: document.getElementById("masterOwnerLegalName"),
-            masterOwnerCode: document.getElementById("masterOwnerCode"),
-            masterOwnerActive: document.getElementById("masterOwnerActive"),
-            masterOwnerContactName: document.getElementById("masterOwnerContactName"),
-            masterOwnerContactTitle: document.getElementById("masterOwnerContactTitle"),
-            masterOwnerEmail: document.getElementById("masterOwnerEmail"),
-            masterOwnerPhone: document.getElementById("masterOwnerPhone"),
-            masterOwnerMobile: document.getElementById("masterOwnerMobile"),
-            masterOwnerWebsite: document.getElementById("masterOwnerWebsite"),
-            masterOwnerBillingEmail: document.getElementById("masterOwnerBillingEmail"),
-            masterOwnerApEmail: document.getElementById("masterOwnerApEmail"),
-            masterOwnerPortalEmail: document.getElementById("masterOwnerPortalEmail"),
-            masterOwnerAddress1: document.getElementById("masterOwnerAddress1"),
-            masterOwnerAddress2: document.getElementById("masterOwnerAddress2"),
-            masterOwnerCity: document.getElementById("masterOwnerCity"),
-            masterOwnerState: document.getElementById("masterOwnerState"),
-            masterOwnerPostalCode: document.getElementById("masterOwnerPostalCode"),
-            masterOwnerCountry: document.getElementById("masterOwnerCountry"),
             masterLocationList: document.getElementById("masterLocationList"),
             masterItemList: document.getElementById("masterItemList"),
             portalAccessAccount: document.getElementById("portalAccessAccount"),
-            portalAccessEmail: document.getElementById("portalAccessEmail"),
             portalAccessPassword: document.getElementById("portalAccessPassword"),
             portalAccessActive: document.getElementById("portalAccessActive"),
             portalAccessMessage: document.getElementById("portalAccessMessage"),
@@ -3679,7 +3645,6 @@
             document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
-            document.getElementById("loadVendorToPortalBtn").addEventListener("click", loadVendorToPortalAccess);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
             ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
             ui.masterFilter.addEventListener("input", renderMasterLibrary);
@@ -6337,104 +6302,45 @@
 
         async function saveMasterOwner(event) {
             event.preventDefault();
-            const entry = sanitizeMasterOwner({
-                name: ui.masterOwnerName.value,
-                legalName: ui.masterOwnerLegalName.value,
-                accountCode: ui.masterOwnerCode.value,
-                contactName: ui.masterOwnerContactName.value,
-                contactTitle: ui.masterOwnerContactTitle.value,
-                email: ui.masterOwnerEmail.value,
-                phone: ui.masterOwnerPhone.value,
-                mobile: ui.masterOwnerMobile.value,
-                website: ui.masterOwnerWebsite.value,
-                billingEmail: ui.masterOwnerBillingEmail.value,
-                apEmail: ui.masterOwnerApEmail.value,
-                portalLoginEmail: ui.masterOwnerPortalEmail.value,
-                address1: ui.masterOwnerAddress1.value,
-                address2: ui.masterOwnerAddress2.value,
-                city: ui.masterOwnerCity.value,
-                state: ui.masterOwnerState.value,
-                postalCode: ui.masterOwnerPostalCode.value,
-                country: ui.masterOwnerCountry.value,
-                isActive: ui.masterOwnerActive.value !== "false",
-                note: ui.masterOwnerNote.value
-            });
-            if (!entry?.name) return fail(ui.catalogMessage, "Enter a vendor / customer name to save.", ui.masterOwnerName);
+            const name = norm(ui.masterOwnerName.value);
+            const note = String(ui.masterOwnerNote.value || "").trim().replace(/\s+/g, " ");
+            if (!name) return fail(ui.catalogMessage, "Enter a vendor / customer name to save.", ui.masterOwnerName);
 
             try {
                 await requestJson("/api/master-owner", {
                     method: "POST",
-                    body: JSON.stringify(entry)
+                    body: JSON.stringify({ name, note })
                 });
-                await syncServerState(true);
-                state.preferences.lastAccount = entry.name;
+                const existingOwner = (state.masters.ownerRecords || []).find((owner) => owner.name === name);
+                if (existingOwner) {
+                    existingOwner.note = note;
+                    existingOwner.updatedAt = new Date().toISOString();
+                } else {
+                    state.masters.ownerRecords.push(sanitizeMasterOwner({ name, note }));
+                }
+                state.masters.owners = [...new Set([...(state.masters.owners || []), name])];
+                state.preferences.lastAccount = name;
                 saveState();
-                ui.scanAccount.value = entry.name;
-                ui.masterItemAccount.value = entry.name;
-                ui.portalAccessAccount.value = entry.name;
-                if (entry.portalLoginEmail) ui.portalAccessEmail.value = entry.portalLoginEmail;
-                showMessage(ui.catalogMessage, `Saved vendor / customer ${entry.name}${entry.portalLoginEmail ? ` with linked portal email ${entry.portalLoginEmail}` : ""}.`, "success");
+                renderDatalists();
+                await syncServerState(true);
+                ui.scanAccount.value = name;
+                ui.masterItemAccount.value = name;
+                showMessage(ui.catalogMessage, `Saved vendor / customer ${name} to the shared library.`, "success");
                 document.getElementById("masterOwnerForm").reset();
-                ui.masterOwnerActive.value = "true";
                 ui.masterOwnerName.focus();
             } catch (error) {
                 showMessage(ui.catalogMessage, error.message, "error");
             }
         }
 
-        function loadOwnerProfile(owner) {
-            const entry = sanitizeMasterOwner(owner);
-            if (!entry) return;
-            ui.masterOwnerName.value = entry.name;
-            ui.masterOwnerLegalName.value = entry.legalName || "";
-            ui.masterOwnerCode.value = entry.accountCode || "";
-            ui.masterOwnerActive.value = entry.isActive === false ? "false" : "true";
-            ui.masterOwnerContactName.value = entry.contactName || "";
-            ui.masterOwnerContactTitle.value = entry.contactTitle || "";
-            ui.masterOwnerEmail.value = entry.email || "";
-            ui.masterOwnerPhone.value = entry.phone || "";
-            ui.masterOwnerMobile.value = entry.mobile || "";
-            ui.masterOwnerWebsite.value = entry.website || "";
-            ui.masterOwnerBillingEmail.value = entry.billingEmail || "";
-            ui.masterOwnerApEmail.value = entry.apEmail || "";
-            ui.masterOwnerPortalEmail.value = entry.portalLoginEmail || "";
-            ui.masterOwnerAddress1.value = entry.address1 || "";
-            ui.masterOwnerAddress2.value = entry.address2 || "";
-            ui.masterOwnerCity.value = entry.city || "";
-            ui.masterOwnerState.value = entry.state || "";
-            ui.masterOwnerPostalCode.value = entry.postalCode || "";
-            ui.masterOwnerCountry.value = entry.country || "";
-            ui.masterOwnerNote.value = entry.note || "";
-        }
-
-        function loadVendorToPortalAccess() {
-            const entry = sanitizeMasterOwner({
-                name: ui.masterOwnerName.value,
-                portalLoginEmail: ui.masterOwnerPortalEmail.value,
-                email: ui.masterOwnerEmail.value,
-                isActive: ui.masterOwnerActive.value !== "false"
-            });
-            if (!entry?.name) return fail(ui.portalAccessMessage, "Enter or load a vendor / customer profile first.", ui.masterOwnerName);
-            ui.portalAccessAccount.value = entry.name;
-            ui.portalAccessEmail.value = entry.portalLoginEmail || entry.email || "";
-            ui.portalAccessActive.value = entry.isActive === false ? "false" : "true";
-            ui.portalAccessPassword.focus();
-            showMessage(ui.portalAccessMessage, `Loaded ${entry.name} into portal access.${ui.portalAccessEmail.value ? ` Linked email ${ui.portalAccessEmail.value}.` : " Add the login email and password."}`, "info");
-        }
-
         async function savePortalAccess(event) {
             event.preventDefault();
             const accountName = norm(ui.portalAccessAccount.value);
-            const linkedOwner = (state.masters.ownerRecords || []).find((owner) => owner.name === accountName);
-            const email = norm(String(ui.portalAccessEmail.value || linkedOwner?.portalLoginEmail || linkedOwner?.email || "").toLowerCase());
             const password = String(ui.portalAccessPassword.value || "");
             const isActive = ui.portalAccessActive.value !== "false";
 
             if (!accountName) {
                 return fail(ui.portalAccessMessage, "Choose the vendor / customer for this portal login.", ui.portalAccessAccount);
-            }
-            if (!email) {
-                return fail(ui.portalAccessMessage, "Enter the login email address for this customer portal user.", ui.portalAccessEmail);
             }
             if (!password && !portalAccessRecords.some((entry) => entry.accountName === accountName)) {
                 return fail(ui.portalAccessMessage, "Set a password the first time you enable portal access for a vendor.", ui.portalAccessPassword);
@@ -6443,16 +6349,19 @@
             try {
                 await requestJson("/api/admin/portal-access", {
                     method: "POST",
-                    body: JSON.stringify({ accountName, email, password, isActive })
+                    body: JSON.stringify({ accountName, password, isActive })
                 });
                 state.preferences.lastAccount = accountName;
                 saveState();
                 ui.scanAccount.value = accountName;
                 ui.masterItemAccount.value = accountName;
-                ui.portalAccessEmail.value = email;
                 ui.portalAccessPassword.value = "";
                 await refreshPortalAccessList();
-                showMessage(ui.portalAccessMessage, `${isActive ? "Saved" : "Updated"} portal access for ${accountName} linked to ${email}${password ? " with a new password" : ""}.`, "success");
+                showMessage(
+                    ui.portalAccessMessage,
+                    `${isActive ? "Saved" : "Updated"} portal access for ${accountName}${password ? " with a new password" : ""}.`,
+                    "success"
+                );
             } catch (error) {
                 showMessage(ui.portalAccessMessage, error.message, "error");
             }
@@ -6485,7 +6394,8 @@
                     <div class="quick-main">
                         <strong>${esc(entry.accountName)}</strong>
                         <div class="quick-meta">
-                            ${entry.email ? `Email ${esc(entry.email)} | ` : ""}${entry.isActive ? "Portal active" : "Portal disabled"}${entry.lastLoginAt ? ` | Last login ${esc(formatDate(entry.lastLoginAt))}` : " | No portal login yet"}
+                            ${entry.isActive ? "Portal active" : "Portal disabled"}
+                            ${entry.lastLoginAt ? ` | Last login ${esc(formatDate(entry.lastLoginAt))}` : " | No portal login yet"}
                         </div>
                     </div>
                     <button class="btn ghost mini" type="button" data-edit-portal-access="${attr(entry.accountName)}">Load</button>
@@ -6499,11 +6409,8 @@
             const accountName = editButton.dataset.editPortalAccess || "";
             ui.portalAccessAccount.value = accountName;
             const match = portalAccessRecords.find((entry) => entry.accountName === accountName);
-            const owner = (state.masters.ownerRecords || []).find((entry) => entry.name === accountName);
-            ui.portalAccessEmail.value = match?.email || owner?.portalLoginEmail || owner?.email || "";
-            ui.portalAccessActive.value = match?.isActive === false ? "false" : (owner?.isActive === false ? "false" : "true");
+            ui.portalAccessActive.value = match?.isActive === false ? "false" : "true";
             ui.portalAccessPassword.value = "";
-            if (owner) loadOwnerProfile(owner);
             ui.portalAccessPassword.focus();
         }
 
@@ -6729,25 +6636,15 @@
                 return `<p class="empty">${query ? `No saved vendors / customers matched "${esc(query)}".` : "No vendors / customers saved yet. Add them here so they show up in autocomplete."}</p>`;
             }
 
-            const rows = owners.map((entry) => {
-                const meta = [
-                    entry.contactName ? `Contact ${entry.contactName}` : "",
-                    entry.email ? `Email ${entry.email}` : "",
-                    entry.portalLoginEmail ? `Portal ${entry.portalLoginEmail}` : "",
-                    entry.phone ? `Phone ${entry.phone}` : "",
-                    entry.city ? [entry.city, entry.state, entry.country].filter(Boolean).join(", ") : "",
-                    entry.isActive === false ? "Inactive" : "Active"
-                ].filter(Boolean).join(" | ");
-                return `
+            const rows = owners.map((entry) => `
                 <div class="quick-row">
                     <div class="quick-main">
                         <strong>${esc(entry.name)}</strong>
-                        <div class="quick-meta">${esc(meta || entry.note || "Saved vendor / customer")}</div>
-                        ${entry.note ? `<div class="quick-meta">${esc(entry.note)}</div>` : ""}
+                        <div class="quick-meta">${esc(entry.note || "Saved vendor / customer")}</div>
                     </div>
-                    <button class="btn ghost mini" type="button" data-use-owner="${attr(entry.name)}">Use</button>
+                    <button class="btn ghost mini" type="button" data-use-owner="${attr(entry.name)}">Use In Scan</button>
                 </div>
-            `;}).join("");
+            `).join("");
 
             if (owners.length < totalMatches) {
                 return `${rows}<p class="meta">Showing the first ${num(owners.length)} of ${num(totalMatches)} vendors / customers. Narrow the filter to see more.</p>`;
@@ -8422,24 +8319,6 @@
             return {
                 id: typeof item?.id === "string" ? item.id : makeId("owner"),
                 name,
-                legalName: String(item?.legalName || item?.legal_name || "").trim().replace(/\s+/g, " "),
-                accountCode: norm(item?.accountCode || item?.account_code || ""),
-                contactName: String(item?.contactName || item?.contact_name || "").trim().replace(/\s+/g, " "),
-                contactTitle: String(item?.contactTitle || item?.contact_title || "").trim().replace(/\s+/g, " "),
-                email: norm(String(item?.email || "").toLowerCase()),
-                phone: String(item?.phone || "").trim().replace(/\s+/g, " "),
-                mobile: String(item?.mobile || item?.cell || "").trim().replace(/\s+/g, " "),
-                website: String(item?.website || "").trim(),
-                billingEmail: norm(String(item?.billingEmail || item?.billing_email || "").toLowerCase()),
-                apEmail: norm(String(item?.apEmail || item?.ap_email || "").toLowerCase()),
-                portalLoginEmail: norm(String(item?.portalLoginEmail || item?.portal_login_email || item?.portalEmail || "").toLowerCase()),
-                address1: String(item?.address1 || item?.address_1 || "").trim().replace(/\s+/g, " "),
-                address2: String(item?.address2 || item?.address_2 || "").trim().replace(/\s+/g, " "),
-                city: String(item?.city || "").trim().replace(/\s+/g, " "),
-                state: String(item?.state || item?.province || "").trim().replace(/\s+/g, " "),
-                postalCode: norm(item?.postalCode || item?.postal_code || item?.zip || ""),
-                country: String(item?.country || "").trim().replace(/\s+/g, " "),
-                isActive: item?.isActive !== false,
                 note: String(typeof item === "string" ? "" : item?.note || "").trim().replace(/\s+/g, " "),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
@@ -8452,7 +8331,6 @@
             return {
                 id: typeof item?.id === "string" ? item.id : makeId("portal"),
                 accountName,
-                email: norm(String(item?.email || "").toLowerCase()),
                 isActive: item?.isActive !== false,
                 lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : null,
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),

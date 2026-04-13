@@ -201,12 +201,12 @@
             <article class="card auth-card">
                 <div class="header-copy">
                     <h2>Vendor Login</h2>
-                    <p class="lead">Use your assigned email address and portal password. Your vendor / customer account is linked behind the scenes by the warehouse admin.</p>
+                    <p class="lead">Use your assigned Vendor / Customer name and portal password.</p>
                 </div>
                 <form id="loginForm" class="form-grid" autocomplete="off">
                     <label class="field span-2">
-                        <span>Email Address</span>
-                        <input id="loginEmail" type="email" placeholder="Enter your email address">
+                        <span>Vendor / Customer</span>
+                        <input id="loginAccount" type="text" placeholder="Enter your vendor / customer name">
                     </label>
                     <label class="field span-2">
                         <span>Password</span>
@@ -334,7 +334,7 @@
             loginView: document.getElementById("loginView"),
             portalView: document.getElementById("portalView"),
             loginForm: document.getElementById("loginForm"),
-            loginEmail: document.getElementById("loginEmail"),
+            loginAccount: document.getElementById("loginAccount"),
             loginPassword: document.getElementById("loginPassword"),
             navButtons: [...document.querySelectorAll("[data-view]")],
             logoutBtn: document.getElementById("logoutBtn"),
@@ -413,17 +413,17 @@
 
         async function onLoginSubmit(event) {
             event.preventDefault();
-            const email = norm(String(ui.loginEmail.value || "").toLowerCase());
+            const accountName = norm(ui.loginAccount.value);
             const password = String(ui.loginPassword.value || "");
 
-            if (!email || !password) {
-                return setMessage("Email address and password are required.", "error");
+            if (!accountName || !password) {
+                return setMessage("Vendor / Customer and password are required.", "error");
             }
 
             try {
                 const payload = await requestJson("/api/portal/login", {
                     method: "POST",
-                    body: JSON.stringify({ email, password })
+                    body: JSON.stringify({ accountName, password })
                 });
                 portalState.account = payload.account;
                 ui.loginPassword.value = "";
