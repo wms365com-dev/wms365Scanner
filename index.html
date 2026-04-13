@@ -144,6 +144,45 @@
 
         .stats-grid { align-content: start; }
 
+        .company-context-card {
+            display: grid;
+            gap: 0.75rem;
+            padding: 1rem;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: var(--panel-2);
+        }
+
+        .company-context-card span {
+            display: block;
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .company-context-card strong {
+            display: block;
+            font-size: 1.15rem;
+            color: var(--text);
+        }
+
+        .company-context-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 0.65rem;
+            align-items: center;
+        }
+
+        .company-context-row .btn {
+            min-width: 96px;
+        }
+
+        .company-context-input {
+            background: #ffffff;
+        }
+
         .stat {
             flex: 1 1 140px;
             padding: 1rem;
@@ -793,6 +832,39 @@
         .report-sheet-table td.sheet-wrap {
             white-space: normal;
             min-width: 220px;
+        }
+
+        .billing-rate-table input[type="text"],
+        .billing-rate-table input[type="number"] {
+            width: 100%;
+            min-width: 0;
+            padding: 0.6rem 0.7rem;
+        }
+
+        .billing-rate-toggle {
+            width: 18px;
+            height: 18px;
+        }
+
+        .billing-fee-name {
+            display: grid;
+            gap: 0.2rem;
+        }
+
+        .billing-fee-name strong {
+            font-size: 0.95rem;
+        }
+
+        .billing-fee-code {
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .billing-money {
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
         }
 
         table {
@@ -2221,6 +2293,10 @@
                             <strong>Reports</strong>
                             <span>Review owner usage, pallet positions, and exports.</span>
                         </button>
+                        <button class="quick-link" type="button" data-jump-section="billing">
+                            <strong>Billing</strong>
+                            <span>Set owner fees, review billing lines, and export invoices.</span>
+                        </button>
                         <button class="quick-link" type="button" data-jump-section="labels">
                             <strong>Labels</strong>
                             <span>Build location and pallet labels for the floor.</span>
@@ -2261,6 +2337,10 @@
             <button class="tab" data-section="reports" type="button">
                 <span class="tab-label">Reports</span>
                 <span class="tab-meta">Check owner usage, pallet locations, and exports.</span>
+            </button>
+            <button class="tab" data-section="billing" type="button">
+                <span class="tab-label">Billing</span>
+                <span class="tab-meta">Apply owner fee schedules and review invoice-ready billing lines.</span>
             </button>
             <button class="tab" data-section="labels" type="button">
                 <span class="tab-label">Labels</span>
@@ -2468,7 +2548,7 @@
                                 <label class="field"><span>Postal / ZIP</span><input id="masterOwnerPostalCode" type="text" placeholder="Postal or ZIP code" enterkeyhint="next"></label>
                                 <label class="field"><span>Country</span><input id="masterOwnerCountry" type="text" placeholder="Country" enterkeyhint="next"></label>
                                 <label class="field span-2"><span>Note</span><input id="masterOwnerNote" type="text" placeholder="Optional note for the team" enterkeyhint="done"></label>
-                                <div class="button-row span-2"><button class="btn secondary" type="submit">Save Vendor / Customer</button><button class="btn ghost" id="loadVendorToPortalBtn" type="button">Load Into Portal Access</button></div>
+                                <div class="button-row span-2"><button class="btn secondary" type="submit">Save Vendor / Customer</button><button class="btn ghost" id="loadVendorToPortalBtn" type="button">Load Into Portal Access</button><button class="btn ghost" id="loadVendorToBillingBtn" type="button">Load Into Billing</button></div>
                             </form>
                         </div>
 
@@ -3143,8 +3223,189 @@
                     </div>
                     <span class="meta" id="portalOrdersMeta">0 orders</span>
                 </div>
+                <div id="portalOrdersMessage" class="status"></div>
                 <div id="portalOrdersList">
                     <p class="empty">No vendor portal orders yet.</p>
+                </div>
+            </article>
+        </section>
+
+        <section class="panel" id="billingPanel" data-panel="billing">
+            <div class="mobile-panel-head mobile-only">
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
+            <div class="inventory-grid">
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Warehouse Billing</h2>
+                            <p class="lead">Assign fees by vendor/customer, let warehouse transactions create billing lines automatically, then export invoice-ready detail for Zoho.</p>
+                        </div>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 240px;">
+                            <span>Vendor / Customer</span>
+                            <input id="billingOwner" list="ownerList" type="text" placeholder="Required to edit owner fee setup">
+                        </label>
+                        <label class="field" style="flex: 1 1 220px;">
+                            <span>Fee Filter</span>
+                            <input id="billingFeeFilter" type="text" placeholder="Filter fee name or code">
+                        </label>
+                        <label class="field" style="flex: 1 1 160px;">
+                            <span>Storage Month</span>
+                            <input id="billingStorageMonth" type="month">
+                        </label>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn" id="saveBillingRatesBtn" type="button">Save Fee Setup</button>
+                        <button class="btn secondary" id="generateStorageBillingBtn" type="button">Generate Storage Billing</button>
+                        <button class="btn ghost" id="exportBillingZohoBtn" type="button">Export Zoho CSV</button>
+                        <button class="btn ghost" id="exportBillingDetailBtn" type="button">Export Detail CSV</button>
+                    </div>
+                    <div class="status" id="billingMessage"></div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Billing Snapshot</h2>
+                            <p class="lead">Open billing stays separate from invoiced history so the warehouse team can keep the month clean.</p>
+                        </div>
+                    </div>
+                    <div class="summary-grid">
+                        <div class="summary"><span>Active Fees</span><strong id="billingActiveFeeCount">0</strong></div>
+                        <div class="summary"><span>Open Lines</span><strong id="billingOpenLineCount">0</strong></div>
+                        <div class="summary"><span>Open Amount</span><strong id="billingOpenAmount">$0.00</strong></div>
+                        <div class="summary"><span>Filtered Amount</span><strong id="billingFilteredAmount">$0.00</strong></div>
+                    </div>
+                    <p class="lead">Auto-billing currently covers receiving batch saves, shipped portal orders, and monthly storage generation. Everything else can be added manually.</p>
+                </article>
+            </div>
+
+            <div class="action-grid" style="margin-top: 1rem;">
+                <article class="card desktop-complex">
+                    <div class="card-head">
+                        <div>
+                            <h2>Owner Fee Setup</h2>
+                            <p class="lead">Enable only the fees this customer uses and set their agreed rate once.</p>
+                        </div>
+                        <span class="meta" id="billingRatesMeta">Choose a vendor / customer</span>
+                    </div>
+                    <p class="empty" id="billingRatesEmpty">Choose a vendor / customer to assign warehouse billing rates.</p>
+                    <div class="table-wrap hidden" id="billingRatesWrap">
+                        <table class="billing-rate-table">
+                            <thead>
+                                <tr>
+                                    <th>On</th>
+                                    <th>Category</th>
+                                    <th>Fee</th>
+                                    <th>Unit</th>
+                                    <th>Rate</th>
+                                    <th>Note</th>
+                                </tr>
+                            </thead>
+                            <tbody id="billingRatesBody"></tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="card desktop-complex">
+                    <div class="card-head">
+                        <div>
+                            <h2>Manual Billing Line</h2>
+                            <p class="lead">Use this for labour, special handling, materials, container unloads, and any service that is not auto-generated.</p>
+                        </div>
+                    </div>
+                    <form id="billingManualForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Fee</span>
+                            <select id="billingManualFeeCode"></select>
+                        </label>
+                        <label class="field">
+                            <span>Service Date</span>
+                            <input id="billingManualDate" type="date">
+                        </label>
+                        <label class="field">
+                            <span>Quantity</span>
+                            <input id="billingManualQuantity" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Rate</span>
+                            <input id="billingManualRate" type="number" min="0" step="0.0001" inputmode="decimal" placeholder="Auto-fills from fee setup">
+                        </label>
+                        <label class="field">
+                            <span>Reference</span>
+                            <input id="billingManualReference" type="text" placeholder="PO, shipment, project, etc.">
+                        </label>
+                        <label class="field span-2">
+                            <span>Note</span>
+                            <input id="billingManualNote" type="text" placeholder="Optional internal note for the invoice team">
+                        </label>
+                        <div class="helper span-2">
+                            <div class="meta" id="billingManualFeeMeta">Choose a vendor / customer and fee to add a manual billing line.</div>
+                        </div>
+                        <div class="button-row span-2">
+                            <button class="btn secondary" type="submit">Add Manual Billing Line</button>
+                        </div>
+                    </form>
+                </article>
+            </div>
+
+            <article class="card desktop-complex" style="margin-top: 1rem;">
+                <div class="card-head">
+                    <div>
+                        <h2>Billing Ledger</h2>
+                        <p class="lead">Filter the billing queue before exporting to Zoho or marking those lines invoiced.</p>
+                    </div>
+                    <span class="meta" id="billingEventsMeta">0 lines</span>
+                </div>
+                <div class="button-row" style="margin-bottom: 1rem;">
+                    <label class="field" style="flex: 1 1 220px;">
+                        <span>Status</span>
+                        <select id="billingStatusFilter">
+                            <option value="OPEN">Open Only</option>
+                            <option value="INVOICED">Invoiced Only</option>
+                            <option value="ALL">All Statuses</option>
+                        </select>
+                    </label>
+                    <label class="field" style="flex: 1 1 180px;">
+                        <span>From</span>
+                        <input id="billingFromDate" type="date">
+                    </label>
+                    <label class="field" style="flex: 1 1 180px;">
+                        <span>To</span>
+                        <input id="billingToDate" type="date">
+                    </label>
+                    <label class="field" style="flex: 1 1 280px;">
+                        <span>Search</span>
+                        <input id="billingEventFilter" type="text" placeholder="Fee, reference, source, note, invoice #">
+                    </label>
+                    <label class="field" style="flex: 1 1 200px;">
+                        <span>Invoice Number</span>
+                        <input id="billingInvoiceNumber" type="text" placeholder="Required to mark filtered lines invoiced">
+                    </label>
+                    <button class="btn ghost" id="markBillingInvoicedBtn" type="button">Mark Filtered Invoiced</button>
+                </div>
+                <p class="empty" id="billingEventsEmpty">No billing lines match the current filter yet.</p>
+                <div class="table-wrap report-sheet-wrap hidden" id="billingEventsWrap">
+                    <table class="report-sheet-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Owner</th>
+                                <th>Fee</th>
+                                <th>Qty</th>
+                                <th>Rate</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Invoice #</th>
+                                <th>Reference</th>
+                                <th>Source</th>
+                                <th>Note</th>
+                            </tr>
+                        </thead>
+                        <tbody id="billingEventsBody"></tbody>
+                    </table>
                 </div>
             </article>
         </section>
@@ -3373,6 +3634,7 @@
         let editingMasterItem = null;
         let portalAccessRecords = [];
         let portalOrderRecords = [];
+        const billingRateDrafts = new Map();
         let syncTimer = null;
         const mobileQuery = window.matchMedia("(max-width: 640px)");
         let detectedDeviceExperienceMode = detectDeviceExperienceMode();
@@ -3548,7 +3810,36 @@
             reportOwnersCount: document.getElementById("reportOwnersCount"),
             reportPalletLocationsCount: document.getElementById("reportPalletLocationsCount"),
             reportPalletsCount: document.getElementById("reportPalletsCount"),
+            billingOwner: document.getElementById("billingOwner"),
+            billingFeeFilter: document.getElementById("billingFeeFilter"),
+            billingStorageMonth: document.getElementById("billingStorageMonth"),
+            billingMessage: document.getElementById("billingMessage"),
+            billingActiveFeeCount: document.getElementById("billingActiveFeeCount"),
+            billingOpenLineCount: document.getElementById("billingOpenLineCount"),
+            billingOpenAmount: document.getElementById("billingOpenAmount"),
+            billingFilteredAmount: document.getElementById("billingFilteredAmount"),
+            billingRatesMeta: document.getElementById("billingRatesMeta"),
+            billingRatesEmpty: document.getElementById("billingRatesEmpty"),
+            billingRatesWrap: document.getElementById("billingRatesWrap"),
+            billingRatesBody: document.getElementById("billingRatesBody"),
+            billingManualFeeCode: document.getElementById("billingManualFeeCode"),
+            billingManualDate: document.getElementById("billingManualDate"),
+            billingManualQuantity: document.getElementById("billingManualQuantity"),
+            billingManualRate: document.getElementById("billingManualRate"),
+            billingManualReference: document.getElementById("billingManualReference"),
+            billingManualNote: document.getElementById("billingManualNote"),
+            billingManualFeeMeta: document.getElementById("billingManualFeeMeta"),
+            billingEventsMeta: document.getElementById("billingEventsMeta"),
+            billingStatusFilter: document.getElementById("billingStatusFilter"),
+            billingFromDate: document.getElementById("billingFromDate"),
+            billingToDate: document.getElementById("billingToDate"),
+            billingEventFilter: document.getElementById("billingEventFilter"),
+            billingInvoiceNumber: document.getElementById("billingInvoiceNumber"),
+            billingEventsEmpty: document.getElementById("billingEventsEmpty"),
+            billingEventsWrap: document.getElementById("billingEventsWrap"),
+            billingEventsBody: document.getElementById("billingEventsBody"),
             portalOrdersMeta: document.getElementById("portalOrdersMeta"),
+            portalOrdersMessage: document.getElementById("portalOrdersMessage"),
             portalOrdersList: document.getElementById("portalOrdersList"),
             summaryLocations: document.getElementById("summaryLocations"),
             summaryOwners: document.getElementById("summaryOwners"),
@@ -3680,6 +3971,7 @@
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
             document.getElementById("loadVendorToPortalBtn").addEventListener("click", loadVendorToPortalAccess);
+            document.getElementById("loadVendorToBillingBtn").addEventListener("click", loadVendorToBilling);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
             ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
             ui.masterFilter.addEventListener("input", renderMasterLibrary);
@@ -3687,6 +3979,7 @@
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
+            ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.masterItemImagePickBtn.addEventListener("click", () => ui.masterItemImageInput.click());
             ui.masterItemImageClearBtn.addEventListener("click", () => clearImageField({
                 urlInput: ui.masterItemImageUrl,
@@ -3754,6 +4047,21 @@
             document.getElementById("exportItemReportBtn").addEventListener("click", exportItemReportCsv);
             document.getElementById("exportVendorInventoryReportBtn").addEventListener("click", exportVendorInventoryReportCsv);
             document.getElementById("printReportsBtn").addEventListener("click", printReports);
+            ui.billingOwner.addEventListener("input", onBillingOwnerInput);
+            ui.billingFeeFilter.addEventListener("input", renderBilling);
+            ui.billingStatusFilter.addEventListener("change", renderBilling);
+            ui.billingFromDate.addEventListener("change", renderBilling);
+            ui.billingToDate.addEventListener("change", renderBilling);
+            ui.billingEventFilter.addEventListener("input", renderBilling);
+            ui.billingRatesBody.addEventListener("input", onBillingRateDraftChange);
+            ui.billingRatesBody.addEventListener("change", onBillingRateDraftChange);
+            ui.billingManualFeeCode.addEventListener("change", syncManualBillingFeeDefaults);
+            document.getElementById("saveBillingRatesBtn").addEventListener("click", saveBillingRates);
+            document.getElementById("billingManualForm").addEventListener("submit", saveManualBillingEvent);
+            document.getElementById("generateStorageBillingBtn").addEventListener("click", generateStorageBilling);
+            document.getElementById("exportBillingZohoBtn").addEventListener("click", exportBillingZohoCsv);
+            document.getElementById("exportBillingDetailBtn").addEventListener("click", exportBillingDetailCsv);
+            document.getElementById("markBillingInvoicedBtn").addEventListener("click", markFilteredBillingInvoiced);
 
             document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
@@ -3804,6 +4112,9 @@
             ui.palletLabelCases.value = labelToolState.palletCases || "";
             ui.palletLabelDate.value = labelToolState.palletDate || todayInputValue();
             ui.palletLabelLocation.value = labelToolState.palletLocation || "";
+            ui.billingOwner.value = state.preferences.lastAccount || "";
+            ui.billingStorageMonth.value = new Date().toISOString().slice(0, 7);
+            ui.billingManualDate.value = todayInputValue();
             setSearchMode("sku");
             setMobileSubview("search", isMobileView() ? "menu" : "single");
             setMobileSubview("actions", isMobileView() ? "menu" : "adjust");
@@ -3892,6 +4203,7 @@
             updateMobileSearchResultsVisibility();
             if (section === "inventory" && !isMobileView()) ui.inventoryFilter.focus();
             if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
+            if (section === "billing" && !isMobileView()) ui.billingOwner.focus();
             syncServerState(true).catch(() => {});
         }
 
@@ -5084,6 +5396,7 @@
             renderStats();
             renderDatalists();
             renderMasterLibrary();
+            renderBilling();
             renderLabelTool();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
@@ -6422,6 +6735,396 @@
             showMessage(ui.portalAccessMessage, `Loaded ${entry.name} into portal access.${ui.portalAccessEmail.value ? ` Linked email ${ui.portalAccessEmail.value}.` : " Add the login email and password."}`, "info");
         }
 
+        function loadVendorToBilling() {
+            const entry = sanitizeMasterOwner({
+                name: ui.masterOwnerName.value,
+                billingEmail: ui.masterOwnerBillingEmail.value
+            });
+            if (!entry?.name) return fail(ui.billingMessage, "Enter or load a vendor / customer profile first.", ui.masterOwnerName);
+            ui.billingOwner.value = entry.name;
+            state.preferences.lastAccount = entry.name;
+            saveState();
+            billingRateDrafts.delete(entry.name);
+            renderBilling();
+            setSection("billing");
+            showMessage(ui.billingMessage, `Loaded ${entry.name} into warehouse billing.`, "info");
+        }
+
+        function onBillingOwnerInput() {
+            const owner = norm(ui.billingOwner.value);
+            if (owner) {
+                state.preferences.lastAccount = owner;
+                saveState();
+            }
+            syncManualBillingFeeDefaults();
+            renderBilling();
+        }
+
+        function getBillingFeeCatalogRows() {
+            return [...(state.billing?.feeCatalog || [])].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+        }
+
+        function getOwnerBillingRateLookup(accountName) {
+            const owner = norm(accountName);
+            return new Map((state.billing?.ownerRates || [])
+                .filter((entry) => entry.accountName === owner)
+                .map((entry) => [entry.feeCode, entry]));
+        }
+
+        function getBillingDraftForOwner(accountName) {
+            const owner = norm(accountName);
+            if (!owner) return new Map();
+            if (billingRateDrafts.has(owner)) return billingRateDrafts.get(owner);
+
+            const savedRates = getOwnerBillingRateLookup(owner);
+            const draft = new Map(getBillingFeeCatalogRows().map((fee) => {
+                const saved = savedRates.get(fee.code);
+                return [fee.code, {
+                    feeCode: fee.code,
+                    rate: saved ? toNumber(saved.rate) : toNumber(fee.defaultRate),
+                    isEnabled: saved ? saved.isEnabled === true : false,
+                    unitLabel: saved?.unitLabel || fee.unitLabel || "",
+                    note: saved?.note || ""
+                }];
+            }));
+            billingRateDrafts.set(owner, draft);
+            return draft;
+        }
+
+        function getEffectiveBillingRows(owner, filterText = "") {
+            const query = norm(filterText);
+            const draft = getBillingDraftForOwner(owner);
+            return getBillingFeeCatalogRows()
+                .map((fee) => {
+                    const saved = draft.get(fee.code) || {
+                        feeCode: fee.code,
+                        rate: toNumber(fee.defaultRate),
+                        isEnabled: false,
+                        unitLabel: fee.unitLabel || "",
+                        note: ""
+                    };
+                    return {
+                        ...fee,
+                        rate: toNumber(saved.rate),
+                        isEnabled: saved.isEnabled === true,
+                        unitLabel: saved.unitLabel || fee.unitLabel || "",
+                        note: saved.note || ""
+                    };
+                })
+                .filter((row) => !query
+                    || row.code.includes(query)
+                    || norm(row.name).includes(query)
+                    || norm(row.category).includes(query)
+                );
+        }
+
+        function getFilteredBillingEvents() {
+            const ownerFilter = norm(ui.billingOwner.value);
+            const statusFilter = norm(ui.billingStatusFilter.value || "OPEN");
+            const search = norm(ui.billingEventFilter.value);
+            const from = ui.billingFromDate.value || "";
+            const to = ui.billingToDate.value || "";
+
+            return [...(state.billing?.events || [])]
+                .filter((event) => !ownerFilter || event.accountName === ownerFilter)
+                .filter((event) => statusFilter === "ALL" ? true : event.status === statusFilter)
+                .filter((event) => !from || event.serviceDate >= from)
+                .filter((event) => !to || event.serviceDate <= to)
+                .filter((event) => !search || [
+                    event.feeName,
+                    event.feeCode,
+                    event.reference,
+                    event.sourceRef,
+                    event.sourceType,
+                    event.note,
+                    event.invoiceNumber
+                ].some((value) => norm(value).includes(search)))
+                .sort((a, b) => String(b.serviceDate).localeCompare(String(a.serviceDate)) || Number(b.id) - Number(a.id));
+        }
+
+        function renderBilling() {
+            const owner = norm(ui.billingOwner.value);
+            const feeRows = owner ? getEffectiveBillingRows(owner, ui.billingFeeFilter.value) : [];
+            const filteredEvents = getFilteredBillingEvents();
+            const allOwnerEvents = owner
+                ? (state.billing?.events || []).filter((event) => event.accountName === owner)
+                : (state.billing?.events || []);
+            const openEvents = allOwnerEvents.filter((event) => event.status === "OPEN");
+            const activeFees = owner ? getEffectiveBillingRows(owner).filter((row) => row.isEnabled).length : 0;
+            const openAmount = openEvents.reduce((sum, event) => sum + toNumber(event.amount), 0);
+            const filteredAmount = filteredEvents.reduce((sum, event) => sum + toNumber(event.amount), 0);
+
+            ui.billingActiveFeeCount.textContent = num(activeFees);
+            ui.billingOpenLineCount.textContent = num(openEvents.length);
+            ui.billingOpenAmount.textContent = money(openAmount);
+            ui.billingFilteredAmount.textContent = money(filteredAmount);
+            ui.billingRatesMeta.textContent = owner ? `${num(feeRows.length)} fee${feeRows.length === 1 ? "" : "s"}` : "Choose a vendor / customer";
+
+            renderBillingFeeOptions(owner);
+
+            if (!owner) {
+                ui.billingRatesEmpty.textContent = "Choose a vendor / customer to assign warehouse billing rates.";
+                ui.billingRatesEmpty.classList.remove("hidden");
+                ui.billingRatesWrap.classList.add("hidden");
+                ui.billingRatesBody.innerHTML = "";
+                ui.billingManualFeeMeta.textContent = "Choose a vendor / customer and fee to add a manual billing line.";
+            } else if (!feeRows.length) {
+                ui.billingRatesEmpty.classList.remove("hidden");
+                ui.billingRatesWrap.classList.add("hidden");
+                ui.billingRatesBody.innerHTML = "";
+                ui.billingRatesEmpty.textContent = "No fee rows match the current fee filter.";
+            } else {
+                ui.billingRatesEmpty.classList.add("hidden");
+                ui.billingRatesWrap.classList.remove("hidden");
+                ui.billingRatesBody.innerHTML = feeRows.map((row) => `
+                    <tr data-billing-fee-code="${attr(row.code)}">
+                        <td><input class="billing-rate-toggle" type="checkbox" data-billing-enabled ${row.isEnabled ? "checked" : ""}></td>
+                        <td>${esc(row.category)}</td>
+                        <td>
+                            <div class="billing-fee-name">
+                                <strong>${esc(row.name)}</strong>
+                                <span class="billing-fee-code">${esc(row.code)}</span>
+                            </div>
+                        </td>
+                        <td><input type="text" data-billing-unit value="${attr(row.unitLabel || "")}" placeholder="Unit"></td>
+                        <td><input type="number" min="0" step="0.0001" data-billing-rate value="${attr(toNumber(row.rate))}" placeholder="0.00"></td>
+                        <td><input type="text" data-billing-note value="${attr(row.note || "")}" placeholder="Optional note"></td>
+                    </tr>
+                `).join("");
+            }
+
+            ui.billingEventsMeta.textContent = `${num(filteredEvents.length)} line${filteredEvents.length === 1 ? "" : "s"}`;
+            if (!filteredEvents.length) {
+                ui.billingEventsEmpty.classList.remove("hidden");
+                ui.billingEventsWrap.classList.add("hidden");
+                ui.billingEventsBody.innerHTML = "";
+            } else {
+                ui.billingEventsEmpty.classList.add("hidden");
+                ui.billingEventsWrap.classList.remove("hidden");
+                ui.billingEventsBody.innerHTML = filteredEvents.map((event) => `
+                    <tr>
+                        <td>${esc(formatDate(event.serviceDate))}</td>
+                        <td>${esc(event.accountName)}</td>
+                        <td class="sheet-wrap">${esc(event.feeName || event.feeCode)}</td>
+                        <td>${esc(formatDecimal(event.quantity))}</td>
+                        <td class="billing-money">${esc(money(event.rate))}</td>
+                        <td class="billing-money">${esc(money(event.amount))}</td>
+                        <td>${esc(event.status)}</td>
+                        <td>${esc(event.invoiceNumber || "-")}</td>
+                        <td class="sheet-wrap">${esc(event.reference || "-")}</td>
+                        <td>${esc(event.sourceType || "-")}${event.sourceRef ? `<br><span class="meta">${esc(event.sourceRef)}</span>` : ""}</td>
+                        <td class="sheet-wrap">${esc(event.note || "-")}</td>
+                    </tr>
+                `).join("");
+            }
+
+            syncManualBillingFeeDefaults();
+        }
+
+        function renderBillingFeeOptions(owner) {
+            const ownerName = norm(owner);
+            const enabledRows = ownerName ? getEffectiveBillingRows(ownerName).filter((row) => row.isEnabled) : [];
+            const rows = enabledRows.length ? enabledRows : getBillingFeeCatalogRows();
+            const currentValue = ui.billingManualFeeCode.value;
+            ui.billingManualFeeCode.innerHTML = `<option value="">Choose a fee</option>${rows.map((row) => `
+                <option value="${attr(row.code)}">${esc(`${row.category} - ${row.name}`)}</option>
+            `).join("")}`;
+            if ([...ui.billingManualFeeCode.options].some((option) => option.value === currentValue)) {
+                ui.billingManualFeeCode.value = currentValue;
+            }
+        }
+
+        function onBillingRateDraftChange(event) {
+            const row = event.target.closest("[data-billing-fee-code]");
+            if (!row) return;
+            const owner = norm(ui.billingOwner.value);
+            if (!owner) return;
+            const feeCode = row.dataset.billingFeeCode || "";
+            const draft = getBillingDraftForOwner(owner);
+            draft.set(feeCode, {
+                feeCode,
+                isEnabled: row.querySelector("[data-billing-enabled]")?.checked === true,
+                unitLabel: String(row.querySelector("[data-billing-unit]")?.value || "").trim(),
+                rate: toNumber(row.querySelector("[data-billing-rate]")?.value),
+                note: String(row.querySelector("[data-billing-note]")?.value || "").trim()
+            });
+            if (event.target === ui.billingManualFeeCode) {
+                syncManualBillingFeeDefaults();
+            }
+        }
+
+        async function saveBillingRates() {
+            const owner = norm(ui.billingOwner.value);
+            if (!owner) return fail(ui.billingMessage, "Choose the vendor / customer first.", ui.billingOwner);
+            const draft = [...getBillingDraftForOwner(owner).values()].map((entry) => ({
+                accountName: owner,
+                feeCode: entry.feeCode,
+                rate: toNumber(entry.rate),
+                isEnabled: entry.isEnabled === true,
+                unitLabel: String(entry.unitLabel || "").trim(),
+                note: String(entry.note || "").trim()
+            }));
+
+            try {
+                await requestJson("/api/billing/rates", {
+                    method: "POST",
+                    body: JSON.stringify({ accountName: owner, rates: draft })
+                });
+                billingRateDrafts.delete(owner);
+                await syncServerState(true);
+                showMessage(ui.billingMessage, `Saved billing fee setup for ${owner}.`, "success");
+            } catch (error) {
+                showMessage(ui.billingMessage, error.message, "error");
+            }
+        }
+
+        function getSelectedBillingFee(owner, feeCode) {
+            const code = norm(feeCode);
+            if (!code) return null;
+            return getEffectiveBillingRows(owner).find((row) => row.code === code) || null;
+        }
+
+        function syncManualBillingFeeDefaults() {
+            const owner = norm(ui.billingOwner.value);
+            const fee = getSelectedBillingFee(owner, ui.billingManualFeeCode.value);
+            if (!owner) {
+                ui.billingManualFeeMeta.textContent = "Choose a vendor / customer and fee to add a manual billing line.";
+                return;
+            }
+            if (!fee) {
+                ui.billingManualFeeMeta.textContent = "Choose a fee to add a manual billing line.";
+                return;
+            }
+            ui.billingManualRate.value = String(toNumber(fee.rate || fee.defaultRate));
+            ui.billingManualFeeMeta.textContent = `${fee.name} | ${fee.unitLabel || "No unit label"} | ${fee.isEnabled ? "Enabled" : "Disabled for this owner"}`;
+        }
+
+        async function saveManualBillingEvent(event) {
+            event.preventDefault();
+            const owner = norm(ui.billingOwner.value);
+            const feeCode = norm(ui.billingManualFeeCode.value);
+            const quantity = toNumber(ui.billingManualQuantity.value);
+            if (!owner) return fail(ui.billingMessage, "Choose the vendor / customer first.", ui.billingOwner);
+            if (!feeCode) return fail(ui.billingMessage, "Choose a fee first.", ui.billingManualFeeCode);
+            if (!(quantity > 0)) return fail(ui.billingMessage, "Enter a billing quantity greater than zero.", ui.billingManualQuantity);
+
+            try {
+                await requestJson("/api/billing/events/manual", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        accountName: owner,
+                        feeCode,
+                        quantity,
+                        rate: ui.billingManualRate.value,
+                        serviceDate: ui.billingManualDate.value,
+                        reference: ui.billingManualReference.value,
+                        note: ui.billingManualNote.value
+                    })
+                });
+                ui.billingManualQuantity.value = "";
+                ui.billingManualReference.value = "";
+                ui.billingManualNote.value = "";
+                await syncServerState(true);
+                showMessage(ui.billingMessage, `Added manual billing line for ${owner}.`, "success");
+            } catch (error) {
+                showMessage(ui.billingMessage, error.message, "error");
+            }
+        }
+
+        async function generateStorageBilling() {
+            const owner = norm(ui.billingOwner.value);
+            const month = ui.billingStorageMonth.value;
+            if (!owner) return fail(ui.billingMessage, "Choose the vendor / customer first.", ui.billingOwner);
+            if (!month) return fail(ui.billingMessage, "Choose a storage month first.", ui.billingStorageMonth);
+
+            try {
+                await requestJson("/api/billing/storage-accrual", {
+                    method: "POST",
+                    body: JSON.stringify({ accountName: owner, month })
+                });
+                await syncServerState(true);
+                showMessage(ui.billingMessage, `Generated storage billing for ${owner} for ${month}.`, "success");
+            } catch (error) {
+                showMessage(ui.billingMessage, error.message, "error");
+            }
+        }
+
+        async function markFilteredBillingInvoiced() {
+            const invoiceNumber = String(ui.billingInvoiceNumber.value || "").trim();
+            const openIds = getFilteredBillingEvents().filter((event) => event.status === "OPEN").map((event) => event.id);
+            if (!invoiceNumber) return fail(ui.billingMessage, "Enter the invoice number first.", ui.billingInvoiceNumber);
+            if (!openIds.length) return fail(ui.billingMessage, "No open billing lines match the current filter.", ui.billingStatusFilter);
+
+            try {
+                await requestJson("/api/billing/events/mark-invoiced", {
+                    method: "POST",
+                    body: JSON.stringify({ ids: openIds, invoiceNumber })
+                });
+                await syncServerState(true);
+                showMessage(ui.billingMessage, `Marked ${num(openIds.length)} billing line${openIds.length === 1 ? "" : "s"} invoiced under ${invoiceNumber}.`, "success");
+            } catch (error) {
+                showMessage(ui.billingMessage, error.message, "error");
+            }
+        }
+
+        async function exportBillingDetailCsv() {
+            try {
+                await syncServerState(true);
+                const rows = [["Service Date", "Owner", "Fee Code", "Fee Name", "Category", "Quantity", "Unit", "Rate", "Amount", "Status", "Invoice Number", "Reference", "Source Type", "Source Ref", "Note"]]
+                    .concat(getFilteredBillingEvents().map((event) => [
+                        event.serviceDate,
+                        event.accountName,
+                        event.feeCode,
+                        event.feeName || "",
+                        event.feeCategory || "",
+                        String(event.quantity),
+                        event.unitLabel || "",
+                        String(event.rate),
+                        String(event.amount),
+                        event.status,
+                        event.invoiceNumber || "",
+                        event.reference || "",
+                        event.sourceType || "",
+                        event.sourceRef || "",
+                        event.note || ""
+                    ]));
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-billing-detail-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.billingMessage, "Billing detail CSV exported.", "success");
+            } catch (error) {
+                showMessage(ui.billingMessage, error.message, "error");
+            }
+        }
+
+        async function exportBillingZohoCsv() {
+            try {
+                await syncServerState(true);
+                const ownerByName = new Map((state.masters.ownerRecords || []).map((ownerEntry) => [ownerEntry.name, ownerEntry]));
+                const rows = [["Customer Name", "Billing Email", "Invoice Number", "Invoice Date", "Service Date", "Item Name", "Description", "Quantity", "Rate", "Amount", "Reference", "Source", "Status"]]
+                    .concat(getFilteredBillingEvents().map((event) => {
+                        const owner = ownerByName.get(event.accountName);
+                        return [
+                            event.accountName,
+                            owner?.billingEmail || owner?.email || "",
+                            event.invoiceNumber || "",
+                            event.invoicedAt ? event.invoicedAt.slice(0, 10) : "",
+                            event.serviceDate,
+                            event.feeName || event.feeCode,
+                            event.note || event.feeCategory || "",
+                            String(event.quantity),
+                            String(event.rate),
+                            String(event.amount),
+                            event.reference || "",
+                            [event.sourceType, event.sourceRef].filter(Boolean).join(" | "),
+                            event.status
+                        ];
+                    }));
+                downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-zoho-billing-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+                showMessage(ui.billingMessage, "Zoho billing CSV exported.", "success");
+            } catch (error) {
+                showMessage(ui.billingMessage, error.message, "error");
+            }
+        }
+
         async function savePortalAccess(event) {
             event.preventDefault();
             const accountName = norm(ui.portalAccessAccount.value);
@@ -6536,6 +7239,8 @@
                     ? order.lines.slice(0, 3).map((line) => `${line.sku} (${formatTrackedQuantity(line.quantity, line.trackingLevel)})`).join(" | ")
                     : "No lines";
                 const hiddenCount = Math.max(0, order.lines.length - 3);
+                const nextStatus = nextPortalOrderStatus(order.status);
+                const timeline = formatPortalOrderTimeline(order);
                 return `
                     <div class="quick-row">
                         <div class="quick-main">
@@ -6544,11 +7249,63 @@
                             <div class="quick-meta">${esc(order.contactName || "No contact")} ${order.contactPhone ? `| ${esc(order.contactPhone)}` : ""}</div>
                             <div class="quick-meta">${esc(order.shipToAddress1 || "")}${order.shipToCity ? ` | ${esc([order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "))}` : ""}</div>
                             <div class="quick-meta">${esc(lineSummary)}${hiddenCount ? ` | +${hiddenCount} more` : ""}</div>
+                            ${timeline ? `<div class="quick-meta">${esc(timeline)}</div>` : ""}
                         </div>
-                        <span class="pill ${order.status === "RELEASED" ? "success" : ""}">${esc(order.status)}</span>
+                        <div class="quick-row-actions">
+                            <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
+                            ${nextStatus ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
+                        </div>
                     </div>
                 `;
             }).join("");
+        }
+
+        function nextPortalOrderStatus(status) {
+            if (status === "RELEASED") return "PICKED";
+            if (status === "PICKED") return "STAGED";
+            if (status === "STAGED") return "SHIPPED";
+            return "";
+        }
+
+        function portalOrderActionLabel(status) {
+            if (status === "PICKED") return "Mark Picked";
+            if (status === "STAGED") return "Mark Staged";
+            if (status === "SHIPPED") return "Mark Shipped";
+            return status;
+        }
+
+        function portalOrderStatusTone(status) {
+            return status === "DRAFT" ? "warn" : "success";
+        }
+
+        function formatPortalOrderTimeline(order) {
+            if (order.shippedAt) return `Shipped ${formatDate(order.shippedAt)}`;
+            if (order.stagedAt) return `Staged ${formatDate(order.stagedAt)}`;
+            if (order.pickedAt) return `Picked ${formatDate(order.pickedAt)}`;
+            if (order.releasedAt) return `Released ${formatDate(order.releasedAt)}`;
+            return "";
+        }
+
+        async function onPortalOrdersListClick(event) {
+            const button = event.target.closest("[data-portal-order-status]");
+            if (!button) return;
+
+            const orderId = button.dataset.portalOrderStatus || "";
+            const nextStatus = norm(button.dataset.nextStatus || "");
+            if (!orderId || !nextStatus) return;
+            const label = portalOrderActionLabel(nextStatus);
+
+            try {
+                await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
+                    method: "POST",
+                    body: JSON.stringify({ status: nextStatus })
+                });
+                await syncServerState(true);
+                await refreshPortalOrdersList(true);
+                showMessage(ui.portalOrdersMessage, `${label} complete.`, "success");
+            } catch (error) {
+                showMessage(ui.portalOrdersMessage, error.message, "error");
+            }
         }
 
         async function saveMasterLocation(event) {
@@ -8047,6 +8804,9 @@
             state.masters.owners = Array.isArray(payload?.masters?.owners)
                 ? payload.masters.owners.map((owner) => norm(owner)).filter(Boolean)
                 : getOwnerOptions();
+            state.billing.feeCatalog = Array.isArray(payload?.billing?.feeCatalog) ? payload.billing.feeCatalog.map(sanitizeBillingFee).filter(Boolean) : [];
+            state.billing.ownerRates = Array.isArray(payload?.billing?.ownerRates) ? payload.billing.ownerRates.map(sanitizeOwnerBillingRate).filter(Boolean) : [];
+            state.billing.events = Array.isArray(payload?.billing?.events) ? payload.billing.events.map(sanitizeBillingEvent).filter(Boolean) : [];
             state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             state.meta.localCacheAt = new Date().toISOString();
@@ -8194,8 +8954,9 @@
                 batch: [],
                 activity: [],
                 masters: { locations: [], ownerRecords: [], items: [], owners: [] },
+                billing: { feeCatalog: [], ownerRates: [], events: [] },
                 preferences: { lastLocation: "", lastAccount: "", desktopMobilePreview: false },
-                meta: { version: 6, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
+                meta: { version: 7, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
             };
         }
 
@@ -8250,13 +9011,14 @@
                 batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
                 activity: cache.activity,
                 masters: cache.masters,
+                billing: cache.billing,
                 preferences: {
                     lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
                     lastAccount: typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : "",
                     desktopMobilePreview: raw.preferences?.desktopMobilePreview === true
                 },
                 meta: {
-                    version: 6,
+                    version: 7,
                     lastChangedAt: cache.meta.lastChangedAt,
                     serverSyncedAt: cache.meta.serverSyncedAt,
                     localCacheAt: cache.meta.localCacheAt
@@ -8274,6 +9036,11 @@
                     ownerRecords: Array.isArray(raw?.masters?.ownerRecords) ? raw.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
+                },
+                billing: {
+                    feeCatalog: Array.isArray(raw?.billing?.feeCatalog) ? raw.billing.feeCatalog.map(sanitizeBillingFee).filter(Boolean) : [],
+                    ownerRates: Array.isArray(raw?.billing?.ownerRates) ? raw.billing.ownerRates.map(sanitizeOwnerBillingRate).filter(Boolean) : [],
+                    events: Array.isArray(raw?.billing?.events) ? raw.billing.events.map(sanitizeBillingEvent).filter(Boolean) : []
                 },
                 meta: {
                     lastChangedAt: typeof raw?.meta?.lastChangedAt === "string" ? raw.meta.lastChangedAt : null,
@@ -8297,6 +9064,11 @@
                             : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
+                },
+                billing: {
+                    feeCatalog: Array.isArray(raw?.billing?.feeCatalog) ? raw.billing.feeCatalog.map(sanitizeBillingFee).filter(Boolean) : [],
+                    ownerRates: Array.isArray(raw?.billing?.ownerRates) ? raw.billing.ownerRates.map(sanitizeOwnerBillingRate).filter(Boolean) : [],
+                    events: Array.isArray(raw?.billing?.events) ? raw.billing.events.map(sanitizeBillingEvent).filter(Boolean) : []
                 }
             };
         }
@@ -8477,6 +9249,10 @@
                 shipToState: String(item.shipToState || "").trim(),
                 shipToPostalCode: String(item.shipToPostalCode || "").trim(),
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : null,
+                pickedAt: typeof item.pickedAt === "string" ? item.pickedAt : null,
+                stagedAt: typeof item.stagedAt === "string" ? item.stagedAt : null,
+                shippedAt: typeof item.shippedAt === "string" ? item.shippedAt : null,
                 lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : []
             };
         }
@@ -8513,6 +9289,70 @@
                 caseHeight: toPositiveNumber(item?.caseHeight),
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeBillingFee(item) {
+            const code = norm(item?.code);
+            if (!code) return null;
+            return {
+                code,
+                category: String(item?.category || "").trim(),
+                name: String(item?.name || "").trim(),
+                unitLabel: String(item?.unitLabel || item?.unit_label || "").trim(),
+                defaultRate: toNumber(item?.defaultRate ?? item?.default_rate),
+                isActive: item?.isActive !== false,
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeOwnerBillingRate(item) {
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer);
+            const feeCode = norm(item?.feeCode || item?.code);
+            if (!accountName || !feeCode) return null;
+            return {
+                id: typeof item?.id === "string" ? item.id : makeId("bill-rate"),
+                accountName,
+                feeCode,
+                rate: toNumber(item?.rate),
+                isEnabled: item?.isEnabled === true || item?.enabled === true,
+                unitLabel: String(item?.unitLabel || item?.unit_label || "").trim(),
+                note: String(item?.note || "").trim(),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeBillingEvent(item) {
+            const id = item?.id != null ? String(item.id) : "";
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer);
+            const feeCode = norm(item?.feeCode || item?.code);
+            if (!id || !accountName || !feeCode) return null;
+            const status = norm(item?.status || "OPEN");
+            return {
+                id,
+                eventKey: String(item?.eventKey || "").trim(),
+                accountName,
+                feeCode,
+                feeCategory: String(item?.feeCategory || item?.category || "").trim(),
+                feeName: String(item?.feeName || item?.name || "").trim(),
+                unitLabel: String(item?.unitLabel || item?.unit_label || "").trim(),
+                quantity: toNumber(item?.quantity),
+                rate: toNumber(item?.rate),
+                amount: toNumber(item?.amount),
+                currencyCode: norm(item?.currencyCode || item?.currency_code || "USD") || "USD",
+                serviceDate: normalizeLabelDate(item?.serviceDate || item?.date) || todayInputValue(),
+                status: ["OPEN", "INVOICED", "VOID"].includes(status) ? status : "OPEN",
+                invoiceNumber: String(item?.invoiceNumber || item?.invoice_number || "").trim(),
+                invoicedAt: typeof item?.invoicedAt === "string" ? item.invoicedAt : null,
+                sourceType: String(item?.sourceType || item?.source_type || "").trim(),
+                sourceRef: String(item?.sourceRef || item?.source_ref || "").trim(),
+                reference: String(item?.reference || "").trim(),
+                note: String(item?.note || "").trim(),
+                metadata: item?.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata) ? item.metadata : {},
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
         }
 
@@ -8559,6 +9399,11 @@
                     ownerRecords: state.masters.ownerRecords,
                     items: cachedItems,
                     owners: state.masters.owners
+                },
+                billing: {
+                    feeCatalog: state.billing.feeCatalog,
+                    ownerRates: state.billing.ownerRates,
+                    events: compact ? state.billing.events.slice(0, 200) : state.billing.events
                 },
                 meta: {
                     lastChangedAt: state.meta.lastChangedAt,
@@ -8612,6 +9457,25 @@
         function toPositiveNumber(value) {
             const numValue = Number.parseFloat(String(value));
             return Number.isFinite(numValue) && numValue > 0 ? numValue : null;
+        }
+
+        function toNumber(value) {
+            const numValue = Number.parseFloat(String(value));
+            return Number.isFinite(numValue) ? Math.round(numValue * 10000) / 10000 : 0;
+        }
+
+        function formatDecimal(value) {
+            const numValue = toNumber(value);
+            return Number.isInteger(numValue) ? String(numValue) : numValue.toFixed(2).replace(/\.?0+$/, "");
+        }
+
+        function money(value) {
+            return new Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: "USD",
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(toNumber(value));
         }
 
         function norm(value) {

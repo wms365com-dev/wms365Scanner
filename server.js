@@ -39,6 +39,108 @@ const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
 const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(process.env.APP_ADMIN_EMAIL || "admin@wms365.local");
 const DEFAULT_ADMIN_PASSWORD = String(process.env.APP_ADMIN_PASSWORD || "ChangeMeNow123!");
 const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(process.env.APP_ADMIN_NAME || "Platform Owner");
+const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const BILLING_FEE_SEED = [
+    { code: "STANDARD_PALLET_STORAGE", category: "Storage", name: "Standard pallet storage (48 x 40 x standard height)", unitLabel: "per pallet per month", defaultRate: 0 },
+    { code: "OVERSIZED_PALLET_STORAGE", category: "Storage", name: "Oversized pallet storage (48 x 40 x tall height)", unitLabel: "per pallet per month", defaultRate: 0 },
+    { code: "CLIMATE_STANDARD_PALLET_STORAGE", category: "Storage", name: "Climate controlled pallet storage (standard size)", unitLabel: "per pallet per month", defaultRate: 0 },
+    { code: "CLIMATE_OVERSIZED_PALLET_STORAGE", category: "Storage", name: "Climate controlled pallet storage (oversized)", unitLabel: "per pallet per month", defaultRate: 0 },
+    { code: "FLOOR_STORAGE", category: "Storage", name: "Floor storage", unitLabel: "per floor position per month", defaultRate: 0 },
+    { code: "NON_STACKABLE_PALLET_SURCHARGE", category: "Storage", name: "Non-stackable pallet surcharge", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "PEAK_PALLET_BILLING_ADJUSTMENT", category: "Storage", name: "Peak pallet billing adjustment", unitLabel: "per pallet", defaultRate: 0 },
+
+    { code: "PALLET_RECEIVING_FEE", category: "Receiving / Inbound Handling", name: "Pallet receiving fee", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "CARTON_RECEIVING_FEE", category: "Receiving / Inbound Handling", name: "Carton receiving fee", unitLabel: "per carton", defaultRate: 0 },
+    { code: "CONTAINER_UNLOADING_20", category: "Receiving / Inbound Handling", name: "Container unloading 20' container", unitLabel: "per container", defaultRate: 0 },
+    { code: "CONTAINER_UNLOADING_40", category: "Receiving / Inbound Handling", name: "Container unloading 40' container", unitLabel: "per container", defaultRate: 0 },
+    { code: "CONTAINER_UNLOADING_40HC", category: "Receiving / Inbound Handling", name: "Container unloading 40' high cube container", unitLabel: "per container", defaultRate: 0 },
+    { code: "SLIP_SHEET_PALLET_UNLOADING", category: "Receiving / Inbound Handling", name: "Slip sheet pallet unloading", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "MANUAL_FLOOR_UNLOAD", category: "Receiving / Inbound Handling", name: "Manual floor unload (non-palletized cargo)", unitLabel: "per hour", defaultRate: 0 },
+    { code: "APPOINTMENT_SCHEDULING", category: "Receiving / Inbound Handling", name: "Appointment scheduling / dock coordination", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "INSPECTION_COUNT_VERIFICATION", category: "Receiving / Inbound Handling", name: "Inspection and count verification", unitLabel: "per shipment", defaultRate: 0 },
+
+    { code: "PUT_AWAY_PALLET", category: "Put Away", name: "Put-away fee", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "PUT_AWAY_CARTON", category: "Put Away", name: "Put-away fee", unitLabel: "per carton", defaultRate: 0 },
+    { code: "PALLET_RESTACKING", category: "Put Away", name: "Pallet re-stacking or pallet correction", unitLabel: "per pallet", defaultRate: 0 },
+
+    { code: "ORDER_PROCESSING_FIRST_ITEM", category: "Order Fulfillment – B2C", name: "Order processing fee (first item)", unitLabel: "per order", defaultRate: 0 },
+    { code: "ADDITIONAL_ITEM_PICK", category: "Order Fulfillment – B2C", name: "Additional item pick fee", unitLabel: "per item", defaultRate: 0 },
+    { code: "INSERT_MARKETING_MATERIAL", category: "Order Fulfillment – B2C", name: "Insert / marketing material insertion", unitLabel: "per order", defaultRate: 0 },
+    { code: "KITTING_BUNDLING", category: "Order Fulfillment – B2C", name: "Kitting / bundling", unitLabel: "per unit", defaultRate: 0 },
+    { code: "GIFT_WRAP_SPECIAL_PACKAGING", category: "Order Fulfillment – B2C", name: "Gift wrap or special packaging", unitLabel: "per order", defaultRate: 0 },
+
+    { code: "CARTON_PICK_FEE", category: "Order Fulfillment – B2B", name: "Carton pick fee", unitLabel: "per carton", defaultRate: 0 },
+    { code: "PALLET_PICK_FEE", category: "Order Fulfillment – B2B", name: "Pallet pick fee", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "ADDITIONAL_CARTON_PICK_FEE", category: "Order Fulfillment – B2B", name: "Additional carton pick fee", unitLabel: "per carton", defaultRate: 0 },
+    { code: "MIXED_SKU_PALLET_BUILD", category: "Order Fulfillment – B2B", name: "Mixed SKU pallet build fee", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "RETAIL_COMPLIANCE_PREPARATION", category: "Order Fulfillment – B2B", name: "Retail compliance preparation", unitLabel: "per order", defaultRate: 0 },
+
+    { code: "SHIPPING_LABEL_PRINTING", category: "Shipping & Handling", name: "Shipping label printing", unitLabel: "per label", defaultRate: 0 },
+    { code: "CARTON_LABEL_APPLICATION", category: "Shipping & Handling", name: "Carton label application", unitLabel: "per carton", defaultRate: 0 },
+    { code: "PALLET_LABEL_APPLICATION", category: "Shipping & Handling", name: "Pallet label application", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "BILL_OF_LADING_PREPARATION", category: "Shipping & Handling", name: "Bill of lading preparation", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "CARRIER_BOOKING_COORDINATION", category: "Shipping & Handling", name: "Carrier booking coordination", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "SHIPPING_ADMINISTRATION_FEE", category: "Shipping & Handling", name: "Shipping administration fee", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "FREIGHT_COST_MARKUP_PERCENTAGE", category: "Shipping & Handling", name: "Freight cost markup percentage", unitLabel: "percent", defaultRate: 0 },
+
+    { code: "PRODUCT_LABELING", category: "Value Added Services", name: "Product labeling (UPC, FNSKU, barcode)", unitLabel: "per unit", defaultRate: 0 },
+    { code: "POLY_BAGGING", category: "Value Added Services", name: "Poly bagging", unitLabel: "per unit", defaultRate: 0 },
+    { code: "BUBBLE_WRAP_PROTECTIVE_PACKAGING", category: "Value Added Services", name: "Bubble wrap / protective packaging", unitLabel: "per unit", defaultRate: 0 },
+    { code: "REPACKAGING", category: "Value Added Services", name: "Repackaging", unitLabel: "per unit", defaultRate: 0 },
+    { code: "ASSEMBLY_LIGHT_MANUFACTURING", category: "Value Added Services", name: "Assembly / light manufacturing", unitLabel: "per unit", defaultRate: 0 },
+    { code: "PRODUCT_INSPECTION", category: "Value Added Services", name: "Product inspection", unitLabel: "per unit", defaultRate: 0 },
+    { code: "SORTING_SEGREGATION", category: "Value Added Services", name: "Sorting or segregation", unitLabel: "per hour", defaultRate: 0 },
+    { code: "EXPIRY_DATE_VERIFICATION", category: "Value Added Services", name: "Expiry date verification", unitLabel: "per SKU", defaultRate: 0 },
+    { code: "LOT_TRACKING_SETUP", category: "Value Added Services", name: "Lot tracking or batch tracking setup", unitLabel: "per setup", defaultRate: 0 },
+
+    { code: "RETURN_RECEIVING", category: "Returns Processing", name: "Return receiving", unitLabel: "per unit", defaultRate: 0 },
+    { code: "RETURN_INSPECTION", category: "Returns Processing", name: "Return inspection", unitLabel: "per unit", defaultRate: 0 },
+    { code: "RESTOCKING_FEE", category: "Returns Processing", name: "Restocking fee", unitLabel: "per unit", defaultRate: 0 },
+    { code: "DISPOSAL_FEE", category: "Returns Processing", name: "Disposal fee", unitLabel: "per unit or per pallet", defaultRate: 0 },
+    { code: "REFURBISH_REPACKAGE", category: "Returns Processing", name: "Refurbish or repackage", unitLabel: "per unit", defaultRate: 0 },
+
+    { code: "INVENTORY_CYCLE_COUNT", category: "Inventory Management", name: "Inventory cycle count", unitLabel: "per hour", defaultRate: 0 },
+    { code: "FULL_INVENTORY_COUNT", category: "Inventory Management", name: "Full inventory count", unitLabel: "per SKU", defaultRate: 0 },
+    { code: "INVENTORY_ADJUSTMENT_INVESTIGATION", category: "Inventory Management", name: "Inventory adjustment investigation", unitLabel: "per hour", defaultRate: 0 },
+    { code: "INVENTORY_REPORTING_CUSTOMIZATION", category: "Inventory Management", name: "Inventory reporting customization", unitLabel: "per setup", defaultRate: 0 },
+
+    { code: "CROSS_DOCK_PALLET_HANDLING", category: "Cross Dock Services", name: "Cross dock pallet handling", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "CROSS_DOCK_CARTON_HANDLING", category: "Cross Dock Services", name: "Cross dock carton handling", unitLabel: "per carton", defaultRate: 0 },
+    { code: "SHORT_TERM_STAGING_FEE", category: "Cross Dock Services", name: "Short-term staging fee", unitLabel: "per pallet per day", defaultRate: 0 },
+    { code: "PALLET_TRANSFER_INBOUND_OUTBOUND", category: "Cross Dock Services", name: "Pallet transfer from inbound to outbound", unitLabel: "per pallet", defaultRate: 0 },
+
+    { code: "GENERAL_LABOUR", category: "Labour & Equipment", name: "General labour", unitLabel: "per hour", defaultRate: 0 },
+    { code: "FORKLIFT_USAGE", category: "Labour & Equipment", name: "Forklift usage", unitLabel: "per hour", defaultRate: 0 },
+    { code: "SUPERVISOR_LABOUR", category: "Labour & Equipment", name: "Supervisor labour", unitLabel: "per hour", defaultRate: 0 },
+    { code: "OVERTIME_LABOUR_MULTIPLIER", category: "Labour & Equipment", name: "Overtime labour multiplier", unitLabel: "multiplier", defaultRate: 0 },
+    { code: "WEEKEND_OPENING_FEE", category: "Labour & Equipment", name: "Weekend opening fee", unitLabel: "per opening", defaultRate: 0 },
+
+    { code: "STANDARD_PALLET_SUPPLY", category: "Packaging Materials", name: "Standard pallet supply", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "HEAT_TREATED_PALLET_SUPPLY", category: "Packaging Materials", name: "Heat treated pallet supply", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "SHRINK_WRAP", category: "Packaging Materials", name: "Shrink wrap", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "CORNER_BOARDS", category: "Packaging Materials", name: "Corner boards", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "TAPE", category: "Packaging Materials", name: "Tape", unitLabel: "per carton", defaultRate: 0 },
+    { code: "VOID_FILL_MATERIAL", category: "Packaging Materials", name: "Void fill material", unitLabel: "per carton", defaultRate: 0 },
+
+    { code: "ACCOUNT_SETUP_FEE", category: "Administrative Fees", name: "Account setup fee", unitLabel: "per account", defaultRate: 0 },
+    { code: "SKU_SETUP_FEE", category: "Administrative Fees", name: "SKU setup fee", unitLabel: "per SKU", defaultRate: 0 },
+    { code: "WMS_SYSTEM_ACCESS", category: "Administrative Fees", name: "WMS system access", unitLabel: "per user per month", defaultRate: 0 },
+    { code: "EDI_INTEGRATION_SETUP", category: "Administrative Fees", name: "EDI integration setup", unitLabel: "per setup", defaultRate: 0 },
+    { code: "CUSTOM_REPORTING_SETUP", category: "Administrative Fees", name: "Custom reporting setup", unitLabel: "per setup", defaultRate: 0 },
+    { code: "RUSH_ORDER_SURCHARGE_PERCENTAGE", category: "Administrative Fees", name: "Rush order surcharge percentage", unitLabel: "percent", defaultRate: 0 },
+
+    { code: "FOOD_GRADE_HANDLING_COMPLIANCE", category: "Compliance & Special Handling", name: "Food grade handling compliance", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "TEMPERATURE_MONITORING", category: "Compliance & Special Handling", name: "Temperature monitoring", unitLabel: "per day", defaultRate: 0 },
+    { code: "LOT_CONTROL_HANDLING", category: "Compliance & Special Handling", name: "Lot control handling", unitLabel: "per SKU", defaultRate: 0 },
+    { code: "FRAGILE_HANDLING_SURCHARGE", category: "Compliance & Special Handling", name: "Fragile handling surcharge", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "DANGEROUS_GOODS_HANDLING", category: "Compliance & Special Handling", name: "Dangerous goods handling (if applicable)", unitLabel: "per shipment", defaultRate: 0 },
+
+    { code: "PALLET_BREAKDOWN", category: "Additional Services", name: "Pallet breakdown", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "PALLET_REBUILD", category: "Additional Services", name: "Pallet rebuild", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "RELABELING_COMPLIANCE_CHANGES", category: "Additional Services", name: "Relabeling due to compliance changes", unitLabel: "per unit", defaultRate: 0 },
+    { code: "PRODUCT_RECALL_ASSISTANCE", category: "Additional Services", name: "Product recall assistance", unitLabel: "per hour", defaultRate: 0 },
+    { code: "SPECIAL_PROJECT_WORK", category: "Additional Services", name: "Special project work", unitLabel: "per hour", defaultRate: 0 }
+];
 
 let databaseReady = false;
 let databaseErrorMessage = "";
@@ -160,7 +262,7 @@ app.use((req, _res, next) => {
 
 app.get("/api/state", async (_req, res, next) => {
     try {
-        res.json(await getServerState());
+        res.json(await getServerState(pool, { billingEventLimit: 1000 }));
     } catch (error) {
         next(error);
     }
@@ -171,7 +273,7 @@ app.get("/api/export", async (_req, res, next) => {
         res.json({
             app: "WMS365 Scanner",
             exportedAt: new Date().toISOString(),
-            ...(await getServerState())
+            ...(await getServerState(pool, { billingEventLimit: null }))
         });
     } catch (error) {
         next(error);
@@ -296,6 +398,136 @@ app.post("/api/master-item/update", async (req, res, next) => {
     }
 });
 
+app.post("/api/billing/rates", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const rates = Array.isArray(req.body?.rates) ? req.body.rates : [];
+        if (!accountName) {
+            throw httpError(400, "Vendor / Customer is required.");
+        }
+
+        const savedRates = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, accountName);
+            await saveOwnerBillingRates(client, accountName, rates);
+            await insertActivity(
+                client,
+                "billing",
+                `Updated billing rates for ${accountName}`,
+                `${formatCount(rates.length, "fee")} reviewed for warehouse billing.`
+            );
+            return getOwnerBillingRates(client, accountName);
+        });
+
+        res.json({ success: true, accountName, rates: savedRates });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing/events/manual", async (req, res, next) => {
+    try {
+        const entry = sanitizeManualBillingEventInput(req.body);
+        if (!entry?.accountName || !entry?.feeCode || !entry?.quantity) {
+            throw httpError(400, "Vendor / Customer, fee, and quantity are required.");
+        }
+
+        const billingEvent = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, entry.accountName);
+            const created = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
+                sourceType: "MANUAL",
+                sourceRef: entry.reference || entry.note || `MANUAL-${Date.now()}`,
+                description: entry.description,
+                note: entry.note,
+                reference: entry.reference,
+                serviceDate: entry.serviceDate,
+                eventKey: entry.eventKey || null,
+                rateOverride: entry.rate
+            });
+            if (!created) {
+                throw httpError(400, "That fee is disabled for this vendor / customer. Enable it in the billing setup first.");
+            }
+            await insertActivity(
+                client,
+                "billing",
+                `Added billing line for ${entry.accountName}`,
+                `${created.feeName} | ${formatBillingQuantity(created.quantity)} @ ${formatMoney(created.rate)}`
+            );
+            return created;
+        });
+
+        res.json({ success: true, event: billingEvent });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing/storage-accrual", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const month = normalizeBillingMonth(req.body?.month);
+        if (!accountName || !month) {
+            throw httpError(400, "Vendor / Customer and billing month are required.");
+        }
+
+        const events = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, accountName);
+            const created = await createMonthlyStorageBillingEvents(client, accountName, month);
+            await insertActivity(
+                client,
+                "billing",
+                `Generated storage billing for ${accountName}`,
+                `${month} | ${formatCount(created.length, "line")} created or refreshed.`
+            );
+            return created;
+        });
+
+        res.json({ success: true, accountName, month, events });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
+    try {
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((value) => Number.parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0) : [];
+        const invoiceNumber = normalizeFreeText(req.body?.invoiceNumber);
+        if (!ids.length) {
+            throw httpError(400, "Choose at least one billing line first.");
+        }
+        if (!invoiceNumber) {
+            throw httpError(400, "Invoice number is required.");
+        }
+
+        const updated = await withTransaction(async (client) => {
+            const result = await client.query(
+                `
+                    update billing_events
+                    set
+                        status = 'INVOICED',
+                        invoice_number = $2,
+                        invoiced_at = now(),
+                        updated_at = now()
+                    where id = any($1::bigint[])
+                      and status <> 'VOID'
+                    returning *
+                `,
+                [ids, invoiceNumber]
+            );
+            await insertActivity(
+                client,
+                "billing",
+                `Marked ${formatCount(result.rowCount, "billing line")} invoiced`,
+                `Invoice ${invoiceNumber}`
+            );
+            return result.rows.map(mapBillingEventRow);
+        });
+
+        res.json({ success: true, events: updated });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/master-items/import", async (req, res, next) => {
     try {
         const inputItems = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -363,6 +595,7 @@ app.post("/api/batch-save", async (req, res, next) => {
         const items = groupInventoryInputs(inputItems);
         const ownerCount = new Set(items.map((item) => item.accountName)).size;
         const locationCount = new Set(items.map((item) => `${item.accountName}::${item.location}`)).size;
+        const billingContextItems = [];
 
         await withTransaction(async (client) => {
             for (const rawItem of items) {
@@ -391,14 +624,19 @@ app.post("/api/batch-save", async (req, res, next) => {
                     caseWidth: master?.caseWidth ?? null,
                     caseHeight: master?.caseHeight ?? null
                 });
+                billingContextItems.push({
+                    ...item,
+                    unitsPerCase: master?.unitsPerCase ?? null
+                });
             }
 
-            await insertActivity(
+            const activity = await insertActivity(
                 client,
                 "scan",
                 `Saved ${formatCount(items.length, "staged line")} to inventory`,
                 `${formatCount(ownerCount, "owner")} | ${formatCount(locationCount, "location")} | ${formatTrackedSummaryFromItems(items)}`
             );
+            await createBatchBillingEvents(client, billingContextItems, activity?.id ? `ACTIVITY-${activity.id}` : `BATCH-${Date.now()}`);
         });
 
         res.json({ success: true });
@@ -593,6 +831,9 @@ app.post("/api/import", async (req, res, next) => {
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
         const importedActivity = Array.isArray(req.body?.activity) ? req.body.activity.map(sanitizeActivityInput).filter(Boolean) : [];
         const importedPallets = Array.isArray(req.body?.pallets) ? req.body.pallets.map(sanitizePalletRecordInput).filter(Boolean) : [];
+        const importedBillingFees = Array.isArray(req.body?.billing?.feeCatalog) ? req.body.billing.feeCatalog.map(sanitizeBillingFeeInput).filter(Boolean) : [];
+        const importedOwnerRates = Array.isArray(req.body?.billing?.ownerRates) ? req.body.billing.ownerRates.map(sanitizeOwnerBillingRateInput).filter(Boolean) : [];
+        const importedBillingEvents = Array.isArray(req.body?.billing?.events) ? req.body.billing.events.map(sanitizeBillingEventInput).filter(Boolean) : [];
         const importedLocations = Array.isArray(req.body?.masters?.locations) ? req.body.masters.locations.map(sanitizeLocationMasterInput).filter(Boolean) : [];
         const importedItems = Array.isArray(req.body?.masters?.items) ? req.body.masters.items.map(sanitizeItemMasterInput).filter(Boolean) : [];
         const importedOwners = Array.isArray(req.body?.masters?.ownerRecords)
@@ -602,7 +843,11 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, pallet_records, inventory_lines, bin_locations, item_catalog, owner_accounts restart identity");
+            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, bin_locations, item_catalog, owner_accounts restart identity cascade");
+
+            if (importedBillingFees.length) {
+                await client.query("truncate table billing_fee_catalog");
+            }
 
             for (const line of importedInventory) {
                 await client.query(
@@ -652,6 +897,18 @@ app.post("/api/import", async (req, res, next) => {
                 );
             }
 
+            for (const fee of importedBillingFees) {
+                await client.query(
+                    `
+                        insert into billing_fee_catalog (
+                            code, category, name, unit_label, default_rate, is_active, created_at, updated_at
+                        )
+                        values ($1, $2, $3, $4, $5, $6, $7, $8)
+                    `,
+                    [fee.code, fee.category, fee.name, fee.unitLabel, fee.defaultRate, fee.isActive !== false, fee.createdAt, fee.updatedAt]
+                );
+            }
+
             for (const owner of importedOwners) {
                 await client.query(
                     `
@@ -659,6 +916,60 @@ app.post("/api/import", async (req, res, next) => {
                         values ($1, $2, $3, $4)
                     `,
                     [owner.name, owner.note, owner.createdAt, owner.updatedAt]
+                );
+            }
+
+            for (const rate of importedOwnerRates) {
+                await client.query(
+                    `
+                        insert into owner_billing_rates (
+                            account_name, fee_code, rate, is_enabled, unit_label, note, created_at, updated_at
+                        )
+                        values ($1, $2, $3, $4, $5, $6, $7, $8)
+                    `,
+                    [rate.accountName, rate.feeCode, rate.rate, rate.isEnabled === true, rate.unitLabel, rate.note, rate.createdAt, rate.updatedAt]
+                );
+            }
+
+            for (const event of importedBillingEvents) {
+                await client.query(
+                    `
+                        insert into billing_events (
+                            event_key, account_name, fee_code, fee_category, fee_name, unit_label,
+                            quantity, rate, amount, currency_code, service_date, status,
+                            invoice_number, invoiced_at, source_type, source_ref, reference, note,
+                            metadata, created_at, updated_at
+                        )
+                        values (
+                            $1, $2, $3, $4, $5, $6,
+                            $7, $8, $9, $10, $11, $12,
+                            $13, $14, $15, $16, $17, $18,
+                            $19, $20, $21
+                        )
+                    `,
+                    [
+                        event.eventKey,
+                        event.accountName,
+                        event.feeCode,
+                        event.feeCategory,
+                        event.feeName,
+                        event.unitLabel,
+                        event.quantity,
+                        event.rate,
+                        event.amount,
+                        event.currencyCode,
+                        event.serviceDate,
+                        event.status,
+                        event.invoiceNumber,
+                        event.invoicedAt,
+                        event.sourceType,
+                        event.sourceRef,
+                        event.reference,
+                        event.note,
+                        JSON.stringify(event.metadata || {}),
+                        event.createdAt,
+                        event.updatedAt
+                    ]
                 );
             }
 
@@ -732,7 +1043,7 @@ app.post("/api/import", async (req, res, next) => {
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
             );
         });
 
@@ -902,7 +1213,7 @@ app.get("/api/portal/me", async (req, res, next) => {
         const session = await requirePortalSession(req);
         res.json({
             authenticated: true,
-            account: mapPortalAccessRow(session.access)
+            account: session.access
         });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -916,7 +1227,7 @@ app.get("/api/portal/inventory", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         res.json({
-            inventory: await getPortalInventorySummary(session.access.account_name)
+            inventory: await getPortalInventorySummary(session.access.accountName)
         });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -930,7 +1241,7 @@ app.get("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         res.json({
-            orders: await getPortalOrdersForAccount(session.access.account_name)
+            orders: await getPortalOrdersForAccount(session.access.accountName)
         });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -966,10 +1277,24 @@ app.post("/api/portal/inbounds", async (req, res, next) => {
     }
 });
 
+app.get("/api/portal/items", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        res.json({
+            items: await getPortalItemsForAccount(session.access.accountName)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.post("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
-        const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.access, req.body));
+        const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.accessRow, req.body));
         res.json({ success: true, order });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -986,7 +1311,7 @@ app.put("/api/portal/orders/:id", async (req, res, next) => {
         if (!orderId) {
             throw httpError(400, "A valid order id is required.");
         }
-        const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.access, req.body, orderId));
+        const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.accessRow, req.body, orderId));
         res.json({ success: true, order });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -1003,12 +1328,33 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
         if (!orderId) {
             throw httpError(400, "A valid order id is required.");
         }
-        const order = await withTransaction(async (client) => releasePortalOrder(client, session.access, orderId));
+        const order = await withTransaction(async (client) => releasePortalOrder(client, session.accessRow, orderId));
         res.json({ success: true, order });
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
         }
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        const nextStatus = normalizePortalOrderStatus(req.body?.status);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        if (!nextStatus) {
+            throw httpError(400, "A valid order status is required.");
+        }
+
+        const order = await withTransaction(async (client) => {
+            return updateAdminPortalOrderStatus(client, orderId, nextStatus, req.appUser);
+        });
+
+        res.json({ success: true, order });
+    } catch (error) {
         next(error);
     }
 });
@@ -1224,6 +1570,81 @@ async function initializeDatabase() {
     await pool.query("alter table item_catalog drop constraint if exists item_catalog_sku_key");
 
     await pool.query(`
+        create table if not exists billing_fee_catalog (
+            code text primary key,
+            category text not null,
+            name text not null,
+            unit_label text not null default '',
+            default_rate numeric(12, 4) not null default 0,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists owner_billing_rates (
+            id bigserial primary key,
+            account_name text not null,
+            fee_code text not null references billing_fee_catalog(code) on delete cascade,
+            rate numeric(12, 4) not null default 0,
+            is_enabled boolean not null default false,
+            unit_label text not null default '',
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, fee_code)
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists billing_events (
+            id bigserial primary key,
+            event_key text unique,
+            account_name text not null,
+            fee_code text not null references billing_fee_catalog(code) on delete restrict,
+            fee_category text not null default '',
+            fee_name text not null default '',
+            unit_label text not null default '',
+            quantity numeric(12, 4) not null,
+            rate numeric(12, 4) not null,
+            amount numeric(12, 4) not null,
+            currency_code text not null default 'USD',
+            service_date date not null default current_date,
+            status text not null default 'OPEN',
+            invoice_number text not null default '',
+            invoiced_at timestamptz,
+            source_type text not null default '',
+            source_ref text not null default '',
+            reference text not null default '',
+            note text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint billing_events_status_check check (status in ('OPEN', 'INVOICED', 'VOID'))
+        );
+    `);
+
+    await pool.query("alter table billing_events add column if not exists event_key text unique");
+    await pool.query("alter table billing_events add column if not exists currency_code text not null default 'USD'");
+    await pool.query("alter table billing_events add column if not exists invoice_number text not null default ''");
+    await pool.query("alter table billing_events add column if not exists invoiced_at timestamptz");
+    await pool.query("alter table billing_events add column if not exists source_type text not null default ''");
+    await pool.query("alter table billing_events add column if not exists source_ref text not null default ''");
+    await pool.query("alter table billing_events add column if not exists reference text not null default ''");
+    await pool.query("alter table billing_events add column if not exists note text not null default ''");
+    await pool.query("alter table billing_events add column if not exists metadata jsonb not null default '{}'::jsonb");
+    await pool.query("alter table billing_events add column if not exists fee_category text not null default ''");
+    await pool.query("alter table billing_events add column if not exists fee_name text not null default ''");
+    await pool.query("alter table billing_events add column if not exists unit_label text not null default ''");
+    await pool.query("alter table billing_events drop constraint if exists billing_events_status_check");
+    await pool.query("alter table billing_events add constraint billing_events_status_check check (status in ('OPEN', 'INVOICED', 'VOID'))");
+    await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
+    await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
+    await pool.query("create index if not exists idx_owner_billing_rates_account on owner_billing_rates (account_name)");
+    await seedBillingFeeCatalog(pool);
+
+    await pool.query(`
         create table if not exists pallet_records (
             id bigserial primary key,
             pallet_code text not null unique,
@@ -1262,11 +1683,16 @@ async function initializeDatabase() {
             released_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'SHIPPED'))
+            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED'))
         );
     `);
     await pool.query("alter table portal_orders alter column order_code drop not null");
     await pool.query("alter table portal_orders alter column order_code drop default");
+    await pool.query("alter table portal_orders add column if not exists picked_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists staged_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists shipped_at timestamptz");
+    await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
+    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED'))");
 
     await pool.query(`
         create table if not exists portal_inbounds (
@@ -1419,14 +1845,21 @@ async function initializeDatabaseWithRetry() {
     }
 }
 
-async function getServerState(client = pool) {
-    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, metaResult] = await Promise.all([
+async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) {
+    const billingEventsQuery = Number.isFinite(billingEventLimit) && billingEventLimit > 0
+        ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
+        : client.query("select * from billing_events order by service_date desc, id desc");
+
+    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
         client.query("select * from owner_accounts order by name asc"),
         client.query("select * from item_catalog order by account_name asc, sku asc"),
         client.query("select * from pallet_records order by updated_at desc, pallet_code asc"),
+        client.query("select * from billing_fee_catalog order by category asc, name asc"),
+        client.query("select * from owner_billing_rates order by account_name asc, fee_code asc"),
+        billingEventsQuery,
         client.query(`
             select nullif(
                 greatest(
@@ -1435,7 +1868,10 @@ async function getServerState(client = pool) {
                     coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_accounts), to_timestamp(0)),
                     coalesce((select max(updated_at) from item_catalog), to_timestamp(0)),
-                    coalesce((select max(updated_at) from pallet_records), to_timestamp(0))
+                    coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
+                    coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
+                    coalesce((select max(updated_at) from owner_billing_rates), to_timestamp(0)),
+                    coalesce((select max(updated_at) from billing_events), to_timestamp(0))
                 ),
                 to_timestamp(0)
             ) as last_changed_at
@@ -1458,12 +1894,473 @@ async function getServerState(client = pool) {
             items: itemResult.rows.map(mapItemMasterRow),
             owners
         },
+        billing: {
+            feeCatalog: billingFeeResult.rows.map(mapBillingFeeRow),
+            ownerRates: ownerRateResult.rows.map(mapOwnerBillingRateRow),
+            events: billingEventResult.rows.map(mapBillingEventRow)
+        },
         meta: {
-            version: 6,
+            version: 7,
             lastChangedAt: metaResult.rows[0].last_changed_at ? new Date(metaResult.rows[0].last_changed_at).toISOString() : null,
             serverSyncedAt: new Date().toISOString()
         }
     };
+}
+
+function normalizeBillingMonth(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (/^\d{4}-\d{2}$/.test(text)) return text;
+    const normalizedDate = normalizeDateInput(text);
+    return normalizedDate ? normalizedDate.slice(0, 7) : "";
+}
+
+function roundBillingNumber(value, digits = 4) {
+    const factor = 10 ** digits;
+    const numeric = Number.parseFloat(String(value));
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.round(numeric * factor) / factor;
+}
+
+function formatMoney(value) {
+    return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(roundBillingNumber(value, 2));
+}
+
+function formatBillingQuantity(value) {
+    const numeric = roundBillingNumber(value);
+    return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function sanitizeBillingFeeInput(item) {
+    const code = normalizeText(item?.code);
+    if (!code) return null;
+    return {
+        code,
+        category: normalizeFreeText(item?.category || "General"),
+        name: normalizeFreeText(item?.name || code.replace(/_/g, " ")),
+        unitLabel: normalizeFreeText(item?.unitLabel || item?.unit_label || ""),
+        defaultRate: roundBillingNumber(item?.defaultRate ?? item?.default_rate ?? 0),
+        isActive: item?.isActive !== false,
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
+function sanitizeOwnerBillingRateInput(item, fallbackAccountName = "") {
+    const accountName = normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer || fallbackAccountName);
+    const feeCode = normalizeText(item?.feeCode || item?.code);
+    if (!accountName || !feeCode) return null;
+    return {
+        accountName,
+        feeCode,
+        rate: roundBillingNumber(item?.rate ?? 0),
+        isEnabled: item?.isEnabled === true || item?.enabled === true,
+        unitLabel: normalizeFreeText(item?.unitLabel || item?.unit_label || ""),
+        note: normalizeFreeText(item?.note || ""),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
+function sanitizeBillingEventInput(item) {
+    const accountName = normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer);
+    const feeCode = normalizeText(item?.feeCode || item?.code);
+    if (!accountName || !feeCode) return null;
+
+    const metadata = item?.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata) ? item.metadata : {};
+    const serviceDate = normalizeDateInput(item?.serviceDate || item?.date) || new Date().toISOString().slice(0, 10);
+    const status = normalizeText(item?.status || "OPEN");
+
+    return {
+        id: item?.id == null ? null : Number.parseInt(String(item.id), 10),
+        eventKey: typeof item?.eventKey === "string" && item.eventKey.trim() ? item.eventKey.trim() : null,
+        accountName,
+        feeCode,
+        feeCategory: normalizeFreeText(item?.feeCategory || item?.category || ""),
+        feeName: normalizeFreeText(item?.feeName || item?.name || ""),
+        unitLabel: normalizeFreeText(item?.unitLabel || item?.unit_label || ""),
+        quantity: roundBillingNumber(item?.quantity ?? 0),
+        rate: roundBillingNumber(item?.rate ?? 0),
+        amount: roundBillingNumber(item?.amount ?? 0),
+        currencyCode: normalizeText(item?.currencyCode || item?.currency_code || "USD"),
+        serviceDate,
+        status: ["OPEN", "INVOICED", "VOID"].includes(status) ? status : "OPEN",
+        invoiceNumber: normalizeFreeText(item?.invoiceNumber || item?.invoice_number || ""),
+        invoicedAt: typeof item?.invoicedAt === "string" ? item.invoicedAt : (typeof item?.invoiced_at === "string" ? item.invoiced_at : null),
+        sourceType: normalizeText(item?.sourceType || item?.source_type || ""),
+        sourceRef: normalizeFreeText(item?.sourceRef || item?.source_ref || ""),
+        reference: normalizeFreeText(item?.reference || ""),
+        note: normalizeFreeText(item?.note || ""),
+        metadata,
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
+function sanitizeManualBillingEventInput(item) {
+    const accountName = normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer);
+    const feeCode = normalizeText(item?.feeCode || item?.code);
+    const quantity = roundBillingNumber(item?.quantity ?? 0);
+    if (!accountName || !feeCode || quantity <= 0) return null;
+    return {
+        accountName,
+        feeCode,
+        quantity,
+        rate: item?.rate == null || item?.rate === "" ? null : roundBillingNumber(item.rate),
+        serviceDate: normalizeDateInput(item?.serviceDate || item?.date) || new Date().toISOString().slice(0, 10),
+        reference: normalizeFreeText(item?.reference || ""),
+        note: normalizeFreeText(item?.note || ""),
+        description: normalizeFreeText(item?.description || ""),
+        eventKey: typeof item?.eventKey === "string" ? item.eventKey.trim() : ""
+    };
+}
+
+async function seedBillingFeeCatalog(client = pool) {
+    for (const seed of BILLING_FEE_SEED) {
+        await client.query(
+            `
+                insert into billing_fee_catalog (code, category, name, unit_label, default_rate, is_active)
+                values ($1, $2, $3, $4, $5, true)
+                on conflict (code)
+                do update set
+                    category = excluded.category,
+                    name = excluded.name,
+                    unit_label = excluded.unit_label,
+                    default_rate = excluded.default_rate,
+                    updated_at = now()
+            `,
+            [seed.code, seed.category, seed.name, seed.unitLabel, seed.defaultRate]
+        );
+    }
+}
+
+async function getOwnerBillingRates(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    const result = normalizedAccount
+        ? await client.query("select * from owner_billing_rates where account_name = $1 order by fee_code asc", [normalizedAccount])
+        : await client.query("select * from owner_billing_rates order by account_name asc, fee_code asc");
+    return result.rows.map(mapOwnerBillingRateRow);
+}
+
+async function saveOwnerBillingRates(client, accountName, inputRates) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+
+    const uniqueRates = new Map();
+    for (const rawRate of Array.isArray(inputRates) ? inputRates : []) {
+        const rate = sanitizeOwnerBillingRateInput(rawRate, normalizedAccount);
+        if (!rate) continue;
+        uniqueRates.set(rate.feeCode, rate);
+    }
+
+    await client.query("delete from owner_billing_rates where account_name = $1", [normalizedAccount]);
+    for (const rate of uniqueRates.values()) {
+        await client.query(
+            `
+                insert into owner_billing_rates (account_name, fee_code, rate, is_enabled, unit_label, note)
+                values ($1, $2, $3, $4, $5, $6)
+            `,
+            [normalizedAccount, rate.feeCode, rate.rate, rate.isEnabled === true, rate.unitLabel, rate.note]
+        );
+    }
+
+    return getOwnerBillingRates(client, normalizedAccount);
+}
+
+async function getResolvedBillingFee(client, accountName, feeCode) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedFeeCode = normalizeText(feeCode);
+    const result = await client.query(
+        `
+            select
+                c.*,
+                r.rate as owner_rate,
+                r.is_enabled as owner_enabled,
+                r.unit_label as owner_unit_label,
+                r.note as owner_note
+            from billing_fee_catalog c
+            left join owner_billing_rates r
+              on r.fee_code = c.code
+             and r.account_name = $1
+            where c.code = $2
+            limit 1
+        `,
+        [normalizedAccount, normalizedFeeCode]
+    );
+
+    if (result.rowCount !== 1) return null;
+    const row = result.rows[0];
+    return {
+        code: row.code,
+        category: row.category,
+        name: row.name,
+        unitLabel: row.unit_label || "",
+        defaultRate: roundBillingNumber(row.default_rate),
+        isActive: row.is_active !== false,
+        rate: row.owner_rate == null ? roundBillingNumber(row.default_rate) : roundBillingNumber(row.owner_rate),
+        isEnabled: row.owner_enabled === true,
+        note: row.owner_note || "",
+        effectiveUnitLabel: row.owner_unit_label || row.unit_label || ""
+    };
+}
+
+async function createBillingEventForFee(client, accountName, feeCode, quantity, options = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const numericQuantity = roundBillingNumber(quantity);
+    if (!normalizedAccount || numericQuantity <= 0) return null;
+
+    const fee = await getResolvedBillingFee(client, normalizedAccount, feeCode);
+    if (!fee || fee.isActive === false || fee.isEnabled !== true) {
+        return null;
+    }
+
+    const rate = options.rateOverride == null ? fee.rate : roundBillingNumber(options.rateOverride);
+    const serviceDate = normalizeDateInput(options.serviceDate) || new Date().toISOString().slice(0, 10);
+    const eventKey = typeof options.eventKey === "string" && options.eventKey.trim() ? options.eventKey.trim() : null;
+    const amount = roundBillingNumber(numericQuantity * rate);
+    const sourceType = normalizeText(options.sourceType || "");
+    const sourceRef = normalizeFreeText(options.sourceRef || "");
+    const reference = normalizeFreeText(options.reference || "");
+    const note = normalizeFreeText(options.note || "");
+    const metadata = options.metadata && typeof options.metadata === "object" && !Array.isArray(options.metadata) ? options.metadata : {};
+
+    const params = [
+        eventKey,
+        normalizedAccount,
+        fee.code,
+        fee.category,
+        options.description ? normalizeFreeText(options.description) : fee.name,
+        normalizeFreeText(fee.effectiveUnitLabel || fee.unitLabel),
+        numericQuantity,
+        rate,
+        amount,
+        normalizeText(options.currencyCode || "USD") || "USD",
+        serviceDate,
+        sourceType,
+        sourceRef,
+        reference,
+        note,
+        JSON.stringify(metadata)
+    ];
+
+    if (eventKey) {
+        const upsertResult = await client.query(
+            `
+                insert into billing_events (
+                    event_key, account_name, fee_code, fee_category, fee_name, unit_label,
+                    quantity, rate, amount, currency_code, service_date,
+                    source_type, source_ref, reference, note, metadata
+                )
+                values (
+                    $1, $2, $3, $4, $5, $6,
+                    $7, $8, $9, $10, $11,
+                    $12, $13, $14, $15, $16::jsonb
+                )
+                on conflict (event_key)
+                do update set
+                    quantity = excluded.quantity,
+                    rate = excluded.rate,
+                    amount = excluded.amount,
+                    service_date = excluded.service_date,
+                    fee_category = excluded.fee_category,
+                    fee_name = excluded.fee_name,
+                    unit_label = excluded.unit_label,
+                    source_type = excluded.source_type,
+                    source_ref = excluded.source_ref,
+                    reference = excluded.reference,
+                    note = excluded.note,
+                    metadata = excluded.metadata,
+                    updated_at = now()
+                where billing_events.status = 'OPEN'
+                returning *
+            `,
+            params
+        );
+
+        if (upsertResult.rowCount > 0) {
+            return mapBillingEventRow(upsertResult.rows[0]);
+        }
+
+        const existing = await client.query("select * from billing_events where event_key = $1 limit 1", [eventKey]);
+        return existing.rowCount === 1 ? mapBillingEventRow(existing.rows[0]) : null;
+    }
+
+    const insertResult = await client.query(
+        `
+            insert into billing_events (
+                event_key, account_name, fee_code, fee_category, fee_name, unit_label,
+                quantity, rate, amount, currency_code, service_date,
+                source_type, source_ref, reference, note, metadata
+            )
+            values (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11,
+                $12, $13, $14, $15, $16::jsonb
+            )
+            returning *
+        `,
+        params
+    );
+    return mapBillingEventRow(insertResult.rows[0]);
+}
+
+function addBillingRollup(grouped, accountName, feeCode, quantity) {
+    const normalizedAccount = normalizeText(accountName);
+    const numericQuantity = roundBillingNumber(quantity);
+    if (!normalizedAccount || !feeCode || numericQuantity <= 0) return;
+    const key = `${normalizedAccount}::${feeCode}`;
+    const current = grouped.get(key) || { accountName: normalizedAccount, feeCode, quantity: 0 };
+    current.quantity = roundBillingNumber(current.quantity + numericQuantity);
+    grouped.set(key, current);
+}
+
+async function createBatchBillingEvents(client, items, batchRef) {
+    const grouped = new Map();
+    for (const item of Array.isArray(items) ? items : []) {
+        const trackingLevel = normalizeTrackingLevel(item?.trackingLevel);
+        const quantity = Number(item?.quantity) || 0;
+        if (!item?.accountName || quantity <= 0) continue;
+
+        if (trackingLevel === "PALLET") {
+            addBillingRollup(grouped, item.accountName, "PALLET_RECEIVING_FEE", quantity);
+            addBillingRollup(grouped, item.accountName, "PUT_AWAY_PALLET", quantity);
+            continue;
+        }
+
+        if (trackingLevel === "CASE") {
+            addBillingRollup(grouped, item.accountName, "CARTON_RECEIVING_FEE", quantity);
+            addBillingRollup(grouped, item.accountName, "PUT_AWAY_CARTON", quantity);
+            continue;
+        }
+
+        const unitsPerCase = Number(item?.unitsPerCase) || 0;
+        if (trackingLevel === "UNIT" && unitsPerCase > 0 && quantity % unitsPerCase === 0) {
+            const cartonCount = quantity / unitsPerCase;
+            addBillingRollup(grouped, item.accountName, "CARTON_RECEIVING_FEE", cartonCount);
+            addBillingRollup(grouped, item.accountName, "PUT_AWAY_CARTON", cartonCount);
+        }
+    }
+
+    const created = [];
+    for (const entry of grouped.values()) {
+        const billLine = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
+            sourceType: "RECEIVING",
+            sourceRef: batchRef,
+            reference: batchRef,
+            note: "Auto-created from saved receiving batch.",
+            eventKey: `${batchRef}:${entry.accountName}:${entry.feeCode}`
+        });
+        if (billLine) created.push(billLine);
+    }
+    return created;
+}
+
+async function createPortalOrderBillingEvents(client, order) {
+    if (!order?.id || !order?.accountName) return [];
+
+    let unitQuantity = 0;
+    let caseQuantity = 0;
+    let palletQuantity = 0;
+
+    for (const line of Array.isArray(order.lines) ? order.lines : []) {
+        const quantity = Number(line?.quantity) || 0;
+        const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
+        if (quantity <= 0) continue;
+        if (trackingLevel === "PALLET") palletQuantity += quantity;
+        else if (trackingLevel === "CASE") caseQuantity += quantity;
+        else unitQuantity += quantity;
+    }
+
+    const created = [];
+    const sourceType = "OUTBOUND_ORDER";
+    const sourceRef = order.orderCode || `ORDER-${order.id}`;
+    const reference = order.poNumber || order.shippingReference || sourceRef;
+
+    const pushCreated = async (feeCode, quantity, suffix) => {
+        const line = await createBillingEventForFee(client, order.accountName, feeCode, quantity, {
+            sourceType,
+            sourceRef,
+            reference,
+            note: `Auto-created when portal order ${sourceRef} was shipped.`,
+            eventKey: `ORDER:${order.id}:${suffix || feeCode}`
+        });
+        if (line) created.push(line);
+    };
+
+    await pushCreated("SHIPPING_ADMINISTRATION_FEE", 1, "SHIP_ADMIN");
+
+    if (unitQuantity > 0) {
+        await pushCreated("ORDER_PROCESSING_FIRST_ITEM", 1, "B2C_FIRST");
+        if (unitQuantity > 1) {
+            await pushCreated("ADDITIONAL_ITEM_PICK", unitQuantity - 1, "B2C_ADDITIONAL");
+        }
+    }
+
+    if (caseQuantity > 0) {
+        await pushCreated("CARTON_PICK_FEE", 1, "B2B_CASE_FIRST");
+        if (caseQuantity > 1) {
+            await pushCreated("ADDITIONAL_CARTON_PICK_FEE", caseQuantity - 1, "B2B_CASE_ADDITIONAL");
+        }
+    }
+
+    if (palletQuantity > 0) {
+        await pushCreated("PALLET_PICK_FEE", palletQuantity, "B2B_PALLET");
+    }
+
+    return created;
+}
+
+async function createMonthlyStorageBillingEvents(client, accountName, month) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedMonth = normalizeBillingMonth(month);
+    if (!normalizedAccount || !normalizedMonth) return [];
+
+    const snapshot = await client.query(
+        `
+            select
+                coalesce(sum(case when tracking_level = 'PALLET' then quantity else 0 end), 0)::integer as pallet_count,
+                count(distinct case when tracking_level <> 'PALLET' then location else null end)::integer as floor_positions
+            from inventory_lines
+            where account_name = $1
+        `,
+        [normalizedAccount]
+    );
+
+    const palletCount = Number(snapshot.rows[0]?.pallet_count) || 0;
+    const floorPositions = Number(snapshot.rows[0]?.floor_positions) || 0;
+    const serviceDate = `${normalizedMonth}-01`;
+    const created = [];
+
+    if (palletCount > 0) {
+        const palletLine = await createBillingEventForFee(client, normalizedAccount, "STANDARD_PALLET_STORAGE", palletCount, {
+            sourceType: "STORAGE_MONTHLY",
+            sourceRef: normalizedMonth,
+            reference: normalizedMonth,
+            serviceDate,
+            note: `Auto-generated from live pallet-tracked inventory for ${normalizedMonth}.`,
+            eventKey: `STORAGE:${normalizedAccount}:${normalizedMonth}:STANDARD_PALLET_STORAGE`
+        });
+        if (palletLine) created.push(palletLine);
+    }
+
+    if (floorPositions > 0) {
+        const floorLine = await createBillingEventForFee(client, normalizedAccount, "FLOOR_STORAGE", floorPositions, {
+            sourceType: "STORAGE_MONTHLY",
+            sourceRef: normalizedMonth,
+            reference: normalizedMonth,
+            serviceDate,
+            note: `Auto-generated from live floor-position inventory for ${normalizedMonth}.`,
+            eventKey: `STORAGE:${normalizedAccount}:${normalizedMonth}:FLOOR_STORAGE`
+        });
+        if (floorLine) created.push(floorLine);
+    }
+
+    return created;
 }
 
 async function ensureDefaultAppAdmin() {
@@ -1711,7 +2608,8 @@ async function requirePortalSession(req, client = pool) {
     await client.query("update portal_sessions set last_seen_at = now() where id = $1", [row.session_id]);
     return {
         sessionId: String(row.session_id),
-        access: row
+        access: mapPortalAccessRow(row),
+        accessRow: row
     };
 }
 
@@ -1719,27 +2617,71 @@ async function getPortalInventorySummary(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const result = await client.query(
         `
+            with on_hand as (
+                select
+                    i.account_name,
+                    i.sku,
+                    coalesce(max(nullif(i.upc, '')), max(nullif(c.upc, '')), '') as upc,
+                    coalesce(max(nullif(c.description, '')), '') as description,
+                    coalesce(max(nullif(c.image_url, '')), '') as image_url,
+                    coalesce(max(nullif(c.tracking_level, '')), max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
+                    sum(i.quantity)::integer as on_hand_quantity,
+                    count(distinct i.location)::integer as location_count,
+                    array_remove(array_agg(distinct i.location order by i.location), null) as locations
+                from inventory_lines i
+                left join item_catalog c
+                  on c.account_name = i.account_name
+                 and c.sku = i.sku
+                where i.account_name = $1
+                group by i.account_name, i.sku
+            ),
+            reserved as (
+                select
+                    o.account_name,
+                    l.sku,
+                    coalesce(sum(l.requested_quantity), 0)::integer as reserved_quantity
+                from portal_orders o
+                join portal_order_lines l on l.order_id = o.id
+                where o.account_name = $1
+                  and o.status = any($2::text[])
+                group by o.account_name, l.sku
+            )
             select
-                i.account_name,
-                i.sku,
-                coalesce(max(nullif(i.upc, '')), max(nullif(c.upc, '')), '') as upc,
-                coalesce(max(nullif(c.description, '')), '') as description,
-                coalesce(max(nullif(c.image_url, '')), '') as image_url,
-                coalesce(max(nullif(c.tracking_level, '')), max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
-                sum(i.quantity)::integer as total_quantity,
-                count(distinct i.location)::integer as location_count,
-                array_remove(array_agg(distinct i.location order by i.location), null) as locations
-            from inventory_lines i
-            left join item_catalog c
-              on c.account_name = i.account_name
-             and c.sku = i.sku
-            where i.account_name = $1
-            group by i.account_name, i.sku
-            order by i.sku asc
+                h.account_name,
+                h.sku,
+                h.upc,
+                h.description,
+                h.image_url,
+                h.tracking_level,
+                h.on_hand_quantity as total_quantity,
+                h.on_hand_quantity,
+                coalesce(r.reserved_quantity, 0)::integer as reserved_quantity,
+                greatest(h.on_hand_quantity - coalesce(r.reserved_quantity, 0), 0)::integer as available_quantity,
+                h.location_count,
+                h.locations
+            from on_hand h
+            left join reserved r
+              on r.account_name = h.account_name
+             and r.sku = h.sku
+            order by h.sku asc
+        `,
+        [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES]
+    );
+    return result.rows.map(mapPortalInventoryRow);
+}
+
+async function getPortalItemsForAccount(accountName, client = pool) {
+    const normalizedAccount = normalizeText(accountName);
+    const result = await client.query(
+        `
+            select *
+            from item_catalog
+            where account_name = $1
+            order by sku asc
         `,
         [normalizedAccount]
     );
-    return result.rows.map(mapPortalInventoryRow);
+    return result.rows.map(mapPortalItemRow);
 }
 
 async function getPortalOrdersForAccount(accountName, client = pool) {
@@ -1972,6 +2914,9 @@ async function releasePortalOrder(client, accessRow, orderId) {
     if (order.status === "RELEASED") {
         return order;
     }
+    if (order.status !== "DRAFT") {
+        throw httpError(400, `Orders already marked ${order.status} cannot be released again from the vendor portal.`);
+    }
     if (!order.lines.length) {
         throw httpError(400, "Add at least one line before releasing the order.");
     }
@@ -2003,26 +2948,66 @@ async function releasePortalOrder(client, accessRow, orderId) {
 }
 
 async function assertPortalOrderSkuAllowed(client, accountName, sku, requestedQuantity = null) {
-    const result = await client.query(
-        `
-            select
-                coalesce(sum(quantity), 0)::integer as total_quantity,
-                coalesce(max(nullif(tracking_level, '')), 'UNIT') as tracking_level
-            from inventory_lines
-            where account_name = $1 and sku = $2
-        `,
-        [normalizeText(accountName), normalizeText(sku)]
-    );
+    const summary = await getPortalSkuAvailability(client, accountName, sku);
 
-    const totalQuantity = Number(result.rows[0]?.total_quantity) || 0;
-    const trackingLevel = result.rows[0]?.tracking_level || "UNIT";
-
-    if (totalQuantity <= 0) {
+    if (summary.onHandQuantity <= 0) {
         throw httpError(400, `SKU ${normalizeText(sku)} is not currently available for that vendor/customer.`);
     }
-    if (requestedQuantity && Number(requestedQuantity) > totalQuantity) {
-        throw httpError(400, `SKU ${normalizeText(sku)} only has ${formatTrackedQuantity(totalQuantity, trackingLevel)} available right now.`);
+    if (requestedQuantity && Number(requestedQuantity) > summary.availableQuantity) {
+        throw httpError(
+            400,
+            `SKU ${normalizeText(sku)} only has ${formatTrackedQuantity(summary.availableQuantity, summary.trackingLevel)} available right now.`
+        );
     }
+}
+
+async function getPortalSkuAvailability(client, accountName, sku, excludeOrderId = null) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedSku = normalizeText(sku);
+    const params = [normalizedAccount, normalizedSku, ACTIVE_PORTAL_ORDER_STATUSES];
+    let excludeSql = "";
+
+    if (excludeOrderId) {
+        params.push(excludeOrderId);
+        excludeSql = ` and o.id <> $${params.length}`;
+    }
+
+    const result = await client.query(
+        `
+            with on_hand as (
+                select
+                    coalesce(sum(quantity), 0)::integer as on_hand_quantity,
+                    coalesce(max(nullif(tracking_level, '')), 'UNIT') as tracking_level
+                from inventory_lines
+                where account_name = $1
+                  and sku = $2
+            ),
+            reserved as (
+                select coalesce(sum(l.requested_quantity), 0)::integer as reserved_quantity
+                from portal_orders o
+                join portal_order_lines l on l.order_id = o.id
+                where o.account_name = $1
+                  and l.sku = $2
+                  and o.status = any($3::text[])
+                  ${excludeSql}
+            )
+            select
+                on_hand.on_hand_quantity,
+                on_hand.tracking_level,
+                coalesce(reserved.reserved_quantity, 0)::integer as reserved_quantity,
+                greatest(on_hand.on_hand_quantity - coalesce(reserved.reserved_quantity, 0), 0)::integer as available_quantity
+            from on_hand
+            cross join reserved
+        `,
+        params
+    );
+
+    return {
+        onHandQuantity: Number(result.rows[0]?.on_hand_quantity) || 0,
+        reservedQuantity: Number(result.rows[0]?.reserved_quantity) || 0,
+        availableQuantity: Number(result.rows[0]?.available_quantity) || 0,
+        trackingLevel: result.rows[0]?.tracking_level || "UNIT"
+    };
 }
 
 function mapPortalOrders(orderRows, lineRows) {
@@ -2134,6 +3119,101 @@ async function savePortalInbound(client, accessRow, rawInbound) {
         `${savedInbound.accountName} | ${formatCount(savedInbound.lines.length, "line")} | Ref ${savedInbound.referenceNumber}`
     );
     return savedInbound;
+}
+
+async function updateAdminPortalOrderStatus(client, orderId, nextStatus, appUser = null) {
+    const orderResult = await client.query("select * from portal_orders where id = $1 limit 1", [orderId]);
+    if (orderResult.rowCount !== 1) {
+        throw httpError(404, "That portal order could not be found.");
+    }
+
+    const currentOrder = await getPortalOrderById(client, orderId, orderResult.rows[0].account_name);
+    if (!currentOrder) {
+        throw httpError(404, "That portal order could not be found.");
+    }
+    if (currentOrder.status === nextStatus) {
+        return currentOrder;
+    }
+
+    const allowedTransitions = {
+        RELEASED: "PICKED",
+        PICKED: "STAGED",
+        STAGED: "SHIPPED"
+    };
+    const allowedNext = allowedTransitions[currentOrder.status];
+    if (!allowedNext || allowedNext !== nextStatus) {
+        throw httpError(400, `Orders in ${currentOrder.status} can only move to ${allowedNext || "the next warehouse stage"}.`);
+    }
+
+    if (nextStatus === "SHIPPED") {
+        await consumePortalOrderInventory(client, currentOrder);
+    }
+
+    const timestampColumn = nextStatus === "PICKED"
+        ? "picked_at"
+        : nextStatus === "STAGED"
+            ? "staged_at"
+            : "shipped_at";
+
+    await client.query(
+        `
+            update portal_orders
+            set
+                status = $2,
+                ${timestampColumn} = coalesce(${timestampColumn}, now()),
+                updated_at = now()
+            where id = $1
+        `,
+        [orderId, nextStatus]
+    );
+
+    const updatedOrder = await getPortalOrderById(client, orderId, currentOrder.accountName);
+    if (nextStatus === "SHIPPED") {
+        await createPortalOrderBillingEvents(client, updatedOrder);
+    }
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    await insertActivity(
+        client,
+        "order",
+        `${nextStatus === "SHIPPED" ? "Shipped" : "Marked"} portal order ${updatedOrder.orderCode} ${nextStatus.toLowerCase()}`,
+        `${updatedOrder.accountName} | ${formatCount(updatedOrder.lines.length, "line")} | ${actor}`
+    );
+    return updatedOrder;
+}
+
+async function consumePortalOrderInventory(client, order) {
+    for (const line of order.lines) {
+        let remaining = Number(line.quantity) || 0;
+        if (remaining <= 0) continue;
+
+        const result = await client.query(
+            `
+                select *
+                from inventory_lines
+                where account_name = $1
+                  and sku = $2
+                order by location asc, updated_at asc, id asc
+            `,
+            [normalizeText(order.accountName), normalizeText(line.sku)]
+        );
+
+        const available = result.rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+        if (available < remaining) {
+            throw httpError(
+                409,
+                `Order ${order.orderCode} cannot be marked shipped because ${line.sku} only has ${formatTrackedQuantity(available, line.trackingLevel)} left on hand.`
+            );
+        }
+
+        for (const inventoryLine of result.rows) {
+            if (remaining <= 0) break;
+            const currentQuantity = Number(inventoryLine.quantity) || 0;
+            if (currentQuantity <= 0) continue;
+            const deduction = Math.min(currentQuantity, remaining);
+            await setInventoryQuantity(client, inventoryLine.id, currentQuantity - deduction);
+            remaining -= deduction;
+        }
+    }
 }
 
 async function assertPortalInboundSkuAllowed(client, accountName, sku) {
@@ -2633,10 +3713,11 @@ async function setInventoryQuantity(client, lineId, quantity) {
 }
 
 async function insertActivity(client, type, title, details) {
-    await client.query(
-        "insert into activity_log (type, title, details) values ($1, $2, $3)",
+    const result = await client.query(
+        "insert into activity_log (type, title, details) values ($1, $2, $3) returning *",
         [type, title, details]
     );
+    return result.rows[0] ? mapActivityRow(result.rows[0]) : null;
 }
 
 async function findInventoryLine(client, accountName, location, skuOrUpc) {
@@ -3061,6 +4142,60 @@ function mapPalletRecordRow(row) {
     };
 }
 
+function mapBillingFeeRow(row) {
+    return {
+        code: row.code,
+        category: row.category || "",
+        name: row.name || "",
+        unitLabel: row.unit_label || "",
+        defaultRate: roundBillingNumber(row.default_rate),
+        isActive: row.is_active !== false,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+    };
+}
+
+function mapOwnerBillingRateRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name,
+        feeCode: row.fee_code,
+        rate: roundBillingNumber(row.rate),
+        isEnabled: row.is_enabled === true,
+        unitLabel: row.unit_label || "",
+        note: row.note || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+    };
+}
+
+function mapBillingEventRow(row) {
+    return {
+        id: String(row.id),
+        eventKey: row.event_key || "",
+        accountName: row.account_name,
+        feeCode: row.fee_code,
+        feeCategory: row.fee_category || "",
+        feeName: row.fee_name || "",
+        unitLabel: row.unit_label || "",
+        quantity: roundBillingNumber(row.quantity),
+        rate: roundBillingNumber(row.rate),
+        amount: roundBillingNumber(row.amount),
+        currencyCode: row.currency_code || "USD",
+        serviceDate: normalizeDateOnly(row.service_date),
+        status: normalizeText(row.status || "OPEN"),
+        invoiceNumber: row.invoice_number || "",
+        invoicedAt: row.invoiced_at ? new Date(row.invoiced_at).toISOString() : null,
+        sourceType: row.source_type || "",
+        sourceRef: row.source_ref || "",
+        reference: row.reference || "",
+        note: row.note || "",
+        metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+    };
+}
+
 function mapPortalAccessRow(row) {
     return {
         id: String(row.id),
@@ -3082,8 +4217,25 @@ function mapPortalInventoryRow(row) {
         imageUrl: row.image_url || "",
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
         totalQuantity: Number(row.total_quantity) || 0,
+        onHandQuantity: Number(row.on_hand_quantity) || Number(row.total_quantity) || 0,
+        reservedQuantity: Number(row.reserved_quantity) || 0,
+        availableQuantity: Number(row.available_quantity) || Number(row.total_quantity) || 0,
         locationCount: Number(row.location_count) || 0,
         locations: Array.isArray(row.locations) ? row.locations.filter(Boolean) : []
+    };
+}
+
+function mapPortalItemRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name,
+        sku: row.sku || "",
+        upc: row.upc || "",
+        description: row.description || "",
+        trackingLevel: normalizeTrackingLevel(row.tracking_level),
+        unitsPerCase: row.units_per_case == null ? null : Number(row.units_per_case),
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
 }
 
@@ -3105,6 +4257,9 @@ function mapPortalOrderRow(row, lines = []) {
         shipToPostalCode: row.ship_to_postal_code || "",
         shipToCountry: row.ship_to_country || "",
         releasedAt: row.released_at ? new Date(row.released_at).toISOString() : null,
+        pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
+        stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
+        shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString(),
         lines
@@ -3192,6 +4347,11 @@ function sanitizePortalOrderInput(order, accountName) {
         shipToCountry: normalizeFreeText(order?.shipToCountry || "USA"),
         lines: groupPortalOrderLines(Array.isArray(order?.lines) ? order.lines : [])
     };
+}
+
+function normalizePortalOrderStatus(value) {
+    const normalized = normalizeText(value);
+    return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(normalized) ? normalized : "";
 }
 
 function groupPortalOrderLines(lines) {

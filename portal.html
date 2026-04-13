@@ -234,9 +234,9 @@
             <section class="card">
                 <div class="stats">
                     <div class="stat"><span>Items</span><strong id="statSkus">0</strong></div>
-                    <div class="stat"><span>Total Qty</span><strong id="statQty">0</strong></div>
+                    <div class="stat"><span>Available Qty</span><strong id="statQty">0</strong></div>
                     <div class="stat"><span>Draft Orders</span><strong id="statDrafts">0</strong></div>
-                    <div class="stat"><span>Released / Picked / Shipped</span><strong id="statReleased">0</strong></div>
+                    <div class="stat"><span>Released / Picked / Staged / Shipped</span><strong id="statReleased">0</strong></div>
                 </div>
             </section>
 
@@ -357,7 +357,7 @@
             <section id="ordersPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
                     <h2>My Orders</h2>
-                    <p class="lead">Draft orders can still be edited. Released, picked, and shipped orders stay read-only.</p>
+                    <p class="lead">Draft orders can still be edited. Released, picked, staged, and shipped orders stay read-only.</p>
                 </div>
                 <div id="ordersList" class="orders-list">
                     <div class="empty">No orders created yet.</div>
@@ -370,6 +370,7 @@
         const portalState = {
             account: null,
             inventory: [],
+            catalogItems: [],
             orders: [],
             inbounds: [],
             activeView: "inventory",
@@ -508,6 +509,7 @@
                 // Ignore logout errors and reset the UI anyway.
             }
             portalState.inventory = [];
+            portalState.catalogItems = [];
             portalState.orders = [];
             portalState.inbounds = [];
             portalState.editingOrderId = null;
@@ -517,13 +519,15 @@
         }
 
         async function loadPortalData() {
-            const [inventoryPayload, ordersPayload, inboundsPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
+                requestJson("/api/portal/items"),
                 requestJson("/api/portal/orders"),
                 requestJson("/api/portal/inbounds")
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
+            portalState.catalogItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items.map(sanitizeCatalogItem).filter(Boolean) : [];
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
             renderStats();
@@ -550,11 +554,11 @@
         }
 
         function renderStats() {
-            const totals = portalState.inventory.reduce((sum, item) => sum + item.totalQuantity, 0);
+            const totals = portalState.inventory.reduce((sum, item) => sum + item.availableQuantity, 0);
             ui.statSkus.textContent = num(portalState.inventory.length);
             ui.statQty.textContent = num(totals);
             ui.statDrafts.textContent = num(portalState.orders.filter((order) => order.status === "DRAFT").length);
-            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "SHIPPED"].includes(order.status)).length);
+            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status)).length);
         }
 
         function renderInventory() {
@@ -578,10 +582,11 @@
                             <strong>${esc(item.sku)}</strong>
                             <div class="meta">${esc(item.description || "No description")}</div>
                         </div>
-                        <span class="pill">${esc(formatTrackedQuantity(item.totalQuantity, item.trackingLevel))}</span>
+                        <span class="pill">${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</span>
                     </div>
                     <div class="inventory-meta">
                         <div>${item.upc ? `UPC ${esc(item.upc)}` : "No UPC saved"}</div>
+                        <div>On Hand ${esc(formatTrackedQuantity(item.onHandQuantity, item.trackingLevel))} | Reserved ${esc(formatTrackedQuantity(item.reservedQuantity, item.trackingLevel))}</div>
                         <div>${esc(trackingLabel(item.trackingLevel))} | ${esc(num(item.locationCount))} location${item.locationCount === 1 ? "" : "s"}</div>
                         <div>${item.locations.length ? `Locations: ${esc(item.locations.join(", "))}` : "No locations found"}</div>
                     </div>
@@ -602,7 +607,7 @@
                             <strong>${esc(order.orderCode)}</strong>
                             <div class="meta">Created ${esc(formatDate(order.createdAt))}</div>
                         </div>
-                        <span class="pill ${order.status === "DRAFT" ? "warn" : "success"}">${esc(order.status)}</span>
+                        <span class="pill ${statusPillClass(order.status)}">${esc(order.status)}</span>
                     </div>
                     <div class="order-meta">
                         <div>PO: ${esc(order.poNumber || "None")}</div>
@@ -610,6 +615,7 @@
                         <div>Ship To: ${esc(formatAddress(order))}</div>
                         <div>Contact: ${esc(order.contactName)}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
                         <div>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</div>
+                        ${orderStatusTimeline(order) ? `<div>${esc(orderStatusTimeline(order))}</div>` : ""}
                     </div>
                     <div class="line-items">
                         ${order.lines.map((line) => `
@@ -686,7 +692,7 @@
                         <span>SKU</span>
                         <select data-inbound-sku>
                             <option value="">Select SKU</option>
-                            ${portalState.inventory.map((item) => `<option value="${attr(item.sku)}">${esc(item.sku)}${item.description ? ` - ${esc(item.description)}` : ""}</option>`).join("")}
+                            ${portalState.catalogItems.map((item) => `<option value="${attr(item.sku)}">${esc(item.sku)}${item.description ? ` - ${esc(item.description)}` : ""}</option>`).join("")}
                         </select>
                     </label>
                     <label class="field">
@@ -774,9 +780,13 @@
         function buildSkuOptions(selectedSku = "") {
             const normalizedSelected = norm(selectedSku);
             const options = [`<option value="">Choose a SKU</option>`];
-            portalState.inventory.forEach((item) => {
-                options.push(`<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(formatTrackedQuantity(item.totalQuantity, item.trackingLevel))}</option>`);
-            });
+            portalState.inventory
+                .filter((item) => item.availableQuantity > 0 || item.sku === normalizedSelected)
+                .forEach((item) => {
+                    options.push(
+                        `<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</option>`
+                    );
+                });
             return options.join("");
         }
 
@@ -812,10 +822,10 @@
             const meta = card.querySelector("[data-line-meta]");
             const qtyInput = card.querySelector("[data-line-qty]");
             const item = portalState.inventory.find((entry) => entry.sku === sku);
-            if (item && qtyInput) qtyInput.max = String(item.totalQuantity);
+            if (item && qtyInput) qtyInput.max = String(item.availableQuantity);
             else if (qtyInput) qtyInput.removeAttribute("max");
             meta.textContent = item
-                ? `${item.description || "No description"} | ${formatTrackedQuantity(item.totalQuantity, item.trackingLevel)} available | ${item.locations.join(", ")}`
+                ? `${item.description || "No description"} | ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available | On hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
                 : "Choose a SKU from your current inventory.";
         }
 
@@ -931,8 +941,22 @@
                 description: String(item?.description || "").trim(),
                 trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
                 totalQuantity: toPositiveInt(item?.totalQuantity) || 0,
+                onHandQuantity: toPositiveInt(item?.onHandQuantity ?? item?.totalQuantity) || 0,
+                reservedQuantity: toPositiveInt(item?.reservedQuantity) || 0,
+                availableQuantity: toPositiveInt(item?.availableQuantity ?? item?.totalQuantity) || 0,
                 locationCount: toPositiveInt(item?.locationCount) || 0,
                 locations: Array.isArray(item?.locations) ? item.locations.map((location) => norm(location)).filter(Boolean) : []
+            };
+        }
+
+        function sanitizeCatalogItem(item) {
+            const sku = norm(item?.sku);
+            if (!sku) return null;
+            return {
+                sku,
+                upc: norm(item?.upc || ""),
+                description: String(item?.description || "").trim(),
+                trackingLevel: normalizeTrackingLevel(item?.trackingLevel)
             };
         }
 
@@ -977,6 +1001,10 @@
                 shipToState: String(order.shipToState || "").trim(),
                 shipToPostalCode: String(order.shipToPostalCode || "").trim(),
                 shipToCountry: String(order.shipToCountry || "").trim(),
+                releasedAt: order.releasedAt || null,
+                pickedAt: order.pickedAt || null,
+                stagedAt: order.stagedAt || null,
+                shippedAt: order.shippedAt || null,
                 createdAt: order.createdAt,
                 updatedAt: order.updatedAt,
                 lines: Array.isArray(order.lines) ? order.lines.map(sanitizeOrderLine).filter(Boolean) : []
@@ -1008,6 +1036,18 @@
             if (tracking === "PALLET") return "Pallets";
             if (tracking === "CASE") return "Cases";
             return "Units";
+        }
+
+        function statusPillClass(status) {
+            return status === "DRAFT" ? "warn" : "success";
+        }
+
+        function orderStatusTimeline(order) {
+            if (order.shippedAt) return `Shipped ${formatDate(order.shippedAt)}`;
+            if (order.stagedAt) return `Staged ${formatDate(order.stagedAt)}`;
+            if (order.pickedAt) return `Picked ${formatDate(order.pickedAt)}`;
+            if (order.releasedAt) return `Released ${formatDate(order.releasedAt)}`;
+            return "";
         }
 
         function formatTrackedQuantity(value, trackingLevel) {
