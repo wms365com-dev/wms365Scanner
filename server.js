@@ -2962,6 +2962,10 @@ function sanitizePortalOrderLineInput(line) {
     return { sku, quantity };
 }
 
+function normalizeEmail(value) {
+    return bootstrapNormalizeEmail(value);
+}
+
 function normalizeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 }
