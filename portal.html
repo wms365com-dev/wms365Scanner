@@ -224,7 +224,9 @@
                 <div class="portal-nav">
                     <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
                     <button class="btn ghost" type="button" data-view="order">New Order</button>
+                    <button class="btn ghost" type="button" data-view="inbound">New Inbound</button>
                     <button class="btn ghost" type="button" data-view="orders">My Orders</button>
+                    <button class="btn ghost" type="button" data-view="inbounds">My Inbounds</button>
                     <button class="btn secondary" id="logoutBtn" type="button">Log Out</button>
                 </div>
             </article>
@@ -234,7 +236,7 @@
                     <div class="stat"><span>Items</span><strong id="statSkus">0</strong></div>
                     <div class="stat"><span>Total Qty</span><strong id="statQty">0</strong></div>
                     <div class="stat"><span>Draft Orders</span><strong id="statDrafts">0</strong></div>
-                    <div class="stat"><span>Released Orders</span><strong id="statReleased">0</strong></div>
+                    <div class="stat"><span>Released / Picked / Shipped</span><strong id="statReleased">0</strong></div>
                 </div>
             </section>
 
@@ -307,10 +309,55 @@
                 </div>
             </section>
 
+
+            <section id="inboundPanel" class="card hidden">
+                <div class="order-form-head">
+                    <div class="header-copy">
+                        <h2>New Inbound</h2>
+                        <p class="lead">Tell the warehouse what inventory is coming in so we can plan receiving.</p>
+                    </div>
+                    <button class="btn ghost" id="resetInboundBtn" type="button">Clear Form</button>
+                </div>
+
+                <form id="inboundForm" class="form-grid" autocomplete="off">
+                    <label class="field"><span>Reference #</span><input id="inboundReferenceNumber" type="text" placeholder="Required"></label>
+                    <label class="field"><span>Carrier</span><input id="inboundCarrierName" type="text" placeholder="Optional"></label>
+                    <label class="field"><span>Expected Date</span><input id="inboundExpectedDate" type="date"></label>
+                    <label class="field"><span>Contact Name</span><input id="inboundContactName" type="text" placeholder="Required"></label>
+                    <label class="field"><span>Contact Tel</span><input id="inboundContactPhone" type="text" placeholder="Optional"></label>
+                    <label class="field span-2"><span>Notes</span><input id="inboundNotes" type="text" placeholder="Optional notes for receiving"></label>
+                </form>
+
+                <div style="margin-top: 1rem;">
+                    <div class="line-head" style="margin-bottom: 0.8rem;">
+                        <div class="header-copy">
+                            <h3>Inbound Lines</h3>
+                            <p class="meta">Use SKUs from your item list.</p>
+                        </div>
+                        <button class="btn ghost" id="addInboundLineBtn" type="button">Add Line</button>
+                    </div>
+                    <div id="inboundLines" class="line-items"></div>
+                </div>
+
+                <div class="order-actions">
+                    <button class="btn" id="submitInboundBtn" type="button">Submit Inbound</button>
+                </div>
+            </section>
+
+            <section id="inboundsPanel" class="card hidden">
+                <div class="header-copy" style="margin-bottom: 1rem;">
+                    <h2>My Inbounds</h2>
+                    <p class="lead">Track inbound requests you submitted through the portal.</p>
+                </div>
+                <div id="inboundsList" class="orders-list">
+                    <div class="empty">No inbounds submitted yet.</div>
+                </div>
+            </section>
+
             <section id="ordersPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
                     <h2>My Orders</h2>
-                    <p class="lead">Draft orders can still be edited. Released orders stay read-only.</p>
+                    <p class="lead">Draft orders can still be edited. Released, picked, and shipped orders stay read-only.</p>
                 </div>
                 <div id="ordersList" class="orders-list">
                     <div class="empty">No orders created yet.</div>
@@ -324,6 +371,7 @@
             account: null,
             inventory: [],
             orders: [],
+            inbounds: [],
             activeView: "inventory",
             editingOrderId: null
         };
@@ -344,7 +392,9 @@
             statReleased: document.getElementById("statReleased"),
             inventoryPanel: document.getElementById("inventoryPanel"),
             orderPanel: document.getElementById("orderPanel"),
+            inboundPanel: document.getElementById("inboundPanel"),
             ordersPanel: document.getElementById("ordersPanel"),
+            inboundsPanel: document.getElementById("inboundsPanel"),
             inventoryFilter: document.getElementById("inventoryFilter"),
             inventoryList: document.getElementById("inventoryList"),
             orderFormTitle: document.getElementById("orderFormTitle"),
@@ -364,7 +414,19 @@
             resetOrderBtn: document.getElementById("resetOrderBtn"),
             saveDraftBtn: document.getElementById("saveDraftBtn"),
             releaseOrderBtn: document.getElementById("releaseOrderBtn"),
-            ordersList: document.getElementById("ordersList")
+            ordersList: document.getElementById("ordersList"),
+            inboundForm: document.getElementById("inboundForm"),
+            inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
+            inboundCarrierName: document.getElementById("inboundCarrierName"),
+            inboundExpectedDate: document.getElementById("inboundExpectedDate"),
+            inboundContactName: document.getElementById("inboundContactName"),
+            inboundContactPhone: document.getElementById("inboundContactPhone"),
+            inboundNotes: document.getElementById("inboundNotes"),
+            addInboundLineBtn: document.getElementById("addInboundLineBtn"),
+            inboundLines: document.getElementById("inboundLines"),
+            resetInboundBtn: document.getElementById("resetInboundBtn"),
+            submitInboundBtn: document.getElementById("submitInboundBtn"),
+            inboundsList: document.getElementById("inboundsList")
         };
 
         init();
@@ -373,12 +435,16 @@
             ui.loginForm.addEventListener("submit", onLoginSubmit);
             ui.inventoryFilter.addEventListener("input", renderInventory);
             ui.addLineBtn.addEventListener("click", () => addOrderLine());
+            ui.addInboundLineBtn.addEventListener("click", () => addInboundLine());
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
+            ui.resetInboundBtn.addEventListener("click", () => resetInboundForm());
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", releaseCurrentOrder);
+            ui.submitInboundBtn.addEventListener("click", submitInbound);
             ui.logoutBtn.addEventListener("click", logout);
             ui.ordersList.addEventListener("click", onOrdersListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
+            ui.inboundLines.addEventListener("click", onOrderLinesClick);
             ui.orderLines.addEventListener("change", onOrderLinesChange);
             ui.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
             restoreSession();
@@ -443,24 +509,32 @@
             }
             portalState.inventory = [];
             portalState.orders = [];
+            portalState.inbounds = [];
             portalState.editingOrderId = null;
             resetOrderForm();
+            resetInboundForm();
             showLogin();
         }
 
         async function loadPortalData() {
-            const [inventoryPayload, ordersPayload] = await Promise.all([
+            const [inventoryPayload, ordersPayload, inboundsPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
-                requestJson("/api/portal/orders")
+                requestJson("/api/portal/orders"),
+                requestJson("/api/portal/inbounds")
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
+            portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
             renderStats();
             renderInventory();
             renderOrders();
+            renderInbounds();
             if (!portalState.editingOrderId) {
                 resetOrderForm();
+            }
+            if (!ui.inboundLines.children.length) {
+                resetInboundForm();
             }
             setView(portalState.activeView);
         }
@@ -470,7 +544,9 @@
             ui.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === view));
             ui.inventoryPanel.classList.toggle("hidden", view !== "inventory");
             ui.orderPanel.classList.toggle("hidden", view !== "order");
+            ui.inboundPanel.classList.toggle("hidden", view !== "inbound");
             ui.ordersPanel.classList.toggle("hidden", view !== "orders");
+            ui.inboundsPanel.classList.toggle("hidden", view !== "inbounds");
         }
 
         function renderStats() {
@@ -478,7 +554,7 @@
             ui.statSkus.textContent = num(portalState.inventory.length);
             ui.statQty.textContent = num(totals);
             ui.statDrafts.textContent = num(portalState.orders.filter((order) => order.status === "DRAFT").length);
-            ui.statReleased.textContent = num(portalState.orders.filter((order) => order.status === "RELEASED").length);
+            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "SHIPPED"].includes(order.status)).length);
         }
 
         function renderInventory() {
@@ -526,7 +602,7 @@
                             <strong>${esc(order.orderCode)}</strong>
                             <div class="meta">Created ${esc(formatDate(order.createdAt))}</div>
                         </div>
-                        <span class="pill ${order.status === "RELEASED" ? "success" : "warn"}">${esc(order.status)}</span>
+                        <span class="pill ${order.status === "DRAFT" ? "warn" : "success"}">${esc(order.status)}</span>
                     </div>
                     <div class="order-meta">
                         <div>PO: ${esc(order.poNumber || "None")}</div>
@@ -552,6 +628,107 @@
                     </div>
                 </article>
             `).join("");
+        }
+
+        function renderInbounds() {
+            if (!portalState.inbounds.length) {
+                ui.inboundsList.innerHTML = `<div class="empty">No inbounds submitted yet.</div>`;
+                return;
+            }
+
+            ui.inboundsList.innerHTML = portalState.inbounds.map((inbound) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(inbound.inboundCode)}</strong>
+                            <div class="meta">Submitted ${esc(formatDate(inbound.createdAt))}</div>
+                        </div>
+                        <span class="pill ${inbound.status === "SUBMITTED" ? "warn" : "success"}">${esc(inbound.status)}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div>Reference: ${esc(inbound.referenceNumber || "None")}</div>
+                        <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
+                        <div>Carrier: ${esc(inbound.carrierName || "Not provided")}</div>
+                        <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
+                        <div>Notes: ${esc(inbound.notes || "None")}</div>
+                    </div>
+                    <div class="line-items">
+                        ${inbound.lines.map((line) => `
+                            <div class="line-card">
+                                <div class="line-head">
+                                    <strong>${esc(line.sku)}</strong>
+                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                                </div>
+                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                            </div>
+                        `).join("")}
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function resetInboundForm() {
+            ui.inboundForm.reset();
+            ui.inboundLines.innerHTML = "";
+            addInboundLine();
+        }
+
+        function addInboundLine(line = null) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "line-card";
+            wrapper.innerHTML = `
+                <div class="line-head">
+                    <strong>Inbound Line</strong>
+                    <button class="btn ghost mini" type="button" data-remove-inbound-line="1">Remove</button>
+                </div>
+                <div class="form-grid compact-grid">
+                    <label class="field span-2">
+                        <span>SKU</span>
+                        <select data-inbound-sku>
+                            <option value="">Select SKU</option>
+                            ${portalState.inventory.map((item) => `<option value="${attr(item.sku)}">${esc(item.sku)}${item.description ? ` - ${esc(item.description)}` : ""}</option>`).join("")}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Qty</span>
+                        <input data-inbound-qty type="number" min="1" step="1" value="${attr(line?.quantity || 1)}">
+                    </label>
+                </div>
+            `;
+            ui.inboundLines.appendChild(wrapper);
+            if (line?.sku) wrapper.querySelector('[data-inbound-sku]').value = line.sku;
+        }
+
+        function collectInboundForm() {
+            const lines = [...ui.inboundLines.querySelectorAll('.line-card')].map((card) => ({
+                sku: card.querySelector('[data-inbound-sku]')?.value || '',
+                quantity: Number(card.querySelector('[data-inbound-qty]')?.value || 0)
+            })).filter((line) => line.sku && line.quantity > 0);
+            return {
+                referenceNumber: ui.inboundReferenceNumber.value,
+                carrierName: ui.inboundCarrierName.value,
+                expectedDate: ui.inboundExpectedDate.value,
+                contactName: ui.inboundContactName.value,
+                contactPhone: ui.inboundContactPhone.value,
+                notes: ui.inboundNotes.value,
+                lines
+            };
+        }
+
+        async function submitInbound() {
+            try {
+                const response = await requestJson('/api/portal/inbounds', {
+                    method: 'POST',
+                    body: JSON.stringify(collectInboundForm())
+                });
+                portalState.inbounds.unshift(sanitizeInbound(response.inbound));
+                renderInbounds();
+                resetInboundForm();
+                setView('inbounds');
+                setMessage(`Submitted inbound ${response.inbound.inboundCode}.`, 'success');
+            } catch (error) {
+                setMessage(error.message, 'error');
+            }
         }
 
         function resetOrderForm(order = null) {
@@ -605,12 +782,23 @@
 
         function onOrderLinesClick(event) {
             const removeButton = event.target.closest("[data-remove-line]");
-            if (!removeButton) return;
-            const card = removeButton.closest(".line-card");
-            if (!card) return;
-            card.remove();
-            if (!ui.orderLines.children.length) {
-                addOrderLine();
+            if (removeButton) {
+                const card = removeButton.closest(".line-card");
+                if (!card) return;
+                card.remove();
+                if (!ui.orderLines.children.length) {
+                    addOrderLine();
+                }
+                return;
+            }
+            const removeInboundButton = event.target.closest("[data-remove-inbound-line]");
+            if (removeInboundButton) {
+                const card = removeInboundButton.closest(".line-card");
+                if (!card) return;
+                card.remove();
+                if (!ui.inboundLines.children.length) {
+                    addInboundLine();
+                }
             }
         }
 
@@ -745,6 +933,29 @@
                 totalQuantity: toPositiveInt(item?.totalQuantity) || 0,
                 locationCount: toPositiveInt(item?.locationCount) || 0,
                 locations: Array.isArray(item?.locations) ? item.locations.map((location) => norm(location)).filter(Boolean) : []
+            };
+        }
+
+        function sanitizeInbound(inbound) {
+            if (!inbound || typeof inbound !== "object") return null;
+            return {
+                id: Number(inbound.id || 0),
+                inboundCode: String(inbound.inboundCode || inbound.inbound_code || ""),
+                status: String(inbound.status || "SUBMITTED").toUpperCase(),
+                referenceNumber: String(inbound.referenceNumber || inbound.reference_number || ""),
+                carrierName: String(inbound.carrierName || inbound.carrier_name || ""),
+                expectedDate: String(inbound.expectedDate || inbound.expected_date || ""),
+                contactName: String(inbound.contactName || inbound.contact_name || ""),
+                contactPhone: String(inbound.contactPhone || inbound.contact_phone || ""),
+                notes: String(inbound.notes || ""),
+                createdAt: inbound.createdAt || inbound.created_at || null,
+                lines: Array.isArray(inbound.lines) ? inbound.lines.map((line) => ({
+                    sku: String(line.sku || ""),
+                    quantity: Number(line.quantity || 0),
+                    description: String(line.description || ""),
+                    upc: String(line.upc || ""),
+                    trackingLevel: String(line.trackingLevel || line.tracking_level || "UNIT")
+                })).filter((line) => line.sku && line.quantity > 0) : []
             };
         }
 

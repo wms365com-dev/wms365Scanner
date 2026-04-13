@@ -4,6 +4,16 @@ const path = require("path");
 const { Pool } = require("pg");
 
 
+function normalizeDateInput(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString().slice(0, 10);
+}
+
+
 function bootstrapNormalizeEmail(value) {
     return String(value || "").trim().toLowerCase();
 }
@@ -11,6 +21,10 @@ function bootstrapNormalizeEmail(value) {
 function bootstrapNormalizeFreeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
 }
+
+
+const normalizeEmail = bootstrapNormalizeEmail;
+const normalizeFreeText = bootstrapNormalizeFreeText;
 
 const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const ROOT_DIR = __dirname;
@@ -926,6 +940,32 @@ app.get("/api/portal/orders", async (req, res, next) => {
     }
 });
 
+app.get("/api/portal/inbounds", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const inbounds = await getPortalInboundsForAccount(session.access.accountName);
+        res.json({ inbounds });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/inbounds", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const inbound = await withTransaction((client) => savePortalInbound(client, session.accessRow, req.body));
+        res.status(201).json({ success: true, inbound });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.post("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -1222,11 +1262,46 @@ async function initializeDatabase() {
             released_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED'))
+            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'SHIPPED'))
         );
     `);
     await pool.query("alter table portal_orders alter column order_code drop not null");
     await pool.query("alter table portal_orders alter column order_code drop default");
+
+    await pool.query(`
+        create table if not exists portal_inbounds (
+            id bigserial primary key,
+            inbound_code text,
+            account_name text not null,
+            portal_access_id bigint references portal_vendor_access(id) on delete set null,
+            status text not null default 'SUBMITTED',
+            reference_number text not null default '',
+            carrier_name text not null default '',
+            expected_date date,
+            contact_name text not null default '',
+            contact_phone text not null default '',
+            notes text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'RECEIVED', 'CANCELLED'))
+        );
+    `);
+    await pool.query("alter table portal_inbounds alter column inbound_code drop not null");
+    await pool.query("alter table portal_inbounds alter column inbound_code drop default");
+
+    await pool.query(`
+        create table if not exists portal_inbound_lines (
+            id bigserial primary key,
+            inbound_id bigint not null references portal_inbounds(id) on delete cascade,
+            line_number integer not null default 1,
+            sku text not null,
+            expected_quantity integer not null check (expected_quantity > 0),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("update portal_inbounds set inbound_code = null where inbound_code = ''");
+    await pool.query("update portal_inbounds set inbound_code = concat('INB-', lpad(id::text, 6, '0')) where inbound_code is null");
 
     await pool.query(`
         create table if not exists portal_order_lines (
@@ -1266,6 +1341,10 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
     await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
     await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
+    await pool.query("create unique index if not exists idx_portal_inbounds_inbound_code_unique on portal_inbounds (inbound_code);");
+    await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
+    await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
+    await pool.query("create index if not exists idx_portal_inbound_lines_inbound_id on portal_inbound_lines (inbound_id);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
 
     await pool.query(`
@@ -1955,6 +2034,131 @@ function mapPortalOrders(orderRows, lineRows) {
     });
 
     return orderRows.map((row) => mapPortalOrderRow(row, linesByOrderId.get(String(row.id)) || []));
+}
+
+function makePortalInboundCode(id) {
+    return `INB-${String(id).padStart(6, "0")}`;
+}
+
+async function getPortalInboundsForAccount(accountName, client = pool) {
+    const normalizedAccount = normalizeText(accountName);
+    const inboundResult = await client.query(
+        `
+            select *
+            from portal_inbounds
+            where account_name = $1
+            order by created_at desc, id desc
+            limit 100
+        `,
+        [normalizedAccount]
+    );
+    const inboundIds = inboundResult.rows.map((row) => row.id);
+    const linesResult = inboundIds.length
+        ? await client.query(
+            `
+                select
+                    l.*,
+                    i.account_name,
+                    c.description as item_description,
+                    c.upc as item_upc,
+                    c.tracking_level as item_tracking_level
+                from portal_inbound_lines l
+                join portal_inbounds i on i.id = l.inbound_id
+                left join item_catalog c
+                  on c.account_name = i.account_name
+                 and c.sku = l.sku
+                where l.inbound_id = any($1::bigint[])
+                order by l.inbound_id desc, l.line_number asc, l.id asc
+            `,
+            [inboundIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(inboundResult.rows, linesResult.rows);
+}
+
+async function savePortalInbound(client, accessRow, rawInbound) {
+    const access = mapPortalAccessRow(accessRow);
+    const inbound = sanitizePortalInboundInput(rawInbound, access.accountName);
+
+    if (!inbound.referenceNumber || !inbound.expectedDate || !inbound.contactName) {
+        throw httpError(400, "Reference number, expected date, and contact name are required.");
+    }
+    if (!inbound.lines.length) {
+        throw httpError(400, "Add at least one inbound line before submitting.");
+    }
+    for (const line of inbound.lines) {
+        await assertPortalInboundSkuAllowed(client, access.accountName, line.sku);
+    }
+
+    const insertResult = await client.query(
+        `
+            insert into portal_inbounds (
+                account_name, portal_access_id, reference_number, carrier_name,
+                expected_date, contact_name, contact_phone, notes
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            returning id
+        `,
+        [
+            access.accountName,
+            accessRow.id,
+            inbound.referenceNumber,
+            inbound.carrierName,
+            inbound.expectedDate,
+            inbound.contactName,
+            inbound.contactPhone,
+            inbound.notes
+        ]
+    );
+    const inboundId = insertResult.rows[0].id;
+    await client.query(
+        "update portal_inbounds set inbound_code = $2, updated_at = now() where id = $1",
+        [inboundId, makePortalInboundCode(inboundId)]
+    );
+
+    for (const [index, line] of inbound.lines.entries()) {
+        await client.query(
+            `
+                insert into portal_inbound_lines (inbound_id, line_number, sku, expected_quantity)
+                values ($1, $2, $3, $4)
+            `,
+            [inboundId, index + 1, line.sku, line.quantity]
+        );
+    }
+
+    const savedInbound = (await getPortalInboundsForAccount(access.accountName, client)).find((entry) => entry.id === inboundId);
+    await insertActivity(
+        client,
+        "receipt",
+        `Submitted portal inbound ${savedInbound.inboundCode}`,
+        `${savedInbound.accountName} | ${formatCount(savedInbound.lines.length, "line")} | Ref ${savedInbound.referenceNumber}`
+    );
+    return savedInbound;
+}
+
+async function assertPortalInboundSkuAllowed(client, accountName, sku) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedSku = normalizeText(sku);
+    if (!normalizedAccount || !normalizedSku) {
+        throw httpError(400, "SKU is required.");
+    }
+    const result = await client.query(
+        `select 1 from item_catalog where account_name = $1 and sku = $2 limit 1`,
+        [normalizedAccount, normalizedSku]
+    );
+    if (result.rowCount !== 1) {
+        throw httpError(400, `SKU ${normalizedSku} is not available for your account.`);
+    }
+}
+
+function mapPortalInbounds(inboundRows, lineRows) {
+    const linesByInboundId = new Map();
+    lineRows.forEach((row) => {
+        const key = String(row.inbound_id);
+        if (!linesByInboundId.has(key)) linesByInboundId.set(key, []);
+        linesByInboundId.get(key).push(mapPortalInboundLineRow(row));
+    });
+    return inboundRows.map((row) => mapPortalInboundRow(row, linesByInboundId.get(String(row.id)) || []));
 }
 
 async function withTransaction(handler) {
@@ -2922,6 +3126,56 @@ function mapPortalOrderLineRow(row) {
     };
 }
 
+function mapPortalInboundRow(row, lines = []) {
+    return {
+        id: Number(row.id),
+        inboundCode: row.inbound_code || makePortalInboundCode(row.id),
+        accountName: row.account_name || "",
+        status: row.status || "SUBMITTED",
+        referenceNumber: row.reference_number || "",
+        carrierName: row.carrier_name || "",
+        expectedDate: row.expected_date ? new Date(row.expected_date).toISOString().slice(0, 10) : "",
+        contactName: row.contact_name || "",
+        contactPhone: row.contact_phone || "",
+        notes: row.notes || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+        lines
+    };
+}
+
+function mapPortalInboundLineRow(row) {
+    return {
+        id: Number(row.id),
+        lineNumber: Number(row.line_number || 0),
+        sku: row.sku || "",
+        quantity: Number(row.expected_quantity || 0),
+        description: row.item_description || "",
+        upc: row.item_upc || "",
+        trackingLevel: row.item_tracking_level || "UNIT"
+    };
+}
+
+function sanitizePortalInboundInput(inbound, accountName) {
+    const lines = Array.isArray(inbound?.lines)
+        ? inbound.lines.map((line) => ({
+            sku: normalizeText(line?.sku),
+            quantity: toPositiveInt(line?.quantity)
+        })).filter((line) => line.sku && line.quantity > 0)
+        : [];
+
+    return {
+        accountName: normalizeText(accountName),
+        referenceNumber: normalizeFreeText(inbound?.referenceNumber || inbound?.reference || inbound?.poNumber),
+        carrierName: normalizeFreeText(inbound?.carrierName || inbound?.carrier),
+        expectedDate: normalizeDateInput(inbound?.expectedDate),
+        contactName: normalizeFreeText(inbound?.contactName),
+        contactPhone: normalizeFreeText(inbound?.contactPhone),
+        notes: normalizeFreeText(inbound?.notes),
+        lines
+    };
+}
+
 function sanitizePortalOrderInput(order, accountName) {
     return {
         accountName: normalizeText(accountName),
@@ -2962,10 +3216,6 @@ function sanitizePortalOrderLineInput(line) {
     return { sku, quantity };
 }
 
-function normalizeEmail(value) {
-    return bootstrapNormalizeEmail(value);
-}
-
 function normalizeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 }
@@ -2983,10 +3233,6 @@ function normalizeDateOnly(value) {
     const parsed = new Date(text);
     if (Number.isNaN(parsed.getTime())) return "";
     return parsed.toISOString().slice(0, 10);
-}
-
-function normalizeFreeText(value) {
-    return String(value || "").trim().replace(/\s+/g, " ");
 }
 
 function normalizeTrackingLevel(value) {
