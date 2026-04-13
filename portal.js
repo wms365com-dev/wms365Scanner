@@ -1,0 +1,694 @@
+
+        const portalState = {
+            account: null,
+            inventory: [],
+            orders: [],
+            inbounds: [],
+            activeView: "inventory",
+            editingOrderId: null
+        };
+
+        const ui = {
+            portalMessage: document.getElementById("portalMessage"),
+            accountChip: document.getElementById("accountChip"),
+            loginView: document.getElementById("loginView"),
+            portalView: document.getElementById("portalView"),
+            loginForm: document.getElementById("loginForm"),
+            loginEmail: document.getElementById("loginEmail"),
+            loginPassword: document.getElementById("loginPassword"),
+            navButtons: [...document.querySelectorAll("[data-view]")],
+            logoutBtn: document.getElementById("logoutBtn"),
+            statSkus: document.getElementById("statSkus"),
+            statQty: document.getElementById("statQty"),
+            statDrafts: document.getElementById("statDrafts"),
+            statReleased: document.getElementById("statReleased"),
+            inventoryPanel: document.getElementById("inventoryPanel"),
+            orderPanel: document.getElementById("orderPanel"),
+            inboundPanel: document.getElementById("inboundPanel"),
+            ordersPanel: document.getElementById("ordersPanel"),
+            inboundsPanel: document.getElementById("inboundsPanel"),
+            inventoryFilter: document.getElementById("inventoryFilter"),
+            inventoryList: document.getElementById("inventoryList"),
+            orderFormTitle: document.getElementById("orderFormTitle"),
+            orderPoNumber: document.getElementById("orderPoNumber"),
+            orderShippingReference: document.getElementById("orderShippingReference"),
+            orderContactName: document.getElementById("orderContactName"),
+            orderContactPhone: document.getElementById("orderContactPhone"),
+            orderShipToName: document.getElementById("orderShipToName"),
+            orderShipToAddress1: document.getElementById("orderShipToAddress1"),
+            orderShipToAddress2: document.getElementById("orderShipToAddress2"),
+            orderShipToCity: document.getElementById("orderShipToCity"),
+            orderShipToState: document.getElementById("orderShipToState"),
+            orderShipToPostalCode: document.getElementById("orderShipToPostalCode"),
+            orderShipToCountry: document.getElementById("orderShipToCountry"),
+            addLineBtn: document.getElementById("addLineBtn"),
+            orderLines: document.getElementById("orderLines"),
+            resetOrderBtn: document.getElementById("resetOrderBtn"),
+            saveDraftBtn: document.getElementById("saveDraftBtn"),
+            releaseOrderBtn: document.getElementById("releaseOrderBtn"),
+            ordersList: document.getElementById("ordersList"),
+            inboundForm: document.getElementById("inboundForm"),
+            inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
+            inboundCarrierName: document.getElementById("inboundCarrierName"),
+            inboundExpectedDate: document.getElementById("inboundExpectedDate"),
+            inboundContactName: document.getElementById("inboundContactName"),
+            inboundContactPhone: document.getElementById("inboundContactPhone"),
+            inboundNotes: document.getElementById("inboundNotes"),
+            addInboundLineBtn: document.getElementById("addInboundLineBtn"),
+            inboundLines: document.getElementById("inboundLines"),
+            resetInboundBtn: document.getElementById("resetInboundBtn"),
+            submitInboundBtn: document.getElementById("submitInboundBtn"),
+            inboundsList: document.getElementById("inboundsList")
+        };
+
+        init();
+
+        function init() {
+            ui.loginForm.addEventListener("submit", onLoginSubmit);
+            ui.inventoryFilter.addEventListener("input", renderInventory);
+            ui.addLineBtn.addEventListener("click", () => addOrderLine());
+            ui.addInboundLineBtn.addEventListener("click", () => addInboundLine());
+            ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
+            ui.resetInboundBtn.addEventListener("click", () => resetInboundForm());
+            ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
+            ui.releaseOrderBtn.addEventListener("click", releaseCurrentOrder);
+            ui.submitInboundBtn.addEventListener("click", submitInbound);
+            ui.logoutBtn.addEventListener("click", logout);
+            ui.ordersList.addEventListener("click", onOrdersListClick);
+            ui.orderLines.addEventListener("click", onOrderLinesClick);
+            ui.inboundLines.addEventListener("click", onOrderLinesClick);
+            ui.orderLines.addEventListener("change", onOrderLinesChange);
+            ui.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+            restoreSession();
+        }
+
+        async function restoreSession() {
+            try {
+                const payload = await requestJson("/api/portal/me");
+                portalState.account = payload.account;
+                showPortalShell();
+                await loadPortalData();
+            } catch {
+                showLogin();
+            }
+        }
+
+        function showLogin() {
+            portalState.account = null;
+            ui.loginView.classList.remove("hidden");
+            ui.portalView.classList.add("hidden");
+            ui.accountChip.classList.add("hidden");
+            ui.loginPassword.value = "";
+            setMessage("", "info");
+        }
+
+        function showPortalShell() {
+            ui.loginView.classList.add("hidden");
+            ui.portalView.classList.remove("hidden");
+            ui.accountChip.classList.remove("hidden");
+            ui.accountChip.textContent = portalState.account?.accountName || "";
+        }
+
+        async function onLoginSubmit(event) {
+            event.preventDefault();
+            const email = norm(String(ui.loginEmail.value || "").toLowerCase());
+            const password = String(ui.loginPassword.value || "");
+
+            if (!email || !password) {
+                return setMessage("Email address and password are required.", "error");
+            }
+
+            try {
+                const payload = await requestJson("/api/portal/login", {
+                    method: "POST",
+                    body: JSON.stringify({ email, password })
+                });
+                portalState.account = payload.account;
+                ui.loginPassword.value = "";
+                showPortalShell();
+                await loadPortalData();
+                setMessage(`Logged in as ${payload.account.accountName}.`, "success");
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        async function logout() {
+            try {
+                await requestJson("/api/portal/logout", { method: "POST" });
+            } catch {
+                // Ignore logout errors and reset the UI anyway.
+            }
+            portalState.inventory = [];
+            portalState.orders = [];
+            portalState.inbounds = [];
+            portalState.editingOrderId = null;
+            resetOrderForm();
+            resetInboundForm();
+            showLogin();
+        }
+
+        async function loadPortalData() {
+            const [inventoryPayload, ordersPayload, inboundsPayload] = await Promise.all([
+                requestJson("/api/portal/inventory"),
+                requestJson("/api/portal/orders"),
+                requestJson("/api/portal/inbounds")
+            ]);
+
+            portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
+            portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
+            portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
+            renderStats();
+            renderInventory();
+            renderOrders();
+            renderInbounds();
+            if (!portalState.editingOrderId) {
+                resetOrderForm();
+            }
+            if (!ui.inboundLines.children.length) {
+                resetInboundForm();
+            }
+            setView(portalState.activeView);
+        }
+
+        function setView(view) {
+            portalState.activeView = view;
+            ui.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+            ui.inventoryPanel.classList.toggle("hidden", view !== "inventory");
+            ui.orderPanel.classList.toggle("hidden", view !== "order");
+            ui.inboundPanel.classList.toggle("hidden", view !== "inbound");
+            ui.ordersPanel.classList.toggle("hidden", view !== "orders");
+            ui.inboundsPanel.classList.toggle("hidden", view !== "inbounds");
+        }
+
+        function renderStats() {
+            const totals = portalState.inventory.reduce((sum, item) => sum + item.totalQuantity, 0);
+            ui.statSkus.textContent = num(portalState.inventory.length);
+            ui.statQty.textContent = num(totals);
+            ui.statDrafts.textContent = num(portalState.orders.filter((order) => order.status === "DRAFT").length);
+            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "SHIPPED"].includes(order.status)).length);
+        }
+
+        function renderInventory() {
+            const query = norm(ui.inventoryFilter.value);
+            const matches = portalState.inventory.filter((item) => !query
+                || item.sku.includes(query)
+                || item.upc.includes(query)
+                || norm(item.description).includes(query)
+                || item.locations.some((location) => location.includes(query))
+            );
+
+            if (!matches.length) {
+                ui.inventoryList.innerHTML = `<div class="empty">${query ? `No inventory matched "${esc(query)}".` : "No inventory is available for this vendor yet."}</div>`;
+                return;
+            }
+
+            ui.inventoryList.innerHTML = matches.map((item) => `
+                <article class="inventory-card">
+                    <div class="inventory-head">
+                        <div>
+                            <strong>${esc(item.sku)}</strong>
+                            <div class="meta">${esc(item.description || "No description")}</div>
+                        </div>
+                        <span class="pill">${esc(formatTrackedQuantity(item.totalQuantity, item.trackingLevel))}</span>
+                    </div>
+                    <div class="inventory-meta">
+                        <div>${item.upc ? `UPC ${esc(item.upc)}` : "No UPC saved"}</div>
+                        <div>${esc(trackingLabel(item.trackingLevel))} | ${esc(num(item.locationCount))} location${item.locationCount === 1 ? "" : "s"}</div>
+                        <div>${item.locations.length ? `Locations: ${esc(item.locations.join(", "))}` : "No locations found"}</div>
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function renderOrders() {
+            if (!portalState.orders.length) {
+                ui.ordersList.innerHTML = `<div class="empty">No orders created yet.</div>`;
+                return;
+            }
+
+            ui.ordersList.innerHTML = portalState.orders.map((order) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(order.orderCode)}</strong>
+                            <div class="meta">Created ${esc(formatDate(order.createdAt))}</div>
+                        </div>
+                        <span class="pill ${order.status === "DRAFT" ? "warn" : "success"}">${esc(order.status)}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div>PO: ${esc(order.poNumber || "None")}</div>
+                        <div>Reference: ${esc(order.shippingReference || "None")}</div>
+                        <div>Ship To: ${esc(formatAddress(order))}</div>
+                        <div>Contact: ${esc(order.contactName)}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
+                        <div>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</div>
+                    </div>
+                    <div class="line-items">
+                        ${order.lines.map((line) => `
+                            <div class="line-card">
+                                <div class="line-head">
+                                    <strong>${esc(line.sku)}</strong>
+                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                                </div>
+                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                            </div>
+                        `).join("")}
+                    </div>
+                    <div class="button-row" style="margin-top: 0.85rem;">
+                        ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
+                        ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}">Release</button>` : ""}
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function renderInbounds() {
+            if (!portalState.inbounds.length) {
+                ui.inboundsList.innerHTML = `<div class="empty">No inbounds submitted yet.</div>`;
+                return;
+            }
+
+            ui.inboundsList.innerHTML = portalState.inbounds.map((inbound) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(inbound.inboundCode)}</strong>
+                            <div class="meta">Submitted ${esc(formatDate(inbound.createdAt))}</div>
+                        </div>
+                        <span class="pill ${inbound.status === "SUBMITTED" ? "warn" : "success"}">${esc(inbound.status)}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div>Reference: ${esc(inbound.referenceNumber || "None")}</div>
+                        <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
+                        <div>Carrier: ${esc(inbound.carrierName || "Not provided")}</div>
+                        <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
+                        <div>Notes: ${esc(inbound.notes || "None")}</div>
+                    </div>
+                    <div class="line-items">
+                        ${inbound.lines.map((line) => `
+                            <div class="line-card">
+                                <div class="line-head">
+                                    <strong>${esc(line.sku)}</strong>
+                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                                </div>
+                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                            </div>
+                        `).join("")}
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function resetInboundForm() {
+            ui.inboundForm.reset();
+            ui.inboundLines.innerHTML = "";
+            addInboundLine();
+        }
+
+        function addInboundLine(line = null) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "line-card";
+            wrapper.innerHTML = `
+                <div class="line-head">
+                    <strong>Inbound Line</strong>
+                    <button class="btn ghost mini" type="button" data-remove-inbound-line="1">Remove</button>
+                </div>
+                <div class="form-grid compact-grid">
+                    <label class="field span-2">
+                        <span>SKU</span>
+                        <select data-inbound-sku>
+                            <option value="">Select SKU</option>
+                            ${portalState.inventory.map((item) => `<option value="${attr(item.sku)}">${esc(item.sku)}${item.description ? ` - ${esc(item.description)}` : ""}</option>`).join("")}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Qty</span>
+                        <input data-inbound-qty type="number" min="1" step="1" value="${attr(line?.quantity || 1)}">
+                    </label>
+                </div>
+            `;
+            ui.inboundLines.appendChild(wrapper);
+            if (line?.sku) wrapper.querySelector('[data-inbound-sku]').value = line.sku;
+        }
+
+        function collectInboundForm() {
+            const lines = [...ui.inboundLines.querySelectorAll('.line-card')].map((card) => ({
+                sku: card.querySelector('[data-inbound-sku]')?.value || '',
+                quantity: Number(card.querySelector('[data-inbound-qty]')?.value || 0)
+            })).filter((line) => line.sku && line.quantity > 0);
+            return {
+                referenceNumber: ui.inboundReferenceNumber.value,
+                carrierName: ui.inboundCarrierName.value,
+                expectedDate: ui.inboundExpectedDate.value,
+                contactName: ui.inboundContactName.value,
+                contactPhone: ui.inboundContactPhone.value,
+                notes: ui.inboundNotes.value,
+                lines
+            };
+        }
+
+        async function submitInbound() {
+            try {
+                const response = await requestJson('/api/portal/inbounds', {
+                    method: 'POST',
+                    body: JSON.stringify(collectInboundForm())
+                });
+                portalState.inbounds.unshift(sanitizeInbound(response.inbound));
+                renderInbounds();
+                resetInboundForm();
+                setView('inbounds');
+                setMessage(`Submitted inbound ${response.inbound.inboundCode}.`, 'success');
+            } catch (error) {
+                setMessage(error.message, 'error');
+            }
+        }
+
+        function resetOrderForm(order = null) {
+            portalState.editingOrderId = order?.id || null;
+            ui.orderFormTitle.textContent = order ? `Edit ${order.orderCode}` : "New Order";
+            ui.orderPoNumber.value = order?.poNumber || "";
+            ui.orderShippingReference.value = order?.shippingReference || "";
+            ui.orderContactName.value = order?.contactName || "";
+            ui.orderContactPhone.value = order?.contactPhone || "";
+            ui.orderShipToName.value = order?.shipToName || "";
+            ui.orderShipToAddress1.value = order?.shipToAddress1 || "";
+            ui.orderShipToAddress2.value = order?.shipToAddress2 || "";
+            ui.orderShipToCity.value = order?.shipToCity || "";
+            ui.orderShipToState.value = order?.shipToState || "";
+            ui.orderShipToPostalCode.value = order?.shipToPostalCode || "";
+            ui.orderShipToCountry.value = order?.shipToCountry || "USA";
+            ui.orderLines.innerHTML = "";
+            const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
+            lines.forEach((line) => addOrderLine(line));
+        }
+
+        function addOrderLine(line = { sku: "", quantity: 1 }) {
+            const row = document.createElement("div");
+            row.className = "line-card";
+            row.innerHTML = `
+                <div class="line-fields">
+                    <label class="field">
+                        <span>SKU</span>
+                        <select data-line-sku>${buildSkuOptions(line.sku)}</select>
+                    </label>
+                    <label class="field">
+                        <span>Qty</span>
+                        <input data-line-qty type="number" min="1" inputmode="numeric" value="${attr(line.quantity || 1)}">
+                    </label>
+                    <button class="btn ghost" type="button" data-remove-line>Remove</button>
+                </div>
+                <div class="line-note" data-line-meta></div>
+            `;
+            ui.orderLines.appendChild(row);
+            updateLineMeta(row);
+        }
+
+        function buildSkuOptions(selectedSku = "") {
+            const normalizedSelected = norm(selectedSku);
+            const options = [`<option value="">Choose a SKU</option>`];
+            portalState.inventory.forEach((item) => {
+                options.push(`<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(formatTrackedQuantity(item.totalQuantity, item.trackingLevel))}</option>`);
+            });
+            return options.join("");
+        }
+
+        function onOrderLinesClick(event) {
+            const removeButton = event.target.closest("[data-remove-line]");
+            if (removeButton) {
+                const card = removeButton.closest(".line-card");
+                if (!card) return;
+                card.remove();
+                if (!ui.orderLines.children.length) {
+                    addOrderLine();
+                }
+                return;
+            }
+            const removeInboundButton = event.target.closest("[data-remove-inbound-line]");
+            if (removeInboundButton) {
+                const card = removeInboundButton.closest(".line-card");
+                if (!card) return;
+                card.remove();
+                if (!ui.inboundLines.children.length) {
+                    addInboundLine();
+                }
+            }
+        }
+
+        function onOrderLinesChange(event) {
+            const card = event.target.closest(".line-card");
+            if (card) updateLineMeta(card);
+        }
+
+        function updateLineMeta(card) {
+            const sku = norm(card.querySelector("[data-line-sku]")?.value || "");
+            const meta = card.querySelector("[data-line-meta]");
+            const qtyInput = card.querySelector("[data-line-qty]");
+            const item = portalState.inventory.find((entry) => entry.sku === sku);
+            if (item && qtyInput) qtyInput.max = String(item.totalQuantity);
+            else if (qtyInput) qtyInput.removeAttribute("max");
+            meta.textContent = item
+                ? `${item.description || "No description"} | ${formatTrackedQuantity(item.totalQuantity, item.trackingLevel)} available | ${item.locations.join(", ")}`
+                : "Choose a SKU from your current inventory.";
+        }
+
+        function collectOrderPayload() {
+            const lines = [...ui.orderLines.querySelectorAll(".line-card")].map((card) => ({
+                sku: norm(card.querySelector("[data-line-sku]")?.value || ""),
+                quantity: Number.parseInt(String(card.querySelector("[data-line-qty]")?.value || ""), 10)
+            })).filter((line) => line.sku || line.quantity);
+
+            return {
+                poNumber: ui.orderPoNumber.value.trim(),
+                shippingReference: ui.orderShippingReference.value.trim(),
+                contactName: ui.orderContactName.value.trim(),
+                contactPhone: ui.orderContactPhone.value.trim(),
+                shipToName: ui.orderShipToName.value.trim(),
+                shipToAddress1: ui.orderShipToAddress1.value.trim(),
+                shipToAddress2: ui.orderShipToAddress2.value.trim(),
+                shipToCity: ui.orderShipToCity.value.trim(),
+                shipToState: ui.orderShipToState.value.trim(),
+                shipToPostalCode: ui.orderShipToPostalCode.value.trim(),
+                shipToCountry: ui.orderShipToCountry.value.trim(),
+                lines
+            };
+        }
+
+        async function saveDraftOrder() {
+            const payload = collectOrderPayload();
+            try {
+                const response = await requestJson(portalState.editingOrderId ? `/api/portal/orders/${portalState.editingOrderId}` : "/api/portal/orders", {
+                    method: portalState.editingOrderId ? "PUT" : "POST",
+                    body: JSON.stringify(payload)
+                });
+                await loadPortalData();
+                const savedOrder = portalState.orders.find((order) => order.id === response.order.id) || response.order;
+                resetOrderForm(savedOrder);
+                setView("order");
+                setMessage(`Saved draft ${savedOrder.orderCode}.`, "success");
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        async function releaseCurrentOrder() {
+            try {
+                if (!portalState.editingOrderId) {
+                    await saveDraftOrder();
+                }
+                if (!portalState.editingOrderId) return;
+                const response = await requestJson(`/api/portal/orders/${portalState.editingOrderId}/release`, { method: "POST" });
+                await loadPortalData();
+                resetOrderForm();
+                setView("orders");
+                setMessage(`Released order ${response.order.orderCode}.`, "success");
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        async function onOrdersListClick(event) {
+            const editButton = event.target.closest("[data-edit-order]");
+            if (editButton) {
+                const order = portalState.orders.find((entry) => entry.id === editButton.dataset.editOrder);
+                if (order) {
+                    resetOrderForm(order);
+                    setView("order");
+                    setMessage(`Loaded draft ${order.orderCode}.`, "info");
+                }
+                return;
+            }
+
+            const releaseButton = event.target.closest("[data-release-order]");
+            if (!releaseButton) return;
+            try {
+                const response = await requestJson(`/api/portal/orders/${releaseButton.dataset.releaseOrder}/release`, { method: "POST" });
+                await loadPortalData();
+                setView("orders");
+                setMessage(`Released order ${response.order.orderCode}.`, "success");
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        function setMessage(text, tone) {
+            if (!text) {
+                ui.portalMessage.className = "status";
+                ui.portalMessage.textContent = "";
+                return;
+            }
+            ui.portalMessage.className = `status show ${tone}`;
+            ui.portalMessage.textContent = text;
+        }
+
+        async function requestJson(url, options = {}) {
+            const response = await fetch(url, {
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(options.headers || {})
+                },
+                ...options
+            });
+            const text = await response.text();
+            const data = text ? JSON.parse(text) : {};
+            if (!response.ok) throw new Error(data.error || "Request failed.");
+            return data;
+        }
+
+        function sanitizeInventoryItem(item) {
+            const sku = norm(item?.sku);
+            if (!sku) return null;
+            return {
+                sku,
+                upc: norm(item?.upc || ""),
+                description: String(item?.description || "").trim(),
+                trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+                totalQuantity: toPositiveInt(item?.totalQuantity) || 0,
+                locationCount: toPositiveInt(item?.locationCount) || 0,
+                locations: Array.isArray(item?.locations) ? item.locations.map((location) => norm(location)).filter(Boolean) : []
+            };
+        }
+
+        function sanitizeInbound(inbound) {
+            if (!inbound || typeof inbound !== "object") return null;
+            return {
+                id: Number(inbound.id || 0),
+                inboundCode: String(inbound.inboundCode || inbound.inbound_code || ""),
+                status: String(inbound.status || "SUBMITTED").toUpperCase(),
+                referenceNumber: String(inbound.referenceNumber || inbound.reference_number || ""),
+                carrierName: String(inbound.carrierName || inbound.carrier_name || ""),
+                expectedDate: String(inbound.expectedDate || inbound.expected_date || ""),
+                contactName: String(inbound.contactName || inbound.contact_name || ""),
+                contactPhone: String(inbound.contactPhone || inbound.contact_phone || ""),
+                notes: String(inbound.notes || ""),
+                createdAt: inbound.createdAt || inbound.created_at || null,
+                lines: Array.isArray(inbound.lines) ? inbound.lines.map((line) => ({
+                    sku: String(line.sku || ""),
+                    quantity: Number(line.quantity || 0),
+                    description: String(line.description || ""),
+                    upc: String(line.upc || ""),
+                    trackingLevel: String(line.trackingLevel || line.tracking_level || "UNIT")
+                })).filter((line) => line.sku && line.quantity > 0) : []
+            };
+        }
+
+        function sanitizeOrder(order) {
+            if (!order?.id) return null;
+            return {
+                id: String(order.id),
+                orderCode: String(order.orderCode || "").trim(),
+                accountName: norm(order.accountName || ""),
+                status: String(order.status || "DRAFT").toUpperCase(),
+                poNumber: String(order.poNumber || "").trim(),
+                shippingReference: String(order.shippingReference || "").trim(),
+                contactName: String(order.contactName || "").trim(),
+                contactPhone: String(order.contactPhone || "").trim(),
+                shipToName: String(order.shipToName || "").trim(),
+                shipToAddress1: String(order.shipToAddress1 || "").trim(),
+                shipToAddress2: String(order.shipToAddress2 || "").trim(),
+                shipToCity: String(order.shipToCity || "").trim(),
+                shipToState: String(order.shipToState || "").trim(),
+                shipToPostalCode: String(order.shipToPostalCode || "").trim(),
+                shipToCountry: String(order.shipToCountry || "").trim(),
+                createdAt: order.createdAt,
+                updatedAt: order.updatedAt,
+                lines: Array.isArray(order.lines) ? order.lines.map(sanitizeOrderLine).filter(Boolean) : []
+            };
+        }
+
+        function sanitizeOrderLine(line) {
+            const sku = norm(line?.sku);
+            const quantity = toPositiveInt(line?.quantity);
+            if (!sku || !quantity) return null;
+            return {
+                sku,
+                quantity,
+                description: String(line?.description || "").trim(),
+                upc: norm(line?.upc || ""),
+                trackingLevel: normalizeTrackingLevel(line?.trackingLevel)
+            };
+        }
+
+        function normalizeTrackingLevel(value) {
+            const normalized = norm(value || "UNIT");
+            if (normalized === "PALLET" || normalized === "PALLETS") return "PALLET";
+            if (normalized === "CASE" || normalized === "CASES") return "CASE";
+            return "UNIT";
+        }
+
+        function trackingLabel(value) {
+            const tracking = normalizeTrackingLevel(value);
+            if (tracking === "PALLET") return "Pallets";
+            if (tracking === "CASE") return "Cases";
+            return "Units";
+        }
+
+        function formatTrackedQuantity(value, trackingLevel) {
+            const tracking = normalizeTrackingLevel(trackingLevel);
+            const noun = tracking === "PALLET" ? "pallet" : (tracking === "CASE" ? "case" : "unit");
+            return `${num(value)} ${noun}${value === 1 ? "" : "s"}`;
+        }
+
+        function formatAddress(order) {
+            return [
+                order.shipToName,
+                order.shipToAddress1,
+                order.shipToAddress2,
+                [order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "),
+                order.shipToCountry
+            ].filter(Boolean).join(" | ");
+        }
+
+        function toPositiveInt(value) {
+            const parsed = Number.parseInt(String(value), 10);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        }
+
+        function norm(value) {
+            return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+        }
+
+        function num(value) {
+            return new Intl.NumberFormat().format(value || 0);
+        }
+
+        function formatDate(value) {
+            try {
+                return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+            } catch {
+                return value || "";
+            }
+        }
+
+        function esc(value) {
+            return String(value || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/\"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function attr(value) {
+            return esc(value).replace(/`/g, "&#96;");
+        }
+    
