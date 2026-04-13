@@ -3,9 +3,18 @@ const express = require("express");
 const path = require("path");
 const { Pool } = require("pg");
 
+
+function bootstrapNormalizeEmail(value) {
+    return String(value || "").trim().toLowerCase();
+}
+
+function bootstrapNormalizeFreeText(value) {
+    return String(value || "").trim().replace(/\s+/g, " ");
+}
+
 const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const ROOT_DIR = __dirname;
-const DATABASE_URL = process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_URL;
+const DATABASE_URL = process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_URL || '';
 const LEGACY_ACCOUNT = "LEGACY";
 const PORTAL_SESSION_COOKIE = "wms365_portal_session";
 const APP_SESSION_COOKIE = "wms365_app_session";
@@ -13,23 +22,25 @@ const PORTAL_SESSION_TTL_DAYS = 14;
 const APP_SESSION_TTL_DAYS = 14;
 const PORTAL_SESSION_MAX_AGE = PORTAL_SESSION_TTL_DAYS * 24 * 60 * 60;
 const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
-const DEFAULT_ADMIN_EMAIL = normalizeEmail(process.env.APP_ADMIN_EMAIL || "admin@wms365.local");
+const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(process.env.APP_ADMIN_EMAIL || "admin@wms365.local");
 const DEFAULT_ADMIN_PASSWORD = String(process.env.APP_ADMIN_PASSWORD || "ChangeMeNow123!");
-const DEFAULT_ADMIN_NAME = normalizeFreeText(process.env.APP_ADMIN_NAME || "Platform Owner");
-
-if (!DATABASE_URL) {
-    console.error("DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.");
-    process.exit(1);
-}
-
-const pool = new Pool({
-    connectionString: DATABASE_URL,
-    ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false
-});
+const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(process.env.APP_ADMIN_NAME || "Platform Owner");
 
 let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
+
+const pool = DATABASE_URL
+    ? new Pool({
+        connectionString: DATABASE_URL,
+        ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false
+    })
+    : createUnavailablePool("DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.");
+
+if (!DATABASE_URL) {
+    databaseErrorMessage = "DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.";
+    console.error(databaseErrorMessage);
+}
 
 pool.on("error", (error) => {
     databaseReady = false;
@@ -113,12 +124,24 @@ app.get("/api/app/me", async (req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) => {
-    res.json({
+    res.status(200).json({
         ok: true,
         databaseReady,
         databaseError: databaseErrorMessage || null,
-        startedInitializingAt: databaseInitStartedAt
+        startedInitializingAt: databaseInitStartedAt,
+        requiresDatabase: true
     });
+});
+
+app.use((req, _res, next) => {
+    if (!isPublicRequest(req)) {
+        try {
+            assertDatabaseAvailable();
+        } catch (error) {
+            return next(error);
+        }
+    }
+    next();
 });
 
 app.get("/api/state", async (_req, res, next) => {
@@ -1292,6 +1315,14 @@ async function initializeDatabase() {
 
 async function initializeDatabaseWithRetry() {
     databaseInitStartedAt = new Date().toISOString();
+
+    if (!DATABASE_URL) {
+        databaseReady = false;
+        if (!databaseErrorMessage) {
+            databaseErrorMessage = "DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.";
+        }
+        return;
+    }
 
     while (!databaseReady) {
         try {
@@ -2994,6 +3025,35 @@ function extractDriveFileId(value) {
         || text.match(/[?&]id=([A-Za-z0-9_-]+)/)
         || text.match(/\/thumbnail\?id=([A-Za-z0-9_-]+)/);
     return match ? match[1] : "";
+}
+
+function createUnavailablePool(message) {
+    const errorFactory = () => httpError(503, message);
+    return {
+        query: async () => { throw errorFactory(); },
+        connect: async () => { throw errorFactory(); },
+        on: () => {}
+    };
+}
+
+function assertDatabaseAvailable() {
+    if (!DATABASE_URL) {
+        throw httpError(503, databaseErrorMessage || "Database is not configured yet.");
+    }
+    if (!databaseReady) {
+        throw httpError(503, databaseErrorMessage || "Database is still starting up. Please try again.");
+    }
+}
+
+function isPublicRequest(req) {
+    const pathName = req.path || req.url || "";
+    if (!pathName) return false;
+    if (pathName === "/api/health") return true;
+    if (pathName === "/" || pathName === "/index.html") return true;
+    if (pathName === "/login" || pathName === "/login.html") return true;
+    if (pathName === "/portal" || pathName === "/portal.html") return true;
+    if (pathName === "/favicon.ico") return true;
+    return false;
 }
 
 function shouldUseSsl(connectionString) {
