@@ -167,6 +167,7 @@
         }
         .detail { display: grid; gap: 0.2rem; }
         .account-chip {
+            align-self: flex-start;
             display: inline-flex;
             align-items: center;
             gap: 0.55rem;
@@ -188,9 +189,9 @@
     <div class="shell">
         <header class="card topbar">
             <div class="header-copy">
-                <div class="eyebrow">Vendor Portal</div>
-                <h1>WMS365 Orders</h1>
-                <p class="lead">See your own inventory, enter orders, and release them to the 3PL team.</p>
+                <div class="eyebrow">Customer Portal</div>
+                <h1>WMS365 Customer Portal</h1>
+                <p class="lead">Use the same blue warehouse theme to review your inventory, submit inbounds, and send orders to the warehouse team.</p>
             </div>
             <div id="accountChip" class="account-chip hidden"></div>
         </header>
@@ -200,8 +201,8 @@
         <main id="loginView" class="auth-wrap">
             <article class="card auth-card">
                 <div class="header-copy">
-                    <h2>Vendor Login</h2>
-                    <p class="lead">Use your assigned email address and portal password. Your vendor / customer account is linked behind the scenes by the warehouse admin.</p>
+                    <h2>Customer Login</h2>
+                    <p class="lead">Use your assigned email address and portal password. Your vendor / customer account is linked behind the scenes by the warehouse admin team.</p>
                 </div>
                 <form id="loginForm" class="form-grid" autocomplete="off">
                     <label class="field span-2">

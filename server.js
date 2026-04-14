@@ -142,6 +142,18 @@ const BILLING_FEE_SEED = [
     { code: "SPECIAL_PROJECT_WORK", category: "Additional Services", name: "Special project work", unitLabel: "per hour", defaultRate: 0 }
 ];
 
+const BILLING_ACTIVITY_MAP_SEED = [
+    { code: "RECEIVING_INBOUND", name: "Receiving / inbound work", description: "Use when warehouse staff books receiving, unloading, count check, or put-away activity." },
+    { code: "PORTAL_INBOUND_SUBMITTED", name: "Portal inbound submitted", description: "Use when a customer submits an inbound that should create an admin or appointment charge." },
+    { code: "PORTAL_INBOUND_RECEIVED", name: "Portal inbound received", description: "Use when the warehouse confirms the inbound was received." },
+    { code: "PORTAL_ORDER_RELEASED", name: "Portal order released", description: "Use when a customer releases an order into warehouse workflow." },
+    { code: "PORTAL_ORDER_PICKED", name: "Portal order picked", description: "Use when the warehouse finishes picking a released order." },
+    { code: "PORTAL_ORDER_SHIPPED", name: "Portal order shipped", description: "Use when the warehouse ships an order." },
+    { code: "BIN_TO_BIN_MOVE", name: "BIN to BIN move", description: "Use for relocation, re-slotting, or internal moves that may be billable." },
+    { code: "REWORK_SPECIAL_PROJECT", name: "Rework / special project", description: "Use for labour, relabeling, kitting, inspection, or other special handling." },
+    { code: "MONTHLY_STORAGE_RUN", name: "Monthly storage run", description: "Use for storage-related recurring billing rules." }
+];
+
 let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
@@ -235,6 +247,89 @@ app.get("/api/app/me", async (req, res, next) => {
         if (error.statusCode === 401) {
             clearAppSessionCookie(res, req);
         }
+        next(error);
+    }
+});
+
+app.get("/api/app/users", async (req, res, next) => {
+    try {
+        requireAppRole(req, ["super_admin", "admin"]);
+        const result = await pool.query("select * from app_users order by is_active desc, full_name asc nulls last, email asc");
+        res.json({ users: result.rows.map(mapAppUserRow) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/app/users", async (req, res, next) => {
+    try {
+        requireAppRole(req, ["super_admin", "admin"]);
+        const input = sanitizeAppUserInput(req.body);
+        const allowedRoles = ["super_admin", "admin", "office", "warehouse", "read_only"];
+        if (!input.email) throw httpError(400, "Email is required.");
+        if (!input.fullName) throw httpError(400, "Full name is required.");
+        if (!allowedRoles.includes(input.role)) throw httpError(400, "Choose a valid role.");
+        if (!input.password || input.password.length < 8) throw httpError(400, "Password must be at least 8 characters.");
+        if (input.role === "super_admin" && !userHasAnyRole(req.appUser, ["super_admin"])) throw httpError(403, "Only a super admin can create another super admin.");
+
+        const user = await withTransaction(async (client) => {
+            const existing = await getAppUserByEmail(client, input.email);
+            if (existing) throw httpError(409, "That warehouse user email already exists.");
+            const insertResult = await client.query(`
+                insert into app_users (email, password_hash, full_name, role, is_active)
+                values ($1, $2, $3, $4, $5)
+                returning *
+            `, [input.email, hashPortalPassword(input.password), input.fullName, input.role, input.isActive]);
+            await insertActivity(client, "system", `Added warehouse user ${input.fullName}`, `${input.email} | ${input.role}`);
+            return insertResult.rows[0];
+        });
+
+        res.json({ success: true, user: mapAppUserRow(user) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/app/users/:id/status", async (req, res, next) => {
+    try {
+        requireAppRole(req, ["super_admin", "admin"]);
+        const userId = Number(req.params.id);
+        if (!Number.isFinite(userId) || userId <= 0) throw httpError(400, "Invalid user id.");
+        const isActive = req.body?.isActive !== false && req.body?.isActive !== "false";
+        const updated = await withTransaction(async (client) => {
+            const current = await getAppUserById(client, userId);
+            if (!current) throw httpError(404, "Warehouse user not found.");
+            if (normalizeEmail(current.email) === normalizeEmail(req.appUser?.email) && !isActive) throw httpError(400, "You cannot disable your own login.");
+            if ((current.role || '').toLowerCase() === 'super_admin' && !userHasAnyRole(req.appUser, ['super_admin'])) throw httpError(403, "Only a super admin can change another super admin.");
+            const result = await client.query("update app_users set is_active = $2, updated_at = now() where id = $1 returning *", [userId, isActive]);
+            if (!isActive) await client.query("delete from app_sessions where app_user_id = $1", [userId]);
+            await insertActivity(client, "system", `${isActive ? 'Enabled' : 'Disabled'} warehouse user ${current.full_name || current.email}`, current.email || '');
+            return result.rows[0];
+        });
+        res.json({ success: true, user: mapAppUserRow(updated) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/app/users/:id/reset-password", async (req, res, next) => {
+    try {
+        requireAppRole(req, ["super_admin", "admin"]);
+        const userId = Number(req.params.id);
+        const password = typeof req.body?.password === "string" ? req.body.password : "";
+        if (!Number.isFinite(userId) || userId <= 0) throw httpError(400, "Invalid user id.");
+        if (!password || password.length < 8) throw httpError(400, "Password must be at least 8 characters.");
+        const updated = await withTransaction(async (client) => {
+            const current = await getAppUserById(client, userId);
+            if (!current) throw httpError(404, "Warehouse user not found.");
+            if ((current.role || '').toLowerCase() === 'super_admin' && !userHasAnyRole(req.appUser, ['super_admin'])) throw httpError(403, "Only a super admin can reset another super admin password.");
+            const result = await client.query("update app_users set password_hash = $2, updated_at = now() where id = $1 returning *", [userId, hashPortalPassword(password)]);
+            await client.query("delete from app_sessions where app_user_id = $1", [userId]);
+            await insertActivity(client, "system", `Reset warehouse password for ${current.full_name || current.email}`, current.email || '');
+            return result.rows[0];
+        });
+        res.json({ success: true, user: mapAppUserRow(updated) });
+    } catch (error) {
         next(error);
     }
 });
@@ -419,6 +514,32 @@ app.post("/api/billing/rates", async (req, res, next) => {
         });
 
         res.json({ success: true, accountName, rates: savedRates });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing/activity-map", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
+        if (!accountName) {
+            throw httpError(400, "Vendor / Customer is required.");
+        }
+
+        const savedMappings = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, accountName);
+            await saveOwnerBillingActivityMap(client, accountName, mappings);
+            await insertActivity(
+                client,
+                "billing",
+                `Updated billing activity map for ${accountName}`,
+                `${formatCount(mappings.length, "activity map")} reviewed for automated or suggested billing.`
+            );
+            return getOwnerBillingActivityMap(client, accountName);
+        });
+
+        res.json({ success: true, accountName, mappings: savedMappings });
     } catch (error) {
         next(error);
     }
@@ -821,6 +942,30 @@ app.post("/api/move-location", async (req, res, next) => {
         });
 
         res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory/bulk-update", async (req, res, next) => {
+    try {
+        const payload = sanitizeBulkInventoryUpdateInput(req.body);
+        if (!payload.accountName) {
+            throw httpError(400, "Vendor / customer is required.");
+        }
+        if (!payload.rows.length) {
+            throw httpError(400, "At least one bulk inventory row is required.");
+        }
+
+        let response = null;
+        await withTransaction(async (client) => {
+            if (payload.createMissingSkus || payload.createMissingLocations) {
+                await upsertOwnerMaster(client, { name: payload.accountName });
+            }
+            response = await applyBulkInventoryUpdate(client, payload);
+        });
+
+        res.json(response || { ok: true, message: "Bulk inventory update saved." });
     } catch (error) {
         next(error);
     }
@@ -1598,6 +1743,21 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
+        create table if not exists owner_billing_activity_map (
+            id bigserial primary key,
+            account_name text not null,
+            activity_code text not null,
+            fee_code text references billing_fee_catalog(code) on delete cascade,
+            auto_create boolean not null default false,
+            default_quantity numeric(12, 4) not null default 1,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, activity_code)
+        );
+    `);
+
+    await pool.query(`
         create table if not exists billing_events (
             id bigserial primary key,
             event_key text unique,
@@ -1641,7 +1801,7 @@ async function initializeDatabase() {
     await pool.query("alter table billing_events add constraint billing_events_status_check check (status in ('OPEN', 'INVOICED', 'VOID'))");
     await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
-    await pool.query("create index if not exists idx_owner_billing_rates_account on owner_billing_rates (account_name)");
+    await pool.query("create index if not exists idx_owner_billing_activity_map_account on owner_billing_activity_map (account_name)");
     await seedBillingFeeCatalog(pool);
 
     await pool.query(`
@@ -1850,7 +2010,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
 
-    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingActivityMapResult, billingEventResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
@@ -1859,6 +2019,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
         client.query("select * from pallet_records order by updated_at desc, pallet_code asc"),
         client.query("select * from billing_fee_catalog order by category asc, name asc"),
         client.query("select * from owner_billing_rates order by account_name asc, fee_code asc"),
+        client.query("select * from owner_billing_activity_map order by account_name asc, activity_code asc"),
         billingEventsQuery,
         client.query(`
             select nullif(
@@ -1871,6 +2032,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_billing_rates), to_timestamp(0)),
+                    coalesce((select max(updated_at) from owner_billing_activity_map), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_events), to_timestamp(0))
                 ),
                 to_timestamp(0)
@@ -1897,7 +2059,9 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
         billing: {
             feeCatalog: billingFeeResult.rows.map(mapBillingFeeRow),
             ownerRates: ownerRateResult.rows.map(mapOwnerBillingRateRow),
-            events: billingEventResult.rows.map(mapBillingEventRow)
+            activityMap: billingActivityMapResult.rows.map(mapOwnerBillingActivityMapRow),
+            events: billingEventResult.rows.map(mapBillingEventRow),
+            activityCatalog: BILLING_ACTIVITY_MAP_SEED
         },
         meta: {
             version: 7,
@@ -2469,6 +2633,31 @@ function mapAppUserRow(row) {
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
 }
+
+function userHasAnyRole(user, roles = []) {
+    const normalizedRole = normalizeText(user?.role || "").toLowerCase();
+    return Array.isArray(roles) && roles.some((role) => normalizeText(role).toLowerCase() === normalizedRole);
+}
+
+function requireAppRole(req, roles = []) {
+    if (!req.appUser) {
+        throw httpError(401, "Warehouse login required.");
+    }
+    if (!userHasAnyRole(req.appUser, roles)) {
+        throw httpError(403, "You do not have permission for that action.");
+    }
+}
+
+function sanitizeAppUserInput(body = {}) {
+    return {
+        email: normalizeEmail(body.email),
+        password: typeof body.password === "string" ? body.password : "",
+        fullName: normalizeFreeText(body.fullName || body.name || ""),
+        role: normalizeText(body.role || "warehouse").toLowerCase(),
+        isActive: body.isActive !== false && body.isActive !== "false"
+    };
+}
+
 
 async function getPortalAccessList(client = pool) {
     const result = await client.query("select * from portal_vendor_access order by account_name asc");
@@ -3702,6 +3891,121 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
     }
 
     return finalEntry;
+}
+
+function sanitizeBulkInventoryUpdateRow(row, fallbackTrackingLevel = "") {
+    const sku = normalizeText(row?.sku);
+    const location = normalizeText(row?.location);
+    const quantity = Number.parseFloat(row?.qty ?? row?.quantity ?? row?.count ?? "");
+    const trackingLevel = normalizeTrackingLevel(row?.trackingLevel || row?.tracking || row?.uom || fallbackTrackingLevel || "");
+    if (!sku || !location || !Number.isFinite(quantity)) return null;
+    return {
+        sku,
+        location,
+        qty: quantity,
+        lpn: normalizeText(row?.lpn || row?.pallet || ""),
+        reason: normalizeFreeText(row?.reason || row?.note || ""),
+        description: normalizeFreeText(row?.description || row?.desc || ""),
+        upc: normalizeText(row?.upc || row?.barcode || ""),
+        trackingLevel
+    };
+}
+
+function sanitizeBulkInventoryUpdateInput(raw) {
+    const accountName = normalizeText(raw?.accountName || raw?.owner || raw?.vendor || raw?.customer || "");
+    const mode = String(raw?.mode || "adjust").trim().toLowerCase() === "set" ? "set" : "adjust";
+    const defaultTrackingLevel = normalizeTrackingLevel(raw?.defaultTrackingLevel || "");
+    const rows = Array.isArray(raw?.rows) ? raw.rows.map((row) => sanitizeBulkInventoryUpdateRow(row, defaultTrackingLevel)).filter(Boolean) : [];
+    return {
+        accountName,
+        mode,
+        defaultTrackingLevel,
+        createMissingSkus: raw?.createMissingSkus === true,
+        createMissingLocations: raw?.createMissingLocations === true,
+        triggerBillingSuggestion: raw?.triggerBillingSuggestion === true,
+        rows
+    };
+}
+
+async function applyBulkInventoryUpdate(client, payload) {
+    let updated = 0;
+    let createdLocations = 0;
+    let createdItems = 0;
+    let totalAbsoluteQty = 0;
+    const createdLocationSet = new Set();
+    const createdItemSet = new Set();
+
+    for (const row of payload.rows) {
+        totalAbsoluteQty += Math.abs(Number(row.qty) || 0);
+        if (payload.createMissingLocations && !createdLocationSet.has(row.location)) {
+            await upsertLocationMaster(client, row.location, "Auto-created from bulk inventory update");
+            createdLocationSet.add(row.location);
+            createdLocations += 1;
+        }
+        if (payload.createMissingSkus) {
+            const itemKey = `${payload.accountName}__${row.sku}`;
+            if (!createdItemSet.has(itemKey)) {
+                await upsertItemMaster(client, {
+                    accountName: payload.accountName,
+                    sku: row.sku,
+                    upc: row.upc,
+                    description: row.description,
+                    trackingLevel: row.trackingLevel || payload.defaultTrackingLevel || "UNIT"
+                });
+                createdItemSet.add(itemKey);
+                createdItems += 1;
+            }
+        }
+
+        const existing = await client.query(
+            "select * from inventory_lines where account_name = $1 and location = $2 and sku = $3 limit 1",
+            [payload.accountName, row.location, row.sku]
+        );
+        const current = existing.rows[0] || null;
+        const currentQty = Number(current?.quantity || 0);
+        const finalQty = payload.mode === "set" ? Number(row.qty) : currentQty + Number(row.qty);
+        if (finalQty < 0) {
+            throw httpError(409, `Bulk update would reduce ${row.sku} at ${row.location} below zero.`);
+        }
+
+        if (current) {
+            await client.query(
+                `update inventory_lines
+                 set quantity = $1,
+                     upc = case when coalesce(upc, '') = '' and $2 <> '' then $2 else upc end,
+                     tracking_level = case when $3 <> '' then $3 else tracking_level end,
+                     updated_at = now()
+                 where id = $4`,
+                [finalQty, row.upc || "", row.trackingLevel || "", current.id]
+            );
+            if (finalQty <= 0) {
+                await client.query("delete from inventory_lines where id = $1", [current.id]);
+            }
+        } else if (finalQty > 0) {
+            await client.query(
+                `insert into inventory_lines (account_name, location, sku, upc, tracking_level, quantity)
+                 values ($1, $2, $3, $4, $5, $6)`,
+                [payload.accountName, row.location, row.sku, row.upc || "", row.trackingLevel || payload.defaultTrackingLevel || "UNIT", finalQty]
+            );
+        }
+        updated += 1;
+    }
+
+    await insertActivity(
+        client,
+        "inventory",
+        `Bulk inventory ${payload.mode} update for ${payload.accountName}`,
+        `${formatCount(updated, "row")} processed${createdLocations ? `, ${formatCount(createdLocations, "location")} auto-created` : ""}${createdItems ? `, ${formatCount(createdItems, "SKU")} auto-created` : ""}. Total quantity touched: ${totalAbsoluteQty}.`
+    );
+
+    return {
+        ok: true,
+        mode: payload.mode,
+        rowsProcessed: updated,
+        createdLocations,
+        createdItems,
+        message: `Bulk inventory ${payload.mode} update saved for ${updated} row(s).`
+    };
 }
 
 async function setInventoryQuantity(client, lineId, quantity) {
