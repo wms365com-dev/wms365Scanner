@@ -2488,6 +2488,7 @@
                             <span class="mobile-appbar-badge">Scanner</span>
                         </div>
                         <h1>Choose Task</h1>
+                        <div class="mobile-build-label" style="font-size:12px;color:#64748b;margin-top:4px;">Build MOBILE-PICK-2026-04-16-10</div>
                     </div>
                     <div class="menu-stack">
                         <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
@@ -2505,6 +2506,10 @@
                         <button class="btn menu-card-btn" type="button" data-mobile-nav="labels" data-mobile-label-mode="pallet">
                             <span class="menu-card-title">Pallets</span>
                             <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
+                        </button>
+                        <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-pick">
+                            <span class="menu-card-title">Picking</span>
+                            <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order on mobile.</span>
                         </button>
                     </div>
                 </article>
@@ -4008,6 +4013,7 @@
             panels: [...document.querySelectorAll(".panel")],
             quickSectionButtons: [...document.querySelectorAll("[data-jump-section]")],
             mobileNavButtons: [...document.querySelectorAll("[data-mobile-nav]")],
+            mobileLinkButtons: [...document.querySelectorAll("[data-mobile-link]")],
             mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
             mobileSectionBackButtons: [...document.querySelectorAll("[data-mobile-section-back]")],
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
@@ -4332,6 +4338,12 @@
                     setLabelToolMode(button.dataset.mobileLabelMode);
                 }
                 setSection(button.dataset.mobileNav);
+            }));
+            ui.mobileLinkButtons.forEach((button) => button.addEventListener("click", () => {
+                const target = button.dataset.mobileLink;
+                if (target) {
+                    window.location.href = target;
+                }
             }));
             ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
             ui.mobileSectionBackButtons.forEach((button) => button.addEventListener("click", () => handleMobileSectionBack(button.dataset.mobileSectionBack)));
