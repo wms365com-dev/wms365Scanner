@@ -1190,11 +1190,13 @@ app.get("/api/admin/portal-access", async (_req, res, next) => {
     }
 });
 
-app.get("/api/admin/portal-orders", async (_req, res, next) => {
+app.get("/api/admin/portal-orders", async (req, res, next) => {
     try {
-        res.json({
-            orders: await getAdminPortalOrders()
-        });
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const orders = requestedAccount
+            ? await getPortalOrdersForAccount(requestedAccount)
+            : await getAdminPortalOrders();
+        res.json({ orders });
     } catch (error) {
         next(error);
     }

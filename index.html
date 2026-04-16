@@ -3337,7 +3337,7 @@
                         <span class="meta" id="portalOrdersMeta">0 orders</span>
                     </div>
                     <div id="portalOrdersList">
-                        <p class="empty">No company portal orders yet.</p>
+                        <p class="empty">No sales orders loaded yet.</p>
                     </div>
                 </article>
             </div>
@@ -8008,7 +8008,9 @@
 
         async function refreshPortalOrdersList(silent = false) {
             try {
-                const payload = await requestJson("/api/admin/portal-orders");
+                const company = getActiveCompany();
+                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+                const payload = await requestJson(`/api/admin/portal-orders${query}`);
                 portalOrderRecords = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
