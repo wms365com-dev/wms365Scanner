@@ -142,18 +142,6 @@ const BILLING_FEE_SEED = [
     { code: "SPECIAL_PROJECT_WORK", category: "Additional Services", name: "Special project work", unitLabel: "per hour", defaultRate: 0 }
 ];
 
-const BILLING_ACTIVITY_MAP_SEED = [
-    { code: "RECEIVING_INBOUND", name: "Receiving / inbound work", description: "Use when warehouse staff books receiving, unloading, count check, or put-away activity." },
-    { code: "PORTAL_INBOUND_SUBMITTED", name: "Portal inbound submitted", description: "Use when a customer submits an inbound that should create an admin or appointment charge." },
-    { code: "PORTAL_INBOUND_RECEIVED", name: "Portal inbound received", description: "Use when the warehouse confirms the inbound was received." },
-    { code: "PORTAL_ORDER_RELEASED", name: "Portal order released", description: "Use when a customer releases an order into warehouse workflow." },
-    { code: "PORTAL_ORDER_PICKED", name: "Portal order picked", description: "Use when the warehouse finishes picking a released order." },
-    { code: "PORTAL_ORDER_SHIPPED", name: "Portal order shipped", description: "Use when the warehouse ships an order." },
-    { code: "BIN_TO_BIN_MOVE", name: "BIN to BIN move", description: "Use for relocation, re-slotting, or internal moves that may be billable." },
-    { code: "REWORK_SPECIAL_PROJECT", name: "Rework / special project", description: "Use for labour, relabeling, kitting, inspection, or other special handling." },
-    { code: "MONTHLY_STORAGE_RUN", name: "Monthly storage run", description: "Use for storage-related recurring billing rules." }
-];
-
 let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
@@ -179,7 +167,7 @@ pool.on("error", (error) => {
 const app = express();
 app.set("trust proxy", 1);
 
-app.use(express.json({ limit: "3mb" }));
+app.use(express.json({ limit: "12mb" }));
 
 app.use(async (req, res, next) => {
     try {
@@ -247,89 +235,6 @@ app.get("/api/app/me", async (req, res, next) => {
         if (error.statusCode === 401) {
             clearAppSessionCookie(res, req);
         }
-        next(error);
-    }
-});
-
-app.get("/api/app/users", async (req, res, next) => {
-    try {
-        requireAppRole(req, ["super_admin", "admin"]);
-        const result = await pool.query("select * from app_users order by is_active desc, full_name asc nulls last, email asc");
-        res.json({ users: result.rows.map(mapAppUserRow) });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post("/api/app/users", async (req, res, next) => {
-    try {
-        requireAppRole(req, ["super_admin", "admin"]);
-        const input = sanitizeAppUserInput(req.body);
-        const allowedRoles = ["super_admin", "admin", "office", "warehouse", "read_only"];
-        if (!input.email) throw httpError(400, "Email is required.");
-        if (!input.fullName) throw httpError(400, "Full name is required.");
-        if (!allowedRoles.includes(input.role)) throw httpError(400, "Choose a valid role.");
-        if (!input.password || input.password.length < 8) throw httpError(400, "Password must be at least 8 characters.");
-        if (input.role === "super_admin" && !userHasAnyRole(req.appUser, ["super_admin"])) throw httpError(403, "Only a super admin can create another super admin.");
-
-        const user = await withTransaction(async (client) => {
-            const existing = await getAppUserByEmail(client, input.email);
-            if (existing) throw httpError(409, "That warehouse user email already exists.");
-            const insertResult = await client.query(`
-                insert into app_users (email, password_hash, full_name, role, is_active)
-                values ($1, $2, $3, $4, $5)
-                returning *
-            `, [input.email, hashPortalPassword(input.password), input.fullName, input.role, input.isActive]);
-            await insertActivity(client, "system", `Added warehouse user ${input.fullName}`, `${input.email} | ${input.role}`);
-            return insertResult.rows[0];
-        });
-
-        res.json({ success: true, user: mapAppUserRow(user) });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post("/api/app/users/:id/status", async (req, res, next) => {
-    try {
-        requireAppRole(req, ["super_admin", "admin"]);
-        const userId = Number(req.params.id);
-        if (!Number.isFinite(userId) || userId <= 0) throw httpError(400, "Invalid user id.");
-        const isActive = req.body?.isActive !== false && req.body?.isActive !== "false";
-        const updated = await withTransaction(async (client) => {
-            const current = await getAppUserById(client, userId);
-            if (!current) throw httpError(404, "Warehouse user not found.");
-            if (normalizeEmail(current.email) === normalizeEmail(req.appUser?.email) && !isActive) throw httpError(400, "You cannot disable your own login.");
-            if ((current.role || '').toLowerCase() === 'super_admin' && !userHasAnyRole(req.appUser, ['super_admin'])) throw httpError(403, "Only a super admin can change another super admin.");
-            const result = await client.query("update app_users set is_active = $2, updated_at = now() where id = $1 returning *", [userId, isActive]);
-            if (!isActive) await client.query("delete from app_sessions where app_user_id = $1", [userId]);
-            await insertActivity(client, "system", `${isActive ? 'Enabled' : 'Disabled'} warehouse user ${current.full_name || current.email}`, current.email || '');
-            return result.rows[0];
-        });
-        res.json({ success: true, user: mapAppUserRow(updated) });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post("/api/app/users/:id/reset-password", async (req, res, next) => {
-    try {
-        requireAppRole(req, ["super_admin", "admin"]);
-        const userId = Number(req.params.id);
-        const password = typeof req.body?.password === "string" ? req.body.password : "";
-        if (!Number.isFinite(userId) || userId <= 0) throw httpError(400, "Invalid user id.");
-        if (!password || password.length < 8) throw httpError(400, "Password must be at least 8 characters.");
-        const updated = await withTransaction(async (client) => {
-            const current = await getAppUserById(client, userId);
-            if (!current) throw httpError(404, "Warehouse user not found.");
-            if ((current.role || '').toLowerCase() === 'super_admin' && !userHasAnyRole(req.appUser, ['super_admin'])) throw httpError(403, "Only a super admin can reset another super admin password.");
-            const result = await client.query("update app_users set password_hash = $2, updated_at = now() where id = $1 returning *", [userId, hashPortalPassword(password)]);
-            await client.query("delete from app_sessions where app_user_id = $1", [userId]);
-            await insertActivity(client, "system", `Reset warehouse password for ${current.full_name || current.email}`, current.email || '');
-            return result.rows[0];
-        });
-        res.json({ success: true, user: mapAppUserRow(updated) });
-    } catch (error) {
         next(error);
     }
 });
@@ -402,7 +307,7 @@ app.post("/api/master-owner", async (req, res, next) => {
     try {
         const entry = sanitizeOwnerMasterInput(req.body);
         if (!entry) {
-            throw httpError(400, "A vendor / customer name is required.");
+            throw httpError(400, "A company name is required.");
         }
 
         await withTransaction(async (client) => {
@@ -410,13 +315,13 @@ app.post("/api/master-owner", async (req, res, next) => {
             await insertActivity(
                 client,
                 "setup",
-                `Saved vendor / customer ${entry.name}`,
+                `Saved company ${entry.name}`,
                 [
                     entry.legalName ? `Legal ${entry.legalName}` : "",
                     entry.contactName ? `Contact ${entry.contactName}` : "",
                     entry.email ? `Email ${entry.email}` : "",
                     entry.portalLoginEmail ? `Portal ${entry.portalLoginEmail}` : "",
-                    entry.note ? entry.note : "Vendor / customer profile saved to the shared library."
+                    entry.note ? entry.note : "Company profile saved to the shared library."
                 ].filter(Boolean).join(" | ")
             );
         });
@@ -431,7 +336,7 @@ app.post("/api/master-item", async (req, res, next) => {
     try {
         const entry = sanitizeItemMasterInput(req.body);
         if (!entry || !entry.accountName || !entry.sku) {
-            throw httpError(400, "Vendor / Customer and SKU are required.");
+            throw httpError(400, "Company and SKU are required.");
         }
 
         await withTransaction(async (client) => {
@@ -463,13 +368,13 @@ app.post("/api/master-item/update", async (req, res, next) => {
         const entry = sanitizeItemMasterInput(req.body);
 
         if (!originalAccountName || !originalSku) {
-            throw httpError(400, "The original vendor / customer and SKU are required to update an item.");
+            throw httpError(400, "The original company and SKU are required to update an item.");
         }
         if (!entry || !entry.accountName || !entry.sku) {
-            throw httpError(400, "Vendor / Customer and SKU are required.");
+            throw httpError(400, "Company and SKU are required.");
         }
         if (entry.accountName !== originalAccountName) {
-            throw httpError(400, "Changing vendor / customer from the item editor is not supported.");
+            throw httpError(400, "Changing company from the item editor is not supported.");
         }
 
         const updatedItem = await withTransaction(async (client) => {
@@ -498,7 +403,7 @@ app.post("/api/billing/rates", async (req, res, next) => {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
         const rates = Array.isArray(req.body?.rates) ? req.body.rates : [];
         if (!accountName) {
-            throw httpError(400, "Vendor / Customer is required.");
+            throw httpError(400, "Company is required.");
         }
 
         const savedRates = await withTransaction(async (client) => {
@@ -519,37 +424,11 @@ app.post("/api/billing/rates", async (req, res, next) => {
     }
 });
 
-app.post("/api/billing/activity-map", async (req, res, next) => {
-    try {
-        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
-        const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
-        if (!accountName) {
-            throw httpError(400, "Vendor / Customer is required.");
-        }
-
-        const savedMappings = await withTransaction(async (client) => {
-            await upsertOwnerMaster(client, accountName);
-            await saveOwnerBillingActivityMap(client, accountName, mappings);
-            await insertActivity(
-                client,
-                "billing",
-                `Updated billing activity map for ${accountName}`,
-                `${formatCount(mappings.length, "activity map")} reviewed for automated or suggested billing.`
-            );
-            return getOwnerBillingActivityMap(client, accountName);
-        });
-
-        res.json({ success: true, accountName, mappings: savedMappings });
-    } catch (error) {
-        next(error);
-    }
-});
-
 app.post("/api/billing/events/manual", async (req, res, next) => {
     try {
         const entry = sanitizeManualBillingEventInput(req.body);
         if (!entry?.accountName || !entry?.feeCode || !entry?.quantity) {
-            throw httpError(400, "Vendor / Customer, fee, and quantity are required.");
+            throw httpError(400, "Company, fee, and quantity are required.");
         }
 
         const billingEvent = await withTransaction(async (client) => {
@@ -565,7 +444,7 @@ app.post("/api/billing/events/manual", async (req, res, next) => {
                 rateOverride: entry.rate
             });
             if (!created) {
-                throw httpError(400, "That fee is disabled for this vendor / customer. Enable it in the billing setup first.");
+                throw httpError(400, "That fee is disabled for this company. Enable it in the billing setup first.");
             }
             await insertActivity(
                 client,
@@ -587,7 +466,7 @@ app.post("/api/billing/storage-accrual", async (req, res, next) => {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
         const month = normalizeBillingMonth(req.body?.month);
         if (!accountName || !month) {
-            throw httpError(400, "Vendor / Customer and billing month are required.");
+            throw httpError(400, "Company and billing month are required.");
         }
 
         const events = await withTransaction(async (client) => {
@@ -774,13 +653,13 @@ app.post("/api/remove-quantity", async (req, res, next) => {
         const quantity = toPositiveInt(req.body?.quantity);
 
         if (!accountName || !location || !skuOrUpc || !quantity) {
-            throw httpError(400, "Vendor / Customer, location, SKU/UPC, and quantity are required.");
+            throw httpError(400, "Company, location, SKU/UPC, and quantity are required.");
         }
 
         await withTransaction(async (client) => {
             const line = await findInventoryLine(client, accountName, location, skuOrUpc);
             if (!line) {
-                throw httpError(404, "No exact inventory line matched that vendor/customer, location, and SKU/UPC.");
+                throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
             }
             if (quantity > Number(line.quantity)) {
                 throw httpError(400, `Cannot remove ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(Number(line.quantity), line.tracking_level)} are available.`);
@@ -809,13 +688,13 @@ app.post("/api/delete-line", async (req, res, next) => {
         const skuOrUpc = normalizeText(req.body?.skuOrUpc);
 
         if (!accountName || !location || !skuOrUpc) {
-            throw httpError(400, "Vendor / Customer, location, and SKU/UPC are required.");
+            throw httpError(400, "Company, location, and SKU/UPC are required.");
         }
 
         await withTransaction(async (client) => {
             const line = await findInventoryLine(client, accountName, location, skuOrUpc);
             if (!line) {
-                throw httpError(404, "No exact inventory line matched that vendor/customer, location, and SKU/UPC.");
+                throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
             }
 
             await client.query("delete from inventory_lines where id = $1", [line.id]);
@@ -842,7 +721,7 @@ app.post("/api/transfer", async (req, res, next) => {
         const quantity = toPositiveInt(req.body?.quantity);
 
         if (!accountName || !fromLocation || !toLocation || !skuOrUpc || !quantity) {
-            throw httpError(400, "Vendor / Customer, from location, to location, SKU/UPC, and quantity are required.");
+            throw httpError(400, "Company, from location, to location, SKU/UPC, and quantity are required.");
         }
         if (fromLocation === toLocation) {
             throw httpError(400, "Source and destination locations cannot be the same.");
@@ -851,7 +730,7 @@ app.post("/api/transfer", async (req, res, next) => {
         await withTransaction(async (client) => {
             const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc);
             if (!line) {
-                throw httpError(404, "No exact inventory line matched that vendor/customer, source location, and SKU/UPC.");
+                throw httpError(404, "No exact inventory line matched that company, source location, and SKU/UPC.");
             }
             if (quantity > Number(line.quantity)) {
                 throw httpError(400, `Cannot transfer ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(Number(line.quantity), line.tracking_level)} are available.`);
@@ -889,6 +768,85 @@ app.post("/api/transfer", async (req, res, next) => {
     }
 });
 
+app.post("/api/convert-item", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner);
+        const fromLocation = normalizeText(req.body?.fromLocation);
+        const toLocation = normalizeText(req.body?.toLocation || req.body?.targetLocation || req.body?.fromLocation);
+        const fromSkuOrUpc = normalizeText(req.body?.fromSkuOrUpc || req.body?.sourceSkuOrUpc || req.body?.sourceSku);
+        const toSkuOrUpc = normalizeText(req.body?.toSkuOrUpc || req.body?.targetSkuOrUpc || req.body?.targetSku);
+        const sourceQuantity = toPositiveInt(req.body?.sourceQuantity || req.body?.quantity);
+
+        if (!accountName || !fromLocation || !toLocation || !fromSkuOrUpc || !toSkuOrUpc || !sourceQuantity) {
+            throw httpError(400, "Company, source location, destination location, source SKU/UPC, target SKU/UPC, and source quantity are required.");
+        }
+
+        const conversion = await withTransaction(async (client) => {
+            const sourceLine = await findInventoryLine(client, accountName, fromLocation, fromSkuOrUpc);
+            if (!sourceLine) {
+                throw httpError(404, "No exact source inventory line matched that company, location, and SKU/UPC.");
+            }
+            if (sourceQuantity > Number(sourceLine.quantity)) {
+                throw httpError(
+                    400,
+                    `Cannot convert ${formatTrackedQuantity(sourceQuantity, sourceLine.tracking_level)} because only ${formatTrackedQuantity(Number(sourceLine.quantity), sourceLine.tracking_level)} are available.`
+                );
+            }
+
+            const sourceMaster = await findCatalogItem(client, accountName, sourceLine.sku, sourceLine.upc);
+            const targetMaster = await findCatalogItem(client, accountName, toSkuOrUpc, toSkuOrUpc);
+            if (!targetMaster) {
+                throw httpError(404, "The target item could not be found in this company's item master.");
+            }
+            if (normalizeText(sourceLine.sku) === normalizeText(targetMaster.sku)) {
+                throw httpError(400, "Source and target items must be different.");
+            }
+
+            await assertLocationCompatibleForOwner(client, accountName, toLocation);
+            const plan = buildItemConversionPlan({
+                accountName,
+                fromLocation,
+                toLocation,
+                sourceLine,
+                sourceMaster,
+                targetMaster,
+                sourceQuantity
+            });
+
+            await setInventoryQuantity(client, sourceLine.id, Number(sourceLine.quantity) - sourceQuantity);
+            await upsertInventoryLine(client, {
+                accountName,
+                location: toLocation,
+                sku: plan.targetSku,
+                upc: plan.targetUpc,
+                quantity: plan.targetQuantity,
+                trackingLevel: plan.targetTrackingLevel
+            });
+            await upsertLocationMaster(client, fromLocation);
+            await upsertLocationMaster(client, toLocation);
+            await upsertItemMaster(client, {
+                accountName,
+                sku: plan.targetSku,
+                upc: plan.targetUpc,
+                description: plan.targetDescription,
+                trackingLevel: plan.targetTrackingLevel,
+                unitsPerCase: plan.targetUnitsPerCase
+            });
+            await insertActivity(
+                client,
+                "transfer",
+                `Converted ${formatTrackedQuantity(sourceQuantity, plan.sourceTrackingLevel)} of ${accountName} / ${plan.sourceSku}`,
+                `${fromLocation} -> ${toLocation} | ${formatTrackedQuantity(plan.targetQuantity, plan.targetTrackingLevel)} of ${plan.targetSku} created`
+            );
+            return plan;
+        });
+
+        res.json({ success: true, conversion });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/move-location", async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
@@ -896,7 +854,7 @@ app.post("/api/move-location", async (req, res, next) => {
         const toLocation = normalizeText(req.body?.toLocation);
 
         if (!accountName || !fromLocation || !toLocation) {
-            throw httpError(400, "Vendor / Customer, from location, and to location are required.");
+            throw httpError(400, "Company, from location, and to location are required.");
         }
         if (fromLocation === toLocation) {
             throw httpError(400, "Source and destination locations cannot be the same.");
@@ -942,30 +900,6 @@ app.post("/api/move-location", async (req, res, next) => {
         });
 
         res.json({ success: true });
-    } catch (error) {
-        next(error);
-    }
-});
-
-app.post("/api/inventory/bulk-update", async (req, res, next) => {
-    try {
-        const payload = sanitizeBulkInventoryUpdateInput(req.body);
-        if (!payload.accountName) {
-            throw httpError(400, "Vendor / customer is required.");
-        }
-        if (!payload.rows.length) {
-            throw httpError(400, "At least one bulk inventory row is required.");
-        }
-
-        let response = null;
-        await withTransaction(async (client) => {
-            if (payload.createMissingSkus || payload.createMissingLocations) {
-                await upsertOwnerMaster(client, { name: payload.accountName });
-            }
-            response = await applyBulkInventoryUpdate(client, payload);
-        });
-
-        res.json(response || { ok: true, message: "Bulk inventory update saved." });
     } catch (error) {
         next(error);
     }
@@ -1220,7 +1154,7 @@ app.post("/api/pallets/save", async (req, res, next) => {
     try {
         const entry = sanitizePalletRecordInput(req.body);
         if (!entry || !entry.accountName || !entry.sku || !entry.cases || !entry.date) {
-            throw httpError(400, "Vendor / Customer, SKU, cases on pallet, and date are required.");
+            throw httpError(400, "Company, SKU, cases on pallet, and date are required.");
         }
 
         const pallet = await withTransaction(async (client) => {
@@ -1268,13 +1202,16 @@ app.get("/api/admin/portal-orders", async (_req, res, next) => {
 
 app.post("/api/admin/portal-access", async (req, res, next) => {
     try {
+        const accessId = typeof req.body?.accessId === "string" || typeof req.body?.accessId === "number"
+            ? String(req.body.accessId).trim()
+            : "";
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
         const email = normalizeEmail(req.body?.email);
         const password = typeof req.body?.password === "string" ? req.body.password : "";
         const isActive = req.body?.isActive !== false;
 
         if (!accountName) {
-            throw httpError(400, "Vendor / Customer is required.");
+            throw httpError(400, "Company is required.");
         }
         if (!email) {
             throw httpError(400, "A user email address is required.");
@@ -1282,14 +1219,15 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
 
         const savedAccess = await withTransaction(async (client) => {
             await upsertOwnerMaster(client, accountName);
-            const access = await savePortalAccess(client, { accountName, email, password, isActive });
+            const access = await savePortalAccess(client, { accessId, accountName, email, password, isActive });
             await insertActivity(
                 client,
                 "setup",
-                `${access.isActive ? "Enabled" : "Updated"} vendor portal for ${accountName}`,
+                `${access.wasCreated ? "Added" : "Updated"} portal user ${email} for ${accountName}`,
                 [
-                    `User email ${access.email}.`,
-                    password ? `Portal password ${access.wasCreated ? "created" : "reset"} by warehouse admin.` : "Portal access status updated."
+                    `Company ${accountName}.`,
+                    isActive ? "Portal access active." : "Portal access disabled.",
+                    password ? `Portal password ${access.wasCreated ? "created" : "reset"} by warehouse admin.` : "Portal user details updated."
                 ].join(" ")
             );
             return access;
@@ -1297,7 +1235,8 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
 
         res.json({
             success: true,
-            access: mapPortalAccessRow(savedAccess)
+            access: mapPortalAccessRow(savedAccess),
+            wasCreated: savedAccess.wasCreated === true
         });
     } catch (error) {
         next(error);
@@ -1316,10 +1255,10 @@ app.post("/api/portal/login", async (req, res, next) => {
         const access = await withTransaction(async (client) => {
             const vendorAccess = await getPortalAccessByEmail(client, email);
             if (!vendorAccess || !vendorAccess.is_active) {
-                throw httpError(401, "That vendor portal login is not active.");
+                throw httpError(401, "That company portal login is not active.");
             }
             if (!verifyPortalPassword(password, vendorAccess.password_hash)) {
-                throw httpError(401, "The vendor portal password was not accepted.");
+                throw httpError(401, "The company portal password was not accepted.");
             }
 
             const token = await createPortalSession(client, vendorAccess.id);
@@ -1495,11 +1434,57 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
         }
 
         const order = await withTransaction(async (client) => {
-            return updateAdminPortalOrderStatus(client, orderId, nextStatus, req.appUser);
+            return updateAdminPortalOrderStatus(client, orderId, nextStatus, req.body, req.appUser);
         });
 
         res.json({ success: true, order });
     } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/portal-order-documents/:id", async (req, res, next) => {
+    try {
+        const documentId = toPositiveInt(req.params.id);
+        if (!documentId) {
+            throw httpError(400, "A valid document id is required.");
+        }
+
+        const document = await getPortalOrderDocumentById(documentId);
+        if (!document) {
+            throw httpError(404, "That shipped document could not be found.");
+        }
+
+        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
+        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
+        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
+        res.send(document.file_data);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/portal/order-documents/:id", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const documentId = toPositiveInt(req.params.id);
+        if (!documentId) {
+            throw httpError(400, "A valid document id is required.");
+        }
+
+        const document = await getPortalOrderDocumentById(documentId);
+        if (!document || normalizeText(document.account_name) !== normalizeText(session.access.accountName)) {
+            throw httpError(404, "That shipped document could not be found.");
+        }
+
+        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
+        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
+        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
+        res.send(document.file_data);
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
         next(error);
     }
 });
@@ -1647,6 +1632,7 @@ async function initializeDatabase() {
         );
     `);
 
+    await pool.query("alter table portal_vendor_access drop constraint if exists portal_vendor_access_account_name_key");
     await pool.query("alter table portal_vendor_access add column if not exists email text;");
     await pool.query("update portal_vendor_access set email = lower(email) where email is not null and email <> lower(email)");
     await pool.query("create unique index if not exists idx_portal_vendor_access_email_unique on portal_vendor_access (email) where email is not null and btrim(email) <> ''");
@@ -1743,21 +1729,6 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
-        create table if not exists owner_billing_activity_map (
-            id bigserial primary key,
-            account_name text not null,
-            activity_code text not null,
-            fee_code text references billing_fee_catalog(code) on delete cascade,
-            auto_create boolean not null default false,
-            default_quantity numeric(12, 4) not null default 1,
-            note text not null default '',
-            created_at timestamptz not null default now(),
-            updated_at timestamptz not null default now(),
-            unique (account_name, activity_code)
-        );
-    `);
-
-    await pool.query(`
         create table if not exists billing_events (
             id bigserial primary key,
             event_key text unique,
@@ -1801,7 +1772,7 @@ async function initializeDatabase() {
     await pool.query("alter table billing_events add constraint billing_events_status_check check (status in ('OPEN', 'INVOICED', 'VOID'))");
     await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
-    await pool.query("create index if not exists idx_owner_billing_activity_map_account on owner_billing_activity_map (account_name)");
+    await pool.query("create index if not exists idx_owner_billing_rates_account on owner_billing_rates (account_name)");
     await seedBillingFeeCatalog(pool);
 
     await pool.query(`
@@ -1833,6 +1804,8 @@ async function initializeDatabase() {
             shipping_reference text not null default '',
             contact_name text not null default '',
             contact_phone text not null default '',
+            requested_ship_date date,
+            order_notes text not null default '',
             ship_to_name text not null default '',
             ship_to_address1 text not null default '',
             ship_to_address2 text not null default '',
@@ -1840,6 +1813,10 @@ async function initializeDatabase() {
             ship_to_state text not null default '',
             ship_to_postal_code text not null default '',
             ship_to_country text not null default '',
+            confirmed_ship_date date,
+            shipped_carrier_name text not null default '',
+            shipped_tracking_reference text not null default '',
+            shipped_confirmation_note text not null default '',
             released_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
@@ -1851,6 +1828,12 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists picked_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists staged_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists shipped_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists requested_ship_date date");
+    await pool.query("alter table portal_orders add column if not exists order_notes text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists confirmed_ship_date date");
+    await pool.query("alter table portal_orders add column if not exists shipped_carrier_name text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
     await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED'))");
 
@@ -1900,6 +1883,18 @@ async function initializeDatabase() {
             updated_at timestamptz not null default now()
         );
     `);
+    await pool.query(`
+        create table if not exists portal_order_documents (
+            id bigserial primary key,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            file_name text not null default '',
+            file_type text not null default 'application/octet-stream',
+            file_size integer not null default 0 check (file_size >= 0),
+            file_data bytea not null,
+            uploaded_by text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
     await pool.query("update portal_orders set order_code = null where order_code = ''");
     await pool.query("update portal_orders set order_code = concat('ORD-', lpad(id::text, 6, '0')) where order_code is null");
     await pool.query("delete from portal_sessions where expires_at <= now()");
@@ -1927,6 +1922,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
     await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
     await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
+    await pool.query("create index if not exists idx_portal_order_documents_order_id on portal_order_documents (order_id);");
     await pool.query("create unique index if not exists idx_portal_inbounds_inbound_code_unique on portal_inbounds (inbound_code);");
     await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
     await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
@@ -2010,7 +2006,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
 
-    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingActivityMapResult, billingEventResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
@@ -2019,7 +2015,6 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
         client.query("select * from pallet_records order by updated_at desc, pallet_code asc"),
         client.query("select * from billing_fee_catalog order by category asc, name asc"),
         client.query("select * from owner_billing_rates order by account_name asc, fee_code asc"),
-        client.query("select * from owner_billing_activity_map order by account_name asc, activity_code asc"),
         billingEventsQuery,
         client.query(`
             select nullif(
@@ -2032,7 +2027,6 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_billing_rates), to_timestamp(0)),
-                    coalesce((select max(updated_at) from owner_billing_activity_map), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_events), to_timestamp(0))
                 ),
                 to_timestamp(0)
@@ -2059,9 +2053,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
         billing: {
             feeCatalog: billingFeeResult.rows.map(mapBillingFeeRow),
             ownerRates: ownerRateResult.rows.map(mapOwnerBillingRateRow),
-            activityMap: billingActivityMapResult.rows.map(mapOwnerBillingActivityMapRow),
-            events: billingEventResult.rows.map(mapBillingEventRow),
-            activityCatalog: BILLING_ACTIVITY_MAP_SEED
+            events: billingEventResult.rows.map(mapBillingEventRow)
         },
         meta: {
             version: 7,
@@ -2634,33 +2626,8 @@ function mapAppUserRow(row) {
     };
 }
 
-function userHasAnyRole(user, roles = []) {
-    const normalizedRole = normalizeText(user?.role || "").toLowerCase();
-    return Array.isArray(roles) && roles.some((role) => normalizeText(role).toLowerCase() === normalizedRole);
-}
-
-function requireAppRole(req, roles = []) {
-    if (!req.appUser) {
-        throw httpError(401, "Warehouse login required.");
-    }
-    if (!userHasAnyRole(req.appUser, roles)) {
-        throw httpError(403, "You do not have permission for that action.");
-    }
-}
-
-function sanitizeAppUserInput(body = {}) {
-    return {
-        email: normalizeEmail(body.email),
-        password: typeof body.password === "string" ? body.password : "",
-        fullName: normalizeFreeText(body.fullName || body.name || ""),
-        role: normalizeText(body.role || "warehouse").toLowerCase(),
-        isActive: body.isActive !== false && body.isActive !== "false"
-    };
-}
-
-
 async function getPortalAccessList(client = pool) {
-    const result = await client.query("select * from portal_vendor_access order by account_name asc");
+    const result = await client.query("select * from portal_vendor_access order by account_name asc, email asc, id asc");
     return result.rows.map(mapPortalAccessRow);
 }
 
@@ -2683,24 +2650,25 @@ async function getPortalAccessByEmail(client, email) {
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
-async function savePortalAccess(client, { accountName, email, password, isActive }) {
+async function savePortalAccess(client, { accessId, accountName, email, password, isActive }) {
     const normalizedAccount = normalizeText(accountName);
     const normalizedEmail = normalizeEmail(email);
     const passwordText = typeof password === "string" ? password : "";
-    const existing = await getPortalAccessByAccountName(client, normalizedAccount);
+    const existingById = accessId ? await getPortalAccessById(client, accessId) : null;
+    const existingByEmail = await getPortalAccessByEmail(client, normalizedEmail);
+    const existing = existingById || existingByEmail;
 
     if (!normalizedEmail) {
         throw httpError(400, "A valid user email address is required.");
     }
     if (!existing && !passwordText.trim()) {
-        throw httpError(400, "Set a password the first time you enable vendor portal access.");
+        throw httpError(400, "Set a password the first time you enable company portal access.");
     }
     if (passwordText && passwordText.length < 8) {
         throw httpError(400, "Portal passwords must be at least 8 characters.");
     }
 
-    const emailOwner = await getPortalAccessByEmail(client, normalizedEmail);
-    if (emailOwner && (!existing || String(emailOwner.id) !== String(existing.id))) {
+    if (existingByEmail && (!existing || String(existingByEmail.id) !== String(existing.id))) {
         throw httpError(400, "That email address is already linked to another portal account.");
     }
 
@@ -2710,14 +2678,15 @@ async function savePortalAccess(client, { accountName, email, password, isActive
             `
                 update portal_vendor_access
                 set
-                    email = $2,
-                    password_hash = $3,
-                    is_active = $4,
+                    account_name = $2,
+                    email = $3,
+                    password_hash = $4,
+                    is_active = $5,
                     updated_at = now()
-                where account_name = $1
+                where id = $1
                 returning *
             `,
-            [normalizedAccount, normalizedEmail, passwordHash, isActive !== false]
+            [existing.id, normalizedAccount, normalizedEmail, passwordHash, isActive !== false]
         );
         const row = result.rows[0];
         row.wasCreated = false;
@@ -2791,7 +2760,7 @@ async function requirePortalSession(req, client = pool) {
 
     const row = result.rows[0];
     if (!row.is_active) {
-        throw httpError(401, "That vendor portal login is no longer active.");
+        throw httpError(401, "That company portal login is no longer active.");
     }
 
     await client.query("update portal_sessions set last_seen_at = now() where id = $1", [row.session_id]);
@@ -2873,6 +2842,70 @@ async function getPortalItemsForAccount(accountName, client = pool) {
     return result.rows.map(mapPortalItemRow);
 }
 
+
+async function buildPortalOrderLocationSummaries(client, lineRows = []) {
+    const skuPairs = [];
+    const seen = new Set();
+    for (const row of lineRows) {
+        const accountName = normalizeText(row.account_name);
+        const sku = normalizeText(row.sku);
+        if (!accountName || !sku) continue;
+        const key = `${accountName}::${sku}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        skuPairs.push({ accountName, sku });
+    }
+
+    const summaries = new Map();
+    if (!skuPairs.length) return summaries;
+
+    const accounts = skuPairs.map((pair) => pair.accountName);
+    const skus = skuPairs.map((pair) => pair.sku);
+    const result = await client.query(
+        `
+            select
+                account_name,
+                sku,
+                location,
+                coalesce(max(nullif(tracking_level, '')), 'UNIT') as tracking_level,
+                sum(quantity)::integer as quantity
+            from inventory_lines
+            where (account_name, sku) in (
+                select *
+                from unnest($1::text[], $2::text[])
+            )
+            group by account_name, sku, location
+            order by account_name asc, sku asc, location asc
+        `,
+        [accounts, skus]
+    );
+
+    const byKey = new Map();
+    result.rows.forEach((row) => {
+        const key = `${normalizeText(row.account_name)}::${normalizeText(row.sku)}`;
+        if (!byKey.has(key)) {
+            byKey.set(key, {
+                trackingLevel: normalizeTrackingLevel(row.tracking_level || 'UNIT'),
+                onHandQuantity: 0,
+                availableQuantity: 0,
+                locations: []
+            });
+        }
+        const summary = byKey.get(key);
+        const quantity = Number(row.quantity) || 0;
+        summary.onHandQuantity += quantity;
+        summary.availableQuantity += quantity;
+        summary.locations.push({
+            location: row.location || '',
+            quantity,
+            trackingLevel: normalizeTrackingLevel(row.tracking_level || summary.trackingLevel || 'UNIT')
+        });
+    });
+
+    byKey.forEach((value, key) => summaries.set(key, value));
+    return summaries;
+}
+
 async function getPortalOrdersForAccount(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const ordersResult = await client.query(
@@ -2907,8 +2940,20 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
             [orderIds]
         )
         : { rows: [] };
+    const documentsResult = orderIds.length
+        ? await client.query(
+            `
+                select *
+                from portal_order_documents
+                where order_id = any($1::bigint[])
+                order by created_at asc, id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+    const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(ordersResult.rows, linesResult.rows);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", locationSummaries);
 }
 
 async function getAdminPortalOrders(client = pool) {
@@ -2941,11 +2986,23 @@ async function getAdminPortalOrders(client = pool) {
             [orderIds]
         )
         : { rows: [] };
+    const documentsResult = orderIds.length
+        ? await client.query(
+            `
+                select *
+                from portal_order_documents
+                where order_id = any($1::bigint[])
+                order by created_at asc, id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+    const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(ordersResult.rows, linesResult.rows);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", locationSummaries);
 }
 
-async function getPortalOrderById(client, orderId, accountName) {
+async function getPortalOrderById(client, orderId, accountName, downloadPathPrefix = "/api/admin/portal-order-documents") {
     const normalizedAccount = normalizeText(accountName);
     const orderResult = await client.query(
         "select * from portal_orders where id = $1 and account_name = $2 limit 1",
@@ -2973,8 +3030,18 @@ async function getPortalOrderById(client, orderId, accountName) {
         `,
         [orderId]
     );
+    const documentsResult = await client.query(
+        `
+            select *
+            from portal_order_documents
+            where order_id = $1
+            order by created_at asc, id asc
+        `,
+        [orderId]
+    );
+    const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(orderResult.rows, linesResult.rows)[0] || null;
+    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries)[0] || null;
 }
 
 async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null) {
@@ -2983,6 +3050,9 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
 
     if (!order.poNumber || !order.shippingReference || !order.contactName || !order.contactPhone) {
         throw httpError(400, "PO number, shipping reference, contact name, and contact phone are required.");
+    }
+    if (!order.requestedShipDate) {
+        throw httpError(400, "Requested ship date is required.");
     }
     if (!order.shipToAddress1 || !order.shipToCity || !order.shipToState || !order.shipToPostalCode || !order.shipToCountry) {
         throw httpError(400, "A full ship-to address is required.");
@@ -2997,12 +3067,12 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
 
     let savedOrderId = orderId;
     if (savedOrderId) {
-        const existing = await getPortalOrderById(client, savedOrderId, access.accountName);
+        const existing = await getPortalOrderById(client, savedOrderId, access.accountName, "/api/portal/order-documents");
         if (!existing) {
             throw httpError(404, "That draft order could not be found.");
         }
         if (existing.status !== "DRAFT") {
-            throw httpError(400, "Released orders can no longer be edited from the vendor portal.");
+            throw httpError(400, "Released orders can no longer be edited from the company portal.");
         }
 
         await client.query(
@@ -3013,13 +3083,15 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                     shipping_reference = $3,
                     contact_name = $4,
                     contact_phone = $5,
-                    ship_to_name = $6,
-                    ship_to_address1 = $7,
-                    ship_to_address2 = $8,
-                    ship_to_city = $9,
-                    ship_to_state = $10,
-                    ship_to_postal_code = $11,
-                    ship_to_country = $12,
+                    requested_ship_date = $6,
+                    order_notes = $7,
+                    ship_to_name = $8,
+                    ship_to_address1 = $9,
+                    ship_to_address2 = $10,
+                    ship_to_city = $11,
+                    ship_to_state = $12,
+                    ship_to_postal_code = $13,
+                    ship_to_country = $14,
                     updated_at = now()
                 where id = $1
             `,
@@ -3029,6 +3101,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                 order.shippingReference,
                 order.contactName,
                 order.contactPhone,
+                order.requestedShipDate,
+                order.orderNotes,
                 order.shipToName,
                 order.shipToAddress1,
                 order.shipToAddress2,
@@ -3044,11 +3118,11 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
             `
                 insert into portal_orders (
                     account_name, portal_access_id, po_number, shipping_reference,
-                    contact_name, contact_phone,
+                    contact_name, contact_phone, requested_ship_date, order_notes,
                     ship_to_name, ship_to_address1, ship_to_address2,
                     ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 returning id
             `,
             [
@@ -3058,6 +3132,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                 order.shippingReference,
                 order.contactName,
                 order.contactPhone,
+                order.requestedShipDate,
+                order.orderNotes,
                 order.shipToName,
                 order.shipToAddress1,
                 order.shipToAddress2,
@@ -3084,19 +3160,19 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
         );
     }
 
-    const savedOrder = await getPortalOrderById(client, savedOrderId, access.accountName);
+    const savedOrder = await getPortalOrderById(client, savedOrderId, access.accountName, "/api/portal/order-documents");
     await insertActivity(
         client,
         "order",
         `${orderId ? "Updated" : "Created"} portal order ${savedOrder.orderCode}`,
-        `${savedOrder.accountName} | ${formatCount(savedOrder.lines.length, "line")} | PO ${savedOrder.poNumber}`
+        `${savedOrder.accountName} | ${formatCount(savedOrder.lines.length, "line")} | PO ${savedOrder.poNumber} | Requested ${savedOrder.requestedShipDate || "No ship date"}`
     );
     return savedOrder;
 }
 
 async function releasePortalOrder(client, accessRow, orderId) {
     const access = mapPortalAccessRow(accessRow);
-    const order = await getPortalOrderById(client, orderId, access.accountName);
+    const order = await getPortalOrderById(client, orderId, access.accountName, "/api/portal/order-documents");
     if (!order) {
         throw httpError(404, "That order could not be found.");
     }
@@ -3104,7 +3180,7 @@ async function releasePortalOrder(client, accessRow, orderId) {
         return order;
     }
     if (order.status !== "DRAFT") {
-        throw httpError(400, `Orders already marked ${order.status} cannot be released again from the vendor portal.`);
+        throw httpError(400, `Orders already marked ${order.status} cannot be released again from the company portal.`);
     }
     if (!order.lines.length) {
         throw httpError(400, "Add at least one line before releasing the order.");
@@ -3126,7 +3202,7 @@ async function releasePortalOrder(client, accessRow, orderId) {
         [orderId]
     );
 
-    const releasedOrder = await getPortalOrderById(client, orderId, access.accountName);
+    const releasedOrder = await getPortalOrderById(client, orderId, access.accountName, "/api/portal/order-documents");
     await insertActivity(
         client,
         "order",
@@ -3136,11 +3212,114 @@ async function releasePortalOrder(client, accessRow, orderId) {
     return releasedOrder;
 }
 
+async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy = "") {
+    for (const document of documents) {
+        await client.query(
+            `
+                insert into portal_order_documents (
+                    order_id, file_name, file_type, file_size, file_data, uploaded_by
+                )
+                values ($1, $2, $3, $4, $5, $6)
+            `,
+            [
+                orderId,
+                document.fileName,
+                document.fileType,
+                document.fileSize,
+                document.fileBuffer,
+                normalizeFreeText(uploadedBy)
+            ]
+        );
+    }
+}
+
+async function getPortalOrderDocumentById(documentId, client = pool) {
+    const result = await client.query(
+        `
+            select
+                d.*,
+                o.account_name,
+                o.order_code
+            from portal_order_documents d
+            join portal_orders o on o.id = d.order_id
+            where d.id = $1
+            limit 1
+        `,
+        [documentId]
+    );
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function savePortalShippingConfirmation(client, order, rawConfirmation, appUser = null, { transitionToShipped = false } = {}) {
+    const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    const confirmedShipDate = confirmation.confirmedShipDate || order.confirmedShipDate || normalizeDateInput(new Date());
+    const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
+    const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
+    const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
+
+    if (transitionToShipped) {
+        await consumePortalOrderInventory(client, order);
+    } else if (!confirmation.documents.length
+        && confirmedShipDate === (order.confirmedShipDate || "")
+        && shippedCarrierName === (order.shippedCarrierName || "")
+        && shippedTrackingReference === (order.shippedTrackingReference || "")
+        && shippedConfirmationNote === (order.shippedConfirmationNote || "")) {
+        return order;
+    }
+
+    await client.query(
+        `
+            update portal_orders
+            set
+                status = $2,
+                confirmed_ship_date = $3,
+                shipped_carrier_name = $4,
+                shipped_tracking_reference = $5,
+                shipped_confirmation_note = $6,
+                shipped_at = case when $7::boolean then coalesce(shipped_at, now()) else shipped_at end,
+                updated_at = now()
+            where id = $1
+        `,
+        [
+            order.id,
+            transitionToShipped ? "SHIPPED" : "SHIPPED",
+            confirmedShipDate || null,
+            shippedCarrierName,
+            shippedTrackingReference,
+            shippedConfirmationNote,
+            transitionToShipped
+        ]
+    );
+
+    if (confirmation.documents.length) {
+        await insertPortalOrderDocuments(client, order.id, confirmation.documents, actor);
+    }
+
+    const updatedOrder = await getPortalOrderById(client, order.id, order.accountName);
+    if (transitionToShipped) {
+        await createPortalOrderBillingEvents(client, updatedOrder);
+    }
+    await insertActivity(
+        client,
+        "order",
+        `${transitionToShipped ? "Shipped" : "Updated shipping confirmation for"} portal order ${updatedOrder.orderCode}`,
+        [
+            updatedOrder.accountName,
+            shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
+            shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
+            confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
+            actor
+        ].filter(Boolean).join(" | ")
+    );
+    return updatedOrder;
+}
+
 async function assertPortalOrderSkuAllowed(client, accountName, sku, requestedQuantity = null) {
     const summary = await getPortalSkuAvailability(client, accountName, sku);
 
     if (summary.onHandQuantity <= 0) {
-        throw httpError(400, `SKU ${normalizeText(sku)} is not currently available for that vendor/customer.`);
+        throw httpError(400, `SKU ${normalizeText(sku)} is not currently available for that company.`);
     }
     if (requestedQuantity && Number(requestedQuantity) > summary.availableQuantity) {
         throw httpError(
@@ -3199,15 +3378,27 @@ async function getPortalSkuAvailability(client, accountName, sku, excludeOrderId
     };
 }
 
-function mapPortalOrders(orderRows, lineRows) {
+function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map()) {
     const linesByOrderId = new Map();
     lineRows.forEach((row) => {
         const key = String(row.order_id);
+        const locationKey = `${normalizeText(row.account_name)}::${normalizeText(row.sku)}`;
         if (!linesByOrderId.has(key)) linesByOrderId.set(key, []);
-        linesByOrderId.get(key).push(mapPortalOrderLineRow(row));
+        linesByOrderId.get(key).push(mapPortalOrderLineRow(row, locationSummaries.get(locationKey)));
+    });
+    const documentsByOrderId = new Map();
+    documentRows.forEach((row) => {
+        const key = String(row.order_id);
+        if (!documentsByOrderId.has(key)) documentsByOrderId.set(key, []);
+        documentsByOrderId.get(key).push(row);
     });
 
-    return orderRows.map((row) => mapPortalOrderRow(row, linesByOrderId.get(String(row.id)) || []));
+    return orderRows.map((row) => mapPortalOrderRow(
+        row,
+        linesByOrderId.get(String(row.id)) || [],
+        documentsByOrderId.get(String(row.id)) || [],
+        downloadPathPrefix
+    ));
 }
 
 function makePortalInboundCode(id) {
@@ -3310,7 +3501,7 @@ async function savePortalInbound(client, accessRow, rawInbound) {
     return savedInbound;
 }
 
-async function updateAdminPortalOrderStatus(client, orderId, nextStatus, appUser = null) {
+async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details = {}, appUser = null) {
     const orderResult = await client.query("select * from portal_orders where id = $1 limit 1", [orderId]);
     if (orderResult.rowCount !== 1) {
         throw httpError(404, "That portal order could not be found.");
@@ -3321,6 +3512,9 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, appUser
         throw httpError(404, "That portal order could not be found.");
     }
     if (currentOrder.status === nextStatus) {
+        if (nextStatus === "SHIPPED") {
+            return savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
+        }
         return currentOrder;
     }
 
@@ -3335,14 +3529,10 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, appUser
     }
 
     if (nextStatus === "SHIPPED") {
-        await consumePortalOrderInventory(client, currentOrder);
+        return savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: true });
     }
 
-    const timestampColumn = nextStatus === "PICKED"
-        ? "picked_at"
-        : nextStatus === "STAGED"
-            ? "staged_at"
-            : "shipped_at";
+    const timestampColumn = nextStatus === "PICKED" ? "picked_at" : "staged_at";
 
     await client.query(
         `
@@ -3357,14 +3547,11 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, appUser
     );
 
     const updatedOrder = await getPortalOrderById(client, orderId, currentOrder.accountName);
-    if (nextStatus === "SHIPPED") {
-        await createPortalOrderBillingEvents(client, updatedOrder);
-    }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     await insertActivity(
         client,
         "order",
-        `${nextStatus === "SHIPPED" ? "Shipped" : "Marked"} portal order ${updatedOrder.orderCode} ${nextStatus.toLowerCase()}`,
+        `Marked portal order ${updatedOrder.orderCode} ${nextStatus.toLowerCase()}`,
         `${updatedOrder.accountName} | ${formatCount(updatedOrder.lines.length, "line")} | ${actor}`
     );
     return updatedOrder;
@@ -3448,7 +3635,7 @@ async function withTransaction(handler) {
 async function savePalletRecord(client, palletInput) {
     const entry = sanitizePalletRecordInput(palletInput);
     if (!entry || !entry.accountName || !entry.sku || !entry.cases || !entry.date) {
-        throw httpError(400, "Vendor / Customer, SKU, cases on pallet, and date are required.");
+        throw httpError(400, "Company, SKU, cases on pallet, and date are required.");
     }
 
     const existing = entry.palletCode ? await getPalletRecordByCode(client, entry.palletCode) : null;
@@ -3792,7 +3979,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
     });
 
     if (!mergedEntry || !mergedEntry.accountName || !mergedEntry.sku) {
-        throw httpError(400, "Vendor / Customer and SKU are required.");
+        throw httpError(400, "Company and SKU are required.");
     }
 
     const targetMaster = mergedEntry.sku !== normalizedOriginalSku
@@ -3893,121 +4080,6 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
     return finalEntry;
 }
 
-function sanitizeBulkInventoryUpdateRow(row, fallbackTrackingLevel = "") {
-    const sku = normalizeText(row?.sku);
-    const location = normalizeText(row?.location);
-    const quantity = Number.parseFloat(row?.qty ?? row?.quantity ?? row?.count ?? "");
-    const trackingLevel = normalizeTrackingLevel(row?.trackingLevel || row?.tracking || row?.uom || fallbackTrackingLevel || "");
-    if (!sku || !location || !Number.isFinite(quantity)) return null;
-    return {
-        sku,
-        location,
-        qty: quantity,
-        lpn: normalizeText(row?.lpn || row?.pallet || ""),
-        reason: normalizeFreeText(row?.reason || row?.note || ""),
-        description: normalizeFreeText(row?.description || row?.desc || ""),
-        upc: normalizeText(row?.upc || row?.barcode || ""),
-        trackingLevel
-    };
-}
-
-function sanitizeBulkInventoryUpdateInput(raw) {
-    const accountName = normalizeText(raw?.accountName || raw?.owner || raw?.vendor || raw?.customer || "");
-    const mode = String(raw?.mode || "adjust").trim().toLowerCase() === "set" ? "set" : "adjust";
-    const defaultTrackingLevel = normalizeTrackingLevel(raw?.defaultTrackingLevel || "");
-    const rows = Array.isArray(raw?.rows) ? raw.rows.map((row) => sanitizeBulkInventoryUpdateRow(row, defaultTrackingLevel)).filter(Boolean) : [];
-    return {
-        accountName,
-        mode,
-        defaultTrackingLevel,
-        createMissingSkus: raw?.createMissingSkus === true,
-        createMissingLocations: raw?.createMissingLocations === true,
-        triggerBillingSuggestion: raw?.triggerBillingSuggestion === true,
-        rows
-    };
-}
-
-async function applyBulkInventoryUpdate(client, payload) {
-    let updated = 0;
-    let createdLocations = 0;
-    let createdItems = 0;
-    let totalAbsoluteQty = 0;
-    const createdLocationSet = new Set();
-    const createdItemSet = new Set();
-
-    for (const row of payload.rows) {
-        totalAbsoluteQty += Math.abs(Number(row.qty) || 0);
-        if (payload.createMissingLocations && !createdLocationSet.has(row.location)) {
-            await upsertLocationMaster(client, row.location, "Auto-created from bulk inventory update");
-            createdLocationSet.add(row.location);
-            createdLocations += 1;
-        }
-        if (payload.createMissingSkus) {
-            const itemKey = `${payload.accountName}__${row.sku}`;
-            if (!createdItemSet.has(itemKey)) {
-                await upsertItemMaster(client, {
-                    accountName: payload.accountName,
-                    sku: row.sku,
-                    upc: row.upc,
-                    description: row.description,
-                    trackingLevel: row.trackingLevel || payload.defaultTrackingLevel || "UNIT"
-                });
-                createdItemSet.add(itemKey);
-                createdItems += 1;
-            }
-        }
-
-        const existing = await client.query(
-            "select * from inventory_lines where account_name = $1 and location = $2 and sku = $3 limit 1",
-            [payload.accountName, row.location, row.sku]
-        );
-        const current = existing.rows[0] || null;
-        const currentQty = Number(current?.quantity || 0);
-        const finalQty = payload.mode === "set" ? Number(row.qty) : currentQty + Number(row.qty);
-        if (finalQty < 0) {
-            throw httpError(409, `Bulk update would reduce ${row.sku} at ${row.location} below zero.`);
-        }
-
-        if (current) {
-            await client.query(
-                `update inventory_lines
-                 set quantity = $1,
-                     upc = case when coalesce(upc, '') = '' and $2 <> '' then $2 else upc end,
-                     tracking_level = case when $3 <> '' then $3 else tracking_level end,
-                     updated_at = now()
-                 where id = $4`,
-                [finalQty, row.upc || "", row.trackingLevel || "", current.id]
-            );
-            if (finalQty <= 0) {
-                await client.query("delete from inventory_lines where id = $1", [current.id]);
-            }
-        } else if (finalQty > 0) {
-            await client.query(
-                `insert into inventory_lines (account_name, location, sku, upc, tracking_level, quantity)
-                 values ($1, $2, $3, $4, $5, $6)`,
-                [payload.accountName, row.location, row.sku, row.upc || "", row.trackingLevel || payload.defaultTrackingLevel || "UNIT", finalQty]
-            );
-        }
-        updated += 1;
-    }
-
-    await insertActivity(
-        client,
-        "inventory",
-        `Bulk inventory ${payload.mode} update for ${payload.accountName}`,
-        `${formatCount(updated, "row")} processed${createdLocations ? `, ${formatCount(createdLocations, "location")} auto-created` : ""}${createdItems ? `, ${formatCount(createdItems, "SKU")} auto-created` : ""}. Total quantity touched: ${totalAbsoluteQty}.`
-    );
-
-    return {
-        ok: true,
-        mode: payload.mode,
-        rowsProcessed: updated,
-        createdLocations,
-        createdItems,
-        message: `Bulk inventory ${payload.mode} update saved for ${updated} row(s).`
-    };
-}
-
 async function setInventoryQuantity(client, lineId, quantity) {
     if (quantity <= 0) {
         await client.query("delete from inventory_lines where id = $1", [lineId]);
@@ -4039,7 +4111,7 @@ async function findInventoryLine(client, accountName, location, skuOrUpc) {
     );
 
     if (upcMatches.rowCount > 1) {
-        throw httpError(400, "Multiple items matched that UPC for the selected vendor/customer and location. Use the SKU instead.");
+        throw httpError(400, "Multiple items matched that UPC for the selected company and location. Use the SKU instead.");
     }
 
     return upcMatches.rowCount === 1 ? upcMatches.rows[0] : null;
@@ -4061,9 +4133,98 @@ async function assertLocationCompatibleForOwner(client, accountName, location) {
         const conflictNames = conflicts.rows.map((row) => row.account_name).filter(Boolean);
         throw httpError(
             400,
-            `Location ${location} already contains another vendor/customer${conflictNames.length ? `: ${conflictNames.join(", ")}` : ""}. Mixed-owner locations are not allowed.`
+            `Location ${location} already contains another company${conflictNames.length ? `: ${conflictNames.join(", ")}` : ""}. Mixed-company locations are not allowed.`
         );
     }
+}
+
+function buildItemConversionPlan({ accountName, fromLocation, toLocation, sourceLine, sourceMaster, targetMaster, sourceQuantity }) {
+    const sourceSku = normalizeText(sourceLine?.sku);
+    const sourceUpc = normalizeText(sourceLine?.upc || sourceMaster?.upc || "");
+    const sourceTrackingLevel = normalizeTrackingLevel(sourceLine?.tracking_level || sourceMaster?.trackingLevel || "UNIT");
+    const sourceUnitsPerCase = sourceMaster?.unitsPerCase == null ? null : Number(sourceMaster.unitsPerCase);
+    const targetSku = normalizeText(targetMaster?.sku);
+    const targetUpc = normalizeText(targetMaster?.upc || "");
+    const targetTrackingLevel = normalizeTrackingLevel(targetMaster?.trackingLevel || "UNIT");
+    const targetUnitsPerCase = targetMaster?.unitsPerCase == null ? null : Number(targetMaster.unitsPerCase);
+    const targetDescription = normalizeFreeText(targetMaster?.description || "");
+
+    if (!sourceSku || !targetSku) {
+        throw httpError(400, "Both source and target items are required.");
+    }
+    if (sourceTrackingLevel === "PALLET" || targetTrackingLevel === "PALLET") {
+        throw httpError(400, "Pallet-tracked items cannot be converted with this tool yet.");
+    }
+
+    const eachUnitCount = convertTrackedQuantityToEachUnits({
+        quantity: sourceQuantity,
+        trackingLevel: sourceTrackingLevel,
+        unitsPerCase: sourceUnitsPerCase,
+        itemLabel: `${accountName} / ${sourceSku}`
+    });
+    const targetQuantity = convertEachUnitsToTrackedQuantity({
+        eachUnitCount,
+        trackingLevel: targetTrackingLevel,
+        unitsPerCase: targetUnitsPerCase,
+        itemLabel: `${accountName} / ${targetSku}`
+    });
+
+    return {
+        accountName,
+        fromLocation,
+        toLocation,
+        sourceSku,
+        sourceUpc,
+        sourceTrackingLevel,
+        sourceUnitsPerCase,
+        sourceQuantity,
+        targetSku,
+        targetUpc,
+        targetDescription,
+        targetTrackingLevel,
+        targetUnitsPerCase,
+        targetQuantity,
+        eachUnitCount
+    };
+}
+
+function convertTrackedQuantityToEachUnits({ quantity, trackingLevel, unitsPerCase, itemLabel }) {
+    const normalizedTracking = normalizeTrackingLevel(trackingLevel);
+    const count = Number(quantity) || 0;
+    if (count <= 0) {
+        throw httpError(400, "Conversion quantity must be greater than zero.");
+    }
+    if (normalizedTracking === "UNIT") {
+        return count;
+    }
+    if (normalizedTracking === "CASE") {
+        if (!Number.isFinite(Number(unitsPerCase)) || Number(unitsPerCase) <= 0) {
+            throw httpError(400, `Set units per case for ${itemLabel} before converting case-tracked inventory.`);
+        }
+        return count * Number(unitsPerCase);
+    }
+    throw httpError(400, `${itemLabel} uses an unsupported tracking level for conversion.`);
+}
+
+function convertEachUnitsToTrackedQuantity({ eachUnitCount, trackingLevel, unitsPerCase, itemLabel }) {
+    const normalizedTracking = normalizeTrackingLevel(trackingLevel);
+    const totalUnits = Number(eachUnitCount) || 0;
+    if (totalUnits <= 0) {
+        throw httpError(400, "Converted quantity must be greater than zero.");
+    }
+    if (normalizedTracking === "UNIT") {
+        return totalUnits;
+    }
+    if (normalizedTracking === "CASE") {
+        if (!Number.isFinite(Number(unitsPerCase)) || Number(unitsPerCase) <= 0) {
+            throw httpError(400, `Set units per case for ${itemLabel} before converting into case-tracked inventory.`);
+        }
+        if (totalUnits % Number(unitsPerCase) !== 0) {
+            throw httpError(400, `${totalUnits} units do not divide evenly into ${itemLabel} cases.`);
+        }
+        return totalUnits / Number(unitsPerCase);
+    }
+    throw httpError(400, `${itemLabel} uses an unsupported tracking level for conversion.`);
 }
 
 async function findCatalogItem(client, accountName, sku, upc = "") {
@@ -4087,7 +4248,7 @@ async function findCatalogItem(client, accountName, sku, upc = "") {
             [normalizedAccount, normalizedUpc]
         );
         if (upcMatches.rowCount > 1) {
-            throw httpError(400, "Multiple item masters matched that UPC for the selected vendor/customer. Use the SKU instead.");
+            throw httpError(400, "Multiple item masters matched that UPC for the selected company. Use the SKU instead.");
         }
         if (upcMatches.rowCount === 1) {
             return mapItemMasterRow(upcMatches.rows[0]);
@@ -4146,7 +4307,7 @@ function groupInventoryInputs(lines) {
     for (const rawLine of lines) {
         const line = sanitizeInventoryLineInput(rawLine);
         if (!line) {
-            throw httpError(400, "Each batch line must include vendor/customer, location, SKU, and positive quantity.");
+            throw httpError(400, "Each batch line must include company, location, SKU, and positive quantity.");
         }
         const key = `${line.accountName}::${line.location}::${line.sku}`;
         const current = grouped.get(key) || {
@@ -4210,7 +4371,7 @@ function groupItemMasterInputs(items) {
     for (const rawItem of items) {
         const item = sanitizeItemMasterInput(rawItem);
         if (!item || !item.accountName || !item.sku) {
-            throw httpError(400, "Each item row must include Vendor / Customer and SKU.");
+            throw httpError(400, "Each item row must include Company and SKU.");
         }
 
         const key = `${item.accountName}::${item.sku}`;
@@ -4543,7 +4704,7 @@ function mapPortalItemRow(row) {
     };
 }
 
-function mapPortalOrderRow(row, lines = []) {
+function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents") {
     return {
         id: String(row.id),
         orderCode: row.order_code || makePortalOrderCode(row.id),
@@ -4553,6 +4714,8 @@ function mapPortalOrderRow(row, lines = []) {
         shippingReference: row.shipping_reference || "",
         contactName: row.contact_name || "",
         contactPhone: row.contact_phone || "",
+        requestedShipDate: row.requested_ship_date ? normalizeDateOnly(row.requested_ship_date) : "",
+        orderNotes: row.order_notes || "",
         shipToName: row.ship_to_name || "",
         shipToAddress1: row.ship_to_address1 || "",
         shipToAddress2: row.ship_to_address2 || "",
@@ -4560,17 +4723,30 @@ function mapPortalOrderRow(row, lines = []) {
         shipToState: row.ship_to_state || "",
         shipToPostalCode: row.ship_to_postal_code || "",
         shipToCountry: row.ship_to_country || "",
+        confirmedShipDate: row.confirmed_ship_date ? normalizeDateOnly(row.confirmed_ship_date) : "",
+        shippedCarrierName: row.shipped_carrier_name || "",
+        shippedTrackingReference: row.shipped_tracking_reference || "",
+        shippedConfirmationNote: row.shipped_confirmation_note || "",
         releasedAt: row.released_at ? new Date(row.released_at).toISOString() : null,
         pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
         stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString(),
-        lines
+        lines,
+        documents: documents.map((document) => mapPortalOrderDocumentRow(document, downloadPathPrefix))
     };
 }
 
-function mapPortalOrderLineRow(row) {
+function mapPortalOrderLineRow(row, locationSummary = null) {
+    const normalizedLocations = Array.isArray(locationSummary?.locations)
+        ? locationSummary.locations.map((entry) => ({
+            location: entry.location || "",
+            quantity: Number(entry.quantity) || 0,
+            trackingLevel: normalizeTrackingLevel(entry.trackingLevel || locationSummary?.trackingLevel || row.item_tracking_level || "UNIT")
+        })).filter((entry) => entry.location)
+        : [];
+
     return {
         id: String(row.id),
         orderId: String(row.order_id),
@@ -4580,8 +4756,24 @@ function mapPortalOrderLineRow(row) {
         description: row.item_description || "",
         upc: row.item_upc || "",
         trackingLevel: normalizeTrackingLevel(row.item_tracking_level),
+        onHandQuantity: Number(locationSummary?.onHandQuantity) || 0,
+        availableQuantity: Number(locationSummary?.availableQuantity) || 0,
+        pickLocations: normalizedLocations,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapPortalOrderDocumentRow(row, downloadPathPrefix = "/api/admin/portal-order-documents") {
+    return {
+        id: String(row.id),
+        orderId: String(row.order_id),
+        fileName: row.file_name || "Document",
+        fileType: row.file_type || "application/octet-stream",
+        fileSize: Number(row.file_size) || 0,
+        uploadedBy: row.uploaded_by || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        downloadUrl: `${downloadPathPrefix}/${row.id}`
     };
 }
 
@@ -4642,6 +4834,8 @@ function sanitizePortalOrderInput(order, accountName) {
         shippingReference: normalizeFreeText(order?.shippingReference),
         contactName: normalizeFreeText(order?.contactName),
         contactPhone: normalizeFreeText(order?.contactPhone),
+        requestedShipDate: normalizeDateInput(order?.requestedShipDate || order?.shipDate),
+        orderNotes: normalizeFreeText(order?.orderNotes || order?.notes),
         shipToName: normalizeFreeText(order?.shipToName),
         shipToAddress1: normalizeFreeText(order?.shipToAddress1),
         shipToAddress2: normalizeFreeText(order?.shipToAddress2),
@@ -4651,6 +4845,80 @@ function sanitizePortalOrderInput(order, accountName) {
         shipToCountry: normalizeFreeText(order?.shipToCountry || "USA"),
         lines: groupPortalOrderLines(Array.isArray(order?.lines) ? order.lines : [])
     };
+}
+
+function sanitizePortalShippingConfirmationInput(payload) {
+    return {
+        confirmedShipDate: normalizeDateInput(payload?.confirmedShipDate || payload?.shipDate || payload?.actualShipDate),
+        shippedCarrierName: normalizeFreeText(payload?.shippedCarrierName || payload?.carrierName || payload?.carrier),
+        shippedTrackingReference: normalizeFreeText(
+            payload?.shippedTrackingReference
+            || payload?.trackingNumber
+            || payload?.trackingReference
+            || payload?.proNumber
+            || payload?.bolNumber
+        ),
+        shippedConfirmationNote: normalizeFreeText(payload?.shippedConfirmationNote || payload?.shippingNote || payload?.note),
+        documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : [])
+    };
+}
+
+function sanitizePortalOrderDocumentsInput(documents) {
+    return documents.map(sanitizePortalOrderDocumentInput).filter(Boolean);
+}
+
+function sanitizePortalOrderDocumentInput(document) {
+    if (!document || typeof document !== "object") return null;
+    const fileName = normalizeUploadFileName(document.fileName || document.name || document.filename);
+    const dataUrl = String(document.dataUrl || document.data || "").trim();
+    if (!fileName && !dataUrl) return null;
+    if (!fileName || !dataUrl) {
+        throw httpError(400, "Each shipped document must include a file and file name.");
+    }
+
+    const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+    if (!match) {
+        throw httpError(400, `${fileName} could not be processed. Upload a PDF or image file.`);
+    }
+
+    const fileType = String(document.fileType || match[1] || "application/octet-stream").trim().toLowerCase();
+    if (!(fileType === "application/pdf" || fileType.startsWith("image/"))) {
+        throw httpError(400, `${fileName} must be a PDF or image file.`);
+    }
+
+    const base64 = match[2].replace(/\s+/g, "");
+    if (!base64) {
+        throw httpError(400, `${fileName} did not contain file data.`);
+    }
+
+    let buffer;
+    try {
+        buffer = Buffer.from(base64, "base64");
+    } catch (_error) {
+        throw httpError(400, `${fileName} could not be decoded.`);
+    }
+
+    if (!buffer.length) {
+        throw httpError(400, `${fileName} did not contain file data.`);
+    }
+    if (buffer.length > 4 * 1024 * 1024) {
+        throw httpError(400, `${fileName} is too large. Keep each shipped document under 4 MB.`);
+    }
+
+    return {
+        fileName,
+        fileType,
+        fileSize: buffer.length,
+        fileBuffer: buffer
+    };
+}
+
+function normalizeUploadFileName(value) {
+    return String(value || "")
+        .trim()
+        .replace(/^.*[\\/]/, "")
+        .replace(/[^\w.\- ()[\]]+/g, "_")
+        .slice(0, 160);
 }
 
 function normalizePortalOrderStatus(value) {
