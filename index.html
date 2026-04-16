@@ -4686,7 +4686,15 @@
         }
 
         function getActiveCompany() {
-            return normalizeCompanyContextValue(ui.activeCompany?.value || state.preferences.activeCompany || "");
+            const chipText = String(ui.workspaceCompanyChip?.textContent || "").replace(/^\s*Company\s*:\s*/i, "").trim();
+            const displayText = String(ui.activeCompanyDisplay?.textContent || "").trim();
+            return normalizeCompanyContextValue(
+                ui.activeCompany?.value
+                || state.preferences.activeCompany
+                || chipText
+                || displayText
+                || ""
+            );
         }
 
         function getScopedCompanyValue(rawValue = "") {
@@ -8014,10 +8022,20 @@
             try {
                 const company = getActiveCompany();
                 const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
-                const payload = await requestJson(`/api/admin/portal-orders${query}`);
-                portalOrderRecords = Array.isArray(payload?.orders)
+                let payload = await requestJson(`/api/admin/portal-orders${query}`);
+                let orders = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
+
+                if (!orders.length && company) {
+                    const fallbackPayload = await requestJson(`/api/admin/portal-orders`);
+                    const fallbackOrders = Array.isArray(fallbackPayload?.orders)
+                        ? fallbackPayload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
+                        : [];
+                    orders = fallbackOrders.filter((order) => norm(order.accountName) === norm(company));
+                }
+
+                portalOrderRecords = orders;
                 renderPortalOrdersList();
             } catch (error) {
                 if (!silent) {
@@ -9134,7 +9152,7 @@
                 "WMS365 Scanner - Reports",
                 `
                     <h1>WMS365 Scanner</h1>
-                        <div class="build-chip">Build SOFETCH-2026-04-15-04</div>
+                        <div class="build-chip">Build SOFIX-2026-04-15-05</div>
                     <p><strong>Inventory Reports</strong></p>
                     <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
