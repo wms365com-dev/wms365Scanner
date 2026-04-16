@@ -2326,7 +2326,7 @@
                     <div class="hero-topline">
                         <div>
                             <p class="eyebrow">Warehouse Operations Console</p>
-                            <h1>WMS365 Scanner <span class="build-badge">Build SO-ORDERS-2026-04-15-07</span></h1>
+                            <h1>WMS365 Scanner <span class="build-badge">Build SO-PRINT-2026-04-16-08</span></h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
@@ -8334,16 +8334,34 @@
 
         function printPortalOrderDocument(order, type) {
             const html = type === "pick" ? buildPickTicketHtml(order) : buildPackingSlipHtml(order);
-            const printWindow = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
+            const printWindow = window.open("", "_blank", "width=900,height=700");
             if (!printWindow) {
                 showMessage(ui.portalOrdersMessage, "Allow pop-ups to print documents.", "error");
                 return;
             }
-            printWindow.document.open();
-            printWindow.document.write(html);
-            printWindow.document.close();
-            printWindow.focus();
-            printWindow.print();
+            try {
+                printWindow.document.open();
+                printWindow.document.write(html);
+                printWindow.document.close();
+                const triggerPrint = () => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch (error) {
+                        console.error("Print failed", error);
+                    }
+                };
+                if (printWindow.document.readyState === "complete") {
+                    setTimeout(triggerPrint, 150);
+                } else {
+                    printWindow.addEventListener("load", () => setTimeout(triggerPrint, 150), { once: true });
+                    setTimeout(triggerPrint, 600);
+                }
+                showMessage(ui.portalOrdersMessage, type === "pick" ? "Pick ticket opened for printing." : "Packing slip opened for printing.", "success");
+            } catch (error) {
+                console.error("Document print window error", error);
+                showMessage(ui.portalOrdersMessage, "Unable to open the print view.", "error");
+            }
         }
 
         async function onPortalOrdersListClick(event) {
@@ -9152,7 +9170,7 @@
                 "WMS365 Scanner - Reports",
                 `
                     <h1>WMS365 Scanner</h1>
-                        <div class="build-chip">Build SO-ORDERS-2026-04-15-07</div>
+                        <div class="build-chip">Build SO-PRINT-2026-04-16-08</div>
                     <p><strong>Inventory Reports</strong></p>
                     <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
