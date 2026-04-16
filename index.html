@@ -4644,6 +4644,9 @@
             if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
             if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
             syncServerState(true).catch(() => {});
+            if (section === "sales-orders") {
+                refreshPortalOrdersList(true).catch(() => {});
+            }
         }
 
         function handleViewportChange() {
@@ -4805,6 +4808,7 @@
             updateActiveCompanyUi();
             if (persist) saveState();
             if (rerender) refreshCompanyScopedUi();
+            refreshPortalOrdersList(true).catch(() => {});
         }
 
         function clearActiveCompany() {
@@ -9130,6 +9134,7 @@
                 "WMS365 Scanner - Reports",
                 `
                     <h1>WMS365 Scanner</h1>
+                        <div class="build-chip">Build SOFETCH-2026-04-15-04</div>
                     <p><strong>Inventory Reports</strong></p>
                     <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
