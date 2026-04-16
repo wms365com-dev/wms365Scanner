@@ -2326,7 +2326,7 @@
                     <div class="hero-topline">
                         <div>
                             <p class="eyebrow">Warehouse Operations Console</p>
-                            <h1>WMS365 Scanner <span class="build-badge">Build SO-MASTER-2026-04-15-02</span></h1>
+                            <h1>WMS365 Scanner <span class="build-badge">Build SO-ORDERS-2026-04-15-07</span></h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
@@ -4644,7 +4644,7 @@
             if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
             if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
             syncServerState(true).catch(() => {});
-            if (section === "sales-orders") {
+            if (section === "orders") {
                 refreshPortalOrdersList(true).catch(() => {});
             }
         }
@@ -9152,7 +9152,7 @@
                 "WMS365 Scanner - Reports",
                 `
                     <h1>WMS365 Scanner</h1>
-                        <div class="build-chip">Build SOFIX-2026-04-15-05</div>
+                        <div class="build-chip">Build SO-ORDERS-2026-04-15-07</div>
                     <p><strong>Inventory Reports</strong></p>
                     <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
