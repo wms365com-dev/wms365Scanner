@@ -284,7 +284,8 @@
                     <label class="field"><span>Shipping Reference</span><input id="orderShippingReference" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Name</span><input id="orderContactName" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Tel</span><input id="orderContactPhone" type="text" placeholder="Required"></label>
-                    <label class="field span-2"><span>Ship To Name</span><input id="orderShipToName" type="text" placeholder="Optional company or receiver name"></label>
+                    <label class="field span-2"><span>Ship To Company / Receiver</span><input id="orderShipToName" type="text" placeholder="Required company or receiver name"></label>
+                    <label class="field"><span>Ship To Phone</span><input id="orderShipToPhone" type="text" placeholder="Optional ship-to phone"></label>
                     <label class="field span-2"><span>Ship To Address 1</span><input id="orderShipToAddress1" type="text" placeholder="Required street address"></label>
                     <label class="field span-2"><span>Ship To Address 2</span><input id="orderShipToAddress2" type="text" placeholder="Optional suite, unit, or dock"></label>
                     <label class="field"><span>City</span><input id="orderShipToCity" type="text" placeholder="Required"></label>
@@ -405,6 +406,7 @@
             orderContactName: document.getElementById("orderContactName"),
             orderContactPhone: document.getElementById("orderContactPhone"),
             orderShipToName: document.getElementById("orderShipToName"),
+            orderShipToPhone: document.getElementById("orderShipToPhone"),
             orderShipToAddress1: document.getElementById("orderShipToAddress1"),
             orderShipToAddress2: document.getElementById("orderShipToAddress2"),
             orderShipToCity: document.getElementById("orderShipToCity"),
@@ -613,7 +615,7 @@
                     <div class="order-meta">
                         <div>PO: ${esc(order.poNumber || "None")}</div>
                         <div>Reference: ${esc(order.shippingReference || "None")}</div>
-                        <div>Ship To: ${esc(formatAddress(order))}</div>
+                        <div>Ship To: ${esc(order.shipToName || order.contactName || "")}${order.shipToPhone ? ` | ${esc(order.shipToPhone)}` : ""}${formatAddress(order) ? ` | ${esc(formatAddress(order))}` : ""}</div>
                         <div>Contact: ${esc(order.contactName)}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
                         <div>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</div>
                         ${orderStatusTimeline(order) ? `<div>${esc(orderStatusTimeline(order))}</div>` : ""}
@@ -745,7 +747,8 @@
             ui.orderShippingReference.value = order?.shippingReference || "";
             ui.orderContactName.value = order?.contactName || "";
             ui.orderContactPhone.value = order?.contactPhone || "";
-            ui.orderShipToName.value = order?.shipToName || "";
+            ui.orderShipToName.value = order?.shipToName || order?.contactName || "";
+            ui.orderShipToPhone.value = order?.shipToPhone || "";
             ui.orderShipToAddress1.value = order?.shipToAddress1 || "";
             ui.orderShipToAddress2.value = order?.shipToAddress2 || "";
             ui.orderShipToCity.value = order?.shipToCity || "";
@@ -842,6 +845,7 @@
                 contactName: ui.orderContactName.value.trim(),
                 contactPhone: ui.orderContactPhone.value.trim(),
                 shipToName: ui.orderShipToName.value.trim(),
+                shipToPhone: ui.orderShipToPhone.value.trim(),
                 shipToAddress1: ui.orderShipToAddress1.value.trim(),
                 shipToAddress2: ui.orderShipToAddress2.value.trim(),
                 shipToCity: ui.orderShipToCity.value.trim(),
@@ -996,6 +1000,7 @@
                 contactName: String(order.contactName || "").trim(),
                 contactPhone: String(order.contactPhone || "").trim(),
                 shipToName: String(order.shipToName || "").trim(),
+                shipToPhone: String(order.shipToPhone || "").trim(),
                 shipToAddress1: String(order.shipToAddress1 || "").trim(),
                 shipToAddress2: String(order.shipToAddress2 || "").trim(),
                 shipToCity: String(order.shipToCity || "").trim(),

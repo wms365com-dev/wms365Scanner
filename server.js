@@ -1499,6 +1499,26 @@ app.get("/portal.html", (_req, res) => {
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
+app.get("/mobile-pick", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect("/login");
+    }
+});
+
+app.get("/mobile-pick.html", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect("/login");
+    }
+});
+
 app.get("/login", (_req, res) => {
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
@@ -1815,6 +1835,7 @@ async function initializeDatabase() {
             ship_to_state text not null default '',
             ship_to_postal_code text not null default '',
             ship_to_country text not null default '',
+            ship_to_phone text not null default '',
             confirmed_ship_date date,
             shipped_carrier_name text not null default '',
             shipped_tracking_reference text not null default '',
@@ -1836,6 +1857,7 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists shipped_carrier_name text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists ship_to_phone text not null default ''");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
     await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED'))");
 
@@ -3094,6 +3116,7 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                     ship_to_state = $12,
                     ship_to_postal_code = $13,
                     ship_to_country = $14,
+                    ship_to_phone = $15,
                     updated_at = now()
                 where id = $1
             `,
@@ -3111,7 +3134,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                 order.shipToCity,
                 order.shipToState,
                 order.shipToPostalCode,
-                order.shipToCountry
+                order.shipToCountry,
+                order.shipToPhone
             ]
         );
         await client.query("delete from portal_order_lines where order_id = $1", [savedOrderId]);
@@ -3122,9 +3146,9 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                     account_name, portal_access_id, po_number, shipping_reference,
                     contact_name, contact_phone, requested_ship_date, order_notes,
                     ship_to_name, ship_to_address1, ship_to_address2,
-                    ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country
+                    ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country, ship_to_phone
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 returning id
             `,
             [
@@ -3142,7 +3166,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                 order.shipToCity,
                 order.shipToState,
                 order.shipToPostalCode,
-                order.shipToCountry
+                order.shipToCountry,
+                order.shipToPhone
             ]
         );
         savedOrderId = insertResult.rows[0].id;
@@ -4725,6 +4750,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         shipToState: row.ship_to_state || "",
         shipToPostalCode: row.ship_to_postal_code || "",
         shipToCountry: row.ship_to_country || "",
+        shipToPhone: row.ship_to_phone || "",
         confirmedShipDate: row.confirmed_ship_date ? normalizeDateOnly(row.confirmed_ship_date) : "",
         shippedCarrierName: row.shipped_carrier_name || "",
         shippedTrackingReference: row.shipped_tracking_reference || "",
@@ -4845,6 +4871,7 @@ function sanitizePortalOrderInput(order, accountName) {
         shipToState: normalizeFreeText(order?.shipToState),
         shipToPostalCode: normalizeFreeText(order?.shipToPostalCode),
         shipToCountry: normalizeFreeText(order?.shipToCountry || "USA"),
+        shipToPhone: normalizeFreeText(order?.shipToPhone || order?.phone || order?.shipPhone),
         lines: groupPortalOrderLines(Array.isArray(order?.lines) ? order.lines : [])
     };
 }

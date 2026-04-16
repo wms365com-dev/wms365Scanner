@@ -8154,7 +8154,7 @@
                                 <strong>${esc(order.orderCode)} | ${esc(order.accountName)}</strong>
                                 <div class="quick-meta">${esc(order.status)} | PO ${esc(order.poNumber || "None")} | ${esc(order.shippingReference || "No shipping ref")} | ${esc(formatDate(order.createdAt))}</div>
                                 <div class="quick-meta">Requested Ship Date: ${esc(order.requestedShipDate || "Not set")}${order.shipToName ? ` | Ship To ${esc(order.shipToName)}` : ""}</div>
-                                <div class="quick-meta">${esc(order.contactName || "No contact")} ${order.contactPhone ? `| ${esc(order.contactPhone)}` : ""}</div>
+                                <div class="quick-meta">${esc(order.shipToName || order.contactName || "No contact")} ${(order.shipToPhone || order.contactPhone) ? `| ${esc(order.shipToPhone || order.contactPhone)}` : ""}</div>
                                 <div class="quick-meta">${esc(order.shipToAddress1 || "")}${order.shipToCity ? ` | ${esc([order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "))}` : ""}</div>
                                 <div class="order-health-grid">
                                     <div class="order-health-card">
@@ -8279,7 +8279,14 @@
         }
 
         function formatPortalOrderShipTo(order) {
-            return [order.shipToName, order.shipToAddress1, [order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "), order.shipToCountry || ""]
+            return [
+                order.shipToName || order.contactName || "",
+                order.shipToPhone ? `Phone: ${order.shipToPhone}` : (order.contactPhone ? `Phone: ${order.contactPhone}` : ""),
+                order.shipToAddress1,
+                order.shipToAddress2,
+                [order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "),
+                order.shipToCountry || ""
+            ]
                 .filter(Boolean)
                 .join("<br>");
         }
@@ -8310,7 +8317,7 @@
         }
 
         function buildPackingSlipHtml(order) {
-            const shipFrom = ["Grey Wolf 3PL & Logistics Inc.", "1330 Courtney Park Dr E", "Mississauga, ON L5T 1K5"].join("<br>");
+            const shipFrom = [order.accountName || "", "c/o Grey Wolf 3PL & Logistics Inc.", "1330 Courtney Park Dr E, Dock 18", "Mississauga, ON L5T 1K5", "Canada"].filter(Boolean).join("<br>");
             const lineRows = order.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
