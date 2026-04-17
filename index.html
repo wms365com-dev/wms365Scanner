@@ -253,6 +253,7 @@
         }
 
         .panel { display: none; margin-top: 1rem; }
+        .panel[hidden] { display: none !important; }
         .panel:not(.active) { display: none !important; visibility: hidden; }
         .panel.active {
             display: block;
@@ -5049,14 +5050,28 @@
             setSection(activeSection === "mobile-home" ? "home" : activeSection);
         }
 
+        function syncSectionVisibility(section) {
+            const normalizedSection = !isMobileView() && section === "mobile-home" ? "home" : section;
+            ui.panels.forEach((panel) => {
+                const isActive = panel.dataset.panel === normalizedSection;
+                panel.classList.toggle("active", isActive);
+                panel.hidden = !isActive;
+                panel.setAttribute("aria-hidden", String(!isActive));
+                panel.style.display = isActive ? "block" : "none";
+                if (isActive) {
+                    panel.removeAttribute("inert");
+                } else {
+                    panel.setAttribute("inert", "");
+                }
+            });
+            return normalizedSection;
+        }
+
         function setSection(section) {
             hideMobileAutocomplete();
-            if (!isMobileView() && section === "mobile-home") {
-                section = "home";
-            }
+            section = syncSectionVisibility(section);
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
-            ui.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === section));
             if (section === "mobile-home") {
                 scrollCurrentViewTop();
                 return;
@@ -5355,7 +5370,7 @@
         function scrollCurrentViewTop() {
             if (!isMobileView()) return;
             window.requestAnimationFrame(() => {
-                const activePanel = ui.panels.find((panel) => panel.classList.contains("active"));
+                const activePanel = ui.panels.find((panel) => !panel.hidden) || ui.panels.find((panel) => panel.classList.contains("active"));
                 const activeBody = activePanel?.querySelector(".mobile-screen-body");
                 if (activeBody && typeof activeBody.scrollTo === "function") {
                     activeBody.scrollTo({ top: 0, left: 0, behavior: "auto" });
