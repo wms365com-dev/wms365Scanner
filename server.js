@@ -1417,6 +1417,21 @@ app.get("/api/portal/inventory", async (req, res, next) => {
     }
 });
 
+app.get("/api/portal/inventory/export.csv", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const inventory = await getPortalInventorySummary(session.access.accountName);
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${buildPortalInventoryExportFilename(session.access.accountName)}"`);
+        res.send(buildPortalInventoryExportCsv(inventory));
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.get("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -3047,6 +3062,29 @@ async function getPortalItemsForAccount(accountName, client = pool) {
         [normalizedAccount]
     );
     return result.rows.map(mapPortalItemRow);
+}
+
+function buildPortalInventoryExportCsv(items) {
+    const rows = [
+        ["SKU", "UPC", "Description", "Tracking", "On Hand Qty", "Reserved Qty", "Available Qty", "Location Count", "Locations"]
+    ].concat(
+        items.map((item) => [
+            item.sku || "",
+            item.upc || "",
+            item.description || "",
+            normalizeTrackingLevel(item.trackingLevel || item.tracking_level),
+            Number(item.onHandQuantity ?? item.on_hand_quantity ?? item.totalQuantity ?? item.total_quantity) || 0,
+            Number(item.reservedQuantity ?? item.reserved_quantity) || 0,
+            Number(item.availableQuantity ?? item.available_quantity ?? item.totalQuantity ?? item.total_quantity) || 0,
+            Number(item.locationCount ?? item.location_count) || 0,
+            Array.isArray(item.locations) ? item.locations.filter(Boolean).join(", ") : ""
+        ])
+    );
+    return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+}
+
+function buildPortalInventoryExportFilename(accountName) {
+    return `wms365-customer-inventory-${sanitizeFilenameSegment(accountName, "account")}-${formatFileTimestamp(new Date())}.csv`;
 }
 
 async function getAdminPortalInbounds(client = pool) {
@@ -5603,6 +5641,27 @@ function toPositiveInt(value) {
 function toPositiveNumber(value) {
     const parsed = Number.parseFloat(String(value));
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function csvCell(value) {
+    const text = value == null ? "" : String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+}
+
+function sanitizeFilenameSegment(value, fallback = "file") {
+    const sanitized = String(value || "")
+        .trim()
+        .replace(/[^A-Za-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase();
+    return sanitized || fallback;
+}
+
+function formatFileTimestamp(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    const safeDate = Number.isFinite(date.getTime()) ? date : new Date();
+    const iso = safeDate.toISOString();
+    return `${iso.slice(0, 10).replace(/-/g, "")}-${iso.slice(11, 19).replace(/:/g, "")}`;
 }
 
 function toNullableNumber(value) {

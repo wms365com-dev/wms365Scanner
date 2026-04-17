@@ -244,9 +244,12 @@
 
             <section id="inventoryPanel" class="two-up">
                 <article class="card">
-                    <div class="header-copy" style="margin-bottom: 1rem;">
-                        <h2>Your Inventory</h2>
-                        <p class="lead">Only inventory assigned to your vendor/customer is shown here.</p>
+                    <div class="inventory-head" style="margin-bottom: 1rem;">
+                        <div class="header-copy">
+                            <h2>Your Inventory</h2>
+                            <p class="lead">Only inventory assigned to your vendor/customer is shown here.</p>
+                        </div>
+                        <button class="btn ghost" id="exportInventoryBtn" type="button">Export Report</button>
                     </div>
                     <label class="field">
                         <span>Filter</span>
@@ -451,6 +454,7 @@
             inboundsPanel: document.getElementById("inboundsPanel"),
             inventoryFilter: document.getElementById("inventoryFilter"),
             inventoryList: document.getElementById("inventoryList"),
+            exportInventoryBtn: document.getElementById("exportInventoryBtn"),
             itemFormTitle: document.getElementById("itemFormTitle"),
             itemSku: document.getElementById("itemSku"),
             itemUpc: document.getElementById("itemUpc"),
@@ -507,6 +511,7 @@
         function init() {
             ui.loginForm.addEventListener("submit", onLoginSubmit);
             ui.inventoryFilter.addEventListener("input", renderInventory);
+            ui.exportInventoryBtn.addEventListener("click", exportInventoryReport);
             ui.resetItemBtn.addEventListener("click", () => resetItemForm());
             ui.saveItemBtn.addEventListener("click", savePortalItem);
             ui.itemsList.addEventListener("click", onItemsListClick);
@@ -593,6 +598,16 @@
             resetInboundForm();
             resetItemForm();
             showLogin();
+        }
+
+        async function exportInventoryReport() {
+            try {
+                const download = await requestFile("/api/portal/inventory/export.csv");
+                downloadBlob(download.blob, download.filename);
+                setMessage("Inventory report downloaded.", "success");
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
         }
 
         async function loadPortalData() {
@@ -1139,6 +1154,47 @@
             return data;
         }
 
+        async function requestFile(url, options = {}) {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                const text = await response.text();
+                try {
+                    const data = text ? JSON.parse(text) : {};
+                    throw new Error(data.error || "Request failed.");
+                } catch (error) {
+                    if (error instanceof Error && error.message && error.message !== "Unexpected end of JSON input") {
+                        throw error;
+                    }
+                    throw new Error(text || "Request failed.");
+                }
+            }
+            return {
+                blob: await response.blob(),
+                filename: getDownloadFilename(response.headers.get("Content-Disposition"))
+            };
+        }
+
+        function getDownloadFilename(contentDisposition) {
+            const value = String(contentDisposition || "");
+            const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8Match?.[1]) {
+                return decodeURIComponent(utf8Match[1]);
+            }
+            const basicMatch = value.match(/filename="?([^";]+)"?/i);
+            return basicMatch?.[1] ? basicMatch[1] : "";
+        }
+
+        function downloadBlob(blob, filename) {
+            const objectUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = filename || "wms365-customer-inventory-report.csv";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        }
+
         function sanitizeInventoryItem(item) {
             const sku = norm(item?.sku);
             if (!sku) return null;
@@ -1307,6 +1363,11 @@
 
         function toPositiveInt(value) {
             const parsed = Number.parseInt(String(value), 10);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        }
+
+        function toPositiveNumber(value) {
+            const parsed = Number.parseFloat(String(value));
             return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
         }
 
