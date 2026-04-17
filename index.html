@@ -2356,7 +2356,7 @@
                     <div class="hero-topline">
                         <div>
                             <p class="eyebrow">Warehouse Operations Console</p>
-                            <h1>WMS365 Scanner <span class="build-badge">Build OPSHOME-2026-04-16-11</span></h1>
+                            <h1>WMS365 Scanner <span class="build-badge">Build OPSHOME-2026-04-16-12</span></h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
@@ -2452,7 +2452,7 @@
                             <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Clear</button>
                         </div>
                         <div class="meta" id="activeCompanyMeta">Warehouse work stays scoped to the selected company.</div>
-                        <div class="meta">Build OPSHOME-2026-04-16-11</div>
+                        <div class="meta">Build OPSHOME-2026-04-16-12</div>
                     </div>
                     <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
@@ -2473,28 +2473,28 @@
                 <span class="tab-meta">Start from the warehouse task you need right now.</span>
             </button>
             <button class="tab" data-section="scan" type="button">
-                <span class="tab-label">Receiving</span>
-                <span class="tab-meta">Scan, stage, and save inbound inventory batches.</span>
+                <span class="tab-label">Inbound</span>
+                <span class="tab-meta">Receive stock, stage batches, and save inbound inventory.</span>
             </button>
             <button class="tab" data-section="search" type="button">
-                <span class="tab-label">Lookup</span>
-                <span class="tab-meta">Find inventory by company, BIN, SKU, UPC, or list.</span>
+                <span class="tab-label">Inventory</span>
+                <span class="tab-meta">Lookup stock, search locations, and review inventory records.</span>
             </button>
             <button class="tab" data-section="actions" type="button">
-                <span class="tab-label">Adjustments</span>
-                <span class="tab-meta">Delete, transfer, or move inventory between BINs.</span>
+                <span class="tab-label">Adjust & Move</span>
+                <span class="tab-meta">Adjust counts, transfer stock, and move inventory between BINs.</span>
             </button>
             <button class="tab" data-section="inventory" type="button">
-                <span class="tab-label">Inventory Control</span>
-                <span class="tab-meta">Review live inventory and maintain setup records.</span>
+                <span class="tab-label">Master Data</span>
+                <span class="tab-meta">Companies, items, BINs, portal users, and saved warehouse records.</span>
             </button>
             <button class="tab" data-section="orders" type="button">
                 <span class="tab-label">Sales Orders</span>
                 <span class="tab-meta">View released portal orders, print documents, and move orders through pick, stage, and ship.</span>
             </button>
             <button class="tab" data-section="reports" type="button">
-                <span class="tab-label">Reports</span>
-                <span class="tab-meta">Check company usage, pallet locations, and exports.</span>
+                <span class="tab-label">Reports & Counts</span>
+                <span class="tab-meta">Cycle count reporting, utilization, exports, and activity review.</span>
             </button>
             <button class="tab" data-section="billing" type="button">
                 <span class="tab-label">Billing</span>
@@ -2505,8 +2505,8 @@
                 <span class="tab-meta">Generate location and pallet labels for the floor.</span>
             </button>
             <button class="tab" data-section="backup" type="button">
-                <span class="tab-label">Admin</span>
-                <span class="tab-meta">Import, export, backup, and restore warehouse data.</span>
+                <span class="tab-label">Admin & System</span>
+                <span class="tab-meta">Import, export, backup, restore, and system controls.</span>
             </button>
         </nav>
 
@@ -2561,7 +2561,7 @@
                     <p>Fast access for the floor team.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="scan"><strong>Receiving</strong><span>Stage inbound inventory and save the batch.</span></button>
-                        <button class="home-task" type="button" data-jump-section="orders"><strong>Picking</strong><span>Open released sales orders and work the pick flow.</span></button>
+                        <button class="home-task" type="button" data-jump-section="orders"><strong>Picking</strong><span>Open released sales orders, print pick tickets, and work the pick flow.</span></button>
                         <button class="home-task" type="button" data-jump-section="search"><strong>Lookup</strong><span>Find inventory by BIN, SKU, UPC, or list.</span></button>
                         <button class="home-task" type="button" data-jump-section="actions"><strong>Adjust Inventory</strong><span>Delete, transfer, convert, or move stock.</span></button>
                     </div>
@@ -2590,7 +2590,7 @@
                     <h3>Setup, Billing & Admin</h3>
                     <p>Use these less often and keep them out of the receiving screen.</p>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="inventory"><strong>Companies / Items / BINs</strong><span>Maintain master data and saved records.</span></button>
+                        <button class="home-task" type="button" data-jump-section="inventory"><strong>Companies / Items / BINs</strong><span>Maintain master data, portal users, and saved records outside receiving.</span></button>
                         <button class="home-task" type="button" data-jump-section="billing"><strong>Billing</strong><span>Fee schedules, billing lines, and invoice-ready exports.</span></button>
                         <button class="home-task" type="button" data-jump-section="backup"><strong>Admin</strong><span>Portal users, import/export, backup, and settings.</span></button>
                         <button class="home-task" type="button" data-jump-section="reports"><strong>Reports</strong><span>Inventory summary, company usage, and order activity.</span></button>
@@ -2624,12 +2624,9 @@
                     <form id="scanForm" class="form-grid" autocomplete="off">
                         <div class="helper span-2 form-section-note">
                             <strong>Core scan flow</strong>
-                            <div class="meta">Start with location, item, quantity, and tracking. Open the optional panels only when you need case math, descriptions, or photos.</div>
+                            <div class="meta">Start with location, item, quantity, and tracking. The active company comes from the global company selector above.</div>
                         </div>
-                        <label class="field span-2">
-                            <span>Company</span>
-                            <input id="scanAccount" hidden list="ownerList" type="text" placeholder="Choose company above or enter one here" enterkeyhint="next">
-                        </label>
+                        <input id="scanAccount" hidden list="ownerList" type="text">
                         <label class="field span-2">
                             <span>Location</span>
                             <input id="scanLocation" list="locationList" type="text" placeholder="Scan or enter location" enterkeyhint="next">
@@ -2744,11 +2741,108 @@
                     </div>
                 </article>
 
+                
+            </div>
+            </div>
+        </section>
+
+        <section class="panel" id="searchPanel" data-panel="search">
+            <div class="mobile-panel-head mobile-only">
+                <div class="mobile-appbar">
+                    <div class="mobile-appbar-copy">
+                        <span class="mobile-appbar-kicker">WMS365</span>
+                        <strong class="mobile-appbar-title">Lookup</strong>
+                    </div>
+                    <span class="mobile-appbar-badge">Warehouse</span>
+                </div>
+                <button class="btn" id="searchMobileBackBtn" type="button" data-mobile-section-back="search">Back To Menu</button>
+            </div>
+            <div class="mobile-screen-body">
+            <article class="card mobile-only mobile-task-picker mobile-drill-menu active" data-mobile-subview-menu-group="search">
+                <div class="card-head" style="margin-bottom: 0.75rem;">
+                    <div>
+                        <h2>Search Tasks</h2>
+                        <p class="lead">Pick one search tool at a time, like the original mobile flow.</p>
+                    </div>
+                </div>
+                <div class="menu-stack">
+                    <button class="btn ghost active menu-card-btn" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="single">
+                        <span class="menu-card-title">One Item</span>
+                        <span class="menu-card-meta">Find one SKU, UPC, or BIN with a focused result screen.</span>
+                    </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="multi">
+                        <span class="menu-card-title">Many Items</span>
+                        <span class="menu-card-meta">Paste or scan a list of item codes and review them together.</span>
+                    </button>
+                </div>
+            </article>
+            <div class="search-grid search-workspace-grid">
+                <article class="card mobile-drill-card workspace-control-card" id="searchFormCard" data-mobile-subview-card-group="search">
+                    <div class="card-head">
+                        <div>
+                            <h2>Search Inventory</h2>
+                            <p class="lead">Search by SKU, UPC, location, or a list of item codes.</p>
+                        </div>
+                    </div>
+
+                    <div id="searchSingleView" class="mobile-subview active" data-mobile-subview-group="search" data-mobile-subview="single">
+                        <form id="singleSearchForm" class="form-grid" autocomplete="off">
+                            <label class="field span-2">
+                                <span>Company (Optional)</span>
+                                <input id="searchAccount" hidden list="ownerList" type="text" placeholder="Filter by company">
+                            </label>
+                            <div class="span-2 segmented" role="tablist" aria-label="Search type">
+                                <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
+                                <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
+                            </div>
+                            <label class="field span-2">
+                                <span id="singleSearchLabel">SKU or UPC</span>
+                                <input id="singleSearchInput" list="skuList" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn" type="submit">Run Search</button>
+                                <button class="btn ghost hidden" id="printSingleSearchBtn" type="button">Print Results</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div id="searchMultiView" class="mobile-subview" data-mobile-subview-group="search" data-mobile-subview="multi">
+                        <form id="multiSearchForm" class="form-grid" autocomplete="off">
+                            <label class="field span-2">
+                                <span>Find Multiple SKUs / UPCs</span>
+                                <textarea id="multiSearchInput" rows="6" placeholder="Paste or scan item codes separated by commas, spaces, or new lines"></textarea>
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn secondary" type="submit">Search Multiple Items</button>
+                                <button class="btn ghost hidden" id="printMultiSearchBtn" type="button">Print Multi Search</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="status" id="searchMessage"></div>
+                    <div id="mobileSearchResultsBlock" class="mobile-only hidden" style="margin-top: 1rem;">
+                        <div id="mobileSearchResultsContent">
+                            <p class="empty">Run a search to see location breakdowns, matched quantities, and inventory lines.</p>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="card desktop-complex workspace-sheet-card" id="searchResultsCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Search Results</h2>
+                            <p class="lead">Results are pulled from the shared live inventory on the server.</p>
+                        </div>
+                    </div>
+                    <div id="searchResultsContent">
+                        <p class="empty">Run a search to see location breakdowns, matched quantities, and inventory lines.</p>
+                    </div>
+                </article>
+
                 <article class="card full-span desktop-complex workspace-admin-card">
                     <div class="card-head">
                         <div>
-                            <h2>BIN & Item Library</h2>
-                            <p class="lead">Save common BINs and item masters so typing, scanning, and mobile quick-picks find matches faster.</p>
+                            <h2>Master Data & Setup</h2>
+                            <p class="lead">Maintain companies, BINs, items, portal users, and saved warehouse shortcuts outside the daily receiving screen.</p>
                         </div>
                     </div>
 
@@ -3009,101 +3103,6 @@
             </div>
         </section>
 
-        <section class="panel" id="searchPanel" data-panel="search">
-            <div class="mobile-panel-head mobile-only">
-                <div class="mobile-appbar">
-                    <div class="mobile-appbar-copy">
-                        <span class="mobile-appbar-kicker">WMS365</span>
-                        <strong class="mobile-appbar-title">Lookup</strong>
-                    </div>
-                    <span class="mobile-appbar-badge">Warehouse</span>
-                </div>
-                <button class="btn" id="searchMobileBackBtn" type="button" data-mobile-section-back="search">Back To Menu</button>
-            </div>
-            <div class="mobile-screen-body">
-            <article class="card mobile-only mobile-task-picker mobile-drill-menu active" data-mobile-subview-menu-group="search">
-                <div class="card-head" style="margin-bottom: 0.75rem;">
-                    <div>
-                        <h2>Search Tasks</h2>
-                        <p class="lead">Pick one search tool at a time, like the original mobile flow.</p>
-                    </div>
-                </div>
-                <div class="menu-stack">
-                    <button class="btn ghost active menu-card-btn" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="single">
-                        <span class="menu-card-title">One Item</span>
-                        <span class="menu-card-meta">Find one SKU, UPC, or BIN with a focused result screen.</span>
-                    </button>
-                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="search" data-mobile-subview-target="multi">
-                        <span class="menu-card-title">Many Items</span>
-                        <span class="menu-card-meta">Paste or scan a list of item codes and review them together.</span>
-                    </button>
-                </div>
-            </article>
-            <div class="search-grid search-workspace-grid">
-                <article class="card mobile-drill-card workspace-control-card" id="searchFormCard" data-mobile-subview-card-group="search">
-                    <div class="card-head">
-                        <div>
-                            <h2>Search Inventory</h2>
-                            <p class="lead">Search by SKU, UPC, location, or a list of item codes.</p>
-                        </div>
-                    </div>
-
-                    <div id="searchSingleView" class="mobile-subview active" data-mobile-subview-group="search" data-mobile-subview="single">
-                        <form id="singleSearchForm" class="form-grid" autocomplete="off">
-                            <label class="field span-2">
-                                <span>Company (Optional)</span>
-                                <input id="searchAccount" hidden list="ownerList" type="text" placeholder="Filter by company">
-                            </label>
-                            <div class="span-2 segmented" role="tablist" aria-label="Search type">
-                                <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
-                                <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
-                            </div>
-                            <label class="field span-2">
-                                <span id="singleSearchLabel">SKU or UPC</span>
-                                <input id="singleSearchInput" list="skuList" type="text" placeholder="Scan SKU or UPC" enterkeyhint="search">
-                            </label>
-                            <div class="button-row span-2">
-                                <button class="btn" type="submit">Run Search</button>
-                                <button class="btn ghost hidden" id="printSingleSearchBtn" type="button">Print Results</button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <div id="searchMultiView" class="mobile-subview" data-mobile-subview-group="search" data-mobile-subview="multi">
-                        <form id="multiSearchForm" class="form-grid" autocomplete="off">
-                            <label class="field span-2">
-                                <span>Find Multiple SKUs / UPCs</span>
-                                <textarea id="multiSearchInput" rows="6" placeholder="Paste or scan item codes separated by commas, spaces, or new lines"></textarea>
-                            </label>
-                            <div class="button-row span-2">
-                                <button class="btn secondary" type="submit">Search Multiple Items</button>
-                                <button class="btn ghost hidden" id="printMultiSearchBtn" type="button">Print Multi Search</button>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="status" id="searchMessage"></div>
-                    <div id="mobileSearchResultsBlock" class="mobile-only hidden" style="margin-top: 1rem;">
-                        <div id="mobileSearchResultsContent">
-                            <p class="empty">Run a search to see location breakdowns, matched quantities, and inventory lines.</p>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="card desktop-complex workspace-sheet-card" id="searchResultsCard">
-                    <div class="card-head">
-                        <div>
-                            <h2>Search Results</h2>
-                            <p class="lead">Results are pulled from the shared live inventory on the server.</p>
-                        </div>
-                    </div>
-                    <div id="searchResultsContent">
-                        <p class="empty">Run a search to see location breakdowns, matched quantities, and inventory lines.</p>
-                    </div>
-                </article>
-            </div>
-            </div>
-        </section>
-
         <section class="panel" id="actionsPanel" data-panel="actions">
             <div class="mobile-panel-head mobile-only">
                 <div class="mobile-appbar">
@@ -3296,7 +3295,7 @@
                 <div class="mobile-appbar">
                     <div class="mobile-appbar-copy">
                         <span class="mobile-appbar-kicker">WMS365</span>
-                        <strong class="mobile-appbar-title">Inventory</strong>
+                        <strong class="mobile-appbar-title">Master Data</strong>
                     </div>
                     <span class="mobile-appbar-badge">Warehouse</span>
                 </div>
@@ -3308,7 +3307,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Inventory Snapshot</h2>
-                            <p class="lead">Browse the full local inventory table and filter it quickly.</p>
+                            <p class="lead">Browse live inventory, then maintain companies, BINs, items, and portal access below.</p>
                         </div>
                         <span class="meta" id="inventoryMeta">0 matching lines</span>
                     </div>
@@ -3342,7 +3341,7 @@
                 <article class="card workspace-metric-card">
                     <div class="card-head">
                         <div>
-                            <h2>Storage Summary</h2>
+                            <h2>Warehouse Summary</h2>
                             <p class="lead">This version keeps shared inventory on the server while your open batch stays on this device until you save it.</p>
                         </div>
                     </div>
@@ -3454,7 +3453,7 @@
                     <div class="button-row" style="margin-bottom: 1rem;">
                         <label class="field" style="flex: 1 1 240px;">
                             <span>Company</span>
-                            <input id="reportOwner" list="ownerList" type="text" placeholder="Optional company filter">
+                            <input id="reportOwner" hidden list="ownerList" type="text" placeholder="Optional company filter">
                         </label>
                         <label class="field" style="flex: 1 1 280px;">
                             <span>Filter Reports</span>
@@ -3624,7 +3623,7 @@
                     <div class="button-row" style="margin-bottom: 1rem;">
                         <label class="field" style="flex: 1 1 240px;">
                             <span>Company</span>
-                            <input id="billingOwner" list="ownerList" type="text" placeholder="Required to edit company fee setup">
+                            <input id="billingOwner" hidden list="ownerList" type="text" placeholder="Required to edit company fee setup">
                         </label>
                         <label class="field" style="flex: 1 1 220px;">
                             <span>Fee Filter</span>
@@ -4044,28 +4043,28 @@
                 meta: "Choose the next warehouse task by workflow: inbound, inventory, orders, setup, billing, or reports."
             },
             scan: {
-                title: "Receiving",
-                meta: "Stage inbound inventory, confirm location and quantity, then save the open batch to live stock."
+                title: "Inbound",
+                meta: "Receive stock, stage inbound inventory, and save the open batch to live stock."
             },
             search: {
-                title: "Lookup",
-                meta: "Search by SKU, UPC, or BIN and review live inventory in the active company."
+                title: "Inventory",
+                meta: "Lookup inventory by SKU, UPC, or BIN and review live stock in the active company."
             },
             actions: {
-                title: "Adjustments",
-                meta: "Remove, transfer, and move stock with company-safe location controls."
+                title: "Adjust & Move",
+                meta: "Adjust counts, transfer stock, convert units, and move stock with company-safe controls."
             },
             inventory: {
-                title: "Inventory Control",
-                meta: "Review the live warehouse table and operational inventory summary."
+                title: "Master Data",
+                meta: "Maintain companies, BINs, items, portal users, and saved warehouse records."
             },
             orders: {
                 title: "Sales Orders",
                 meta: "Process company portal orders, print pick tickets and packing slips, and only ship when stock is available."
             },
             reports: {
-                title: "Reports",
-                meta: "Run company utilization, location, item, and inventory worksheet exports."
+                title: "Reports & Counts",
+                meta: "Run cycle count reporting, utilization, activity review, and inventory worksheet exports."
             },
             billing: {
                 title: "Billing",
@@ -4076,8 +4075,8 @@
                 meta: "Build location and pallet labels for the floor and reprint as needed."
             },
             backup: {
-                title: "Data Admin",
-                meta: "Export, import, and safeguard shared warehouse data."
+                title: "Admin & System",
+                meta: "Import, export, backup, restore, and safeguard shared warehouse data."
             }
         };
         const mobileQuery = window.matchMedia("(max-width: 640px)");
@@ -9276,7 +9275,7 @@
                 "WMS365 Scanner - Reports",
                 `
                     <h1>WMS365 Scanner</h1>
-                        <div class="build-chip">Build OPSHOME-2026-04-16-11</div>
+                        <div class="build-chip">Build OPSHOME-2026-04-16-12</div>
                     <p><strong>Inventory Reports</strong></p>
                     <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
