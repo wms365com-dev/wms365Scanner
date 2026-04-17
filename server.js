@@ -1220,6 +1220,82 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/portal-inbounds", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const inbounds = requestedAccount
+            ? await getPortalInboundsForAccount(requestedAccount)
+            : await getAdminPortalInbounds();
+        res.json({ inbounds });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-orders", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.company || req.body?.customer);
+        if (!accountName) {
+            throw httpError(400, "Company is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            return saveWarehousePortalOrderDraft(client, accountName, req.body, null, req.appUser);
+        });
+        res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.put("/api/admin/portal-orders/:id", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.company || req.body?.customer);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        if (!accountName) {
+            throw httpError(400, "Company is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            return saveWarehousePortalOrderDraft(client, accountName, req.body, orderId, req.appUser);
+        });
+        res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            return releaseWarehousePortalOrder(client, orderId, req.appUser);
+        });
+        res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-inbounds", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.company || req.body?.customer);
+        if (!accountName) {
+            throw httpError(400, "Company is required.");
+        }
+        const inbound = await withTransaction(async (client) => {
+            return saveWarehousePortalInbound(client, accountName, req.body, req.appUser);
+        });
+        res.status(201).json({ success: true, inbound });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-access", async (req, res, next) => {
     try {
         const accessId = typeof req.body?.accessId === "string" || typeof req.body?.accessId === "number"
@@ -1395,6 +1471,36 @@ app.get("/api/portal/items", async (req, res, next) => {
     }
 });
 
+app.post("/api/portal/items", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const item = await withTransaction(async (client) => savePortalCatalogItem(client, session.accessRow, req.body));
+        res.status(201).json({ success: true, item });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.put("/api/portal/items/:sku", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const originalSku = normalizeText(req.params.sku);
+        if (!originalSku) {
+            throw httpError(400, "A valid original SKU is required.");
+        }
+        const item = await withTransaction(async (client) => savePortalCatalogItem(client, session.accessRow, req.body, originalSku));
+        res.json({ success: true, item });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.post("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -1545,10 +1651,29 @@ app.get("/login.html", (_req, res) => {
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
 
+function detectWarehouseRouteMode(req) {
+    const requestedMode = String(req.query?.experience || req.query?.mode || "").trim().toLowerCase();
+    if (requestedMode === "mobile" || requestedMode === "desktop") {
+        return requestedMode;
+    }
+    const userAgent = String(req.headers["user-agent"] || "");
+    return /iphone|ipod|android.+mobile|windows phone|blackberry|opera mini|mobile/i.test(userAgent)
+        ? "mobile"
+        : "desktop";
+}
+
+function getWarehouseRoutePath(req) {
+    return detectWarehouseRouteMode(req) === "mobile" ? "/mobile" : "/desktop";
+}
+
+function sendWarehouseApp(res) {
+    res.sendFile(path.join(ROOT_DIR, "index.html"));
+}
+
 app.get("/", async (req, res) => {
     try {
         await requireAppSession(req);
-        res.sendFile(path.join(ROOT_DIR, "index.html"));
+        res.redirect(getWarehouseRoutePath(req));
     } catch (_error) {
         clearAppSessionCookie(res, req);
         res.redirect("/login");
@@ -1558,7 +1683,47 @@ app.get("/", async (req, res) => {
 app.get("/index.html", async (req, res) => {
     try {
         await requireAppSession(req);
-        res.sendFile(path.join(ROOT_DIR, "index.html"));
+        res.redirect(getWarehouseRoutePath(req));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect("/login");
+    }
+});
+
+app.get("/desktop", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        sendWarehouseApp(res);
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect("/login");
+    }
+});
+
+app.get("/desktop/", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        sendWarehouseApp(res);
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect("/login");
+    }
+});
+
+app.get("/mobile", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        sendWarehouseApp(res);
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect("/login");
+    }
+});
+
+app.get("/mobile/", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
         res.redirect("/login");
@@ -2884,6 +3049,39 @@ async function getPortalItemsForAccount(accountName, client = pool) {
     return result.rows.map(mapPortalItemRow);
 }
 
+async function getAdminPortalInbounds(client = pool) {
+    const inboundResult = await client.query(
+        `
+            select *
+            from portal_inbounds
+            order by created_at desc, id desc
+            limit 200
+        `
+    );
+    const inboundIds = inboundResult.rows.map((row) => row.id);
+    const linesResult = inboundIds.length
+        ? await client.query(
+            `
+                select
+                    l.*,
+                    i.account_name,
+                    c.description as item_description,
+                    c.upc as item_upc,
+                    c.tracking_level as item_tracking_level
+                from portal_inbound_lines l
+                join portal_inbounds i on i.id = l.inbound_id
+                left join item_catalog c
+                  on c.account_name = i.account_name
+                 and c.sku = l.sku
+                where l.inbound_id = any($1::bigint[])
+                order by l.inbound_id desc, l.line_number asc, l.id asc
+            `,
+            [inboundIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(inboundResult.rows, linesResult.rows);
+}
+
 
 async function buildPortalOrderLocationSummaries(client, lineRows = []) {
     const skuPairs = [];
@@ -3086,9 +3284,20 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
     return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries)[0] || null;
 }
 
-async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null) {
-    const access = mapPortalAccessRow(accessRow);
-    const order = sanitizePortalOrderInput(rawOrder, access.accountName);
+async function savePortalOrderDraftForAccount(
+    client,
+    accountName,
+    rawOrder,
+    orderId = null,
+    {
+        portalAccessId = null,
+        downloadPathPrefix = "/api/admin/portal-order-documents",
+        activityTitlePrefix = "portal",
+        activityActor = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const order = sanitizePortalOrderInput(rawOrder, normalizedAccount);
 
     if (!order.poNumber || !order.shippingReference || !order.contactName || !order.contactPhone) {
         throw httpError(400, "PO number, shipping reference, contact name, and contact phone are required.");
@@ -3104,23 +3313,24 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
     }
 
     for (const line of order.lines) {
-        await assertPortalOrderSkuAllowed(client, access.accountName, line.sku, line.quantity);
+        await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
     }
 
     let savedOrderId = orderId;
     if (savedOrderId) {
-        const existing = await getPortalOrderById(client, savedOrderId, access.accountName, "/api/portal/order-documents");
+        const existing = await getPortalOrderById(client, savedOrderId, normalizedAccount, downloadPathPrefix);
         if (!existing) {
             throw httpError(404, "That draft order could not be found.");
         }
         if (existing.status !== "DRAFT") {
-            throw httpError(400, "Released orders can no longer be edited from the company portal.");
+            throw httpError(400, "Released orders can no longer be edited.");
         }
 
         await client.query(
             `
                 update portal_orders
                 set
+                    portal_access_id = $16,
                     po_number = $2,
                     shipping_reference = $3,
                     contact_name = $4,
@@ -3153,7 +3363,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                 order.shipToState,
                 order.shipToPostalCode,
                 order.shipToCountry,
-                order.shipToPhone
+                order.shipToPhone,
+                portalAccessId
             ]
         );
         await client.query("delete from portal_order_lines where order_id = $1", [savedOrderId]);
@@ -3170,8 +3381,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
                 returning id
             `,
             [
-                access.accountName,
-                accessRow.id,
+                normalizedAccount,
+                portalAccessId,
                 order.poNumber,
                 order.shippingReference,
                 order.contactName,
@@ -3205,19 +3416,44 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
         );
     }
 
-    const savedOrder = await getPortalOrderById(client, savedOrderId, access.accountName, "/api/portal/order-documents");
+    const savedOrder = await getPortalOrderById(client, savedOrderId, normalizedAccount, downloadPathPrefix);
     await insertActivity(
         client,
         "order",
-        `${orderId ? "Updated" : "Created"} portal order ${savedOrder.orderCode}`,
-        `${savedOrder.accountName} | ${formatCount(savedOrder.lines.length, "line")} | PO ${savedOrder.poNumber} | Requested ${savedOrder.requestedShipDate || "No ship date"}`
+        `${orderId ? "Updated" : "Created"} ${activityTitlePrefix} order ${savedOrder.orderCode}`,
+        [
+            savedOrder.accountName,
+            `${formatCount(savedOrder.lines.length, "line")}`,
+            `PO ${savedOrder.poNumber}`,
+            `Requested ${savedOrder.requestedShipDate || "No ship date"}`,
+            activityActor || ""
+        ].filter(Boolean).join(" | ")
     );
     return savedOrder;
 }
 
-async function releasePortalOrder(client, accessRow, orderId) {
+async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null) {
     const access = mapPortalAccessRow(accessRow);
-    const order = await getPortalOrderById(client, orderId, access.accountName, "/api/portal/order-documents");
+    return savePortalOrderDraftForAccount(client, access.accountName, rawOrder, orderId, {
+        portalAccessId: accessRow.id,
+        downloadPathPrefix: "/api/portal/order-documents",
+        activityTitlePrefix: "portal",
+        activityActor: "Company portal"
+    });
+}
+
+async function releasePortalOrderForAccount(
+    client,
+    accountName,
+    orderId,
+    {
+        downloadPathPrefix = "/api/admin/portal-order-documents",
+        activityTitlePrefix = "portal",
+        activityActor = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
     if (!order) {
         throw httpError(404, "That order could not be found.");
     }
@@ -3225,14 +3461,14 @@ async function releasePortalOrder(client, accessRow, orderId) {
         return order;
     }
     if (order.status !== "DRAFT") {
-        throw httpError(400, `Orders already marked ${order.status} cannot be released again from the company portal.`);
+        throw httpError(400, `Orders already marked ${order.status} cannot be released again.`);
     }
     if (!order.lines.length) {
         throw httpError(400, "Add at least one line before releasing the order.");
     }
 
     for (const line of order.lines) {
-        await assertPortalOrderSkuAllowed(client, access.accountName, line.sku, line.quantity);
+        await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
     }
 
     await client.query(
@@ -3247,14 +3483,114 @@ async function releasePortalOrder(client, accessRow, orderId) {
         [orderId]
     );
 
-    const releasedOrder = await getPortalOrderById(client, orderId, access.accountName, "/api/portal/order-documents");
+    const releasedOrder = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
     await insertActivity(
         client,
         "order",
-        `Released portal order ${releasedOrder.orderCode}`,
-        `${releasedOrder.accountName} | ${formatCount(releasedOrder.lines.length, "line")} | ${releasedOrder.shippingReference || "No shipping reference"}`
+        `Released ${activityTitlePrefix} order ${releasedOrder.orderCode}`,
+        [
+            releasedOrder.accountName,
+            `${formatCount(releasedOrder.lines.length, "line")}`,
+            releasedOrder.shippingReference || "No shipping reference",
+            activityActor || ""
+        ].filter(Boolean).join(" | ")
     );
     return releasedOrder;
+}
+
+async function releasePortalOrder(client, accessRow, orderId) {
+    const access = mapPortalAccessRow(accessRow);
+    return releasePortalOrderForAccount(client, access.accountName, orderId, {
+        downloadPathPrefix: "/api/portal/order-documents",
+        activityTitlePrefix: "portal",
+        activityActor: "Company portal"
+    });
+}
+
+async function saveWarehousePortalOrderDraft(client, accountName, rawOrder, orderId = null, appUser = null) {
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    await upsertOwnerMaster(client, accountName);
+    return savePortalOrderDraftForAccount(client, accountName, rawOrder, orderId, {
+        portalAccessId: null,
+        downloadPathPrefix: "/api/admin/portal-order-documents",
+        activityTitlePrefix: "warehouse sales",
+        activityActor: actor
+    });
+}
+
+async function releaseWarehousePortalOrder(client, orderId, appUser = null) {
+    const orderResult = await client.query("select account_name from portal_orders where id = $1 limit 1", [orderId]);
+    if (orderResult.rowCount !== 1) {
+        throw httpError(404, "That order could not be found.");
+    }
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    return releasePortalOrderForAccount(client, orderResult.rows[0].account_name, orderId, {
+        downloadPathPrefix: "/api/admin/portal-order-documents",
+        activityTitlePrefix: "warehouse sales",
+        activityActor: actor
+    });
+}
+
+async function savePortalCatalogItemForAccount(
+    client,
+    accountName,
+    rawItem,
+    originalSku = "",
+    {
+        activityTitlePrefix = "portal",
+        activityActor = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedOriginalSku = normalizeText(originalSku || rawItem?.originalSku || rawItem?.original_sku || "");
+    const entry = sanitizeItemMasterInput({ ...rawItem, accountName: normalizedAccount });
+
+    if (!entry || !entry.accountName || !entry.sku) {
+        throw httpError(400, "Company and SKU are required.");
+    }
+
+    const finalEntry = normalizedOriginalSku && normalizedOriginalSku !== entry.sku
+        ? await updateItemMasterAndInventory(client, normalizedAccount, normalizedOriginalSku, entry)
+        : (await replaceItemMaster(client, entry), entry);
+
+    const savedItem = await findCatalogItem(client, normalizedAccount, finalEntry.sku);
+    await insertActivity(
+        client,
+        "setup",
+        `${normalizedOriginalSku && normalizedOriginalSku !== finalEntry.sku ? "Updated" : "Saved"} ${activityTitlePrefix} item ${finalEntry.sku}`,
+        [
+            normalizedAccount,
+            finalEntry.description || "",
+            finalEntry.upc ? `UPC ${finalEntry.upc}` : "",
+            activityActor || ""
+        ].filter(Boolean).join(" | ")
+    );
+    return savedItem ? mapPortalItemRow(savedItem) : mapPortalItemRow({
+        id: "",
+        account_name: normalizedAccount,
+        sku: finalEntry.sku,
+        upc: finalEntry.upc,
+        description: finalEntry.description,
+        tracking_level: finalEntry.trackingLevel,
+        units_per_case: finalEntry.unitsPerCase,
+        each_length: finalEntry.eachLength,
+        each_width: finalEntry.eachWidth,
+        each_height: finalEntry.eachHeight,
+        case_length: finalEntry.caseLength,
+        case_width: finalEntry.caseWidth,
+        case_height: finalEntry.caseHeight,
+        image_url: finalEntry.imageUrl,
+        created_at: finalEntry.createdAt,
+        updated_at: finalEntry.updatedAt
+    });
+}
+
+async function savePortalCatalogItem(client, accessRow, rawItem, originalSku = "") {
+    const access = mapPortalAccessRow(accessRow);
+    return savePortalCatalogItemForAccount(client, access.accountName, rawItem, originalSku, {
+        activityTitlePrefix: "portal",
+        activityActor: "Company portal"
+    });
 }
 
 async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy = "") {
@@ -3684,9 +4020,18 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
     return mapPortalInbounds(inboundResult.rows, linesResult.rows);
 }
 
-async function savePortalInbound(client, accessRow, rawInbound) {
-    const access = mapPortalAccessRow(accessRow);
-    const inbound = sanitizePortalInboundInput(rawInbound, access.accountName);
+async function savePortalInboundForAccount(
+    client,
+    accountName,
+    rawInbound,
+    {
+        portalAccessId = null,
+        activityTitlePrefix = "portal",
+        activityActor = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const inbound = sanitizePortalInboundInput(rawInbound, normalizedAccount);
 
     if (!inbound.referenceNumber || !inbound.expectedDate || !inbound.contactName) {
         throw httpError(400, "Reference number, expected date, and contact name are required.");
@@ -3695,7 +4040,7 @@ async function savePortalInbound(client, accessRow, rawInbound) {
         throw httpError(400, "Add at least one inbound line before submitting.");
     }
     for (const line of inbound.lines) {
-        await assertPortalInboundSkuAllowed(client, access.accountName, line.sku);
+        await assertPortalInboundSkuAllowed(client, normalizedAccount, line.sku);
     }
 
     const insertResult = await client.query(
@@ -3708,8 +4053,8 @@ async function savePortalInbound(client, accessRow, rawInbound) {
             returning id
         `,
         [
-            access.accountName,
-            accessRow.id,
+            normalizedAccount,
+            portalAccessId,
             inbound.referenceNumber,
             inbound.carrierName,
             inbound.expectedDate,
@@ -3734,14 +4079,38 @@ async function savePortalInbound(client, accessRow, rawInbound) {
         );
     }
 
-    const savedInbound = (await getPortalInboundsForAccount(access.accountName, client)).find((entry) => entry.id === inboundId);
+    const savedInbound = (await getPortalInboundsForAccount(normalizedAccount, client)).find((entry) => entry.id === inboundId);
     await insertActivity(
         client,
         "receipt",
-        `Submitted portal inbound ${savedInbound.inboundCode}`,
-        `${savedInbound.accountName} | ${formatCount(savedInbound.lines.length, "line")} | Ref ${savedInbound.referenceNumber}`
+        `Submitted ${activityTitlePrefix} inbound ${savedInbound.inboundCode}`,
+        [
+            savedInbound.accountName,
+            `${formatCount(savedInbound.lines.length, "line")}`,
+            `Ref ${savedInbound.referenceNumber}`,
+            activityActor || ""
+        ].filter(Boolean).join(" | ")
     );
     return savedInbound;
+}
+
+async function savePortalInbound(client, accessRow, rawInbound) {
+    const access = mapPortalAccessRow(accessRow);
+    return savePortalInboundForAccount(client, access.accountName, rawInbound, {
+        portalAccessId: accessRow.id,
+        activityTitlePrefix: "portal",
+        activityActor: "Company portal"
+    });
+}
+
+async function saveWarehousePortalInbound(client, accountName, rawInbound, appUser = null) {
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    await upsertOwnerMaster(client, accountName);
+    return savePortalInboundForAccount(client, accountName, rawInbound, {
+        portalAccessId: null,
+        activityTitlePrefix: "warehouse purchase order",
+        activityActor: actor
+    });
 }
 
 async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details = {}, appUser = null) {
@@ -4942,6 +5311,13 @@ function mapPortalItemRow(row) {
         description: row.description || "",
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
         unitsPerCase: row.units_per_case == null ? null : Number(row.units_per_case),
+        eachLength: row.each_length == null ? null : Number(row.each_length),
+        eachWidth: row.each_width == null ? null : Number(row.each_width),
+        eachHeight: row.each_height == null ? null : Number(row.each_height),
+        caseLength: row.case_length == null ? null : Number(row.case_length),
+        caseWidth: row.case_width == null ? null : Number(row.case_width),
+        caseHeight: row.case_height == null ? null : Number(row.case_height),
+        imageUrl: row.image_url || "",
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };

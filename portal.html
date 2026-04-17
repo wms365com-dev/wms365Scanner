@@ -224,6 +224,7 @@
             <article class="card">
                 <div class="portal-nav">
                     <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
+                    <button class="btn ghost" type="button" data-view="items">Items</button>
                     <button class="btn ghost" type="button" data-view="order">New Order</button>
                     <button class="btn ghost" type="button" data-view="inbound">New Inbound</button>
                     <button class="btn ghost" type="button" data-view="orders">My Orders</button>
@@ -268,6 +269,52 @@
                         <div class="detail"><span>Vendor Scope</span><strong>Locked to your account</strong></div>
                     </div>
                 </article>
+            </section>
+
+            <section id="itemsPanel" class="card hidden">
+                <div class="order-form-head">
+                    <div class="header-copy">
+                        <h2 id="itemFormTitle">Item Setup</h2>
+                        <p class="lead">Create and maintain the item masters your team will use for inbound requests and the warehouse will use when receiving and shipping.</p>
+                    </div>
+                    <button class="btn ghost" id="resetItemBtn" type="button">New Item</button>
+                </div>
+
+                <form id="itemForm" class="form-grid" autocomplete="off">
+                    <label class="field"><span>SKU</span><input id="itemSku" type="text" placeholder="Required"></label>
+                    <label class="field"><span>UPC</span><input id="itemUpc" type="text" placeholder="Optional"></label>
+                    <label class="field span-2"><span>Description</span><input id="itemDescription" type="text" placeholder="Required"></label>
+                    <label class="field">
+                        <span>Tracking</span>
+                        <select id="itemTrackingLevel">
+                            <option value="UNIT">Units</option>
+                            <option value="CASE">Cases</option>
+                            <option value="PALLET">Pallets</option>
+                        </select>
+                    </label>
+                    <label class="field"><span>Units per Case</span><input id="itemUnitsPerCase" type="number" min="1" step="1" placeholder="Optional"></label>
+                    <label class="field"><span>Each Length</span><input id="itemEachLength" type="number" min="0" step="0.01" placeholder="Optional"></label>
+                    <label class="field"><span>Each Width</span><input id="itemEachWidth" type="number" min="0" step="0.01" placeholder="Optional"></label>
+                    <label class="field"><span>Each Height</span><input id="itemEachHeight" type="number" min="0" step="0.01" placeholder="Optional"></label>
+                    <label class="field"><span>Case Length</span><input id="itemCaseLength" type="number" min="0" step="0.01" placeholder="Optional"></label>
+                    <label class="field"><span>Case Width</span><input id="itemCaseWidth" type="number" min="0" step="0.01" placeholder="Optional"></label>
+                    <label class="field"><span>Case Height</span><input id="itemCaseHeight" type="number" min="0" step="0.01" placeholder="Optional"></label>
+                </form>
+
+                <div class="order-actions" style="margin-top: 1rem;">
+                    <button class="btn" id="saveItemBtn" type="button">Save Item</button>
+                </div>
+                <div id="itemFormMessage" class="status" style="margin-top: 1rem;"></div>
+
+                <div style="margin-top: 1rem;">
+                    <div class="header-copy" style="margin-bottom: 0.8rem;">
+                        <h3>Saved Items</h3>
+                        <p class="meta">Use item setup first, then use the same items in your inbound requests.</p>
+                    </div>
+                    <div id="itemsList" class="orders-list">
+                        <div class="empty">No item masters saved yet.</div>
+                    </div>
+                </div>
             </section>
 
             <section id="orderPanel" class="card hidden">
@@ -378,7 +425,8 @@
             orders: [],
             inbounds: [],
             activeView: "inventory",
-            editingOrderId: null
+            editingOrderId: null,
+            editingItemSku: null
         };
 
         const ui = {
@@ -396,12 +444,29 @@
             statDrafts: document.getElementById("statDrafts"),
             statReleased: document.getElementById("statReleased"),
             inventoryPanel: document.getElementById("inventoryPanel"),
+            itemsPanel: document.getElementById("itemsPanel"),
             orderPanel: document.getElementById("orderPanel"),
             inboundPanel: document.getElementById("inboundPanel"),
             ordersPanel: document.getElementById("ordersPanel"),
             inboundsPanel: document.getElementById("inboundsPanel"),
             inventoryFilter: document.getElementById("inventoryFilter"),
             inventoryList: document.getElementById("inventoryList"),
+            itemFormTitle: document.getElementById("itemFormTitle"),
+            itemSku: document.getElementById("itemSku"),
+            itemUpc: document.getElementById("itemUpc"),
+            itemDescription: document.getElementById("itemDescription"),
+            itemTrackingLevel: document.getElementById("itemTrackingLevel"),
+            itemUnitsPerCase: document.getElementById("itemUnitsPerCase"),
+            itemEachLength: document.getElementById("itemEachLength"),
+            itemEachWidth: document.getElementById("itemEachWidth"),
+            itemEachHeight: document.getElementById("itemEachHeight"),
+            itemCaseLength: document.getElementById("itemCaseLength"),
+            itemCaseWidth: document.getElementById("itemCaseWidth"),
+            itemCaseHeight: document.getElementById("itemCaseHeight"),
+            resetItemBtn: document.getElementById("resetItemBtn"),
+            saveItemBtn: document.getElementById("saveItemBtn"),
+            itemsList: document.getElementById("itemsList"),
+            itemFormMessage: document.getElementById("itemFormMessage"),
             orderFormTitle: document.getElementById("orderFormTitle"),
             orderPoNumber: document.getElementById("orderPoNumber"),
             orderShippingReference: document.getElementById("orderShippingReference"),
@@ -442,6 +507,9 @@
         function init() {
             ui.loginForm.addEventListener("submit", onLoginSubmit);
             ui.inventoryFilter.addEventListener("input", renderInventory);
+            ui.resetItemBtn.addEventListener("click", () => resetItemForm());
+            ui.saveItemBtn.addEventListener("click", savePortalItem);
+            ui.itemsList.addEventListener("click", onItemsListClick);
             ui.addLineBtn.addEventListener("click", () => addOrderLine());
             ui.addInboundLineBtn.addEventListener("click", () => addInboundLine());
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
@@ -520,8 +588,10 @@
             portalState.orders = [];
             portalState.inbounds = [];
             portalState.editingOrderId = null;
+            portalState.editingItemSku = null;
             resetOrderForm();
             resetInboundForm();
+            resetItemForm();
             showLogin();
         }
 
@@ -539,10 +609,14 @@
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
             renderStats();
             renderInventory();
+            renderItems();
             renderOrders();
             renderInbounds();
             if (!portalState.editingOrderId) {
                 resetOrderForm();
+            }
+            if (!portalState.editingItemSku) {
+                resetItemForm();
             }
             if (!ui.inboundLines.children.length) {
                 resetInboundForm();
@@ -554,6 +628,7 @@
             portalState.activeView = view;
             ui.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === view));
             ui.inventoryPanel.classList.toggle("hidden", view !== "inventory");
+            ui.itemsPanel.classList.toggle("hidden", view !== "items");
             ui.orderPanel.classList.toggle("hidden", view !== "order");
             ui.inboundPanel.classList.toggle("hidden", view !== "inbound");
             ui.ordersPanel.classList.toggle("hidden", view !== "orders");
@@ -562,7 +637,7 @@
 
         function renderStats() {
             const totals = portalState.inventory.reduce((sum, item) => sum + item.availableQuantity, 0);
-            ui.statSkus.textContent = num(portalState.inventory.length);
+            ui.statSkus.textContent = num(portalState.catalogItems.length);
             ui.statQty.textContent = num(totals);
             ui.statDrafts.textContent = num(portalState.orders.filter((order) => order.status === "DRAFT").length);
             ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status)).length);
@@ -599,6 +674,108 @@
                     </div>
                 </article>
             `).join("");
+        }
+
+        function renderItems() {
+            if (!portalState.catalogItems.length) {
+                ui.itemsList.innerHTML = `<div class="empty">No item masters saved yet.</div>`;
+                return;
+            }
+
+            ui.itemsList.innerHTML = portalState.catalogItems.map((item) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(item.sku)}</strong>
+                            <div class="meta">${esc(item.description || "No description")}</div>
+                        </div>
+                        <span class="pill">${esc(trackingLabel(item.trackingLevel))}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div>${item.upc ? `UPC ${esc(item.upc)}` : "No UPC saved"}</div>
+                        <div>${item.unitsPerCase ? `${esc(num(item.unitsPerCase))} units per case` : "Units per case not set"}</div>
+                        <div>
+                            ${[
+                                item.eachLength != null ? `Each ${item.eachLength}` : "",
+                                item.eachWidth != null ? `x ${item.eachWidth}` : "",
+                                item.eachHeight != null ? `x ${item.eachHeight}` : ""
+                            ].filter(Boolean).join(" ") || "Each dimensions not set"}
+                        </div>
+                        <div>
+                            ${[
+                                item.caseLength != null ? `Case ${item.caseLength}` : "",
+                                item.caseWidth != null ? `x ${item.caseWidth}` : "",
+                                item.caseHeight != null ? `x ${item.caseHeight}` : ""
+                            ].filter(Boolean).join(" ") || "Case dimensions not set"}
+                        </div>
+                    </div>
+                    <div class="button-row" style="margin-top: 0.85rem;">
+                        <button class="btn ghost" type="button" data-edit-item="${attr(item.sku)}">Edit Item</button>
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function resetItemForm(item = null) {
+            portalState.editingItemSku = item?.sku || null;
+            ui.itemFormTitle.textContent = item ? `Edit ${item.sku}` : "Item Setup";
+            ui.itemSku.value = item?.sku || "";
+            ui.itemUpc.value = item?.upc || "";
+            ui.itemDescription.value = item?.description || "";
+            ui.itemTrackingLevel.value = item?.trackingLevel || "UNIT";
+            ui.itemUnitsPerCase.value = item?.unitsPerCase ?? "";
+            ui.itemEachLength.value = item?.eachLength ?? "";
+            ui.itemEachWidth.value = item?.eachWidth ?? "";
+            ui.itemEachHeight.value = item?.eachHeight ?? "";
+            ui.itemCaseLength.value = item?.caseLength ?? "";
+            ui.itemCaseWidth.value = item?.caseWidth ?? "";
+            ui.itemCaseHeight.value = item?.caseHeight ?? "";
+            setMessage("", "info");
+            ui.itemFormMessage.className = "status";
+            ui.itemFormMessage.textContent = "";
+        }
+
+        async function savePortalItem() {
+            const payload = {
+                sku: ui.itemSku.value.trim(),
+                upc: ui.itemUpc.value.trim(),
+                description: ui.itemDescription.value.trim(),
+                trackingLevel: ui.itemTrackingLevel.value,
+                unitsPerCase: ui.itemUnitsPerCase.value,
+                eachLength: ui.itemEachLength.value,
+                eachWidth: ui.itemEachWidth.value,
+                eachHeight: ui.itemEachHeight.value,
+                caseLength: ui.itemCaseLength.value,
+                caseWidth: ui.itemCaseWidth.value,
+                caseHeight: ui.itemCaseHeight.value
+            };
+
+            try {
+                const response = await requestJson(portalState.editingItemSku ? `/api/portal/items/${encodeURIComponent(portalState.editingItemSku)}` : "/api/portal/items", {
+                    method: portalState.editingItemSku ? "PUT" : "POST",
+                    body: JSON.stringify(payload)
+                });
+                await loadPortalData();
+                const savedItem = portalState.catalogItems.find((item) => item.sku === norm(response?.item?.sku || payload.sku)) || sanitizeCatalogItem(response?.item);
+                resetItemForm(savedItem);
+                setView("items");
+                ui.itemFormMessage.className = "status show success";
+                ui.itemFormMessage.textContent = `Saved item ${savedItem?.sku || payload.sku}.`;
+            } catch (error) {
+                ui.itemFormMessage.className = "status show error";
+                ui.itemFormMessage.textContent = error.message;
+            }
+        }
+
+        function onItemsListClick(event) {
+            const editButton = event.target.closest("[data-edit-item]");
+            if (!editButton) return;
+            const item = portalState.catalogItems.find((entry) => entry.sku === editButton.dataset.editItem);
+            if (item) {
+                resetItemForm(item);
+                setView("items");
+                setMessage(`Loaded item ${item.sku}.`, "info");
+            }
         }
 
         function renderOrders() {
@@ -860,7 +1037,7 @@
             const lines = [...ui.orderLines.querySelectorAll(".line-card")].map((card) => ({
                 sku: norm(card.querySelector("[data-line-sku]")?.value || ""),
                 quantity: Number.parseInt(String(card.querySelector("[data-line-qty]")?.value || ""), 10)
-            })).filter((line) => line.sku || line.quantity);
+            })).filter((line) => line.sku && Number.isFinite(line.quantity) && line.quantity > 0);
 
             return {
                 poNumber: ui.orderPoNumber.value.trim(),
@@ -986,7 +1163,15 @@
                 sku,
                 upc: norm(item?.upc || ""),
                 description: String(item?.description || "").trim(),
-                trackingLevel: normalizeTrackingLevel(item?.trackingLevel)
+                trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+                unitsPerCase: toPositiveInt(item?.unitsPerCase),
+                eachLength: toPositiveNumber(item?.eachLength),
+                eachWidth: toPositiveNumber(item?.eachWidth),
+                eachHeight: toPositiveNumber(item?.eachHeight),
+                caseLength: toPositiveNumber(item?.caseLength),
+                caseWidth: toPositiveNumber(item?.caseWidth),
+                caseHeight: toPositiveNumber(item?.caseHeight),
+                imageUrl: String(item?.imageUrl || "").trim()
             };
         }
 

@@ -2741,7 +2741,70 @@
                     </div>
                 </article>
 
-                
+                <article class="card desktop-complex workspace-control-card" id="warehouseInboundEntryCard">
+                    <div class="card-head">
+                        <div>
+                            <h2 id="warehouseInboundTitle">Warehouse Purchase Order / Inbound Entry</h2>
+                            <p class="lead">Create expected inbound documents internally when the customer has not submitted one through the portal yet.</p>
+                        </div>
+                        <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Inbound</button>
+                    </div>
+                    <div class="quick-meta" id="warehouseInboundCompanyMeta">Choose an active company in the header before entering a warehouse purchase order.</div>
+                    <form id="warehouseInboundForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
+                        <label class="field">
+                            <span>Purchase Order / Reference #</span>
+                            <input id="warehouseInboundReferenceNumber" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Carrier</span>
+                            <input id="warehouseInboundCarrierName" type="text" placeholder="Optional">
+                        </label>
+                        <label class="field">
+                            <span>Expected Date</span>
+                            <input id="warehouseInboundExpectedDate" type="date">
+                        </label>
+                        <label class="field">
+                            <span>Contact Name</span>
+                            <input id="warehouseInboundContactName" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Contact Tel</span>
+                            <input id="warehouseInboundContactPhone" type="text" placeholder="Optional">
+                        </label>
+                        <label class="field span-2">
+                            <span>Notes</span>
+                            <input id="warehouseInboundNotes" type="text" placeholder="Optional receiving notes">
+                        </label>
+                    </form>
+                    <div style="margin-top: 1rem;">
+                        <div class="line-head" style="margin-bottom: 0.8rem;">
+                            <div>
+                                <h3>Inbound Lines</h3>
+                                <p class="meta">Only item masters saved for the active company can be selected.</p>
+                            </div>
+                            <button class="btn ghost" id="addWarehouseInboundLineBtn" type="button">Add Line</button>
+                        </div>
+                        <div id="warehouseInboundLines" class="line-items"></div>
+                    </div>
+                    <div class="button-row" style="margin-top: 1rem;">
+                        <button class="btn" id="submitWarehouseInboundBtn" type="button">Submit Purchase Order</button>
+                    </div>
+                    <div class="status" id="warehouseInboundMessage"></div>
+                </article>
+
+                <article class="card desktop-complex workspace-sheet-card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Inbound Queue</h2>
+                            <p class="lead">See expected receipts created by either the company portal or the warehouse team for the active company.</p>
+                        </div>
+                        <span class="meta" id="portalInboundsMeta">0 inbounds</span>
+                    </div>
+                    <div id="portalInboundsList">
+                        <p class="empty">No purchase orders or inbound notices loaded yet.</p>
+                    </div>
+                </article>
+
             </div>
             </div>
         </section>
@@ -3384,6 +3447,7 @@
                                 <span>Status Filter</span>
                                 <select id="portalOrderStatusFilter">
                                     <option value="">All statuses</option>
+                                    <option value="DRAFT">Draft</option>
                                     <option value="RELEASED">Released</option>
                                     <option value="PICKED">Picked</option>
                                     <option value="STAGED">Staged / Packed</option>
@@ -3407,6 +3471,7 @@
                             </div>
                         </div>
                         <div class="summary-grid">
+                            <div class="summary"><span>Drafts</span><strong id="salesOrderDraftCount">0</strong></div>
                             <div class="summary"><span>Released</span><strong id="salesOrderReleasedCount">0</strong></div>
                             <div class="summary"><span>Picked</span><strong id="salesOrderPickedCount">0</strong></div>
                             <div class="summary"><span>Staged</span><strong id="salesOrderStagedCount">0</strong></div>
@@ -3414,6 +3479,91 @@
                         </div>
                     </article>
                 </div>
+
+                <article class="card desktop-complex workspace-control-card" id="warehouseOrderEntryCard">
+                    <div class="card-head">
+                        <div>
+                            <h2 id="warehouseOrderTitle">Warehouse Sales Order Entry</h2>
+                            <p class="lead">Create draft sales orders internally for the active company, then release them into the warehouse workflow when they are ready.</p>
+                        </div>
+                        <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Order</button>
+                    </div>
+                    <div class="quick-meta" id="warehouseOrderCompanyMeta">Choose an active company in the header before entering a warehouse sales order.</div>
+                    <form id="warehouseOrderForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
+                        <input id="warehouseOrderId" type="hidden">
+                        <label class="field">
+                            <span>PO #</span>
+                            <input id="warehouseOrderPoNumber" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Shipping Reference</span>
+                            <input id="warehouseOrderShippingReference" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Requested Ship Date</span>
+                            <input id="warehouseOrderRequestedShipDate" type="date">
+                        </label>
+                        <label class="field">
+                            <span>Contact Name</span>
+                            <input id="warehouseOrderContactName" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Contact Tel</span>
+                            <input id="warehouseOrderContactPhone" type="text" placeholder="Required">
+                        </label>
+                        <label class="field span-2">
+                            <span>Ship To Company / Receiver</span>
+                            <input id="warehouseOrderShipToName" type="text" placeholder="Required company or receiver name">
+                        </label>
+                        <label class="field">
+                            <span>Ship To Phone</span>
+                            <input id="warehouseOrderShipToPhone" type="text" placeholder="Optional ship-to phone">
+                        </label>
+                        <label class="field span-2">
+                            <span>Ship To Address 1</span>
+                            <input id="warehouseOrderShipToAddress1" type="text" placeholder="Required street address">
+                        </label>
+                        <label class="field span-2">
+                            <span>Ship To Address 2</span>
+                            <input id="warehouseOrderShipToAddress2" type="text" placeholder="Optional suite, unit, or dock">
+                        </label>
+                        <label class="field">
+                            <span>City</span>
+                            <input id="warehouseOrderShipToCity" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>State / Province</span>
+                            <input id="warehouseOrderShipToState" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Postal Code</span>
+                            <input id="warehouseOrderShipToPostalCode" type="text" placeholder="Required">
+                        </label>
+                        <label class="field">
+                            <span>Country</span>
+                            <input id="warehouseOrderShipToCountry" type="text" value="USA" placeholder="Required">
+                        </label>
+                        <label class="field span-2">
+                            <span>Order Notes</span>
+                            <input id="warehouseOrderNotes" type="text" placeholder="Optional shipping or handling notes">
+                        </label>
+                    </form>
+                    <div style="margin-top: 1rem;">
+                        <div class="line-head" style="margin-bottom: 0.8rem;">
+                            <div>
+                                <h3>Order Lines</h3>
+                                <p class="meta">Only SKUs with available inventory for the active company can be selected.</p>
+                            </div>
+                            <button class="btn ghost" id="addWarehouseOrderLineBtn" type="button">Add Line</button>
+                        </div>
+                        <div id="warehouseOrderLines" class="line-items"></div>
+                    </div>
+                    <div class="button-row" style="margin-top: 1rem;">
+                        <button class="btn secondary" id="saveWarehouseOrderDraftBtn" type="button">Save Draft</button>
+                        <button class="btn" id="releaseWarehouseOrderBtn" type="button">Release Order</button>
+                    </div>
+                    <div class="status" id="warehouseOrderMessage"></div>
+                </article>
 
                 <article class="card desktop-complex workspace-sheet-card">
                     <div class="card-head">
@@ -4035,6 +4185,8 @@
         let editingMasterItem = null;
         let portalAccessRecords = [];
         let portalOrderRecords = [];
+        let portalInboundRecords = [];
+        let editingWarehouseOrderId = "";
         const billingRateDrafts = new Map();
         let syncTimer = null;
         const DESKTOP_SECTION_META = {
@@ -4080,6 +4232,7 @@
             }
         };
         const mobileQuery = window.matchMedia("(max-width: 640px)");
+        const forcedDeviceExperienceMode = getForcedDeviceExperienceMode();
         let detectedDeviceExperienceMode = detectDeviceExperienceMode();
         let deviceExperienceMode = detectedDeviceExperienceMode;
         const managedListInputs = [];
@@ -4306,6 +4459,47 @@
             portalOrderStatusFilter: document.getElementById("portalOrderStatusFilter"),
             portalOrderSearch: document.getElementById("portalOrderSearch"),
             clearPortalOrderFiltersBtn: document.getElementById("clearPortalOrderFiltersBtn"),
+            portalInboundsMeta: document.getElementById("portalInboundsMeta"),
+            portalInboundsList: document.getElementById("portalInboundsList"),
+            warehouseOrderTitle: document.getElementById("warehouseOrderTitle"),
+            warehouseOrderEntryCard: document.getElementById("warehouseOrderEntryCard"),
+            warehouseOrderId: document.getElementById("warehouseOrderId"),
+            warehouseOrderCompanyMeta: document.getElementById("warehouseOrderCompanyMeta"),
+            warehouseOrderPoNumber: document.getElementById("warehouseOrderPoNumber"),
+            warehouseOrderShippingReference: document.getElementById("warehouseOrderShippingReference"),
+            warehouseOrderRequestedShipDate: document.getElementById("warehouseOrderRequestedShipDate"),
+            warehouseOrderContactName: document.getElementById("warehouseOrderContactName"),
+            warehouseOrderContactPhone: document.getElementById("warehouseOrderContactPhone"),
+            warehouseOrderShipToName: document.getElementById("warehouseOrderShipToName"),
+            warehouseOrderShipToPhone: document.getElementById("warehouseOrderShipToPhone"),
+            warehouseOrderShipToAddress1: document.getElementById("warehouseOrderShipToAddress1"),
+            warehouseOrderShipToAddress2: document.getElementById("warehouseOrderShipToAddress2"),
+            warehouseOrderShipToCity: document.getElementById("warehouseOrderShipToCity"),
+            warehouseOrderShipToState: document.getElementById("warehouseOrderShipToState"),
+            warehouseOrderShipToPostalCode: document.getElementById("warehouseOrderShipToPostalCode"),
+            warehouseOrderShipToCountry: document.getElementById("warehouseOrderShipToCountry"),
+            warehouseOrderNotes: document.getElementById("warehouseOrderNotes"),
+            warehouseOrderLines: document.getElementById("warehouseOrderLines"),
+            addWarehouseOrderLineBtn: document.getElementById("addWarehouseOrderLineBtn"),
+            resetWarehouseOrderBtn: document.getElementById("resetWarehouseOrderBtn"),
+            saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
+            releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
+            warehouseOrderMessage: document.getElementById("warehouseOrderMessage"),
+            warehouseInboundEntryCard: document.getElementById("warehouseInboundEntryCard"),
+            warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
+            warehouseInboundCompanyMeta: document.getElementById("warehouseInboundCompanyMeta"),
+            warehouseInboundReferenceNumber: document.getElementById("warehouseInboundReferenceNumber"),
+            warehouseInboundCarrierName: document.getElementById("warehouseInboundCarrierName"),
+            warehouseInboundExpectedDate: document.getElementById("warehouseInboundExpectedDate"),
+            warehouseInboundContactName: document.getElementById("warehouseInboundContactName"),
+            warehouseInboundContactPhone: document.getElementById("warehouseInboundContactPhone"),
+            warehouseInboundNotes: document.getElementById("warehouseInboundNotes"),
+            warehouseInboundLines: document.getElementById("warehouseInboundLines"),
+            addWarehouseInboundLineBtn: document.getElementById("addWarehouseInboundLineBtn"),
+            resetWarehouseInboundBtn: document.getElementById("resetWarehouseInboundBtn"),
+            submitWarehouseInboundBtn: document.getElementById("submitWarehouseInboundBtn"),
+            warehouseInboundMessage: document.getElementById("warehouseInboundMessage"),
+            salesOrderDraftCount: document.getElementById("salesOrderDraftCount"),
             salesOrderReleasedCount: document.getElementById("salesOrderReleasedCount"),
             salesOrderPickedCount: document.getElementById("salesOrderPickedCount"),
             salesOrderStagedCount: document.getElementById("salesOrderStagedCount"),
@@ -4498,6 +4692,17 @@
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
             ui.portalOrderSearch?.addEventListener("input", () => renderPortalOrdersList());
+            ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
+            ui.resetWarehouseOrderBtn?.addEventListener("click", () => resetWarehouseSalesOrderForm());
+            ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
+            ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
+            ui.warehouseOrderLines?.addEventListener("click", onWarehouseOrderLinesClick);
+            ui.warehouseOrderLines?.addEventListener("change", onWarehouseOrderLinesChange);
+            ui.addWarehouseInboundLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
+            ui.resetWarehouseInboundBtn?.addEventListener("click", () => resetWarehouseInboundForm());
+            ui.submitWarehouseInboundBtn?.addEventListener("click", submitWarehouseInbound);
+            ui.warehouseInboundLines?.addEventListener("click", onWarehouseInboundLinesClick);
+            ui.warehouseInboundLines?.addEventListener("change", onWarehouseInboundLinesChange);
             ui.clearPortalOrderFiltersBtn?.addEventListener("click", () => {
                 if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = "";
                 if (ui.portalOrderSearch) ui.portalOrderSearch.value = "";
@@ -4658,21 +4863,26 @@
             syncScanItemSelectors();
             syncPalletLabelSkuOptions();
             syncPalletLabelCatalogFields();
+            resetWarehouseSalesOrderForm();
+            resetWarehouseInboundForm();
             setLabelToolMode(labelToolState.mode || "location");
             renderAll();
             setSection(isMobileView() ? "mobile-home" : "home");
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
             refreshPortalOrdersList().catch(() => {});
+            refreshPortalInboundsList().catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
                     syncServerState(true).catch(() => {});
                     refreshPortalOrdersList(true).catch(() => {});
+                    refreshPortalInboundsList(true).catch(() => {});
                 }
             }, 30000);
             window.addEventListener("focus", () => {
                 syncServerState(true).catch(() => {});
                 refreshPortalOrdersList(true).catch(() => {});
+                refreshPortalInboundsList(true).catch(() => {});
             });
             mobileQuery.addEventListener("change", handleViewportChange);
             window.addEventListener("resize", handleViewportChange);
@@ -4684,9 +4894,18 @@
             return detectedDeviceExperienceMode !== "mobile" && !!state.preferences.desktopMobilePreview;
         }
 
+        function getForcedDeviceExperienceMode() {
+            const pathName = String(window.location.pathname || "").trim().replace(/\/+$/, "").toLowerCase();
+            if (pathName === "/mobile") return "mobile";
+            if (pathName === "/desktop") return "desktop";
+            const params = new URLSearchParams(window.location.search || "");
+            const explicitMode = String(params.get("experience") || params.get("mode") || "").trim().toLowerCase();
+            return explicitMode === "mobile" || explicitMode === "desktop" ? explicitMode : "";
+        }
+
         function syncDesktopPreviewToggle() {
             if (!ui.desktopPreviewToggle) return;
-            const canPreview = detectedDeviceExperienceMode !== "mobile";
+            const canPreview = !forcedDeviceExperienceMode && detectedDeviceExperienceMode !== "mobile";
             ui.desktopPreviewToggle.hidden = !canPreview;
             if (!canPreview) return;
             const previewOn = isDesktopMobilePreviewEnabled();
@@ -4695,7 +4914,7 @@
         }
 
         function toggleDesktopPreviewMode() {
-            if (detectedDeviceExperienceMode === "mobile") return;
+            if (forcedDeviceExperienceMode || detectedDeviceExperienceMode === "mobile") return;
             state.preferences.desktopMobilePreview = !state.preferences.desktopMobilePreview;
             saveState();
             applyDeviceExperienceMode();
@@ -4830,6 +5049,8 @@
                 ui.clearActiveCompanyBtn.disabled = !company;
             }
             updateCompanyBoundUi();
+            renderWarehouseSalesOrderContext();
+            renderWarehouseInboundContext();
             updateWorkspaceCommandBar();
         }
 
@@ -4916,6 +5137,7 @@
             if (persist) saveState();
             if (rerender) refreshCompanyScopedUi();
             refreshPortalOrdersList(true).catch(() => {});
+            refreshPortalInboundsList(true).catch(() => {});
         }
 
         function clearActiveCompany() {
@@ -4950,6 +5172,7 @@
         }
 
         function detectDeviceExperienceMode() {
+            if (forcedDeviceExperienceMode) return forcedDeviceExperienceMode;
             const userAgent = String(navigator.userAgent || "");
             const userAgentMobile = navigator.userAgentData?.mobile === true;
             const phoneLikeAgent = /iphone|ipod|android.+mobile|windows phone|blackberry|opera mini|mobile/i.test(userAgent);
@@ -4969,10 +5192,12 @@
 
         function applyDeviceExperienceMode() {
             detectedDeviceExperienceMode = detectDeviceExperienceMode();
-            deviceExperienceMode = isDesktopMobilePreviewEnabled() ? "mobile" : detectedDeviceExperienceMode;
+            deviceExperienceMode = forcedDeviceExperienceMode
+                ? forcedDeviceExperienceMode
+                : (isDesktopMobilePreviewEnabled() ? "mobile" : detectedDeviceExperienceMode);
             const useMobileClass = deviceExperienceMode === "mobile";
             document.body.classList.toggle("device-mobile", useMobileClass);
-            document.body.classList.toggle("preview-mobile-desktop", isDesktopMobilePreviewEnabled());
+            document.body.classList.toggle("preview-mobile-desktop", !forcedDeviceExperienceMode && isDesktopMobilePreviewEnabled());
             applyManagedInputLists();
             syncMobilePickerInputs();
             syncDesktopPreviewToggle();
@@ -6236,6 +6461,8 @@
             renderSummary();
             syncScanItemSelectors();
             syncPalletLabelSkuOptions();
+            renderWarehouseSalesOrderContext();
+            renderWarehouseInboundContext();
         }
 
         function renderBatch() {
@@ -8281,6 +8508,505 @@
             ui.portalAccessPassword.focus();
         }
 
+        function getWarehouseSalesOrderCompany() {
+            return getActiveCompany();
+        }
+
+        function getWarehouseSalesOrderInventoryChoices(company = getWarehouseSalesOrderCompany(), excludeReservedOrderId = "") {
+            const accountName = norm(company);
+            if (!accountName) return [];
+
+            const reservedBySku = new Map();
+            portalOrderRecords
+                .filter((order) =>
+                    order.accountName === accountName &&
+                    ["RELEASED", "PICKED", "STAGED"].includes(order.status) &&
+                    String(order.id) !== String(excludeReservedOrderId || "")
+                )
+                .forEach((order) => {
+                    order.lines.forEach((line) => {
+                        const sku = norm(line.sku);
+                        if (!sku) return;
+                        reservedBySku.set(sku, (reservedBySku.get(sku) || 0) + (Number(line.quantity) || 0));
+                    });
+                });
+
+            const itemMap = new Map();
+            state.inventory.forEach((line) => {
+                if (norm(line.accountName) !== accountName) return;
+                const sku = norm(line.sku);
+                if (!sku) return;
+                const existing = itemMap.get(sku) || {
+                    sku,
+                    upc: norm(line.upc || ""),
+                    description: getLineDescription(line) || "",
+                    trackingLevel: normalizeTrackingLevel(line.trackingLevel || line.tracking_level || "UNIT"),
+                    onHandQuantity: 0,
+                    availableQuantity: 0,
+                    locations: []
+                };
+                existing.onHandQuantity += Number(line.quantity) || 0;
+                if (!existing.upc && line.upc) existing.upc = norm(line.upc);
+                if (!existing.description) existing.description = getLineDescription(line) || "";
+                if (!existing.locations.includes(norm(line.location))) existing.locations.push(norm(line.location));
+                itemMap.set(sku, existing);
+            });
+
+            return [...itemMap.values()]
+                .map((item) => {
+                    const reservedQuantity = Number(reservedBySku.get(item.sku) || 0);
+                    return {
+                        ...item,
+                        reservedQuantity,
+                        availableQuantity: Math.max(item.onHandQuantity - reservedQuantity, 0),
+                        locations: item.locations.sort((a, b) => a.localeCompare(b))
+                    };
+                })
+                .sort((a, b) => a.sku.localeCompare(b.sku) || a.upc.localeCompare(b.upc));
+        }
+
+        function buildWarehouseSalesOrderSkuOptions(selectedSku = "") {
+            const normalizedSelected = norm(selectedSku);
+            const items = getWarehouseSalesOrderInventoryChoices(getWarehouseSalesOrderCompany(), editingWarehouseOrderId);
+            const options = [`<option value="">Choose a SKU</option>`];
+            items
+                .filter((item) => item.availableQuantity > 0 || item.sku === normalizedSelected)
+                .forEach((item) => {
+                    options.push(
+                        `<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</option>`
+                    );
+                });
+            return options.join("");
+        }
+
+        function updateWarehouseSalesOrderLineMeta(card) {
+            const sku = norm(card?.querySelector("[data-warehouse-line-sku]")?.value || "");
+            const meta = card?.querySelector("[data-warehouse-line-meta]");
+            const qtyInput = card?.querySelector("[data-warehouse-line-qty]");
+            if (!meta) return;
+            const item = getWarehouseSalesOrderInventoryChoices(getWarehouseSalesOrderCompany(), editingWarehouseOrderId)
+                .find((entry) => entry.sku === sku);
+            if (item && qtyInput) qtyInput.max = String(item.availableQuantity);
+            else if (qtyInput) qtyInput.removeAttribute("max");
+            meta.textContent = item
+                ? `${item.description || "No description"} | ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available | On hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
+                : "Choose a SKU from the active company's available inventory.";
+        }
+
+        function addWarehouseOrderLine(line = { sku: "", quantity: 1 }) {
+            if (!ui.warehouseOrderLines) return;
+            const row = document.createElement("div");
+            row.className = "line-card";
+            row.innerHTML = `
+                <div class="line-fields">
+                    <label class="field">
+                        <span>SKU</span>
+                        <select data-warehouse-line-sku>${buildWarehouseSalesOrderSkuOptions(line.sku)}</select>
+                    </label>
+                    <label class="field">
+                        <span>Qty</span>
+                        <input data-warehouse-line-qty type="number" min="1" inputmode="numeric" value="${attr(line.quantity || 1)}">
+                    </label>
+                    <button class="btn ghost" type="button" data-remove-warehouse-line>Remove</button>
+                </div>
+                <div class="line-note" data-warehouse-line-meta></div>
+            `;
+            ui.warehouseOrderLines.appendChild(row);
+            updateWarehouseSalesOrderLineMeta(row);
+        }
+
+        function renderWarehouseSalesOrderContext() {
+            if (!ui.warehouseOrderCompanyMeta) return;
+            const company = getWarehouseSalesOrderCompany();
+            const hasCompany = !!company;
+            ui.warehouseOrderCompanyMeta.textContent = hasCompany
+                ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
+                : "Choose an active company in the header before entering a warehouse sales order.";
+            [ui.addWarehouseOrderLineBtn, ui.saveWarehouseOrderDraftBtn, ui.releaseWarehouseOrderBtn].filter(Boolean).forEach((button) => {
+                button.disabled = !hasCompany;
+            });
+            if (ui.warehouseOrderLines) {
+                [...ui.warehouseOrderLines.querySelectorAll(".line-card")].forEach((card) => {
+                    const select = card.querySelector("[data-warehouse-line-sku]");
+                    if (select) {
+                        const currentValue = select.value;
+                        select.innerHTML = buildWarehouseSalesOrderSkuOptions(currentValue);
+                        if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
+                            select.value = currentValue;
+                        } else {
+                            select.value = "";
+                        }
+                    }
+                    updateWarehouseSalesOrderLineMeta(card);
+                });
+            }
+        }
+
+        function resetWarehouseSalesOrderForm(order = null) {
+            editingWarehouseOrderId = order?.id ? String(order.id) : "";
+            if (order?.accountName && order.accountName !== getActiveCompany()) {
+                setActiveCompany(order.accountName, { force: true, rerender: false });
+            }
+            if (ui.warehouseOrderId) ui.warehouseOrderId.value = editingWarehouseOrderId;
+            if (ui.warehouseOrderTitle) {
+                ui.warehouseOrderTitle.textContent = order ? `Edit ${order.orderCode}` : "Warehouse Sales Order Entry";
+            }
+            ui.warehouseOrderPoNumber.value = order?.poNumber || "";
+            ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
+            ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
+            ui.warehouseOrderContactName.value = order?.contactName || "";
+            ui.warehouseOrderContactPhone.value = order?.contactPhone || "";
+            ui.warehouseOrderShipToName.value = order?.shipToName || order?.contactName || "";
+            ui.warehouseOrderShipToPhone.value = order?.shipToPhone || "";
+            ui.warehouseOrderShipToAddress1.value = order?.shipToAddress1 || "";
+            ui.warehouseOrderShipToAddress2.value = order?.shipToAddress2 || "";
+            ui.warehouseOrderShipToCity.value = order?.shipToCity || "";
+            ui.warehouseOrderShipToState.value = order?.shipToState || "";
+            ui.warehouseOrderShipToPostalCode.value = order?.shipToPostalCode || "";
+            ui.warehouseOrderShipToCountry.value = order?.shipToCountry || "USA";
+            ui.warehouseOrderNotes.value = order?.orderNotes || "";
+            ui.warehouseOrderLines.innerHTML = "";
+            const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
+            lines.forEach((line) => addWarehouseOrderLine(line));
+            if (ui.warehouseOrderMessage) {
+                ui.warehouseOrderMessage.textContent = "";
+                ui.warehouseOrderMessage.className = "status";
+            }
+            renderWarehouseSalesOrderContext();
+        }
+
+        function onWarehouseOrderLinesClick(event) {
+            const removeButton = event.target.closest("[data-remove-warehouse-line]");
+            if (!removeButton) return;
+            const card = removeButton.closest(".line-card");
+            if (!card) return;
+            card.remove();
+            if (!ui.warehouseOrderLines.children.length) {
+                addWarehouseOrderLine();
+            }
+        }
+
+        function onWarehouseOrderLinesChange(event) {
+            const card = event.target.closest(".line-card");
+            if (card) updateWarehouseSalesOrderLineMeta(card);
+        }
+
+        function collectWarehouseSalesOrderPayload() {
+            const lines = [...ui.warehouseOrderLines.querySelectorAll(".line-card")].map((card) => ({
+                sku: norm(card.querySelector("[data-warehouse-line-sku]")?.value || ""),
+                quantity: Number.parseInt(String(card.querySelector("[data-warehouse-line-qty]")?.value || ""), 10)
+            })).filter((line) => line.sku && Number.isFinite(line.quantity) && line.quantity > 0);
+
+            return {
+                accountName: getWarehouseSalesOrderCompany(),
+                poNumber: ui.warehouseOrderPoNumber.value.trim(),
+                shippingReference: ui.warehouseOrderShippingReference.value.trim(),
+                requestedShipDate: ui.warehouseOrderRequestedShipDate.value,
+                contactName: ui.warehouseOrderContactName.value.trim(),
+                contactPhone: ui.warehouseOrderContactPhone.value.trim(),
+                shipToName: ui.warehouseOrderShipToName.value.trim(),
+                shipToPhone: ui.warehouseOrderShipToPhone.value.trim(),
+                shipToAddress1: ui.warehouseOrderShipToAddress1.value.trim(),
+                shipToAddress2: ui.warehouseOrderShipToAddress2.value.trim(),
+                shipToCity: ui.warehouseOrderShipToCity.value.trim(),
+                shipToState: ui.warehouseOrderShipToState.value.trim(),
+                shipToPostalCode: ui.warehouseOrderShipToPostalCode.value.trim(),
+                shipToCountry: ui.warehouseOrderShipToCountry.value.trim(),
+                orderNotes: ui.warehouseOrderNotes.value.trim(),
+                lines
+            };
+        }
+
+        async function saveWarehouseSalesOrderDraft() {
+            const company = getWarehouseSalesOrderCompany();
+            if (!company) {
+                return showMessage(ui.warehouseOrderMessage, "Choose an active company before entering a warehouse sales order.", "error");
+            }
+
+            try {
+                const payload = collectWarehouseSalesOrderPayload();
+                const response = await requestJson(editingWarehouseOrderId ? `/api/admin/portal-orders/${editingWarehouseOrderId}` : "/api/admin/portal-orders", {
+                    method: editingWarehouseOrderId ? "PUT" : "POST",
+                    body: JSON.stringify(payload)
+                });
+                await refreshPortalOrdersList(true);
+                const savedOrder = getPortalOrderById(response?.order?.id || editingWarehouseOrderId) || sanitizePortalOrderRecord(response?.order);
+                if (savedOrder) {
+                    resetWarehouseSalesOrderForm(savedOrder);
+                }
+                showMessage(ui.warehouseOrderMessage, `Saved draft ${response?.order?.orderCode || "sales order"}.`, "success");
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+            }
+        }
+
+        async function releaseWarehouseSalesOrder() {
+            const company = getWarehouseSalesOrderCompany();
+            if (!company) {
+                return showMessage(ui.warehouseOrderMessage, "Choose an active company before entering a warehouse sales order.", "error");
+            }
+
+            try {
+                if (!editingWarehouseOrderId) {
+                    await saveWarehouseSalesOrderDraft();
+                }
+                if (!editingWarehouseOrderId) return;
+                const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/release`, {
+                    method: "POST"
+                });
+                await refreshPortalOrdersList(true);
+                resetWarehouseSalesOrderForm();
+                showMessage(ui.warehouseOrderMessage, `Released order ${response?.order?.orderCode || ""}.`, "success");
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+            }
+        }
+
+        function getWarehouseInboundCompany() {
+            return getActiveCompany();
+        }
+
+        function getWarehouseInboundCatalogItems(company = getWarehouseInboundCompany()) {
+            const accountName = norm(company);
+            if (!accountName) return [];
+            return state.masters.items
+                .filter((item) => norm(item.accountName) === accountName)
+                .sort((a, b) => a.sku.localeCompare(b.sku) || (a.description || "").localeCompare(b.description || ""));
+        }
+
+        function buildWarehouseInboundSkuOptions(selectedSku = "") {
+            const normalizedSelected = norm(selectedSku);
+            const items = getWarehouseInboundCatalogItems(getWarehouseInboundCompany());
+            const options = [`<option value="">Choose a SKU</option>`];
+            items.forEach((item) => {
+                options.push(
+                    `<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(trackingLabel(item.trackingLevel))}</option>`
+                );
+            });
+            return options.join("");
+        }
+
+        function updateWarehouseInboundLineMeta(card) {
+            const sku = norm(card?.querySelector("[data-warehouse-inbound-line-sku]")?.value || "");
+            const meta = card?.querySelector("[data-warehouse-inbound-line-meta]");
+            if (!meta) return;
+            const item = getWarehouseInboundCatalogItems(getWarehouseInboundCompany())
+                .find((entry) => entry.sku === sku);
+            meta.textContent = item
+                ? `${item.description || "No description"}${item.upc ? ` | UPC ${item.upc}` : ""} | ${trackingLabel(item.trackingLevel)}${item.unitsPerCase ? ` | ${item.unitsPerCase} per case` : ""}`
+                : "Choose a saved item for the active company.";
+        }
+
+        function addWarehouseInboundLine(line = { sku: "", quantity: 1 }) {
+            if (!ui.warehouseInboundLines) return;
+            const row = document.createElement("div");
+            row.className = "line-card";
+            row.innerHTML = `
+                <div class="line-fields">
+                    <label class="field">
+                        <span>SKU</span>
+                        <select data-warehouse-inbound-line-sku>${buildWarehouseInboundSkuOptions(line.sku)}</select>
+                    </label>
+                    <label class="field">
+                        <span>Qty</span>
+                        <input data-warehouse-inbound-line-qty type="number" min="1" inputmode="numeric" value="${attr(line.quantity || 1)}">
+                    </label>
+                    <button class="btn ghost" type="button" data-remove-warehouse-inbound-line>Remove</button>
+                </div>
+                <div class="line-note" data-warehouse-inbound-line-meta></div>
+            `;
+            ui.warehouseInboundLines.appendChild(row);
+            updateWarehouseInboundLineMeta(row);
+        }
+
+        function renderWarehouseInboundContext() {
+            if (!ui.warehouseInboundCompanyMeta) return;
+            const company = getWarehouseInboundCompany();
+            const hasCompany = !!company;
+            ui.warehouseInboundCompanyMeta.textContent = hasCompany
+                ? `Creating purchase orders and inbound notices for ${company}. Only that company's saved item masters can be selected.`
+                : "Choose an active company in the header before entering a warehouse purchase order.";
+            [ui.addWarehouseInboundLineBtn, ui.submitWarehouseInboundBtn].filter(Boolean).forEach((button) => {
+                button.disabled = !hasCompany;
+            });
+            if (ui.warehouseInboundLines) {
+                [...ui.warehouseInboundLines.querySelectorAll(".line-card")].forEach((card) => {
+                    const select = card.querySelector("[data-warehouse-inbound-line-sku]");
+                    if (select) {
+                        const currentValue = select.value;
+                        select.innerHTML = buildWarehouseInboundSkuOptions(currentValue);
+                        if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
+                            select.value = currentValue;
+                        } else {
+                            select.value = "";
+                        }
+                    }
+                    updateWarehouseInboundLineMeta(card);
+                });
+            }
+        }
+
+        function resetWarehouseInboundForm(inbound = null) {
+            if (ui.warehouseInboundTitle) {
+                ui.warehouseInboundTitle.textContent = inbound ? `Inbound ${inbound.inboundCode}` : "Warehouse Purchase Order / Inbound Entry";
+            }
+            ui.warehouseInboundReferenceNumber.value = inbound?.referenceNumber || "";
+            ui.warehouseInboundCarrierName.value = inbound?.carrierName || "";
+            ui.warehouseInboundExpectedDate.value = inbound?.expectedDate || "";
+            ui.warehouseInboundContactName.value = inbound?.contactName || "";
+            ui.warehouseInboundContactPhone.value = inbound?.contactPhone || "";
+            ui.warehouseInboundNotes.value = inbound?.notes || "";
+            ui.warehouseInboundLines.innerHTML = "";
+            const lines = inbound?.lines?.length ? inbound.lines : [{ sku: "", quantity: 1 }];
+            lines.forEach((line) => addWarehouseInboundLine(line));
+            if (ui.warehouseInboundMessage) {
+                ui.warehouseInboundMessage.textContent = "";
+                ui.warehouseInboundMessage.className = "status";
+            }
+            renderWarehouseInboundContext();
+        }
+
+        function onWarehouseInboundLinesClick(event) {
+            const removeButton = event.target.closest("[data-remove-warehouse-inbound-line]");
+            if (!removeButton) return;
+            const card = removeButton.closest(".line-card");
+            if (!card) return;
+            card.remove();
+            if (!ui.warehouseInboundLines.children.length) {
+                addWarehouseInboundLine();
+            }
+        }
+
+        function onWarehouseInboundLinesChange(event) {
+            const card = event.target.closest(".line-card");
+            if (card) updateWarehouseInboundLineMeta(card);
+        }
+
+        function collectWarehouseInboundPayload() {
+            const lines = [...ui.warehouseInboundLines.querySelectorAll(".line-card")].map((card) => ({
+                sku: norm(card.querySelector("[data-warehouse-inbound-line-sku]")?.value || ""),
+                quantity: Number.parseInt(String(card.querySelector("[data-warehouse-inbound-line-qty]")?.value || ""), 10)
+            })).filter((line) => line.sku && Number.isFinite(line.quantity) && line.quantity > 0);
+
+            return {
+                accountName: getWarehouseInboundCompany(),
+                referenceNumber: ui.warehouseInboundReferenceNumber.value.trim(),
+                carrierName: ui.warehouseInboundCarrierName.value.trim(),
+                expectedDate: ui.warehouseInboundExpectedDate.value,
+                contactName: ui.warehouseInboundContactName.value.trim(),
+                contactPhone: ui.warehouseInboundContactPhone.value.trim(),
+                notes: ui.warehouseInboundNotes.value.trim(),
+                lines
+            };
+        }
+
+        async function submitWarehouseInbound() {
+            const company = getWarehouseInboundCompany();
+            if (!company) {
+                return showMessage(ui.warehouseInboundMessage, "Choose an active company before entering a warehouse purchase order.", "error");
+            }
+            try {
+                const payload = collectWarehouseInboundPayload();
+                const response = await requestJson("/api/admin/portal-inbounds", {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+                await refreshPortalInboundsList(true);
+                resetWarehouseInboundForm();
+                showMessage(ui.warehouseInboundMessage, `Submitted inbound ${response?.inbound?.inboundCode || "notice"}.`, "success");
+            } catch (error) {
+                showMessage(ui.warehouseInboundMessage, error.message, "error");
+            }
+        }
+
+        async function refreshPortalInboundsList(silent = false) {
+            try {
+                const company = getActiveCompany();
+                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+                let payload = await requestJson(`/api/admin/portal-inbounds${query}`);
+                let inbounds = Array.isArray(payload?.inbounds)
+                    ? payload.inbounds.map(sanitizePortalInboundRecord).filter(Boolean)
+                    : [];
+
+                if (!inbounds.length && company) {
+                    const fallbackPayload = await requestJson("/api/admin/portal-inbounds");
+                    const fallbackInbounds = Array.isArray(fallbackPayload?.inbounds)
+                        ? fallbackPayload.inbounds.map(sanitizePortalInboundRecord).filter(Boolean)
+                        : [];
+                    inbounds = fallbackInbounds.filter((inbound) => norm(inbound.accountName) === norm(company));
+                }
+
+                portalInboundRecords = inbounds;
+                renderPortalInboundsList();
+                renderWarehouseInboundContext();
+            } catch (error) {
+                if (!silent) {
+                    portalInboundRecords = [];
+                    renderPortalInboundsList(error.message);
+                    renderWarehouseInboundContext();
+                }
+                throw error;
+            }
+        }
+
+        function renderPortalInboundsList(errorText = "") {
+            if (!ui.portalInboundsList) return;
+            const company = getActiveCompany();
+            const visibleInbounds = company
+                ? portalInboundRecords.filter((inbound) => norm(inbound.accountName) === norm(company))
+                : portalInboundRecords;
+
+            if (ui.portalInboundsMeta) {
+                ui.portalInboundsMeta.textContent = `${num(visibleInbounds.length)} inbound${visibleInbounds.length === 1 ? "" : "s"}`;
+            }
+
+            if (!visibleInbounds.length) {
+                const fallback = errorText || (company
+                    ? "No purchase orders or inbound notices are loaded for the active company."
+                    : "Choose a company to review warehouse and portal inbound notices.");
+                ui.portalInboundsList.innerHTML = `<p class="empty">${esc(fallback)}</p>`;
+                return;
+            }
+
+            ui.portalInboundsList.innerHTML = visibleInbounds.map((inbound) => `
+                <div class="quick-row">
+                    <div class="quick-detail-stack">
+                        <div class="quick-main">
+                            <strong>${esc(inbound.inboundCode)} | ${esc(inbound.accountName)}</strong>
+                            <div class="quick-meta">${esc(inbound.status)} | Ref ${esc(inbound.referenceNumber || "None")} | Expected ${esc(inbound.expectedDate || "Not set")}</div>
+                            <div class="quick-meta">${esc(inbound.contactName || "No contact")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}${inbound.carrierName ? ` | Carrier ${esc(inbound.carrierName)}` : ""}</div>
+                            ${inbound.notes ? `<div class="quick-meta">Notes: ${esc(inbound.notes)}</div>` : ""}
+                            <div class="portal-order-line-table-wrap">
+                                <table class="data-table compact-table">
+                                    <thead>
+                                        <tr>
+                                            <th>SKU</th>
+                                            <th>Description</th>
+                                            <th>Tracking</th>
+                                            <th>Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${inbound.lines.map((line) => `
+                                            <tr>
+                                                <td>${esc(line.sku)}</td>
+                                                <td>${esc(line.description || "")}</td>
+                                                <td>${esc(trackingLabel(line.trackingLevel))}</td>
+                                                <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+                                            </tr>
+                                        `).join("")}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="quick-row-actions">
+                            <span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join("");
+        }
+
         async function refreshPortalOrdersList(silent = false) {
             try {
                 const company = getActiveCompany();
@@ -8300,10 +9026,12 @@
 
                 portalOrderRecords = orders;
                 renderPortalOrdersList();
+                renderWarehouseSalesOrderContext();
             } catch (error) {
                 if (!silent) {
                     portalOrderRecords = [];
                     renderPortalOrdersList(error.message);
+                    renderWarehouseSalesOrderContext();
                 }
                 throw error;
             }
@@ -8323,12 +9051,22 @@
                     order.poNumber,
                     order.shippingReference,
                     order.contactName,
+                    order.contactPhone,
                     order.shipToName,
+                    order.shipToPhone,
                     order.shipToAddress1,
+                    order.shipToAddress2,
                     order.shipToCity,
                     order.shipToState,
                     order.shipToPostalCode,
+                    order.shipToCountry,
                     order.orderNotes,
+                    order.requestedShipDate,
+                    order.confirmedShipDate,
+                    order.shippedCarrierName,
+                    order.shippedTrackingReference,
+                    order.shippedConfirmationNote,
+                    order.updatedAt,
                     ...(Array.isArray(order.lines) ? order.lines.flatMap((line) => [
                         line.sku,
                         line.description,
@@ -8342,10 +9080,12 @@
         }
 
         function renderPortalOrderSummary(orders) {
+            const drafts = orders.filter((order) => order.status === "DRAFT").length;
             const released = orders.filter((order) => order.status === "RELEASED").length;
             const picked = orders.filter((order) => order.status === "PICKED").length;
             const staged = orders.filter((order) => order.status === "STAGED").length;
             const shipped = orders.filter((order) => order.status === "SHIPPED").length;
+            if (ui.salesOrderDraftCount) ui.salesOrderDraftCount.textContent = num(drafts);
             if (ui.salesOrderReleasedCount) ui.salesOrderReleasedCount.textContent = num(released);
             if (ui.salesOrderPickedCount) ui.salesOrderPickedCount.textContent = num(picked);
             if (ui.salesOrderStagedCount) ui.salesOrderStagedCount.textContent = num(staged);
@@ -8368,6 +9108,7 @@
 
             ui.portalOrdersList.innerHTML = visibleOrders.map((order) => {
                 const nextStatus = nextPortalOrderStatus(order.status);
+                const isDraft = order.status === "DRAFT";
                 const timeline = formatPortalOrderTimeline(order);
                 const shipDateValue = order.confirmedShipDate || (order.shippedAt ? String(order.shippedAt).slice(0, 10) : todayIso());
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
@@ -8430,7 +9171,7 @@
                                     </div>
                                     <div class="order-health-card">
                                         <span>Auto Allocation</span>
-                                        <strong>${allAllocated ? "Ready to pick" : `${insufficientLines.length} line${insufficientLines.length === 1 ? "" : "s"} short`}</strong>
+                                        <strong>${allAllocated ? (isDraft ? "Draft ready" : "Ready to pick") : `${insufficientLines.length} line${insufficientLines.length === 1 ? "" : "s"} short`}</strong>
                                     </div>
                                 </div>
                                 ${order.orderNotes ? `<div class="quick-meta">Order Notes: ${esc(order.orderNotes)}</div>` : ""}
@@ -8449,9 +9190,10 @@
                             </div>
                             <div class="quick-row-actions">
                                 <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
-                                ${insufficientLines.length ? `<span class="pill warning">Insufficient stock</span>` : `<span class="pill success">Allocation ready</span>`}
-                                <button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket</button>
-                                <button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip</button>
+                                ${insufficientLines.length ? `<span class="pill warning">Insufficient stock</span>` : `<span class="pill success">${isDraft ? "Draft ready" : "Allocation ready"}</span>`}
+                                ${isDraft ? `<button class="btn ghost mini" type="button" data-edit-warehouse-order="${attr(order.id)}">Load Draft</button>` : ""}
+                                ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket</button>` : ""}
+                                ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip</button>` : ""}
                                 ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
                             </div>
                             ${(order.status === "STAGED" || order.status === "SHIPPED") ? `
@@ -8635,6 +9377,17 @@
         }
 
         async function onPortalOrdersListClick(event) {
+            const editWarehouseOrderButton = event.target.closest("[data-edit-warehouse-order]");
+            if (editWarehouseOrderButton) {
+                const order = getPortalOrderById(editWarehouseOrderButton.dataset.editWarehouseOrder || "");
+                if (order) {
+                    resetWarehouseSalesOrderForm(order);
+                    ui.warehouseOrderEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    showMessage(ui.warehouseOrderMessage, `Loaded draft ${order.orderCode}.`, "info");
+                }
+                return;
+            }
+
             const pickTicketButton = event.target.closest("[data-print-pick-ticket]");
             if (pickTicketButton) {
                 const order = getPortalOrderById(pickTicketButton.dataset.printPickTicket || "");
@@ -10732,6 +11485,32 @@
             };
         }
 
+        function sanitizePortalInboundRecord(item) {
+            const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
+            if (!item?.id || !accountName) return null;
+            return {
+                id: String(item.id),
+                inboundCode: String(item.inboundCode || item.inbound_code || "").trim(),
+                accountName,
+                status: String(item.status || "SUBMITTED").trim().toUpperCase(),
+                referenceNumber: String(item.referenceNumber || item.reference_number || item.poNumber || "").trim(),
+                carrierName: String(item.carrierName || item.carrier_name || "").trim(),
+                expectedDate: String(item.expectedDate || item.expected_date || "").trim(),
+                contactName: String(item.contactName || item.contact_name || "").trim(),
+                contactPhone: String(item.contactPhone || item.contact_phone || "").trim(),
+                notes: String(item.notes || "").trim(),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString()),
+                lines: Array.isArray(item.lines) ? item.lines.map((line) => ({
+                    sku: norm(line?.sku),
+                    quantity: Number(line?.quantity || line?.expectedQuantity || 0) || 0,
+                    description: String(line?.description || line?.itemDescription || "").trim(),
+                    upc: String(line?.upc || "").trim(),
+                    trackingLevel: normalizeTrackingLevel(line?.trackingLevel || line?.tracking_level || "UNIT")
+                })).filter((line) => line.sku && line.quantity > 0) : []
+            };
+        }
+
         function sanitizePortalOrderRecord(item) {
             const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
             if (!item?.id || !accountName) return null;
@@ -10740,26 +11519,30 @@
                 orderCode: String(item.orderCode || "").trim(),
                 accountName,
                 status: norm(item.status || "DRAFT"),
-                poNumber: String(item.poNumber || "").trim(),
-                shippingReference: String(item.shippingReference || "").trim(),
-                contactName: String(item.contactName || "").trim(),
-                contactPhone: String(item.contactPhone || "").trim(),
+                poNumber: String(item.poNumber || item.po_number || "").trim(),
+                shippingReference: String(item.shippingReference || item.shipping_reference || "").trim(),
+                contactName: String(item.contactName || item.contact_name || "").trim(),
+                contactPhone: String(item.contactPhone || item.contact_phone || "").trim(),
                 requestedShipDate: String(item.requestedShipDate || item.requested_ship_date || "").trim(),
                 orderNotes: String(item.orderNotes || item.order_notes || "").trim(),
-                shipToName: String(item.shipToName || "").trim(),
-                shipToAddress1: String(item.shipToAddress1 || "").trim(),
-                shipToCity: String(item.shipToCity || "").trim(),
-                shipToState: String(item.shipToState || "").trim(),
-                shipToPostalCode: String(item.shipToPostalCode || "").trim(),
+                shipToName: String(item.shipToName || item.ship_to_name || "").trim(),
+                shipToPhone: String(item.shipToPhone || item.ship_to_phone || "").trim(),
+                shipToAddress1: String(item.shipToAddress1 || item.ship_to_address1 || "").trim(),
+                shipToAddress2: String(item.shipToAddress2 || item.ship_to_address2 || "").trim(),
+                shipToCity: String(item.shipToCity || item.ship_to_city || "").trim(),
+                shipToState: String(item.shipToState || item.ship_to_state || "").trim(),
+                shipToPostalCode: String(item.shipToPostalCode || item.ship_to_postal_code || "").trim(),
+                shipToCountry: String(item.shipToCountry || item.ship_to_country || "").trim(),
                 confirmedShipDate: String(item.confirmedShipDate || item.confirmed_ship_date || "").trim(),
                 shippedCarrierName: String(item.shippedCarrierName || item.shipped_carrier_name || "").trim(),
                 shippedTrackingReference: String(item.shippedTrackingReference || item.shipped_tracking_reference || "").trim(),
                 shippedConfirmationNote: String(item.shippedConfirmationNote || item.shipped_confirmation_note || "").trim(),
-                createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
-                releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : null,
-                pickedAt: typeof item.pickedAt === "string" ? item.pickedAt : null,
-                stagedAt: typeof item.stagedAt === "string" ? item.stagedAt : null,
-                shippedAt: typeof item.shippedAt === "string" ? item.shippedAt : null,
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString()),
+                releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : (typeof item.released_at === "string" ? item.released_at : null),
+                pickedAt: typeof item.pickedAt === "string" ? item.pickedAt : (typeof item.picked_at === "string" ? item.picked_at : null),
+                stagedAt: typeof item.stagedAt === "string" ? item.stagedAt : (typeof item.staged_at === "string" ? item.staged_at : null),
+                shippedAt: typeof item.shippedAt === "string" ? item.shippedAt : (typeof item.shipped_at === "string" ? item.shipped_at : null),
                 documents: Array.isArray(item.documents)
                     ? item.documents.map((document) => sanitizePortalOrderDocumentRecord(document)).filter(Boolean)
                     : [],
@@ -11380,4 +12163,3 @@
     </script>
 </body>
 </html>
-

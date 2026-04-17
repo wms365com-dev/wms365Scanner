@@ -104,6 +104,38 @@ RECENT FIXES COMPLETED
 - Fixed portal order display so uploaded shipped documents show as downloadable links.
 - Added shipment confirmation email support through SMTP configuration.
 - Added SMTP settings to .env.example.
+- Split warehouse access into dedicated routes:
+  - /desktop
+  - /mobile
+- Root / now auto-routes to the correct warehouse experience by device user agent.
+- Forced route mode now wins over viewport/orientation changes so mobile and desktop layouts stop mixing.
+- Added warehouse-side sales order entry for the ops team:
+  - create draft sales orders by active company
+  - release warehouse-created orders to the warehouse queue
+  - load/edit draft warehouse sales orders from the queue
+- Tightened warehouse sales order item selection so blank rows are filtered out before save/release.
+- Improved warehouse order queue usability:
+  - DRAFT orders now show a Load Draft action
+  - draft orders no longer show print actions that only make sense after release
+- Expanded admin-side order normalization so these fields round-trip cleanly:
+  - ship-to phone
+  - address 2
+  - country
+  - updated timestamps
+- Completed a pre-deploy sweep:
+  - server syntax check passed
+  - warehouse app script check passed
+  - portal script check passed
+  - login script check passed
+  - duplicate HTML id check passed
+  - verified main desktop/mobile/portal route references against server routes
+- Added customer-side item master setup inside the portal:
+  - customers can create and edit their own SKUs
+  - saved items now feed inbound creation
+- Added warehouse-side purchase order / inbound entry:
+  - create internal inbound notices for the active company
+  - review inbound queue from the warehouse side
+  - uses the same underlying inbound model as the customer portal
 
 DEPLOYMENT / CONFIG NOTES
 - Main shared data lives in PostgreSQL.
@@ -116,9 +148,9 @@ DEPLOYMENT / CONFIG NOTES
   - optional SMTP_REPLY_TO
 
 WORKFLOW NOTE
-- Current development source is E:\WMS365Scanner.
-- Push/deploy copy is C:\WMS365Scanner.
-- The push batch file should sync this tracker file as part of normal publish flow.
+- C:\WMS365Scanner is now the single working repo and deploy copy.
+- The old E:\WMS365Scanner working copy is retired and should not be used for future edits.
+- The push batch file now runs directly from the local repo folder without cross-drive sync.
 
 OPEN ITEMS / NEXT CHECKS
 - Live end-to-end test on Railway with real SMTP credentials.
