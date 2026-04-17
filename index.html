@@ -2933,7 +2933,7 @@
                     </div>
                 </article>
 
-                <article class="card full-span desktop-complex workspace-admin-card">
+                <article class="card full-span desktop-complex workspace-admin-card" id="masterDataWorkspaceCard">
                     <div class="card-head">
                         <div>
                             <h2>Master Data & Setup</h2>
@@ -3471,7 +3471,7 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
-            <div class="inventory-grid inventory-workspace-grid">
+            <div class="inventory-grid inventory-workspace-grid" id="inventoryWorkspaceGrid">
                 <article class="card workspace-sheet-card">
                     <div class="card-head">
                         <div>
@@ -4374,6 +4374,8 @@
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
             appBuildFooter: document.getElementById("appBuildFooter"),
+            masterDataWorkspaceCard: document.getElementById("masterDataWorkspaceCard"),
+            inventoryWorkspaceGrid: document.getElementById("inventoryWorkspaceGrid"),
             syncNowBtn: document.getElementById("syncNowBtn"),
             activeCompany: document.getElementById("activeCompany"),
             activeCompanyDisplay: document.getElementById("activeCompanyDisplay"),
@@ -4702,6 +4704,7 @@
 
         function init() {
             applyDeviceExperienceMode();
+            mountMasterDataWorkspace();
             refreshAppBuildLabels().catch(() => {});
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
             ui.syncNowBtn?.addEventListener("click", () => {
@@ -5024,6 +5027,14 @@
             window.addEventListener("resize", handleViewportChange);
             window.addEventListener("orientationchange", handleViewportChange);
             initMobileAutocomplete();
+        }
+
+        function mountMasterDataWorkspace() {
+            const card = ui.masterDataWorkspaceCard;
+            const targetGrid = ui.inventoryWorkspaceGrid;
+            if (!card || !targetGrid) return;
+            if (card.parentElement === targetGrid) return;
+            targetGrid.appendChild(card);
         }
 
         function applyAppBuildLabels(label) {
