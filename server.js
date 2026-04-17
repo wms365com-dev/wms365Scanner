@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const express = require("express");
+const fs = require("fs");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { Pool } = require("pg");
@@ -38,6 +39,8 @@ const normalizeFreeText = bootstrapNormalizeFreeText;
 
 const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const ROOT_DIR = __dirname;
+const APP_BUILD_FILES = ["package.json", "server.js", "index.html", "portal.html", "login.html", "mobile-pick.html"];
+const APP_BUILD_INFO = createAppBuildInfo(ROOT_DIR, APP_BUILD_FILES);
 const DATABASE_URL = process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_URL || '';
 const LEGACY_ACCOUNT = "LEGACY";
 const PORTAL_SESSION_COOKIE = "wms365_portal_session";
@@ -270,6 +273,14 @@ app.get("/api/health", (_req, res) => {
         databaseError: databaseErrorMessage || null,
         startedInitializingAt: databaseInitStartedAt,
         requiresDatabase: true
+    });
+});
+
+app.get("/api/version", (_req, res) => {
+    res.status(200).json({
+        ok: true,
+        app: "WMS365 Scanner",
+        build: APP_BUILD_INFO
     });
 });
 
@@ -2944,7 +2955,7 @@ async function requireAppSession(req, client = pool) {
 
 function requiresAppAuth(req) {
     const pathName = req.path || req.url || "";
-    if (pathName === "/api/health" || pathName === "/api/app/login" || pathName === "/api/app/logout" || pathName === "/api/app/me") return false;
+    if (pathName === "/api/health" || pathName === "/api/version" || pathName === "/api/app/login" || pathName === "/api/app/logout" || pathName === "/api/app/me") return false;
     if (pathName.startsWith("/api/portal/")) return false;
     return pathName.startsWith("/api/");
 }
@@ -6326,6 +6337,47 @@ function formatFileTimestamp(value = new Date()) {
     return `${iso.slice(0, 10).replace(/-/g, "")}-${iso.slice(11, 19).replace(/:/g, "")}`;
 }
 
+function createAppBuildInfo(rootDir, files = []) {
+    const packageVersion = readPackageVersion(rootDir);
+    const hash = crypto.createHash("sha256");
+    let latestMtimeMs = 0;
+
+    files.forEach((relativePath) => {
+        const filePath = path.join(rootDir, relativePath);
+        try {
+            const stat = fs.statSync(filePath);
+            const fileContents = fs.readFileSync(filePath);
+            latestMtimeMs = Math.max(latestMtimeMs, Number(stat.mtimeMs) || 0);
+            hash.update(relativePath);
+            hash.update(fileContents);
+        } catch {
+            // Skip missing files so the build label can still render.
+        }
+    });
+
+    const shortHash = hash.digest("hex").slice(0, 8).toUpperCase();
+    const sourceStamp = latestMtimeMs ? formatFileTimestamp(new Date(latestMtimeMs)) : formatFileTimestamp(new Date());
+    const railwayCommit = String(process.env.RAILWAY_GIT_COMMIT_SHA || "").trim();
+    const deploymentRef = railwayCommit ? railwayCommit.slice(0, 8).toUpperCase() : shortHash;
+
+    return {
+        version: packageVersion,
+        sourceStamp,
+        deploymentRef,
+        label: `v${packageVersion} | Build ${sourceStamp} | Ref ${deploymentRef}`
+    };
+}
+
+function readPackageVersion(rootDir) {
+    try {
+        const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+        const version = String(packageJson?.version || "").trim();
+        return version || "0.0.0";
+    } catch {
+        return "0.0.0";
+    }
+}
+
 function toNullableNumber(value) {
     return value == null ? null : Number(value);
 }
@@ -6373,6 +6425,7 @@ function isPublicRequest(req) {
     const pathName = req.path || req.url || "";
     if (!pathName) return false;
     if (pathName === "/api/health") return true;
+    if (pathName === "/api/version") return true;
     if (pathName === "/" || pathName === "/index.html") return true;
     if (pathName === "/login" || pathName === "/login.html") return true;
     if (pathName === "/portal" || pathName === "/portal.html") return true;

@@ -21,10 +21,13 @@
     <button type="submit">Sign in</button>
     <div class="msg" id="message"></div>
     <div class="small">Customer portal users should use the separate portal login page.</div>
+    <div class="small" id="loginBuildLabel">Deployment: loading...</div>
   </form>
   <script>
     const form=document.getElementById('loginForm');
     const message=document.getElementById('message');
+    const buildLabel=document.getElementById('loginBuildLabel');
+    fetch('/api/version').then(r=>r.ok?r.json():null).then(data=>{ if(buildLabel){ const label=data?.build?.label||'Build unavailable'; buildLabel.textContent=`Deployment: ${label}`; } }).catch(()=>{ if(buildLabel) buildLabel.textContent='Deployment: Build unavailable'; });
     fetch('/api/app/me').then(r=>r.ok?r.json():null).then(data=>{ if(data&&data.authenticated){ window.location.href='/'; } }).catch(()=>{});
     form.addEventListener('submit', async (e)=>{
       e.preventDefault();

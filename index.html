@@ -1197,6 +1197,12 @@
             font-size: 0.92rem;
         }
 
+        .footer-build {
+            display: block;
+            margin-top: 0.35rem;
+            font-weight: 700;
+        }
+
         .mobile-only { display: none !important; }
         .hidden { display: none !important; }
         .mobile-subview.active { display: block; }
@@ -2382,7 +2388,7 @@
                     <div class="hero-topline">
                         <div>
                             <p class="eyebrow">Warehouse Operations Console</p>
-                            <h1>WMS365 Scanner <span class="build-badge">Build OPSHOME-2026-04-16-12</span></h1>
+                            <h1>WMS365 Scanner <span class="build-badge" id="appBuildBadge">Build loading...</span></h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
@@ -2478,7 +2484,7 @@
                             <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Clear</button>
                         </div>
                         <div class="meta" id="activeCompanyMeta">Warehouse work stays scoped to the selected company.</div>
-                        <div class="meta">Build OPSHOME-2026-04-16-12</div>
+                        <div class="meta" id="appBuildMeta">Build loading...</div>
                     </div>
                     <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
@@ -2548,7 +2554,7 @@
                             <span class="mobile-appbar-badge">Scanner</span>
                         </div>
                         <h1>Choose Task</h1>
-                        <div class="mobile-build-label" style="font-size:12px;color:#64748b;margin-top:4px;">Build MOBILE-PICK-2026-04-16-10</div>
+                        <div class="mobile-build-label" id="appBuildMobileLabel" style="font-size:12px;color:#64748b;margin-top:4px;">Build loading...</div>
                     </div>
                     <div class="menu-stack">
                         <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
@@ -4226,7 +4232,7 @@
             </div>
         </section>
 
-        <p class="footer">Built as <strong>WMS365 Scanner</strong>. Shared inventory lives on the server; only the open batch and last location stay local in this browser.</p>
+        <p class="footer"><strong>WMS365 Warehouse Management System</strong><span class="footer-build" id="appBuildFooter">Deployment: loading...</span></p>
     </div>
 
     <datalist id="locationList"></datalist>
@@ -4364,6 +4370,10 @@
             workspaceSectionMeta: document.getElementById("workspaceSectionMeta"),
             workspaceCompanyChip: document.getElementById("workspaceCompanyChip"),
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
+            appBuildBadge: document.getElementById("appBuildBadge"),
+            appBuildMeta: document.getElementById("appBuildMeta"),
+            appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
+            appBuildFooter: document.getElementById("appBuildFooter"),
             syncNowBtn: document.getElementById("syncNowBtn"),
             activeCompany: document.getElementById("activeCompany"),
             activeCompanyDisplay: document.getElementById("activeCompanyDisplay"),
@@ -4692,6 +4702,7 @@
 
         function init() {
             applyDeviceExperienceMode();
+            refreshAppBuildLabels().catch(() => {});
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
             ui.syncNowBtn?.addEventListener("click", () => {
                 syncServerState(true).catch(() => {});
@@ -5013,6 +5024,23 @@
             window.addEventListener("resize", handleViewportChange);
             window.addEventListener("orientationchange", handleViewportChange);
             initMobileAutocomplete();
+        }
+
+        function applyAppBuildLabels(label) {
+            const safeLabel = String(label || "Build unavailable").trim() || "Build unavailable";
+            if (ui.appBuildBadge) ui.appBuildBadge.textContent = safeLabel;
+            if (ui.appBuildMeta) ui.appBuildMeta.textContent = safeLabel;
+            if (ui.appBuildMobileLabel) ui.appBuildMobileLabel.textContent = safeLabel;
+            if (ui.appBuildFooter) ui.appBuildFooter.textContent = `Deployment: ${safeLabel}`;
+        }
+
+        async function refreshAppBuildLabels() {
+            try {
+                const payload = await requestJson("/api/version");
+                applyAppBuildLabels(payload?.build?.label || "");
+            } catch {
+                applyAppBuildLabels("Build unavailable");
+            }
         }
 
         function isDesktopMobilePreviewEnabled() {
@@ -10548,6 +10576,7 @@
             const locationRows = getLocationReportRows(ui.reportFilter.value);
             const itemRows = getItemReportRows(ui.reportFilter.value);
             const vendorInventoryRows = getVendorInventoryReportRows(ui.reportFilter.value, ownerFilter);
+            const buildLabel = ui.appBuildBadge?.textContent || "Build unavailable";
             if (!ownerRows.length && !locationRows.length && !itemRows.length && !vendorInventoryRows.length) {
                 showMessage(ui.reportMessage, "There is no report data to print for the current filter.", "error");
                 return;
@@ -10557,7 +10586,7 @@
                 "WMS365 Scanner - Reports",
                 `
                     <h1>WMS365 Scanner</h1>
-                        <div class="build-chip">Build OPSHOME-2026-04-16-12</div>
+                        <div class="build-chip">${esc(buildLabel)}</div>
                     <p><strong>Inventory Reports</strong></p>
                     <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>

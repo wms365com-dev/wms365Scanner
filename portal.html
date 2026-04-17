@@ -177,6 +177,17 @@
             color: var(--brand);
             font-weight: 700;
         }
+        .footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.92rem;
+            padding-bottom: 0.5rem;
+        }
+        .footer-build {
+            display: block;
+            margin-top: 0.35rem;
+            font-weight: 700;
+        }
         @media (max-width: 860px) {
             .two-up, .stats, .detail-grid, .form-grid, .line-fields { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
@@ -419,6 +430,7 @@
                 </div>
             </section>
         </main>
+        <p class="footer"><strong>WMS365 Customer Portal</strong><span class="footer-build" id="portalBuildLabel">Deployment: loading...</span></p>
     </div>
 
     <script>
@@ -436,6 +448,7 @@
         const ui = {
             portalMessage: document.getElementById("portalMessage"),
             accountChip: document.getElementById("accountChip"),
+            portalBuildLabel: document.getElementById("portalBuildLabel"),
             loginView: document.getElementById("loginView"),
             portalView: document.getElementById("portalView"),
             loginForm: document.getElementById("loginForm"),
@@ -511,6 +524,7 @@
         init();
 
         function init() {
+            refreshBuildLabel().catch(() => {});
             ui.loginForm.addEventListener("submit", onLoginSubmit);
             ui.inventoryFilter.addEventListener("input", renderInventory);
             ui.exportInventoryBtn.addEventListener("click", exportInventoryReport);
@@ -531,6 +545,21 @@
             ui.orderLines.addEventListener("change", onOrderLinesChange);
             ui.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
             restoreSession();
+        }
+
+        function setBuildLabel(label) {
+            if (!ui.portalBuildLabel) return;
+            const safeLabel = String(label || "Build unavailable").trim() || "Build unavailable";
+            ui.portalBuildLabel.textContent = `Deployment: ${safeLabel}`;
+        }
+
+        async function refreshBuildLabel() {
+            try {
+                const payload = await requestJson("/api/version");
+                setBuildLabel(payload?.build?.label || "");
+            } catch {
+                setBuildLabel("Build unavailable");
+            }
         }
 
         async function restoreSession() {
