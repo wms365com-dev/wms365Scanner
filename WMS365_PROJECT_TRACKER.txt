@@ -136,6 +136,12 @@ RECENT FIXES COMPLETED
   - create internal inbound notices for the active company
   - review inbound queue from the warehouse side
   - uses the same underlying inbound model as the customer portal
+- Added warehouse-side store integrations inside Master Data & Setup:
+  - save customer-scoped ecommerce connections
+  - Shopify manual pull imports new store orders into the warehouse sales order queue
+  - imported orders stay locked to the selected customer account
+- Split customer portal shipped stats into a dedicated Shipped box.
+- Hardened desktop panel visibility rules so inactive sections stop bleeding through behind the active workspace.
 
 DEPLOYMENT / CONFIG NOTES
 - Main shared data lives in PostgreSQL.

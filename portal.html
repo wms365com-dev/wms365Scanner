@@ -121,7 +121,7 @@
         .stats {
             display: grid;
             gap: 0.85rem;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
         }
         .stat, .inventory-card, .order-card, .line-card, .empty {
             padding: 1rem;
@@ -238,7 +238,8 @@
                     <div class="stat"><span>Items</span><strong id="statSkus">0</strong></div>
                     <div class="stat"><span>Available Qty</span><strong id="statQty">0</strong></div>
                     <div class="stat"><span>Draft Orders</span><strong id="statDrafts">0</strong></div>
-                    <div class="stat"><span>Released / Picked / Staged / Shipped</span><strong id="statReleased">0</strong></div>
+                    <div class="stat"><span>Released / Picked / Staged</span><strong id="statReleased">0</strong></div>
+                    <div class="stat"><span>Shipped</span><strong id="statShipped">0</strong></div>
                 </div>
             </section>
 
@@ -446,6 +447,7 @@
             statQty: document.getElementById("statQty"),
             statDrafts: document.getElementById("statDrafts"),
             statReleased: document.getElementById("statReleased"),
+            statShipped: document.getElementById("statShipped"),
             inventoryPanel: document.getElementById("inventoryPanel"),
             itemsPanel: document.getElementById("itemsPanel"),
             orderPanel: document.getElementById("orderPanel"),
@@ -655,7 +657,8 @@
             ui.statSkus.textContent = num(portalState.catalogItems.length);
             ui.statQty.textContent = num(totals);
             ui.statDrafts.textContent = num(portalState.orders.filter((order) => order.status === "DRAFT").length);
-            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status)).length);
+            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "STAGED"].includes(order.status)).length);
+            ui.statShipped.textContent = num(portalState.orders.filter((order) => order.status === "SHIPPED").length);
         }
 
         function renderInventory() {

@@ -253,7 +253,13 @@
         }
 
         .panel { display: none; margin-top: 1rem; }
-        .panel.active { display: block; }
+        .panel:not(.active) { display: none !important; visibility: hidden; }
+        .panel.active {
+            display: block;
+            position: relative;
+            z-index: 1;
+            isolation: isolate;
+        }
 
         .card { padding: 1.15rem; }
         .full-span { grid-column: 1 / -1; }
@@ -1118,7 +1124,20 @@
             background: rgba(220, 38, 38, 0.08);
         }
 
-        .pill.warning {
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.28rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
+        .pill.warning,
+        .pill.warn {
             background: rgba(217, 119, 6, 0.14);
             color: #92400e;
             border: 1px solid rgba(217, 119, 6, 0.18);
@@ -1128,6 +1147,12 @@
             background: rgba(22, 163, 74, 0.14);
             color: #166534;
             border: 1px solid rgba(22, 163, 74, 0.18);
+        }
+
+        .pill.error {
+            background: rgba(220, 38, 38, 0.12);
+            color: #991b1b;
+            border: 1px solid rgba(220, 38, 38, 0.18);
         }
 
         .portal-order-line-table-wrap tr.insufficient-line td {
@@ -2486,7 +2511,7 @@
             </button>
             <button class="tab" data-section="inventory" type="button">
                 <span class="tab-label">Master Data</span>
-                <span class="tab-meta">Companies, items, BINs, portal users, and saved warehouse records.</span>
+                <span class="tab-meta">Companies, items, BINs, portal users, store integrations, and saved warehouse records.</span>
             </button>
             <button class="tab" data-section="orders" type="button">
                 <span class="tab-label">Sales Orders</span>
@@ -2905,7 +2930,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Master Data & Setup</h2>
-                            <p class="lead">Maintain companies, BINs, items, portal users, and saved warehouse shortcuts outside the daily receiving screen.</p>
+                            <p class="lead">Maintain companies, BINs, items, portal users, store integrations, and saved warehouse shortcuts outside the daily receiving screen.</p>
                         </div>
                     </div>
 
@@ -3105,6 +3130,80 @@
                             </div>
                             <div id="portalAccessList" class="stack-list">
                                 <p class="empty">No portal users saved yet.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="library-grid" style="margin-top: 1rem; margin-bottom: 1rem;">
+                        <div class="helper">
+                            <h3>Store Integrations</h3>
+                            <p class="meta">Connect each customer's online store and pull orders into the warehouse sales order queue. Shopify sync is live first, and the provider list is ready for the next storefronts.</p>
+                            <form id="integrationForm" class="form-grid" autocomplete="off">
+                                <input id="integrationId" type="hidden">
+                                <label class="field span-2">
+                                    <span>Company</span>
+                                    <input id="integrationAccount" list="ownerList" type="text" placeholder="Required company" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Provider</span>
+                                    <select id="integrationProvider">
+                                        <option value="SHOPIFY">Shopify</option>
+                                        <option value="WOOCOMMERCE">WooCommerce</option>
+                                        <option value="BIGCOMMERCE">BigCommerce</option>
+                                        <option value="AMAZON">Amazon</option>
+                                        <option value="ETSY">Etsy</option>
+                                        <option value="CUSTOM_API">Custom API</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Connection Name</span>
+                                    <input id="integrationName" type="text" placeholder="Example: Main Shopify Store" enterkeyhint="next">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Store URL / Domain</span>
+                                    <input id="integrationStoreIdentifier" type="text" placeholder="Example: your-store.myshopify.com" enterkeyhint="next">
+                                </label>
+                                <label class="field span-2">
+                                    <span>API Access Token</span>
+                                    <input id="integrationAccessToken" type="password" placeholder="Required for Shopify sync. Leave blank on edit to keep the saved token." enterkeyhint="done">
+                                </label>
+                                <label class="field">
+                                    <span>Import Orders As</span>
+                                    <select id="integrationImportStatus">
+                                        <option value="DRAFT">Draft</option>
+                                        <option value="RELEASED">Released</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Status</span>
+                                    <select id="integrationActive">
+                                        <option value="true">Active</option>
+                                        <option value="false">Disabled</option>
+                                    </select>
+                                </label>
+                                <div class="helper span-2">
+                                    <h3>Provider Notes</h3>
+                                    <p class="meta" id="integrationProviderNote">Use the Shopify shop's <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Pull Orders only imports new store orders for the selected customer.</p>
+                                </div>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Connection</button>
+                                    <button class="btn ghost" id="integrationResetBtn" type="button">New Connection</button>
+                                    <button class="btn ghost" id="integrationSyncBtn" type="button">Pull Orders Now</button>
+                                </div>
+                            </form>
+                            <div class="status" id="integrationMessage"></div>
+                        </div>
+
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved Integrations</h3>
+                                    <p class="meta">Connections are scoped to one company, so imported store orders stay customer-safe.</p>
+                                </div>
+                                <span class="meta" id="integrationCount">0 connections</span>
+                            </div>
+                            <div id="integrationList" class="stack-list">
+                                <p class="empty">No store integrations saved yet.</p>
                             </div>
                         </div>
                     </div>
@@ -4184,6 +4283,7 @@
         let currentSearchView = null;
         let editingMasterItem = null;
         let portalAccessRecords = [];
+        let integrationRecords = [];
         let portalOrderRecords = [];
         let portalInboundRecords = [];
         let editingWarehouseOrderId = "";
@@ -4208,7 +4308,7 @@
             },
             inventory: {
                 title: "Master Data",
-                meta: "Maintain companies, BINs, items, portal users, and saved warehouse records."
+                meta: "Maintain companies, BINs, items, portal users, store integrations, and saved warehouse records."
             },
             orders: {
                 title: "Sales Orders",
@@ -4349,6 +4449,20 @@
             portalAccessMessage: document.getElementById("portalAccessMessage"),
             portalAccessList: document.getElementById("portalAccessList"),
             portalAccessCount: document.getElementById("portalAccessCount"),
+            integrationAccount: document.getElementById("integrationAccount"),
+            integrationId: document.getElementById("integrationId"),
+            integrationProvider: document.getElementById("integrationProvider"),
+            integrationName: document.getElementById("integrationName"),
+            integrationStoreIdentifier: document.getElementById("integrationStoreIdentifier"),
+            integrationAccessToken: document.getElementById("integrationAccessToken"),
+            integrationImportStatus: document.getElementById("integrationImportStatus"),
+            integrationActive: document.getElementById("integrationActive"),
+            integrationProviderNote: document.getElementById("integrationProviderNote"),
+            integrationResetBtn: document.getElementById("integrationResetBtn"),
+            integrationSyncBtn: document.getElementById("integrationSyncBtn"),
+            integrationMessage: document.getElementById("integrationMessage"),
+            integrationList: document.getElementById("integrationList"),
+            integrationCount: document.getElementById("integrationCount"),
             openPortalBtn: document.getElementById("openPortalBtn"),
             catalogMessage: document.getElementById("catalogMessage"),
             importLocationCsvInput: document.getElementById("importLocationCsvInput"),
@@ -4680,6 +4794,10 @@
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
             ui.portalAccessResetBtn?.addEventListener("click", () => resetPortalAccessForm({ keepCompany: true }));
+            document.getElementById("integrationForm").addEventListener("submit", saveStoreIntegration);
+            ui.integrationResetBtn?.addEventListener("click", () => resetStoreIntegrationForm({ keepCompany: true }));
+            ui.integrationSyncBtn?.addEventListener("click", syncSelectedIntegration);
+            ui.integrationProvider?.addEventListener("change", updateIntegrationProviderNote);
             document.getElementById("loadVendorToPortalBtn").addEventListener("click", loadVendorToPortalAccess);
             document.getElementById("loadVendorToBillingBtn").addEventListener("click", loadVendorToBilling);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
@@ -4689,6 +4807,7 @@
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
+            ui.integrationList.addEventListener("click", onIntegrationListClick);
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
             ui.portalOrderSearch?.addEventListener("input", () => renderPortalOrdersList());
@@ -4866,21 +4985,26 @@
             resetWarehouseSalesOrderForm();
             resetWarehouseInboundForm();
             setLabelToolMode(labelToolState.mode || "location");
+            updateIntegrationProviderNote();
+            resetStoreIntegrationForm({ keepCompany: true });
             renderAll();
             setSection(isMobileView() ? "mobile-home" : "home");
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
+            refreshIntegrationsList().catch(() => {});
             refreshPortalOrdersList().catch(() => {});
             refreshPortalInboundsList().catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
                     syncServerState(true).catch(() => {});
+                    refreshIntegrationsList().catch(() => {});
                     refreshPortalOrdersList(true).catch(() => {});
                     refreshPortalInboundsList(true).catch(() => {});
                 }
             }, 30000);
             window.addEventListener("focus", () => {
                 syncServerState(true).catch(() => {});
+                refreshIntegrationsList().catch(() => {});
                 refreshPortalOrdersList(true).catch(() => {});
                 refreshPortalInboundsList(true).catch(() => {});
             });
@@ -5031,7 +5155,8 @@
                 ui.reportOwner,
                 ui.billingOwner,
                 ui.palletLabelAccount,
-                ui.portalAccessAccount
+                ui.portalAccessAccount,
+                ui.integrationAccount
             ].filter(Boolean);
         }
 
@@ -5113,6 +5238,7 @@
         function refreshCompanyScopedUi() {
             renderAll();
             renderPortalAccessList();
+            renderIntegrationList();
             renderPortalOrdersList();
             currentSearchView = null;
             lastSingleSearch = null;
@@ -5326,7 +5452,7 @@
         function initMobileAutocomplete() {
             if (!ui.mobileAutocomplete) return;
 
-            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.convertAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount]
+            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.convertAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount, ui.integrationAccount]
                 .forEach((input) => registerMobileAutocomplete(input, {
                     getSuggestions: (query) => getOwnerSuggestions(query),
                     onSelect: (option, currentInput) => {
@@ -8508,6 +8634,229 @@
             ui.portalAccessPassword.focus();
         }
 
+        async function saveStoreIntegration(event) {
+            event.preventDefault();
+            const integrationId = String(ui.integrationId.value || "").trim();
+            const accountName = getScopedCompanyValue(ui.integrationAccount.value);
+            const provider = norm(ui.integrationProvider.value || "SHOPIFY");
+            const integrationName = String(ui.integrationName.value || "").trim();
+            const storeIdentifier = String(ui.integrationStoreIdentifier.value || "").trim();
+            const accessToken = String(ui.integrationAccessToken.value || "");
+            const importStatus = norm(ui.integrationImportStatus.value || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT";
+            const isActive = ui.integrationActive.value !== "false";
+
+            if (!accountName) {
+                return fail(ui.integrationMessage, "Choose the company for this store connection.", ui.integrationAccount);
+            }
+            if (!provider) {
+                return fail(ui.integrationMessage, "Choose the store provider first.", ui.integrationProvider);
+            }
+            if (!storeIdentifier) {
+                return fail(ui.integrationMessage, "Enter the store URL or domain for this connection.", ui.integrationStoreIdentifier);
+            }
+
+            try {
+                const response = await requestJson("/api/admin/integrations", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        integrationId,
+                        accountName,
+                        provider,
+                        integrationName,
+                        storeIdentifier,
+                        accessToken,
+                        importStatus,
+                        isActive
+                    })
+                });
+                setActiveCompany(accountName, { force: true, rerender: false });
+                ui.integrationId.value = response?.integration?.id || integrationId || "";
+                ui.integrationAccessToken.value = "";
+                await refreshIntegrationsList();
+                const saved = integrationRecords.find((entry) => entry.id === String(response?.integration?.id || ""));
+                if (saved) loadStoreIntegrationIntoForm(saved);
+                showMessage(
+                    ui.integrationMessage,
+                    `${response?.wasCreated ? "Saved" : "Updated"} ${integrationProviderLabel(provider)} connection for ${accountName}.`,
+                    "success"
+                );
+            } catch (error) {
+                showMessage(ui.integrationMessage, error.message, "error");
+            }
+        }
+
+        async function refreshIntegrationsList() {
+            try {
+                const payload = await requestJson("/api/admin/integrations");
+                integrationRecords = Array.isArray(payload?.integrations)
+                    ? payload.integrations.map(sanitizeIntegrationRecord).filter(Boolean)
+                    : [];
+                renderIntegrationList();
+            } catch (error) {
+                integrationRecords = [];
+                renderIntegrationList(error.message);
+                throw error;
+            }
+        }
+
+        function renderIntegrationList(errorText = "") {
+            const company = getActiveCompany();
+            const visibleIntegrations = company
+                ? integrationRecords.filter((entry) => entry.accountName === company)
+                : integrationRecords;
+            ui.integrationCount.textContent = `${num(visibleIntegrations.length)} connection${visibleIntegrations.length === 1 ? "" : "s"}`;
+
+            if (!visibleIntegrations.length) {
+                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "No store integrations saved yet.")}</p>`;
+                return;
+            }
+
+            ui.integrationList.innerHTML = visibleIntegrations.map((entry) => {
+                const statusClass = entry.lastSyncStatus === "SUCCESS"
+                    ? "success"
+                    : (entry.lastSyncStatus === "ERROR" ? "error" : "warning");
+                const syncText = entry.lastSyncedAt
+                    ? `${entry.lastSyncStatus === "IDLE" ? "Not synced" : entry.lastSyncStatus} | ${formatDate(entry.lastSyncedAt)}`
+                    : "Not synced yet";
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(entry.integrationName || `${integrationProviderLabel(entry.provider)} ${entry.storeIdentifier}`)}</strong>
+                            <div class="quick-meta">${esc(entry.accountName)} | ${esc(integrationProviderLabel(entry.provider))} | ${esc(entry.storeIdentifier)}</div>
+                            <div class="quick-meta">
+                                ${entry.isActive ? "Connection active" : "Connection disabled"} | Orders import as ${esc(entry.importStatus)} | ${entry.hasAccessToken ? `Token ${esc(entry.accessTokenMasked)}` : "No API token saved"}
+                            </div>
+                            <div class="quick-meta">
+                                <span class="pill ${statusClass}">${esc(syncText)}</span>${entry.lastSyncMessage ? ` <span>${esc(entry.lastSyncMessage)}</span>` : ""}
+                            </div>
+                        </div>
+                        <div class="quick-row-actions">
+                            <button class="btn ghost mini" type="button" data-edit-integration="${attr(entry.id)}">Load</button>
+                            <button class="btn ghost mini" type="button" data-sync-integration="${attr(entry.id)}"${integrationSupportsSync(entry.provider) ? "" : " disabled"}>Pull Orders</button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function resetStoreIntegrationForm({ keepCompany = false } = {}) {
+            ui.integrationId.value = "";
+            ui.integrationProvider.value = "SHOPIFY";
+            ui.integrationName.value = "";
+            ui.integrationStoreIdentifier.value = "";
+            ui.integrationAccessToken.value = "";
+            ui.integrationImportStatus.value = "DRAFT";
+            ui.integrationActive.value = "true";
+            if (!keepCompany) {
+                ui.integrationAccount.value = "";
+            } else if (getActiveCompany()) {
+                ui.integrationAccount.value = getActiveCompany();
+            }
+            updateIntegrationProviderNote();
+            showMessage(ui.integrationMessage, "", "info");
+        }
+
+        function loadStoreIntegrationIntoForm(entry) {
+            if (!entry) return;
+            setActiveCompany(entry.accountName, { force: true, rerender: false });
+            ui.integrationId.value = entry.id || "";
+            ui.integrationAccount.value = entry.accountName || "";
+            ui.integrationProvider.value = entry.provider || "SHOPIFY";
+            ui.integrationName.value = entry.integrationName || "";
+            ui.integrationStoreIdentifier.value = entry.storeIdentifier || "";
+            ui.integrationAccessToken.value = "";
+            ui.integrationImportStatus.value = entry.importStatus || "DRAFT";
+            ui.integrationActive.value = entry.isActive === false ? "false" : "true";
+            updateIntegrationProviderNote();
+            ui.integrationAccessToken.focus();
+        }
+
+        function updateIntegrationProviderNote() {
+            if (!ui.integrationProviderNote) return;
+            const provider = norm(ui.integrationProvider?.value || "SHOPIFY");
+            const supportsSync = integrationSupportsSync(provider);
+            ui.integrationStoreIdentifier.placeholder = provider === "SHOPIFY"
+                ? "Example: your-store.myshopify.com"
+                : "Example: store URL, seller id, or platform domain";
+            ui.integrationAccessToken.placeholder = provider === "SHOPIFY"
+                ? "Required for Shopify sync. Leave blank on edit to keep the saved token."
+                : "Optional for now. Leave blank on edit to keep the saved token.";
+            ui.integrationSyncBtn.disabled = !supportsSync || !String(ui.integrationId.value || "").trim();
+            ui.integrationProviderNote.innerHTML = provider === "SHOPIFY"
+                ? 'Use the Shopify shop\'s <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Pull Orders only imports new open store orders for the selected customer.'
+                : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual order pull is wired in for Shopify first, and this provider is staged for the next pass.`;
+        }
+
+        function onIntegrationListClick(event) {
+            const editButton = event.target.closest("[data-edit-integration]");
+            if (editButton) {
+                const integrationId = editButton.dataset.editIntegration || "";
+                const match = integrationRecords.find((entry) => entry.id === integrationId);
+                if (match) loadStoreIntegrationIntoForm(match);
+                return;
+            }
+
+            const syncButton = event.target.closest("[data-sync-integration]");
+            if (!syncButton) return;
+            const integrationId = syncButton.dataset.syncIntegration || "";
+            if (integrationId) {
+                syncStoreIntegration(integrationId);
+            }
+        }
+
+        async function syncSelectedIntegration() {
+            const integrationId = String(ui.integrationId.value || "").trim();
+            if (!integrationId) {
+                return fail(ui.integrationMessage, "Load or save a connection first, then pull orders.", ui.integrationStoreIdentifier);
+            }
+            await syncStoreIntegration(integrationId);
+        }
+
+        async function syncStoreIntegration(integrationId) {
+            const record = integrationRecords.find((entry) => entry.id === String(integrationId));
+            if (record && !integrationSupportsSync(record.provider)) {
+                return showMessage(ui.integrationMessage, `${integrationProviderLabel(record.provider)} pull is not wired in yet. Shopify is live first.`, "error");
+            }
+
+            try {
+                ui.integrationSyncBtn.disabled = true;
+                const response = await requestJson(`/api/admin/integrations/${encodeURIComponent(integrationId)}/sync`, {
+                    method: "POST"
+                });
+                await refreshIntegrationsList();
+                await syncServerState(true);
+                await refreshPortalOrdersList(true);
+                showMessage(ui.integrationMessage, response?.message || "Store orders pulled.", response?.failedCount > 0 ? "error" : "success");
+            } catch (error) {
+                showMessage(ui.integrationMessage, error.message, "error");
+            } finally {
+                updateIntegrationProviderNote();
+            }
+        }
+
+        function integrationSupportsSync(provider) {
+            return norm(provider) === "SHOPIFY";
+        }
+
+        function integrationProviderLabel(provider) {
+            switch (norm(provider)) {
+                case "SHOPIFY":
+                    return "Shopify";
+                case "WOOCOMMERCE":
+                    return "WooCommerce";
+                case "BIGCOMMERCE":
+                    return "BigCommerce";
+                case "AMAZON":
+                    return "Amazon";
+                case "ETSY":
+                    return "Etsy";
+                case "CUSTOM_API":
+                    return "Custom API";
+                default:
+                    return "Store";
+            }
+        }
+
         function getWarehouseSalesOrderCompany() {
             return getActiveCompany();
         }
@@ -11480,6 +11829,29 @@
                 email: norm(String(item?.email || "").toLowerCase()),
                 isActive: item?.isActive !== false,
                 lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : null,
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeIntegrationRecord(item) {
+            const id = item?.id != null ? String(item.id) : "";
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer);
+            const provider = norm(item?.provider || item?.platform || item?.type);
+            if (!id || !accountName || !provider) return null;
+            return {
+                id,
+                accountName,
+                provider,
+                integrationName: String(item?.integrationName || item?.name || "").trim(),
+                storeIdentifier: String(item?.storeIdentifier || item?.store_identifier || item?.shopDomain || item?.shop_domain || "").trim().toLowerCase(),
+                importStatus: norm(item?.importStatus || item?.import_status || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT",
+                isActive: item?.isActive !== false,
+                hasAccessToken: item?.hasAccessToken === true || !!String(item?.accessTokenMasked || "").trim(),
+                accessTokenMasked: String(item?.accessTokenMasked || item?.access_token_masked || "").trim(),
+                lastSyncedAt: typeof item?.lastSyncedAt === "string" ? item.lastSyncedAt : (typeof item?.last_synced_at === "string" ? item.last_synced_at : null),
+                lastSyncStatus: norm(item?.lastSyncStatus || item?.last_sync_status || "IDLE") || "IDLE",
+                lastSyncMessage: String(item?.lastSyncMessage || item?.last_sync_message || "").trim(),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };

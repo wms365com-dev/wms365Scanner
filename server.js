@@ -57,6 +57,12 @@ const SMTP_PASS = String(process.env.SMTP_PASS || "");
 const SMTP_FROM = String(process.env.SMTP_FROM || "").trim();
 const SMTP_REPLY_TO = String(process.env.SMTP_REPLY_TO || "").trim();
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
+const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
+const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
+const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
+const SHOPIFY_ADMIN_API_VERSION = "2026-01";
+const SHOPIFY_ORDER_PAGE_LIMIT = 250;
 const BILLING_FEE_SEED = [
     { code: "STANDARD_PALLET_STORAGE", category: "Storage", name: "Standard pallet storage (48 x 40 x standard height)", unitLabel: "per pallet per month", defaultRate: 0 },
     { code: "OVERSIZED_PALLET_STORAGE", category: "Storage", name: "Oversized pallet storage (48 x 40 x tall height)", unitLabel: "per pallet per month", defaultRate: 0 },
@@ -1339,6 +1345,63 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/integrations", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        res.json({
+            integrations: await getStoreIntegrationList(pool, requestedAccount)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/integrations", async (req, res, next) => {
+    try {
+        const savedIntegration = await withTransaction(async (client) => {
+            const integration = await saveStoreIntegration(client, req.body);
+            await upsertOwnerMaster(client, integration.accountName);
+            await insertActivity(
+                client,
+                "setup",
+                `${integration.wasCreated ? "Added" : "Updated"} ${integration.provider} integration ${integration.integrationName || integration.storeIdentifier}`,
+                [
+                    integration.accountName,
+                    integration.storeIdentifier || "No store identifier",
+                    integration.isActive ? "Connection active." : "Connection disabled.",
+                    integration.hasAccessToken ? "API token saved." : "No API token saved yet."
+                ].filter(Boolean).join(" | ")
+            );
+            return integration;
+        });
+
+        res.json({
+            success: true,
+            wasCreated: savedIntegration.wasCreated === true,
+            integration: savedIntegration
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/integrations/:id/sync", async (req, res, next) => {
+    try {
+        const integrationId = toPositiveInt(req.params.id);
+        if (!integrationId) {
+            throw httpError(400, "A valid integration id is required.");
+        }
+
+        const result = await syncStoreIntegrationById(integrationId, req.appUser);
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/portal/login", async (req, res, next) => {
     try {
         const email = normalizeEmail(req.body?.email);
@@ -2117,6 +2180,52 @@ async function initializeDatabase() {
             created_at timestamptz not null default now()
         );
     `);
+    await pool.query(`
+        create table if not exists store_integrations (
+            id bigserial primary key,
+            account_name text not null,
+            provider text not null,
+            integration_name text not null default '',
+            store_identifier text not null default '',
+            access_token text not null default '',
+            import_status text not null default 'DRAFT',
+            is_active boolean not null default true,
+            last_synced_at timestamptz,
+            last_sync_status text not null default 'IDLE',
+            last_sync_message text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API')),
+            constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED')),
+            constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR'))
+        );
+    `);
+    await pool.query("alter table store_integrations add column if not exists integration_name text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists store_identifier text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists access_token text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists import_status text not null default 'DRAFT'");
+    await pool.query("alter table store_integrations add column if not exists is_active boolean not null default true");
+    await pool.query("alter table store_integrations add column if not exists last_synced_at timestamptz");
+    await pool.query("alter table store_integrations add column if not exists last_sync_status text not null default 'IDLE'");
+    await pool.query("alter table store_integrations add column if not exists last_sync_message text not null default ''");
+    await pool.query("alter table store_integrations drop constraint if exists store_integrations_provider_check");
+    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API'))");
+    await pool.query("alter table store_integrations drop constraint if exists store_integrations_import_status_check");
+    await pool.query("alter table store_integrations add constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED'))");
+    await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_status_check");
+    await pool.query("alter table store_integrations add constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR'))");
+    await pool.query(`
+        create table if not exists store_order_imports (
+            id bigserial primary key,
+            integration_id bigint not null references store_integrations(id) on delete cascade,
+            external_order_id text not null,
+            portal_order_id bigint not null references portal_orders(id) on delete cascade,
+            imported_at timestamptz not null default now(),
+            last_seen_at timestamptz not null default now(),
+            unique (integration_id, external_order_id),
+            unique (portal_order_id)
+        );
+    `);
     await pool.query("update portal_orders set order_code = null where order_code = ''");
     await pool.query("update portal_orders set order_code = concat('ORD-', lpad(id::text, 6, '0')) where order_code is null");
     await pool.query("delete from portal_sessions where expires_at <= now()");
@@ -2149,6 +2258,11 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
     await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
     await pool.query("create index if not exists idx_portal_inbound_lines_inbound_id on portal_inbound_lines (inbound_id);");
+    await pool.query("create unique index if not exists idx_store_integrations_account_provider_store_unique on store_integrations (account_name, provider, store_identifier);");
+    await pool.query("create index if not exists idx_store_integrations_account_name on store_integrations (account_name);");
+    await pool.query("create index if not exists idx_store_integrations_provider on store_integrations (provider);");
+    await pool.query("create index if not exists idx_store_order_imports_integration_id on store_order_imports (integration_id);");
+    await pool.query("create index if not exists idx_store_order_imports_external_order_id on store_order_imports (external_order_id);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
 
     await pool.query(`
@@ -2853,6 +2967,449 @@ async function getPortalAccessList(client = pool) {
     return result.rows.map(mapPortalAccessRow);
 }
 
+async function getStoreIntegrationList(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    const result = normalizedAccount
+        ? await client.query("select * from store_integrations where account_name = $1 order by account_name asc, provider asc, integration_name asc, id asc", [normalizedAccount])
+        : await client.query("select * from store_integrations order by account_name asc, provider asc, integration_name asc, id asc");
+    return result.rows.map(mapStoreIntegrationRow);
+}
+
+async function getStoreIntegrationRowById(client, integrationId) {
+    const result = await client.query("select * from store_integrations where id = $1 limit 1", [integrationId]);
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function saveStoreIntegration(client, rawInput) {
+    const entry = sanitizeStoreIntegrationInput(rawInput);
+    if (!entry.accountName) {
+        throw httpError(400, "Company is required.");
+    }
+    if (!entry.provider) {
+        throw httpError(400, "Choose a supported provider.");
+    }
+    if (!entry.storeIdentifier) {
+        throw httpError(400, entry.provider === SHOPIFY_SYNC_PROVIDER
+            ? "Enter the Shopify shop domain, such as your-store.myshopify.com."
+            : "Enter the store identifier or URL for this integration.");
+    }
+
+    const existing = entry.integrationId ? await getStoreIntegrationRowById(client, entry.integrationId) : null;
+    if (entry.integrationId && !existing) {
+        throw httpError(404, "That integration record could not be found.");
+    }
+
+    const normalizedName = entry.integrationName || `${describeStoreIntegrationProvider(entry.provider)} ${entry.storeIdentifier}`;
+    const accessToken = entry.accessToken || existing?.access_token || "";
+    const shouldResetSyncState = !existing
+        || existing.provider !== entry.provider
+        || existing.store_identifier !== entry.storeIdentifier
+        || (entry.accessToken && entry.accessToken !== existing.access_token);
+
+    if (entry.provider === SHOPIFY_SYNC_PROVIDER) {
+        if (!entry.storeIdentifier.endsWith(".myshopify.com")) {
+            throw httpError(400, "Shopify connections must use the shop's .myshopify.com domain.");
+        }
+        if (!accessToken) {
+            throw httpError(400, "A Shopify Admin API access token is required.");
+        }
+    }
+
+    let savedRow;
+    try {
+        if (existing) {
+            const updateResult = await client.query(
+                `
+                    update store_integrations
+                    set
+                        account_name = $2,
+                        provider = $3,
+                        integration_name = $4,
+                        store_identifier = $5,
+                        access_token = $6,
+                        import_status = $7,
+                        is_active = $8,
+                        last_synced_at = $9,
+                        last_sync_status = $10,
+                        last_sync_message = $11,
+                        updated_at = now()
+                    where id = $1
+                    returning *
+                `,
+                [
+                    existing.id,
+                    entry.accountName,
+                    entry.provider,
+                    normalizedName,
+                    entry.storeIdentifier,
+                    accessToken,
+                    entry.importStatus,
+                    entry.isActive,
+                    shouldResetSyncState ? null : existing.last_synced_at,
+                    shouldResetSyncState ? "IDLE" : (existing.last_sync_status || "IDLE"),
+                    shouldResetSyncState ? "" : (existing.last_sync_message || "")
+                ]
+            );
+            savedRow = updateResult.rows[0];
+        } else {
+            const insertResult = await client.query(
+                `
+                    insert into store_integrations (
+                        account_name, provider, integration_name, store_identifier,
+                        access_token, import_status, is_active
+                    )
+                    values ($1, $2, $3, $4, $5, $6, $7)
+                    returning *
+                `,
+                [
+                    entry.accountName,
+                    entry.provider,
+                    normalizedName,
+                    entry.storeIdentifier,
+                    accessToken,
+                    entry.importStatus,
+                    entry.isActive
+                ]
+            );
+            savedRow = insertResult.rows[0];
+        }
+    } catch (error) {
+        if (error?.code === "23505") {
+            throw httpError(409, "That company already has the same store connection saved.");
+        }
+        throw error;
+    }
+
+    const mapped = mapStoreIntegrationRow(savedRow);
+    mapped.wasCreated = !existing;
+    return mapped;
+}
+
+async function syncStoreIntegrationById(integrationId, appUser = null) {
+    const integrationRow = await getStoreIntegrationRowById(pool, integrationId);
+    if (!integrationRow) {
+        throw httpError(404, "That integration record could not be found.");
+    }
+    if (integrationRow.is_active !== true) {
+        throw httpError(400, "Enable the integration before pulling orders.");
+    }
+
+    let fetchedOrders = [];
+    try {
+        fetchedOrders = await fetchStoreOrdersForIntegration(integrationRow);
+    } catch (error) {
+        await pool.query(
+            `
+                update store_integrations
+                set last_sync_status = 'ERROR',
+                    last_sync_message = $2,
+                    updated_at = now()
+                where id = $1
+            `,
+            [integrationId, truncateStoreSyncMessage(error.message || "Store sync failed.")]
+        );
+        throw error;
+    }
+
+    return withTransaction(async (client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser));
+}
+
+async function importStoreOrdersForIntegration(client, integrationRow, orders, appUser = null) {
+    const normalizedProvider = normalizeStoreIntegrationProvider(integrationRow.provider);
+    const externalIds = orders
+        .map((order) => String(order?.id || "").trim())
+        .filter(Boolean);
+    const existingImports = externalIds.length
+        ? await client.query(
+            "select external_order_id from store_order_imports where integration_id = $1 and external_order_id = any($2::text[])",
+            [integrationRow.id, externalIds]
+        )
+        : { rows: [] };
+    const existingIds = new Set(existingImports.rows.map((row) => row.external_order_id));
+
+    let importedCount = 0;
+    let releasedCount = 0;
+    let draftCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    const detailMessages = [];
+
+    for (const order of orders) {
+        const externalOrderId = String(order?.id || "").trim();
+        const orderLabel = normalizeFreeText(order?.name || order?.order_number || externalOrderId || "Store order");
+        if (!externalOrderId) {
+            failedCount += 1;
+            detailMessages.push("Encountered a store order without an external id.");
+            continue;
+        }
+        if (existingIds.has(externalOrderId)) {
+            skippedCount += 1;
+            continue;
+        }
+
+        try {
+            let importedOrder = null;
+            if (normalizedProvider === SHOPIFY_SYNC_PROVIDER) {
+                const payload = mapShopifyOrderToPortalDraft(integrationRow.account_name, order, integrationRow);
+                importedOrder = await savePortalOrderDraftForAccount(
+                    client,
+                    integrationRow.account_name,
+                    payload,
+                    null,
+                    {
+                        portalAccessId: null,
+                        downloadPathPrefix: "/api/admin/portal-order-documents",
+                        activityTitlePrefix: "store import",
+                        activityActor: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        enforceInventoryAvailability: false
+                    }
+                );
+            } else {
+                throw httpError(400, `${describeStoreIntegrationProvider(normalizedProvider)} sync is not wired in yet. Shopify is live first.`);
+            }
+
+            let finalOrder = importedOrder;
+            if ((integrationRow.import_status || "DRAFT") === "RELEASED") {
+                try {
+                    finalOrder = await releaseWarehousePortalOrder(client, importedOrder.id, appUser);
+                    releasedCount += 1;
+                } catch (error) {
+                    draftCount += 1;
+                    detailMessages.push(`${orderLabel} imported as draft: ${error.message}`);
+                }
+            } else {
+                draftCount += 1;
+            }
+
+            await client.query(
+                `
+                    insert into store_order_imports (integration_id, external_order_id, portal_order_id)
+                    values ($1, $2, $3)
+                `,
+                [integrationRow.id, externalOrderId, finalOrder.id]
+            );
+            importedCount += 1;
+        } catch (error) {
+            failedCount += 1;
+            detailMessages.push(`${orderLabel}: ${error.message}`);
+        }
+    }
+
+    if (existingIds.size > 0) {
+        await client.query(
+            "update store_order_imports set last_seen_at = now() where integration_id = $1 and external_order_id = any($2::text[])",
+            [integrationRow.id, [...existingIds]]
+        );
+    }
+
+    const status = failedCount > 0
+        ? ((importedCount > 0 || skippedCount > 0) ? "WARNING" : "ERROR")
+        : "SUCCESS";
+    const baseMessage = [
+        `Fetched ${orders.length} ${normalizedProvider === SHOPIFY_SYNC_PROVIDER ? "Shopify" : "store"} order${orders.length === 1 ? "" : "s"}.`,
+        `Imported ${importedCount}.`,
+        `Released ${releasedCount}.`,
+        `Drafts ${draftCount}.`,
+        `Skipped ${skippedCount}.`,
+        `Failed ${failedCount}.`
+    ].join(" ");
+    const summaryMessage = detailMessages.length
+        ? `${baseMessage} ${truncateStoreSyncMessage(detailMessages.slice(0, 3).join(" | "), 380)}`
+        : baseMessage;
+
+    const updatedResult = await client.query(
+        `
+            update store_integrations
+            set
+                last_synced_at = now(),
+                last_sync_status = $2,
+                last_sync_message = $3,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [integrationRow.id, status, truncateStoreSyncMessage(summaryMessage)]
+    );
+
+    await insertActivity(
+        client,
+        "order",
+        `Synced ${describeStoreIntegrationProvider(normalizedProvider)} orders for ${integrationRow.account_name}`,
+        [
+            integrationRow.store_identifier,
+            `Imported ${importedCount}`,
+            `Released ${releasedCount}`,
+            `Drafts ${draftCount}`,
+            `Skipped ${skippedCount}`,
+            `Failed ${failedCount}`
+        ].join(" | ")
+    );
+
+    return {
+        integration: mapStoreIntegrationRow(updatedResult.rows[0]),
+        ordersFetched: orders.length,
+        importedCount,
+        releasedCount,
+        draftCount,
+        skippedCount,
+        failedCount,
+        message: truncateStoreSyncMessage(summaryMessage)
+    };
+}
+
+async function fetchStoreOrdersForIntegration(integrationRow) {
+    const provider = normalizeStoreIntegrationProvider(integrationRow.provider);
+    if (provider === SHOPIFY_SYNC_PROVIDER) {
+        return fetchShopifyOrdersForIntegration(integrationRow);
+    }
+    throw httpError(400, `${describeStoreIntegrationProvider(provider)} sync is not wired in yet. Shopify is live first.`);
+}
+
+async function fetchShopifyOrdersForIntegration(integrationRow) {
+    const shopDomain = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, integrationRow.store_identifier);
+    const accessToken = String(integrationRow.access_token || "").trim();
+
+    if (!shopDomain || !shopDomain.endsWith(".myshopify.com")) {
+        throw httpError(400, "This Shopify connection is missing a valid .myshopify.com domain.");
+    }
+    if (!accessToken) {
+        throw httpError(400, "This Shopify connection is missing its Admin API access token.");
+    }
+
+    const fields = [
+        "id",
+        "name",
+        "order_number",
+        "po_number",
+        "created_at",
+        "processed_at",
+        "email",
+        "phone",
+        "tags",
+        "note",
+        "shipping_address",
+        "billing_address",
+        "customer",
+        "line_items",
+        "cancelled_at",
+        "fulfillment_status",
+        "financial_status"
+    ].join(",");
+
+    let nextUrl = new URL(`https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/orders.json`);
+    nextUrl.searchParams.set("status", "open");
+    nextUrl.searchParams.set("limit", String(SHOPIFY_ORDER_PAGE_LIMIT));
+    nextUrl.searchParams.set("fields", fields);
+
+    const collected = [];
+    let pageCount = 0;
+    while (nextUrl) {
+        pageCount += 1;
+        if (pageCount > 8) {
+            break;
+        }
+
+        const response = await fetch(nextUrl, {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+                "X-Shopify-Access-Token": accessToken
+            },
+            signal: AbortSignal.timeout(30000)
+        });
+
+        const text = await response.text();
+        let payload = {};
+        try {
+            payload = text ? JSON.parse(text) : {};
+        } catch (_error) {
+            payload = {};
+        }
+
+        if (!response.ok) {
+            const details = payload?.errors
+                ? (typeof payload.errors === "string" ? payload.errors : JSON.stringify(payload.errors))
+                : (text || response.statusText || "Shopify request failed.");
+            throw httpError(response.status === 401 || response.status === 403 ? 401 : 502, `Shopify request failed: ${details}`);
+        }
+
+        const orders = Array.isArray(payload?.orders) ? payload.orders : [];
+        collected.push(...orders.filter((order) => !order?.cancelled_at));
+        nextUrl = parseShopifyNextLink(response.headers.get("link"));
+    }
+
+    return collected;
+}
+
+function parseShopifyNextLink(linkHeader) {
+    const text = String(linkHeader || "");
+    if (!text) return null;
+    const match = text.match(/<([^>]+)>;\s*rel="next"/i);
+    return match?.[1] ? new URL(match[1]) : null;
+}
+
+function mapShopifyOrderToPortalDraft(accountName, order, integrationRow) {
+    const shipping = order?.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : null;
+    const billing = order?.billing_address && typeof order.billing_address === "object" ? order.billing_address : null;
+    const customer = order?.customer && typeof order.customer === "object" ? order.customer : null;
+    const fallbackAddress = customer?.default_address && typeof customer.default_address === "object" ? customer.default_address : null;
+    const address = shipping || billing || fallbackAddress || {};
+    const shipToName = normalizeFreeText(
+        address?.name
+        || [address?.first_name, address?.last_name].filter(Boolean).join(" ")
+        || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ")
+        || order?.email
+        || `Shopify ${order?.name || order?.id || "Order"}`
+    );
+    const contactPhone = normalizeFreeText(address?.phone || order?.phone || customer?.phone || order?.email || "NO PHONE");
+    const lines = (Array.isArray(order?.line_items) ? order.line_items : [])
+        .map((line) => ({
+            sku: normalizeText(line?.sku || ""),
+            quantity: toPositiveInt(line?.fulfillable_quantity ?? line?.current_quantity ?? line?.quantity)
+        }))
+        .filter((line) => line.sku && line.quantity);
+
+    if (!lines.length) {
+        throw httpError(400, `Shopify order ${normalizeFreeText(order?.name || order?.id || "")} does not have any shippable SKU lines to import.`);
+    }
+
+    const shipToAddress1 = normalizeFreeText(address?.address1 || "");
+    const shipToCity = normalizeFreeText(address?.city || "");
+    const shipToState = normalizeFreeText(address?.province_code || address?.province || "");
+    const shipToPostalCode = normalizeFreeText(address?.zip || address?.postal_code || "");
+    const shipToCountry = normalizeFreeText(address?.country_code || address?.country || "USA");
+    if (!shipToAddress1 || !shipToCity || !shipToState || !shipToPostalCode || !shipToCountry) {
+        throw httpError(400, `Shopify order ${normalizeFreeText(order?.name || order?.id || "")} is missing a full ship-to address.`);
+    }
+
+    return {
+        accountName,
+        poNumber: normalizeFreeText(order?.po_number || order?.name || String(order?.order_number || order?.id || "")),
+        shippingReference: normalizeFreeText(order?.name || `SHOPIFY-${order?.order_number || order?.id || ""}`),
+        contactName: shipToName,
+        contactPhone,
+        requestedShipDate: normalizeDateInput(order?.processed_at || order?.created_at || new Date().toISOString()),
+        orderNotes: normalizeFreeText([
+            `Imported from Shopify`,
+            integrationRow?.store_identifier || "",
+            order?.name ? `External order ${order.name}` : "",
+            order?.email ? `Customer ${order.email}` : "",
+            order?.financial_status ? `Payment ${order.financial_status}` : "",
+            order?.tags ? `Tags ${order.tags}` : "",
+            order?.note || ""
+        ].filter(Boolean).join(" | ")),
+        shipToName,
+        shipToAddress1,
+        shipToAddress2: normalizeFreeText(address?.address2 || ""),
+        shipToCity,
+        shipToState,
+        shipToPostalCode,
+        shipToCountry,
+        shipToPhone: contactPhone,
+        lines
+    };
+}
+
 async function getPortalAccessByAccountName(client, accountName) {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) return null;
@@ -3331,7 +3888,8 @@ async function savePortalOrderDraftForAccount(
         portalAccessId = null,
         downloadPathPrefix = "/api/admin/portal-order-documents",
         activityTitlePrefix = "portal",
-        activityActor = ""
+        activityActor = "",
+        enforceInventoryAvailability = true
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -3350,8 +3908,10 @@ async function savePortalOrderDraftForAccount(
         throw httpError(400, "Add at least one order line before saving.");
     }
 
-    for (const line of order.lines) {
-        await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
+    if (enforceInventoryAvailability) {
+        for (const line of order.lines) {
+            await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
+        }
     }
 
     let savedOrderId = orderId;
@@ -5099,6 +5659,25 @@ function sanitizeOwnerMasterInput(item) {
     };
 }
 
+function sanitizeStoreIntegrationInput(item) {
+    const provider = normalizeStoreIntegrationProvider(item?.provider || item?.platform || item?.type);
+    return {
+        integrationId: toPositiveInt(item?.integrationId || item?.id),
+        accountName: normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer),
+        provider,
+        integrationName: normalizeFreeText(item?.integrationName || item?.name || item?.label),
+        storeIdentifier: normalizeStoreIdentifierForProvider(
+            provider,
+            item?.storeIdentifier || item?.store || item?.storeUrl || item?.url || item?.shopDomain || item?.shop_domain
+        ),
+        accessToken: typeof item?.accessToken === "string" ? item.accessToken.trim() : "",
+        importStatus: STORE_INTEGRATION_IMPORT_STATUSES.includes(normalizeText(item?.importStatus || item?.defaultOrderStatus || "DRAFT"))
+            ? normalizeText(item?.importStatus || item?.defaultOrderStatus || "DRAFT")
+            : "DRAFT",
+        isActive: item?.isActive !== false
+    };
+}
+
 function sanitizeItemMasterInput(item) {
     const accountName = normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer || "");
     const sku = normalizeText(item?.sku);
@@ -5320,6 +5899,29 @@ function mapPortalAccessRow(row) {
         lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapStoreIntegrationRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name,
+        provider: normalizeStoreIntegrationProvider(row.provider),
+        integrationName: row.integration_name || "",
+        storeIdentifier: row.store_identifier || "",
+        importStatus: STORE_INTEGRATION_IMPORT_STATUSES.includes(normalizeText(row.import_status || "DRAFT"))
+            ? normalizeText(row.import_status || "DRAFT")
+            : "DRAFT",
+        isActive: row.is_active === true,
+        hasAccessToken: !!String(row.access_token || "").trim(),
+        accessTokenMasked: maskSecretTail(row.access_token || ""),
+        lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : null,
+        lastSyncStatus: STORE_INTEGRATION_SYNC_STATUSES.includes(normalizeText(row.last_sync_status || "IDLE"))
+            ? normalizeText(row.last_sync_status || "IDLE")
+            : "IDLE",
+        lastSyncMessage: row.last_sync_message || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
 }
 
@@ -5641,6 +6243,66 @@ function toPositiveInt(value) {
 function toPositiveNumber(value) {
     const parsed = Number.parseFloat(String(value));
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeStoreIntegrationProvider(value) {
+    const normalized = normalizeText(value || "");
+    return STORE_INTEGRATION_PROVIDERS.includes(normalized) ? normalized : "";
+}
+
+function normalizeStoreIdentifierForProvider(provider, value) {
+    const text = normalizeFreeText(value || "").toLowerCase();
+    if (!text) return "";
+
+    if (normalizeStoreIntegrationProvider(provider) === SHOPIFY_SYNC_PROVIDER) {
+        const candidate = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+        try {
+            return new URL(candidate).hostname.toLowerCase().replace(/^www\./, "");
+        } catch (_error) {
+            return text.replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0];
+        }
+    }
+
+    return text;
+}
+
+function describeStoreIntegrationProvider(provider) {
+    switch (normalizeStoreIntegrationProvider(provider)) {
+        case "SHOPIFY":
+            return "Shopify";
+        case "WOOCOMMERCE":
+            return "WooCommerce";
+        case "BIGCOMMERCE":
+            return "BigCommerce";
+        case "AMAZON":
+            return "Amazon";
+        case "ETSY":
+            return "Etsy";
+        case "CUSTOM_API":
+            return "Custom API";
+        default:
+            return "Store";
+    }
+}
+
+function _maskSecretTailLegacy(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    const tail = text.slice(-4);
+    return `••••${tail}`;
+}
+
+function truncateStoreSyncMessage(value, maxLength = 500) {
+    const text = normalizeFreeText(value || "");
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function maskSecretTail(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    const tail = text.slice(-4);
+    return `****${tail}`;
 }
 
 function csvCell(value) {
