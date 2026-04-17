@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const express = require("express");
+const nodemailer = require("nodemailer");
 const path = require("path");
 const { Pool } = require("pg");
 
@@ -22,6 +23,15 @@ function bootstrapNormalizeFreeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
 }
 
+function escapeHtml(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 
 const normalizeEmail = bootstrapNormalizeEmail;
 const normalizeFreeText = bootstrapNormalizeFreeText;
@@ -39,6 +49,13 @@ const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
 const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(process.env.APP_ADMIN_EMAIL || "admin@wms365.local");
 const DEFAULT_ADMIN_PASSWORD = String(process.env.APP_ADMIN_PASSWORD || "ChangeMeNow123!");
 const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(process.env.APP_ADMIN_NAME || "Platform Owner");
+const SMTP_HOST = String(process.env.SMTP_HOST || "").trim();
+const SMTP_PORT = Number.parseInt(String(process.env.SMTP_PORT || "").trim() || "0", 10) || 0;
+const SMTP_SECURE = /^(1|true|yes|on)$/i.test(String(process.env.SMTP_SECURE || "").trim());
+const SMTP_USER = String(process.env.SMTP_USER || "").trim();
+const SMTP_PASS = String(process.env.SMTP_PASS || "");
+const SMTP_FROM = String(process.env.SMTP_FROM || "").trim();
+const SMTP_REPLY_TO = String(process.env.SMTP_REPLY_TO || "").trim();
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const BILLING_FEE_SEED = [
     { code: "STANDARD_PALLET_STORAGE", category: "Storage", name: "Standard pallet storage (48 x 40 x standard height)", unitLabel: "per pallet per month", defaultRate: 0 },
@@ -145,6 +162,7 @@ const BILLING_FEE_SEED = [
 let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
+let shipmentMailer = null;
 
 const pool = DATABASE_URL
     ? new Pool({
@@ -3277,6 +3295,191 @@ async function getPortalOrderDocumentById(documentId, client = pool) {
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
+function hasShipmentEmailConfig() {
+    return !!SMTP_HOST && !!SMTP_PORT && !!SMTP_FROM;
+}
+
+function getShipmentMailer() {
+    if (!hasShipmentEmailConfig()) {
+        throw httpError(500, "Shipment email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM before marking an order shipped.");
+    }
+    if ((SMTP_USER && !SMTP_PASS) || (!SMTP_USER && SMTP_PASS)) {
+        throw httpError(500, "Shipment email is partially configured. Set both SMTP_USER and SMTP_PASS, or leave both blank.");
+    }
+    if (!shipmentMailer) {
+        shipmentMailer = nodemailer.createTransport({
+            host: SMTP_HOST,
+            port: SMTP_PORT,
+            secure: SMTP_SECURE,
+            auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined
+        });
+    }
+    return shipmentMailer;
+}
+
+async function getPortalShipmentRecipients(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    const recipients = new Set();
+    const addRecipient = (value) => {
+        const email = normalizeEmail(value);
+        if (email) recipients.add(email);
+    };
+
+    const portalUsers = await client.query(
+        `
+            select email
+            from portal_vendor_access
+            where account_name = $1
+              and is_active = true
+              and email is not null
+              and btrim(email) <> ''
+            order by email asc
+        `,
+        [normalizedAccount]
+    );
+    portalUsers.rows.forEach((row) => addRecipient(row.email));
+
+    const ownerAccount = await client.query(
+        `
+            select email, billing_email, ap_email, portal_login_email
+            from owner_accounts
+            where name = $1
+            limit 1
+        `,
+        [normalizedAccount]
+    );
+    if (ownerAccount.rowCount === 1) {
+        const row = ownerAccount.rows[0];
+        addRecipient(row.portal_login_email);
+        addRecipient(row.billing_email);
+        addRecipient(row.ap_email);
+        addRecipient(row.email);
+    }
+
+    return [...recipients];
+}
+
+function formatPortalOrderShipToAddress(order) {
+    return [
+        normalizeFreeText(order.shipToName || ""),
+        normalizeFreeText(order.shipToAddress1 || ""),
+        normalizeFreeText(order.shipToAddress2 || ""),
+        [
+            normalizeFreeText(order.shipToCity || ""),
+            normalizeFreeText(order.shipToState || ""),
+            normalizeFreeText(order.shipToPostalCode || "")
+        ].filter(Boolean).join(", "),
+        normalizeFreeText(order.shipToCountry || "")
+    ].filter(Boolean).join(" | ");
+}
+
+function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } = {}) {
+    const lines = [
+        `${isUpdate ? "Shipment confirmation updated" : "Shipment confirmation"} for ${order.orderCode}`,
+        `Company: ${order.accountName}`,
+        `Status: ${order.status}`,
+        order.poNumber ? `PO Number: ${order.poNumber}` : "",
+        order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
+        order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        confirmation.confirmedShipDate ? `Confirmed Ship Date: ${confirmation.confirmedShipDate}` : "",
+        confirmation.shippedCarrierName ? `Carrier: ${confirmation.shippedCarrierName}` : "",
+        confirmation.shippedTrackingReference ? `Tracking / PRO / BOL: ${confirmation.shippedTrackingReference}` : "",
+        order.contactName ? `Warehouse Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
+        formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
+        confirmation.shippedConfirmationNote ? `Shipping Note: ${confirmation.shippedConfirmationNote}` : "",
+        "",
+        "Order Lines:"
+    ];
+
+    order.lines.forEach((line) => {
+        lines.push(
+            `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
+        );
+    });
+
+    if (confirmation.documents.length) {
+        lines.push("", `Attached Documents (${confirmation.documents.length}):`);
+        confirmation.documents.forEach((document) => lines.push(`- ${document.fileName}`));
+    }
+
+    return lines.filter((line, index, array) => line || (index > 0 && array[index - 1] !== "")).join("\n");
+}
+
+function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } = {}) {
+    const linesHtml = order.lines.map((line) => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "-")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.upc || "-")}</td>
+        </tr>
+    `).join("");
+
+    const documentList = confirmation.documents.length
+        ? `
+            <p style="margin:16px 0 8px;font-weight:600;">Attached Documents</p>
+            <ul style="margin:0 0 16px 18px;padding:0;">
+                ${confirmation.documents.map((document) => `<li>${escapeHtml(document.fileName)}</li>`).join("")}
+            </ul>
+        `
+        : "";
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
+            <h2 style="margin:0 0 12px;">${escapeHtml(isUpdate ? "Shipment Confirmation Updated" : "Shipment Confirmed")}</h2>
+            <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> has been ${isUpdate ? "updated" : "shipped"}.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;">
+                <tr><td style="padding:6px 0;font-weight:600;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Confirmed Ship Date</td><td style="padding:6px 0;">${escapeHtml(confirmation.confirmedShipDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Carrier</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedCarrierName || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Tracking / PRO / BOL</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedTrackingReference || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Ship To</td><td style="padding:6px 0;">${escapeHtml(formatPortalOrderShipToAddress(order) || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Warehouse Contact</td><td style="padding:6px 0;">${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</td></tr>
+                ${confirmation.shippedConfirmationNote ? `<tr><td style="padding:6px 0;font-weight:600;">Shipping Note</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedConfirmationNote)}</td></tr>` : ""}
+            </table>
+            <p style="margin:20px 0 8px;font-weight:600;">Order Lines</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Quantity</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">UPC</th>
+                    </tr>
+                </thead>
+                <tbody>${linesHtml}</tbody>
+            </table>
+            ${documentList}
+        </div>
+    `;
+}
+
+async function sendPortalShipmentConfirmationEmail(client, order, confirmation, { isUpdate = false } = {}) {
+    const recipients = await getPortalShipmentRecipients(client, order.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No active portal user or company email is available for shipment confirmation.");
+    }
+
+    const transporter = getShipmentMailer();
+    await transporter.sendMail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `${isUpdate ? "Shipment Confirmation Updated" : "Shipment Confirmed"} - ${order.orderCode}`,
+        text: buildPortalShipmentEmailText(order, confirmation, { isUpdate }),
+        html: buildPortalShipmentEmailHtml(order, confirmation, { isUpdate }),
+        attachments: confirmation.documents.map((document) => ({
+            filename: document.fileName,
+            content: document.fileBuffer,
+            contentType: document.fileType
+        }))
+    });
+
+    return recipients;
+}
+
 async function savePortalShippingConfirmation(client, order, rawConfirmation, appUser = null, { transitionToShipped = false } = {}) {
     const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
@@ -3324,6 +3527,18 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     }
 
     const updatedOrder = await getPortalOrderById(client, order.id, order.accountName);
+    const notificationRecipients = await sendPortalShipmentConfirmationEmail(
+        client,
+        updatedOrder,
+        {
+            ...confirmation,
+            confirmedShipDate,
+            shippedCarrierName,
+            shippedTrackingReference,
+            shippedConfirmationNote
+        },
+        { isUpdate: !transitionToShipped }
+    );
     if (transitionToShipped) {
         await createPortalOrderBillingEvents(client, updatedOrder);
     }
@@ -3336,6 +3551,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
+            notificationRecipients.length ? `Email sent to ${formatCount(notificationRecipients.length, "recipient")}` : "",
             actor
         ].filter(Boolean).join(" | ")
     );

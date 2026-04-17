@@ -282,6 +282,7 @@
                 <form id="orderForm" class="form-grid" autocomplete="off">
                     <label class="field"><span>PO #</span><input id="orderPoNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Shipping Reference</span><input id="orderShippingReference" type="text" placeholder="Required"></label>
+                    <label class="field"><span>Requested Ship Date</span><input id="orderRequestedShipDate" type="date"></label>
                     <label class="field"><span>Contact Name</span><input id="orderContactName" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Tel</span><input id="orderContactPhone" type="text" placeholder="Required"></label>
                     <label class="field span-2"><span>Ship To Company / Receiver</span><input id="orderShipToName" type="text" placeholder="Required company or receiver name"></label>
@@ -292,6 +293,7 @@
                     <label class="field"><span>State / Province</span><input id="orderShipToState" type="text" placeholder="Required"></label>
                     <label class="field"><span>Postal Code</span><input id="orderShipToPostalCode" type="text" placeholder="Required"></label>
                     <label class="field"><span>Country</span><input id="orderShipToCountry" type="text" value="USA" placeholder="Required"></label>
+                    <label class="field span-2"><span>Order Notes</span><input id="orderNotes" type="text" placeholder="Optional shipping or handling notes"></label>
                 </form>
 
                 <div style="margin-top: 1rem;">
@@ -403,6 +405,7 @@
             orderFormTitle: document.getElementById("orderFormTitle"),
             orderPoNumber: document.getElementById("orderPoNumber"),
             orderShippingReference: document.getElementById("orderShippingReference"),
+            orderRequestedShipDate: document.getElementById("orderRequestedShipDate"),
             orderContactName: document.getElementById("orderContactName"),
             orderContactPhone: document.getElementById("orderContactPhone"),
             orderShipToName: document.getElementById("orderShipToName"),
@@ -413,6 +416,7 @@
             orderShipToState: document.getElementById("orderShipToState"),
             orderShipToPostalCode: document.getElementById("orderShipToPostalCode"),
             orderShipToCountry: document.getElementById("orderShipToCountry"),
+            orderNotes: document.getElementById("orderNotes"),
             addLineBtn: document.getElementById("addLineBtn"),
             orderLines: document.getElementById("orderLines"),
             resetOrderBtn: document.getElementById("resetOrderBtn"),
@@ -615,10 +619,18 @@
                     <div class="order-meta">
                         <div>PO: ${esc(order.poNumber || "None")}</div>
                         <div>Reference: ${esc(order.shippingReference || "None")}</div>
+                        <div>Requested Ship: ${esc(order.requestedShipDate || "Not set")}</div>
                         <div>Ship To: ${esc(order.shipToName || order.contactName || "")}${order.shipToPhone ? ` | ${esc(order.shipToPhone)}` : ""}${formatAddress(order) ? ` | ${esc(formatAddress(order))}` : ""}</div>
                         <div>Contact: ${esc(order.contactName)}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
+                        ${order.orderNotes ? `<div>Notes: ${esc(order.orderNotes)}</div>` : ""}
                         <div>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</div>
                         ${orderStatusTimeline(order) ? `<div>${esc(orderStatusTimeline(order))}</div>` : ""}
+                        ${order.confirmedShipDate || order.shippedCarrierName || order.shippedTrackingReference || order.shippedConfirmationNote ? `
+                            <div>Confirmed Ship: ${esc(order.confirmedShipDate || "Not set")}</div>
+                            <div>Carrier: ${esc(order.shippedCarrierName || "Not provided")}</div>
+                            <div>Tracking / PRO / BOL: ${esc(order.shippedTrackingReference || "Not provided")}</div>
+                            ${order.shippedConfirmationNote ? `<div>Shipping Note: ${esc(order.shippedConfirmationNote)}</div>` : ""}
+                        ` : ""}
                     </div>
                     <div class="line-items">
                         ${order.lines.map((line) => `
@@ -631,6 +643,15 @@
                             </div>
                         `).join("")}
                     </div>
+                    ${order.documents?.length ? `
+                        <div class="button-row" style="margin-top: 0.85rem;">
+                            ${order.documents.map((document) => `
+                                <a class="btn ghost mini" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
+                                    ${esc(document.fileName)}
+                                </a>
+                            `).join("")}
+                        </div>
+                    ` : ""}
                     <div class="button-row" style="margin-top: 0.85rem;">
                         ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
                         ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}">Release</button>` : ""}
@@ -745,6 +766,7 @@
             ui.orderFormTitle.textContent = order ? `Edit ${order.orderCode}` : "New Order";
             ui.orderPoNumber.value = order?.poNumber || "";
             ui.orderShippingReference.value = order?.shippingReference || "";
+            ui.orderRequestedShipDate.value = order?.requestedShipDate || "";
             ui.orderContactName.value = order?.contactName || "";
             ui.orderContactPhone.value = order?.contactPhone || "";
             ui.orderShipToName.value = order?.shipToName || order?.contactName || "";
@@ -755,6 +777,7 @@
             ui.orderShipToState.value = order?.shipToState || "";
             ui.orderShipToPostalCode.value = order?.shipToPostalCode || "";
             ui.orderShipToCountry.value = order?.shipToCountry || "USA";
+            ui.orderNotes.value = order?.orderNotes || "";
             ui.orderLines.innerHTML = "";
             const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
             lines.forEach((line) => addOrderLine(line));
@@ -842,6 +865,7 @@
             return {
                 poNumber: ui.orderPoNumber.value.trim(),
                 shippingReference: ui.orderShippingReference.value.trim(),
+                requestedShipDate: ui.orderRequestedShipDate.value,
                 contactName: ui.orderContactName.value.trim(),
                 contactPhone: ui.orderContactPhone.value.trim(),
                 shipToName: ui.orderShipToName.value.trim(),
@@ -852,6 +876,7 @@
                 shipToState: ui.orderShipToState.value.trim(),
                 shipToPostalCode: ui.orderShipToPostalCode.value.trim(),
                 shipToCountry: ui.orderShipToCountry.value.trim(),
+                orderNotes: ui.orderNotes.value.trim(),
                 lines
             };
         }
@@ -999,6 +1024,8 @@
                 shippingReference: String(order.shippingReference || "").trim(),
                 contactName: String(order.contactName || "").trim(),
                 contactPhone: String(order.contactPhone || "").trim(),
+                requestedShipDate: String(order.requestedShipDate || order.requested_ship_date || "").trim(),
+                orderNotes: String(order.orderNotes || order.order_notes || "").trim(),
                 shipToName: String(order.shipToName || "").trim(),
                 shipToPhone: String(order.shipToPhone || "").trim(),
                 shipToAddress1: String(order.shipToAddress1 || "").trim(),
@@ -1007,13 +1034,34 @@
                 shipToState: String(order.shipToState || "").trim(),
                 shipToPostalCode: String(order.shipToPostalCode || "").trim(),
                 shipToCountry: String(order.shipToCountry || "").trim(),
+                confirmedShipDate: String(order.confirmedShipDate || order.confirmed_ship_date || "").trim(),
+                shippedCarrierName: String(order.shippedCarrierName || order.shipped_carrier_name || "").trim(),
+                shippedTrackingReference: String(order.shippedTrackingReference || order.shipped_tracking_reference || "").trim(),
+                shippedConfirmationNote: String(order.shippedConfirmationNote || order.shipped_confirmation_note || "").trim(),
                 releasedAt: order.releasedAt || null,
                 pickedAt: order.pickedAt || null,
                 stagedAt: order.stagedAt || null,
                 shippedAt: order.shippedAt || null,
                 createdAt: order.createdAt,
                 updatedAt: order.updatedAt,
-                lines: Array.isArray(order.lines) ? order.lines.map(sanitizeOrderLine).filter(Boolean) : []
+                lines: Array.isArray(order.lines) ? order.lines.map(sanitizeOrderLine).filter(Boolean) : [],
+                documents: Array.isArray(order.documents)
+                    ? order.documents.map(sanitizeOrderDocument).filter(Boolean)
+                    : []
+            };
+        }
+
+        function sanitizeOrderDocument(document) {
+            if (!document || typeof document !== "object") return null;
+            const fileName = String(document.fileName || document.file_name || "").trim();
+            const downloadUrl = String(document.downloadUrl || document.download_url || "").trim();
+            if (!fileName || !downloadUrl) return null;
+            return {
+                id: String(document.id || ""),
+                fileName,
+                downloadUrl,
+                uploadedBy: String(document.uploadedBy || document.uploaded_by || "").trim(),
+                createdAt: document.createdAt || document.created_at || null
             };
         }
 

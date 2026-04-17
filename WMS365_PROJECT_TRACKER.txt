@@ -1,0 +1,127 @@
+WMS365 PROJECT TRACKER
+Last Updated: 2026-04-17
+
+PURPOSE
+This file is the quick project log for WMS365 Scanner.
+Use it to track:
+- current features
+- important fixes
+- deployment-related setup
+- open follow-up items
+
+HOW TO USE THIS FILE
+- Add a new dated section whenever a meaningful feature or fix is completed.
+- Keep notes short and practical.
+- Put open items at the bottom so they are easy to review before the next work session.
+
+CURRENT SYSTEM SUMMARY
+- Warehouse-side web app with desktop and mobile workflows.
+- Shared server-backed data stored in PostgreSQL on Railway.
+- Separate warehouse login and customer portal login.
+- Company-scoped inventory so warehouse activity can be filtered to one 3PL customer at a time.
+
+CURRENT FEATURE SET
+
+1. Warehouse Operations
+- Receive inventory by company, location, SKU, UPC, quantity, and tracking level.
+- Track inventory by Units, Cases, and Pallets.
+- Search by SKU, UPC, location, or multiple item list.
+- Remove quantity, delete line, transfer stock, BIN-to-BIN move.
+- Convert item workflow to move inventory from one item to another:
+  Example: CASE to EACH, EACH to CASE, or re-SKU conversion using case-pack math.
+
+2. Master Data
+- Company master records.
+- BIN / location master records.
+- Item master records with:
+  - SKU
+  - UPC
+  - Description
+  - Tracking level
+  - Units per case
+  - Each dimensions
+  - Case dimensions
+  - Optional image
+- Portal user setup by company with support for multiple users per company.
+
+3. Labels
+- Location label generation.
+- Pallet label generation with:
+  - Company
+  - SKU
+  - Description
+  - Cases on pallet
+  - Date
+- Pallet lookup / reprint flow by pallet ID.
+
+4. Reports
+- Inventory by company.
+- Inventory by location.
+- Inventory by item.
+- Excel-style inventory by vendor/company report.
+- Pallet location and utilization reporting.
+
+5. Billing
+- Billing fee schedule by company.
+- Manual billing line entry.
+- Storage billing generation.
+- Billing export for invoice processing.
+- Auto billing hooks for receiving and shipped portal orders.
+
+6. Customer Portal
+- Portal login by company user email/password.
+- Vendor/customer-scoped inventory visibility.
+- Order entry with ship-to details and order lines.
+- Draft and release order flow.
+- Inbound request flow.
+- Portal users only see data for their assigned company.
+
+7. Shipping Confirmation
+- Warehouse can move portal orders through:
+  - RELEASED
+  - PICKED
+  - STAGED
+  - SHIPPED
+- Warehouse can upload shipped documents:
+  - POD
+  - signed BOL
+  - packing slip
+  - carrier confirmation
+- Portal users can view shipped confirmation details and download uploaded documents.
+- Shipment confirmation email support is now wired in for shipped orders.
+
+RECENT FIXES COMPLETED
+
+2026-04-17
+- Synced E:\WMS365Scanner to the current C:\WMS365Scanner version before patching.
+- Finished the Convert Item module frontend logic:
+  - preview
+  - validation
+  - submit flow
+- Fixed customer portal order entry so Requested Ship Date is captured and posted.
+- Added order notes field to the portal order form.
+- Fixed portal order display so shipped confirmation details are visible to the customer.
+- Fixed portal order display so uploaded shipped documents show as downloadable links.
+- Added shipment confirmation email support through SMTP configuration.
+- Added SMTP settings to .env.example.
+
+DEPLOYMENT / CONFIG NOTES
+- Main shared data lives in PostgreSQL.
+- Shipment emails require these env vars:
+  - SMTP_HOST
+  - SMTP_PORT
+  - SMTP_FROM
+  - optional SMTP_USER
+  - optional SMTP_PASS
+  - optional SMTP_REPLY_TO
+
+WORKFLOW NOTE
+- Current development source is E:\WMS365Scanner.
+- Push/deploy copy is C:\WMS365Scanner.
+- The push batch file should sync this tracker file as part of normal publish flow.
+
+OPEN ITEMS / NEXT CHECKS
+- Live end-to-end test on Railway with real SMTP credentials.
+- Confirm shipped email formatting and attachments with a real outbound order.
+- Re-check company hierarchy logic if the system expands from Company-only scope into a deeper Company -> Vendor -> Customer model.
+- Continue UI cleanup for consistent desktop and app-like mobile feel.
