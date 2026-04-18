@@ -2455,6 +2455,10 @@
                             <strong>Inventory Control</strong>
                             <span>Filter live stock and maintain master records.</span>
                         </button>
+                        <button class="quick-link" type="button" data-jump-section="integrations">
+                            <strong>Integrations</strong>
+                            <span>Connect Shopify and other storefronts to customer accounts.</span>
+                        </button>
                         <button class="quick-link" type="button" data-jump-section="orders">
                             <strong>Sales Orders</strong>
                             <span>Review released portal orders, print, pick, stage, and ship.</span>
@@ -2518,7 +2522,11 @@
             </button>
             <button class="tab" data-section="inventory" type="button">
                 <span class="tab-label">Master Data</span>
-                <span class="tab-meta">Companies, items, BINs, portal users, store integrations, and saved warehouse records.</span>
+                <span class="tab-meta">Companies, items, BINs, portal users, and saved warehouse records.</span>
+            </button>
+            <button class="tab" data-section="integrations" type="button">
+                <span class="tab-label">Integrations</span>
+                <span class="tab-meta">Connect Shopify and other storefronts and pull customer orders into warehouse sales orders.</span>
             </button>
             <button class="tab" data-section="orders" type="button">
                 <span class="tab-label">Sales Orders</span>
@@ -2573,6 +2581,10 @@
                             <span class="menu-card-title">Pallets</span>
                             <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
                         </button>
+                        <button class="btn menu-card-btn" type="button" data-mobile-nav="integrations">
+                            <span class="menu-card-title">Integrations</span>
+                            <span class="menu-card-meta">Open Shopify and storefront connections for customer order imports.</span>
+                        </button>
                         <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-pick">
                             <span class="menu-card-title">Picking</span>
                             <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order on mobile.</span>
@@ -2623,9 +2635,9 @@
                     <p>Use these less often and keep them out of the receiving screen.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="inventory"><strong>Companies / Items / BINs</strong><span>Maintain master data, portal users, and saved records outside receiving.</span></button>
+                        <button class="home-task" type="button" data-jump-section="integrations"><strong>Integrations</strong><span>Connect Shopify stores and pull customer orders into the warehouse.</span></button>
                         <button class="home-task" type="button" data-jump-section="billing"><strong>Billing</strong><span>Fee schedules, billing lines, and invoice-ready exports.</span></button>
                         <button class="home-task" type="button" data-jump-section="backup"><strong>Admin</strong><span>Portal users, import/export, backup, and settings.</span></button>
-                        <button class="home-task" type="button" data-jump-section="reports"><strong>Reports</strong><span>Inventory summary, company usage, and order activity.</span></button>
                     </div>
                 </article>
             </div>
@@ -2937,7 +2949,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Master Data & Setup</h2>
-                            <p class="lead">Maintain companies, BINs, items, portal users, store integrations, and saved warehouse shortcuts outside the daily receiving screen.</p>
+                            <p class="lead">Maintain companies, BINs, items, portal users, and saved warehouse shortcuts outside the daily receiving screen.</p>
                         </div>
                     </div>
 
@@ -3141,7 +3153,7 @@
                         </div>
                     </div>
 
-                    <div class="library-grid" style="margin-top: 1rem; margin-bottom: 1rem;">
+                    <div class="library-grid" id="storeIntegrationsBlock" style="margin-top: 1rem; margin-bottom: 1rem;">
                         <div class="helper">
                             <h3>Store Integrations</h3>
                             <p class="meta">Connect each customer's online store and pull orders into the warehouse sales order queue. Shopify sync is live first, and the provider list is ready for the next storefronts.</p>
@@ -3522,6 +3534,32 @@
                         <div class="summary"><span>Server Updated</span><strong id="summarySaved">Never</strong></div>
                     </div>
                     <p class="lead">Use the Backup tab to move or restore the shared server data when needed.</p>
+                </article>
+            </div>
+            </div>
+        </section>
+
+        <section class="panel" id="integrationsPanel" data-panel="integrations">
+            <div class="mobile-panel-head mobile-only">
+                <div class="mobile-appbar">
+                    <div class="mobile-appbar-copy">
+                        <span class="mobile-appbar-kicker">WMS365</span>
+                        <strong class="mobile-appbar-title">Integrations</strong>
+                    </div>
+                    <span class="mobile-appbar-badge">Warehouse</span>
+                </div>
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
+            <div class="mobile-screen-body">
+            <div class="inventory-grid integrations-workspace-grid">
+                <article class="card full-span workspace-control-card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Shopify & Store Integrations</h2>
+                            <p class="lead">Connect each customer's storefront here, starting with Shopify, then pull new orders into the warehouse sales order queue.</p>
+                        </div>
+                    </div>
+                    <div id="integrationsWorkspaceHost"></div>
                 </article>
             </div>
             </div>
@@ -4315,7 +4353,11 @@
             },
             inventory: {
                 title: "Master Data",
-                meta: "Maintain companies, BINs, items, portal users, store integrations, and saved warehouse records."
+                meta: "Maintain companies, BINs, items, portal users, and saved warehouse records."
+            },
+            integrations: {
+                title: "Integrations",
+                meta: "Connect Shopify and other storefronts and pull customer orders into warehouse sales orders."
             },
             orders: {
                 title: "Sales Orders",
@@ -4376,6 +4418,8 @@
             appBuildFooter: document.getElementById("appBuildFooter"),
             masterDataWorkspaceCard: document.getElementById("masterDataWorkspaceCard"),
             inventoryWorkspaceGrid: document.getElementById("inventoryWorkspaceGrid"),
+            storeIntegrationsBlock: document.getElementById("storeIntegrationsBlock"),
+            integrationsWorkspaceHost: document.getElementById("integrationsWorkspaceHost"),
             syncNowBtn: document.getElementById("syncNowBtn"),
             activeCompany: document.getElementById("activeCompany"),
             activeCompanyDisplay: document.getElementById("activeCompanyDisplay"),
@@ -4705,6 +4749,7 @@
         function init() {
             applyDeviceExperienceMode();
             mountMasterDataWorkspace();
+            mountIntegrationsWorkspace();
             refreshAppBuildLabels().catch(() => {});
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
             ui.syncNowBtn?.addEventListener("click", () => {
@@ -5033,8 +5078,17 @@
             const card = ui.masterDataWorkspaceCard;
             const targetGrid = ui.inventoryWorkspaceGrid;
             if (!card || !targetGrid) return;
-            if (card.parentElement === targetGrid) return;
-            targetGrid.appendChild(card);
+            if (card.parentElement !== targetGrid || targetGrid.firstElementChild !== card) {
+                targetGrid.insertBefore(card, targetGrid.firstElementChild);
+            }
+        }
+
+        function mountIntegrationsWorkspace() {
+            const block = ui.storeIntegrationsBlock;
+            const host = ui.integrationsWorkspaceHost;
+            if (!block || !host) return;
+            if (block.parentElement === host) return;
+            host.appendChild(block);
         }
 
         function applyAppBuildLabels(label) {
@@ -5132,6 +5186,13 @@
             }
             if (section === "labels" && isMobileView()) {
                 scrollCurrentViewTop();
+            }
+            if (section === "integrations") {
+                if (isMobileView()) {
+                    scrollCurrentViewTop();
+                } else if (ui.integrationAccount) {
+                    ui.integrationAccount.focus();
+                }
             }
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();
