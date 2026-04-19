@@ -1046,6 +1046,58 @@
             text-align: left;
         }
 
+        .feature-flag-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.85rem;
+        }
+
+        .feature-flag-card {
+            display: grid;
+            gap: 0.45rem;
+            padding: 0.95rem;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: var(--panel-2);
+        }
+
+        .feature-flag-head {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
+
+        .feature-flag-head input {
+            width: 1.05rem;
+            height: 1.05rem;
+            margin-top: 0.2rem;
+        }
+
+        .feature-flag-copy {
+            display: grid;
+            gap: 0.3rem;
+        }
+
+        .feature-flag-copy strong {
+            font-size: 0.98rem;
+        }
+
+        .feature-flag-copy p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+
+        .feature-flag-summary {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .feature-flag-card.disabled {
+            opacity: 0.72;
+        }
+
         .list-head {
             display: flex;
             flex-wrap: wrap;
@@ -1736,6 +1788,7 @@
             .inventory-grid,
             .action-grid,
             .backup-grid,
+            .feature-flag-grid,
             .labels-tool-grid,
             .form-grid,
             .button-row,
@@ -2055,6 +2108,7 @@
         body.device-mobile .inventory-grid,
         body.device-mobile .action-grid,
         body.device-mobile .backup-grid,
+        body.device-mobile .feature-flag-grid,
         body.device-mobile .labels-tool-grid,
         body.device-mobile .form-grid,
         body.device-mobile .button-row,
@@ -2077,7 +2131,8 @@
         body.device-mobile .inventory-grid,
         body.device-mobile .action-grid,
         body.device-mobile .backup-grid,
-        body.device-mobile .library-grid { grid-template-columns: 1fr; }
+        body.device-mobile .library-grid,
+        body.device-mobile .feature-flag-grid { grid-template-columns: 1fr; }
         body.device-mobile .hero,
         body.device-mobile .tabbar { display: none; }
         body.device-mobile .panel {
@@ -2457,7 +2512,7 @@
                         </button>
                         <button class="quick-link" type="button" data-jump-section="integrations">
                             <strong>Integrations</strong>
-                            <span>Connect Shopify and other storefronts to customer accounts.</span>
+                            <span>Connect Shopify, SFTP, and other storefront lanes to customer accounts.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="orders">
                             <strong>Sales Orders</strong>
@@ -2526,7 +2581,7 @@
             </button>
             <button class="tab" data-section="integrations" type="button">
                 <span class="tab-label">Integrations</span>
-                <span class="tab-meta">Connect Shopify and other storefronts and pull customer orders into warehouse sales orders.</span>
+                <span class="tab-meta">Connect Shopify, SFTP, and other storefront lanes to pull customer orders and sync warehouse updates.</span>
             </button>
             <button class="tab" data-section="orders" type="button">
                 <span class="tab-label">Sales Orders</span>
@@ -2695,6 +2750,18 @@
                                 <option value="PALLET">Pallets</option>
                             </select>
                         </label>
+                        <label class="field">
+                            <span>Lot Number</span>
+                            <input id="scanLotNumber" type="text" placeholder="Only required for lot-tracked items" enterkeyhint="next">
+                        </label>
+                        <label class="field">
+                            <span>Expiration Date</span>
+                            <input id="scanExpirationDate" type="date">
+                        </label>
+                        <div class="helper span-2">
+                            <h3>Traceability</h3>
+                            <p class="meta" id="scanTraceabilityMeta">Lot and expiration are only required for items that have those controls turned on in the item master.</p>
+                        </div>
                         <details class="fold span-2">
                             <summary>
                                 <strong id="scanHelperTitle">Quick Qty Helper</strong>
@@ -2773,6 +2840,8 @@
                                     <th>Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
+                                    <th>Lot</th>
+                                    <th>Expiration</th>
                                     <th>Description</th>
                                     <th>Tracking</th>
                                     <th>Qty</th>
@@ -3052,6 +3121,20 @@
                                     <input id="masterItemUnitsPerCase" type="number" min="1" inputmode="numeric" placeholder="Optional">
                                 </label>
                                 <label class="field">
+                                    <span>Track Lot Number</span>
+                                    <select id="masterItemLotTracked">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Track Expiration Date</span>
+                                    <select id="masterItemExpirationTracked">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </label>
+                                <label class="field">
                                     <span>Each Length</span>
                                     <input id="masterItemEachLength" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
                                 </label>
@@ -3106,7 +3189,7 @@
                     </div>
 
                     <div class="library-grid" style="margin-top: 1rem; margin-bottom: 1rem;">
-                        <div class="helper">
+                        <div class="helper" id="portalAccessEditorCard">
                             <h3>Company Portal Access</h3>
                             <p class="meta">Add one or more portal users under the same company. Each user logs in with their own email and password.</p>
                             <form id="portalAccessForm" class="form-grid" autocomplete="off">
@@ -3139,7 +3222,7 @@
                             <div class="status" id="portalAccessMessage"></div>
                         </div>
 
-                        <div class="helper">
+                        <div class="helper" id="portalAccessListCard">
                             <div class="list-head">
                                 <div>
                                     <h3>Saved Portal Users</h3>
@@ -3156,17 +3239,19 @@
                     <div class="library-grid" id="storeIntegrationsBlock" style="margin-top: 1rem; margin-bottom: 1rem;">
                         <div class="helper">
                             <h3>Store Integrations</h3>
-                            <p class="meta">Connect each customer's online store and pull orders into the warehouse sales order queue. Shopify sync is live first, and the provider list is ready for the next storefronts.</p>
+                            <p class="meta">Connect each customer's online store or SFTP feed and keep orders, inbounds, confirmations, and inventory synced inside one company-safe lane.</p>
                             <form id="integrationForm" class="form-grid" autocomplete="off">
                                 <input id="integrationId" type="hidden">
-                                <label class="field span-2">
-                                    <span>Company</span>
-                                    <input id="integrationAccount" list="ownerList" type="text" placeholder="Required company" enterkeyhint="next">
-                                </label>
+                                <input id="integrationAccount" type="hidden">
+                                <div class="helper span-2">
+                                    <h3>Active Company</h3>
+                                    <p class="meta" id="integrationCompanyMeta">Choose an active company in the header before saving a store connection.</p>
+                                </div>
                                 <label class="field">
                                     <span>Provider</span>
                                     <select id="integrationProvider">
                                         <option value="SHOPIFY">Shopify</option>
+                                        <option value="SFTP">SFTP</option>
                                         <option value="WOOCOMMERCE">WooCommerce</option>
                                         <option value="BIGCOMMERCE">BigCommerce</option>
                                         <option value="AMAZON">Amazon</option>
@@ -3179,12 +3264,64 @@
                                     <input id="integrationName" type="text" placeholder="Example: Main Shopify Store" enterkeyhint="next">
                                 </label>
                                 <label class="field span-2">
-                                    <span>Store URL / Domain</span>
+                                    <span id="integrationStoreIdentifierLabel">Store URL / Domain</span>
                                     <input id="integrationStoreIdentifier" type="text" placeholder="Example: your-store.myshopify.com" enterkeyhint="next">
                                 </label>
                                 <label class="field span-2">
-                                    <span>API Access Token</span>
+                                    <span id="integrationAccessTokenLabel">API Access Token</span>
                                     <input id="integrationAccessToken" type="password" placeholder="Required for Shopify sync. Leave blank on edit to keep the saved token." enterkeyhint="done">
+                                </label>
+                                <div class="helper span-2 hidden" id="integrationSftpFields">
+                                    <h3>SFTP Sync Lanes</h3>
+                                    <p class="meta">Leave any folder blank to turn that lane off. Orders and inbounds import from JSON files, and confirmations plus inventory export back as JSON files.</p>
+                                    <div class="form-grid">
+                                        <label class="field">
+                                            <span>SFTP Username</span>
+                                            <input id="integrationSftpUsername" type="text" placeholder="Required SFTP username" enterkeyhint="next">
+                                        </label>
+                                        <label class="field">
+                                            <span>SFTP Port</span>
+                                            <input id="integrationSftpPort" type="number" min="1" inputmode="numeric" placeholder="22" enterkeyhint="next">
+                                        </label>
+                                        <label class="field span-2">
+                                            <span>Orders Inbox Folder</span>
+                                            <input id="integrationOrdersFolder" type="text" placeholder="Example: /incoming/orders" enterkeyhint="next">
+                                        </label>
+                                        <label class="field span-2">
+                                            <span>Inbounds Inbox Folder</span>
+                                            <input id="integrationInboundsFolder" type="text" placeholder="Example: /incoming/inbounds" enterkeyhint="next">
+                                        </label>
+                                        <label class="field span-2">
+                                            <span>Shipment Confirmations Outbox</span>
+                                            <input id="integrationShipmentsFolder" type="text" placeholder="Example: /outgoing/shipments" enterkeyhint="next">
+                                        </label>
+                                        <label class="field span-2">
+                                            <span>Receipt Confirmations Outbox</span>
+                                            <input id="integrationReceiptsFolder" type="text" placeholder="Example: /outgoing/receipts" enterkeyhint="next">
+                                        </label>
+                                        <label class="field span-2">
+                                            <span>Inventory Snapshot Outbox</span>
+                                            <input id="integrationInventoryFolder" type="text" placeholder="Example: /outgoing/inventory" enterkeyhint="next">
+                                        </label>
+                                        <label class="field span-2">
+                                            <span>Archive Folder</span>
+                                            <input id="integrationArchiveFolder" type="text" placeholder="Example: /archive" enterkeyhint="next">
+                                        </label>
+                                    </div>
+                                </div>
+                                <label class="field span-2">
+                                    <span>Auto Sync Schedule</span>
+                                    <select id="integrationSchedule">
+                                        <option value="MANUAL">Manual Only</option>
+                                        <option value="EVERY_5_MINUTES">Every 5 Minutes</option>
+                                        <option value="EVERY_15_MINUTES">Every 15 Minutes</option>
+                                        <option value="EVERY_30_MINUTES">Every 30 Minutes</option>
+                                        <option value="HOURLY">Hourly</option>
+                                        <option value="DAILY_0900">Daily at 9:00 AM</option>
+                                        <option value="DAILY_1200">Daily at 12:00 PM</option>
+                                        <option value="DAILY_1500">Daily at 3:00 PM</option>
+                                        <option value="DAILY_1800">Daily at 6:00 PM</option>
+                                    </select>
                                 </label>
                                 <label class="field">
                                     <span>Import Orders As</span>
@@ -3201,13 +3338,17 @@
                                     </select>
                                 </label>
                                 <div class="helper span-2">
+                                    <h3>Sync Schedule</h3>
+                                    <p class="meta" id="integrationScheduleMeta">Manual sync is on. Save an active connection to start scheduled imports and exports.</p>
+                                </div>
+                                <div class="helper span-2">
                                     <h3>Provider Notes</h3>
-                                    <p class="meta" id="integrationProviderNote">Use the Shopify shop's <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Pull Orders only imports new store orders for the selected customer.</p>
+                                    <p class="meta" id="integrationProviderNote">Use the Shopify shop's <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Run Sync only imports new store orders for the selected customer.</p>
                                 </div>
                                 <div class="button-row span-2">
                                     <button class="btn secondary" type="submit">Save Connection</button>
                                     <button class="btn ghost" id="integrationResetBtn" type="button">New Connection</button>
-                                    <button class="btn ghost" id="integrationSyncBtn" type="button">Pull Orders Now</button>
+                                    <button class="btn ghost" id="integrationSyncBtn" type="button">Run Sync Now</button>
                                 </div>
                             </form>
                             <div class="status" id="integrationMessage"></div>
@@ -3508,6 +3649,8 @@
                                     <th>Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
+                                    <th>Lot</th>
+                                    <th>Expiration</th>
                                     <th>Description</th>
                                     <th>Tracking</th>
                                     <th>Qty</th>
@@ -3556,7 +3699,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Shopify & Store Integrations</h2>
-                            <p class="lead">Connect each customer's storefront here, starting with Shopify, then pull new orders into the warehouse sales order queue.</p>
+                            <p class="lead">Connect each customer's storefront or SFTP lane here, then sync new orders, inbounds, confirmations, and inventory safely into that company's workspace.</p>
                         </div>
                     </div>
                     <div id="integrationsWorkspaceHost"></div>
@@ -4122,6 +4265,46 @@
                     </div>
                     <p class="lead">Import replaces the shared server inventory, recent activity, saved BINs, and item masters for everyone using this app.</p>
                 </article>
+
+                <article class="card span-2" id="companyFeatureAdminCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Company Feature Access</h2>
+                            <p class="lead">Super users can decide which customer-facing and billable add-ons are enabled for each company.</p>
+                        </div>
+                        <span class="meta" id="companyFeatureSummaryCount">0 companies</span>
+                    </div>
+                    <div class="helper" id="companyFeatureAccessGate">
+                        Super user access is required to change company feature access.
+                    </div>
+                    <div id="companyFeatureDashboard" class="hidden">
+                        <div class="helper">
+                            <h3 id="companyFeatureTitle">Choose a company</h3>
+                            <p class="meta" id="companyFeatureMeta">Pick a company in the header to review and save which modules are enabled.</p>
+                        </div>
+                        <form id="companyFeatureForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
+                            <div id="companyFeatureChecklist" class="feature-flag-grid span-2">
+                                <p class="empty">No company selected yet.</p>
+                            </div>
+                            <div class="button-row span-2">
+                                <button class="btn" id="saveCompanyFeaturesBtn" type="submit">Save Feature Access</button>
+                                <button class="btn ghost" id="resetCompanyFeaturesBtn" type="button">Reload Current Company</button>
+                            </div>
+                        </form>
+                        <div class="status" id="companyFeatureMessage"></div>
+                        <div class="helper" style="margin-top: 1rem;">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Company Access Summary</h3>
+                                    <p class="meta">Use Manage to switch the active company and review its enabled feature set.</p>
+                                </div>
+                            </div>
+                            <div id="companyFeatureCompanyList" class="stack-list">
+                                <p class="empty">No companies saved yet.</p>
+                            </div>
+                        </div>
+                    </div>
+                </article>
             </div>
             <div class="status" id="backupMessage"></div>
             </div>
@@ -4317,6 +4500,67 @@
         const LOCAL_CACHE_ACTIVITY_LIMIT = 30;
         const AUTOCOMPLETE_OPTION_LIMIT = 24;
         const MOBILE_PICKER_ROW_HEIGHT = 68;
+        const COMPANY_FEATURE_KEYS = Object.freeze({
+            CUSTOMER_PORTAL: "CUSTOMER_PORTAL",
+            ORDER_ENTRY: "ORDER_ENTRY",
+            INBOUND_NOTICES: "INBOUND_NOTICES",
+            BILLING: "BILLING",
+            STORE_INTEGRATIONS: "STORE_INTEGRATIONS",
+            SHOPIFY_INTEGRATION: "SHOPIFY_INTEGRATION",
+            SFTP_INTEGRATION: "SFTP_INTEGRATION"
+        });
+        const COMPANY_FEATURE_CATALOG = Object.freeze([
+            {
+                key: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL,
+                label: "Customer Portal",
+                description: "Allow customer login, inventory review, inventory export, and portal item maintenance."
+            },
+            {
+                key: COMPANY_FEATURE_KEYS.ORDER_ENTRY,
+                label: "Sales Orders",
+                description: "Allow sales order entry and release for this company from both warehouse and portal workflows."
+            },
+            {
+                key: COMPANY_FEATURE_KEYS.INBOUND_NOTICES,
+                label: "Inbound Notices",
+                description: "Allow expected inbound notices and purchase order intake for this company."
+            },
+            {
+                key: COMPANY_FEATURE_KEYS.BILLING,
+                label: "Billing",
+                description: "Allow company fee setup, manual billing lines, storage accruals, and invoice state changes."
+            },
+            {
+                key: COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS,
+                label: "Store Integrations",
+                description: "Allow storefront and file integrations under this company."
+            },
+            {
+                key: COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION,
+                label: "Shopify",
+                description: "Allow Shopify connection setup and scheduled order pulls for this company."
+            },
+            {
+                key: COMPANY_FEATURE_KEYS.SFTP_INTEGRATION,
+                label: "SFTP",
+                description: "Allow SFTP import and export lanes for this company."
+            }
+        ]);
+        const DEFAULT_COMPANY_FEATURE_FLAGS = Object.freeze({
+            [COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL]: false,
+            [COMPANY_FEATURE_KEYS.ORDER_ENTRY]: true,
+            [COMPANY_FEATURE_KEYS.INBOUND_NOTICES]: true,
+            [COMPANY_FEATURE_KEYS.BILLING]: false,
+            [COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS]: false,
+            [COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION]: false,
+            [COMPANY_FEATURE_KEYS.SFTP_INTEGRATION]: false
+        });
+        const LEGACY_COMPANY_FEATURE_FLAGS = Object.freeze(
+            COMPANY_FEATURE_CATALOG.reduce((accumulator, feature) => {
+                accumulator[feature.key] = true;
+                return accumulator;
+            }, {})
+        );
         const state = loadState();
         let labelToolState = loadLabelToolState();
         let activeSection = "home";
@@ -4332,6 +4576,8 @@
         let portalOrderRecords = [];
         let portalInboundRecords = [];
         let editingWarehouseOrderId = "";
+        let companyFeatureDraftCompany = "";
+        let companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
         const billingRateDrafts = new Map();
         let syncTimer = null;
         const DESKTOP_SECTION_META = {
@@ -4357,7 +4603,7 @@
             },
             integrations: {
                 title: "Integrations",
-                meta: "Connect Shopify and other storefronts and pull customer orders into warehouse sales orders."
+                meta: "Connect Shopify, SFTP, and other storefront lanes to pull customer orders and sync warehouse updates."
             },
             orders: {
                 title: "Sales Orders",
@@ -4432,8 +4678,11 @@
             scanDescription: document.getElementById("scanDescription"),
             scanQuantity: document.getElementById("scanQuantity"),
             scanTrackingLevel: document.getElementById("scanTrackingLevel"),
+            scanLotNumber: document.getElementById("scanLotNumber"),
+            scanExpirationDate: document.getElementById("scanExpirationDate"),
             scanHelperTitle: document.getElementById("scanHelperTitle"),
             scanHelperMeta: document.getElementById("scanHelperMeta"),
+            scanTraceabilityMeta: document.getElementById("scanTraceabilityMeta"),
             scanUom: document.getElementById("scanUom"),
             scanCases: document.getElementById("scanCases"),
             scanImageUrl: document.getElementById("scanImageUrl"),
@@ -4466,6 +4715,8 @@
             cancelMasterItemEditBtn: document.getElementById("cancelMasterItemEditBtn"),
             masterItemTrackingLevel: document.getElementById("masterItemTrackingLevel"),
             masterItemUnitsPerCase: document.getElementById("masterItemUnitsPerCase"),
+            masterItemLotTracked: document.getElementById("masterItemLotTracked"),
+            masterItemExpirationTracked: document.getElementById("masterItemExpirationTracked"),
             masterItemEachLength: document.getElementById("masterItemEachLength"),
             masterItemEachWidth: document.getElementById("masterItemEachWidth"),
             masterItemEachHeight: document.getElementById("masterItemEachHeight"),
@@ -4495,6 +4746,8 @@
             masterOwnerState: document.getElementById("masterOwnerState"),
             masterOwnerPostalCode: document.getElementById("masterOwnerPostalCode"),
             masterOwnerCountry: document.getElementById("masterOwnerCountry"),
+            portalAccessEditorCard: document.getElementById("portalAccessEditorCard"),
+            portalAccessListCard: document.getElementById("portalAccessListCard"),
             masterLocationList: document.getElementById("masterLocationList"),
             masterItemList: document.getElementById("masterItemList"),
             portalAccessAccount: document.getElementById("portalAccessAccount"),
@@ -4510,10 +4763,24 @@
             integrationId: document.getElementById("integrationId"),
             integrationProvider: document.getElementById("integrationProvider"),
             integrationName: document.getElementById("integrationName"),
+            integrationCompanyMeta: document.getElementById("integrationCompanyMeta"),
+            integrationStoreIdentifierLabel: document.getElementById("integrationStoreIdentifierLabel"),
             integrationStoreIdentifier: document.getElementById("integrationStoreIdentifier"),
+            integrationAccessTokenLabel: document.getElementById("integrationAccessTokenLabel"),
             integrationAccessToken: document.getElementById("integrationAccessToken"),
+            integrationSftpFields: document.getElementById("integrationSftpFields"),
+            integrationSftpUsername: document.getElementById("integrationSftpUsername"),
+            integrationSftpPort: document.getElementById("integrationSftpPort"),
+            integrationOrdersFolder: document.getElementById("integrationOrdersFolder"),
+            integrationInboundsFolder: document.getElementById("integrationInboundsFolder"),
+            integrationShipmentsFolder: document.getElementById("integrationShipmentsFolder"),
+            integrationReceiptsFolder: document.getElementById("integrationReceiptsFolder"),
+            integrationInventoryFolder: document.getElementById("integrationInventoryFolder"),
+            integrationArchiveFolder: document.getElementById("integrationArchiveFolder"),
+            integrationSchedule: document.getElementById("integrationSchedule"),
             integrationImportStatus: document.getElementById("integrationImportStatus"),
             integrationActive: document.getElementById("integrationActive"),
+            integrationScheduleMeta: document.getElementById("integrationScheduleMeta"),
             integrationProviderNote: document.getElementById("integrationProviderNote"),
             integrationResetBtn: document.getElementById("integrationResetBtn"),
             integrationSyncBtn: document.getElementById("integrationSyncBtn"),
@@ -4681,6 +4948,18 @@
             summaryUnits: document.getElementById("summaryUnits"),
             summarySaved: document.getElementById("summarySaved"),
             backupMessage: document.getElementById("backupMessage"),
+            companyFeatureAdminCard: document.getElementById("companyFeatureAdminCard"),
+            companyFeatureAccessGate: document.getElementById("companyFeatureAccessGate"),
+            companyFeatureDashboard: document.getElementById("companyFeatureDashboard"),
+            companyFeatureTitle: document.getElementById("companyFeatureTitle"),
+            companyFeatureMeta: document.getElementById("companyFeatureMeta"),
+            companyFeatureForm: document.getElementById("companyFeatureForm"),
+            companyFeatureChecklist: document.getElementById("companyFeatureChecklist"),
+            saveCompanyFeaturesBtn: document.getElementById("saveCompanyFeaturesBtn"),
+            resetCompanyFeaturesBtn: document.getElementById("resetCompanyFeaturesBtn"),
+            companyFeatureMessage: document.getElementById("companyFeatureMessage"),
+            companyFeatureCompanyList: document.getElementById("companyFeatureCompanyList"),
+            companyFeatureSummaryCount: document.getElementById("companyFeatureSummaryCount"),
             importFileInput: document.getElementById("importFileInput"),
             labelRackInput: document.getElementById("labelRackInput"),
             labelBinInput: document.getElementById("labelBinInput"),
@@ -4813,7 +5092,7 @@
             ui.saveBatchButtons.forEach((button) => button.addEventListener("click", saveBatchToInventory));
             ui.clearBatchButtons.forEach((button) => button.addEventListener("click", clearBatch));
             ui.batchTableBody.addEventListener("click", onBatchTableClick);
-            [ui.scanAccount, ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
+            [ui.scanAccount, ui.scanLocation, ui.scanUpc, ui.scanSku, ui.scanLotNumber, ui.scanExpirationDate, ui.scanQuantity].forEach((el) => el.addEventListener("keydown", scanEnterFlow));
             [ui.scanSku, ui.scanUpc, ui.scanAccount].forEach((el) => {
                 el.addEventListener("change", syncScanFieldsFromCatalog);
                 el.addEventListener("blur", syncScanFieldsFromCatalog);
@@ -4858,6 +5137,8 @@
             ui.integrationResetBtn?.addEventListener("click", () => resetStoreIntegrationForm({ keepCompany: true }));
             ui.integrationSyncBtn?.addEventListener("click", syncSelectedIntegration);
             ui.integrationProvider?.addEventListener("change", updateIntegrationProviderNote);
+            ui.integrationSchedule?.addEventListener("change", updateIntegrationScheduleMeta);
+            ui.integrationActive?.addEventListener("change", updateIntegrationScheduleMeta);
             document.getElementById("loadVendorToPortalBtn").addEventListener("click", loadVendorToPortalAccess);
             document.getElementById("loadVendorToBillingBtn").addEventListener("click", loadVendorToBilling);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
@@ -4868,6 +5149,7 @@
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
             ui.integrationList.addEventListener("click", onIntegrationListClick);
+            ui.portalInboundsList?.addEventListener("click", onPortalInboundsListClick);
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
             ui.portalOrderSearch?.addEventListener("input", () => renderPortalOrdersList());
@@ -4980,6 +5262,10 @@
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
+            ui.companyFeatureForm?.addEventListener("submit", saveCompanyFeatures);
+            ui.resetCompanyFeaturesBtn?.addEventListener("click", resetCompanyFeatureDraft);
+            ui.companyFeatureChecklist?.addEventListener("change", onCompanyFeatureChecklistChange);
+            ui.companyFeatureCompanyList?.addEventListener("click", onCompanyFeatureCompanyListClick);
             document.getElementById("addSingleLabelBtn").addEventListener("click", addSingleLocationLabel);
             document.getElementById("addLabelPairBtn").addEventListener("click", addLocationLabelPair);
             document.getElementById("addBulkLabelsBtn").addEventListener("click", addBulkLocationLabels);
@@ -5190,8 +5476,10 @@
             if (section === "integrations") {
                 if (isMobileView()) {
                     scrollCurrentViewTop();
-                } else if (ui.integrationAccount) {
-                    ui.integrationAccount.focus();
+                } else if (!getActiveCompany() && ui.activeCompany) {
+                    ui.activeCompany.focus();
+                } else if (ui.integrationName) {
+                    ui.integrationName.focus();
                 }
             }
             updateMobileSearchResultsVisibility();
@@ -5289,6 +5577,8 @@
                 ui.clearActiveCompanyBtn.disabled = !company;
             }
             updateCompanyBoundUi();
+            updateIntegrationCompanyMeta();
+            updateIntegrationScheduleMeta();
             renderWarehouseSalesOrderContext();
             renderWarehouseInboundContext();
             updateWorkspaceCommandBar();
@@ -5348,6 +5638,157 @@
                 labelToolState.palletAccount = normalized;
                 saveLabelToolState();
             }
+        }
+
+        function companyFeatureDisabledMessage(featureKey, company = getActiveCompany()) {
+            const companyLabel = company || "this company";
+            switch (featureKey) {
+                case COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL:
+                    return `${companyLabel} does not have Customer Portal enabled.`;
+                case COMPANY_FEATURE_KEYS.ORDER_ENTRY:
+                    return `${companyLabel} does not have Sales Orders enabled.`;
+                case COMPANY_FEATURE_KEYS.INBOUND_NOTICES:
+                    return `${companyLabel} does not have Inbound Notices enabled.`;
+                case COMPANY_FEATURE_KEYS.BILLING:
+                    return `${companyLabel} does not have Billing enabled.`;
+                case COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS:
+                    return `${companyLabel} does not have Store Integrations enabled.`;
+                case COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION:
+                    return `${companyLabel} does not have Shopify enabled.`;
+                case COMPANY_FEATURE_KEYS.SFTP_INTEGRATION:
+                    return `${companyLabel} does not have SFTP enabled.`;
+                default:
+                    return `${companyLabel} does not have this feature enabled.`;
+            }
+        }
+
+        function renderCompanyFeatureDashboard() {
+            if (!ui.companyFeatureSummaryCount || !ui.companyFeatureCompanyList) return;
+            const owners = [...(state.masters.ownerRecords || [])].sort((a, b) => a.name.localeCompare(b.name));
+            ui.companyFeatureSummaryCount.textContent = `${num(owners.length)} compan${owners.length === 1 ? "y" : "ies"}`;
+
+            if (!currentUserIsSuperAdmin()) {
+                ui.companyFeatureAccessGate?.classList.remove("hidden");
+                ui.companyFeatureDashboard?.classList.add("hidden");
+                ui.companyFeatureCompanyList.innerHTML = owners.length
+                    ? owners.map((owner) => `
+                        <div class="quick-row">
+                            <div class="quick-main">
+                                <strong>${esc(owner.name)}</strong>
+                                <div class="quick-meta">${esc(describeEnabledCompanyFeatures(owner.featureFlags))}</div>
+                            </div>
+                        </div>
+                    `).join("")
+                    : `<p class="empty">No companies saved yet.</p>`;
+                return;
+            }
+
+            ui.companyFeatureAccessGate?.classList.add("hidden");
+            ui.companyFeatureDashboard?.classList.remove("hidden");
+
+            const company = getActiveCompany();
+            syncCompanyFeatureDraft(company, { force: companyFeatureDraftCompany !== norm(company) });
+            const owner = getCompanyRecord(company);
+            const featureFlags = norm(company) ? companyFeatureDraft : { ...DEFAULT_COMPANY_FEATURE_FLAGS };
+
+            if (!company) {
+                ui.companyFeatureTitle.textContent = "Choose a company";
+                ui.companyFeatureMeta.textContent = "Pick a company in the header to review and save which modules are enabled.";
+                ui.companyFeatureChecklist.innerHTML = `<p class="empty">No company selected yet.</p>`;
+            } else {
+                const inheritedText = owner?.featureFlagsInherited
+                    ? "Legacy full access is still applied. Saving here will convert this company to an explicit feature setup."
+                    : (owner?.featureFlagsUpdatedAt
+                        ? `Last saved ${formatDate(owner.featureFlagsUpdatedAt)}${owner.featureFlagsUpdatedBy ? ` by ${owner.featureFlagsUpdatedBy}` : ""}.`
+                        : "This company is using an explicit feature setup.");
+                ui.companyFeatureTitle.textContent = `${company} Feature Access`;
+                ui.companyFeatureMeta.textContent = `${inheritedText} Enabled now: ${describeEnabledCompanyFeatures(featureFlags)}.`;
+                ui.companyFeatureChecklist.innerHTML = COMPANY_FEATURE_CATALOG.map((feature) => {
+                    const isChildIntegration = [COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION].includes(feature.key);
+                    const disabled = isChildIntegration && featureFlags[COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS] !== true;
+                    return `
+                        <label class="feature-flag-card ${disabled ? "disabled" : ""}">
+                            <div class="feature-flag-head">
+                                <input type="checkbox" data-company-feature-input="${attr(feature.key)}" ${featureFlags[feature.key] ? "checked" : ""} ${disabled ? "disabled" : ""}>
+                                <div class="feature-flag-copy">
+                                    <strong>${esc(feature.label)}</strong>
+                                    <p>${esc(feature.description)}</p>
+                                </div>
+                            </div>
+                        </label>
+                    `;
+                }).join("");
+            }
+
+            ui.companyFeatureCompanyList.innerHTML = owners.length
+                ? owners.map((ownerEntry) => `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(ownerEntry.name)}</strong>
+                            <div class="quick-meta">${esc(ownerEntry.featureFlagsInherited ? "Legacy full access" : "Configured feature access")}</div>
+                            <div class="quick-meta">${esc(describeEnabledCompanyFeatures(ownerEntry.featureFlags))}</div>
+                        </div>
+                        <div class="quick-row-actions">
+                            <button class="btn ghost mini" type="button" data-manage-company-features="${attr(ownerEntry.name)}">Manage</button>
+                        </div>
+                    </div>
+                `).join("")
+                : `<p class="empty">No companies saved yet.</p>`;
+        }
+
+        function onCompanyFeatureChecklistChange(event) {
+            const input = event.target.closest("[data-company-feature-input]");
+            if (!input) return;
+            const featureKey = input.dataset.companyFeatureInput || "";
+            if (!featureKey) return;
+            companyFeatureDraft = {
+                ...companyFeatureDraft,
+                [featureKey]: input.checked === true
+            };
+            if (featureKey === COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS && !companyFeatureDraft[COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS]) {
+                companyFeatureDraft[COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION] = false;
+                companyFeatureDraft[COMPANY_FEATURE_KEYS.SFTP_INTEGRATION] = false;
+            }
+            renderCompanyFeatureDashboard();
+        }
+
+        async function saveCompanyFeatures(event) {
+            event.preventDefault();
+            if (!currentUserIsSuperAdmin()) {
+                return fail(ui.companyFeatureMessage, "Super user access is required to change company features.");
+            }
+            const company = getActiveCompany();
+            if (!company) {
+                return fail(ui.companyFeatureMessage, "Choose a company in the header first.", ui.activeCompany);
+            }
+
+            try {
+                await requestJson("/api/admin/company-features", {
+                    method: "POST",
+                    body: JSON.stringify({ accountName: company, featureFlags: companyFeatureDraft })
+                });
+                await syncServerState(true);
+                syncCompanyFeatureDraft(company, { force: true });
+                showMessage(ui.companyFeatureMessage, `Saved feature access for ${company}.`, "success");
+            } catch (error) {
+                showMessage(ui.companyFeatureMessage, error.message, "error");
+            }
+        }
+
+        function resetCompanyFeatureDraft() {
+            syncCompanyFeatureDraft(getActiveCompany(), { force: true });
+            renderCompanyFeatureDashboard();
+            showMessage(ui.companyFeatureMessage, getActiveCompany() ? `Reloaded saved feature access for ${getActiveCompany()}.` : "Choose a company in the header first.", "info");
+        }
+
+        function onCompanyFeatureCompanyListClick(event) {
+            const button = event.target.closest("[data-manage-company-features]");
+            if (!button) return;
+            const company = norm(button.dataset.manageCompanyFeatures || "");
+            if (!company) return;
+            syncCompanyFeatureDraft(company, { force: true });
+            setActiveCompany(company, { force: true });
+            setSection("backup");
         }
 
         function refreshCompanyScopedUi() {
@@ -5567,7 +6008,7 @@
         function initMobileAutocomplete() {
             if (!ui.mobileAutocomplete) return;
 
-            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.convertAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount, ui.integrationAccount]
+            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.convertAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount]
                 .forEach((input) => registerMobileAutocomplete(input, {
                     getSuggestions: (query) => getOwnerSuggestions(query),
                     onSelect: (option, currentInput) => {
@@ -6436,6 +6877,23 @@
                 ui.scanSku.focus();
             } else if (event.target === ui.scanSku) {
                 event.preventDefault();
+                const matchedItem = syncScanFieldsFromCatalog();
+                if (matchedItem?.lotTracked && ui.scanLotNumber) {
+                    ui.scanLotNumber.focus();
+                } else if (matchedItem?.expirationTracked && ui.scanExpirationDate) {
+                    ui.scanExpirationDate.focus();
+                } else {
+                    ui.scanQuantity.focus();
+                }
+            } else if (event.target === ui.scanLotNumber) {
+                event.preventDefault();
+                if (ui.scanExpirationDate?.required) {
+                    ui.scanExpirationDate.focus();
+                } else {
+                    ui.scanQuantity.focus();
+                }
+            } else if (event.target === ui.scanExpirationDate) {
+                event.preventDefault();
                 ui.scanQuantity.focus();
             }
         }
@@ -6463,6 +6921,8 @@
             const casePack = item?.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "";
             const eachDims = formatDimensions(item?.eachLength, item?.eachWidth, item?.eachHeight, "Each");
             const caseDims = formatDimensions(item?.caseLength, item?.caseWidth, item?.caseHeight, "Case");
+            const lotTracked = item?.lotTracked === true;
+            const expirationTracked = item?.expirationTracked === true;
 
             ui.scanHelperTitle.textContent = trackingLevel === "PALLET"
                 ? "Pallet Qty Entry"
@@ -6488,6 +6948,23 @@
             } else if (!ui.scanUom.value && item?.unitsPerCase) {
                 ui.scanUom.value = String(item.unitsPerCase);
             }
+
+            if (ui.scanLotNumber) {
+                ui.scanLotNumber.required = lotTracked;
+                ui.scanLotNumber.placeholder = lotTracked ? "Required lot number for this SKU" : "Optional unless this SKU is lot-tracked";
+            }
+            if (ui.scanExpirationDate) {
+                ui.scanExpirationDate.required = expirationTracked;
+            }
+            if (ui.scanTraceabilityMeta) {
+                ui.scanTraceabilityMeta.textContent = lotTracked || expirationTracked
+                    ? [
+                        lotTracked ? "Lot number required." : "",
+                        expirationTracked ? "Expiration date required." : "",
+                        expirationTracked ? "Released orders will allocate FEFO from the earliest expiration first." : "Released orders will follow FIFO for this SKU."
+                    ].filter(Boolean).join(" ")
+                    : "Lot and expiration are only required for items that have those controls turned on in the item master.";
+            }
         }
 
         function useLastLocation() {
@@ -6509,11 +6986,15 @@
             const description = String(ui.scanDescription.value || matchedItem?.description || "").trim().replace(/\s+/g, " ");
             const imageUrl = normalizeImageReference(ui.scanImageUrl.value || matchedItem?.imageUrl || "");
             const trackingLevel = normalizeTrackingLevel(ui.scanTrackingLevel.value || matchedItem?.trackingLevel);
+            const lotNumber = norm(ui.scanLotNumber.value);
+            const expirationDate = normalizeLabelDate(ui.scanExpirationDate.value);
             let quantity = toPositiveInt(ui.scanQuantity.value);
 
             if (!accountName) return fail(ui.scanMessage, "Please choose a company.", ui.scanAccount);
             if (!location) return fail(ui.scanMessage, "Please scan or enter a location.", ui.scanLocation);
             if (!sku) return fail(ui.scanMessage, "Please scan or enter a SKU.", ui.scanSku);
+            if (matchedItem?.lotTracked && !lotNumber) return fail(ui.scanMessage, "Lot number is required for this SKU.", ui.scanLotNumber);
+            if (matchedItem?.expirationTracked && !expirationDate) return fail(ui.scanMessage, "Expiration date is required for this SKU.", ui.scanExpirationDate);
             if (!quantity) quantity = calculateQuantity(false);
             if (!quantity) return fail(ui.scanMessage, "Enter a quantity. Unit-tracked items can also use Units per Case and Cases to calculate one.", ui.scanQuantity);
 
@@ -6526,6 +7007,8 @@
                 location,
                 sku,
                 upc,
+                lotNumber,
+                expirationDate,
                 description,
                 imageUrl,
                 trackingLevel,
@@ -6545,6 +7028,8 @@
             ui.scanSku.value = "";
             ui.scanDescription.value = "";
             ui.scanQuantity.value = "";
+            ui.scanLotNumber.value = "";
+            ui.scanExpirationDate.value = "";
             ui.scanUom.value = "";
             ui.scanCases.value = "";
             clearImageField({
@@ -6583,12 +7068,14 @@
 
             const grouped = new Map();
             state.batch.forEach((line) => {
-                const key = `${line.accountName}::${line.location}::${line.sku}`;
+                const key = `${line.accountName}::${line.location}::${line.sku}::${line.lotNumber || ""}::${line.expirationDate || ""}`;
                 const current = grouped.get(key) || {
                     accountName: line.accountName,
                     location: line.location,
                     sku: line.sku,
                     upc: line.upc,
+                    lotNumber: line.lotNumber || "",
+                    expirationDate: line.expirationDate || "",
                     description: line.description || "",
                     imageUrl: line.imageUrl || "",
                     trackingLevel: line.trackingLevel,
@@ -6694,6 +7181,7 @@
             renderStats();
             renderDatalists();
             renderMasterLibrary();
+            renderCompanyFeatureDashboard();
             renderBilling();
             renderLabelTool();
             renderActivity();
@@ -6728,6 +7216,8 @@
                     <td>${esc(line.location)}</td>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.upc || "-")}</td>
+                    <td>${esc(line.lotNumber || "-")}</td>
+                    <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                     <td>${esc(line.description || "-")}</td>
                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
                     <td>${num(line.quantity)}</td>
@@ -6959,6 +7449,8 @@
             ui.scanDescription.value = "";
             ui.scanImageUrl.value = "";
             ui.scanTrackingLevel.value = "UNIT";
+            ui.scanLotNumber.value = "";
+            ui.scanExpirationDate.value = "";
             refreshImagePreview({
                 urlInput: ui.scanImageUrl,
                 previewWrap: ui.scanImagePreviewWrap,
@@ -7026,6 +7518,7 @@
                 norm(line.sku) === itemCode
             );
             if (skuMatches.length === 1) return skuMatches[0];
+            if (skuMatches.length > 1) return { multipleSkuMatches: true };
 
             const upcMatches = state.inventory.filter((line) =>
                 norm(line.accountName) === owner &&
@@ -7118,6 +7611,9 @@
             const sourceLine = findClientInventoryLine(owner, sourceLocation, sourceCode);
             if (sourceLine?.duplicateUpc) {
                 throw new Error("Multiple source items matched that UPC in the selected location. Use the source SKU instead.");
+            }
+            if (sourceLine?.multipleSkuMatches) {
+                throw new Error("Multiple lot or expiration rows matched that source SKU in the selected location. Convert those rows separately.");
             }
             if (!sourceLine) {
                 throw new Error("The source SKU or UPC is not in the selected company and source location.");
@@ -8242,6 +8738,9 @@
                 isActive: ui.masterOwnerActive.value !== "false"
             });
             if (!entry?.name) return fail(ui.portalAccessMessage, "Enter or load a company profile first.", ui.masterOwnerName);
+            if (!companyHasFeature(entry.name, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL)) {
+                return fail(ui.portalAccessMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, entry.name), ui.activeCompany);
+            }
             ui.portalAccessId.value = "";
             ui.portalAccessAccount.value = entry.name;
             setActiveCompany(entry.name, { force: true, rerender: false });
@@ -8373,6 +8872,20 @@
 
         function renderBilling() {
             const owner = getScopedCompanyValue(ui.billingOwner.value);
+            if (owner && !companyHasFeature(owner, COMPANY_FEATURE_KEYS.BILLING)) {
+                ui.billingActiveFeeCount.textContent = "0";
+                ui.billingOpenLineCount.textContent = "0";
+                ui.billingOpenAmount.textContent = money(0);
+                ui.billingFilteredAmount.textContent = money(0);
+                ui.billingRatesMeta.textContent = "Feature off";
+                ui.billingRatesEmpty.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.BILLING, owner);
+                ui.billingRatesEmpty.classList.remove("hidden");
+                ui.billingRatesWrap.classList.add("hidden");
+                ui.billingRatesBody.innerHTML = "";
+                ui.billingEventsMeta.textContent = `${num(getFilteredBillingEvents().length)} line${getFilteredBillingEvents().length === 1 ? "" : "s"}`;
+                ui.billingManualFeeMeta.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.BILLING, owner);
+                return;
+            }
             const feeRows = owner ? getEffectiveBillingRows(owner, ui.billingFeeFilter.value) : [];
             const filteredEvents = getFilteredBillingEvents();
             const allOwnerEvents = owner
@@ -8485,6 +8998,9 @@
         async function saveBillingRates() {
             const owner = getScopedCompanyValue(ui.billingOwner.value);
             if (!owner) return fail(ui.billingMessage, "Choose the company first.", ui.billingOwner);
+            if (!companyHasFeature(owner, COMPANY_FEATURE_KEYS.BILLING)) {
+                return fail(ui.billingMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.BILLING, owner), ui.activeCompany);
+            }
             const draft = [...getBillingDraftForOwner(owner).values()].map((entry) => ({
                 accountName: owner,
                 feeCode: entry.feeCode,
@@ -8534,6 +9050,9 @@
             const feeCode = norm(ui.billingManualFeeCode.value);
             const quantity = toNumber(ui.billingManualQuantity.value);
             if (!owner) return fail(ui.billingMessage, "Choose the company first.", ui.billingOwner);
+            if (!companyHasFeature(owner, COMPANY_FEATURE_KEYS.BILLING)) {
+                return fail(ui.billingMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.BILLING, owner), ui.activeCompany);
+            }
             if (!feeCode) return fail(ui.billingMessage, "Choose a fee first.", ui.billingManualFeeCode);
             if (!(quantity > 0)) return fail(ui.billingMessage, "Enter a billing quantity greater than zero.", ui.billingManualQuantity);
 
@@ -8564,6 +9083,9 @@
             const owner = getScopedCompanyValue(ui.billingOwner.value);
             const month = ui.billingStorageMonth.value;
             if (!owner) return fail(ui.billingMessage, "Choose the company first.", ui.billingOwner);
+            if (!companyHasFeature(owner, COMPANY_FEATURE_KEYS.BILLING)) {
+                return fail(ui.billingMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.BILLING, owner), ui.activeCompany);
+            }
             if (!month) return fail(ui.billingMessage, "Choose a storage month first.", ui.billingStorageMonth);
 
             try {
@@ -8581,6 +9103,10 @@
         async function markFilteredBillingInvoiced() {
             const invoiceNumber = String(ui.billingInvoiceNumber.value || "").trim();
             const openIds = getFilteredBillingEvents().filter((event) => event.status === "OPEN").map((event) => event.id);
+            const owner = getScopedCompanyValue(ui.billingOwner.value);
+            if (owner && !companyHasFeature(owner, COMPANY_FEATURE_KEYS.BILLING)) {
+                return fail(ui.billingMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.BILLING, owner), ui.activeCompany);
+            }
             if (!invoiceNumber) return fail(ui.billingMessage, "Enter the invoice number first.", ui.billingInvoiceNumber);
             if (!openIds.length) return fail(ui.billingMessage, "No open billing lines match the current filter.", ui.billingStatusFilter);
 
@@ -8669,6 +9195,9 @@
             if (!email) {
                 return fail(ui.portalAccessMessage, "Enter the login email address for this company portal user.", ui.portalAccessEmail);
             }
+            if (!companyHasFeature(accountName, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL)) {
+                return fail(ui.portalAccessMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, accountName), ui.activeCompany);
+            }
             const existingByEmail = portalAccessRecords.find((entry) => entry.email === email);
             if (!password && !accessId && !existingByEmail) {
                 return fail(ui.portalAccessMessage, "Set a password the first time you add this portal user.", ui.portalAccessPassword);
@@ -8708,6 +9237,17 @@
 
         function renderPortalAccessList(errorText = "") {
             const company = getActiveCompany();
+            if (ui.portalAccessEditorCard && company) {
+                ui.portalAccessEditorCard.classList.toggle("disabled", !companyHasFeature(company, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL));
+            }
+            if (ui.portalAccessListCard && company) {
+                ui.portalAccessListCard.classList.toggle("disabled", !companyHasFeature(company, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL));
+            }
+            if (company && !companyHasFeature(company, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL)) {
+                ui.portalAccessCount.textContent = "Feature off";
+                ui.portalAccessList.innerHTML = `<p class="empty">${esc(errorText || companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, company))}</p>`;
+                return;
+            }
             const visibleAccess = company
                 ? portalAccessRecords.filter((entry) => entry.accountName === company)
                 : portalAccessRecords;
@@ -8749,25 +9289,60 @@
             ui.portalAccessPassword.focus();
         }
 
+        function buildIntegrationSettingsPayload(provider) {
+            if (norm(provider) !== "SFTP") {
+                return {};
+            }
+            return {
+                username: String(ui.integrationSftpUsername?.value || "").trim(),
+                port: Number.parseInt(String(ui.integrationSftpPort?.value || ""), 10) || 22,
+                ordersFolder: String(ui.integrationOrdersFolder?.value || "").trim(),
+                inboundsFolder: String(ui.integrationInboundsFolder?.value || "").trim(),
+                shipmentsFolder: String(ui.integrationShipmentsFolder?.value || "").trim(),
+                receiptsFolder: String(ui.integrationReceiptsFolder?.value || "").trim(),
+                inventoryFolder: String(ui.integrationInventoryFolder?.value || "").trim(),
+                archiveFolder: String(ui.integrationArchiveFolder?.value || "").trim()
+            };
+        }
+
         async function saveStoreIntegration(event) {
             event.preventDefault();
             const integrationId = String(ui.integrationId.value || "").trim();
-            const accountName = getScopedCompanyValue(ui.integrationAccount.value);
+            const accountName = getActiveCompany();
             const provider = norm(ui.integrationProvider.value || "SHOPIFY");
             const integrationName = String(ui.integrationName.value || "").trim();
             const storeIdentifier = String(ui.integrationStoreIdentifier.value || "").trim();
             const accessToken = String(ui.integrationAccessToken.value || "");
+            const settings = buildIntegrationSettingsPayload(provider);
+            const syncSchedule = integrationScheduleValue(ui.integrationSchedule.value || "MANUAL");
             const importStatus = norm(ui.integrationImportStatus.value || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT";
             const isActive = ui.integrationActive.value !== "false";
 
             if (!accountName) {
-                return fail(ui.integrationMessage, "Choose the company for this store connection.", ui.integrationAccount);
+                return fail(ui.integrationMessage, "Choose the active company in the header first.", ui.activeCompany);
+            }
+            if (!companyHasFeature(accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
+                return fail(ui.integrationMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, accountName), ui.activeCompany);
             }
             if (!provider) {
                 return fail(ui.integrationMessage, "Choose the store provider first.", ui.integrationProvider);
             }
+            if (provider === "SHOPIFY" && !companyHasFeature(accountName, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION)) {
+                return fail(ui.integrationMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION, accountName), ui.integrationProvider);
+            }
+            if (provider === "SFTP" && !companyHasFeature(accountName, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION)) {
+                return fail(ui.integrationMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.SFTP_INTEGRATION, accountName), ui.integrationProvider);
+            }
             if (!storeIdentifier) {
-                return fail(ui.integrationMessage, "Enter the store URL or domain for this connection.", ui.integrationStoreIdentifier);
+                return fail(ui.integrationMessage, provider === "SFTP" ? "Enter the SFTP host name for this connection." : "Enter the store URL or domain for this connection.", ui.integrationStoreIdentifier);
+            }
+            if (provider === "SFTP") {
+                if (!settings.username) {
+                    return fail(ui.integrationMessage, "Enter the SFTP username for this connection.", ui.integrationSftpUsername);
+                }
+                if (!settings.ordersFolder && !settings.inboundsFolder && !settings.shipmentsFolder && !settings.receiptsFolder && !settings.inventoryFolder) {
+                    return fail(ui.integrationMessage, "Add at least one SFTP inbox or outbox folder so this connection has a sync lane.", ui.integrationOrdersFolder);
+                }
             }
 
             try {
@@ -8780,6 +9355,8 @@
                         integrationName,
                         storeIdentifier,
                         accessToken,
+                        settings,
+                        syncSchedule,
                         importStatus,
                         isActive
                     })
@@ -8816,9 +9393,17 @@
 
         function renderIntegrationList(errorText = "") {
             const company = getActiveCompany();
-            const visibleIntegrations = company
-                ? integrationRecords.filter((entry) => entry.accountName === company)
-                : integrationRecords;
+            if (!company) {
+                ui.integrationCount.textContent = "Choose a company";
+                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "Choose an active company in the header to manage store integrations.")}</p>`;
+                return;
+            }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
+                ui.integrationCount.textContent = "Feature off";
+                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company))}</p>`;
+                return;
+            }
+            const visibleIntegrations = integrationRecords.filter((entry) => entry.accountName === company);
             ui.integrationCount.textContent = `${num(visibleIntegrations.length)} connection${visibleIntegrations.length === 1 ? "" : "s"}`;
 
             if (!visibleIntegrations.length) {
@@ -8833,21 +9418,37 @@
                 const syncText = entry.lastSyncedAt
                     ? `${entry.lastSyncStatus === "IDLE" ? "Not synced" : entry.lastSyncStatus} | ${formatDate(entry.lastSyncedAt)}`
                     : "Not synced yet";
+                const scheduleText = entry.isActive
+                    ? (entry.syncSchedule === "MANUAL"
+                        ? "Manual sync only"
+                        : `Auto sync ${integrationScheduleLabel(entry.syncSchedule)}${entry.nextScheduledSyncAt ? ` | Next ${formatDate(entry.nextScheduledSyncAt)}` : ""}`)
+                    : "Connection disabled";
+                const laneText = entry.provider === "SFTP"
+                    ? [
+                        entry.settings?.ordersFolder ? `Orders ${entry.settings.ordersFolder}` : "",
+                        entry.settings?.inboundsFolder ? `Inbounds ${entry.settings.inboundsFolder}` : "",
+                        entry.settings?.shipmentsFolder ? `Shipments ${entry.settings.shipmentsFolder}` : "",
+                        entry.settings?.receiptsFolder ? `Receipts ${entry.settings.receiptsFolder}` : "",
+                        entry.settings?.inventoryFolder ? `Inventory ${entry.settings.inventoryFolder}` : ""
+                    ].filter(Boolean).join(" | ")
+                    : "";
                 return `
                     <div class="quick-row">
                         <div class="quick-main">
                             <strong>${esc(entry.integrationName || `${integrationProviderLabel(entry.provider)} ${entry.storeIdentifier}`)}</strong>
                             <div class="quick-meta">${esc(entry.accountName)} | ${esc(integrationProviderLabel(entry.provider))} | ${esc(entry.storeIdentifier)}</div>
                             <div class="quick-meta">
-                                ${entry.isActive ? "Connection active" : "Connection disabled"} | Orders import as ${esc(entry.importStatus)} | ${entry.hasAccessToken ? `Token ${esc(entry.accessTokenMasked)}` : "No API token saved"}
+                                ${entry.isActive ? "Connection active" : "Connection disabled"} | Orders import as ${esc(entry.importStatus)} | ${entry.hasAccessToken ? `Credential ${esc(entry.accessTokenMasked)}` : "No credential saved"}
                             </div>
+                            ${laneText ? `<div class="quick-meta">${esc(laneText)}</div>` : ""}
+                            <div class="quick-meta">${esc(scheduleText)}</div>
                             <div class="quick-meta">
                                 <span class="pill ${statusClass}">${esc(syncText)}</span>${entry.lastSyncMessage ? ` <span>${esc(entry.lastSyncMessage)}</span>` : ""}
                             </div>
                         </div>
                         <div class="quick-row-actions">
                             <button class="btn ghost mini" type="button" data-edit-integration="${attr(entry.id)}">Load</button>
-                            <button class="btn ghost mini" type="button" data-sync-integration="${attr(entry.id)}"${integrationSupportsSync(entry.provider) ? "" : " disabled"}>Pull Orders</button>
+                            <button class="btn ghost mini" type="button" data-sync-integration="${attr(entry.id)}"${integrationSupportsSync(entry.provider) ? "" : " disabled"}>Run Sync</button>
                         </div>
                     </div>
                 `;
@@ -8860,13 +9461,19 @@
             ui.integrationName.value = "";
             ui.integrationStoreIdentifier.value = "";
             ui.integrationAccessToken.value = "";
+            if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = "";
+            if (ui.integrationSftpPort) ui.integrationSftpPort.value = "22";
+            if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = "";
+            if (ui.integrationInboundsFolder) ui.integrationInboundsFolder.value = "";
+            if (ui.integrationShipmentsFolder) ui.integrationShipmentsFolder.value = "";
+            if (ui.integrationReceiptsFolder) ui.integrationReceiptsFolder.value = "";
+            if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.value = "";
+            if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.value = "";
+            ui.integrationSchedule.value = "MANUAL";
             ui.integrationImportStatus.value = "DRAFT";
             ui.integrationActive.value = "true";
-            if (!keepCompany) {
-                ui.integrationAccount.value = "";
-            } else if (getActiveCompany()) {
-                ui.integrationAccount.value = getActiveCompany();
-            }
+            ui.integrationAccount.value = getActiveCompany() || "";
+            updateIntegrationCompanyMeta();
             updateIntegrationProviderNote();
             showMessage(ui.integrationMessage, "", "info");
         }
@@ -8880,26 +9487,138 @@
             ui.integrationName.value = entry.integrationName || "";
             ui.integrationStoreIdentifier.value = entry.storeIdentifier || "";
             ui.integrationAccessToken.value = "";
+            if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = entry.settings?.username || "";
+            if (ui.integrationSftpPort) ui.integrationSftpPort.value = String(entry.settings?.port || 22);
+            if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = entry.settings?.ordersFolder || "";
+            if (ui.integrationInboundsFolder) ui.integrationInboundsFolder.value = entry.settings?.inboundsFolder || "";
+            if (ui.integrationShipmentsFolder) ui.integrationShipmentsFolder.value = entry.settings?.shipmentsFolder || "";
+            if (ui.integrationReceiptsFolder) ui.integrationReceiptsFolder.value = entry.settings?.receiptsFolder || "";
+            if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.value = entry.settings?.inventoryFolder || "";
+            if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.value = entry.settings?.archiveFolder || "";
+            ui.integrationSchedule.value = integrationScheduleValue(entry.syncSchedule || "MANUAL");
             ui.integrationImportStatus.value = entry.importStatus || "DRAFT";
             ui.integrationActive.value = entry.isActive === false ? "false" : "true";
+            updateIntegrationCompanyMeta();
             updateIntegrationProviderNote();
             ui.integrationAccessToken.focus();
         }
 
+        function updateIntegrationCompanyMeta() {
+            if (!ui.integrationCompanyMeta) return;
+            const company = getActiveCompany();
+            ui.integrationAccount.value = company || "";
+            if (company && !companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
+                ui.integrationCompanyMeta.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
+                return;
+            }
+            ui.integrationCompanyMeta.innerHTML = company
+                ? `This connection will be saved under <strong>${esc(company)}</strong>.`
+                : "Choose an active company in the header before saving a store connection.";
+        }
+
+        function updateIntegrationScheduleMeta() {
+            if (!ui.integrationScheduleMeta) return;
+            const company = getActiveCompany();
+            const provider = norm(ui.integrationProvider?.value || "SHOPIFY");
+            const schedule = integrationScheduleValue(ui.integrationSchedule?.value || "MANUAL");
+            const isActive = ui.integrationActive?.value !== "false";
+            const currentRecord = integrationRecords.find((entry) => entry.id === String(ui.integrationId?.value || "").trim());
+            const hasSavedSchedule = currentRecord && currentRecord.accountName === company && integrationScheduleValue(currentRecord.syncSchedule) === schedule;
+            const nextScheduledSyncAt = hasSavedSchedule ? currentRecord?.nextScheduledSyncAt : "";
+
+            if (!company) {
+                ui.integrationScheduleMeta.textContent = "Choose the active company in the header before setting scheduled sync jobs.";
+                return;
+            }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
+                ui.integrationScheduleMeta.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
+                return;
+            }
+            if (!integrationSupportsAutoSync(provider)) {
+                ui.integrationScheduleMeta.textContent = `${integrationProviderLabel(provider)} is saved as a connection only right now. Automatic sync will unlock when that provider goes live.`;
+                return;
+            }
+            if (!isActive) {
+                ui.integrationScheduleMeta.textContent = "This connection is disabled, so automatic sync stays off until you switch Status back to Active.";
+                return;
+            }
+            if (schedule === "MANUAL") {
+                ui.integrationScheduleMeta.textContent = provider === "SFTP"
+                    ? "Manual sync is on. Use Run Sync Now to pull new order and inbound files and push confirmations plus inventory snapshots."
+                    : "Manual sync is on. Use Run Sync Now whenever you want to import the latest orders.";
+                return;
+            }
+
+            const cadenceHint = provider === "SFTP"
+                ? "The server will pull new order and inbound files, then push shipment confirmations, receipt confirmations, and inventory snapshots for this company on this cadence."
+                : (schedule === "EVERY_5_MINUTES"
+                    ? "This is the closest option to near real-time Shopify order intake."
+                    : "The server will keep pulling only new orders for the active company on this cadence.");
+            const nextSyncText = nextScheduledSyncAt
+                ? `Next sync ${formatDate(nextScheduledSyncAt)}.`
+                : "Next sync time will be calculated when you save this connection.";
+            ui.integrationScheduleMeta.textContent = `${integrationScheduleLabel(schedule)} auto sync is on. ${cadenceHint} ${nextSyncText}`;
+        }
+
         function updateIntegrationProviderNote() {
             if (!ui.integrationProviderNote) return;
+            const company = getActiveCompany();
             const provider = norm(ui.integrationProvider?.value || "SHOPIFY");
             const supportsSync = integrationSupportsSync(provider);
+            const supportsAutoSync = integrationSupportsAutoSync(provider);
+            const featureLocked = company && !companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            const providerLocked = company && ((provider === "SHOPIFY" && !companyHasFeature(company, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION)) || (provider === "SFTP" && !companyHasFeature(company, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION)));
+            if (ui.integrationSftpFields) {
+                ui.integrationSftpFields.classList.toggle("hidden", provider !== "SFTP");
+            }
+            if (ui.integrationStoreIdentifierLabel) {
+                ui.integrationStoreIdentifierLabel.textContent = provider === "SFTP" ? "SFTP Host" : "Store URL / Domain";
+            }
             ui.integrationStoreIdentifier.placeholder = provider === "SHOPIFY"
                 ? "Example: your-store.myshopify.com"
-                : "Example: store URL, seller id, or platform domain";
+                : (provider === "SFTP" ? "Example: sftp.customer.com" : "Example: store URL, seller id, or platform domain");
+            if (ui.integrationAccessTokenLabel) {
+                ui.integrationAccessTokenLabel.textContent = provider === "SFTP" ? "SFTP Password" : "API Access Token";
+            }
             ui.integrationAccessToken.placeholder = provider === "SHOPIFY"
                 ? "Required for Shopify sync. Leave blank on edit to keep the saved token."
-                : "Optional for now. Leave blank on edit to keep the saved token.";
-            ui.integrationSyncBtn.disabled = !supportsSync || !String(ui.integrationId.value || "").trim();
+                : (provider === "SFTP"
+                    ? "Required SFTP password. Leave blank on edit to keep the saved password."
+                    : "Optional for now. Leave blank on edit to keep the saved token.");
+            if (ui.integrationSchedule) {
+                if (!supportsAutoSync) {
+                    ui.integrationSchedule.value = "MANUAL";
+                }
+                ui.integrationSchedule.disabled = !supportsAutoSync || featureLocked || providerLocked;
+            }
+            ui.integrationSyncBtn.disabled = !supportsSync || !String(ui.integrationId.value || "").trim() || featureLocked || providerLocked;
+            ui.integrationProvider.disabled = featureLocked;
+            ui.integrationName.disabled = featureLocked;
+            ui.integrationStoreIdentifier.disabled = featureLocked || providerLocked;
+            ui.integrationAccessToken.disabled = featureLocked || providerLocked;
+            ui.integrationImportStatus.disabled = featureLocked;
+            ui.integrationActive.disabled = featureLocked;
+            if (ui.integrationSftpUsername) ui.integrationSftpUsername.disabled = featureLocked || providerLocked;
+            if (ui.integrationSftpPort) ui.integrationSftpPort.disabled = featureLocked || providerLocked;
+            if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.disabled = featureLocked || providerLocked;
+            if (ui.integrationInboundsFolder) ui.integrationInboundsFolder.disabled = featureLocked || providerLocked;
+            if (ui.integrationShipmentsFolder) ui.integrationShipmentsFolder.disabled = featureLocked || providerLocked;
+            if (ui.integrationReceiptsFolder) ui.integrationReceiptsFolder.disabled = featureLocked || providerLocked;
+            if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.disabled = featureLocked || providerLocked;
+            if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.disabled = featureLocked || providerLocked;
             ui.integrationProviderNote.innerHTML = provider === "SHOPIFY"
-                ? 'Use the Shopify shop\'s <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Pull Orders only imports new open store orders for the selected customer.'
-                : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual order pull is wired in for Shopify first, and this provider is staged for the next pass.`;
+                ? 'Use the Shopify shop\'s <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Run Sync only imports new open store orders for the selected customer, and Auto Pull Schedule keeps the sync scoped to that same company.'
+                : (provider === "SFTP"
+                    ? 'SFTP uses the saved <strong>host, username, password, and folders</strong> under the active company. Order and inbound folders are pulled in as JSON files, and shipped confirmations, receipt confirmations, and inventory snapshots are pushed back as JSON files to the folders you set here.'
+                    : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify and SFTP first, and this provider is staged for the next pass.`);
+            if (featureLocked) {
+                ui.integrationProviderNote.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
+            } else if (providerLocked) {
+                ui.integrationProviderNote.textContent = provider === "SFTP"
+                    ? companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.SFTP_INTEGRATION, company)
+                    : companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION, company);
+            }
+            updateIntegrationScheduleMeta();
         }
 
         function onIntegrationListClick(event) {
@@ -8922,7 +9641,7 @@
         async function syncSelectedIntegration() {
             const integrationId = String(ui.integrationId.value || "").trim();
             if (!integrationId) {
-                return fail(ui.integrationMessage, "Load or save a connection first, then pull orders.", ui.integrationStoreIdentifier);
+                return fail(ui.integrationMessage, "Load or save a connection first, then run the sync.", ui.integrationStoreIdentifier);
             }
             await syncStoreIntegration(integrationId);
         }
@@ -8930,7 +9649,16 @@
         async function syncStoreIntegration(integrationId) {
             const record = integrationRecords.find((entry) => entry.id === String(integrationId));
             if (record && !integrationSupportsSync(record.provider)) {
-                return showMessage(ui.integrationMessage, `${integrationProviderLabel(record.provider)} pull is not wired in yet. Shopify is live first.`, "error");
+                return showMessage(ui.integrationMessage, `${integrationProviderLabel(record.provider)} sync is not wired in yet. Shopify and SFTP are live first.`, "error");
+            }
+            if (record && !companyHasFeature(record.accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
+                return showMessage(ui.integrationMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, record.accountName), "error");
+            }
+            if (record?.provider === "SHOPIFY" && !companyHasFeature(record.accountName, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION)) {
+                return showMessage(ui.integrationMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION, record.accountName), "error");
+            }
+            if (record?.provider === "SFTP" && !companyHasFeature(record.accountName, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION)) {
+                return showMessage(ui.integrationMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.SFTP_INTEGRATION, record.accountName), "error");
             }
 
             try {
@@ -8941,7 +9669,8 @@
                 await refreshIntegrationsList();
                 await syncServerState(true);
                 await refreshPortalOrdersList(true);
-                showMessage(ui.integrationMessage, response?.message || "Store orders pulled.", response?.failedCount > 0 ? "error" : "success");
+                await refreshPortalInboundsList(true);
+                showMessage(ui.integrationMessage, response?.message || "Integration sync completed.", response?.failedCount > 0 ? "error" : "success");
             } catch (error) {
                 showMessage(ui.integrationMessage, error.message, "error");
             } finally {
@@ -8950,13 +9679,58 @@
         }
 
         function integrationSupportsSync(provider) {
-            return norm(provider) === "SHOPIFY";
+            return ["SHOPIFY", "SFTP"].includes(norm(provider));
+        }
+
+        function integrationSupportsAutoSync(provider) {
+            return ["SHOPIFY", "SFTP"].includes(norm(provider));
+        }
+
+        function integrationScheduleValue(value) {
+            switch (norm(value || "MANUAL")) {
+                case "EVERY_5_MINUTES":
+                case "EVERY_15_MINUTES":
+                case "EVERY_30_MINUTES":
+                case "HOURLY":
+                case "DAILY_0900":
+                case "DAILY_1200":
+                case "DAILY_1500":
+                case "DAILY_1800":
+                    return norm(value);
+                default:
+                    return "MANUAL";
+            }
+        }
+
+        function integrationScheduleLabel(schedule) {
+            switch (integrationScheduleValue(schedule)) {
+                case "EVERY_5_MINUTES":
+                    return "Every 5 Minutes";
+                case "EVERY_15_MINUTES":
+                    return "Every 15 Minutes";
+                case "EVERY_30_MINUTES":
+                    return "Every 30 Minutes";
+                case "HOURLY":
+                    return "Hourly";
+                case "DAILY_0900":
+                    return "Daily at 9:00 AM";
+                case "DAILY_1200":
+                    return "Daily at 12:00 PM";
+                case "DAILY_1500":
+                    return "Daily at 3:00 PM";
+                case "DAILY_1800":
+                    return "Daily at 6:00 PM";
+                default:
+                    return "Manual Only";
+            }
         }
 
         function integrationProviderLabel(provider) {
             switch (norm(provider)) {
                 case "SHOPIFY":
                     return "Shopify";
+                case "SFTP":
+                    return "SFTP";
                 case "WOOCOMMERCE":
                     return "WooCommerce";
                 case "BIGCOMMERCE":
@@ -9083,11 +9857,14 @@
             if (!ui.warehouseOrderCompanyMeta) return;
             const company = getWarehouseSalesOrderCompany();
             const hasCompany = !!company;
+            const featureEnabled = !company || companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             ui.warehouseOrderCompanyMeta.textContent = hasCompany
-                ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
+                ? (featureEnabled
+                    ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
+                    : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company)} Existing orders remain visible, but new order entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse sales order.";
             [ui.addWarehouseOrderLineBtn, ui.saveWarehouseOrderDraftBtn, ui.releaseWarehouseOrderBtn].filter(Boolean).forEach((button) => {
-                button.disabled = !hasCompany;
+                button.disabled = !hasCompany || !featureEnabled;
             });
             if (ui.warehouseOrderLines) {
                 [...ui.warehouseOrderLines.querySelectorAll(".line-card")].forEach((card) => {
@@ -9186,6 +9963,9 @@
             if (!company) {
                 return showMessage(ui.warehouseOrderMessage, "Choose an active company before entering a warehouse sales order.", "error");
             }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY)) {
+                return showMessage(ui.warehouseOrderMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company), "error");
+            }
 
             try {
                 const payload = collectWarehouseSalesOrderPayload();
@@ -9208,6 +9988,9 @@
             const company = getWarehouseSalesOrderCompany();
             if (!company) {
                 return showMessage(ui.warehouseOrderMessage, "Choose an active company before entering a warehouse sales order.", "error");
+            }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY)) {
+                return showMessage(ui.warehouseOrderMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company), "error");
             }
 
             try {
@@ -9287,11 +10070,14 @@
             if (!ui.warehouseInboundCompanyMeta) return;
             const company = getWarehouseInboundCompany();
             const hasCompany = !!company;
+            const featureEnabled = !company || companyHasFeature(company, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
             ui.warehouseInboundCompanyMeta.textContent = hasCompany
-                ? `Creating purchase orders and inbound notices for ${company}. Only that company's saved item masters can be selected.`
+                ? (featureEnabled
+                    ? `Creating purchase orders and inbound notices for ${company}. Only that company's saved item masters can be selected.`
+                    : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company)} Existing inbound history remains visible, but new inbound entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse purchase order.";
             [ui.addWarehouseInboundLineBtn, ui.submitWarehouseInboundBtn].filter(Boolean).forEach((button) => {
-                button.disabled = !hasCompany;
+                button.disabled = !hasCompany || !featureEnabled;
             });
             if (ui.warehouseInboundLines) {
                 [...ui.warehouseInboundLines.querySelectorAll(".line-card")].forEach((card) => {
@@ -9369,6 +10155,9 @@
             if (!company) {
                 return showMessage(ui.warehouseInboundMessage, "Choose an active company before entering a warehouse purchase order.", "error");
             }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.INBOUND_NOTICES)) {
+                return showMessage(ui.warehouseInboundMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company), "error");
+            }
             try {
                 const payload = collectWarehouseInboundPayload();
                 const response = await requestJson("/api/admin/portal-inbounds", {
@@ -9438,6 +10227,7 @@
                         <div class="quick-main">
                             <strong>${esc(inbound.inboundCode)} | ${esc(inbound.accountName)}</strong>
                             <div class="quick-meta">${esc(inbound.status)} | Ref ${esc(inbound.referenceNumber || "None")} | Expected ${esc(inbound.expectedDate || "Not set")}</div>
+                            ${inbound.receivedAt ? `<div class="quick-meta">Received ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
                             <div class="quick-meta">${esc(inbound.contactName || "No contact")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}${inbound.carrierName ? ` | Carrier ${esc(inbound.carrierName)}` : ""}</div>
                             ${inbound.notes ? `<div class="quick-meta">Notes: ${esc(inbound.notes)}</div>` : ""}
                             <div class="portal-order-line-table-wrap">
@@ -9465,10 +10255,30 @@
                         </div>
                         <div class="quick-row-actions">
                             <span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span>
+                            ${inbound.status === "SUBMITTED" ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
                         </div>
                     </div>
                 </div>
             `).join("");
+        }
+
+        async function onPortalInboundsListClick(event) {
+            const statusButton = event.target.closest("[data-portal-inbound-status]");
+            if (!statusButton) return;
+            const inboundId = statusButton.dataset.portalInboundStatus || "";
+            const nextStatus = norm(statusButton.dataset.nextStatus || "");
+            if (!inboundId || !nextStatus) return;
+
+            try {
+                const response = await requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/status`, {
+                    method: "POST",
+                    body: JSON.stringify({ status: nextStatus })
+                });
+                await refreshPortalInboundsList(true);
+                showMessage(ui.warehouseInboundMessage, `Inbound ${response?.inbound?.inboundCode || inboundId} marked ${nextStatus}.`, "success");
+            } catch (error) {
+                showMessage(ui.warehouseInboundMessage, error.message, "error");
+            }
         }
 
         async function refreshPortalOrdersList(silent = false) {
@@ -9576,8 +10386,19 @@
                 const timeline = formatPortalOrderTimeline(order);
                 const shipDateValue = order.confirmedShipDate || (order.shippedAt ? String(order.shippedAt).slice(0, 10) : todayIso());
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
-                const totalAvailable = order.lines.reduce((sum, line) => sum + Math.min(Number(line.availableQuantity) || 0, Number(line.quantity) || 0), 0);
-                const insufficientLines = order.lines.filter((line) => Number(line.availableQuantity) < Number(line.quantity));
+                const totalAvailable = order.lines.reduce((sum, line) => {
+                    const ordered = Number(line.quantity) || 0;
+                    const available = Number(line.availableQuantity) || 0;
+                    const allocated = Number(line.allocatedQuantity) || 0;
+                    return sum + (isDraft ? Math.min(available, ordered) : (allocated > 0 ? allocated : Math.min(available, ordered)));
+                }, 0);
+                const insufficientLines = order.lines.filter((line) => {
+                    const ordered = Number(line.quantity) || 0;
+                    const available = Number(line.availableQuantity) || 0;
+                    const allocated = Number(line.allocatedQuantity) || 0;
+                    const allocatable = isDraft ? Math.min(available, ordered) : (allocated > 0 ? allocated : Math.min(available, ordered));
+                    return allocatable < ordered;
+                });
                 const allAllocated = insufficientLines.length === 0 && order.lines.length > 0;
                 const detailedLines = order.lines.length
                     ? `
@@ -9597,16 +10418,18 @@
                                     ${order.lines.map((line) => {
                                         const ordered = Number(line.quantity) || 0;
                                         const available = Number(line.availableQuantity) || 0;
-                                        const allocated = Math.min(ordered, available);
-                                        const insufficient = available < ordered;
+                                        const allocated = isDraft
+                                            ? Math.min(ordered, available)
+                                            : ((Number(line.allocatedQuantity) || 0) > 0 ? (Number(line.allocatedQuantity) || 0) : Math.min(ordered, available));
+                                        const insufficient = allocated < ordered;
                                         return `
                                             <tr class="${insufficient ? "insufficient-line" : ""}">
                                                 <td>${esc(line.sku)}</td>
                                                 <td>${esc(line.description || "")}</td>
                                                 <td>${esc(formatTrackedQuantity(ordered, line.trackingLevel))}</td>
                                                 <td>${esc(formatTrackedQuantity(available, line.trackingLevel))}</td>
-                                                <td><span class="pill ${insufficient ? "warning" : "success"}">${insufficient ? `Short ${esc(formatTrackedQuantity(ordered - available, line.trackingLevel))}` : `Allocated ${esc(formatTrackedQuantity(allocated, line.trackingLevel))}`}</span></td>
-                                                <td>${line.pickLocations?.length ? line.pickLocations.map((entry) => `${esc(entry.location)} (${esc(formatTrackedQuantity(entry.quantity, entry.trackingLevel || line.trackingLevel))})`).join("<br>") : "No location found"}</td>
+                                                <td><span class="pill ${insufficient ? "warning" : "success"}">${insufficient ? `Short ${esc(formatTrackedQuantity(ordered - allocated, line.trackingLevel))}` : `Allocated ${esc(formatTrackedQuantity(allocated, line.trackingLevel))}`}</span></td>
+                                                <td>${line.pickLocations?.length ? line.pickLocations.map((entry) => formatPickLocationHtml(entry, line.trackingLevel)).join("<br>") : "No location found"}</td>
                                             </tr>
                                         `;
                                     }).join("")}
@@ -9767,7 +10590,7 @@
                     <td>${esc(line.description || "")}</td>
                     <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
                     <td>${line.pickLocations?.length
-                        ? line.pickLocations.map((entry) => `${esc(entry.location)} (${esc(formatTrackedQuantity(entry.quantity, entry.trackingLevel || line.trackingLevel))})`).join("<br>")
+                        ? line.pickLocations.map((entry) => formatPickLocationHtml(entry, line.trackingLevel)).join("<br>")
                         : "No location found"}</td>
                 </tr>
             `).join("");
@@ -9951,6 +10774,8 @@
             const imageUrl = normalizeImageReference(ui.masterItemImageUrl.value);
             const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel.value);
             const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase.value);
+            const lotTracked = ui.masterItemLotTracked.value === "true";
+            const expirationTracked = ui.masterItemExpirationTracked.value === "true";
             const eachLength = toPositiveNumber(ui.masterItemEachLength.value);
             const eachWidth = toPositiveNumber(ui.masterItemEachWidth.value);
             const eachHeight = toPositiveNumber(ui.masterItemEachHeight.value);
@@ -9969,6 +10794,8 @@
                     imageUrl,
                     trackingLevel,
                     unitsPerCase,
+                    lotTracked,
+                    expirationTracked,
                     eachLength,
                     eachWidth,
                     eachHeight,
@@ -10010,6 +10837,8 @@
             ui.masterItemEditorBanner.classList.add("hidden");
             ui.masterItemAccount.value = accountName || "";
             ui.masterItemTrackingLevel.value = "UNIT";
+            ui.masterItemLotTracked.value = "false";
+            ui.masterItemExpirationTracked.value = "false";
             clearImageField({
                 urlInput: ui.masterItemImageUrl,
                 previewWrap: ui.masterItemImagePreviewWrap,
@@ -10032,6 +10861,8 @@
             ui.masterItemImageUrl.value = item.imageUrl || "";
             ui.masterItemTrackingLevel.value = normalizeTrackingLevel(item.trackingLevel);
             ui.masterItemUnitsPerCase.value = item.unitsPerCase ?? "";
+            ui.masterItemLotTracked.value = item.lotTracked === true ? "true" : "false";
+            ui.masterItemExpirationTracked.value = item.expirationTracked === true ? "true" : "false";
             ui.masterItemEachLength.value = item.eachLength ?? "";
             ui.masterItemEachWidth.value = item.eachWidth ?? "";
             ui.masterItemEachHeight.value = item.eachHeight ?? "";
@@ -11007,6 +11838,8 @@
                     <td>${esc(line.location)}</td>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.upc || "-")}</td>
+                    <td>${esc(line.lotNumber || "-")}</td>
+                    <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                     <td>${esc(getLineDescription(line) || "-")}</td>
                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
                     <td>${num(line.quantity)}</td>
@@ -11039,6 +11872,9 @@
             if (matchingLine?.duplicateUpc) {
                 return showMessage(ui.actionMessage, "Multiple items matched that UPC in the selected location. Use the SKU instead.", "error");
             }
+            if (matchingLine?.multipleSkuMatches) {
+                return showMessage(ui.actionMessage, "Multiple lot or expiration rows matched that SKU in the selected location. Use a lot-specific adjustment flow for that item.", "error");
+            }
             if (!matchingLine) {
                 return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected company and location.", "error");
             }
@@ -11068,6 +11904,9 @@
             const matchingLine = findClientInventoryLine(accountName, location, skuOrUpc);
             if (matchingLine?.duplicateUpc) {
                 return showMessage(ui.actionMessage, "Multiple items matched that UPC in the selected location. Use the SKU instead.", "error");
+            }
+            if (matchingLine?.multipleSkuMatches) {
+                return showMessage(ui.actionMessage, "Multiple lot or expiration rows matched that SKU in the selected location. Use a lot-specific adjustment flow for that item.", "error");
             }
             if (!matchingLine) {
                 return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected company and location.", "error");
@@ -11101,6 +11940,9 @@
             const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
             if (matchingLine?.duplicateUpc) {
                 return showMessage(ui.actionMessage, "Multiple items matched that UPC in the source location. Use the SKU instead.", "error");
+            }
+            if (matchingLine?.multipleSkuMatches) {
+                return showMessage(ui.actionMessage, "Multiple lot or expiration rows matched that SKU in the source location. Use a lot-specific transfer flow for that item.", "error");
             }
             if (!matchingLine) {
                 return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected source location for this company.", "error");
@@ -11270,12 +12112,14 @@
         async function exportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Company", "Location", "SKU", "UPC", "Description", "Tracking", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
+                const rows = [["Company", "Location", "SKU", "UPC", "Lot", "Expiration", "Description", "Tracking", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
                     getScopedInventory().map((line) => [
                         line.accountName,
                         line.location,
                         line.sku,
                         line.upc || "",
+                        line.lotNumber || "",
+                        line.expirationDate || "",
                         getLineDescription(line) || "",
                         line.trackingLevel,
                         String(line.quantity),
@@ -11334,6 +12178,8 @@
                                 <th>Location</th>
                                 <th>SKU</th>
                                 <th>UPC</th>
+                                <th>Lot</th>
+                                <th>Expiration</th>
                                 <th>Description</th>
                                 <th>Tracking</th>
                                 <th>Qty</th>
@@ -11347,6 +12193,8 @@
                                     <td>${esc(line.location)}</td>
                                     <td>${esc(line.sku)}</td>
                                     <td>${esc(line.upc || "-")}</td>
+                                    <td>${esc(line.lotNumber || "-")}</td>
+                                    <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                                     <td>${esc(getLineDescription(line) || "-")}</td>
                                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
                                     <td>${num(line.quantity)}</td>
@@ -11372,6 +12220,7 @@
                                 <span class="mobile-result-location">${esc(line.location)}</span>
                             </div>
                             ${(line.upc || "").trim() ? `<div class="mobile-result-upc">UPC ${esc(line.upc)}</div>` : ""}
+                            ${formatLineTraceability(line) ? `<div class="mobile-result-upc">${esc(formatLineTraceability(line))}</div>` : ""}
                             ${getLineDescription(line) ? `<div class="mobile-result-desc">${esc(getLineDescription(line))}</div>` : ""}
                             <div class="mobile-result-stats">
                                 <div class="mobile-result-stat">
@@ -11402,6 +12251,8 @@
                             <th>Location</th>
                             <th>SKU</th>
                             <th>UPC</th>
+                            <th>Lot</th>
+                            <th>Expiration</th>
                             <th>Description</th>
                             <th>Tracking</th>
                             <th>Qty</th>
@@ -11415,6 +12266,8 @@
                                 <td>${esc(line.location)}</td>
                                 <td>${esc(line.sku)}</td>
                                 <td>${esc(line.upc || "-")}</td>
+                                <td>${esc(line.lotNumber || "-")}</td>
+                                <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                                 <td>${esc(getLineDescription(line) || "-")}</td>
                                 <td>${esc(trackingLabel(line.trackingLevel))}</td>
                                 <td>${num(line.quantity)}</td>
@@ -11487,6 +12340,17 @@
             state.billing.feeCatalog = Array.isArray(payload?.billing?.feeCatalog) ? payload.billing.feeCatalog.map(sanitizeBillingFee).filter(Boolean) : [];
             state.billing.ownerRates = Array.isArray(payload?.billing?.ownerRates) ? payload.billing.ownerRates.map(sanitizeOwnerBillingRate).filter(Boolean) : [];
             state.billing.events = Array.isArray(payload?.billing?.events) ? payload.billing.events.map(sanitizeBillingEvent).filter(Boolean) : [];
+            state.session = {
+                appUser: payload?.session?.appUser && typeof payload.session.appUser === "object"
+                    ? {
+                        id: String(payload.session.appUser.id || ""),
+                        email: String(payload.session.appUser.email || "").trim(),
+                        fullName: String(payload.session.appUser.fullName || "").trim(),
+                        role: norm(payload.session.appUser.role || ""),
+                        isActive: payload.session.appUser.isActive !== false
+                    }
+                    : null
+            };
             state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             state.meta.localCacheAt = new Date().toISOString();
@@ -11507,6 +12371,10 @@
             const text = await response.text();
             const data = text ? JSON.parse(text) : {};
             if (!response.ok) {
+                if (response.status === 401 && !String(url || "").startsWith("/api/portal/")) {
+                    window.location.href = "/login";
+                    throw new Error("Warehouse session expired. Redirecting to login.");
+                }
                 throw new Error(data.error || "Request failed.");
             }
             return data;
@@ -11670,8 +12538,9 @@
                 activity: [],
                 masters: { locations: [], ownerRecords: [], items: [], owners: [] },
                 billing: { feeCatalog: [], ownerRates: [], events: [] },
+                session: { appUser: null },
                 preferences: { lastLocation: "", lastAccount: "", activeCompany: "", desktopMobilePreview: false },
-                meta: { version: 7, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
+                meta: { version: 8, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
             };
         }
 
@@ -11727,6 +12596,7 @@
                 activity: cache.activity,
                 masters: cache.masters,
                 billing: cache.billing,
+                session: { appUser: null },
                 preferences: {
                     lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
                     lastAccount: typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : "",
@@ -11736,7 +12606,7 @@
                     desktopMobilePreview: raw.preferences?.desktopMobilePreview === true
                 },
                 meta: {
-                    version: 7,
+                    version: 8,
                     lastChangedAt: cache.meta.lastChangedAt,
                     serverSyncedAt: cache.meta.serverSyncedAt,
                     localCacheAt: cache.meta.localCacheAt
@@ -11819,6 +12689,8 @@
             const location = norm(line?.location);
             const sku = norm(line?.sku);
             const upc = norm(line?.upc || "");
+            const lotNumber = norm(line?.lotNumber || line?.lot_number || line?.lot || "");
+            const expirationDate = normalizeLabelDate(line?.expirationDate || line?.expiration_date || line?.expiryDate || line?.expiry_date || "");
             const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
             const quantity = toPositiveInt(line?.quantity);
             if (!accountName || !location || !sku || !quantity) return null;
@@ -11828,6 +12700,8 @@
                 location,
                 sku,
                 upc,
+                lotNumber,
+                expirationDate,
                 trackingLevel,
                 quantity,
                 createdAt: typeof line.createdAt === "string" ? line.createdAt : new Date().toISOString(),
@@ -11864,6 +12738,8 @@
             const location = norm(line?.location);
             const sku = norm(line?.sku);
             const upc = norm(line?.upc || "");
+            const lotNumber = norm(line?.lotNumber || line?.lot_number || line?.lot || "");
+            const expirationDate = normalizeLabelDate(line?.expirationDate || line?.expiration_date || line?.expiryDate || line?.expiry_date || "");
             const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
             const quantity = toPositiveInt(line?.quantity);
             if (!accountName || !location || !sku || !quantity) return null;
@@ -11873,6 +12749,8 @@
                 location,
                 sku,
                 upc,
+                lotNumber,
+                expirationDate,
                 description: String(line?.description || "").trim().replace(/\s+/g, " "),
                 imageUrl: normalizeImageReference(line?.imageUrl || line?.image || line?.photoUrl || line?.image_url || ""),
                 trackingLevel,
@@ -11909,6 +12787,7 @@
             const value = typeof item === "string" ? item : item?.name ?? item?.owner ?? item?.vendor ?? item?.customer;
             const name = norm(value);
             if (!name) return null;
+            const featureFlagsInherited = item?.featureFlagsInherited === true || item?.feature_flags_inherited === true;
             return {
                 id: typeof item?.id === "string" ? item.id : makeId("owner"),
                 name,
@@ -11931,6 +12810,10 @@
                 country: String(item?.country || "").trim().replace(/\s+/g, " "),
                 isActive: item?.isActive !== false,
                 note: String(typeof item === "string" ? "" : item?.note || "").trim().replace(/\s+/g, " "),
+                featureFlags: sanitizeCompanyFeatureFlags(item?.featureFlags || item?.feature_flags, { legacyMode: featureFlagsInherited }),
+                featureFlagsInherited,
+                featureFlagsUpdatedAt: typeof item?.featureFlagsUpdatedAt === "string" ? item.featureFlagsUpdatedAt : (typeof item?.feature_flags_updated_at === "string" ? item.feature_flags_updated_at : null),
+                featureFlagsUpdatedBy: String(item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by || "").trim(),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
@@ -11961,6 +12844,20 @@
                 provider,
                 integrationName: String(item?.integrationName || item?.name || "").trim(),
                 storeIdentifier: String(item?.storeIdentifier || item?.store_identifier || item?.shopDomain || item?.shop_domain || "").trim().toLowerCase(),
+                settings: item?.settings && typeof item.settings === "object" ? {
+                    port: Number(item.settings?.port || 22) || 22,
+                    username: String(item.settings?.username || "").trim(),
+                    ordersFolder: String(item.settings?.ordersFolder || item.settings?.orders_folder || "").trim(),
+                    inboundsFolder: String(item.settings?.inboundsFolder || item.settings?.inbounds_folder || "").trim(),
+                    shipmentsFolder: String(item.settings?.shipmentsFolder || item.settings?.shipments_folder || "").trim(),
+                    receiptsFolder: String(item.settings?.receiptsFolder || item.settings?.receipts_folder || "").trim(),
+                    inventoryFolder: String(item.settings?.inventoryFolder || item.settings?.inventory_folder || "").trim(),
+                    archiveFolder: String(item.settings?.archiveFolder || item.settings?.archive_folder || "").trim()
+                } : {},
+                syncSchedule: integrationScheduleValue(item?.syncSchedule || item?.sync_schedule || item?.schedule || "MANUAL"),
+                nextScheduledSyncAt: typeof item?.nextScheduledSyncAt === "string"
+                    ? item.nextScheduledSyncAt
+                    : (typeof item?.next_scheduled_sync_at === "string" ? item.next_scheduled_sync_at : null),
                 importStatus: norm(item?.importStatus || item?.import_status || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT",
                 isActive: item?.isActive !== false,
                 hasAccessToken: item?.hasAccessToken === true || !!String(item?.accessTokenMasked || "").trim(),
@@ -11984,6 +12881,7 @@
                 referenceNumber: String(item.referenceNumber || item.reference_number || item.poNumber || "").trim(),
                 carrierName: String(item.carrierName || item.carrier_name || "").trim(),
                 expectedDate: String(item.expectedDate || item.expected_date || "").trim(),
+                receivedAt: typeof item.receivedAt === "string" ? item.receivedAt : (typeof item.received_at === "string" ? item.received_at : null),
                 contactName: String(item.contactName || item.contact_name || "").trim(),
                 contactPhone: String(item.contactPhone || item.contact_phone || "").trim(),
                 notes: String(item.notes || "").trim(),
@@ -12060,16 +12958,24 @@
             return {
                 sku,
                 quantity,
+                id: item?.id != null ? String(item.id) : makeId("order-line"),
+                lineNumber: Number(item?.lineNumber || item?.line_number || 0) || 0,
                 description: String(item?.description || item?.itemDescription || "").trim(),
                 upc: String(item?.upc || "").trim(),
                 trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+                lotTracked: item?.lotTracked === true || item?.item_lot_tracked === true,
+                expirationTracked: item?.expirationTracked === true || item?.item_expiration_tracked === true,
                 onHandQuantity: Number(item?.onHandQuantity || item?.on_hand_quantity || 0) || 0,
                 availableQuantity: Number(item?.availableQuantity || item?.available_quantity || 0) || 0,
+                allocatedQuantity: Number(item?.allocatedQuantity || item?.allocated_quantity || 0) || 0,
                 pickLocations: Array.isArray(item?.pickLocations)
                     ? item.pickLocations.map((entry) => ({
+                        inventoryLineId: entry?.inventoryLineId ? String(entry.inventoryLineId) : (entry?.inventory_line_id ? String(entry.inventory_line_id) : ""),
                         location: norm(entry?.location || ""),
                         quantity: Number(entry?.quantity || 0) || 0,
-                        trackingLevel: normalizeTrackingLevel(entry?.trackingLevel || item?.trackingLevel)
+                        trackingLevel: normalizeTrackingLevel(entry?.trackingLevel || item?.trackingLevel),
+                        lotNumber: norm(entry?.lotNumber || entry?.lot_number || entry?.lot || ""),
+                        expirationDate: normalizeLabelDate(entry?.expirationDate || entry?.expiration_date || entry?.expiryDate || entry?.expiry_date || "")
                     })).filter((entry) => entry.location)
                     : []
             };
@@ -12094,6 +13000,8 @@
                 caseLength: toPositiveNumber(item?.caseLength),
                 caseWidth: toPositiveNumber(item?.caseWidth),
                 caseHeight: toPositiveNumber(item?.caseHeight),
+                lotTracked: item?.lotTracked === true || item?.lot_tracked === true || String(item?.lotTracked || item?.lot_tracked || "").trim().toLowerCase() === "true",
+                expirationTracked: item?.expirationTracked === true || item?.expiration_tracked === true || String(item?.expirationTracked || item?.expiration_tracked || "").trim().toLowerCase() === "true",
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
@@ -12289,6 +13197,67 @@
             return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
         }
 
+        function getCurrentAppUser() {
+            return state.session?.appUser || null;
+        }
+
+        function currentUserIsSuperAdmin() {
+            return norm(getCurrentAppUser()?.role || "") === "SUPER_ADMIN";
+        }
+
+        function sanitizeCompanyFeatureFlags(rawFlags, { legacyMode = false } = {}) {
+            const source = rawFlags && typeof rawFlags === "object" && !Array.isArray(rawFlags) ? rawFlags : {};
+            const base = legacyMode ? { ...LEGACY_COMPANY_FEATURE_FLAGS } : { ...DEFAULT_COMPANY_FEATURE_FLAGS };
+            const resolved = COMPANY_FEATURE_CATALOG.reduce((accumulator, feature) => {
+                accumulator[feature.key] = source[feature.key] === true;
+                return accumulator;
+            }, base);
+            if (!resolved[COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS]) {
+                resolved[COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION] = false;
+                resolved[COMPANY_FEATURE_KEYS.SFTP_INTEGRATION] = false;
+            }
+            return resolved;
+        }
+
+        function getCompanyRecord(accountName = getActiveCompany()) {
+            const normalizedCompany = norm(accountName);
+            if (!normalizedCompany) return null;
+            return (state.masters.ownerRecords || []).find((entry) => norm(entry.name) === normalizedCompany) || null;
+        }
+
+        function getCompanyFeatureFlags(accountName = getActiveCompany()) {
+            const owner = getCompanyRecord(accountName);
+            if (!owner) {
+                return { ...DEFAULT_COMPANY_FEATURE_FLAGS };
+            }
+            return sanitizeCompanyFeatureFlags(owner.featureFlags, { legacyMode: owner.featureFlagsInherited === true });
+        }
+
+        function companyHasFeature(accountName, featureKey) {
+            const normalizedCompany = norm(accountName);
+            if (!normalizedCompany) return true;
+            return getCompanyFeatureFlags(normalizedCompany)[featureKey] === true;
+        }
+
+        function describeEnabledCompanyFeatures(flags) {
+            const resolved = sanitizeCompanyFeatureFlags(flags);
+            const enabled = COMPANY_FEATURE_CATALOG.filter((feature) => resolved[feature.key] === true).map((feature) => feature.label);
+            return enabled.length ? enabled.join(", ") : "No optional features enabled";
+        }
+
+        function syncCompanyFeatureDraft(company = getActiveCompany(), { force = false } = {}) {
+            const normalizedCompany = norm(company);
+            if (!normalizedCompany) {
+                companyFeatureDraftCompany = "";
+                companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
+                return;
+            }
+            if (force || companyFeatureDraftCompany !== normalizedCompany) {
+                companyFeatureDraftCompany = normalizedCompany;
+                companyFeatureDraft = getCompanyFeatureFlags(normalizedCompany);
+            }
+        }
+
         function normalizeTrackingLevel(value) {
             const normalized = norm(value || "UNIT");
             if (normalized === "PALLET" || normalized === "PALLETS") return "PALLET";
@@ -12344,6 +13313,8 @@
                 item.imageUrl ? "Photo attached" : "",
                 trackingLabel(item.trackingLevel),
                 item.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "",
+                item.lotTracked ? "Lot tracked" : "",
+                item.expirationTracked ? "Expiration tracked" : "",
                 formatDimensions(item.eachLength, item.eachWidth, item.eachHeight, "Each"),
                 formatDimensions(item.caseLength, item.caseWidth, item.caseHeight, "Case")
             ];
@@ -12375,6 +13346,21 @@
             return getMasterItemForLine(line)?.description || line.description || "";
         }
 
+        function formatLineTraceability(line) {
+            return [
+                line?.lotNumber ? `Lot ${line.lotNumber}` : "",
+                line?.expirationDate ? `Exp ${formatLabelDate(line.expirationDate)}` : ""
+            ].filter(Boolean).join(" | ");
+        }
+
+        function formatPickLocationHtml(entry, fallbackTrackingLevel = "UNIT") {
+            return [
+                `${esc(entry.location)} (${esc(formatTrackedQuantity(entry.quantity, entry.trackingLevel || fallbackTrackingLevel))})`,
+                entry.lotNumber ? `Lot ${esc(entry.lotNumber)}` : "",
+                entry.expirationDate ? `Exp ${esc(formatLabelDate(entry.expirationDate))}` : ""
+            ].filter(Boolean).join(" | ");
+        }
+
         function filterInventoryByOwner(ownerFilter = "") {
             const query = norm(ownerFilter);
             return sortedInventory().filter((line) => !query || line.accountName.includes(query));
@@ -12391,6 +13377,8 @@
                 || line.location.includes(query)
                 || line.sku.includes(query)
                 || (line.upc || "").includes(query)
+                || (line.lotNumber || "").includes(query)
+                || (line.expirationDate || "").includes(query)
                 || normalizeTrackingLevel(line.trackingLevel).includes(query)
                 || norm(master?.description).includes(query);
         }
@@ -12575,6 +13563,8 @@
                 let caseLength = null;
                 let caseWidth = null;
                 let caseHeight = null;
+                let lotTracked = false;
+                let expirationTracked = false;
 
                 if (!hasHeader) {
                     accountName = String(cells[0] || "").trim();
@@ -12584,12 +13574,14 @@
                     imageUrl = String(cells[4] || "").trim();
                     trackingLevel = String(cells[5] || "UNIT").trim() || "UNIT";
                     unitsPerCase = toPositiveInt(cells[6]);
-                    eachLength = toPositiveNumber(cells[7]);
-                    eachWidth = toPositiveNumber(cells[8]);
-                    eachHeight = toPositiveNumber(cells[9]);
-                    caseLength = toPositiveNumber(cells[10]);
-                    caseWidth = toPositiveNumber(cells[11]);
-                    caseHeight = toPositiveNumber(cells[12]);
+                    lotTracked = /^(1|true|yes|y)$/i.test(String(cells[7] || "").trim());
+                    expirationTracked = /^(1|true|yes|y)$/i.test(String(cells[8] || "").trim());
+                    eachLength = toPositiveNumber(cells[9]);
+                    eachWidth = toPositiveNumber(cells[10]);
+                    eachHeight = toPositiveNumber(cells[11]);
+                    caseLength = toPositiveNumber(cells[12]);
+                    caseWidth = toPositiveNumber(cells[13]);
+                    caseHeight = toPositiveNumber(cells[14]);
                 } else {
                     const record = Object.fromEntries(headers.map((header, cellIndex) => [header, String(cells[cellIndex] || "").trim()]));
                     accountName = csvRecordValue(record, ["ACCOUNTNAME", "ACCOUNT", "OWNERNAME", "OWNER", "VENDORCUSTOMERNAME", "VENDORCUSTOMER", "VENDORORCUSTOMER", "VENDORNAME", "VENDOR", "CUSTOMERNAME", "CUSTOMER"]);
@@ -12599,6 +13591,8 @@
                     imageUrl = csvRecordValue(record, ["IMAGEURL", "IMAGE", "PHOTOURL", "PHOTO", "GOOGLEDRIVEURL", "DRIVEURL"]);
                     trackingLevel = csvRecordValue(record, ["TRACKING", "TRACKINGLEVEL", "LEVEL", "UOM"]) || "UNIT";
                     unitsPerCase = toPositiveInt(csvRecordValue(record, ["UNITSPERCASE", "CASEPACK", "PACK", "QTYPERCASE"]));
+                    lotTracked = /^(1|true|yes|y)$/i.test(csvRecordValue(record, ["LOTTRACKED", "LOTCONTROLLED", "TRACKLOT", "LOT"]) || "");
+                    expirationTracked = /^(1|true|yes|y)$/i.test(csvRecordValue(record, ["EXPIRATIONTRACKED", "EXPIRYTRACKED", "EXPIRATIONCONTROLLED", "TRACKEXPIRATION", "TRACKEXPIRY"]) || "");
                     eachLength = toPositiveNumber(csvRecordValue(record, ["EACHLENGTH", "UNITLENGTH"]));
                     eachWidth = toPositiveNumber(csvRecordValue(record, ["EACHWIDTH", "UNITWIDTH"]));
                     eachHeight = toPositiveNumber(csvRecordValue(record, ["EACHHEIGHT", "UNITHEIGHT"]));
@@ -12621,6 +13615,8 @@
                     imageUrl: normalizeImageReference(imageUrl),
                     trackingLevel: normalizeTrackingLevel(trackingLevel),
                     unitsPerCase,
+                    lotTracked,
+                    expirationTracked,
                     eachLength,
                     eachWidth,
                     eachHeight,

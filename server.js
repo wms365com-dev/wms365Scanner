@@ -4,6 +4,12 @@ const fs = require("fs");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { Pool } = require("pg");
+let SftpClient = null;
+try {
+    SftpClient = require("ssh2-sftp-client");
+} catch (_error) {
+    SftpClient = null;
+}
 
 
 function normalizeDateInput(value) {
@@ -60,12 +66,90 @@ const SMTP_PASS = String(process.env.SMTP_PASS || "");
 const SMTP_FROM = String(process.env.SMTP_FROM || "").trim();
 const SMTP_REPLY_TO = String(process.env.SMTP_REPLY_TO || "").trim();
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
-const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
+const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
+const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
 const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
+const SFTP_SYNC_PROVIDER = "SFTP";
 const SHOPIFY_ADMIN_API_VERSION = "2026-01";
 const SHOPIFY_ORDER_PAGE_LIMIT = 250;
+const COMPANY_FEATURE_KEYS = Object.freeze({
+    CUSTOMER_PORTAL: "CUSTOMER_PORTAL",
+    ORDER_ENTRY: "ORDER_ENTRY",
+    INBOUND_NOTICES: "INBOUND_NOTICES",
+    BILLING: "BILLING",
+    STORE_INTEGRATIONS: "STORE_INTEGRATIONS",
+    SHOPIFY_INTEGRATION: "SHOPIFY_INTEGRATION",
+    SFTP_INTEGRATION: "SFTP_INTEGRATION"
+});
+const COMPANY_FEATURE_CATALOG = Object.freeze([
+    {
+        key: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL,
+        label: "Customer Portal",
+        description: "Allow the company to sign in to the customer portal, review inventory, export reports, and maintain item masters."
+    },
+    {
+        key: COMPANY_FEATURE_KEYS.ORDER_ENTRY,
+        label: "Sales Orders",
+        description: "Allow warehouse and customer-driven sales order entry, release, and order workflow for this company."
+    },
+    {
+        key: COMPANY_FEATURE_KEYS.INBOUND_NOTICES,
+        label: "Inbound Notices",
+        description: "Allow expected inbound / purchase order notices from the warehouse and customer workflows."
+    },
+    {
+        key: COMPANY_FEATURE_KEYS.BILLING,
+        label: "Billing",
+        description: "Allow company-specific billing setup, manual billing lines, storage accruals, and invoice state changes."
+    },
+    {
+        key: COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS,
+        label: "Store Integrations",
+        description: "Allow this company to use storefront and file integrations from the warehouse desktop."
+    },
+    {
+        key: COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION,
+        label: "Shopify",
+        description: "Allow Shopify order import and sync under the company integration workspace."
+    },
+    {
+        key: COMPANY_FEATURE_KEYS.SFTP_INTEGRATION,
+        label: "SFTP",
+        description: "Allow SFTP scheduled import/export lanes for this company."
+    }
+]);
+const DEFAULT_NEW_COMPANY_FEATURE_FLAGS = Object.freeze({
+    [COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL]: false,
+    [COMPANY_FEATURE_KEYS.ORDER_ENTRY]: true,
+    [COMPANY_FEATURE_KEYS.INBOUND_NOTICES]: true,
+    [COMPANY_FEATURE_KEYS.BILLING]: false,
+    [COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS]: false,
+    [COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION]: false,
+    [COMPANY_FEATURE_KEYS.SFTP_INTEGRATION]: false
+});
+const LEGACY_COMPANY_FEATURE_FLAGS = Object.freeze(
+    COMPANY_FEATURE_CATALOG.reduce((accumulator, feature) => {
+        accumulator[feature.key] = true;
+        return accumulator;
+    }, {})
+);
+const STORE_INTEGRATION_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const SFTP_DEFAULT_PORT = 22;
+const SFTP_DEFAULT_ARCHIVE_FOLDER = "/archive";
+const STORE_INTEGRATION_INTERVAL_SCHEDULE_MS = Object.freeze({
+    EVERY_5_MINUTES: 5 * 60 * 1000,
+    EVERY_15_MINUTES: 15 * 60 * 1000,
+    EVERY_30_MINUTES: 30 * 60 * 1000,
+    HOURLY: 60 * 60 * 1000
+});
+const STORE_INTEGRATION_DAILY_SCHEDULE_TIMES = Object.freeze({
+    DAILY_0900: { hour: 9, minute: 0 },
+    DAILY_1200: { hour: 12, minute: 0 },
+    DAILY_1500: { hour: 15, minute: 0 },
+    DAILY_1800: { hour: 18, minute: 0 }
+});
 const BILLING_FEE_SEED = [
     { code: "STANDARD_PALLET_STORAGE", category: "Storage", name: "Standard pallet storage (48 x 40 x standard height)", unitLabel: "per pallet per month", defaultRate: 0 },
     { code: "OVERSIZED_PALLET_STORAGE", category: "Storage", name: "Oversized pallet storage (48 x 40 x tall height)", unitLabel: "per pallet per month", defaultRate: 0 },
@@ -172,6 +256,10 @@ let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
 let shipmentMailer = null;
+let storeIntegrationSchedulerStarted = false;
+let storeIntegrationSchedulerRunning = false;
+let storeIntegrationSchedulerTimer = null;
+const storeIntegrationSyncLocks = new Set();
 
 const pool = DATABASE_URL
     ? new Pool({
@@ -295,9 +383,9 @@ app.use((req, _res, next) => {
     next();
 });
 
-app.get("/api/state", async (_req, res, next) => {
+app.get("/api/state", async (req, res, next) => {
     try {
-        res.json(await getServerState(pool, { billingEventLimit: 1000 }));
+        res.json(await getServerState(pool, { billingEventLimit: 1000, appUser: req.appUser }));
     } catch (error) {
         next(error);
     }
@@ -442,6 +530,7 @@ app.post("/api/billing/rates", async (req, res, next) => {
         }
 
         const savedRates = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, accountName);
             await saveOwnerBillingRates(client, accountName, rates);
             await insertActivity(
@@ -467,6 +556,7 @@ app.post("/api/billing/events/manual", async (req, res, next) => {
         }
 
         const billingEvent = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, entry.accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, entry.accountName);
             const created = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
                 sourceType: "MANUAL",
@@ -505,6 +595,7 @@ app.post("/api/billing/storage-accrual", async (req, res, next) => {
         }
 
         const events = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, accountName);
             const created = await createMonthlyStorageBillingEvents(client, accountName, month);
             await insertActivity(
@@ -534,6 +625,10 @@ app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
         }
 
         const updated = await withTransaction(async (client) => {
+            const billingCompanies = await getBillingEventAccountNamesByIds(client, ids);
+            for (const accountName of billingCompanies) {
+                await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
+            }
             const result = await client.query(
                 `
                     update billing_events
@@ -558,6 +653,42 @@ app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
         });
 
         res.json({ success: true, events: updated });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/company-features", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
+        const featureFlags = sanitizeCompanyFeatureFlagsInput(req.body?.featureFlags || req.body?.feature_flags || req.body?.features || {});
+        if (!accountName) {
+            throw httpError(400, "Company is required.");
+        }
+
+        const owner = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, {
+                name: accountName,
+                featureFlags,
+                featureFlagsUpdatedAt: new Date().toISOString(),
+                featureFlagsUpdatedBy: req.appUser?.email || req.appUser?.full_name || "super_admin"
+            });
+            const savedOwner = await getOwnerAccountRowByName(client, accountName);
+            await insertActivity(
+                client,
+                "setup",
+                `Updated feature access for ${accountName}`,
+                summarizeEnabledCompanyFeatures(featureFlags)
+            );
+            return savedOwner;
+        });
+
+        res.json({
+            success: true,
+            owner: owner ? mapOwnerMasterRow(owner) : null,
+            featureCatalog: COMPANY_FEATURE_CATALOG
+        });
     } catch (error) {
         next(error);
     }
@@ -635,6 +766,12 @@ app.post("/api/batch-save", async (req, res, next) => {
         await withTransaction(async (client) => {
             for (const rawItem of items) {
                 const master = await findCatalogItem(client, rawItem.accountName, rawItem.sku, rawItem.upc);
+                if (master?.lotTracked && !rawItem.lotNumber) {
+                    throw httpError(400, `Lot number is required for ${rawItem.accountName} / ${rawItem.sku}.`);
+                }
+                if (master?.expirationTracked && !rawItem.expirationDate) {
+                    throw httpError(400, `Expiration date is required for ${rawItem.accountName} / ${rawItem.sku}.`);
+                }
                 const item = {
                     ...rawItem,
                     upc: rawItem.upc || master?.upc || "",
@@ -966,10 +1103,23 @@ app.post("/api/import", async (req, res, next) => {
             for (const line of importedInventory) {
                 await client.query(
                     `
-                        insert into inventory_lines (account_name, location, sku, upc, tracking_level, quantity, created_at, updated_at)
-                        values ($1, $2, $3, $4, $5, $6, $7, $8)
+                        insert into inventory_lines (
+                            account_name, location, sku, upc, lot_number, expiration_date, tracking_level, quantity, created_at, updated_at
+                        )
+                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     `,
-                    [line.accountName, line.location, line.sku, line.upc, line.trackingLevel, line.quantity, line.createdAt, line.updatedAt]
+                    [
+                        line.accountName,
+                        line.location,
+                        line.sku,
+                        line.upc,
+                        line.lotNumber || "",
+                        line.expirationDate || "",
+                        line.trackingLevel,
+                        line.quantity,
+                        line.createdAt,
+                        line.updatedAt
+                    ]
                 );
             }
 
@@ -1104,9 +1254,10 @@ app.post("/api/import", async (req, res, next) => {
                             account_name, sku, upc, description, tracking_level, units_per_case,
                             each_length, each_width, each_height, image_url,
                             case_length, case_width, case_height,
+                            lot_tracked, expiration_tracked,
                             created_at, updated_at
                         )
-                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                     `,
                     [
                         item.accountName,
@@ -1122,6 +1273,8 @@ app.post("/api/import", async (req, res, next) => {
                         item.caseLength,
                         item.caseWidth,
                         item.caseHeight,
+                        item.lotTracked === true,
+                        item.expirationTracked === true,
                         item.createdAt,
                         item.updatedAt
                     ]
@@ -1256,6 +1409,7 @@ app.post("/api/admin/portal-orders", async (req, res, next) => {
             throw httpError(400, "Company is required.");
         }
         const order = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return saveWarehousePortalOrderDraft(client, accountName, req.body, null, req.appUser);
         });
         res.json({ success: true, order });
@@ -1275,6 +1429,7 @@ app.put("/api/admin/portal-orders/:id", async (req, res, next) => {
             throw httpError(400, "Company is required.");
         }
         const order = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return saveWarehousePortalOrderDraft(client, accountName, req.body, orderId, req.appUser);
         });
         res.json({ success: true, order });
@@ -1290,6 +1445,8 @@ app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
             throw httpError(400, "A valid order id is required.");
         }
         const order = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return releaseWarehousePortalOrder(client, orderId, req.appUser);
         });
         res.json({ success: true, order });
@@ -1305,6 +1462,7 @@ app.post("/api/admin/portal-inbounds", async (req, res, next) => {
             throw httpError(400, "Company is required.");
         }
         const inbound = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
             return saveWarehousePortalInbound(client, accountName, req.body, req.appUser);
         });
         res.status(201).json({ success: true, inbound });
@@ -1331,6 +1489,7 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
         }
 
         const savedAccess = await withTransaction(async (client) => {
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
             await upsertOwnerMaster(client, accountName);
             const access = await savePortalAccess(client, { accessId, accountName, email, password, isActive });
             await insertActivity(
@@ -1371,6 +1530,13 @@ app.post("/api/admin/integrations", async (req, res, next) => {
     try {
         const savedIntegration = await withTransaction(async (client) => {
             const integration = await saveStoreIntegration(client, req.body);
+            await assertCompanyFeatureEnabled(client, integration.accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            if (integration.provider === SHOPIFY_SYNC_PROVIDER) {
+                await assertCompanyFeatureEnabled(client, integration.accountName, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+            }
+            if (integration.provider === SFTP_SYNC_PROVIDER) {
+                await assertCompanyFeatureEnabled(client, integration.accountName, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION);
+            }
             await upsertOwnerMaster(client, integration.accountName);
             await insertActivity(
                 client,
@@ -1380,6 +1546,9 @@ app.post("/api/admin/integrations", async (req, res, next) => {
                     integration.accountName,
                     integration.storeIdentifier || "No store identifier",
                     integration.isActive ? "Connection active." : "Connection disabled.",
+                    integration.syncSchedule === "MANUAL"
+                        ? "Manual pull only."
+                        : `Auto pull ${describeStoreIntegrationSyncSchedule(integration.syncSchedule)}.`,
                     integration.hasAccessToken ? "API token saved." : "No API token saved yet."
                 ].filter(Boolean).join(" | ")
             );
@@ -1427,6 +1596,7 @@ app.post("/api/portal/login", async (req, res, next) => {
             if (!vendorAccess || !vendorAccess.is_active) {
                 throw httpError(401, "That company portal login is not active.");
             }
+            assertCompanyFeatureEnabledForOwnerRow(vendorAccess, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
             if (!verifyPortalPassword(password, vendorAccess.password_hash)) {
                 throw httpError(401, "The company portal password was not accepted.");
             }
@@ -1465,6 +1635,7 @@ app.post("/api/portal/logout", async (req, res, next) => {
 app.get("/api/portal/me", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
         res.json({
             authenticated: true,
             account: session.access
@@ -1480,6 +1651,7 @@ app.get("/api/portal/me", async (req, res, next) => {
 app.get("/api/portal/inventory", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
         res.json({
             inventory: await getPortalInventorySummary(session.access.accountName)
         });
@@ -1494,6 +1666,7 @@ app.get("/api/portal/inventory", async (req, res, next) => {
 app.get("/api/portal/inventory/export.csv", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
         const inventory = await getPortalInventorySummary(session.access.accountName);
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="${buildPortalInventoryExportFilename(session.access.accountName)}"`);
@@ -1509,6 +1682,7 @@ app.get("/api/portal/inventory/export.csv", async (req, res, next) => {
 app.get("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
         res.json({
             orders: await getPortalOrdersForAccount(session.access.accountName)
         });
@@ -1523,6 +1697,7 @@ app.get("/api/portal/orders", async (req, res, next) => {
 app.get("/api/portal/inbounds", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
         const inbounds = await getPortalInboundsForAccount(session.access.accountName);
         res.json({ inbounds });
     } catch (error) {
@@ -1536,6 +1711,7 @@ app.get("/api/portal/inbounds", async (req, res, next) => {
 app.post("/api/portal/inbounds", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
         const inbound = await withTransaction((client) => savePortalInbound(client, session.accessRow, req.body));
         res.status(201).json({ success: true, inbound });
     } catch (error) {
@@ -1549,6 +1725,7 @@ app.post("/api/portal/inbounds", async (req, res, next) => {
 app.get("/api/portal/items", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
         res.json({
             items: await getPortalItemsForAccount(session.access.accountName)
         });
@@ -1563,6 +1740,7 @@ app.get("/api/portal/items", async (req, res, next) => {
 app.post("/api/portal/items", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
         const item = await withTransaction(async (client) => savePortalCatalogItem(client, session.accessRow, req.body));
         res.status(201).json({ success: true, item });
     } catch (error) {
@@ -1576,6 +1754,7 @@ app.post("/api/portal/items", async (req, res, next) => {
 app.put("/api/portal/items/:sku", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
         const originalSku = normalizeText(req.params.sku);
         if (!originalSku) {
             throw httpError(400, "A valid original SKU is required.");
@@ -1593,6 +1772,7 @@ app.put("/api/portal/items/:sku", async (req, res, next) => {
 app.post("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
         const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.accessRow, req.body));
         res.json({ success: true, order });
     } catch (error) {
@@ -1606,6 +1786,7 @@ app.post("/api/portal/orders", async (req, res, next) => {
 app.put("/api/portal/orders/:id", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
         const orderId = toPositiveInt(req.params.id);
         if (!orderId) {
             throw httpError(400, "A valid order id is required.");
@@ -1623,6 +1804,7 @@ app.put("/api/portal/orders/:id", async (req, res, next) => {
 app.post("/api/portal/orders/:id/release", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
         const orderId = toPositiveInt(req.params.id);
         if (!orderId) {
             throw httpError(400, "A valid order id is required.");
@@ -1653,6 +1835,27 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
         });
 
         res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-inbounds/:id/status", async (req, res, next) => {
+    try {
+        const inboundId = toPositiveInt(req.params.id);
+        const nextStatus = normalizePortalInboundStatus(req.body?.status);
+        if (!inboundId) {
+            throw httpError(400, "A valid inbound id is required.");
+        }
+        if (!nextStatus) {
+            throw httpError(400, "A valid inbound status is required.");
+        }
+
+        const inbound = await withTransaction(async (client) => {
+            return updateAdminPortalInboundStatus(client, inboundId, nextStatus, req.appUser);
+        });
+
+        res.json({ success: true, inbound });
     } catch (error) {
         next(error);
     }
@@ -1853,6 +2056,8 @@ async function initializeDatabase() {
             location text not null,
             sku text not null,
             upc text not null default '',
+            lot_number text not null default '',
+            expiration_date text not null default '',
             quantity integer not null check (quantity > 0),
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
@@ -1860,8 +2065,12 @@ async function initializeDatabase() {
     `);
     await pool.query(`alter table inventory_lines add column if not exists account_name text not null default '${LEGACY_ACCOUNT}';`);
     await pool.query("alter table inventory_lines add column if not exists tracking_level text not null default 'UNIT';");
+    await pool.query("alter table inventory_lines add column if not exists lot_number text not null default '';");
+    await pool.query("alter table inventory_lines add column if not exists expiration_date text not null default '';");
     await pool.query("update inventory_lines set account_name = $1 where account_name is null or account_name = ''", [LEGACY_ACCOUNT]);
     await pool.query("update inventory_lines set tracking_level = 'UNIT' where tracking_level is null or tracking_level = ''");
+    await pool.query("update inventory_lines set lot_number = '' where lot_number is null");
+    await pool.query("update inventory_lines set expiration_date = '' where expiration_date is null");
     await pool.query("alter table inventory_lines drop constraint if exists inventory_lines_location_sku_unique");
 
     await pool.query(`
@@ -1912,6 +2121,9 @@ async function initializeDatabase() {
     await pool.query("alter table owner_accounts add column if not exists postal_code text not null default '';");
     await pool.query("alter table owner_accounts add column if not exists country text not null default '';");
     await pool.query("alter table owner_accounts add column if not exists is_active boolean not null default true;");
+    await pool.query("alter table owner_accounts add column if not exists feature_flags jsonb;");
+    await pool.query("alter table owner_accounts add column if not exists feature_flags_updated_at timestamptz;");
+    await pool.query("alter table owner_accounts add column if not exists feature_flags_updated_by text not null default '';");
 
     await pool.query(`
         create table if not exists portal_vendor_access (
@@ -1990,6 +2202,8 @@ async function initializeDatabase() {
     await pool.query("alter table item_catalog add column if not exists case_width double precision;");
     await pool.query("alter table item_catalog add column if not exists case_height double precision;");
     await pool.query("alter table item_catalog add column if not exists image_url text not null default '';");
+    await pool.query("alter table item_catalog add column if not exists lot_tracked boolean not null default false;");
+    await pool.query("alter table item_catalog add column if not exists expiration_tracked boolean not null default false;");
     await pool.query("update item_catalog set account_name = $1 where account_name is null or account_name = ''", [LEGACY_ACCOUNT]);
     await pool.query("update item_catalog set tracking_level = 'UNIT' where tracking_level is null or tracking_level = ''");
     await pool.query("alter table item_catalog drop constraint if exists item_catalog_sku_key");
@@ -2143,6 +2357,7 @@ async function initializeDatabase() {
             reference_number text not null default '',
             carrier_name text not null default '',
             expected_date date,
+            received_at timestamptz,
             contact_name text not null default '',
             contact_phone text not null default '',
             notes text not null default '',
@@ -2153,6 +2368,7 @@ async function initializeDatabase() {
     `);
     await pool.query("alter table portal_inbounds alter column inbound_code drop not null");
     await pool.query("alter table portal_inbounds alter column inbound_code drop default");
+    await pool.query("alter table portal_inbounds add column if not exists received_at timestamptz");
 
     await pool.query(`
         create table if not exists portal_inbound_lines (
@@ -2180,6 +2396,22 @@ async function initializeDatabase() {
         );
     `);
     await pool.query(`
+        create table if not exists portal_order_allocations (
+            id bigserial primary key,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            order_line_id bigint not null references portal_order_lines(id) on delete cascade,
+            inventory_line_id bigint references inventory_lines(id) on delete set null,
+            sku text not null,
+            location text not null default '',
+            lot_number text not null default '',
+            expiration_date text not null default '',
+            tracking_level text not null default 'UNIT',
+            allocated_quantity integer not null check (allocated_quantity > 0),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query(`
         create table if not exists portal_order_documents (
             id bigserial primary key,
             order_id bigint not null references portal_orders(id) on delete cascade,
@@ -2199,32 +2431,43 @@ async function initializeDatabase() {
             integration_name text not null default '',
             store_identifier text not null default '',
             access_token text not null default '',
+            settings jsonb not null default '{}'::jsonb,
             import_status text not null default 'DRAFT',
             is_active boolean not null default true,
+            sync_schedule text not null default 'MANUAL',
+            next_scheduled_sync_at timestamptz,
             last_synced_at timestamptz,
             last_sync_status text not null default 'IDLE',
             last_sync_message text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API')),
+            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API')),
             constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED')),
-            constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR'))
+            constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR')),
+            constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))
         );
     `);
     await pool.query("alter table store_integrations add column if not exists integration_name text not null default ''");
     await pool.query("alter table store_integrations add column if not exists store_identifier text not null default ''");
     await pool.query("alter table store_integrations add column if not exists access_token text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists settings jsonb not null default '{}'::jsonb");
     await pool.query("alter table store_integrations add column if not exists import_status text not null default 'DRAFT'");
     await pool.query("alter table store_integrations add column if not exists is_active boolean not null default true");
+    await pool.query("alter table store_integrations add column if not exists sync_schedule text not null default 'MANUAL'");
+    await pool.query("alter table store_integrations add column if not exists next_scheduled_sync_at timestamptz");
     await pool.query("alter table store_integrations add column if not exists last_synced_at timestamptz");
     await pool.query("alter table store_integrations add column if not exists last_sync_status text not null default 'IDLE'");
     await pool.query("alter table store_integrations add column if not exists last_sync_message text not null default ''");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_provider_check");
-    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API'))");
+    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_import_status_check");
     await pool.query("alter table store_integrations add constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_status_check");
     await pool.query("alter table store_integrations add constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR'))");
+    await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_schedule_check");
+    await pool.query("alter table store_integrations add constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))");
+    await pool.query("update store_integrations set next_scheduled_sync_at = null where is_active = false or sync_schedule = 'MANUAL'");
+    await pool.query("update store_integrations set next_scheduled_sync_at = now() where is_active = true and sync_schedule <> 'MANUAL' and next_scheduled_sync_at is null");
     await pool.query(`
         create table if not exists store_order_imports (
             id bigserial primary key,
@@ -2237,11 +2480,37 @@ async function initializeDatabase() {
             unique (portal_order_id)
         );
     `);
+    await pool.query(`
+        create table if not exists store_inbound_imports (
+            id bigserial primary key,
+            integration_id bigint not null references store_integrations(id) on delete cascade,
+            external_inbound_id text not null,
+            portal_inbound_id bigint not null references portal_inbounds(id) on delete cascade,
+            imported_at timestamptz not null default now(),
+            last_seen_at timestamptz not null default now(),
+            unique (integration_id, external_inbound_id),
+            unique (portal_inbound_id)
+        );
+    `);
+    await pool.query(`
+        create table if not exists store_sync_exports (
+            id bigserial primary key,
+            integration_id bigint not null references store_integrations(id) on delete cascade,
+            entity_type text not null,
+            entity_ref text not null default '',
+            content_hash text not null,
+            remote_path text not null default '',
+            created_at timestamptz not null default now(),
+            unique (integration_id, entity_type, entity_ref, content_hash)
+        );
+    `);
     await pool.query("update portal_orders set order_code = null where order_code = ''");
     await pool.query("update portal_orders set order_code = concat('ORD-', lpad(id::text, 6, '0')) where order_code is null");
     await pool.query("delete from portal_sessions where expires_at <= now()");
 
-    await pool.query("create unique index if not exists idx_inventory_lines_account_location_sku_unique on inventory_lines (account_name, location, sku);");
+    await pool.query("drop index if exists idx_inventory_lines_account_location_sku_unique;");
+    await pool.query("create index if not exists idx_inventory_lines_account_location_sku on inventory_lines (account_name, location, sku);");
+    await pool.query("create unique index if not exists idx_inventory_lines_identity_unique on inventory_lines (account_name, location, sku, lot_number, expiration_date);");
     await pool.query("create unique index if not exists idx_item_catalog_account_sku_unique on item_catalog (account_name, sku);");
     await pool.query("create unique index if not exists idx_pallet_records_code_unique on pallet_records (pallet_code);");
     await pool.query("create index if not exists idx_pallet_records_account_name on pallet_records (account_name);");
@@ -2250,6 +2519,8 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_lines_account_name on inventory_lines (account_name);");
     await pool.query("create index if not exists idx_inventory_lines_location on inventory_lines (location);");
     await pool.query("create index if not exists idx_inventory_lines_sku on inventory_lines (sku);");
+    await pool.query("create index if not exists idx_inventory_lines_lot_number on inventory_lines (lot_number);");
+    await pool.query("create index if not exists idx_inventory_lines_expiration_date on inventory_lines (expiration_date);");
     await pool.query("create index if not exists idx_inventory_lines_upc on inventory_lines (upc);");
     await pool.query("create index if not exists idx_inventory_lines_tracking_level on inventory_lines (tracking_level);");
     await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
@@ -2264,6 +2535,10 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
     await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
     await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
+    await pool.query("create index if not exists idx_portal_order_allocations_order_id on portal_order_allocations (order_id);");
+    await pool.query("create index if not exists idx_portal_order_allocations_order_line_id on portal_order_allocations (order_line_id);");
+    await pool.query("create index if not exists idx_portal_order_allocations_inventory_line_id on portal_order_allocations (inventory_line_id);");
+    await pool.query("create index if not exists idx_portal_order_allocations_sku on portal_order_allocations (sku);");
     await pool.query("create index if not exists idx_portal_order_documents_order_id on portal_order_documents (order_id);");
     await pool.query("create unique index if not exists idx_portal_inbounds_inbound_code_unique on portal_inbounds (inbound_code);");
     await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
@@ -2272,8 +2547,13 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_store_integrations_account_provider_store_unique on store_integrations (account_name, provider, store_identifier);");
     await pool.query("create index if not exists idx_store_integrations_account_name on store_integrations (account_name);");
     await pool.query("create index if not exists idx_store_integrations_provider on store_integrations (provider);");
+    await pool.query("create index if not exists idx_store_integrations_next_scheduled_sync_at on store_integrations (next_scheduled_sync_at);");
     await pool.query("create index if not exists idx_store_order_imports_integration_id on store_order_imports (integration_id);");
     await pool.query("create index if not exists idx_store_order_imports_external_order_id on store_order_imports (external_order_id);");
+    await pool.query("create index if not exists idx_store_inbound_imports_integration_id on store_inbound_imports (integration_id);");
+    await pool.query("create index if not exists idx_store_inbound_imports_external_inbound_id on store_inbound_imports (external_inbound_id);");
+    await pool.query("create index if not exists idx_store_sync_exports_integration_id on store_sync_exports (integration_id);");
+    await pool.query("create index if not exists idx_store_sync_exports_entity_type on store_sync_exports (entity_type);");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
 
     await pool.query(`
@@ -2338,6 +2618,7 @@ async function initializeDatabaseWithRetry() {
             await initializeDatabase();
             databaseReady = true;
             databaseErrorMessage = "";
+            ensureStoreIntegrationSchedulerStarted();
             console.log("PostgreSQL schema ready.");
         } catch (error) {
             databaseReady = false;
@@ -2348,7 +2629,7 @@ async function initializeDatabaseWithRetry() {
     }
 }
 
-async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) {
+async function getServerState(client = pool, { billingEventLimit = 1000, appUser = null } = {}) {
     const billingEventsQuery = Number.isFinite(billingEventLimit) && billingEventLimit > 0
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
@@ -2402,8 +2683,12 @@ async function getServerState(client = pool, { billingEventLimit = 1000 } = {}) 
             ownerRates: ownerRateResult.rows.map(mapOwnerBillingRateRow),
             events: billingEventResult.rows.map(mapBillingEventRow)
         },
+        session: {
+            appUser: appUser ? mapAppUserRow(appUser) : null
+        },
+        featureCatalog: COMPANY_FEATURE_CATALOG,
         meta: {
-            version: 7,
+            version: 8,
             lastChangedAt: metaResult.rows[0].last_changed_at ? new Date(metaResult.rows[0].last_changed_at).toISOString() : null,
             serverSyncedAt: new Date().toISOString()
         }
@@ -2973,9 +3258,44 @@ function mapAppUserRow(row) {
     };
 }
 
+async function getOwnerAccountRowByName(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query("select * from owner_accounts where name = $1 limit 1", [normalizedAccount]);
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function assertCompanyFeatureEnabled(client, accountName, featureKey, message = "") {
+    const ownerRow = await getOwnerAccountRowByName(client, accountName);
+    const featureFlags = ownerRow
+        ? assertCompanyFeatureEnabledForOwnerRow(ownerRow, featureKey, message)
+        : resolveCompanyFeatureFlags(null, { legacyMode: false });
+    if (!ownerRow && featureFlags[featureKey] !== true) {
+        throw httpError(403, message || getCompanyFeatureErrorMessage(featureKey, accountName));
+    }
+    return featureFlags;
+}
+
 async function getPortalAccessList(client = pool) {
     const result = await client.query("select * from portal_vendor_access order by account_name asc, email asc, id asc");
     return result.rows.map(mapPortalAccessRow);
+}
+
+async function getPortalOrderAccountNameById(client, orderId) {
+    const result = await client.query("select account_name from portal_orders where id = $1 limit 1", [orderId]);
+    if (result.rowCount !== 1) {
+        throw httpError(404, "That order could not be found.");
+    }
+    return normalizeText(result.rows[0].account_name);
+}
+
+async function getBillingEventAccountNamesByIds(client, ids) {
+    if (!Array.isArray(ids) || !ids.length) return [];
+    const result = await client.query(
+        "select distinct account_name from billing_events where id = any($1::bigint[]) and account_name <> ''",
+        [ids]
+    );
+    return result.rows.map((row) => normalizeText(row.account_name)).filter(Boolean);
 }
 
 async function getStoreIntegrationList(client = pool, accountName = "") {
@@ -3002,7 +3322,9 @@ async function saveStoreIntegration(client, rawInput) {
     if (!entry.storeIdentifier) {
         throw httpError(400, entry.provider === SHOPIFY_SYNC_PROVIDER
             ? "Enter the Shopify shop domain, such as your-store.myshopify.com."
-            : "Enter the store identifier or URL for this integration.");
+            : (entry.provider === SFTP_SYNC_PROVIDER
+                ? "Enter the SFTP host name or IP address for this integration."
+                : "Enter the store identifier or URL for this integration."));
     }
 
     const existing = entry.integrationId ? await getStoreIntegrationRowById(client, entry.integrationId) : null;
@@ -3015,6 +3337,8 @@ async function saveStoreIntegration(client, rawInput) {
     const shouldResetSyncState = !existing
         || existing.provider !== entry.provider
         || existing.store_identifier !== entry.storeIdentifier
+        || JSON.stringify(sanitizeStoreIntegrationSettingsInput(existing?.provider || entry.provider, existing?.settings || {}))
+            !== JSON.stringify(entry.settings || {})
         || (entry.accessToken && entry.accessToken !== existing.access_token);
 
     if (entry.provider === SHOPIFY_SYNC_PROVIDER) {
@@ -3025,6 +3349,29 @@ async function saveStoreIntegration(client, rawInput) {
             throw httpError(400, "A Shopify Admin API access token is required.");
         }
     }
+    if (entry.provider === SFTP_SYNC_PROVIDER) {
+        if (!entry.settings?.username) {
+            throw httpError(400, "An SFTP username is required.");
+        }
+        if (!accessToken) {
+            throw httpError(400, "An SFTP password is required.");
+        }
+        if (!entry.settings?.ordersFolder
+            && !entry.settings?.inboundsFolder
+            && !entry.settings?.shipmentsFolder
+            && !entry.settings?.receiptsFolder
+            && !entry.settings?.inventoryFolder) {
+            throw httpError(400, "Set at least one SFTP import or export folder before saving this connection.");
+        }
+    }
+    if (entry.syncSchedule !== "MANUAL" && !storeIntegrationProviderSupportsAutoSync(entry.provider)) {
+        throw httpError(400, `${describeStoreIntegrationProvider(entry.provider)} auto sync is not wired in yet. Save this provider as manual first.`);
+    }
+
+    const preservedLastSyncedAt = shouldResetSyncState ? null : (existing?.last_synced_at || null);
+    const nextScheduledSyncAt = entry.isActive
+        ? computeNextStoreIntegrationSyncAt(entry.syncSchedule, { lastSyncedAt: preservedLastSyncedAt })
+        : null;
 
     let savedRow;
     try {
@@ -3038,11 +3385,14 @@ async function saveStoreIntegration(client, rawInput) {
                         integration_name = $4,
                         store_identifier = $5,
                         access_token = $6,
-                        import_status = $7,
-                        is_active = $8,
-                        last_synced_at = $9,
-                        last_sync_status = $10,
-                        last_sync_message = $11,
+                        settings = $7,
+                        import_status = $8,
+                        is_active = $9,
+                        sync_schedule = $10,
+                        next_scheduled_sync_at = $11,
+                        last_synced_at = $12,
+                        last_sync_status = $13,
+                        last_sync_message = $14,
                         updated_at = now()
                     where id = $1
                     returning *
@@ -3054,9 +3404,12 @@ async function saveStoreIntegration(client, rawInput) {
                     normalizedName,
                     entry.storeIdentifier,
                     accessToken,
+                    entry.settings || {},
                     entry.importStatus,
                     entry.isActive,
-                    shouldResetSyncState ? null : existing.last_synced_at,
+                    entry.syncSchedule,
+                    nextScheduledSyncAt,
+                    preservedLastSyncedAt,
                     shouldResetSyncState ? "IDLE" : (existing.last_sync_status || "IDLE"),
                     shouldResetSyncState ? "" : (existing.last_sync_message || "")
                 ]
@@ -3067,9 +3420,9 @@ async function saveStoreIntegration(client, rawInput) {
                 `
                     insert into store_integrations (
                         account_name, provider, integration_name, store_identifier,
-                        access_token, import_status, is_active
+                        access_token, settings, import_status, is_active, sync_schedule, next_scheduled_sync_at
                     )
-                    values ($1, $2, $3, $4, $5, $6, $7)
+                    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     returning *
                 `,
                 [
@@ -3078,8 +3431,11 @@ async function saveStoreIntegration(client, rawInput) {
                     normalizedName,
                     entry.storeIdentifier,
                     accessToken,
+                    entry.settings || {},
                     entry.importStatus,
-                    entry.isActive
+                    entry.isActive,
+                    entry.syncSchedule,
+                    nextScheduledSyncAt
                 ]
             );
             savedRow = insertResult.rows[0];
@@ -3097,32 +3453,56 @@ async function saveStoreIntegration(client, rawInput) {
 }
 
 async function syncStoreIntegrationById(integrationId, appUser = null) {
-    const integrationRow = await getStoreIntegrationRowById(pool, integrationId);
-    if (!integrationRow) {
-        throw httpError(404, "That integration record could not be found.");
+    const lockKey = String(toPositiveInt(integrationId) || "");
+    if (!lockKey) {
+        throw httpError(400, "A valid integration id is required.");
     }
-    if (integrationRow.is_active !== true) {
-        throw httpError(400, "Enable the integration before pulling orders.");
+    if (storeIntegrationSyncLocks.has(lockKey)) {
+        throw httpError(409, "This integration is already syncing. Please wait a moment and try again.");
     }
 
-    let fetchedOrders = [];
+    storeIntegrationSyncLocks.add(lockKey);
     try {
-        fetchedOrders = await fetchStoreOrdersForIntegration(integrationRow);
-    } catch (error) {
-        await pool.query(
-            `
-                update store_integrations
-                set last_sync_status = 'ERROR',
-                    last_sync_message = $2,
-                    updated_at = now()
-                where id = $1
-            `,
-            [integrationId, truncateStoreSyncMessage(error.message || "Store sync failed.")]
-        );
-        throw error;
-    }
+        const integrationRow = await getStoreIntegrationRowById(pool, integrationId);
+        if (!integrationRow) {
+            throw httpError(404, "That integration record could not be found.");
+        }
+        if (integrationRow.is_active !== true) {
+            throw httpError(400, "Enable the integration before pulling orders.");
+        }
+        await assertCompanyFeatureEnabled(pool, integrationRow.account_name, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+        if (normalizeStoreIntegrationProvider(integrationRow.provider) === SHOPIFY_SYNC_PROVIDER) {
+            await assertCompanyFeatureEnabled(pool, integrationRow.account_name, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+        }
+        if (normalizeStoreIntegrationProvider(integrationRow.provider) === SFTP_SYNC_PROVIDER) {
+            await assertCompanyFeatureEnabled(pool, integrationRow.account_name, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION);
+        }
 
-    return withTransaction(async (client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser));
+        try {
+            if (normalizeStoreIntegrationProvider(integrationRow.provider) === SFTP_SYNC_PROVIDER) {
+                return await syncSftpIntegration(integrationRow, appUser);
+            }
+
+            const fetchedOrders = await fetchStoreOrdersForIntegration(integrationRow);
+            return withTransaction(async (client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser));
+        } catch (error) {
+            const nextScheduledSyncAt = computeNextStoreIntegrationSyncAt(integrationRow.sync_schedule, { lastSyncedAt: new Date() });
+            await pool.query(
+                `
+                    update store_integrations
+                    set last_sync_status = 'ERROR',
+                        last_sync_message = $2,
+                        next_scheduled_sync_at = $3,
+                        updated_at = now()
+                    where id = $1
+                `,
+                [integrationId, truncateStoreSyncMessage(error.message || "Store sync failed."), nextScheduledSyncAt]
+            );
+            throw error;
+        }
+    } finally {
+        storeIntegrationSyncLocks.delete(lockKey);
+    }
 }
 
 async function importStoreOrdersForIntegration(client, integrationRow, orders, appUser = null) {
@@ -3176,7 +3556,7 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
                     }
                 );
             } else {
-                throw httpError(400, `${describeStoreIntegrationProvider(normalizedProvider)} sync is not wired in yet. Shopify is live first.`);
+                throw httpError(400, `${describeStoreIntegrationProvider(normalizedProvider)} order import is not wired in yet.`);
             }
 
             let finalOrder = importedOrder;
@@ -3235,11 +3615,17 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
                 last_synced_at = now(),
                 last_sync_status = $2,
                 last_sync_message = $3,
+                next_scheduled_sync_at = $4,
                 updated_at = now()
             where id = $1
             returning *
         `,
-        [integrationRow.id, status, truncateStoreSyncMessage(summaryMessage)]
+        [
+            integrationRow.id,
+            status,
+            truncateStoreSyncMessage(summaryMessage),
+            computeNextStoreIntegrationSyncAt(integrationRow.sync_schedule, { lastSyncedAt: new Date() })
+        ]
     );
 
     await insertActivity(
@@ -3273,7 +3659,7 @@ async function fetchStoreOrdersForIntegration(integrationRow) {
     if (provider === SHOPIFY_SYNC_PROVIDER) {
         return fetchShopifyOrdersForIntegration(integrationRow);
     }
-    throw httpError(400, `${describeStoreIntegrationProvider(provider)} sync is not wired in yet. Shopify is live first.`);
+    throw httpError(400, `${describeStoreIntegrationProvider(provider)} order pull is not wired in yet.`);
 }
 
 async function fetchShopifyOrdersForIntegration(integrationRow) {
@@ -3421,22 +3807,926 @@ function mapShopifyOrderToPortalDraft(accountName, order, integrationRow) {
     };
 }
 
+function buildSftpConnectionConfig(integrationRow) {
+    const settings = sanitizeStoreIntegrationSettingsInput(integrationRow.provider, integrationRow.settings || {});
+    const host = normalizeStoreIdentifierForProvider(SFTP_SYNC_PROVIDER, integrationRow.store_identifier);
+    if (!host) {
+        throw httpError(400, "This SFTP connection is missing its host name.");
+    }
+    if (!settings.username) {
+        throw httpError(400, "This SFTP connection is missing its username.");
+    }
+    const password = String(integrationRow.access_token || "").trim();
+    if (!password) {
+        throw httpError(400, "This SFTP connection is missing its password.");
+    }
+
+    return {
+        host,
+        port: toPositiveInt(settings.port) || SFTP_DEFAULT_PORT,
+        username: settings.username,
+        password,
+        readyTimeout: 30000
+    };
+}
+
+async function connectSftpForIntegration(integrationRow) {
+    if (!SftpClient) {
+        throw httpError(500, "SFTP support is not installed on this build yet. Redeploy after dependencies install.");
+    }
+    const client = new SftpClient();
+    try {
+        await client.connect(buildSftpConnectionConfig(integrationRow));
+    } catch (error) {
+        try {
+            await client.end();
+        } catch (_closeError) {
+            // Ignore close errors when the connection never came up.
+        }
+        throw httpError(502, `SFTP connection failed: ${error.message || "Unable to connect."}`);
+    }
+    return client;
+}
+
+function joinSftpRemotePath(basePath, childName = "") {
+    const normalizedBase = normalizeRemoteFolderPath(basePath);
+    const normalizedChild = String(childName || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!normalizedBase) {
+        return normalizedChild ? `/${normalizedChild}` : "";
+    }
+    return normalizedChild ? path.posix.join(normalizedBase, normalizedChild) : normalizedBase;
+}
+
+async function ensureSftpDirectory(client, remoteFolder) {
+    const normalizedFolder = normalizeRemoteFolderPath(remoteFolder);
+    if (!normalizedFolder) return;
+    const exists = await client.exists(normalizedFolder);
+    if (exists === "d") return;
+    if (exists && exists !== "d") {
+        throw httpError(400, `${normalizedFolder} already exists on SFTP but is not a folder.`);
+    }
+    await client.mkdir(normalizedFolder, true);
+}
+
+async function listSftpJsonFiles(client, remoteFolder) {
+    const normalizedFolder = normalizeRemoteFolderPath(remoteFolder);
+    if (!normalizedFolder) return [];
+    const exists = await client.exists(normalizedFolder);
+    if (exists !== "d") {
+        return [];
+    }
+    const entries = await client.list(normalizedFolder);
+    return entries
+        .filter((entry) => entry?.type === "-" && /\.json$/i.test(String(entry.name || "")))
+        .map((entry) => ({
+            name: String(entry.name || "").trim(),
+            path: joinSftpRemotePath(normalizedFolder, entry.name),
+            size: Number(entry.size) || 0,
+            modifyTime: Number(entry.modifyTime) || 0
+        }))
+        .sort((left, right) => left.modifyTime - right.modifyTime || left.name.localeCompare(right.name));
+}
+
+async function readSftpJsonFile(client, remoteFilePath) {
+    const fileBuffer = await client.get(remoteFilePath);
+    const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || "");
+    const text = buffer.toString("utf8");
+    try {
+        return text ? JSON.parse(text) : {};
+    } catch (_error) {
+        throw httpError(400, `${path.posix.basename(remoteFilePath)} is not valid JSON.`);
+    }
+}
+
+function extractSftpPayloadEntries(payload, collectionKey, fileLabel) {
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+    if (payload && typeof payload === "object") {
+        const directCollection = payload[collectionKey];
+        if (Array.isArray(directCollection)) {
+            return directCollection;
+        }
+        return [payload];
+    }
+    throw httpError(400, `${fileLabel} does not contain a valid ${collectionKey} payload.`);
+}
+
+function getSftpExternalId(rawValue, fallback = "") {
+    const text = String(rawValue || fallback || "").trim();
+    return text.slice(0, 160);
+}
+
+function mapSftpOrderToPortalDraft(accountName, rawOrder, sourceContext = {}) {
+    const shipTo = rawOrder?.shipTo && typeof rawOrder.shipTo === "object"
+        ? rawOrder.shipTo
+        : (rawOrder?.ship_to && typeof rawOrder.ship_to === "object"
+            ? rawOrder.ship_to
+            : (rawOrder?.shippingAddress && typeof rawOrder.shippingAddress === "object"
+                ? rawOrder.shippingAddress
+                : {}));
+    const contact = rawOrder?.contact && typeof rawOrder.contact === "object"
+        ? rawOrder.contact
+        : (rawOrder?.customer && typeof rawOrder.customer === "object" ? rawOrder.customer : {});
+    const externalOrderId = getSftpExternalId(
+        rawOrder?.externalOrderId
+        || rawOrder?.external_order_id
+        || rawOrder?.externalId
+        || rawOrder?.orderId
+        || rawOrder?.order_id
+        || rawOrder?.id,
+        `${sourceContext.fileName || "order"}-${sourceContext.index || 1}`
+    );
+    const lines = (Array.isArray(rawOrder?.lines) ? rawOrder.lines : (Array.isArray(rawOrder?.items) ? rawOrder.items : []))
+        .map((line) => ({
+            sku: normalizeText(line?.sku || line?.itemSku || line?.item_sku || line?.code || ""),
+            quantity: toPositiveInt(line?.quantity || line?.qty || line?.orderedQuantity || line?.ordered_quantity)
+        }))
+        .filter((line) => line.sku && line.quantity);
+
+    if (!externalOrderId) {
+        throw httpError(400, `${sourceContext.fileName || "SFTP order"} is missing an external order id.`);
+    }
+    if (!lines.length) {
+        throw httpError(400, `${externalOrderId} does not contain any shippable lines.`);
+    }
+
+    const shipToName = normalizeFreeText(
+        rawOrder?.shipToName
+        || rawOrder?.ship_to_name
+        || shipTo?.name
+        || [shipTo?.firstName || shipTo?.first_name, shipTo?.lastName || shipTo?.last_name].filter(Boolean).join(" ")
+        || rawOrder?.contactName
+        || rawOrder?.contact_name
+        || contact?.name
+        || "SFTP Import"
+    );
+    const contactPhone = normalizeFreeText(rawOrder?.contactPhone || rawOrder?.contact_phone || contact?.phone || shipTo?.phone || rawOrder?.phone || "");
+    const requestedShipDate = normalizeDateInput(rawOrder?.requestedShipDate || rawOrder?.requested_ship_date || rawOrder?.shipDate || rawOrder?.ship_date || rawOrder?.createdAt || rawOrder?.created_at || new Date());
+
+    return {
+        externalOrderId,
+        label: normalizeFreeText(rawOrder?.shippingReference || rawOrder?.shipping_reference || rawOrder?.poNumber || rawOrder?.po_number || externalOrderId),
+        payload: {
+            accountName,
+            poNumber: normalizeFreeText(rawOrder?.poNumber || rawOrder?.po_number || externalOrderId),
+            shippingReference: normalizeFreeText(rawOrder?.shippingReference || rawOrder?.shipping_reference || externalOrderId),
+            contactName: normalizeFreeText(rawOrder?.contactName || rawOrder?.contact_name || shipToName),
+            contactPhone,
+            requestedShipDate,
+            orderNotes: normalizeFreeText(rawOrder?.orderNotes || rawOrder?.order_notes || rawOrder?.notes || `Imported from SFTP ${sourceContext.fileName || ""}`),
+            shipToName,
+            shipToAddress1: normalizeFreeText(rawOrder?.shipToAddress1 || rawOrder?.ship_to_address1 || shipTo?.address1 || shipTo?.line1 || ""),
+            shipToAddress2: normalizeFreeText(rawOrder?.shipToAddress2 || rawOrder?.ship_to_address2 || shipTo?.address2 || shipTo?.line2 || ""),
+            shipToCity: normalizeFreeText(rawOrder?.shipToCity || rawOrder?.ship_to_city || shipTo?.city || ""),
+            shipToState: normalizeFreeText(rawOrder?.shipToState || rawOrder?.ship_to_state || shipTo?.state || shipTo?.province || ""),
+            shipToPostalCode: normalizeFreeText(rawOrder?.shipToPostalCode || rawOrder?.ship_to_postal_code || shipTo?.postalCode || shipTo?.postal_code || shipTo?.zip || ""),
+            shipToCountry: normalizeFreeText(rawOrder?.shipToCountry || rawOrder?.ship_to_country || shipTo?.country || "USA"),
+            shipToPhone: normalizeFreeText(rawOrder?.shipToPhone || rawOrder?.ship_to_phone || shipTo?.phone || contactPhone),
+            lines
+        }
+    };
+}
+
+function mapSftpInboundToPortalDraft(accountName, rawInbound, sourceContext = {}) {
+    const externalInboundId = getSftpExternalId(
+        rawInbound?.externalInboundId
+        || rawInbound?.external_inbound_id
+        || rawInbound?.externalId
+        || rawInbound?.inboundId
+        || rawInbound?.inbound_id
+        || rawInbound?.referenceNumber
+        || rawInbound?.reference_number
+        || rawInbound?.id,
+        `${sourceContext.fileName || "inbound"}-${sourceContext.index || 1}`
+    );
+    const lines = (Array.isArray(rawInbound?.lines) ? rawInbound.lines : (Array.isArray(rawInbound?.items) ? rawInbound.items : []))
+        .map((line) => ({
+            sku: normalizeText(line?.sku || line?.itemSku || line?.item_sku || line?.code || ""),
+            quantity: toPositiveInt(line?.quantity || line?.qty || line?.expectedQuantity || line?.expected_quantity)
+        }))
+        .filter((line) => line.sku && line.quantity);
+
+    if (!externalInboundId) {
+        throw httpError(400, `${sourceContext.fileName || "SFTP inbound"} is missing an external inbound id.`);
+    }
+    if (!lines.length) {
+        throw httpError(400, `${externalInboundId} does not contain any inbound lines.`);
+    }
+
+    return {
+        externalInboundId,
+        label: normalizeFreeText(rawInbound?.referenceNumber || rawInbound?.reference_number || externalInboundId),
+        payload: {
+            accountName,
+            referenceNumber: normalizeFreeText(rawInbound?.referenceNumber || rawInbound?.reference_number || externalInboundId),
+            carrierName: normalizeFreeText(rawInbound?.carrierName || rawInbound?.carrier_name || rawInbound?.carrier || ""),
+            expectedDate: normalizeDateInput(rawInbound?.expectedDate || rawInbound?.expected_date || rawInbound?.arrivalDate || rawInbound?.arrival_date || new Date()),
+            contactName: normalizeFreeText(rawInbound?.contactName || rawInbound?.contact_name || "SFTP Import"),
+            contactPhone: normalizeFreeText(rawInbound?.contactPhone || rawInbound?.contact_phone || rawInbound?.phone || ""),
+            notes: normalizeFreeText(rawInbound?.notes || rawInbound?.note || `Imported from SFTP ${sourceContext.fileName || ""}`),
+            lines
+        }
+    };
+}
+
+async function importSftpOrdersForIntegration(client, integrationRow, mappedOrders, appUser = null) {
+    const externalIds = mappedOrders.map((entry) => entry.externalOrderId).filter(Boolean);
+    const existingImports = externalIds.length
+        ? await client.query(
+            "select external_order_id from store_order_imports where integration_id = $1 and external_order_id = any($2::text[])",
+            [integrationRow.id, externalIds]
+        )
+        : { rows: [] };
+    const existingIds = new Set(existingImports.rows.map((row) => row.external_order_id));
+
+    let discoveredCount = mappedOrders.length;
+    let importedCount = 0;
+    let releasedCount = 0;
+    let draftCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    const detailMessages = [];
+
+    for (const entry of mappedOrders) {
+        if (!entry.externalOrderId) {
+            failedCount += 1;
+            detailMessages.push("Skipped an SFTP order without an external id.");
+            continue;
+        }
+        if (existingIds.has(entry.externalOrderId)) {
+            skippedCount += 1;
+            continue;
+        }
+
+        try {
+            let importedOrder = await savePortalOrderDraftForAccount(
+                client,
+                integrationRow.account_name,
+                entry.payload,
+                null,
+                {
+                    portalAccessId: null,
+                    downloadPathPrefix: "/api/admin/portal-order-documents",
+                    activityTitlePrefix: "sftp order import",
+                    activityActor: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                    enforceInventoryAvailability: false
+                }
+            );
+
+            if ((integrationRow.import_status || "DRAFT") === "RELEASED") {
+                try {
+                    importedOrder = await releaseWarehousePortalOrder(client, importedOrder.id, appUser);
+                    releasedCount += 1;
+                } catch (error) {
+                    draftCount += 1;
+                    detailMessages.push(`${entry.label || entry.externalOrderId} imported as draft: ${error.message}`);
+                }
+            } else {
+                draftCount += 1;
+            }
+
+            await client.query(
+                `
+                    insert into store_order_imports (integration_id, external_order_id, portal_order_id)
+                    values ($1, $2, $3)
+                `,
+                [integrationRow.id, entry.externalOrderId, importedOrder.id]
+            );
+            importedCount += 1;
+        } catch (error) {
+            failedCount += 1;
+            detailMessages.push(`${entry.label || entry.externalOrderId}: ${error.message}`);
+        }
+    }
+
+    if (existingIds.size > 0) {
+        await client.query(
+            "update store_order_imports set last_seen_at = now() where integration_id = $1 and external_order_id = any($2::text[])",
+            [integrationRow.id, [...existingIds]]
+        );
+    }
+
+    return { discoveredCount, importedCount, releasedCount, draftCount, skippedCount, failedCount, detailMessages };
+}
+
+async function importSftpInboundsForIntegration(client, integrationRow, mappedInbounds) {
+    const externalIds = mappedInbounds.map((entry) => entry.externalInboundId).filter(Boolean);
+    const existingImports = externalIds.length
+        ? await client.query(
+            "select external_inbound_id from store_inbound_imports where integration_id = $1 and external_inbound_id = any($2::text[])",
+            [integrationRow.id, externalIds]
+        )
+        : { rows: [] };
+    const existingIds = new Set(existingImports.rows.map((row) => row.external_inbound_id));
+
+    let discoveredCount = mappedInbounds.length;
+    let importedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    const detailMessages = [];
+
+    for (const entry of mappedInbounds) {
+        if (!entry.externalInboundId) {
+            failedCount += 1;
+            detailMessages.push("Skipped an SFTP inbound without an external id.");
+            continue;
+        }
+        if (existingIds.has(entry.externalInboundId)) {
+            skippedCount += 1;
+            continue;
+        }
+
+        try {
+            const savedInbound = await savePortalInboundForAccount(
+                client,
+                integrationRow.account_name,
+                entry.payload,
+                {
+                    portalAccessId: null,
+                    activityTitlePrefix: "sftp inbound import",
+                    activityActor: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`
+                }
+            );
+            await client.query(
+                `
+                    insert into store_inbound_imports (integration_id, external_inbound_id, portal_inbound_id)
+                    values ($1, $2, $3)
+                `,
+                [integrationRow.id, entry.externalInboundId, savedInbound.id]
+            );
+            importedCount += 1;
+        } catch (error) {
+            failedCount += 1;
+            detailMessages.push(`${entry.label || entry.externalInboundId}: ${error.message}`);
+        }
+    }
+
+    if (existingIds.size > 0) {
+        await client.query(
+            "update store_inbound_imports set last_seen_at = now() where integration_id = $1 and external_inbound_id = any($2::text[])",
+            [integrationRow.id, [...existingIds]]
+        );
+    }
+
+    return { discoveredCount, importedCount, skippedCount, failedCount, detailMessages };
+}
+
+async function archiveSftpImportFile(client, archiveFolder, laneName, remotePath, fileName) {
+    const normalizedArchiveFolder = normalizeRemoteFolderPath(archiveFolder);
+    if (!normalizedArchiveFolder) return remotePath;
+    const laneFolder = joinSftpRemotePath(normalizedArchiveFolder, laneName.toLowerCase());
+    await ensureSftpDirectory(client, laneFolder);
+
+    const safeFileName = normalizeUploadFileName(fileName || path.posix.basename(remotePath) || `${laneName.toLowerCase()}.json`) || `${laneName.toLowerCase()}.json`;
+    let targetPath = joinSftpRemotePath(laneFolder, safeFileName);
+    if (await client.exists(targetPath)) {
+        const extension = path.posix.extname(safeFileName);
+        const stem = extension ? safeFileName.slice(0, -extension.length) : safeFileName;
+        targetPath = joinSftpRemotePath(laneFolder, `${stem}-${Date.now()}${extension || ".json"}`);
+    }
+    await client.rename(remotePath, targetPath);
+    return targetPath;
+}
+
+async function syncSftpOrderImports(sftpClient, integrationRow, settings, appUser = null) {
+    const summary = { filesFound: 0, discoveredCount: 0, importedCount: 0, releasedCount: 0, draftCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const files = await listSftpJsonFiles(sftpClient, settings.ordersFolder);
+    summary.filesFound = files.length;
+
+    for (const file of files) {
+        try {
+            const payload = await readSftpJsonFile(sftpClient, file.path);
+            const entries = extractSftpPayloadEntries(payload, "orders", file.name)
+                .map((entry, entryIndex) => mapSftpOrderToPortalDraft(integrationRow.account_name, entry, {
+                    fileName: file.name,
+                    index: entryIndex + 1
+                }));
+            const result = await withTransaction((client) => importSftpOrdersForIntegration(client, integrationRow, entries, appUser));
+            summary.discoveredCount += result.discoveredCount;
+            summary.importedCount += result.importedCount;
+            summary.releasedCount += result.releasedCount;
+            summary.draftCount += result.draftCount;
+            summary.skippedCount += result.skippedCount;
+            summary.failedCount += result.failedCount;
+            summary.detailMessages.push(...result.detailMessages);
+            await archiveSftpImportFile(sftpClient, settings.archiveFolder, "orders", file.path, file.name);
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`${file.name}: ${error.message}`);
+        }
+    }
+
+    return summary;
+}
+
+async function syncSftpInboundImports(sftpClient, integrationRow, settings) {
+    const summary = { filesFound: 0, discoveredCount: 0, importedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const files = await listSftpJsonFiles(sftpClient, settings.inboundsFolder);
+    summary.filesFound = files.length;
+
+    for (const file of files) {
+        try {
+            const payload = await readSftpJsonFile(sftpClient, file.path);
+            const entries = extractSftpPayloadEntries(payload, "inbounds", file.name)
+                .map((entry, entryIndex) => mapSftpInboundToPortalDraft(integrationRow.account_name, entry, {
+                    fileName: file.name,
+                    index: entryIndex + 1
+                }));
+            const result = await withTransaction((client) => importSftpInboundsForIntegration(client, integrationRow, entries));
+            summary.discoveredCount += result.discoveredCount;
+            summary.importedCount += result.importedCount;
+            summary.skippedCount += result.skippedCount;
+            summary.failedCount += result.failedCount;
+            summary.detailMessages.push(...result.detailMessages);
+            await archiveSftpImportFile(sftpClient, settings.archiveFolder, "inbounds", file.path, file.name);
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`${file.name}: ${error.message}`);
+        }
+    }
+
+    return summary;
+}
+
+function computeStoreSyncContentHash(payload) {
+    const stableText = JSON.stringify(payload, (key, value) => key === "exportedAt" ? undefined : value);
+    return crypto.createHash("sha256").update(stableText || "").digest("hex");
+}
+
+async function hasStoreSyncExport(client, integrationId, entityType, entityRef, contentHash) {
+    const result = await client.query(
+        `
+            select 1
+            from store_sync_exports
+            where integration_id = $1
+              and entity_type = $2
+              and entity_ref = $3
+              and content_hash = $4
+            limit 1
+        `,
+        [integrationId, entityType, entityRef, contentHash]
+    );
+    return result.rowCount === 1;
+}
+
+async function recordStoreSyncExport(client, integrationId, entityType, entityRef, contentHash, remotePath) {
+    await client.query(
+        `
+            insert into store_sync_exports (integration_id, entity_type, entity_ref, content_hash, remote_path)
+            values ($1, $2, $3, $4, $5)
+            on conflict (integration_id, entity_type, entity_ref, content_hash)
+            do nothing
+        `,
+        [integrationId, entityType, entityRef, contentHash, remotePath]
+    );
+}
+
+function buildSftpExportFileName(prefix, reference, contentHash) {
+    const safePrefix = sanitizeFilenameSegment(prefix, "sync");
+    const safeReference = sanitizeFilenameSegment(reference, "record");
+    return `${safePrefix}-${safeReference}-${String(contentHash || "").slice(0, 12)}.json`;
+}
+
+function buildSftpShipmentConfirmationPayload(order, externalOrderId = "") {
+    return {
+        messageType: "SHIPMENT_CONFIRMATION",
+        exportedAt: new Date().toISOString(),
+        externalOrderId: externalOrderId || "",
+        orderCode: order.orderCode,
+        accountName: order.accountName,
+        status: order.status,
+        poNumber: order.poNumber || "",
+        shippingReference: order.shippingReference || "",
+        requestedShipDate: order.requestedShipDate || "",
+        confirmedShipDate: order.confirmedShipDate || "",
+        shippedCarrierName: order.shippedCarrierName || "",
+        shippedTrackingReference: order.shippedTrackingReference || "",
+        shippedConfirmationNote: order.shippedConfirmationNote || "",
+        shipTo: {
+            name: order.shipToName || "",
+            phone: order.shipToPhone || "",
+            address1: order.shipToAddress1 || "",
+            address2: order.shipToAddress2 || "",
+            city: order.shipToCity || "",
+            state: order.shipToState || "",
+            postalCode: order.shipToPostalCode || "",
+            country: order.shipToCountry || ""
+        },
+        lines: order.lines.map((line) => ({
+            lineNumber: Number(line.lineNumber || 0) || 0,
+            sku: line.sku,
+            upc: line.upc || "",
+            description: line.description || "",
+            quantity: Number(line.quantity) || 0,
+            trackingLevel: line.trackingLevel || "UNIT",
+            allocations: Array.isArray(line.pickLocations)
+                ? line.pickLocations.map((entry) => ({
+                    location: entry.location || "",
+                    quantity: Number(entry.quantity) || 0,
+                    lotNumber: entry.lotNumber || "",
+                    expirationDate: entry.expirationDate || ""
+                }))
+                : []
+        })),
+        documents: Array.isArray(order.documents)
+            ? order.documents.map((document) => ({
+                fileName: document.fileName || "",
+                fileType: document.fileType || "",
+                fileSize: Number(document.fileSize) || 0
+            }))
+            : []
+    };
+}
+
+function buildSftpReceiptConfirmationPayload(inbound, externalInboundId = "") {
+    return {
+        messageType: "RECEIPT_CONFIRMATION",
+        exportedAt: new Date().toISOString(),
+        externalInboundId: externalInboundId || "",
+        inboundCode: inbound.inboundCode || "",
+        accountName: inbound.accountName || "",
+        status: inbound.status || "SUBMITTED",
+        referenceNumber: inbound.referenceNumber || "",
+        carrierName: inbound.carrierName || "",
+        expectedDate: inbound.expectedDate || "",
+        receivedAt: inbound.receivedAt || "",
+        contactName: inbound.contactName || "",
+        contactPhone: inbound.contactPhone || "",
+        notes: inbound.notes || "",
+        lines: Array.isArray(inbound.lines)
+            ? inbound.lines.map((line) => ({
+                lineNumber: Number(line.lineNumber || 0) || 0,
+                sku: line.sku || "",
+                upc: line.upc || "",
+                description: line.description || "",
+                quantity: Number(line.quantity) || 0,
+                trackingLevel: line.trackingLevel || "UNIT"
+            }))
+            : []
+    };
+}
+
+async function getPortalInboundById(client, inboundId) {
+    const result = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
+    if (result.rowCount !== 1) {
+        return null;
+    }
+    const inboundRow = result.rows[0];
+    const linesResult = await client.query(
+        `
+            select
+                l.*,
+                i.account_name,
+                c.description as item_description,
+                c.upc as item_upc,
+                c.tracking_level as item_tracking_level
+            from portal_inbound_lines l
+            join portal_inbounds i on i.id = l.inbound_id
+            left join item_catalog c
+              on c.account_name = i.account_name
+             and c.sku = l.sku
+            where l.inbound_id = $1
+            order by l.line_number asc, l.id asc
+        `,
+        [inboundId]
+    );
+    return mapPortalInboundRow(inboundRow, linesResult.rows.map(mapPortalInboundLineRow));
+}
+
+async function exportSftpShipmentConfirmations(client, sftpClient, integrationRow, settings) {
+    const summary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    if (!settings.shipmentsFolder) return summary;
+
+    await ensureSftpDirectory(sftpClient, settings.shipmentsFolder);
+    const result = await client.query(
+        `
+            select o.id, i.external_order_id
+            from portal_orders o
+            join store_order_imports i on i.portal_order_id = o.id
+            where i.integration_id = $1
+              and o.status = 'SHIPPED'
+            order by coalesce(o.shipped_at, o.updated_at) asc, o.id asc
+        `,
+        [integrationRow.id]
+    );
+
+    for (const row of result.rows) {
+        try {
+            const order = await getPortalOrderById(client, row.id, integrationRow.account_name);
+            if (!order) continue;
+            const payload = buildSftpShipmentConfirmationPayload(order, row.external_order_id || "");
+            const contentHash = computeStoreSyncContentHash(payload);
+            const entityRef = String(order.id);
+            if (await hasStoreSyncExport(client, integrationRow.id, "SHIPMENT_CONFIRMATION", entityRef, contentHash)) {
+                summary.skippedCount += 1;
+                continue;
+            }
+
+            const remotePath = joinSftpRemotePath(
+                settings.shipmentsFolder,
+                buildSftpExportFileName("shipment", order.orderCode || row.external_order_id || entityRef, contentHash)
+            );
+            await sftpClient.put(Buffer.from(JSON.stringify(payload, null, 2), "utf8"), remotePath);
+            await recordStoreSyncExport(client, integrationRow.id, "SHIPMENT_CONFIRMATION", entityRef, contentHash, remotePath);
+            summary.exportedCount += 1;
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`Shipment ${row.external_order_id || row.id}: ${error.message}`);
+        }
+    }
+
+    return summary;
+}
+
+async function exportSftpReceiptConfirmations(client, sftpClient, integrationRow, settings) {
+    const summary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    if (!settings.receiptsFolder) return summary;
+
+    await ensureSftpDirectory(sftpClient, settings.receiptsFolder);
+    const result = await client.query(
+        `
+            select i.id, m.external_inbound_id
+            from portal_inbounds i
+            join store_inbound_imports m on m.portal_inbound_id = i.id
+            where m.integration_id = $1
+              and i.status = 'RECEIVED'
+            order by coalesce(i.received_at, i.updated_at) asc, i.id asc
+        `,
+        [integrationRow.id]
+    );
+
+    for (const row of result.rows) {
+        try {
+            const inbound = await getPortalInboundById(client, row.id);
+            if (!inbound) continue;
+            const payload = buildSftpReceiptConfirmationPayload(inbound, row.external_inbound_id || "");
+            const contentHash = computeStoreSyncContentHash(payload);
+            const entityRef = String(inbound.id);
+            if (await hasStoreSyncExport(client, integrationRow.id, "RECEIPT_CONFIRMATION", entityRef, contentHash)) {
+                summary.skippedCount += 1;
+                continue;
+            }
+
+            const remotePath = joinSftpRemotePath(
+                settings.receiptsFolder,
+                buildSftpExportFileName("receipt", inbound.inboundCode || row.external_inbound_id || entityRef, contentHash)
+            );
+            await sftpClient.put(Buffer.from(JSON.stringify(payload, null, 2), "utf8"), remotePath);
+            await recordStoreSyncExport(client, integrationRow.id, "RECEIPT_CONFIRMATION", entityRef, contentHash, remotePath);
+            summary.exportedCount += 1;
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`Receipt ${row.external_inbound_id || row.id}: ${error.message}`);
+        }
+    }
+
+    return summary;
+}
+
+async function buildSftpInventorySnapshotPayload(client, accountName) {
+    const inventoryResult = await client.query(
+        `
+            select
+                i.*,
+                c.description as item_description
+            from inventory_lines i
+            left join item_catalog c
+              on c.account_name = i.account_name
+             and c.sku = i.sku
+            where i.account_name = $1
+            order by i.location asc, i.sku asc, i.lot_number asc, i.expiration_date asc, i.id asc
+        `,
+        [normalizeText(accountName)]
+    );
+
+    return {
+        messageType: "INVENTORY_SNAPSHOT",
+        exportedAt: new Date().toISOString(),
+        accountName: normalizeText(accountName),
+        lines: inventoryResult.rows.map((row) => ({
+            location: row.location || "",
+            sku: row.sku || "",
+            upc: row.upc || "",
+            description: row.item_description || "",
+            trackingLevel: normalizeTrackingLevel(row.tracking_level || "UNIT"),
+            quantity: Number(row.quantity) || 0,
+            lotNumber: row.lot_number || "",
+            expirationDate: normalizeDateOnly(row.expiration_date)
+        }))
+    };
+}
+
+async function exportSftpInventorySnapshot(client, sftpClient, integrationRow, settings) {
+    const summary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    if (!settings.inventoryFolder) return summary;
+
+    try {
+        await ensureSftpDirectory(sftpClient, settings.inventoryFolder);
+        const payload = await buildSftpInventorySnapshotPayload(client, integrationRow.account_name);
+        const contentHash = computeStoreSyncContentHash(payload);
+        const entityRef = normalizeText(integrationRow.account_name);
+        if (await hasStoreSyncExport(client, integrationRow.id, "INVENTORY_SNAPSHOT", entityRef, contentHash)) {
+            summary.skippedCount += 1;
+            return summary;
+        }
+
+        const remotePath = joinSftpRemotePath(
+            settings.inventoryFolder,
+            buildSftpExportFileName("inventory", integrationRow.account_name, contentHash)
+        );
+        await sftpClient.put(Buffer.from(JSON.stringify(payload, null, 2), "utf8"), remotePath);
+        await recordStoreSyncExport(client, integrationRow.id, "INVENTORY_SNAPSHOT", entityRef, contentHash, remotePath);
+        summary.exportedCount += 1;
+    } catch (error) {
+        summary.failedCount += 1;
+        summary.detailMessages.push(`Inventory: ${error.message}`);
+    }
+
+    return summary;
+}
+
+async function syncSftpIntegration(integrationRow, appUser = null) {
+    const settings = sanitizeStoreIntegrationSettingsInput(integrationRow.provider, integrationRow.settings || {});
+    const sftpClient = await connectSftpForIntegration(integrationRow);
+    const orderSummary = { filesFound: 0, discoveredCount: 0, importedCount: 0, releasedCount: 0, draftCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const inboundSummary = { filesFound: 0, discoveredCount: 0, importedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const shipmentSummary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const receiptSummary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const inventorySummary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+
+    try {
+        if (settings.ordersFolder) {
+            Object.assign(orderSummary, await syncSftpOrderImports(sftpClient, integrationRow, settings, appUser));
+        }
+        if (settings.inboundsFolder) {
+            Object.assign(inboundSummary, await syncSftpInboundImports(sftpClient, integrationRow, settings));
+        }
+        if (settings.shipmentsFolder) {
+            Object.assign(shipmentSummary, await exportSftpShipmentConfirmations(pool, sftpClient, integrationRow, settings));
+        }
+        if (settings.receiptsFolder) {
+            Object.assign(receiptSummary, await exportSftpReceiptConfirmations(pool, sftpClient, integrationRow, settings));
+        }
+        if (settings.inventoryFolder) {
+            Object.assign(inventorySummary, await exportSftpInventorySnapshot(pool, sftpClient, integrationRow, settings));
+        }
+    } finally {
+        try {
+            await sftpClient.end();
+        } catch (_error) {
+            // Ignore connection shutdown noise.
+        }
+    }
+
+    const failedCount = orderSummary.failedCount
+        + inboundSummary.failedCount
+        + shipmentSummary.failedCount
+        + receiptSummary.failedCount
+        + inventorySummary.failedCount;
+    const meaningfulProgress = orderSummary.importedCount
+        + orderSummary.skippedCount
+        + inboundSummary.importedCount
+        + inboundSummary.skippedCount
+        + shipmentSummary.exportedCount
+        + shipmentSummary.skippedCount
+        + receiptSummary.exportedCount
+        + receiptSummary.skippedCount
+        + inventorySummary.exportedCount
+        + inventorySummary.skippedCount;
+    const status = failedCount > 0
+        ? (meaningfulProgress > 0 ? "WARNING" : "ERROR")
+        : "SUCCESS";
+
+    const baseMessage = [
+        `Order files ${orderSummary.filesFound}`,
+        `Orders ${orderSummary.importedCount} imported`,
+        `Inbounds ${inboundSummary.importedCount} imported`,
+        `Shipments ${shipmentSummary.exportedCount} exported`,
+        `Receipts ${receiptSummary.exportedCount} exported`,
+        `Inventory ${inventorySummary.exportedCount} exported`,
+        `Failed ${failedCount}`
+    ].join(". ") + ".";
+    const detailMessages = [
+        ...orderSummary.detailMessages,
+        ...inboundSummary.detailMessages,
+        ...shipmentSummary.detailMessages,
+        ...receiptSummary.detailMessages,
+        ...inventorySummary.detailMessages
+    ];
+    const summaryMessage = detailMessages.length
+        ? `${baseMessage} ${truncateStoreSyncMessage(detailMessages.slice(0, 4).join(" | "), 380)}`
+        : baseMessage;
+
+    const updatedResult = await pool.query(
+        `
+            update store_integrations
+            set
+                last_synced_at = now(),
+                last_sync_status = $2,
+                last_sync_message = $3,
+                next_scheduled_sync_at = $4,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [
+            integrationRow.id,
+            status,
+            truncateStoreSyncMessage(summaryMessage),
+            computeNextStoreIntegrationSyncAt(integrationRow.sync_schedule, { lastSyncedAt: new Date() })
+        ]
+    );
+
+    await withTransaction(async (client) => {
+        await insertActivity(
+            client,
+            "setup",
+            `Synced ${describeStoreIntegrationProvider(integrationRow.provider)} files for ${integrationRow.account_name}`,
+            [
+                integrationRow.store_identifier || "No host saved",
+                `Orders ${orderSummary.importedCount} imported`,
+                `Inbounds ${inboundSummary.importedCount} imported`,
+                `Shipments ${shipmentSummary.exportedCount} exported`,
+                `Receipts ${receiptSummary.exportedCount} exported`,
+                `Inventory ${inventorySummary.exportedCount} exported`,
+                `Failed ${failedCount}`
+            ].join(" | ")
+        );
+    });
+
+    return {
+        integration: mapStoreIntegrationRow(updatedResult.rows[0]),
+        ordersFetched: orderSummary.discoveredCount,
+        importedCount: orderSummary.importedCount,
+        releasedCount: orderSummary.releasedCount,
+        draftCount: orderSummary.draftCount,
+        skippedCount: orderSummary.skippedCount + inboundSummary.skippedCount + shipmentSummary.skippedCount + receiptSummary.skippedCount + inventorySummary.skippedCount,
+        failedCount,
+        inboundsFetched: inboundSummary.discoveredCount,
+        importedInboundCount: inboundSummary.importedCount,
+        shippedExportCount: shipmentSummary.exportedCount,
+        receiptExportCount: receiptSummary.exportedCount,
+        inventoryExportCount: inventorySummary.exportedCount,
+        message: truncateStoreSyncMessage(summaryMessage)
+    };
+}
+
 async function getPortalAccessByAccountName(client, accountName) {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) return null;
-    const result = await client.query("select * from portal_vendor_access where account_name = $1 limit 1", [normalizedAccount]);
+    const result = await client.query(
+        `
+            select
+                a.*,
+                o.feature_flags,
+                o.feature_flags_updated_at,
+                o.feature_flags_updated_by
+            from portal_vendor_access a
+            left join owner_accounts o on o.name = a.account_name
+            where a.account_name = $1
+            limit 1
+        `,
+        [normalizedAccount]
+    );
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
 async function getPortalAccessById(client, accessId) {
-    const result = await client.query("select * from portal_vendor_access where id = $1 limit 1", [accessId]);
+    const result = await client.query(
+        `
+            select
+                a.*,
+                o.feature_flags,
+                o.feature_flags_updated_at,
+                o.feature_flags_updated_by
+            from portal_vendor_access a
+            left join owner_accounts o on o.name = a.account_name
+            where a.id = $1
+            limit 1
+        `,
+        [accessId]
+    );
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
 async function getPortalAccessByEmail(client, email) {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) return null;
-    const result = await client.query("select * from portal_vendor_access where email = $1 limit 1", [normalizedEmail]);
+    const result = await client.query(
+        `
+            select
+                a.*,
+                o.feature_flags,
+                o.feature_flags_updated_at,
+                o.feature_flags_updated_by
+            from portal_vendor_access a
+            left join owner_accounts o on o.name = a.account_name
+            where a.email = $1
+            limit 1
+        `,
+        [normalizedEmail]
+    );
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
@@ -3534,9 +4824,13 @@ async function requirePortalSession(req, client = pool) {
                 s.id as session_id,
                 s.portal_access_id,
                 s.expires_at,
-                a.*
+                a.*,
+                o.feature_flags,
+                o.feature_flags_updated_at,
+                o.feature_flags_updated_by
             from portal_sessions s
             join portal_vendor_access a on a.id = s.portal_access_id
+            left join owner_accounts o on o.name = a.account_name
             where s.token_hash = $1
               and s.expires_at > now()
             limit 1
@@ -3713,6 +5007,8 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
                 account_name,
                 sku,
                 location,
+                lot_number,
+                expiration_date,
                 coalesce(max(nullif(tracking_level, '')), 'UNIT') as tracking_level,
                 sum(quantity)::integer as quantity
             from inventory_lines
@@ -3720,8 +5016,14 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
                 select *
                 from unnest($1::text[], $2::text[])
             )
-            group by account_name, sku, location
-            order by account_name asc, sku asc, location asc
+            group by account_name, sku, location, lot_number, expiration_date
+            order by
+                account_name asc,
+                sku asc,
+                case when expiration_date <> '' then 0 else 1 end asc,
+                expiration_date asc,
+                location asc,
+                lot_number asc
         `,
         [accounts, skus]
     );
@@ -3744,11 +5046,58 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
         summary.locations.push({
             location: row.location || '',
             quantity,
-            trackingLevel: normalizeTrackingLevel(row.tracking_level || summary.trackingLevel || 'UNIT')
+            trackingLevel: normalizeTrackingLevel(row.tracking_level || summary.trackingLevel || 'UNIT'),
+            lotNumber: row.lot_number || "",
+            expirationDate: normalizeDateOnly(row.expiration_date)
         });
     });
 
     byKey.forEach((value, key) => summaries.set(key, value));
+    return summaries;
+}
+
+async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
+    const lineIds = [...new Set(lineRows.map((row) => Number(row.id) || 0).filter((value) => value > 0))];
+    const summaries = new Map();
+    if (!lineIds.length) return summaries;
+
+    const result = await client.query(
+        `
+            select *
+            from portal_order_allocations
+            where order_line_id = any($1::bigint[])
+            order by
+                order_line_id asc,
+                case when expiration_date <> '' then 0 else 1 end asc,
+                expiration_date asc,
+                location asc,
+                lot_number asc,
+                id asc
+        `,
+        [lineIds]
+    );
+
+    result.rows.forEach((row) => {
+        const key = String(row.order_line_id);
+        if (!summaries.has(key)) {
+            summaries.set(key, {
+                allocatedQuantity: 0,
+                locations: []
+            });
+        }
+        const summary = summaries.get(key);
+        const quantity = Number(row.allocated_quantity) || 0;
+        summary.allocatedQuantity += quantity;
+        summary.locations.push({
+            inventoryLineId: row.inventory_line_id ? String(row.inventory_line_id) : "",
+            location: row.location || "",
+            quantity,
+            trackingLevel: normalizeTrackingLevel(row.tracking_level || "UNIT"),
+            lotNumber: row.lot_number || "",
+            expirationDate: normalizeDateOnly(row.expiration_date)
+        });
+    });
+
     return summaries;
 }
 
@@ -3774,7 +5123,9 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
                     o.account_name,
                     c.description as item_description,
                     c.upc as item_upc,
-                    c.tracking_level as item_tracking_level
+                    c.tracking_level as item_tracking_level,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
                 from portal_order_lines l
                 join portal_orders o on o.id = l.order_id
                 left join item_catalog c
@@ -3786,6 +5137,7 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
             [orderIds]
         )
         : { rows: [] };
+    const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const documentsResult = orderIds.length
         ? await client.query(
             `
@@ -3799,7 +5151,7 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
         : { rows: [] };
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", locationSummaries);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", locationSummaries, allocationSummaries);
 }
 
 async function getAdminPortalOrders(client = pool) {
@@ -3820,7 +5172,9 @@ async function getAdminPortalOrders(client = pool) {
                     o.account_name,
                     c.description as item_description,
                     c.upc as item_upc,
-                    c.tracking_level as item_tracking_level
+                    c.tracking_level as item_tracking_level,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
                 from portal_order_lines l
                 join portal_orders o on o.id = l.order_id
                 left join item_catalog c
@@ -3832,6 +5186,7 @@ async function getAdminPortalOrders(client = pool) {
             [orderIds]
         )
         : { rows: [] };
+    const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const documentsResult = orderIds.length
         ? await client.query(
             `
@@ -3845,7 +5200,7 @@ async function getAdminPortalOrders(client = pool) {
         : { rows: [] };
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", locationSummaries);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", locationSummaries, allocationSummaries);
 }
 
 async function getPortalOrderById(client, orderId, accountName, downloadPathPrefix = "/api/admin/portal-order-documents") {
@@ -3865,7 +5220,9 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
                 o.account_name,
                 c.description as item_description,
                 c.upc as item_upc,
-                c.tracking_level as item_tracking_level
+                c.tracking_level as item_tracking_level,
+                c.lot_tracked as item_lot_tracked,
+                c.expiration_tracked as item_expiration_tracked
             from portal_order_lines l
             join portal_orders o on o.id = l.order_id
             left join item_catalog c
@@ -3885,9 +5242,10 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
         `,
         [orderId]
     );
+    const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries)[0] || null;
+    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries)[0] || null;
 }
 
 async function savePortalOrderDraftForAccount(
@@ -4051,6 +5409,214 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
     });
 }
 
+function sortInventoryRowsForAllocation(rows = [], { expirationTracked = false } = {}) {
+    return [...rows].sort((left, right) => {
+        const leftExpiration = normalizeDateOnly(left.expiration_date || left.expirationDate);
+        const rightExpiration = normalizeDateOnly(right.expiration_date || right.expirationDate);
+        if (expirationTracked || leftExpiration || rightExpiration) {
+            const leftHasExpiration = leftExpiration ? 0 : 1;
+            const rightHasExpiration = rightExpiration ? 0 : 1;
+            if (leftHasExpiration !== rightHasExpiration) return leftHasExpiration - rightHasExpiration;
+            if (leftExpiration !== rightExpiration) return String(leftExpiration).localeCompare(String(rightExpiration));
+        }
+
+        const leftCreated = left.created_at ? new Date(left.created_at).getTime() : 0;
+        const rightCreated = right.created_at ? new Date(right.created_at).getTime() : 0;
+        if (leftCreated !== rightCreated) return leftCreated - rightCreated;
+
+        const leftUpdated = left.updated_at ? new Date(left.updated_at).getTime() : 0;
+        const rightUpdated = right.updated_at ? new Date(right.updated_at).getTime() : 0;
+        if (leftUpdated !== rightUpdated) return leftUpdated - rightUpdated;
+
+        const locationCompare = String(left.location || "").localeCompare(String(right.location || ""));
+        if (locationCompare !== 0) return locationCompare;
+
+        const lotCompare = String(left.lot_number || left.lotNumber || "").localeCompare(String(right.lot_number || right.lotNumber || ""));
+        if (lotCompare !== 0) return lotCompare;
+
+        return (Number(left.id) || 0) - (Number(right.id) || 0);
+    });
+}
+
+async function allocatePortalOrderInventory(client, order) {
+    const normalizedAccount = normalizeText(order.accountName);
+    const lineIds = order.lines.map((line) => Number(line.id) || 0).filter((value) => value > 0);
+    if (!lineIds.length) {
+        throw httpError(400, "Order lines could not be allocated because the saved lines were not found.");
+    }
+
+    const skus = [...new Set(order.lines.map((line) => normalizeText(line.sku)).filter(Boolean))];
+    const inventoryResult = skus.length
+        ? await client.query(
+            `
+                select
+                    i.*,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
+                from inventory_lines i
+                left join item_catalog c
+                  on c.account_name = i.account_name
+                 and c.sku = i.sku
+                where i.account_name = $1
+                  and i.sku = any($2::text[])
+                order by i.sku asc, i.location asc, i.id asc
+            `,
+            [normalizedAccount, skus]
+        )
+        : { rows: [] };
+
+    const requestedReservations = skus.length
+        ? await client.query(
+            `
+                select
+                    l.sku,
+                    coalesce(sum(l.requested_quantity), 0)::integer as requested_quantity
+                from portal_orders o
+                join portal_order_lines l on l.order_id = o.id
+                where o.account_name = $1
+                  and o.status = any($2::text[])
+                  and o.id <> $3
+                  and l.sku = any($4::text[])
+                group by l.sku
+            `,
+            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus]
+        )
+        : { rows: [] };
+
+    const allocatedReservations = skus.length
+        ? await client.query(
+            `
+                select
+                    a.sku,
+                    coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
+                from portal_orders o
+                join portal_order_allocations a on a.order_id = o.id
+                where o.account_name = $1
+                  and o.status = any($2::text[])
+                  and o.id <> $3
+                  and a.sku = any($4::text[])
+                group by a.sku
+            `,
+            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus]
+        )
+        : { rows: [] };
+
+    const allocatedByInventoryLine = skus.length
+        ? await client.query(
+            `
+                select
+                    a.inventory_line_id,
+                    coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
+                from portal_orders o
+                join portal_order_allocations a on a.order_id = o.id
+                where o.account_name = $1
+                  and o.status = any($2::text[])
+                  and o.id <> $3
+                  and a.sku = any($4::text[])
+                  and a.inventory_line_id is not null
+                group by a.inventory_line_id
+            `,
+            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus]
+        )
+        : { rows: [] };
+
+    const requestedBySku = new Map(requestedReservations.rows.map((row) => [normalizeText(row.sku), Number(row.requested_quantity) || 0]));
+    const allocatedBySku = new Map(allocatedReservations.rows.map((row) => [normalizeText(row.sku), Number(row.allocated_quantity) || 0]));
+    const allocatedByInventoryLineMap = new Map(allocatedByInventoryLine.rows.map((row) => [String(row.inventory_line_id), Number(row.allocated_quantity) || 0]));
+    const inventoryBySku = new Map();
+
+    inventoryResult.rows.forEach((row) => {
+        const sku = normalizeText(row.sku);
+        if (!inventoryBySku.has(sku)) {
+            inventoryBySku.set(sku, []);
+        }
+        inventoryBySku.get(sku).push({
+            ...row,
+            availableQuantity: Math.max(0, (Number(row.quantity) || 0) - (allocatedByInventoryLineMap.get(String(row.id)) || 0))
+        });
+    });
+
+    for (const [sku, rows] of inventoryBySku.entries()) {
+        let remainingLegacyReserve = Math.max(0, (requestedBySku.get(sku) || 0) - (allocatedBySku.get(sku) || 0));
+        if (remainingLegacyReserve <= 0) continue;
+        const sortedRows = sortInventoryRowsForAllocation(rows, { expirationTracked: rows.some((row) => row.item_expiration_tracked === true || normalizeDateOnly(row.expiration_date)) });
+        for (const row of sortedRows) {
+            if (remainingLegacyReserve <= 0) break;
+            const deduction = Math.min(Number(row.availableQuantity) || 0, remainingLegacyReserve);
+            row.availableQuantity = Math.max(0, (Number(row.availableQuantity) || 0) - deduction);
+            remainingLegacyReserve -= deduction;
+        }
+    }
+
+    const allocations = [];
+
+    for (const line of order.lines) {
+        let remainingQuantity = Number(line.quantity) || 0;
+        if (remainingQuantity <= 0) continue;
+
+        const sku = normalizeText(line.sku);
+        const allRows = inventoryBySku.get(sku) || [];
+        const candidateRows = sortInventoryRowsForAllocation(
+            allRows.filter((row) =>
+                (!line.lotTracked || !!String(row.lot_number || "").trim()) &&
+                (!line.expirationTracked || !!normalizeDateOnly(row.expiration_date))
+            ),
+            line
+        );
+        const allocatableQuantity = candidateRows.reduce((sum, row) => sum + (Number(row.availableQuantity) || 0), 0);
+        if (allocatableQuantity < remainingQuantity) {
+            throw httpError(
+                409,
+                `Release blocked for ${order.orderCode}: ${line.sku} only has ${formatTrackedQuantity(allocatableQuantity, line.trackingLevel)} allocatable with the required lot and expiration data.`
+            );
+        }
+
+        for (const row of candidateRows) {
+            if (remainingQuantity <= 0) break;
+            const rowAvailable = Number(row.availableQuantity) || 0;
+            if (rowAvailable <= 0) continue;
+            const allocatedQuantity = Math.min(rowAvailable, remainingQuantity);
+            row.availableQuantity = rowAvailable - allocatedQuantity;
+            remainingQuantity -= allocatedQuantity;
+            allocations.push({
+                orderId: String(order.id),
+                orderLineId: String(line.id),
+                inventoryLineId: String(row.id),
+                sku,
+                location: row.location || "",
+                lotNumber: row.lot_number || "",
+                expirationDate: normalizeDateOnly(row.expiration_date),
+                trackingLevel: normalizeTrackingLevel(row.tracking_level || line.trackingLevel || "UNIT"),
+                quantity: allocatedQuantity
+            });
+        }
+    }
+
+    await client.query("delete from portal_order_allocations where order_id = $1", [order.id]);
+    for (const allocation of allocations) {
+        await client.query(
+            `
+                insert into portal_order_allocations (
+                    order_id, order_line_id, inventory_line_id, sku, location, lot_number,
+                    expiration_date, tracking_level, allocated_quantity
+                )
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `,
+            [
+                allocation.orderId,
+                allocation.orderLineId,
+                allocation.inventoryLineId,
+                allocation.sku,
+                allocation.location,
+                allocation.lotNumber || "",
+                allocation.expirationDate || "",
+                allocation.trackingLevel || "UNIT",
+                allocation.quantity
+            ]
+        );
+    }
+}
+
 async function releasePortalOrderForAccount(
     client,
     accountName,
@@ -4079,6 +5645,8 @@ async function releasePortalOrderForAccount(
     for (const line of order.lines) {
         await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
     }
+
+    await allocatePortalOrderInventory(client, order);
 
     await client.query(
         `
@@ -4189,6 +5757,8 @@ async function savePortalCatalogItemForAccount(
         case_width: finalEntry.caseWidth,
         case_height: finalEntry.caseHeight,
         image_url: finalEntry.imageUrl,
+        lot_tracked: finalEntry.lotTracked,
+        expiration_tracked: finalEntry.expirationTracked,
         created_at: finalEntry.createdAt,
         updated_at: finalEntry.updatedAt
     });
@@ -4566,13 +6136,13 @@ async function getPortalSkuAvailability(client, accountName, sku, excludeOrderId
     };
 }
 
-function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map()) {
+function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map(), allocationSummaries = new Map()) {
     const linesByOrderId = new Map();
     lineRows.forEach((row) => {
         const key = String(row.order_id);
         const locationKey = `${normalizeText(row.account_name)}::${normalizeText(row.sku)}`;
         if (!linesByOrderId.has(key)) linesByOrderId.set(key, []);
-        linesByOrderId.get(key).push(mapPortalOrderLineRow(row, locationSummaries.get(locationKey)));
+        linesByOrderId.get(key).push(mapPortalOrderLineRow(row, locationSummaries.get(locationKey), allocationSummaries.get(String(row.id))));
     });
     const documentsByOrderId = new Map();
     documentRows.forEach((row) => {
@@ -4722,6 +6292,51 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
     });
 }
 
+async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null) {
+    const inboundResult = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
+    if (inboundResult.rowCount !== 1) {
+        throw httpError(404, "That inbound could not be found.");
+    }
+
+    const currentInbound = await getPortalInboundById(client, inboundId);
+    if (!currentInbound) {
+        throw httpError(404, "That inbound could not be found.");
+    }
+    if (currentInbound.status === nextStatus) {
+        return currentInbound;
+    }
+
+    const allowedTransitions = {
+        SUBMITTED: ["RECEIVED", "CANCELLED"]
+    };
+    const allowedNext = allowedTransitions[currentInbound.status] || [];
+    if (!allowedNext.includes(nextStatus)) {
+        throw httpError(400, `Inbounds in ${currentInbound.status} can only move to ${allowedNext.join(" or ") || "their next allowed status"}.`);
+    }
+
+    await client.query(
+        `
+            update portal_inbounds
+            set
+                status = $2,
+                received_at = case when $2 = 'RECEIVED' then coalesce(received_at, now()) else received_at end,
+                updated_at = now()
+            where id = $1
+        `,
+        [inboundId, nextStatus]
+    );
+
+    const updatedInbound = await getPortalInboundById(client, inboundId);
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    await insertActivity(
+        client,
+        "receipt",
+        `Marked inbound ${updatedInbound.inboundCode} ${nextStatus.toLowerCase()}`,
+        `${updatedInbound.accountName} | ${formatCount(updatedInbound.lines.length, "line")} | ${actor}`
+    );
+    return updatedInbound;
+}
+
 async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details = {}, appUser = null) {
     const orderResult = await client.query("select * from portal_orders where id = $1 limit 1", [orderId]);
     if (orderResult.rowCount !== 1) {
@@ -4779,6 +6394,44 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
 }
 
 async function consumePortalOrderInventory(client, order) {
+    const allocationResult = await client.query(
+        `
+            select *
+            from portal_order_allocations
+            where order_id = $1
+            order by order_line_id asc, id asc
+        `,
+        [order.id]
+    );
+
+    if (allocationResult.rowCount > 0) {
+        for (const allocation of allocationResult.rows) {
+            const inventoryLineId = allocation.inventory_line_id ? String(allocation.inventory_line_id) : "";
+            const requiredQuantity = Number(allocation.allocated_quantity) || 0;
+            if (!inventoryLineId || requiredQuantity <= 0) continue;
+
+            const inventoryResult = await client.query("select * from inventory_lines where id = $1 limit 1", [inventoryLineId]);
+            if (inventoryResult.rowCount !== 1) {
+                throw httpError(
+                    409,
+                    `Order ${order.orderCode} cannot be marked shipped because the allocated inventory line for ${allocation.sku} is no longer available.`
+                );
+            }
+
+            const inventoryLine = inventoryResult.rows[0];
+            const currentQuantity = Number(inventoryLine.quantity) || 0;
+            if (currentQuantity < requiredQuantity) {
+                throw httpError(
+                    409,
+                    `Order ${order.orderCode} cannot be marked shipped because ${allocation.sku}${allocation.lot_number ? ` lot ${allocation.lot_number}` : ""} only has ${formatTrackedQuantity(currentQuantity, inventoryLine.tracking_level)} left on hand.`
+                );
+            }
+
+            await setInventoryQuantity(client, inventoryLine.id, currentQuantity - requiredQuantity);
+        }
+        return;
+    }
+
     for (const line of order.lines) {
         let remaining = Number(line.quantity) || 0;
         if (remaining <= 0) continue;
@@ -4956,21 +6609,59 @@ async function savePalletRecord(client, palletInput) {
 }
 
 async function upsertInventoryLine(client, item) {
+    const entry = sanitizeInventoryLineInput(item);
+    if (!entry) return;
+
+    const existing = await client.query(
+        `
+            select *
+            from inventory_lines
+            where account_name = $1
+              and location = $2
+              and sku = $3
+              and lot_number = $4
+              and expiration_date = $5
+            limit 1
+        `,
+        [entry.accountName, entry.location, entry.sku, entry.lotNumber || "", entry.expirationDate || ""]
+    );
+
+    if (existing.rowCount === 1) {
+        await client.query(
+            `
+                update inventory_lines
+                set
+                    upc = case
+                        when coalesce(upc, '') = '' and $2 <> '' then $2
+                        else upc
+                    end,
+                    tracking_level = $3,
+                    quantity = quantity + $4,
+                    updated_at = now()
+                where id = $1
+            `,
+            [existing.rows[0].id, entry.upc || "", entry.trackingLevel || "UNIT", entry.quantity]
+        );
+        return;
+    }
+
     await client.query(
         `
-            insert into inventory_lines (account_name, location, sku, upc, tracking_level, quantity)
-            values ($1, $2, $3, $4, $5, $6)
-            on conflict (account_name, location, sku)
-            do update set
-                upc = case
-                    when inventory_lines.upc = '' and excluded.upc <> '' then excluded.upc
-                    else inventory_lines.upc
-                end,
-                tracking_level = excluded.tracking_level,
-                quantity = inventory_lines.quantity + excluded.quantity,
-                updated_at = now()
+            insert into inventory_lines (
+                account_name, location, sku, upc, lot_number, expiration_date, tracking_level, quantity
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
-        [item.accountName, item.location, item.sku, item.upc || "", item.trackingLevel || "UNIT", item.quantity]
+        [
+            entry.accountName,
+            entry.location,
+            entry.sku,
+            entry.upc || "",
+            entry.lotNumber || "",
+            entry.expirationDate || "",
+            entry.trackingLevel || "UNIT",
+            entry.quantity
+        ]
     );
 }
 
@@ -4978,16 +6669,27 @@ async function removeInventoryContribution(client, item) {
     const accountName = normalizeText(item?.accountName);
     const location = normalizeText(item?.location);
     const sku = normalizeText(item?.sku);
+    const lotNumber = normalizeText(item?.lotNumber || item?.lot_number || item?.lot || "");
+    const expirationDate = normalizeDateOnly(item?.expirationDate || item?.expiration_date || item?.expiryDate || item?.expiry_date || "");
     const quantity = toPositiveInt(item?.quantity);
     if (!accountName || !location || !sku || !quantity) return;
 
     const result = await client.query(
-        "select * from inventory_lines where account_name = $1 and location = $2 and sku = $3 limit 1",
-        [accountName, location, sku]
+        `
+            select *
+            from inventory_lines
+            where account_name = $1
+              and location = $2
+              and sku = $3
+              and lot_number = $4
+              and expiration_date = $5
+            limit 1
+        `,
+        [accountName, location, sku, lotNumber, expirationDate]
     );
 
     if (result.rowCount !== 1) {
-        throw httpError(409, `Pallet inventory for ${accountName} / ${sku} at ${location} is missing and cannot be updated safely.`);
+        throw httpError(409, `Pallet inventory for ${accountName} / ${sku} at ${location}${lotNumber ? ` lot ${lotNumber}` : ""} is missing and cannot be updated safely.`);
     }
 
     const line = result.rows[0];
@@ -5024,18 +6726,30 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
         ? sanitizeOwnerMasterInput(ownerInput)
         : sanitizeOwnerMasterInput({ name: ownerInput, note: legacyNote });
     if (!entry?.name) return;
+    const explicitFeatureFlags = entry.featureFlagsConfigured
+        ? JSON.stringify(resolveCompanyFeatureFlags(entry.featureFlags, { legacyMode: false }))
+        : null;
+    const insertFeatureFlags = explicitFeatureFlags || JSON.stringify(buildDefaultNewCompanyFeatureFlags());
+    const featureFlagsUpdatedAt = entry.featureFlagsConfigured
+        ? (entry.featureFlagsUpdatedAt || new Date().toISOString())
+        : null;
+    const featureFlagsUpdatedBy = entry.featureFlagsConfigured
+        ? normalizeFreeText(entry.featureFlagsUpdatedBy || "system")
+        : "";
 
     await client.query(
         `
             insert into owner_accounts (
                 name, note, legal_name, account_code, contact_name, contact_title,
                 email, phone, mobile, website, billing_email, ap_email, portal_login_email,
-                address1, address2, city, state, postal_code, country, is_active
+                address1, address2, city, state, postal_code, country, is_active,
+                feature_flags, feature_flags_updated_at, feature_flags_updated_by
             )
             values (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, $11, $12, $13,
-                $14, $15, $16, $17, $18, $19, $20
+                $14, $15, $16, $17, $18, $19, $20,
+                $21::jsonb, $22, $23
             )
             on conflict (name)
             do update set
@@ -5058,12 +6772,16 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
                 postal_code = case when excluded.postal_code <> '' then excluded.postal_code else owner_accounts.postal_code end,
                 country = case when excluded.country <> '' then excluded.country else owner_accounts.country end,
                 is_active = excluded.is_active,
+                feature_flags = case when $24 = true then excluded.feature_flags else owner_accounts.feature_flags end,
+                feature_flags_updated_at = case when $24 = true then excluded.feature_flags_updated_at else owner_accounts.feature_flags_updated_at end,
+                feature_flags_updated_by = case when $24 = true then excluded.feature_flags_updated_by else owner_accounts.feature_flags_updated_by end,
                 updated_at = now()
         `,
         [
             entry.name, entry.note, entry.legalName, entry.accountCode, entry.contactName, entry.contactTitle,
             entry.email, entry.phone, entry.mobile, entry.website, entry.billingEmail, entry.apEmail, entry.portalLoginEmail,
-            entry.address1, entry.address2, entry.city, entry.state, entry.postalCode, entry.country, entry.isActive
+            entry.address1, entry.address2, entry.city, entry.state, entry.postalCode, entry.country, entry.isActive,
+            insertFeatureFlags, featureFlagsUpdatedAt, featureFlagsUpdatedBy, entry.featureFlagsConfigured === true
         ]
     );
 }
@@ -5077,9 +6795,9 @@ async function upsertItemMaster(client, item) {
             insert into item_catalog (
                 account_name, sku, upc, description, tracking_level, units_per_case,
                 each_length, each_width, each_height, image_url,
-                case_length, case_width, case_height
+                case_length, case_width, case_height, lot_tracked, expiration_tracked
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             on conflict (account_name, sku)
             do update set
                 upc = case
@@ -5105,6 +6823,8 @@ async function upsertItemMaster(client, item) {
                 case_length = coalesce(excluded.case_length, item_catalog.case_length),
                 case_width = coalesce(excluded.case_width, item_catalog.case_width),
                 case_height = coalesce(excluded.case_height, item_catalog.case_height),
+                lot_tracked = excluded.lot_tracked,
+                expiration_tracked = excluded.expiration_tracked,
                 updated_at = now()
         `,
         [
@@ -5120,7 +6840,9 @@ async function upsertItemMaster(client, item) {
             entry.imageUrl,
             entry.caseLength,
             entry.caseWidth,
-            entry.caseHeight
+            entry.caseHeight,
+            entry.lotTracked,
+            entry.expirationTracked
         ]
     );
 }
@@ -5134,9 +6856,9 @@ async function replaceItemMaster(client, item) {
             insert into item_catalog (
                 account_name, sku, upc, description, tracking_level, units_per_case,
                 each_length, each_width, each_height, image_url,
-                case_length, case_width, case_height
+                case_length, case_width, case_height, lot_tracked, expiration_tracked
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             on conflict (account_name, sku)
             do update set
                 upc = excluded.upc,
@@ -5150,6 +6872,8 @@ async function replaceItemMaster(client, item) {
                 case_length = excluded.case_length,
                 case_width = excluded.case_width,
                 case_height = excluded.case_height,
+                lot_tracked = excluded.lot_tracked,
+                expiration_tracked = excluded.expiration_tracked,
                 updated_at = now()
         `,
         [
@@ -5165,7 +6889,9 @@ async function replaceItemMaster(client, item) {
             entry.imageUrl,
             entry.caseLength,
             entry.caseWidth,
-            entry.caseHeight
+            entry.caseHeight,
+            entry.lotTracked,
+            entry.expirationTracked
         ]
     );
 }
@@ -5196,7 +6922,9 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
         imageUrl: item.imageUrl,
         caseLength: item.caseLength,
         caseWidth: item.caseWidth,
-        caseHeight: item.caseHeight
+        caseHeight: item.caseHeight,
+        lotTracked: item.lotTracked,
+        expirationTracked: item.expirationTracked
     });
 
     if (!mergedEntry || !mergedEntry.accountName || !mergedEntry.sku) {
@@ -5220,7 +6948,9 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
             imageUrl: mergedEntry.imageUrl || targetMaster.imageUrl || "",
             caseLength: mergedEntry.caseLength ?? targetMaster.caseLength ?? null,
             caseWidth: mergedEntry.caseWidth ?? targetMaster.caseWidth ?? null,
-            caseHeight: mergedEntry.caseHeight ?? targetMaster.caseHeight ?? null
+            caseHeight: mergedEntry.caseHeight ?? targetMaster.caseHeight ?? null,
+            lotTracked: mergedEntry.lotTracked ?? targetMaster.lotTracked ?? false,
+            expirationTracked: mergedEntry.expirationTracked ?? targetMaster.expirationTracked ?? false
         })
         : mergedEntry;
 
@@ -5244,10 +6974,10 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
             "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc",
             [normalizedAccountName, finalEntry.sku]
         );
-        const targetByLocation = new Map(targetLines.rows.map((row) => [row.location, row]));
+        const targetByLocation = new Map(targetLines.rows.map((row) => [`${row.location}::${row.lot_number || ""}::${normalizeDateOnly(row.expiration_date)}`, row]));
 
         for (const line of originalLines.rows) {
-            const existingTarget = targetByLocation.get(line.location);
+            const existingTarget = targetByLocation.get(`${line.location}::${line.lot_number || ""}::${normalizeDateOnly(line.expiration_date)}`);
             if (existingTarget) {
                 await client.query(
                     `
@@ -5317,18 +7047,35 @@ async function insertActivity(client, type, title, details) {
     return result.rows[0] ? mapActivityRow(result.rows[0]) : null;
 }
 
-async function findInventoryLine(client, accountName, location, skuOrUpc) {
+async function findInventoryLine(client, accountName, location, skuOrUpc, { lotNumber = "", expirationDate = "" } = {}) {
+    const normalizedLot = normalizeText(lotNumber || "");
+    const normalizedExpirationDate = normalizeDateOnly(expirationDate || "");
+    const skuParams = [accountName, location, skuOrUpc];
+    let identitySql = "";
+
+    if (normalizedLot || normalizedExpirationDate) {
+        skuParams.push(normalizedLot, normalizedExpirationDate);
+        identitySql = ` and lot_number = $4 and expiration_date = $5`;
+    }
+
     const skuMatch = await client.query(
-        "select * from inventory_lines where account_name = $1 and location = $2 and sku = $3 limit 1",
-        [accountName, location, skuOrUpc]
+        `select * from inventory_lines where account_name = $1 and location = $2 and sku = $3${identitySql} order by lot_number asc, expiration_date asc, id asc limit 2`,
+        skuParams
     );
     if (skuMatch.rowCount === 1) {
         return skuMatch.rows[0];
     }
+    if (skuMatch.rowCount > 1) {
+        throw httpError(400, "Multiple lot or expiration rows matched that SKU in the selected location. Use a lot-specific adjustment.");
+    }
 
+    const upcParams = [accountName, location, skuOrUpc];
+    if (normalizedLot || normalizedExpirationDate) {
+        upcParams.push(normalizedLot, normalizedExpirationDate);
+    }
     const upcMatches = await client.query(
-        "select * from inventory_lines where account_name = $1 and location = $2 and upc = $3 order by sku asc limit 2",
-        [accountName, location, skuOrUpc]
+        `select * from inventory_lines where account_name = $1 and location = $2 and upc = $3${identitySql} order by sku asc, lot_number asc, expiration_date asc limit 2`,
+        upcParams
     );
 
     if (upcMatches.rowCount > 1) {
@@ -5530,12 +7277,14 @@ function groupInventoryInputs(lines) {
         if (!line) {
             throw httpError(400, "Each batch line must include company, location, SKU, and positive quantity.");
         }
-        const key = `${line.accountName}::${line.location}::${line.sku}`;
+        const key = `${line.accountName}::${line.location}::${line.sku}::${line.lotNumber || ""}::${line.expirationDate || ""}`;
         const current = grouped.get(key) || {
             accountName: line.accountName,
             location: line.location,
             sku: line.sku,
             upc: line.upc,
+            lotNumber: line.lotNumber || "",
+            expirationDate: line.expirationDate || "",
             trackingLevel: line.trackingLevel,
             quantity: 0,
             description: "",
@@ -5556,6 +7305,8 @@ function sanitizeInventoryLineInput(line) {
     const location = normalizeText(line?.location);
     const sku = normalizeText(line?.sku);
     const upc = normalizeText(line?.upc || "");
+    const lotNumber = normalizeText(line?.lotNumber || line?.lot_number || line?.lot || "");
+    const expirationDate = normalizeDateOnly(line?.expirationDate || line?.expiration_date || line?.expiryDate || line?.expiry_date || "");
     const quantity = toPositiveInt(line?.quantity);
     const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
     if (!accountName || !location || !sku || !quantity) return null;
@@ -5564,6 +7315,8 @@ function sanitizeInventoryLineInput(line) {
         location,
         sku,
         upc,
+        lotNumber,
+        expirationDate,
         trackingLevel,
         quantity,
         description: normalizeFreeText(line?.description),
@@ -5609,7 +7362,9 @@ function groupItemMasterInputs(items) {
             imageUrl: "",
             caseLength: null,
             caseWidth: null,
-            caseHeight: null
+            caseHeight: null,
+            lotTracked: false,
+            expirationTracked: false
         };
 
         if (!current.upc && item.upc) current.upc = item.upc;
@@ -5623,6 +7378,8 @@ function groupItemMasterInputs(items) {
         if (!current.caseLength && item.caseLength) current.caseLength = item.caseLength;
         if (!current.caseWidth && item.caseWidth) current.caseWidth = item.caseWidth;
         if (!current.caseHeight && item.caseHeight) current.caseHeight = item.caseHeight;
+        current.lotTracked = current.lotTracked || item.lotTracked === true;
+        current.expirationTracked = current.expirationTracked || item.expirationTracked === true;
 
         grouped.set(key, current);
     }
@@ -5644,6 +7401,14 @@ function sanitizeOwnerMasterInput(item) {
     const value = typeof item === "string" ? item : item?.name ?? item?.owner ?? item?.vendor ?? item?.customer;
     const name = normalizeText(value);
     if (!name) return null;
+    const hasFeatureFlags = typeof item === "object"
+        && item !== null
+        && (Object.prototype.hasOwnProperty.call(item, "featureFlags")
+            || Object.prototype.hasOwnProperty.call(item, "feature_flags")
+            || Object.prototype.hasOwnProperty.call(item, "features"));
+    const featureFlags = hasFeatureFlags
+        ? sanitizeCompanyFeatureFlagsInput(item?.featureFlags || item?.feature_flags || item?.features || {})
+        : null;
     return {
         name,
         legalName: normalizeFreeText(typeof item === "string" ? "" : item?.legalName || item?.legal_name),
@@ -5665,13 +7430,41 @@ function sanitizeOwnerMasterInput(item) {
         country: normalizeFreeText(typeof item === "string" ? "" : item?.country),
         isActive: typeof item === "string" ? true : item?.isActive !== false,
         note: normalizeFreeText(typeof item === "string" ? "" : item?.note),
+        featureFlags,
+        featureFlagsConfigured: hasFeatureFlags,
+        featureFlagsUpdatedAt: typeof item === "string" ? null : (typeof item?.featureFlagsUpdatedAt === "string" ? item.featureFlagsUpdatedAt : (typeof item?.feature_flags_updated_at === "string" ? item.feature_flags_updated_at : null)),
+        featureFlagsUpdatedBy: normalizeFreeText(typeof item === "string" ? "" : item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by),
         createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
     };
 }
 
+function sanitizeStoreIntegrationSettingsInput(provider, settings = {}, rawInput = {}) {
+    const normalizedProvider = normalizeStoreIntegrationProvider(provider);
+    const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+
+    if (normalizedProvider === SFTP_SYNC_PROVIDER) {
+        const ordersFolder = normalizeRemoteFolderPath(source.ordersFolder || source.orders_folder || rawInput?.ordersFolder || rawInput?.orders_folder || "");
+        const inboundsFolder = normalizeRemoteFolderPath(source.inboundsFolder || source.inbounds_folder || rawInput?.inboundsFolder || rawInput?.inbounds_folder || "");
+        const archiveFolder = normalizeRemoteFolderPath(source.archiveFolder || source.archive_folder || rawInput?.archiveFolder || rawInput?.archive_folder || "");
+        return {
+            port: toPositiveInt(source.port || rawInput?.port) || SFTP_DEFAULT_PORT,
+            username: normalizeFreeText(source.username || source.userName || source.user_name || rawInput?.username || rawInput?.userName || rawInput?.user_name || ""),
+            ordersFolder,
+            inboundsFolder,
+            shipmentsFolder: normalizeRemoteFolderPath(source.shipmentsFolder || source.shipments_folder || rawInput?.shipmentsFolder || rawInput?.shipments_folder || ""),
+            receiptsFolder: normalizeRemoteFolderPath(source.receiptsFolder || source.receipts_folder || rawInput?.receiptsFolder || rawInput?.receipts_folder || ""),
+            inventoryFolder: normalizeRemoteFolderPath(source.inventoryFolder || source.inventory_folder || rawInput?.inventoryFolder || rawInput?.inventory_folder || ""),
+            archiveFolder: archiveFolder || ((ordersFolder || inboundsFolder) ? SFTP_DEFAULT_ARCHIVE_FOLDER : "")
+        };
+    }
+
+    return {};
+}
+
 function sanitizeStoreIntegrationInput(item) {
     const provider = normalizeStoreIntegrationProvider(item?.provider || item?.platform || item?.type);
+    const settings = sanitizeStoreIntegrationSettingsInput(provider, item?.settings, item);
     return {
         integrationId: toPositiveInt(item?.integrationId || item?.id),
         accountName: normalizeText(item?.accountName || item?.owner || item?.vendor || item?.customer),
@@ -5682,10 +7475,12 @@ function sanitizeStoreIntegrationInput(item) {
             item?.storeIdentifier || item?.store || item?.storeUrl || item?.url || item?.shopDomain || item?.shop_domain
         ),
         accessToken: typeof item?.accessToken === "string" ? item.accessToken.trim() : "",
+        settings,
         importStatus: STORE_INTEGRATION_IMPORT_STATUSES.includes(normalizeText(item?.importStatus || item?.defaultOrderStatus || "DRAFT"))
             ? normalizeText(item?.importStatus || item?.defaultOrderStatus || "DRAFT")
             : "DRAFT",
-        isActive: item?.isActive !== false
+        isActive: item?.isActive !== false,
+        syncSchedule: normalizeStoreIntegrationSyncSchedule(item?.syncSchedule || item?.schedule || item?.autoSync || "MANUAL")
     };
 }
 
@@ -5707,6 +7502,8 @@ function sanitizeItemMasterInput(item) {
         caseLength: toPositiveNumber(item?.caseLength),
         caseWidth: toPositiveNumber(item?.caseWidth),
         caseHeight: toPositiveNumber(item?.caseHeight),
+        lotTracked: toBooleanFlag(item?.lotTracked ?? item?.lot_tracked ?? item?.trackLot ?? item?.track_lot, false),
+        expirationTracked: toBooleanFlag(item?.expirationTracked ?? item?.expiration_tracked ?? item?.trackExpiration ?? item?.track_expiration ?? item?.expiryTracked ?? item?.expiry_tracked, false),
         createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
     };
@@ -5753,6 +7550,8 @@ function mapInventoryRow(row) {
         location: row.location,
         sku: row.sku,
         upc: row.upc || "",
+        lotNumber: row.lot_number || "",
+        expirationDate: normalizeDateOnly(row.expiration_date),
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
         quantity: Number(row.quantity),
         createdAt: new Date(row.created_at).toISOString(),
@@ -5781,6 +7580,7 @@ function mapLocationMasterRow(row) {
 }
 
 function mapOwnerMasterRow(row) {
+    const { featureFlags, legacyMode } = extractOwnerFeatureFlags(row);
     return {
         id: String(row.id),
         name: row.name,
@@ -5803,6 +7603,10 @@ function mapOwnerMasterRow(row) {
         country: row.country || "",
         isActive: row.is_active !== false,
         note: row.note || "",
+        featureFlags,
+        featureFlagsInherited: legacyMode,
+        featureFlagsUpdatedAt: row.feature_flags_updated_at ? new Date(row.feature_flags_updated_at).toISOString() : null,
+        featureFlagsUpdatedBy: row.feature_flags_updated_by || "",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };
@@ -5821,6 +7625,8 @@ function mapItemMasterRow(row) {
         eachWidth: toNullableNumber(row.each_width),
         eachHeight: toNullableNumber(row.each_height),
         imageUrl: row.image_url || "",
+        lotTracked: row.lot_tracked === true,
+        expirationTracked: row.expiration_tracked === true,
         caseLength: toNullableNumber(row.case_length),
         caseWidth: toNullableNumber(row.case_width),
         caseHeight: toNullableNumber(row.case_height),
@@ -5902,11 +7708,14 @@ function mapBillingEventRow(row) {
 }
 
 function mapPortalAccessRow(row) {
+    const { featureFlags, legacyMode } = extractOwnerFeatureFlags(row);
     return {
         id: String(row.id),
         accountName: row.account_name,
         email: row.email || "",
         isActive: row.is_active === true,
+        featureFlags,
+        featureFlagsInherited: legacyMode,
         lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
@@ -5920,10 +7729,13 @@ function mapStoreIntegrationRow(row) {
         provider: normalizeStoreIntegrationProvider(row.provider),
         integrationName: row.integration_name || "",
         storeIdentifier: row.store_identifier || "",
+        settings: sanitizeStoreIntegrationSettingsInput(row.provider, row.settings || {}),
         importStatus: STORE_INTEGRATION_IMPORT_STATUSES.includes(normalizeText(row.import_status || "DRAFT"))
             ? normalizeText(row.import_status || "DRAFT")
             : "DRAFT",
         isActive: row.is_active === true,
+        syncSchedule: normalizeStoreIntegrationSyncSchedule(row.sync_schedule || "MANUAL"),
+        nextScheduledSyncAt: row.next_scheduled_sync_at ? new Date(row.next_scheduled_sync_at).toISOString() : null,
         hasAccessToken: !!String(row.access_token || "").trim(),
         accessTokenMasked: maskSecretTail(row.access_token || ""),
         lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : null,
@@ -5969,6 +7781,8 @@ function mapPortalItemRow(row) {
         caseWidth: row.case_width == null ? null : Number(row.case_width),
         caseHeight: row.case_height == null ? null : Number(row.case_height),
         imageUrl: row.image_url || "",
+        lotTracked: row.lot_tracked === true,
+        expirationTracked: row.expiration_tracked === true,
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
@@ -6009,12 +7823,24 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
     };
 }
 
-function mapPortalOrderLineRow(row, locationSummary = null) {
+function mapPortalOrderLineRow(row, locationSummary = null, allocationSummary = null) {
     const normalizedLocations = Array.isArray(locationSummary?.locations)
         ? locationSummary.locations.map((entry) => ({
             location: entry.location || "",
             quantity: Number(entry.quantity) || 0,
-            trackingLevel: normalizeTrackingLevel(entry.trackingLevel || locationSummary?.trackingLevel || row.item_tracking_level || "UNIT")
+            trackingLevel: normalizeTrackingLevel(entry.trackingLevel || locationSummary?.trackingLevel || row.item_tracking_level || "UNIT"),
+            lotNumber: entry.lotNumber || "",
+            expirationDate: normalizeDateOnly(entry.expirationDate)
+        })).filter((entry) => entry.location)
+        : [];
+    const allocatedLocations = Array.isArray(allocationSummary?.locations)
+        ? allocationSummary.locations.map((entry) => ({
+            inventoryLineId: entry.inventoryLineId || "",
+            location: entry.location || "",
+            quantity: Number(entry.quantity) || 0,
+            trackingLevel: normalizeTrackingLevel(entry.trackingLevel || row.item_tracking_level || "UNIT"),
+            lotNumber: entry.lotNumber || "",
+            expirationDate: normalizeDateOnly(entry.expirationDate)
         })).filter((entry) => entry.location)
         : [];
 
@@ -6027,9 +7853,12 @@ function mapPortalOrderLineRow(row, locationSummary = null) {
         description: row.item_description || "",
         upc: row.item_upc || "",
         trackingLevel: normalizeTrackingLevel(row.item_tracking_level),
+        lotTracked: row.item_lot_tracked === true,
+        expirationTracked: row.item_expiration_tracked === true,
         onHandQuantity: Number(locationSummary?.onHandQuantity) || 0,
         availableQuantity: Number(locationSummary?.availableQuantity) || 0,
-        pickLocations: normalizedLocations,
+        allocatedQuantity: Number(allocationSummary?.allocatedQuantity) || 0,
+        pickLocations: allocatedLocations.length ? allocatedLocations : normalizedLocations,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };
@@ -6057,6 +7886,7 @@ function mapPortalInboundRow(row, lines = []) {
         referenceNumber: row.reference_number || "",
         carrierName: row.carrier_name || "",
         expectedDate: row.expected_date ? new Date(row.expected_date).toISOString().slice(0, 10) : "",
+        receivedAt: row.received_at ? new Date(row.received_at).toISOString() : null,
         contactName: row.contact_name || "",
         contactPhone: row.contact_phone || "",
         notes: row.notes || "",
@@ -6198,6 +8028,11 @@ function normalizePortalOrderStatus(value) {
     return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(normalized) ? normalized : "";
 }
 
+function normalizePortalInboundStatus(value) {
+    const normalized = normalizeText(value);
+    return ["SUBMITTED", "RECEIVED", "CANCELLED"].includes(normalized) ? normalized : "";
+}
+
 function groupPortalOrderLines(lines) {
     const grouped = new Map();
     for (const rawLine of lines) {
@@ -6256,9 +8091,131 @@ function toPositiveNumber(value) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function toBooleanFlag(value, fallback = false) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    const text = String(value || "").trim().toLowerCase();
+    if (!text) return fallback;
+    if (["1", "true", "yes", "y", "on"].includes(text)) return true;
+    if (["0", "false", "no", "n", "off"].includes(text)) return false;
+    return fallback;
+}
+
+function isSuperAdminUser(user) {
+    return normalizeText(user?.role || "") === "SUPER_ADMIN";
+}
+
+function assertSuperAdminAccess(user) {
+    if (!isSuperAdminUser(user)) {
+        throw httpError(403, "Super user access is required for that action.");
+    }
+}
+
+function buildDefaultNewCompanyFeatureFlags() {
+    return { ...DEFAULT_NEW_COMPANY_FEATURE_FLAGS };
+}
+
+function buildLegacyCompanyFeatureFlags() {
+    return { ...LEGACY_COMPANY_FEATURE_FLAGS };
+}
+
+function sanitizeCompanyFeatureFlagsInput(rawFlags) {
+    if (!rawFlags || typeof rawFlags !== "object" || Array.isArray(rawFlags)) {
+        return {};
+    }
+
+    return COMPANY_FEATURE_CATALOG.reduce((accumulator, feature) => {
+        const rawValue = rawFlags[feature.key];
+        accumulator[feature.key] = toBooleanFlag(rawValue, false);
+        return accumulator;
+    }, {});
+}
+
+function resolveCompanyFeatureFlags(rawFlags, { legacyMode = false } = {}) {
+    const baseFlags = legacyMode ? buildLegacyCompanyFeatureFlags() : buildDefaultNewCompanyFeatureFlags();
+    const merged = {
+        ...baseFlags,
+        ...sanitizeCompanyFeatureFlagsInput(rawFlags)
+    };
+    if (!merged[COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS]) {
+        merged[COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION] = false;
+        merged[COMPANY_FEATURE_KEYS.SFTP_INTEGRATION] = false;
+    }
+    return merged;
+}
+
+function extractOwnerFeatureFlags(row) {
+    const rawFlags = row?.feature_flags && typeof row.feature_flags === "object" && !Array.isArray(row.feature_flags)
+        ? row.feature_flags
+        : row?.featureFlags && typeof row.featureFlags === "object" && !Array.isArray(row.featureFlags)
+            ? row.featureFlags
+            : null;
+    const legacyMode = rawFlags == null;
+    return {
+        legacyMode,
+        featureFlags: resolveCompanyFeatureFlags(rawFlags, { legacyMode })
+    };
+}
+
+function getCompanyFeatureErrorMessage(featureKey, accountName = "") {
+    const companyLabel = normalizeText(accountName || "") || "this company";
+    switch (normalizeText(featureKey)) {
+        case COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL:
+            return `Customer portal is not enabled for ${companyLabel}.`;
+        case COMPANY_FEATURE_KEYS.ORDER_ENTRY:
+            return `Sales order entry is not enabled for ${companyLabel}.`;
+        case COMPANY_FEATURE_KEYS.INBOUND_NOTICES:
+            return `Inbound notices are not enabled for ${companyLabel}.`;
+        case COMPANY_FEATURE_KEYS.BILLING:
+            return `Billing is not enabled for ${companyLabel}.`;
+        case COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS:
+            return `Store integrations are not enabled for ${companyLabel}.`;
+        case COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION:
+            return `Shopify integration is not enabled for ${companyLabel}.`;
+        case COMPANY_FEATURE_KEYS.SFTP_INTEGRATION:
+            return `SFTP integration is not enabled for ${companyLabel}.`;
+        default:
+            return `That feature is not enabled for ${companyLabel}.`;
+    }
+}
+
+function assertCompanyFeatureEnabledForOwnerRow(row, featureKey, message = "") {
+    const { featureFlags } = extractOwnerFeatureFlags(row);
+    if (featureFlags[featureKey] !== true) {
+        throw httpError(403, message || getCompanyFeatureErrorMessage(featureKey, row?.account_name || row?.name || ""));
+    }
+    return featureFlags;
+}
+
+function summarizeEnabledCompanyFeatures(featureFlagsInput) {
+    const resolved = resolveCompanyFeatureFlags(featureFlagsInput, { legacyMode: false });
+    const enabledLabels = COMPANY_FEATURE_CATALOG
+        .filter((feature) => resolved[feature.key] === true)
+        .map((feature) => feature.label);
+    return enabledLabels.length
+        ? `Enabled: ${enabledLabels.join(", ")}`
+        : "All optional add-ons are turned off for this company.";
+}
+
 function normalizeStoreIntegrationProvider(value) {
     const normalized = normalizeText(value || "");
     return STORE_INTEGRATION_PROVIDERS.includes(normalized) ? normalized : "";
+}
+
+function normalizeStoreIntegrationSyncSchedule(value) {
+    const normalized = normalizeText(value || "MANUAL");
+    return STORE_INTEGRATION_SYNC_SCHEDULES.includes(normalized) ? normalized : "MANUAL";
+}
+
+function normalizeRemoteFolderPath(value) {
+    const normalized = normalizeFreeText(value || "").replace(/\\/g, "/");
+    if (!normalized) return "";
+    const withLeadingSlash = normalized.startsWith("/") ? normalized : `/${normalized}`;
+    const collapsed = withLeadingSlash.replace(/\/+/g, "/");
+    if (collapsed.length > 1 && collapsed.endsWith("/")) {
+        return collapsed.slice(0, -1);
+    }
+    return collapsed || "/";
 }
 
 function normalizeStoreIdentifierForProvider(provider, value) {
@@ -6274,6 +8231,15 @@ function normalizeStoreIdentifierForProvider(provider, value) {
         }
     }
 
+    if (normalizeStoreIntegrationProvider(provider) === SFTP_SYNC_PROVIDER) {
+        const candidate = /^[a-z]+:\/\//i.test(text) ? text : `sftp://${text}`;
+        try {
+            return new URL(candidate).hostname.toLowerCase();
+        } catch (_error) {
+            return text.replace(/^sftp:\/\//i, "").replace(/^www\./, "").split(/[/:]/)[0];
+        }
+    }
+
     return text;
 }
 
@@ -6281,6 +8247,8 @@ function describeStoreIntegrationProvider(provider) {
     switch (normalizeStoreIntegrationProvider(provider)) {
         case "SHOPIFY":
             return "Shopify";
+        case "SFTP":
+            return "SFTP";
         case "WOOCOMMERCE":
             return "WooCommerce";
         case "BIGCOMMERCE":
@@ -6293,6 +8261,122 @@ function describeStoreIntegrationProvider(provider) {
             return "Custom API";
         default:
             return "Store";
+    }
+}
+
+function describeStoreIntegrationSyncSchedule(schedule) {
+    switch (normalizeStoreIntegrationSyncSchedule(schedule)) {
+        case "EVERY_5_MINUTES":
+            return "Every 5 Minutes";
+        case "EVERY_15_MINUTES":
+            return "Every 15 Minutes";
+        case "EVERY_30_MINUTES":
+            return "Every 30 Minutes";
+        case "HOURLY":
+            return "Hourly";
+        case "DAILY_0900":
+            return "Daily at 9:00 AM";
+        case "DAILY_1200":
+            return "Daily at 12:00 PM";
+        case "DAILY_1500":
+            return "Daily at 3:00 PM";
+        case "DAILY_1800":
+            return "Daily at 6:00 PM";
+        default:
+            return "Manual Only";
+    }
+}
+
+function storeIntegrationProviderSupportsSync(provider) {
+    const normalizedProvider = normalizeStoreIntegrationProvider(provider);
+    return normalizedProvider === SHOPIFY_SYNC_PROVIDER || normalizedProvider === SFTP_SYNC_PROVIDER;
+}
+
+function storeIntegrationProviderSupportsAutoSync(provider) {
+    const normalizedProvider = normalizeStoreIntegrationProvider(provider);
+    return normalizedProvider === SHOPIFY_SYNC_PROVIDER || normalizedProvider === SFTP_SYNC_PROVIDER;
+}
+
+function computeNextStoreIntegrationSyncAt(schedule, { lastSyncedAt = null, now = new Date() } = {}) {
+    const normalizedSchedule = normalizeStoreIntegrationSyncSchedule(schedule);
+    if (normalizedSchedule === "MANUAL") {
+        return null;
+    }
+
+    const currentTime = new Date(now);
+    if (!Number.isFinite(currentTime.getTime())) {
+        return null;
+    }
+
+    const intervalMs = STORE_INTEGRATION_INTERVAL_SCHEDULE_MS[normalizedSchedule];
+    if (intervalMs) {
+        const lastSyncDate = lastSyncedAt ? new Date(lastSyncedAt) : null;
+        if (lastSyncDate && Number.isFinite(lastSyncDate.getTime())) {
+            const candidate = new Date(lastSyncDate.getTime() + intervalMs);
+            if (candidate > currentTime) {
+                return candidate.toISOString();
+            }
+        }
+        return currentTime.toISOString();
+    }
+
+    const dailyTime = STORE_INTEGRATION_DAILY_SCHEDULE_TIMES[normalizedSchedule];
+    if (!dailyTime) {
+        return null;
+    }
+
+    const candidate = new Date(currentTime);
+    candidate.setHours(dailyTime.hour, dailyTime.minute, 0, 0);
+    if (candidate <= currentTime) {
+        candidate.setDate(candidate.getDate() + 1);
+    }
+    return candidate.toISOString();
+}
+
+function ensureStoreIntegrationSchedulerStarted() {
+    if (storeIntegrationSchedulerStarted) {
+        return;
+    }
+    storeIntegrationSchedulerStarted = true;
+    storeIntegrationSchedulerTimer = setInterval(() => {
+        void runDueStoreIntegrationSyncs();
+    }, STORE_INTEGRATION_SCHEDULER_INTERVAL_MS);
+    if (typeof storeIntegrationSchedulerTimer?.unref === "function") {
+        storeIntegrationSchedulerTimer.unref();
+    }
+    void runDueStoreIntegrationSyncs();
+}
+
+async function runDueStoreIntegrationSyncs() {
+    if (!databaseReady || storeIntegrationSchedulerRunning) {
+        return;
+    }
+
+    storeIntegrationSchedulerRunning = true;
+    try {
+        const dueResult = await pool.query(
+            `
+                select id
+                from store_integrations
+                where is_active = true
+                  and sync_schedule <> 'MANUAL'
+                  and next_scheduled_sync_at is not null
+                  and next_scheduled_sync_at <= now()
+                order by next_scheduled_sync_at asc, id asc
+                limit 10
+            `
+        );
+        for (const row of dueResult.rows) {
+            try {
+                await syncStoreIntegrationById(row.id, null);
+            } catch (error) {
+                console.error(`Store integration auto sync failed for ${row.id}:`, error.message || error);
+            }
+        }
+    } catch (error) {
+        console.error("Store integration scheduler failed:", error.message || error);
+    } finally {
+        storeIntegrationSchedulerRunning = false;
     }
 }
 

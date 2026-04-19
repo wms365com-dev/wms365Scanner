@@ -434,6 +434,11 @@
     </div>
 
     <script>
+        const PORTAL_FEATURE_KEYS = Object.freeze({
+            CUSTOMER_PORTAL: "CUSTOMER_PORTAL",
+            ORDER_ENTRY: "ORDER_ENTRY",
+            INBOUND_NOTICES: "INBOUND_NOTICES"
+        });
         const portalState = {
             account: null,
             inventory: [],
@@ -523,6 +528,35 @@
 
         init();
 
+        function portalFeatureEnabled(featureKey) {
+            return portalState.account?.featureFlags?.[featureKey] === true;
+        }
+
+        function isPortalViewAllowed(view) {
+            if (["order", "orders"].includes(view)) {
+                return portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY);
+            }
+            if (["inbound", "inbounds"].includes(view)) {
+                return portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES);
+            }
+            return true;
+        }
+
+        function getFirstAllowedPortalView(preferredView = "inventory") {
+            if (isPortalViewAllowed(preferredView)) return preferredView;
+            const orderedViews = ["inventory", "items", "order", "orders", "inbound", "inbounds"];
+            return orderedViews.find((view) => isPortalViewAllowed(view)) || "inventory";
+        }
+
+        function applyPortalFeatureAccess() {
+            ui.navButtons.forEach((button) => {
+                const view = button.dataset.view || "";
+                const allowed = isPortalViewAllowed(view);
+                button.classList.toggle("hidden", !allowed);
+                button.disabled = !allowed;
+            });
+        }
+
         function init() {
             refreshBuildLabel().catch(() => {});
             ui.loginForm.addEventListener("submit", onLoginSubmit);
@@ -587,6 +621,7 @@
             ui.portalView.classList.remove("hidden");
             ui.accountChip.classList.remove("hidden");
             ui.accountChip.textContent = portalState.account?.accountName || "";
+            applyPortalFeatureAccess();
         }
 
         async function onLoginSubmit(event) {
@@ -645,14 +680,19 @@
             const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
                 requestJson("/api/portal/items"),
-                requestJson("/api/portal/orders"),
-                requestJson("/api/portal/inbounds")
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
+                    ? requestJson("/api/portal/orders")
+                    : Promise.resolve({ orders: [] }),
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
+                    ? requestJson("/api/portal/inbounds")
+                    : Promise.resolve({ inbounds: [] })
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
             portalState.catalogItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items.map(sanitizeCatalogItem).filter(Boolean) : [];
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
+            applyPortalFeatureAccess();
             renderStats();
             renderInventory();
             renderItems();
@@ -671,14 +711,15 @@
         }
 
         function setView(view) {
-            portalState.activeView = view;
-            ui.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === view));
-            ui.inventoryPanel.classList.toggle("hidden", view !== "inventory");
-            ui.itemsPanel.classList.toggle("hidden", view !== "items");
-            ui.orderPanel.classList.toggle("hidden", view !== "order");
-            ui.inboundPanel.classList.toggle("hidden", view !== "inbound");
-            ui.ordersPanel.classList.toggle("hidden", view !== "orders");
-            ui.inboundsPanel.classList.toggle("hidden", view !== "inbounds");
+            portalState.activeView = getFirstAllowedPortalView(view);
+            const activeView = portalState.activeView;
+            ui.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === activeView));
+            ui.inventoryPanel.classList.toggle("hidden", activeView !== "inventory");
+            ui.itemsPanel.classList.toggle("hidden", activeView !== "items");
+            ui.orderPanel.classList.toggle("hidden", activeView !== "order");
+            ui.inboundPanel.classList.toggle("hidden", activeView !== "inbound");
+            ui.ordersPanel.classList.toggle("hidden", activeView !== "orders");
+            ui.inboundsPanel.classList.toggle("hidden", activeView !== "inbounds");
         }
 
         function renderStats() {
@@ -970,6 +1011,9 @@
         }
 
         async function submitInbound() {
+            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)) {
+                return setMessage("Inbound notices are not enabled for your company.", "error");
+            }
             try {
                 const response = await requestJson('/api/portal/inbounds', {
                     method: 'POST',
@@ -1106,6 +1150,9 @@
         }
 
         async function saveDraftOrder() {
+            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
+                return setMessage("Sales orders are not enabled for your company.", "error");
+            }
             const payload = collectOrderPayload();
             try {
                 const response = await requestJson(portalState.editingOrderId ? `/api/portal/orders/${portalState.editingOrderId}` : "/api/portal/orders", {
@@ -1123,6 +1170,9 @@
         }
 
         async function releaseCurrentOrder() {
+            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
+                return setMessage("Sales orders are not enabled for your company.", "error");
+            }
             try {
                 if (!portalState.editingOrderId) {
                     await saveDraftOrder();
