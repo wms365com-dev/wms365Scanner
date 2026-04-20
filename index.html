@@ -1255,6 +1255,126 @@
             font-weight: 700;
         }
 
+        .feedback-launcher {
+            position: fixed;
+            right: 1.2rem;
+            bottom: 1.2rem;
+            z-index: 1200;
+            border: 1px solid rgba(116, 178, 255, 0.28);
+            background: linear-gradient(135deg, #2f7dff 0%, #1b4fcc 100%);
+            color: #fff;
+            border-radius: 999px;
+            padding: 0.82rem 1.15rem;
+            box-shadow: 0 18px 45px rgba(4, 14, 29, 0.42);
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .feedback-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1250;
+            display: grid;
+            place-items: center;
+            padding: 1.25rem;
+        }
+
+        .feedback-modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(4, 10, 20, 0.68);
+            backdrop-filter: blur(6px);
+        }
+
+        .feedback-modal-dialog {
+            position: relative;
+            z-index: 1;
+            width: min(760px, 100%);
+            border-radius: 28px;
+            border: 1px solid rgba(139, 179, 214, 0.18);
+            background: linear-gradient(180deg, rgba(13, 28, 46, 0.98), rgba(7, 17, 29, 0.98));
+            box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+            padding: 1.35rem;
+        }
+
+        .feedback-context-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 0.75rem;
+            margin: 1rem 0 1.15rem;
+        }
+
+        .feedback-context-card {
+            border: 1px solid rgba(139, 179, 214, 0.16);
+            border-radius: 18px;
+            background: rgba(18, 34, 54, 0.82);
+            padding: 0.8rem 0.9rem;
+        }
+
+        .feedback-context-card span {
+            display: block;
+            color: var(--muted);
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .feedback-context-card strong {
+            display: block;
+            margin-top: 0.3rem;
+            color: var(--text);
+            word-break: break-word;
+        }
+
+        .feedback-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .feedback-row {
+            border: 1px solid rgba(139, 179, 214, 0.16);
+            border-radius: 22px;
+            background: rgba(14, 29, 45, 0.78);
+            padding: 1rem;
+        }
+
+        .feedback-row-head,
+        .feedback-row-meta,
+        .feedback-row-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        .feedback-row-meta {
+            margin-top: 0.55rem;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .feedback-row-details {
+            margin-top: 0.8rem;
+            color: var(--text);
+            white-space: pre-wrap;
+            line-height: 1.58;
+        }
+
+        .feedback-row-note {
+            margin-top: 0.8rem;
+            padding-top: 0.8rem;
+            border-top: 1px dashed rgba(139, 179, 214, 0.18);
+            color: #d9e8f4;
+            white-space: pre-wrap;
+        }
+
+        .feedback-tag-row {
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+        }
+
         .mobile-only { display: none !important; }
         .hidden { display: none !important; }
         .mobile-subview.active { display: block; }
@@ -1764,6 +1884,22 @@
 
             .mobile-only { display: block !important; }
             .desktop-only { display: none !important; }
+            .feedback-launcher {
+                right: 0.85rem;
+                left: 0.85rem;
+                bottom: 0.85rem;
+                text-align: center;
+            }
+            .feedback-modal {
+                align-items: end;
+                padding: 0.75rem;
+            }
+            .feedback-modal-dialog {
+                width: 100%;
+                border-radius: 24px 24px 18px 18px;
+                max-height: min(88vh, 820px);
+                overflow-y: auto;
+            }
             .app {
                 position: fixed;
                 top: var(--mobile-safe-top);
@@ -4305,6 +4441,55 @@
                         </div>
                     </div>
                 </article>
+
+                <article class="card span-2" id="feedbackAdminCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Bug & Feature Queue</h2>
+                            <p class="lead">Review issues and feature requests from the warehouse app and customer portal, then move each one through your fix queue.</p>
+                        </div>
+                        <span class="meta" id="feedbackQueueMeta">0 requests</span>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <label class="field" style="flex: 1 1 180px;">
+                            <span>Type</span>
+                            <select id="feedbackTypeFilter">
+                                <option value="">All types</option>
+                                <option value="BUG">Bugs</option>
+                                <option value="FEATURE">Features</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </label>
+                        <label class="field" style="flex: 1 1 180px;">
+                            <span>Status</span>
+                            <select id="feedbackStatusFilter">
+                                <option value="">All statuses</option>
+                                <option value="NEW">New</option>
+                                <option value="REVIEWING">Reviewing</option>
+                                <option value="PLANNED">Planned</option>
+                                <option value="FIXED">Fixed</option>
+                                <option value="CLOSED">Closed</option>
+                            </select>
+                        </label>
+                        <label class="field" style="flex: 1 1 180px;">
+                            <span>Source</span>
+                            <select id="feedbackSourceFilter">
+                                <option value="">All sources</option>
+                                <option value="WAREHOUSE">Warehouse</option>
+                                <option value="PORTAL">Portal</option>
+                            </select>
+                        </label>
+                        <label class="field" style="flex: 2 1 280px;">
+                            <span>Search</span>
+                            <input id="feedbackSearch" type="text" placeholder="Title, details, company, email, or page">
+                        </label>
+                        <button class="btn ghost" id="refreshFeedbackQueueBtn" type="button">Refresh Queue</button>
+                    </div>
+                    <div class="status" id="feedbackQueueMessage"></div>
+                    <div id="feedbackQueueList" class="feedback-list" style="margin-top: 1rem;">
+                        <p class="empty">No feedback requests yet.</p>
+                    </div>
+                </article>
             </div>
             <div class="status" id="backupMessage"></div>
             </div>
@@ -4455,6 +4640,58 @@
 
         <p class="footer"><strong>WMS365 Warehouse Management System</strong><span class="footer-build" id="appBuildFooter">Deployment: loading...</span></p>
     </div>
+    <button class="feedback-launcher" id="openFeedbackBtn" type="button">Report Bug / Request Feature</button>
+    <div id="feedbackModal" class="feedback-modal hidden" aria-hidden="true">
+        <div class="feedback-modal-backdrop" data-feedback-close></div>
+        <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="feedbackModalTitle">
+            <div class="card-head">
+                <div>
+                    <h2 id="feedbackModalTitle">Send Product Feedback</h2>
+                    <p class="lead">Capture bugs and feature requests while the screen is still open so the team gets the exact workflow context.</p>
+                </div>
+            </div>
+            <div class="feedback-context-grid">
+                <div class="feedback-context-card">
+                    <span>Current Section</span>
+                    <strong id="feedbackContextSection">Operations Home</strong>
+                </div>
+                <div class="feedback-context-card">
+                    <span>Active Company</span>
+                    <strong id="feedbackContextCompany">All Companies</strong>
+                </div>
+                <div class="feedback-context-card">
+                    <span>Build</span>
+                    <strong id="feedbackContextBuild">Build loading...</strong>
+                </div>
+            </div>
+            <form id="feedbackForm" class="form-grid" autocomplete="off">
+                <label class="field">
+                    <span>Type</span>
+                    <select id="feedbackType">
+                        <option value="BUG">Bug</option>
+                        <option value="FEATURE">Feature Request</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                </label>
+                <label class="field span-2">
+                    <span>Short Title</span>
+                    <input id="feedbackTitle" type="text" maxlength="180" placeholder="Example: Released orders page does not show staged count">
+                </label>
+                <label class="field span-2">
+                    <span>Details</span>
+                    <textarea id="feedbackDetails" rows="7" placeholder="What happened, what you expected, and any steps the team should follow to reproduce it."></textarea>
+                </label>
+                <div class="helper span-2">
+                    <div class="meta" id="feedbackContextMeta">The current section, URL, company, browser, and build are attached automatically.</div>
+                </div>
+                <div class="button-row span-2">
+                    <button class="btn" id="submitFeedbackBtn" type="submit">Submit Feedback</button>
+                    <button class="btn ghost" id="cancelFeedbackBtn" type="button">Cancel</button>
+                </div>
+            </form>
+            <div class="status" id="feedbackMessage"></div>
+        </div>
+    </div>
 
     <datalist id="locationList"></datalist>
     <datalist id="ownerList"></datalist>
@@ -4555,6 +4792,8 @@
             [COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION]: false,
             [COMPANY_FEATURE_KEYS.SFTP_INTEGRATION]: false
         });
+        const FEEDBACK_REQUEST_TYPES = Object.freeze(["BUG", "FEATURE", "OTHER"]);
+        const FEEDBACK_STATUSES = Object.freeze(["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"]);
         const LEGACY_COMPANY_FEATURE_FLAGS = Object.freeze(
             COMPANY_FEATURE_CATALOG.reduce((accumulator, feature) => {
                 accumulator[feature.key] = true;
@@ -4575,6 +4814,7 @@
         let integrationRecords = [];
         let portalOrderRecords = [];
         let portalInboundRecords = [];
+        let feedbackRecords = [];
         let editingWarehouseOrderId = "";
         let companyFeatureDraftCompany = "";
         let companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
@@ -4960,6 +5200,27 @@
             companyFeatureMessage: document.getElementById("companyFeatureMessage"),
             companyFeatureCompanyList: document.getElementById("companyFeatureCompanyList"),
             companyFeatureSummaryCount: document.getElementById("companyFeatureSummaryCount"),
+            feedbackLauncherButtons: [...document.querySelectorAll("[data-feedback-launcher], #openFeedbackBtn")],
+            feedbackModal: document.getElementById("feedbackModal"),
+            feedbackModalCloseButtons: [...document.querySelectorAll("[data-feedback-close], #cancelFeedbackBtn")],
+            feedbackForm: document.getElementById("feedbackForm"),
+            feedbackType: document.getElementById("feedbackType"),
+            feedbackTitle: document.getElementById("feedbackTitle"),
+            feedbackDetails: document.getElementById("feedbackDetails"),
+            feedbackContextSection: document.getElementById("feedbackContextSection"),
+            feedbackContextCompany: document.getElementById("feedbackContextCompany"),
+            feedbackContextBuild: document.getElementById("feedbackContextBuild"),
+            feedbackContextMeta: document.getElementById("feedbackContextMeta"),
+            feedbackMessage: document.getElementById("feedbackMessage"),
+            feedbackAdminCard: document.getElementById("feedbackAdminCard"),
+            feedbackTypeFilter: document.getElementById("feedbackTypeFilter"),
+            feedbackStatusFilter: document.getElementById("feedbackStatusFilter"),
+            feedbackSourceFilter: document.getElementById("feedbackSourceFilter"),
+            feedbackSearch: document.getElementById("feedbackSearch"),
+            refreshFeedbackQueueBtn: document.getElementById("refreshFeedbackQueueBtn"),
+            feedbackQueueMeta: document.getElementById("feedbackQueueMeta"),
+            feedbackQueueMessage: document.getElementById("feedbackQueueMessage"),
+            feedbackQueueList: document.getElementById("feedbackQueueList"),
             importFileInput: document.getElementById("importFileInput"),
             labelRackInput: document.getElementById("labelRackInput"),
             labelBinInput: document.getElementById("labelBinInput"),
@@ -5266,6 +5527,15 @@
             ui.resetCompanyFeaturesBtn?.addEventListener("click", resetCompanyFeatureDraft);
             ui.companyFeatureChecklist?.addEventListener("change", onCompanyFeatureChecklistChange);
             ui.companyFeatureCompanyList?.addEventListener("click", onCompanyFeatureCompanyListClick);
+            ui.feedbackLauncherButtons.forEach((button) => button.addEventListener("click", openFeedbackModal));
+            ui.feedbackModalCloseButtons.forEach((button) => button.addEventListener("click", closeFeedbackModal));
+            ui.feedbackForm?.addEventListener("submit", submitFeedbackRequest);
+            ui.feedbackTypeFilter?.addEventListener("change", renderFeedbackQueue);
+            ui.feedbackStatusFilter?.addEventListener("change", renderFeedbackQueue);
+            ui.feedbackSourceFilter?.addEventListener("change", renderFeedbackQueue);
+            ui.feedbackSearch?.addEventListener("input", renderFeedbackQueue);
+            ui.refreshFeedbackQueueBtn?.addEventListener("click", () => refreshFeedbackQueue());
+            ui.feedbackQueueList?.addEventListener("click", onFeedbackQueueClick);
             document.getElementById("addSingleLabelBtn").addEventListener("click", addSingleLocationLabel);
             document.getElementById("addLabelPairBtn").addEventListener("click", addLocationLabelPair);
             document.getElementById("addBulkLabelsBtn").addEventListener("click", addBulkLocationLabels);
@@ -5340,12 +5610,14 @@
             refreshIntegrationsList().catch(() => {});
             refreshPortalOrdersList().catch(() => {});
             refreshPortalInboundsList().catch(() => {});
+            refreshFeedbackQueue(true).catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
                     syncServerState(true).catch(() => {});
                     refreshIntegrationsList().catch(() => {});
                     refreshPortalOrdersList(true).catch(() => {});
                     refreshPortalInboundsList(true).catch(() => {});
+                    refreshFeedbackQueue(true).catch(() => {});
                 }
             }, 30000);
             window.addEventListener("focus", () => {
@@ -5353,6 +5625,12 @@
                 refreshIntegrationsList().catch(() => {});
                 refreshPortalOrdersList(true).catch(() => {});
                 refreshPortalInboundsList(true).catch(() => {});
+                refreshFeedbackQueue(true).catch(() => {});
+            });
+            window.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !ui.feedbackModal?.classList.contains("hidden")) {
+                    closeFeedbackModal();
+                }
             });
             mobileQuery.addEventListener("change", handleViewportChange);
             window.addEventListener("resize", handleViewportChange);
@@ -5383,6 +5661,7 @@
             if (ui.appBuildMeta) ui.appBuildMeta.textContent = safeLabel;
             if (ui.appBuildMobileLabel) ui.appBuildMobileLabel.textContent = safeLabel;
             if (ui.appBuildFooter) ui.appBuildFooter.textContent = `Deployment: ${safeLabel}`;
+            syncFeedbackContext();
         }
 
         async function refreshAppBuildLabels() {
@@ -5484,6 +5763,7 @@
             }
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();
+            syncFeedbackContext();
             if (section === "inventory" && !isMobileView()) ui.inventoryFilter.focus();
             if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
             if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
@@ -5582,6 +5862,7 @@
             renderWarehouseSalesOrderContext();
             renderWarehouseInboundContext();
             updateWorkspaceCommandBar();
+            syncFeedbackContext();
         }
 
         function updateCompanyBoundUi() {
@@ -5789,6 +6070,265 @@
             syncCompanyFeatureDraft(company, { force: true });
             setActiveCompany(company, { force: true });
             setSection("backup");
+        }
+
+        function getFeedbackSectionLabel() {
+            return (DESKTOP_SECTION_META[activeSection] || DESKTOP_SECTION_META.home || { title: "Warehouse" }).title;
+        }
+
+        function getFeedbackBuildLabel() {
+            return String(ui.appBuildBadge?.textContent || ui.appBuildMeta?.textContent || "Build unavailable").trim() || "Build unavailable";
+        }
+
+        function buildFeedbackBrowserInfo() {
+            const locale = [navigator.language, ...(Array.isArray(navigator.languages) ? navigator.languages : [])]
+                .filter(Boolean)
+                .filter((value, index, array) => array.indexOf(value) === index)
+                .join(", ");
+            const viewport = `${Math.round(window.innerWidth || 0)}x${Math.round(window.innerHeight || 0)}`;
+            return [
+                locale ? `Locale ${locale}` : "",
+                viewport !== "0x0" ? `Viewport ${viewport}` : "",
+                navigator.userAgent ? `UA ${navigator.userAgent}` : ""
+            ].filter(Boolean).join(" | ");
+        }
+
+        function resetFeedbackForm({ keepType = true } = {}) {
+            if (!keepType && ui.feedbackType) {
+                ui.feedbackType.value = "BUG";
+            }
+            if (ui.feedbackTitle) ui.feedbackTitle.value = "";
+            if (ui.feedbackDetails) ui.feedbackDetails.value = "";
+            if (ui.feedbackMessage) {
+                ui.feedbackMessage.className = "status";
+                ui.feedbackMessage.textContent = "";
+            }
+        }
+
+        function syncFeedbackContext() {
+            if (!ui.feedbackContextSection || !ui.feedbackContextCompany || !ui.feedbackContextBuild || !ui.feedbackContextMeta) return;
+            const company = getActiveCompany();
+            ui.feedbackContextSection.textContent = getFeedbackSectionLabel();
+            ui.feedbackContextCompany.textContent = company || "All Companies";
+            ui.feedbackContextBuild.textContent = getFeedbackBuildLabel();
+            ui.feedbackContextMeta.textContent = `Current URL ${window.location.pathname || "/"}${window.location.search || ""} will be attached automatically${company ? ` for ${company}` : ""}.`;
+        }
+
+        function openFeedbackModal() {
+            syncFeedbackContext();
+            ui.feedbackModal?.classList.remove("hidden");
+            ui.feedbackModal?.setAttribute("aria-hidden", "false");
+            if (!ui.feedbackTitle?.value) {
+                ui.feedbackTitle?.focus();
+            } else {
+                ui.feedbackDetails?.focus();
+            }
+        }
+
+        function closeFeedbackModal() {
+            ui.feedbackModal?.classList.add("hidden");
+            ui.feedbackModal?.setAttribute("aria-hidden", "true");
+            resetFeedbackForm();
+        }
+
+        async function submitFeedbackRequest(event) {
+            event.preventDefault();
+            const title = String(ui.feedbackTitle?.value || "").trim();
+            const details = String(ui.feedbackDetails?.value || "").trim();
+            if (!title) {
+                return fail(ui.feedbackMessage, "Add a short title so the team can identify this request.");
+            }
+            if (!details) {
+                return fail(ui.feedbackMessage, "Add a few details so the team can reproduce or review this request.", ui.feedbackDetails);
+            }
+
+            const submitButton = event.submitter || ui.feedbackForm?.querySelector('[type="submit"]');
+            if (submitButton) submitButton.disabled = true;
+            try {
+                await requestJson("/api/app/feedback", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        requestType: ui.feedbackType?.value || "BUG",
+                        title,
+                        details,
+                        accountName: getActiveCompany() || "",
+                        pageName: getFeedbackSectionLabel(),
+                        appSection: activeSection,
+                        pageUrl: `${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`,
+                        buildLabel: getFeedbackBuildLabel(),
+                        browserInfo: buildFeedbackBrowserInfo()
+                    })
+                });
+                await refreshFeedbackQueue(true);
+                showMessage(ui.feedbackMessage, "Feedback submitted. It is now in the admin review queue.", "success");
+                if (ui.backupMessage) {
+                    showMessage(ui.backupMessage, "Feedback submitted and added to the review queue.", "success");
+                }
+                window.setTimeout(() => closeFeedbackModal(), 700);
+            } catch (error) {
+                showMessage(ui.feedbackMessage, error.message, "error");
+            } finally {
+                if (submitButton) submitButton.disabled = false;
+            }
+        }
+
+        function sanitizeFeedbackRecord(item) {
+            const id = String(item?.id || "").trim();
+            if (!id) return null;
+            const requestType = FEEDBACK_REQUEST_TYPES.includes(norm(item?.requestType || item?.request_type || "BUG"))
+                ? norm(item?.requestType || item?.request_type || "BUG")
+                : "BUG";
+            const status = FEEDBACK_STATUSES.includes(norm(item?.status || "NEW"))
+                ? norm(item?.status || "NEW")
+                : "NEW";
+            const source = ["WAREHOUSE", "PORTAL"].includes(norm(item?.source || "WAREHOUSE"))
+                ? norm(item?.source || "WAREHOUSE")
+                : "WAREHOUSE";
+            return {
+                id,
+                requestType,
+                status,
+                source,
+                accountName: norm(item?.accountName || item?.account_name || ""),
+                submittedByEmail: String(item?.submittedByEmail || item?.submitted_by_email || "").trim(),
+                submittedByName: String(item?.submittedByName || item?.submitted_by_name || "").trim(),
+                submittedByRole: norm(item?.submittedByRole || item?.submitted_by_role || ""),
+                title: String(item?.title || "").trim(),
+                details: String(item?.details || "").trim(),
+                pageName: String(item?.pageName || item?.page_name || "").trim(),
+                appSection: norm(item?.appSection || item?.app_section || ""),
+                pageUrl: String(item?.pageUrl || item?.page_url || "").trim(),
+                buildLabel: String(item?.buildLabel || item?.build_label || "").trim(),
+                browserInfo: String(item?.browserInfo || item?.browser_info || "").trim(),
+                adminNote: String(item?.adminNote || item?.admin_note || "").trim(),
+                createdAt: item?.createdAt || item?.created_at || null,
+                updatedAt: item?.updatedAt || item?.updated_at || null
+            };
+        }
+
+        function feedbackRequestTone(type) {
+            if (type === "FEATURE") return "success";
+            if (type === "OTHER") return "warn";
+            return "error";
+        }
+
+        function feedbackStatusTone(status) {
+            if (status === "FIXED") return "success";
+            if (status === "CLOSED") return "warn";
+            if (status === "PLANNED") return "success";
+            return "warn";
+        }
+
+        function getVisibleFeedbackRecords() {
+            const typeFilter = norm(ui.feedbackTypeFilter?.value || "");
+            const statusFilter = norm(ui.feedbackStatusFilter?.value || "");
+            const sourceFilter = norm(ui.feedbackSourceFilter?.value || "");
+            const query = norm(ui.feedbackSearch?.value || "");
+            return feedbackRecords.filter((entry) => {
+                if (typeFilter && entry.requestType !== typeFilter) return false;
+                if (statusFilter && entry.status !== statusFilter) return false;
+                if (sourceFilter && entry.source !== sourceFilter) return false;
+                if (!query) return true;
+                return [
+                    entry.title,
+                    entry.details,
+                    entry.accountName,
+                    entry.submittedByEmail,
+                    entry.submittedByName,
+                    entry.pageName,
+                    entry.buildLabel
+                ].some((value) => norm(value).includes(query));
+            });
+        }
+
+        function renderFeedbackQueue() {
+            if (!ui.feedbackQueueList || !ui.feedbackQueueMeta) return;
+            const visibleRecords = getVisibleFeedbackRecords();
+            ui.feedbackQueueMeta.textContent = `${num(visibleRecords.length)} request${visibleRecords.length === 1 ? "" : "s"}`;
+            if (!visibleRecords.length) {
+                ui.feedbackQueueList.innerHTML = `<p class="empty">${feedbackRecords.length ? "No requests match the current filters." : "No feedback requests have been submitted yet."}</p>`;
+                return;
+            }
+            ui.feedbackQueueList.innerHTML = visibleRecords.map((entry) => {
+                const submitter = entry.submittedByName || entry.submittedByEmail || "Unknown user";
+                const contextParts = [
+                    entry.accountName ? `Company ${entry.accountName}` : "No company context",
+                    entry.pageName || (entry.appSection ? `Section ${entry.appSection}` : ""),
+                    entry.buildLabel ? `Build ${entry.buildLabel}` : ""
+                ].filter(Boolean);
+                return `
+                    <article class="feedback-row">
+                        <div class="feedback-row-head">
+                            <div>
+                                <strong>${esc(entry.title || "Untitled feedback")}</strong>
+                                <div class="feedback-row-meta">${esc(submitter)}${entry.createdAt ? ` | ${esc(formatDate(entry.createdAt))}` : ""}</div>
+                            </div>
+                            <div class="feedback-tag-row">
+                                <span class="pill ${feedbackRequestTone(entry.requestType)}">${esc(entry.requestType)}</span>
+                                <span class="pill ${feedbackStatusTone(entry.status)}">${esc(entry.status)}</span>
+                                <span class="pill ${entry.source === "PORTAL" ? "success" : "warn"}">${esc(entry.source)}</span>
+                            </div>
+                        </div>
+                        <div class="feedback-row-meta">${esc(contextParts.join(" | ") || "No extra context captured.")}</div>
+                        <div class="feedback-row-details">${esc(entry.details || "No details provided.")}</div>
+                        ${entry.adminNote ? `<div class="feedback-row-note"><strong>Internal Note</strong><div style="margin-top:0.45rem;">${esc(entry.adminNote)}</div></div>` : ""}
+                        <div class="feedback-row-actions" style="margin-top: 1rem;">
+                            <label class="field" style="flex: 0 0 200px;">
+                                <span>Status</span>
+                                <select data-feedback-status-input="${attr(entry.id)}">
+                                    ${FEEDBACK_STATUSES.map((status) => `<option value="${attr(status)}" ${status === entry.status ? "selected" : ""}>${esc(status)}</option>`).join("")}
+                                </select>
+                            </label>
+                            <label class="field" style="flex: 1 1 320px;">
+                                <span>Internal Note</span>
+                                <input data-feedback-note-input="${attr(entry.id)}" type="text" value="${attr(entry.adminNote)}" placeholder="Optional note for the review team">
+                            </label>
+                            <button class="btn ghost" type="button" data-feedback-save="${attr(entry.id)}">Save</button>
+                        </div>
+                    </article>
+                `;
+            }).join("");
+        }
+
+        async function refreshFeedbackQueue(silent = false) {
+            try {
+                const payload = await requestJson("/api/admin/feedback");
+                feedbackRecords = Array.isArray(payload?.feedback)
+                    ? payload.feedback.map(sanitizeFeedbackRecord).filter(Boolean)
+                    : [];
+                renderFeedbackQueue();
+            } catch (error) {
+                if (!silent) {
+                    showMessage(ui.feedbackQueueMessage, error.message, "error");
+                }
+                throw error;
+            }
+        }
+
+        async function onFeedbackQueueClick(event) {
+            const button = event.target.closest("[data-feedback-save]");
+            if (!button) return;
+            const feedbackId = String(button.dataset.feedbackSave || "").trim();
+            const statusInput = ui.feedbackQueueList?.querySelector(`[data-feedback-status-input="${feedbackId}"]`);
+            const noteInput = ui.feedbackQueueList?.querySelector(`[data-feedback-note-input="${feedbackId}"]`);
+            if (!feedbackId || !statusInput) return;
+
+            button.disabled = true;
+            try {
+                await requestJson(`/api/admin/feedback/${encodeURIComponent(feedbackId)}/status`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        status: statusInput.value || "NEW",
+                        adminNote: noteInput?.value || ""
+                    })
+                });
+                await refreshFeedbackQueue(true);
+                showMessage(ui.feedbackQueueMessage, `Updated feedback request ${feedbackId}.`, "success");
+            } catch (error) {
+                showMessage(ui.feedbackQueueMessage, error.message, "error");
+            } finally {
+                button.disabled = false;
+            }
         }
 
         function refreshCompanyScopedUi() {
@@ -7182,6 +7722,7 @@
             renderDatalists();
             renderMasterLibrary();
             renderCompanyFeatureDashboard();
+            renderFeedbackQueue();
             renderBilling();
             renderLabelTool();
             renderActivity();
@@ -7192,6 +7733,7 @@
             syncPalletLabelSkuOptions();
             renderWarehouseSalesOrderContext();
             renderWarehouseInboundContext();
+            syncFeedbackContext();
         }
 
         function renderBatch() {

@@ -4,6 +4,12 @@ const fs = require("fs");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { Pool } = require("pg");
+let Stripe = null;
+try {
+    Stripe = require("stripe");
+} catch (_error) {
+    Stripe = null;
+}
 let SftpClient = null;
 try {
     SftpClient = require("ssh2-sftp-client");
@@ -39,15 +45,58 @@ function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+function stripEnvWrappingQuotes(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+        return text.slice(1, -1).trim();
+    }
+    return text;
+}
+
+function readEnv(name, fallback = "") {
+    const value = Object.prototype.hasOwnProperty.call(process.env, name)
+        ? process.env[name]
+        : fallback;
+    return stripEnvWrappingQuotes(value);
+}
 
 const normalizeEmail = bootstrapNormalizeEmail;
 const normalizeFreeText = bootstrapNormalizeFreeText;
 
 const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const ROOT_DIR = __dirname;
-const APP_BUILD_FILES = ["package.json", "server.js", "index.html", "portal.html", "login.html", "mobile-pick.html"];
+const APP_BUILD_FILES = [
+    "package.json",
+    "server.js",
+    "marketing.css",
+    "marketing.js",
+    "marketing-logo.svg",
+    "site.webmanifest",
+    "hero-warehouse-scene.svg",
+    "industry-3pl-scene.svg",
+    "industry-ecommerce-scene.svg",
+    "industry-lot-control-scene.svg",
+    "site.html",
+    "pricing.html",
+    "industries.html",
+    "book-demo.html",
+    "integrations.html",
+    "implementation.html",
+    "3pl-warehouse-management-software.html",
+    "shopify-warehouse-management-software.html",
+    "lot-tracking-expiration-date-inventory-software.html",
+    "customer-portal-for-3pl-warehouses.html",
+    "sftp-warehouse-integration-software.html",
+    "robots.txt",
+    "sitemap.xml",
+    "index.html",
+    "portal.html",
+    "login.html",
+    "mobile-pick.html"
+];
 const APP_BUILD_INFO = createAppBuildInfo(ROOT_DIR, APP_BUILD_FILES);
-const DATABASE_URL = process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_URL || '';
+const DATABASE_URL = readEnv("DATABASE_PRIVATE_URL") || readEnv("DATABASE_URL") || "";
 const LEGACY_ACCOUNT = "LEGACY";
 const PORTAL_SESSION_COOKIE = "wms365_portal_session";
 const APP_SESSION_COOKIE = "wms365_app_session";
@@ -55,16 +104,23 @@ const PORTAL_SESSION_TTL_DAYS = 14;
 const APP_SESSION_TTL_DAYS = 14;
 const PORTAL_SESSION_MAX_AGE = PORTAL_SESSION_TTL_DAYS * 24 * 60 * 60;
 const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
-const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(process.env.APP_ADMIN_EMAIL || "admin@wms365.local");
-const DEFAULT_ADMIN_PASSWORD = String(process.env.APP_ADMIN_PASSWORD || "ChangeMeNow123!");
-const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(process.env.APP_ADMIN_NAME || "Platform Owner");
-const SMTP_HOST = String(process.env.SMTP_HOST || "").trim();
-const SMTP_PORT = Number.parseInt(String(process.env.SMTP_PORT || "").trim() || "0", 10) || 0;
-const SMTP_SECURE = /^(1|true|yes|on)$/i.test(String(process.env.SMTP_SECURE || "").trim());
-const SMTP_USER = String(process.env.SMTP_USER || "").trim();
-const SMTP_PASS = String(process.env.SMTP_PASS || "");
-const SMTP_FROM = String(process.env.SMTP_FROM || "").trim();
-const SMTP_REPLY_TO = String(process.env.SMTP_REPLY_TO || "").trim();
+const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(readEnv("APP_ADMIN_EMAIL", "admin@wms365.local"));
+const DEFAULT_ADMIN_PASSWORD = readEnv("APP_ADMIN_PASSWORD", "ChangeMeNow123!");
+const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(readEnv("APP_ADMIN_NAME", "Platform Owner"));
+const DEMO_REQUEST_TO = bootstrapNormalizeEmail(readEnv("DEMO_REQUEST_TO", DEFAULT_ADMIN_EMAIL || ""));
+const PUBLIC_SITE_URL = readEnv("PUBLIC_SITE_URL", "").replace(/\/+$/, "");
+const PUBLIC_SITE_ALLOWED_ORIGINS = readEnv("PUBLIC_SITE_ALLOWED_ORIGINS", "");
+const STRIPE_SECRET_KEY = readEnv("STRIPE_SECRET_KEY", "");
+const STRIPE_WEBHOOK_SECRET = readEnv("STRIPE_WEBHOOK_SECRET", "");
+const STRIPE_PRICE_LAUNCH_WAREHOUSE = readEnv("STRIPE_PRICE_LAUNCH_WAREHOUSE", "");
+const STRIPE_PRICE_CUSTOMER_FACING = readEnv("STRIPE_PRICE_CUSTOMER_FACING", "");
+const SMTP_HOST = readEnv("SMTP_HOST", "");
+const SMTP_PORT = Number.parseInt(readEnv("SMTP_PORT", "0") || "0", 10) || 0;
+const SMTP_SECURE = /^(1|true|yes|on)$/i.test(readEnv("SMTP_SECURE", ""));
+const SMTP_USER = readEnv("SMTP_USER", "");
+const SMTP_PASS = readEnv("SMTP_PASS", "");
+const SMTP_FROM = readEnv("SMTP_FROM", "");
+const SMTP_REPLY_TO = readEnv("SMTP_REPLY_TO", "");
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
@@ -72,8 +128,44 @@ const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
 const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
 const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
 const SFTP_SYNC_PROVIDER = "SFTP";
+const FEEDBACK_REQUEST_TYPES = ["BUG", "FEATURE", "OTHER"];
+const FEEDBACK_SOURCES = ["WAREHOUSE", "PORTAL"];
+const FEEDBACK_STATUSES = ["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"];
+const SITE_SUBSCRIPTION_STATUSES = ["PENDING", "TRIALING", "ACTIVE", "PAST_DUE", "UNPAID", "INCOMPLETE", "INCOMPLETE_EXPIRED", "CANCELED", "PAUSED"];
+const SITE_SUBSCRIPTION_BILLING_STATUSES = ["PENDING", "PAID", "PAYMENT_FAILED", "PAST_DUE", "CANCELED"];
+const SITE_SUBSCRIPTION_PROVISIONING_STATUSES = ["PENDING_REVIEW", "OWNER_CREATED"];
 const SHOPIFY_ADMIN_API_VERSION = "2026-01";
 const SHOPIFY_ORDER_PAGE_LIMIT = 250;
+const STRIPE_CHECKOUT_PLANS = Object.freeze({
+    LAUNCH_WAREHOUSE: {
+        key: "LAUNCH_WAREHOUSE",
+        label: "Launch Warehouse",
+        marketingPriceLabel: "$129 / month",
+        priceId: STRIPE_PRICE_LAUNCH_WAREHOUSE,
+        mode: "subscription",
+        selfServe: true,
+        successPath: "/pricing?checkout=success&plan=launch-warehouse",
+        cancelPath: "/pricing?checkout=cancelled&plan=launch-warehouse"
+    },
+    CUSTOMER_FACING_OPERATION: {
+        key: "CUSTOMER_FACING_OPERATION",
+        label: "Customer-Facing Operation",
+        marketingPriceLabel: "Custom quote",
+        priceId: STRIPE_PRICE_CUSTOMER_FACING,
+        mode: "subscription",
+        selfServe: false,
+        successPath: "/pricing?checkout=success&plan=customer-facing-operation",
+        cancelPath: "/pricing?checkout=cancelled&plan=customer-facing-operation"
+    }
+});
+const PUBLIC_API_CORS_PATHS = new Set([
+    "/api/version",
+    "/api/site/demo-request",
+    "/api/site/stripe-config",
+    "/api/site/stripe-checkout",
+    "/api/site/stripe-checkout-session"
+]);
+const PUBLIC_API_ALLOWED_ORIGINS = buildPublicApiAllowedOrigins();
 const COMPANY_FEATURE_KEYS = Object.freeze({
     CUSTOMER_PORTAL: "CUSTOMER_PORTAL",
     ORDER_ENTRY: "ORDER_ENTRY",
@@ -256,6 +348,8 @@ let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
 let shipmentMailer = null;
+let systemMailer = null;
+let stripeClient = null;
 let storeIntegrationSchedulerStarted = false;
 let storeIntegrationSchedulerRunning = false;
 let storeIntegrationSchedulerTimer = null;
@@ -281,6 +375,26 @@ pool.on("error", (error) => {
 
 const app = express();
 app.set("trust proxy", 1);
+
+app.use((req, res, next) => {
+    const pathName = req.path || req.url || "";
+    if (!PUBLIC_API_CORS_PATHS.has(pathName)) {
+        return next();
+    }
+
+    const originAllowed = applyPublicApiCorsHeaders(req, res);
+    if (req.method === "OPTIONS") {
+        if (!originAllowed && req.get("origin")) {
+            return res.status(403).json({ error: "This origin is not allowed for the public site API." });
+        }
+        return res.status(204).end();
+    }
+
+    if (!originAllowed && req.get("origin")) {
+        return next(httpError(403, "This origin is not allowed for the public site API."));
+    }
+    return next();
+});
 
 app.use(express.json({ limit: "12mb" }));
 
@@ -354,6 +468,24 @@ app.get("/api/app/me", async (req, res, next) => {
     }
 });
 
+app.post("/api/app/feedback", async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        const feedback = await withTransaction((client) => saveFeedbackSubmission(client, req.body, {
+            source: "WAREHOUSE",
+            accountName: req.body?.accountName || "",
+            submittedByEmail: req.appUser?.email || "",
+            submittedByName: req.appUser?.full_name || req.appUser?.email || "",
+            submittedByRole: req.appUser?.role || "",
+            buildLabel: req.body?.buildLabel || APP_BUILD_INFO.label || "",
+            ipAddress: req.ip || ""
+        }));
+        res.status(201).json({ success: true, feedback });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/health", (_req, res) => {
     res.status(200).json({
         ok: true,
@@ -370,6 +502,135 @@ app.get("/api/version", (_req, res) => {
         app: "WMS365 Scanner",
         build: APP_BUILD_INFO
     });
+});
+
+app.post("/api/site/demo-request", async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        const payload = sanitizeSiteDemoRequestInput(req.body);
+        if (payload.website) {
+            return res.status(202).json({ success: true, requestId: null, emailed: false });
+        }
+
+        const savedRequest = await withTransaction(async (client) => {
+            const created = await saveSiteDemoRequest(client, payload, {
+                sourcePage: req.body?.sourcePage || req.get("referer") || "/",
+                browserLocale: req.body?.browserLocale || "",
+                ipAddress: req.ip || "",
+                userAgent: req.get("user-agent") || ""
+            });
+            await insertActivity(
+                client,
+                "marketing",
+                `Demo request from ${created.companyName}`,
+                [created.fullName, created.workEmail, created.interestSummary].filter(Boolean).join(" | ")
+            );
+            return created;
+        });
+
+        let emailed = false;
+        try {
+            emailed = (await sendDemoRequestNotification(savedRequest)).length > 0;
+        } catch (error) {
+            console.error("Failed to send demo request notification:", error.message || error);
+        }
+
+        res.status(201).json({
+            success: true,
+            requestId: savedRequest.id,
+            emailed
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/site/stripe-config", (_req, res) => {
+    res.json({
+        ok: true,
+        enabled: hasStripeCheckoutConfig(),
+        plans: getStripeCheckoutPlanSummaries()
+    });
+});
+
+app.get("/api/site/stripe-checkout-session", async (req, res, next) => {
+    try {
+        const checkoutSessionId = normalizeStripeCheckoutSessionId(req.query?.sessionId || req.query?.session_id);
+        if (!checkoutSessionId) {
+            throw httpError(400, "A valid Stripe checkout session id is required.");
+        }
+        const summary = await getStripeCheckoutSessionSummary(checkoutSessionId);
+        res.json({
+            success: true,
+            checkoutSession: summary
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/site/stripe-checkout", async (req, res, next) => {
+    try {
+        const planKey = normalizeStripeCheckoutPlanKey(req.body?.planKey || req.body?.plan || req.body?.priceKey);
+        const checkoutInput = sanitizeStripeCheckoutLeadInput(req.body, { planKey });
+        const session = await createStripeCheckoutSessionForSite(req, {
+            planKey,
+            customerEmail: checkoutInput.workEmail,
+            fullName: checkoutInput.fullName,
+            companyName: checkoutInput.companyName,
+            sourcePage: checkoutInput.sourcePage || req.get("referer") || ""
+        });
+        await withTransaction(async (client) => {
+            await upsertSiteSubscriptionRecord(
+                client,
+                buildPendingSiteSubscriptionEntry(session, {
+                    planKey,
+                    fullName: checkoutInput.fullName,
+                    workEmail: checkoutInput.workEmail,
+                    companyName: checkoutInput.companyName,
+                    sourcePage: checkoutInput.sourcePage || req.get("referer") || ""
+                })
+            );
+        });
+        res.status(201).json({
+            success: true,
+            checkoutUrl: session.url || "",
+            sessionId: session.id || ""
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/site/stripe-webhook", express.raw({ type: "application/json" }), async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        const stripe = getStripeClient();
+        if (!STRIPE_WEBHOOK_SECRET) {
+            throw httpError(503, "Stripe webhook signing secret is not configured yet.");
+        }
+        const signature = String(req.get("stripe-signature") || "");
+        if (!signature) {
+            throw httpError(400, "Stripe signature header is required.");
+        }
+
+        let event;
+        try {
+            event = stripe.webhooks.constructEvent(req.body, signature, STRIPE_WEBHOOK_SECRET);
+        } catch (error) {
+            throw httpError(400, `Stripe webhook verification failed: ${error.message || "signature mismatch"}`);
+        }
+
+        const result = await processStripeWebhookEvent(event);
+        if (result?.notification) {
+            void sendStripeSubscriptionNotification(result.notification).catch((error) => {
+                console.error("Failed to send Stripe signup notification:", error.message || error);
+            });
+        }
+        res.json({ received: true, duplicate: result?.duplicate === true });
+    } catch (error) {
+        next(error);
+    }
 });
 
 app.use((req, _res, next) => {
@@ -1402,6 +1663,27 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/feedback", async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        res.json({
+            feedback: await listFeedbackSubmissions(pool, req.query || {})
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/feedback/:id/status", async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        const feedback = await withTransaction((client) => updateFeedbackSubmissionStatus(client, req.params.id, req.body, req.appUser));
+        res.json({ success: true, feedback });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-orders", async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.company || req.body?.customer);
@@ -1640,6 +1922,29 @@ app.get("/api/portal/me", async (req, res, next) => {
             authenticated: true,
             account: session.access
         });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/feedback", async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        const feedback = await withTransaction((client) => saveFeedbackSubmission(client, req.body, {
+            source: "PORTAL",
+            accountName: session.access.accountName,
+            submittedByEmail: session.access.email || "",
+            submittedByName: session.access.accountName || session.access.email || "",
+            submittedByRole: "PORTAL_USER",
+            buildLabel: req.body?.buildLabel || APP_BUILD_INFO.label || "",
+            ipAddress: req.ip || ""
+        }));
+        res.status(201).json({ success: true, feedback });
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -1908,16 +2213,19 @@ app.get("/api/portal/order-documents/:id", async (req, res, next) => {
 });
 
 app.get("/portal", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
 app.get("/portal.html", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
 app.get("/mobile-pick", async (req, res) => {
     try {
         await requireAppSession(req);
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
         res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
     } catch (_error) {
         clearAppSessionCookie(res, req);
@@ -1928,6 +2236,7 @@ app.get("/mobile-pick", async (req, res) => {
 app.get("/mobile-pick.html", async (req, res) => {
     try {
         await requireAppSession(req);
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
         res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
     } catch (_error) {
         clearAppSessionCookie(res, req);
@@ -1936,10 +2245,12 @@ app.get("/mobile-pick.html", async (req, res) => {
 });
 
 app.get("/login", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
 
 app.get("/login.html", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
 
@@ -1959,10 +2270,172 @@ function getWarehouseRoutePath(req) {
 }
 
 function sendWarehouseApp(res) {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "index.html"));
 }
 
-app.get("/", async (req, res) => {
+function isPublicSiteRequest(req) {
+    const publicOrigin = normalizeOriginUrl(PUBLIC_SITE_URL);
+    if (!publicOrigin) return true;
+    return normalizeOriginUrl(getRequestOrigin(req)) === publicOrigin;
+}
+
+function sendMarketingPage(req, res, fileName) {
+    if (!isPublicSiteRequest(req)) {
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    }
+    res.sendFile(path.join(ROOT_DIR, fileName));
+}
+
+function sendMarketingAsset(res, fileName, contentType) {
+    if (contentType) {
+        res.type(contentType);
+    }
+    res.sendFile(path.join(ROOT_DIR, fileName));
+}
+
+app.get("/", (req, res) => {
+    sendMarketingPage(req, res, "site.html");
+});
+
+app.get("/index.html", (req, res) => {
+    sendMarketingPage(req, res, "site.html");
+});
+
+app.get("/marketing", (req, res) => {
+    sendMarketingPage(req, res, "site.html");
+});
+
+app.get("/marketing.html", (req, res) => {
+    sendMarketingPage(req, res, "site.html");
+});
+
+app.get("/pricing", (req, res) => {
+    sendMarketingPage(req, res, "pricing.html");
+});
+
+app.get("/pricing.html", (req, res) => {
+    sendMarketingPage(req, res, "pricing.html");
+});
+
+app.get("/industries", (req, res) => {
+    sendMarketingPage(req, res, "industries.html");
+});
+
+app.get("/industries.html", (req, res) => {
+    sendMarketingPage(req, res, "industries.html");
+});
+
+app.get("/book-demo", (req, res) => {
+    sendMarketingPage(req, res, "book-demo.html");
+});
+
+app.get("/book-demo.html", (req, res) => {
+    sendMarketingPage(req, res, "book-demo.html");
+});
+
+app.get("/integrations", (req, res) => {
+    sendMarketingPage(req, res, "integrations.html");
+});
+
+app.get("/integrations.html", (req, res) => {
+    sendMarketingPage(req, res, "integrations.html");
+});
+
+app.get("/implementation", (req, res) => {
+    sendMarketingPage(req, res, "implementation.html");
+});
+
+app.get("/implementation.html", (req, res) => {
+    sendMarketingPage(req, res, "implementation.html");
+});
+
+app.get("/3pl-warehouse-management-software", (req, res) => {
+    sendMarketingPage(req, res, "3pl-warehouse-management-software.html");
+});
+
+app.get("/3pl-warehouse-management-software.html", (req, res) => {
+    sendMarketingPage(req, res, "3pl-warehouse-management-software.html");
+});
+
+app.get("/shopify-warehouse-management-software", (req, res) => {
+    sendMarketingPage(req, res, "shopify-warehouse-management-software.html");
+});
+
+app.get("/shopify-warehouse-management-software.html", (req, res) => {
+    sendMarketingPage(req, res, "shopify-warehouse-management-software.html");
+});
+
+app.get("/lot-tracking-expiration-date-inventory-software", (req, res) => {
+    sendMarketingPage(req, res, "lot-tracking-expiration-date-inventory-software.html");
+});
+
+app.get("/lot-tracking-expiration-date-inventory-software.html", (req, res) => {
+    sendMarketingPage(req, res, "lot-tracking-expiration-date-inventory-software.html");
+});
+
+app.get("/customer-portal-for-3pl-warehouses", (req, res) => {
+    sendMarketingPage(req, res, "customer-portal-for-3pl-warehouses.html");
+});
+
+app.get("/customer-portal-for-3pl-warehouses.html", (req, res) => {
+    sendMarketingPage(req, res, "customer-portal-for-3pl-warehouses.html");
+});
+
+app.get("/sftp-warehouse-integration-software", (req, res) => {
+    sendMarketingPage(req, res, "sftp-warehouse-integration-software.html");
+});
+
+app.get("/sftp-warehouse-integration-software.html", (req, res) => {
+    sendMarketingPage(req, res, "sftp-warehouse-integration-software.html");
+});
+
+app.get("/robots.txt", (req, res) => {
+    res.type("text/plain; charset=utf-8");
+    if (!isPublicSiteRequest(req)) {
+        return res.send("User-agent: *\nDisallow: /\n");
+    }
+    return res.sendFile(path.join(ROOT_DIR, "robots.txt"));
+});
+
+app.get("/sitemap.xml", (_req, res) => {
+    res.type("application/xml; charset=utf-8");
+    res.sendFile(path.join(ROOT_DIR, "sitemap.xml"));
+});
+
+app.get("/marketing.css", (_req, res) => {
+    sendMarketingAsset(res, "marketing.css", "text/css; charset=utf-8");
+});
+
+app.get("/marketing.js", (_req, res) => {
+    sendMarketingAsset(res, "marketing.js", "application/javascript; charset=utf-8");
+});
+
+app.get("/marketing-logo.svg", (_req, res) => {
+    sendMarketingAsset(res, "marketing-logo.svg", "image/svg+xml; charset=utf-8");
+});
+
+app.get("/site.webmanifest", (_req, res) => {
+    sendMarketingAsset(res, "site.webmanifest", "application/manifest+json; charset=utf-8");
+});
+
+app.get("/hero-warehouse-scene.svg", (_req, res) => {
+    sendMarketingAsset(res, "hero-warehouse-scene.svg", "image/svg+xml; charset=utf-8");
+});
+
+app.get("/industry-3pl-scene.svg", (_req, res) => {
+    sendMarketingAsset(res, "industry-3pl-scene.svg", "image/svg+xml; charset=utf-8");
+});
+
+app.get("/industry-ecommerce-scene.svg", (_req, res) => {
+    sendMarketingAsset(res, "industry-ecommerce-scene.svg", "image/svg+xml; charset=utf-8");
+});
+
+app.get("/industry-lot-control-scene.svg", (_req, res) => {
+    sendMarketingAsset(res, "industry-lot-control-scene.svg", "image/svg+xml; charset=utf-8");
+});
+
+app.get("/app", async (req, res) => {
     try {
         await requireAppSession(req);
         res.redirect(getWarehouseRoutePath(req));
@@ -1972,7 +2445,7 @@ app.get("/", async (req, res) => {
     }
 });
 
-app.get("/index.html", async (req, res) => {
+app.get("/app/", async (req, res) => {
     try {
         await requireAppSession(req);
         res.redirect(getWarehouseRoutePath(req));
@@ -2181,6 +2654,94 @@ async function initializeDatabase() {
 
     await pool.query("update app_users set email = lower(email) where email is not null and email <> lower(email)");
     await ensureDefaultAppAdmin();
+
+    await pool.query(`
+        create table if not exists site_demo_requests (
+            id bigserial primary key,
+            full_name text not null default '',
+            work_email text not null default '',
+            company_name text not null default '',
+            phone text not null default '',
+            role_title text not null default '',
+            warehouse_count text not null default '',
+            monthly_order_volume text not null default '',
+            operations_type text not null default '',
+            interest_summary text not null default '',
+            message text not null default '',
+            source_page text not null default '',
+            browser_locale text not null default '',
+            ip_address text not null default '',
+            user_agent text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists site_subscriptions (
+            id bigserial primary key,
+            checkout_session_id text not null default '',
+            stripe_customer_id text not null default '',
+            stripe_subscription_id text not null default '',
+            stripe_price_id text not null default '',
+            stripe_product_id text not null default '',
+            latest_invoice_id text not null default '',
+            plan_key text not null default '',
+            plan_label text not null default '',
+            company_name text not null default '',
+            company_account_name text not null default '',
+            full_name text not null default '',
+            work_email text not null default '',
+            source_page text not null default '',
+            status text not null default 'PENDING',
+            billing_status text not null default 'PENDING',
+            checkout_status text not null default '',
+            payment_status text not null default '',
+            provisioning_status text not null default 'PENDING_REVIEW',
+            metadata jsonb not null default '{}'::jsonb,
+            last_event_id text not null default '',
+            last_event_type text not null default '',
+            current_period_start timestamptz,
+            current_period_end timestamptz,
+            trial_started_at timestamptz,
+            trial_ends_at timestamptz,
+            cancel_at timestamptz,
+            canceled_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists stripe_webhook_events (
+            event_id text primary key,
+            event_type text not null default '',
+            processed_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists feedback_submissions (
+            id bigserial primary key,
+            request_type text not null default 'BUG',
+            source text not null default 'WAREHOUSE',
+            account_name text not null default '',
+            submitted_by_email text not null default '',
+            submitted_by_name text not null default '',
+            submitted_by_role text not null default '',
+            title text not null default '',
+            details text not null default '',
+            page_name text not null default '',
+            app_section text not null default '',
+            page_url text not null default '',
+            build_label text not null default '',
+            browser_info text not null default '',
+            ip_address text not null default '',
+            status text not null default 'NEW',
+            admin_note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
 
     await pool.query(`
         create table if not exists item_catalog (
@@ -2516,6 +3077,18 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_pallet_records_account_name on pallet_records (account_name);");
     await pool.query("create index if not exists idx_pallet_records_location on pallet_records (location);");
     await pool.query("create index if not exists idx_pallet_records_sku on pallet_records (sku);");
+    await pool.query("create index if not exists idx_site_demo_requests_created_at on site_demo_requests (created_at desc);");
+    await pool.query("create index if not exists idx_site_demo_requests_work_email on site_demo_requests (work_email);");
+    await pool.query("create unique index if not exists idx_site_subscriptions_checkout_session_unique on site_subscriptions (checkout_session_id) where checkout_session_id <> '';");
+    await pool.query("create unique index if not exists idx_site_subscriptions_subscription_unique on site_subscriptions (stripe_subscription_id) where stripe_subscription_id <> '';");
+    await pool.query("create index if not exists idx_site_subscriptions_created_at on site_subscriptions (created_at desc);");
+    await pool.query("create index if not exists idx_site_subscriptions_work_email on site_subscriptions (work_email);");
+    await pool.query("create index if not exists idx_site_subscriptions_company_account_name on site_subscriptions (company_account_name);");
+    await pool.query("create index if not exists idx_feedback_submissions_created_at on feedback_submissions (created_at desc);");
+    await pool.query("create index if not exists idx_feedback_submissions_status on feedback_submissions (status);");
+    await pool.query("create index if not exists idx_feedback_submissions_account_name on feedback_submissions (account_name);");
+    await pool.query("create index if not exists idx_feedback_submissions_source on feedback_submissions (source);");
+    await pool.query("create index if not exists idx_feedback_submissions_request_type on feedback_submissions (request_type);");
     await pool.query("create index if not exists idx_inventory_lines_account_name on inventory_lines (account_name);");
     await pool.query("create index if not exists idx_inventory_lines_location on inventory_lines (location);");
     await pool.query("create index if not exists idx_inventory_lines_sku on inventory_lines (sku);");
@@ -3240,7 +3813,16 @@ async function requireAppSession(req, client = pool) {
 
 function requiresAppAuth(req) {
     const pathName = req.path || req.url || "";
-    if (pathName === "/api/health" || pathName === "/api/version" || pathName === "/api/app/login" || pathName === "/api/app/logout" || pathName === "/api/app/me") return false;
+    if (pathName === "/api/health"
+        || pathName === "/api/version"
+        || pathName === "/api/site/demo-request"
+        || pathName === "/api/site/stripe-config"
+        || pathName === "/api/site/stripe-checkout-session"
+        || pathName === "/api/site/stripe-checkout"
+        || pathName === "/api/site/stripe-webhook"
+        || pathName === "/api/app/login"
+        || pathName === "/api/app/logout"
+        || pathName === "/api/app/me") return false;
     if (pathName.startsWith("/api/portal/")) return false;
     return pathName.startsWith("/api/");
 }
@@ -3256,6 +3838,302 @@ function mapAppUserRow(row) {
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
+}
+
+function sanitizeSiteDemoRequestInput(input) {
+    const interests = Array.isArray(input?.interestAreas)
+        ? input.interestAreas
+        : Array.isArray(input?.interest_areas)
+            ? input.interest_areas
+            : typeof input?.interestSummary === "string"
+                ? input.interestSummary.split(",")
+                : [];
+    const interestSummary = [...new Set(
+        interests
+            .map((value) => normalizeFreeText(value))
+            .filter(Boolean)
+    )].join(", ");
+
+    return {
+        fullName: normalizeFreeText(input?.fullName || input?.full_name || input?.name),
+        workEmail: normalizeEmail(input?.workEmail || input?.work_email || input?.email),
+        companyName: normalizeFreeText(input?.companyName || input?.company_name || input?.company),
+        phone: normalizeFreeText(input?.phone),
+        roleTitle: normalizeFreeText(input?.roleTitle || input?.role_title || input?.title),
+        warehouseCount: normalizeFreeText(input?.warehouseCount || input?.warehouse_count),
+        monthlyOrderVolume: normalizeFreeText(input?.monthlyOrderVolume || input?.monthly_order_volume || input?.monthlyVolume),
+        operationsType: normalizeFreeText(input?.operationsType || input?.operations_type),
+        interestSummary,
+        message: normalizeFreeText(input?.message || input?.notes),
+        sourcePage: normalizeFreeText(input?.sourcePage || input?.source_page || ""),
+        browserLocale: normalizeFreeText(input?.browserLocale || input?.browser_locale || ""),
+        website: normalizeFreeText(input?.website || input?.companyWebsite || input?.company_website || "")
+    };
+}
+
+function mapSiteDemoRequestRow(row) {
+    return {
+        id: String(row.id),
+        fullName: row.full_name || "",
+        workEmail: row.work_email || "",
+        companyName: row.company_name || "",
+        phone: row.phone || "",
+        roleTitle: row.role_title || "",
+        warehouseCount: row.warehouse_count || "",
+        monthlyOrderVolume: row.monthly_order_volume || "",
+        operationsType: row.operations_type || "",
+        interestSummary: row.interest_summary || "",
+        message: row.message || "",
+        sourcePage: row.source_page || "",
+        browserLocale: row.browser_locale || "",
+        ipAddress: row.ip_address || "",
+        userAgent: row.user_agent || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString()
+    };
+}
+
+async function saveSiteDemoRequest(client, input, requestMeta = {}) {
+    const entry = sanitizeSiteDemoRequestInput(input);
+    if (!entry.fullName || !entry.workEmail || !entry.companyName) {
+        throw httpError(400, "Name, work email, and company are required.");
+    }
+
+    const result = await client.query(
+        `
+            insert into site_demo_requests (
+                full_name, work_email, company_name, phone, role_title,
+                warehouse_count, monthly_order_volume, operations_type,
+                interest_summary, message, source_page, browser_locale,
+                ip_address, user_agent
+            )
+            values (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8,
+                $9, $10, $11, $12,
+                $13, $14
+            )
+            returning *
+        `,
+        [
+            entry.fullName,
+            entry.workEmail,
+            entry.companyName,
+            entry.phone,
+            entry.roleTitle,
+            entry.warehouseCount,
+            entry.monthlyOrderVolume,
+            entry.operationsType,
+            entry.interestSummary,
+            entry.message,
+            normalizeFreeText(requestMeta.sourcePage || entry.sourcePage),
+            normalizeFreeText(requestMeta.browserLocale || entry.browserLocale),
+            normalizeFreeText(requestMeta.ipAddress || ""),
+            normalizeFreeText(requestMeta.userAgent || "")
+        ]
+    );
+    return mapSiteDemoRequestRow(result.rows[0]);
+}
+
+function normalizeFeedbackRequestType(value) {
+    const normalized = normalizeText(value || "BUG");
+    return FEEDBACK_REQUEST_TYPES.includes(normalized) ? normalized : "BUG";
+}
+
+function normalizeFeedbackSource(value) {
+    const normalized = normalizeText(value || "WAREHOUSE");
+    return FEEDBACK_SOURCES.includes(normalized) ? normalized : "WAREHOUSE";
+}
+
+function normalizeFeedbackStatus(value) {
+    const normalized = normalizeText(value || "NEW");
+    return FEEDBACK_STATUSES.includes(normalized) ? normalized : "NEW";
+}
+
+function sanitizeFeedbackLongText(value, maxLength = 4000) {
+    const text = String(value || "")
+        .replace(/\u0000/g, "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .trim();
+    if (!text) return "";
+    return text.slice(0, maxLength);
+}
+
+function sanitizeFeedbackSubmissionInput(input) {
+    return {
+        requestType: normalizeFeedbackRequestType(input?.requestType || input?.type),
+        title: normalizeFreeText(input?.title || input?.subject || "").slice(0, 180),
+        details: sanitizeFeedbackLongText(input?.details || input?.message || input?.description, 8000),
+        accountName: normalizeText(input?.accountName || input?.owner || input?.company || input?.customer || ""),
+        pageName: normalizeFreeText(input?.pageName || input?.page || input?.view || "").slice(0, 160),
+        appSection: normalizeText(input?.appSection || input?.section || ""),
+        pageUrl: String(input?.pageUrl || input?.url || "").trim().slice(0, 600),
+        buildLabel: normalizeFreeText(input?.buildLabel || "").slice(0, 160),
+        browserInfo: sanitizeFeedbackLongText(input?.browserInfo || "", 1000),
+        status: normalizeFeedbackStatus(input?.status || "NEW"),
+        adminNote: sanitizeFeedbackLongText(input?.adminNote || input?.note || "", 2000)
+    };
+}
+
+function mapFeedbackSubmissionRow(row) {
+    return {
+        id: String(row.id),
+        requestType: normalizeFeedbackRequestType(row.request_type),
+        source: normalizeFeedbackSource(row.source),
+        accountName: row.account_name || "",
+        submittedByEmail: row.submitted_by_email || "",
+        submittedByName: row.submitted_by_name || "",
+        submittedByRole: row.submitted_by_role || "",
+        title: row.title || "",
+        details: row.details || "",
+        pageName: row.page_name || "",
+        appSection: row.app_section || "",
+        pageUrl: row.page_url || "",
+        buildLabel: row.build_label || "",
+        browserInfo: row.browser_info || "",
+        ipAddress: row.ip_address || "",
+        status: normalizeFeedbackStatus(row.status),
+        adminNote: row.admin_note || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+    };
+}
+
+async function saveFeedbackSubmission(client, input, requestMeta = {}) {
+    const entry = sanitizeFeedbackSubmissionInput(input);
+    if (!entry.title) {
+        throw httpError(400, "A short title is required.");
+    }
+    if (!entry.details) {
+        throw httpError(400, "Add a few details so the team can reproduce or review this request.");
+    }
+
+    const requestType = normalizeFeedbackRequestType(requestMeta.requestType || entry.requestType);
+    const source = normalizeFeedbackSource(requestMeta.source || "WAREHOUSE");
+    const status = normalizeFeedbackStatus(requestMeta.status || entry.status || "NEW");
+    const result = await client.query(
+        `
+            insert into feedback_submissions (
+                request_type,
+                source,
+                account_name,
+                submitted_by_email,
+                submitted_by_name,
+                submitted_by_role,
+                title,
+                details,
+                page_name,
+                app_section,
+                page_url,
+                build_label,
+                browser_info,
+                ip_address,
+                status,
+                admin_note
+            )
+            values (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11, $12,
+                $13, $14, $15, $16
+            )
+            returning *
+        `,
+        [
+            requestType,
+            source,
+            normalizeText(requestMeta.accountName || entry.accountName || ""),
+            normalizeEmail(requestMeta.submittedByEmail || ""),
+            normalizeFreeText(requestMeta.submittedByName || ""),
+            normalizeText(requestMeta.submittedByRole || ""),
+            entry.title,
+            entry.details,
+            entry.pageName,
+            entry.appSection,
+            entry.pageUrl,
+            normalizeFreeText(requestMeta.buildLabel || entry.buildLabel || APP_BUILD_INFO.label || ""),
+            entry.browserInfo,
+            normalizeFreeText(requestMeta.ipAddress || ""),
+            status,
+            requestMeta.allowAdminNote === true ? entry.adminNote : ""
+        ]
+    );
+    return mapFeedbackSubmissionRow(result.rows[0]);
+}
+
+async function listFeedbackSubmissions(client, filters = {}) {
+    const requestedStatus = normalizeText(filters.status || "");
+    const requestedType = normalizeText(filters.requestType || filters.type || "");
+    const requestedSource = normalizeText(filters.source || "");
+    const requestedAccount = normalizeText(filters.accountName || filters.account_name || "");
+    const requestedSearch = sanitizeFeedbackLongText(filters.query || filters.search || "", 200);
+    const clauses = [];
+    const params = [];
+
+    if (requestedStatus && FEEDBACK_STATUSES.includes(requestedStatus)) {
+        params.push(requestedStatus);
+        clauses.push(`status = $${params.length}`);
+    }
+    if (requestedType && FEEDBACK_REQUEST_TYPES.includes(requestedType)) {
+        params.push(requestedType);
+        clauses.push(`request_type = $${params.length}`);
+    }
+    if (requestedSource && FEEDBACK_SOURCES.includes(requestedSource)) {
+        params.push(requestedSource);
+        clauses.push(`source = $${params.length}`);
+    }
+    if (requestedAccount) {
+        params.push(requestedAccount);
+        clauses.push(`account_name = $${params.length}`);
+    }
+    if (requestedSearch) {
+        params.push(`%${requestedSearch}%`);
+        clauses.push(`(
+            title ilike $${params.length}
+            or details ilike $${params.length}
+            or account_name ilike $${params.length}
+            or submitted_by_email ilike $${params.length}
+            or submitted_by_name ilike $${params.length}
+            or page_name ilike $${params.length}
+        )`);
+    }
+
+    const result = await client.query(
+        `
+            select *
+            from feedback_submissions
+            ${clauses.length ? `where ${clauses.join(" and ")}` : ""}
+            order by created_at desc, id desc
+            limit 250
+        `,
+        params
+    );
+    return result.rows.map(mapFeedbackSubmissionRow);
+}
+
+async function updateFeedbackSubmissionStatus(client, feedbackId, input, _actingUser = null) {
+    const normalizedId = Number.parseInt(String(feedbackId || ""), 10);
+    if (!Number.isFinite(normalizedId) || normalizedId <= 0) {
+        throw httpError(400, "A valid feedback id is required.");
+    }
+
+    const entry = sanitizeFeedbackSubmissionInput(input);
+    const status = normalizeFeedbackStatus(input?.status || entry.status || "NEW");
+
+    const result = await client.query(
+        `
+            update feedback_submissions
+            set status = $2,
+                admin_note = $3,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [normalizedId, status, entry.adminNote]
+    );
+    if (result.rowCount !== 1) {
+        throw httpError(404, "That feedback request could not be found.");
+    }
+    return mapFeedbackSubmissionRow(result.rows[0]);
 }
 
 async function getOwnerAccountRowByName(client, accountName) {
@@ -5810,26 +6688,1046 @@ async function getPortalOrderDocumentById(documentId, client = pool) {
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
-function hasShipmentEmailConfig() {
+function hasSystemEmailConfig() {
     return !!SMTP_HOST && !!SMTP_PORT && !!SMTP_FROM;
 }
 
-function getShipmentMailer() {
-    if (!hasShipmentEmailConfig()) {
-        throw httpError(500, "Shipment email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM before marking an order shipped.");
+function getSystemMailer(configErrorMessage = "System email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.") {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, configErrorMessage);
     }
     if ((SMTP_USER && !SMTP_PASS) || (!SMTP_USER && SMTP_PASS)) {
-        throw httpError(500, "Shipment email is partially configured. Set both SMTP_USER and SMTP_PASS, or leave both blank.");
+        throw httpError(500, "SMTP is partially configured. Set both SMTP_USER and SMTP_PASS, or leave both blank.");
     }
-    if (!shipmentMailer) {
-        shipmentMailer = nodemailer.createTransport({
+    if (!systemMailer) {
+        systemMailer = nodemailer.createTransport({
             host: SMTP_HOST,
             port: SMTP_PORT,
             secure: SMTP_SECURE,
             auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined
         });
     }
-    return shipmentMailer;
+    return systemMailer;
+}
+
+function hasShipmentEmailConfig() {
+    return hasSystemEmailConfig();
+}
+
+function getShipmentMailer() {
+    return getSystemMailer("Shipment email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM before marking an order shipped.");
+}
+
+function getDemoRequestRecipients() {
+    const recipients = new Set();
+    const addRecipient = (value) => {
+        const email = normalizeEmail(value);
+        if (email && !email.endsWith(".local")) {
+            recipients.add(email);
+        }
+    };
+    addRecipient(DEMO_REQUEST_TO);
+    addRecipient(SMTP_REPLY_TO);
+    addRecipient(DEFAULT_ADMIN_EMAIL);
+    return [...recipients];
+}
+
+function formatDemoRequestSubmittedAt(value) {
+    try {
+        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+    } catch {
+        return value || "";
+    }
+}
+
+function buildDemoRequestEmailText(request) {
+    return [
+        `New WMS365 demo request from ${request.companyName}`,
+        `Submitted: ${formatDemoRequestSubmittedAt(request.createdAt)}`,
+        `Name: ${request.fullName}`,
+        `Work Email: ${request.workEmail}`,
+        request.phone ? `Phone: ${request.phone}` : "",
+        request.roleTitle ? `Role: ${request.roleTitle}` : "",
+        request.warehouseCount ? `Warehouse Count: ${request.warehouseCount}` : "",
+        request.monthlyOrderVolume ? `Monthly Volume: ${request.monthlyOrderVolume}` : "",
+        request.operationsType ? `Operations Type: ${request.operationsType}` : "",
+        request.interestSummary ? `Interested In: ${request.interestSummary}` : "",
+        request.message ? `Notes: ${request.message}` : "",
+        request.sourcePage ? `Source Page: ${request.sourcePage}` : "",
+        request.ipAddress ? `IP Address: ${request.ipAddress}` : "",
+        request.userAgent ? `User Agent: ${request.userAgent}` : ""
+    ].filter(Boolean).join("\n");
+}
+
+function buildDemoRequestEmailHtml(request) {
+    const rows = [
+        ["Submitted", formatDemoRequestSubmittedAt(request.createdAt)],
+        ["Name", request.fullName],
+        ["Work Email", request.workEmail],
+        ["Phone", request.phone],
+        ["Role", request.roleTitle],
+        ["Warehouse Count", request.warehouseCount],
+        ["Monthly Volume", request.monthlyOrderVolume],
+        ["Operations Type", request.operationsType],
+        ["Interested In", request.interestSummary],
+        ["Source Page", request.sourcePage],
+        ["IP Address", request.ipAddress],
+        ["User Agent", request.userAgent]
+    ].filter(([, value]) => value);
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.5;">
+            <h2 style="margin:0 0 12px;">New WMS365 Demo Request</h2>
+            <p style="margin:0 0 16px;">A prospect requested a WMS365 walkthrough.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;">
+                ${rows.map(([label, value]) => `
+                    <tr>
+                        <td style="padding:6px 0;font-weight:600;vertical-align:top;width:180px;">${escapeHtml(label)}</td>
+                        <td style="padding:6px 0;">${escapeHtml(value)}</td>
+                    </tr>
+                `).join("")}
+            </table>
+            ${request.message ? `
+                <div style="margin-top:18px;padding:14px 16px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;">
+                    <div style="font-weight:600;margin-bottom:8px;">Notes</div>
+                    <div>${escapeHtml(request.message)}</div>
+                </div>
+            ` : ""}
+        </div>
+    `;
+}
+
+async function sendDemoRequestNotification(request) {
+    const recipients = getDemoRequestRecipients();
+    if (!recipients.length || !hasSystemEmailConfig()) {
+        return [];
+    }
+
+    const transporter = getSystemMailer();
+    await transporter.sendMail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: request.workEmail || SMTP_REPLY_TO || undefined,
+        subject: `New WMS365 demo request - ${request.companyName}`,
+        text: buildDemoRequestEmailText(request),
+        html: buildDemoRequestEmailHtml(request)
+    });
+    return recipients;
+}
+
+function normalizeStripeResourceId(value, prefix = "") {
+    const text = String(
+        value && typeof value === "object" && !Array.isArray(value)
+            ? value.id || ""
+            : value || ""
+    ).trim();
+    if (!text) return "";
+    if (!prefix) return text;
+    return text.startsWith(`${prefix}_`) ? text : "";
+}
+
+function normalizeStripeCheckoutSessionId(value) {
+    return normalizeStripeResourceId(value, "cs");
+}
+
+function normalizeStripeCustomerId(value) {
+    return normalizeStripeResourceId(value, "cus");
+}
+
+function normalizeStripeSubscriptionId(value) {
+    return normalizeStripeResourceId(value, "sub");
+}
+
+function normalizeStripePriceId(value) {
+    return normalizeStripeResourceId(value, "price");
+}
+
+function normalizeStripeInvoiceId(value) {
+    return normalizeStripeResourceId(value, "in");
+}
+
+function normalizeSiteSubscriptionStatus(value) {
+    const normalized = normalizeText(value || "PENDING");
+    return SITE_SUBSCRIPTION_STATUSES.includes(normalized) ? normalized : "PENDING";
+}
+
+function normalizeSiteSubscriptionBillingStatus(value) {
+    const normalized = normalizeText(value || "PENDING");
+    return SITE_SUBSCRIPTION_BILLING_STATUSES.includes(normalized) ? normalized : "PENDING";
+}
+
+function normalizeSiteSubscriptionProvisioningStatus(value) {
+    const normalized = normalizeText(value || "PENDING_REVIEW");
+    return SITE_SUBSCRIPTION_PROVISIONING_STATUSES.includes(normalized) ? normalized : "PENDING_REVIEW";
+}
+
+function normalizeStripeMetadataObject(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+    return Object.entries(value).reduce((accumulator, [key, rawValue]) => {
+        const normalizedKey = normalizeFreeText(key || "");
+        if (!normalizedKey) return accumulator;
+        accumulator[normalizedKey] = normalizeFreeText(rawValue || "");
+        return accumulator;
+    }, {});
+}
+
+function toIsoFromUnixTimestamp(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0
+        ? new Date(parsed * 1000).toISOString()
+        : null;
+}
+
+function deriveSiteBillingStatusFromStripeStatus(status, paymentStatus = "") {
+    const normalizedStatus = normalizeSiteSubscriptionStatus(status);
+    const normalizedPaymentStatus = normalizeText(paymentStatus || "");
+    if (normalizedStatus === "ACTIVE" || normalizedStatus === "TRIALING") return "PAID";
+    if (normalizedStatus === "PAST_DUE") return "PAST_DUE";
+    if (normalizedStatus === "CANCELED") return "CANCELED";
+    if (normalizedStatus === "UNPAID" || normalizedStatus === "INCOMPLETE_EXPIRED") return "PAYMENT_FAILED";
+    if (normalizedPaymentStatus === "PAID") return "PAID";
+    return "PENDING";
+}
+
+function isProvisionableSiteSubscriptionStatus(status) {
+    const normalizedStatus = normalizeSiteSubscriptionStatus(status);
+    return normalizedStatus === "TRIALING"
+        || normalizedStatus === "ACTIVE"
+        || normalizedStatus === "PAST_DUE"
+        || normalizedStatus === "UNPAID";
+}
+
+function buildStripePlanFeatureFlags(planKey) {
+    const flags = buildDefaultNewCompanyFeatureFlags();
+    if (normalizeStripeCheckoutPlanKey(planKey) === "CUSTOMER_FACING_OPERATION") {
+        flags[COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL] = true;
+    }
+    return flags;
+}
+
+function sanitizeStripeCheckoutLeadInput(input, { planKey = "" } = {}) {
+    const plan = getStripeCheckoutPlanByKey(planKey);
+    const fullName = normalizeFreeText(input?.fullName || input?.name || "");
+    const workEmail = normalizeEmail(input?.workEmail || input?.email || "");
+    const companyName = normalizeFreeText(input?.companyName || input?.company || "");
+    const sourcePage = normalizeFreeText(input?.sourcePage || "");
+
+    if (plan?.selfServe) {
+        if (!fullName) {
+            throw httpError(400, "Full name is required to start this plan.");
+        }
+        if (!workEmail) {
+            throw httpError(400, "Work email is required to start this plan.");
+        }
+        if (!companyName) {
+            throw httpError(400, "Company name is required to start this plan.");
+        }
+    }
+
+    return {
+        fullName,
+        workEmail,
+        companyName,
+        sourcePage
+    };
+}
+
+function mapSiteSubscriptionRow(row) {
+    return {
+        id: String(row.id),
+        checkoutSessionId: row.checkout_session_id || "",
+        stripeCustomerId: row.stripe_customer_id || "",
+        stripeSubscriptionId: row.stripe_subscription_id || "",
+        stripePriceId: row.stripe_price_id || "",
+        stripeProductId: row.stripe_product_id || "",
+        latestInvoiceId: row.latest_invoice_id || "",
+        planKey: row.plan_key || "",
+        planLabel: row.plan_label || "",
+        companyName: row.company_name || "",
+        companyAccountName: row.company_account_name || "",
+        fullName: row.full_name || "",
+        workEmail: row.work_email || "",
+        sourcePage: row.source_page || "",
+        status: normalizeSiteSubscriptionStatus(row.status),
+        billingStatus: normalizeSiteSubscriptionBillingStatus(row.billing_status),
+        checkoutStatus: row.checkout_status || "",
+        paymentStatus: row.payment_status || "",
+        provisioningStatus: normalizeSiteSubscriptionProvisioningStatus(row.provisioning_status),
+        metadata: row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {},
+        lastEventId: row.last_event_id || "",
+        lastEventType: row.last_event_type || "",
+        currentPeriodStart: row.current_period_start ? new Date(row.current_period_start).toISOString() : null,
+        currentPeriodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
+        trialStartedAt: row.trial_started_at ? new Date(row.trial_started_at).toISOString() : null,
+        trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at).toISOString() : null,
+        cancelAt: row.cancel_at ? new Date(row.cancel_at).toISOString() : null,
+        canceledAt: row.canceled_at ? new Date(row.canceled_at).toISOString() : null,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+async function getSiteSubscriptionRowByCheckoutSessionId(client, checkoutSessionId) {
+    const normalizedId = normalizeStripeCheckoutSessionId(checkoutSessionId);
+    if (!normalizedId) return null;
+    const result = await client.query(
+        "select * from site_subscriptions where checkout_session_id = $1 limit 1",
+        [normalizedId]
+    );
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function getSiteSubscriptionRowByStripeSubscriptionId(client, stripeSubscriptionId) {
+    const normalizedId = normalizeStripeSubscriptionId(stripeSubscriptionId);
+    if (!normalizedId) return null;
+    const result = await client.query(
+        "select * from site_subscriptions where stripe_subscription_id = $1 limit 1",
+        [normalizedId]
+    );
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function findSiteSubscriptionRowByStripeReferences(client, { checkoutSessionId = "", stripeSubscriptionId = "", stripeCustomerId = "" } = {}) {
+    const normalizedCheckoutSessionId = normalizeStripeCheckoutSessionId(checkoutSessionId);
+    const normalizedStripeSubscriptionId = normalizeStripeSubscriptionId(stripeSubscriptionId);
+    const normalizedStripeCustomerId = normalizeStripeCustomerId(stripeCustomerId);
+
+    if (normalizedCheckoutSessionId) {
+        const existingBySession = await getSiteSubscriptionRowByCheckoutSessionId(client, normalizedCheckoutSessionId);
+        if (existingBySession) return existingBySession;
+    }
+    if (normalizedStripeSubscriptionId) {
+        const existingBySubscription = await getSiteSubscriptionRowByStripeSubscriptionId(client, normalizedStripeSubscriptionId);
+        if (existingBySubscription) return existingBySubscription;
+    }
+    if (normalizedStripeCustomerId) {
+        const result = await client.query(
+            "select * from site_subscriptions where stripe_customer_id = $1 order by created_at desc limit 1",
+            [normalizedStripeCustomerId]
+        );
+        if (result.rowCount === 1) return result.rows[0];
+    }
+    return null;
+}
+
+async function upsertSiteSubscriptionRecord(client, rawInput) {
+    const existing = await findSiteSubscriptionRowByStripeReferences(client, rawInput);
+    const existingMetadata = existing?.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+        ? existing.metadata
+        : {};
+    const inputMetadata = normalizeStripeMetadataObject(rawInput?.metadata);
+    const plan = getStripeCheckoutPlanByKey(rawInput?.planKey || existing?.plan_key || "");
+    const merged = {
+        checkoutSessionId: normalizeStripeCheckoutSessionId(rawInput?.checkoutSessionId || existing?.checkout_session_id),
+        stripeCustomerId: normalizeStripeCustomerId(rawInput?.stripeCustomerId || existing?.stripe_customer_id),
+        stripeSubscriptionId: normalizeStripeSubscriptionId(rawInput?.stripeSubscriptionId || existing?.stripe_subscription_id),
+        stripePriceId: normalizeStripePriceId(rawInput?.stripePriceId || existing?.stripe_price_id || plan?.priceId),
+        stripeProductId: normalizeStripeResourceId(rawInput?.stripeProductId || existing?.stripe_product_id),
+        latestInvoiceId: normalizeStripeInvoiceId(rawInput?.latestInvoiceId || existing?.latest_invoice_id),
+        planKey: normalizeStripeCheckoutPlanKey(rawInput?.planKey || existing?.plan_key || plan?.key),
+        planLabel: normalizeFreeText(rawInput?.planLabel || existing?.plan_label || plan?.label || ""),
+        companyName: normalizeFreeText(rawInput?.companyName || existing?.company_name),
+        companyAccountName: normalizeText(rawInput?.companyAccountName || rawInput?.companyName || existing?.company_account_name || existing?.company_name),
+        fullName: normalizeFreeText(rawInput?.fullName || existing?.full_name),
+        workEmail: normalizeEmail(rawInput?.workEmail || existing?.work_email),
+        sourcePage: normalizeFreeText(rawInput?.sourcePage || existing?.source_page),
+        status: normalizeSiteSubscriptionStatus(rawInput?.status || existing?.status || "PENDING"),
+        billingStatus: normalizeSiteSubscriptionBillingStatus(rawInput?.billingStatus || existing?.billing_status || "PENDING"),
+        checkoutStatus: normalizeText(rawInput?.checkoutStatus || existing?.checkout_status || ""),
+        paymentStatus: normalizeText(rawInput?.paymentStatus || existing?.payment_status || ""),
+        provisioningStatus: normalizeSiteSubscriptionProvisioningStatus(rawInput?.provisioningStatus || existing?.provisioning_status || "PENDING_REVIEW"),
+        metadata: {
+            ...existingMetadata,
+            ...inputMetadata
+        },
+        lastEventId: normalizeFreeText(rawInput?.lastEventId || existing?.last_event_id),
+        lastEventType: normalizeFreeText(rawInput?.lastEventType || existing?.last_event_type),
+        currentPeriodStart: rawInput?.currentPeriodStart || (existing?.current_period_start ? new Date(existing.current_period_start).toISOString() : null),
+        currentPeriodEnd: rawInput?.currentPeriodEnd || (existing?.current_period_end ? new Date(existing.current_period_end).toISOString() : null),
+        trialStartedAt: rawInput?.trialStartedAt || (existing?.trial_started_at ? new Date(existing.trial_started_at).toISOString() : null),
+        trialEndsAt: rawInput?.trialEndsAt || (existing?.trial_ends_at ? new Date(existing.trial_ends_at).toISOString() : null),
+        cancelAt: rawInput?.cancelAt || (existing?.cancel_at ? new Date(existing.cancel_at).toISOString() : null),
+        canceledAt: rawInput?.canceledAt || (existing?.canceled_at ? new Date(existing.canceled_at).toISOString() : null)
+    };
+
+    if (!merged.checkoutSessionId && !merged.stripeSubscriptionId && !merged.stripeCustomerId) {
+        throw httpError(400, "A Stripe checkout, subscription, or customer reference is required.");
+    }
+
+    const params = [
+        merged.checkoutSessionId,
+        merged.stripeCustomerId,
+        merged.stripeSubscriptionId,
+        merged.stripePriceId,
+        merged.stripeProductId,
+        merged.latestInvoiceId,
+        merged.planKey,
+        merged.planLabel,
+        merged.companyName,
+        merged.companyAccountName,
+        merged.fullName,
+        merged.workEmail,
+        merged.sourcePage,
+        merged.status,
+        merged.billingStatus,
+        merged.checkoutStatus,
+        merged.paymentStatus,
+        merged.provisioningStatus,
+        JSON.stringify(merged.metadata || {}),
+        merged.lastEventId,
+        merged.lastEventType,
+        merged.currentPeriodStart,
+        merged.currentPeriodEnd,
+        merged.trialStartedAt,
+        merged.trialEndsAt,
+        merged.cancelAt,
+        merged.canceledAt
+    ];
+
+    const result = existing
+        ? await client.query(
+            `
+                update site_subscriptions
+                set
+                    checkout_session_id = $1,
+                    stripe_customer_id = $2,
+                    stripe_subscription_id = $3,
+                    stripe_price_id = $4,
+                    stripe_product_id = $5,
+                    latest_invoice_id = $6,
+                    plan_key = $7,
+                    plan_label = $8,
+                    company_name = $9,
+                    company_account_name = $10,
+                    full_name = $11,
+                    work_email = $12,
+                    source_page = $13,
+                    status = $14,
+                    billing_status = $15,
+                    checkout_status = $16,
+                    payment_status = $17,
+                    provisioning_status = $18,
+                    metadata = $19::jsonb,
+                    last_event_id = $20,
+                    last_event_type = $21,
+                    current_period_start = $22,
+                    current_period_end = $23,
+                    trial_started_at = $24,
+                    trial_ends_at = $25,
+                    cancel_at = $26,
+                    canceled_at = $27,
+                    updated_at = now()
+                where id = $28
+                returning *
+            `,
+            [...params, existing.id]
+        )
+        : await client.query(
+            `
+                insert into site_subscriptions (
+                    checkout_session_id, stripe_customer_id, stripe_subscription_id,
+                    stripe_price_id, stripe_product_id, latest_invoice_id,
+                    plan_key, plan_label, company_name, company_account_name,
+                    full_name, work_email, source_page,
+                    status, billing_status, checkout_status, payment_status,
+                    provisioning_status, metadata, last_event_id, last_event_type,
+                    current_period_start, current_period_end, trial_started_at, trial_ends_at,
+                    cancel_at, canceled_at
+                )
+                values (
+                    $1, $2, $3,
+                    $4, $5, $6,
+                    $7, $8, $9, $10,
+                    $11, $12, $13,
+                    $14, $15, $16, $17,
+                    $18, $19::jsonb, $20, $21,
+                    $22, $23, $24, $25,
+                    $26, $27
+                )
+                returning *
+            `,
+            params
+        );
+
+    return result.rows[0] ? mapSiteSubscriptionRow(result.rows[0]) : null;
+}
+
+function buildPendingSiteSubscriptionEntry(session, input = {}) {
+    const plan = getStripeCheckoutPlanByKey(input?.planKey);
+    return {
+        checkoutSessionId: session.id,
+        stripeCustomerId: normalizeStripeCustomerId(session.customer),
+        stripeSubscriptionId: normalizeStripeSubscriptionId(session.subscription),
+        stripePriceId: normalizeStripePriceId(plan?.priceId),
+        planKey: plan?.key || normalizeStripeCheckoutPlanKey(input?.planKey),
+        planLabel: plan?.label || "",
+        companyName: normalizeFreeText(input?.companyName || session.metadata?.companyName || ""),
+        companyAccountName: normalizeText(input?.companyName || session.metadata?.companyName || ""),
+        fullName: normalizeFreeText(input?.fullName || session.metadata?.fullName || ""),
+        workEmail: normalizeEmail(input?.workEmail || session.customer_email || session.customer_details?.email || ""),
+        sourcePage: normalizeFreeText(input?.sourcePage || session.metadata?.sourcePage || ""),
+        status: "PENDING",
+        billingStatus: "PENDING",
+        checkoutStatus: normalizeText(session.status || ""),
+        paymentStatus: normalizeText(session.payment_status || ""),
+        provisioningStatus: "PENDING_REVIEW",
+        metadata: {
+            ...normalizeStripeMetadataObject(session.metadata),
+            sourcePage: normalizeFreeText(input?.sourcePage || session.metadata?.sourcePage || "")
+        }
+    };
+}
+
+function buildSiteSubscriptionEntryFromStripeSubscription(subscription, fallback = {}) {
+    const metadata = normalizeStripeMetadataObject(subscription?.metadata);
+    const plan = getStripeCheckoutPlanByKey(metadata.planKey || fallback.planKey);
+    const status = normalizeSiteSubscriptionStatus(subscription?.status || fallback.status || "PENDING");
+    return {
+        checkoutSessionId: normalizeStripeCheckoutSessionId(fallback.checkoutSessionId),
+        stripeCustomerId: normalizeStripeCustomerId(subscription?.customer || fallback.stripeCustomerId),
+        stripeSubscriptionId: normalizeStripeSubscriptionId(subscription?.id || fallback.stripeSubscriptionId),
+        stripePriceId: normalizeStripePriceId(subscription?.items?.data?.[0]?.price?.id || fallback.stripePriceId || plan?.priceId),
+        stripeProductId: normalizeStripeResourceId(subscription?.items?.data?.[0]?.price?.product || fallback.stripeProductId),
+        latestInvoiceId: normalizeStripeInvoiceId(subscription?.latest_invoice || fallback.latestInvoiceId),
+        planKey: plan?.key || normalizeStripeCheckoutPlanKey(metadata.planKey || fallback.planKey),
+        planLabel: plan?.label || normalizeFreeText(metadata.planLabel || fallback.planLabel || ""),
+        companyName: normalizeFreeText(metadata.companyName || fallback.companyName || ""),
+        companyAccountName: normalizeText(metadata.companyName || fallback.companyAccountName || fallback.companyName || ""),
+        fullName: normalizeFreeText(metadata.fullName || fallback.fullName || ""),
+        workEmail: normalizeEmail(fallback.workEmail || ""),
+        sourcePage: normalizeFreeText(metadata.sourcePage || fallback.sourcePage || ""),
+        status,
+        billingStatus: deriveSiteBillingStatusFromStripeStatus(status, fallback.paymentStatus),
+        checkoutStatus: normalizeText(fallback.checkoutStatus || ""),
+        paymentStatus: normalizeText(fallback.paymentStatus || ""),
+        provisioningStatus: normalizeSiteSubscriptionProvisioningStatus(fallback.provisioningStatus || "PENDING_REVIEW"),
+        metadata,
+        lastEventId: normalizeFreeText(fallback.lastEventId),
+        lastEventType: normalizeFreeText(fallback.lastEventType),
+        currentPeriodStart: toIsoFromUnixTimestamp(subscription?.current_period_start),
+        currentPeriodEnd: toIsoFromUnixTimestamp(subscription?.current_period_end),
+        trialStartedAt: toIsoFromUnixTimestamp(subscription?.trial_start),
+        trialEndsAt: toIsoFromUnixTimestamp(subscription?.trial_end),
+        cancelAt: toIsoFromUnixTimestamp(subscription?.cancel_at),
+        canceledAt: toIsoFromUnixTimestamp(subscription?.canceled_at)
+    };
+}
+
+function buildSiteSubscriptionEntryFromCheckoutSession(session, fallback = {}) {
+    const metadata = normalizeStripeMetadataObject(session?.metadata);
+    const subscription = session?.subscription && typeof session.subscription === "object" && !Array.isArray(session.subscription)
+        ? session.subscription
+        : null;
+    const plan = getStripeCheckoutPlanByKey(metadata.planKey || fallback.planKey);
+    const baseStatus = subscription?.status
+        ? normalizeSiteSubscriptionStatus(subscription.status)
+        : normalizeText(session?.payment_status) === "PAID"
+            ? "ACTIVE"
+            : "PENDING";
+    const paymentStatus = normalizeText(session?.payment_status || fallback.paymentStatus || "");
+
+    return {
+        checkoutSessionId: normalizeStripeCheckoutSessionId(session?.id || fallback.checkoutSessionId),
+        stripeCustomerId: normalizeStripeCustomerId(session?.customer || fallback.stripeCustomerId),
+        stripeSubscriptionId: normalizeStripeSubscriptionId(subscription?.id || session?.subscription || fallback.stripeSubscriptionId),
+        stripePriceId: normalizeStripePriceId(subscription?.items?.data?.[0]?.price?.id || fallback.stripePriceId || plan?.priceId),
+        stripeProductId: normalizeStripeResourceId(subscription?.items?.data?.[0]?.price?.product || fallback.stripeProductId),
+        latestInvoiceId: normalizeStripeInvoiceId(subscription?.latest_invoice || fallback.latestInvoiceId),
+        planKey: plan?.key || normalizeStripeCheckoutPlanKey(metadata.planKey || fallback.planKey),
+        planLabel: plan?.label || normalizeFreeText(metadata.planLabel || fallback.planLabel || ""),
+        companyName: normalizeFreeText(metadata.companyName || fallback.companyName || session?.client_reference_id || ""),
+        companyAccountName: normalizeText(metadata.companyName || fallback.companyAccountName || fallback.companyName || session?.client_reference_id || ""),
+        fullName: normalizeFreeText(metadata.fullName || fallback.fullName || session?.customer_details?.name || ""),
+        workEmail: normalizeEmail(fallback.workEmail || session?.customer_email || session?.customer_details?.email || ""),
+        sourcePage: normalizeFreeText(metadata.sourcePage || fallback.sourcePage || ""),
+        status: baseStatus,
+        billingStatus: deriveSiteBillingStatusFromStripeStatus(baseStatus, paymentStatus),
+        checkoutStatus: normalizeText(session?.status || fallback.checkoutStatus || ""),
+        paymentStatus,
+        provisioningStatus: normalizeSiteSubscriptionProvisioningStatus(fallback.provisioningStatus || "PENDING_REVIEW"),
+        metadata,
+        lastEventId: normalizeFreeText(fallback.lastEventId),
+        lastEventType: normalizeFreeText(fallback.lastEventType),
+        currentPeriodStart: subscription ? toIsoFromUnixTimestamp(subscription.current_period_start) : null,
+        currentPeriodEnd: subscription ? toIsoFromUnixTimestamp(subscription.current_period_end) : null,
+        trialStartedAt: subscription ? toIsoFromUnixTimestamp(subscription.trial_start) : null,
+        trialEndsAt: subscription ? toIsoFromUnixTimestamp(subscription.trial_end) : null,
+        cancelAt: subscription ? toIsoFromUnixTimestamp(subscription.cancel_at) : null,
+        canceledAt: subscription ? toIsoFromUnixTimestamp(subscription.canceled_at) : null
+    };
+}
+
+async function retrieveStripeCheckoutSession(checkoutSessionId) {
+    const normalizedId = normalizeStripeCheckoutSessionId(checkoutSessionId);
+    if (!normalizedId) {
+        throw httpError(400, "A valid Stripe checkout session id is required.");
+    }
+    const stripe = getStripeClient();
+    return await stripe.checkout.sessions.retrieve(normalizedId, {
+        expand: ["subscription"]
+    });
+}
+
+async function retrieveStripeSubscription(subscriptionId) {
+    const normalizedId = normalizeStripeSubscriptionId(subscriptionId);
+    if (!normalizedId) {
+        throw httpError(400, "A valid Stripe subscription id is required.");
+    }
+    const stripe = getStripeClient();
+    return await stripe.subscriptions.retrieve(normalizedId);
+}
+
+async function getStripeCheckoutSessionSummary(checkoutSessionId) {
+    assertDatabaseAvailable();
+    const row = await getSiteSubscriptionRowByCheckoutSessionId(pool, checkoutSessionId);
+    if (row && normalizeSiteSubscriptionStatus(row.status) !== "PENDING" && normalizeText(row.checkout_status) !== "OPEN") {
+        const mapped = mapSiteSubscriptionRow(row);
+        return {
+            ...mapped,
+            isProvisionable: isProvisionableSiteSubscriptionStatus(mapped.status)
+        };
+    }
+
+    const session = await retrieveStripeCheckoutSession(checkoutSessionId);
+    const entry = buildSiteSubscriptionEntryFromCheckoutSession(session, row ? mapSiteSubscriptionRow(row) : {});
+    if (row || normalizeStripeCheckoutSessionId(entry.checkoutSessionId)) {
+        await withTransaction(async (client) => {
+            await upsertSiteSubscriptionRecord(client, entry);
+        });
+    }
+    return {
+        ...entry,
+        isProvisionable: isProvisionableSiteSubscriptionStatus(entry.status)
+    };
+}
+
+async function markStripeWebhookEventProcessed(client, event) {
+    const eventId = normalizeFreeText(event?.id || "");
+    const eventType = normalizeFreeText(event?.type || "");
+    if (!eventId || !eventType) {
+        throw httpError(400, "Stripe webhook event metadata is incomplete.");
+    }
+    const result = await client.query(
+        `
+            insert into stripe_webhook_events (event_id, event_type)
+            values ($1, $2)
+            on conflict (event_id) do nothing
+            returning event_id
+        `,
+        [eventId, eventType]
+    );
+    return result.rowCount === 1;
+}
+
+async function ensureSiteSubscriptionCompanyProvisioned(client, subscription) {
+    if (!subscription || !subscription.companyAccountName || !isProvisionableSiteSubscriptionStatus(subscription.status)) {
+        return subscription;
+    }
+
+    await upsertOwnerMaster(client, {
+        name: subscription.companyAccountName,
+        legalName: subscription.companyName,
+        contactName: subscription.fullName,
+        email: subscription.workEmail,
+        billingEmail: subscription.workEmail,
+        portalLoginEmail: subscription.workEmail,
+        note: "Created from Stripe self-serve signup.",
+        featureFlags: buildStripePlanFeatureFlags(subscription.planKey),
+        featureFlagsUpdatedAt: new Date().toISOString(),
+        featureFlagsUpdatedBy: "stripe-signup"
+    });
+
+    if (normalizeSiteSubscriptionProvisioningStatus(subscription.provisioningStatus) === "OWNER_CREATED") {
+        return subscription;
+    }
+
+    const updated = await upsertSiteSubscriptionRecord(client, {
+        checkoutSessionId: subscription.checkoutSessionId,
+        stripeCustomerId: subscription.stripeCustomerId,
+        stripeSubscriptionId: subscription.stripeSubscriptionId,
+        provisioningStatus: "OWNER_CREATED"
+    });
+
+    await insertActivity(
+        client,
+        "marketing",
+        `Provisioned company shell for ${updated.companyAccountName}`,
+        [updated.planLabel, updated.workEmail, "Stripe signup"].filter(Boolean).join(" | ")
+    );
+
+    return updated;
+}
+
+async function handleStripeCheckoutSessionCompleted(client, event) {
+    const checkoutSessionId = normalizeStripeCheckoutSessionId(event?.data?.object?.id);
+    if (!checkoutSessionId) return { notification: null };
+
+    const session = await retrieveStripeCheckoutSession(checkoutSessionId);
+    let saved = await upsertSiteSubscriptionRecord(
+        client,
+        buildSiteSubscriptionEntryFromCheckoutSession(session, {
+            lastEventId: event.id,
+            lastEventType: event.type
+        })
+    );
+    saved = await ensureSiteSubscriptionCompanyProvisioned(client, saved);
+
+    await insertActivity(
+        client,
+        "marketing",
+        `Stripe signup started for ${saved.companyName || saved.companyAccountName || saved.workEmail}`,
+        [saved.planLabel, saved.status, saved.workEmail].filter(Boolean).join(" | ")
+    );
+
+    return {
+        notification: {
+            kind: "NEW_SIGNUP",
+            subscription: saved
+        }
+    };
+}
+
+async function handleStripeSubscriptionLifecycleEvent(client, event) {
+    const subscriptionObject = event?.data?.object;
+    const subscriptionId = normalizeStripeSubscriptionId(subscriptionObject?.id);
+    if (!subscriptionId) return { notification: null };
+
+    const existing = await getSiteSubscriptionRowByStripeSubscriptionId(client, subscriptionId);
+    let saved = await upsertSiteSubscriptionRecord(
+        client,
+        buildSiteSubscriptionEntryFromStripeSubscription(subscriptionObject, {
+            checkoutSessionId: existing?.checkout_session_id || "",
+            companyName: existing?.company_name || "",
+            companyAccountName: existing?.company_account_name || "",
+            fullName: existing?.full_name || "",
+            workEmail: existing?.work_email || "",
+            sourcePage: existing?.source_page || "",
+            paymentStatus: existing?.payment_status || "",
+            provisioningStatus: existing?.provisioning_status || "PENDING_REVIEW",
+            lastEventId: event.id,
+            lastEventType: event.type
+        })
+    );
+    saved = await ensureSiteSubscriptionCompanyProvisioned(client, saved);
+    return { notification: null };
+}
+
+async function handleStripeInvoiceLifecycleEvent(client, event) {
+    const invoice = event?.data?.object;
+    const subscriptionId = normalizeStripeSubscriptionId(invoice?.subscription);
+    const existing = await getSiteSubscriptionRowByStripeSubscriptionId(client, subscriptionId);
+    const subscriptionObject = subscriptionId ? await retrieveStripeSubscription(subscriptionId) : null;
+
+    let saved = await upsertSiteSubscriptionRecord(
+        client,
+        {
+            ...(subscriptionObject
+                ? buildSiteSubscriptionEntryFromStripeSubscription(subscriptionObject, {
+                    checkoutSessionId: existing?.checkout_session_id || "",
+                    companyName: existing?.company_name || "",
+                    companyAccountName: existing?.company_account_name || "",
+                    fullName: existing?.full_name || "",
+                    workEmail: existing?.work_email || normalizeEmail(invoice?.customer_email || ""),
+                    sourcePage: existing?.source_page || "",
+                    paymentStatus: normalizeText(invoice?.status || ""),
+                    provisioningStatus: existing?.provisioning_status || "PENDING_REVIEW"
+                })
+                : {}),
+            stripeCustomerId: normalizeStripeCustomerId(invoice?.customer || existing?.stripe_customer_id),
+            stripeSubscriptionId: subscriptionId || existing?.stripe_subscription_id || "",
+            latestInvoiceId: normalizeStripeInvoiceId(invoice?.id || existing?.latest_invoice_id),
+            workEmail: normalizeEmail(invoice?.customer_email || existing?.work_email || ""),
+            billingStatus: event.type === "invoice.paid" ? "PAID" : "PAYMENT_FAILED",
+            paymentStatus: normalizeText(invoice?.status || ""),
+            lastEventId: event.id,
+            lastEventType: event.type
+        }
+    );
+    saved = await ensureSiteSubscriptionCompanyProvisioned(client, saved);
+
+    if (event.type === "invoice.payment_failed") {
+        await insertActivity(
+            client,
+            "marketing",
+            `Stripe payment failed for ${saved.companyName || saved.companyAccountName || saved.workEmail}`,
+            [saved.planLabel, saved.workEmail, saved.latestInvoiceId].filter(Boolean).join(" | ")
+        );
+        return {
+            notification: {
+                kind: "PAYMENT_FAILED",
+                subscription: saved
+            }
+        };
+    }
+
+    return { notification: null };
+}
+
+async function processStripeWebhookEvent(event) {
+    return await withTransaction(async (client) => {
+        const isNewEvent = await markStripeWebhookEventProcessed(client, event);
+        if (!isNewEvent) {
+            return { duplicate: true, notification: null };
+        }
+
+        switch (event.type) {
+            case "checkout.session.completed":
+                return await handleStripeCheckoutSessionCompleted(client, event);
+            case "customer.subscription.created":
+            case "customer.subscription.updated":
+            case "customer.subscription.deleted":
+                return await handleStripeSubscriptionLifecycleEvent(client, event);
+            case "invoice.paid":
+            case "invoice.payment_failed":
+                return await handleStripeInvoiceLifecycleEvent(client, event);
+            default:
+                return { duplicate: false, notification: null };
+        }
+    });
+}
+
+function buildStripeSubscriptionNotificationText(notification) {
+    const subscription = notification?.subscription || {};
+    const label = notification?.kind === "PAYMENT_FAILED" ? "Stripe payment failed" : "New Stripe signup";
+    return [
+        `${label} for ${subscription.companyName || subscription.companyAccountName || subscription.workEmail || "Unknown company"}`,
+        `Plan: ${subscription.planLabel || subscription.planKey || ""}`,
+        `Status: ${subscription.status || ""}`,
+        `Billing Status: ${subscription.billingStatus || ""}`,
+        subscription.fullName ? `Contact: ${subscription.fullName}` : "",
+        subscription.workEmail ? `Work Email: ${subscription.workEmail}` : "",
+        subscription.companyAccountName ? `Company Code: ${subscription.companyAccountName}` : "",
+        subscription.checkoutSessionId ? `Checkout Session: ${subscription.checkoutSessionId}` : "",
+        subscription.stripeSubscriptionId ? `Subscription: ${subscription.stripeSubscriptionId}` : "",
+        subscription.latestInvoiceId ? `Invoice: ${subscription.latestInvoiceId}` : "",
+        subscription.provisioningStatus ? `Provisioning: ${subscription.provisioningStatus}` : ""
+    ].filter(Boolean).join("\n");
+}
+
+function buildStripeSubscriptionNotificationHtml(notification) {
+    const subscription = notification?.subscription || {};
+    const label = notification?.kind === "PAYMENT_FAILED" ? "Stripe payment failed" : "New Stripe signup";
+    const rows = [
+        ["Plan", subscription.planLabel || subscription.planKey || ""],
+        ["Status", subscription.status || ""],
+        ["Billing Status", subscription.billingStatus || ""],
+        ["Company", subscription.companyName || subscription.companyAccountName || ""],
+        ["Contact", subscription.fullName || ""],
+        ["Work Email", subscription.workEmail || ""],
+        ["Provisioning", subscription.provisioningStatus || ""],
+        ["Checkout Session", subscription.checkoutSessionId || ""],
+        ["Subscription", subscription.stripeSubscriptionId || ""],
+        ["Invoice", subscription.latestInvoiceId || ""]
+    ].filter(([, value]) => value);
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.5;">
+            <h2 style="margin:0 0 12px;">${escapeHtml(label)}</h2>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;">
+                ${rows.map(([name, value]) => `
+                    <tr>
+                        <td style="padding:6px 0;font-weight:600;vertical-align:top;width:180px;">${escapeHtml(name)}</td>
+                        <td style="padding:6px 0;">${escapeHtml(value)}</td>
+                    </tr>
+                `).join("")}
+            </table>
+        </div>
+    `;
+}
+
+async function sendStripeSubscriptionNotification(notification) {
+    const recipients = getDemoRequestRecipients();
+    if (!recipients.length || !hasSystemEmailConfig() || !notification?.subscription) {
+        return [];
+    }
+
+    const transporter = getSystemMailer();
+    const subjectPrefix = notification.kind === "PAYMENT_FAILED" ? "WMS365 Stripe payment failed" : "New WMS365 Stripe signup";
+    await transporter.sendMail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: notification.subscription.workEmail || SMTP_REPLY_TO || undefined,
+        subject: `${subjectPrefix} - ${notification.subscription.companyName || notification.subscription.companyAccountName || "Unknown company"}`,
+        text: buildStripeSubscriptionNotificationText(notification),
+        html: buildStripeSubscriptionNotificationHtml(notification)
+    });
+    return recipients;
+}
+
+function normalizeStripeCheckoutPlanKey(value) {
+    const normalized = normalizeText(value || "");
+    if (!normalized) return "";
+    if (normalized === "LAUNCH" || normalized === "CORE" || normalized === "LAUNCHWAREHOUSE") {
+        return "LAUNCH_WAREHOUSE";
+    }
+    if (normalized === "GROWTH" || normalized === "CUSTOMERFACING" || normalized === "CUSTOMERFACINGOPERATION") {
+        return "CUSTOMER_FACING_OPERATION";
+    }
+    return Object.prototype.hasOwnProperty.call(STRIPE_CHECKOUT_PLANS, normalized) ? normalized : "";
+}
+
+function normalizeOriginUrl(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    try {
+        return new URL(text).origin.toLowerCase();
+    } catch {
+        return "";
+    }
+}
+
+function addOriginVariant(origins, value) {
+    const origin = normalizeOriginUrl(value);
+    if (!origin) return;
+    origins.add(origin);
+    try {
+        const url = new URL(origin);
+        if (url.hostname.startsWith("www.")) {
+            url.hostname = url.hostname.slice(4);
+            origins.add(url.origin.toLowerCase());
+        } else if (url.hostname.includes(".")) {
+            url.hostname = `www.${url.hostname}`;
+            origins.add(url.origin.toLowerCase());
+        }
+    } catch {
+        // Ignore invalid alternates after the main origin is accepted.
+    }
+}
+
+function buildPublicApiAllowedOrigins() {
+    const origins = new Set();
+    addOriginVariant(origins, PUBLIC_SITE_URL);
+    String(PUBLIC_SITE_ALLOWED_ORIGINS || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((value) => addOriginVariant(origins, value));
+    return origins;
+}
+
+function getRequestOrigin(req) {
+    const forwardedProto = String(req.get("x-forwarded-proto") || "").split(",")[0].trim();
+    const protocol = forwardedProto || req.protocol || "https";
+    const host = String(req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
+    return host ? `${protocol}://${host}` : "";
+}
+
+function appendVaryHeader(res, value) {
+    const current = String(res.getHeader("Vary") || "").split(",").map((entry) => entry.trim()).filter(Boolean);
+    const normalized = value.toLowerCase();
+    if (current.some((entry) => entry.toLowerCase() === normalized)) {
+        return;
+    }
+    current.push(value);
+    res.setHeader("Vary", current.join(", "));
+}
+
+function applyPublicApiCorsHeaders(req, res) {
+    const requestOrigin = normalizeOriginUrl(req.get("origin") || "");
+    if (!requestOrigin) {
+        return true;
+    }
+    const sameOrigin = requestOrigin === normalizeOriginUrl(getRequestOrigin(req));
+    const allowed = sameOrigin || PUBLIC_API_ALLOWED_ORIGINS.has(requestOrigin);
+    appendVaryHeader(res, "Origin");
+    if (!allowed) {
+        return false;
+    }
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return true;
+}
+
+function getStripeCheckoutPlanByKey(planKey) {
+    const normalizedKey = normalizeStripeCheckoutPlanKey(planKey);
+    return normalizedKey ? STRIPE_CHECKOUT_PLANS[normalizedKey] || null : null;
+}
+
+function getStripeCheckoutPlanSummaries() {
+    return Object.values(STRIPE_CHECKOUT_PLANS).map((plan) => ({
+        key: plan.key,
+        label: plan.label,
+        marketingPriceLabel: plan.marketingPriceLabel || "",
+        selfServe: plan.selfServe === true,
+        enabled: !!Stripe && !!STRIPE_SECRET_KEY && !!plan.priceId
+    }));
+}
+
+function hasStripeCheckoutConfig() {
+    return !!Stripe && !!STRIPE_SECRET_KEY && Object.values(STRIPE_CHECKOUT_PLANS).some((plan) => !!plan.priceId);
+}
+
+function getStripeClient() {
+    if (!Stripe || !STRIPE_SECRET_KEY) {
+        throw httpError(503, "Stripe checkout is not configured yet. Add STRIPE_SECRET_KEY first.");
+    }
+    if (!stripeClient) {
+        stripeClient = new Stripe(STRIPE_SECRET_KEY);
+    }
+    return stripeClient;
+}
+
+function getPublicRequestOrigin(req) {
+    if (PUBLIC_SITE_URL) {
+        return PUBLIC_SITE_URL;
+    }
+    const requestOrigin = getRequestOrigin(req);
+    if (!requestOrigin) {
+        throw httpError(400, "Public site URL is not available for checkout.");
+    }
+    return requestOrigin;
+}
+
+async function createStripeCheckoutSessionForSite(req, input) {
+    const plan = getStripeCheckoutPlanByKey(input?.planKey);
+    if (!plan) {
+        throw httpError(400, "Choose a valid plan for Stripe checkout.");
+    }
+    if (!plan.priceId) {
+        throw httpError(503, `Stripe checkout is not configured for ${plan.label} yet.`);
+    }
+
+    const stripe = getStripeClient();
+    const origin = getPublicRequestOrigin(req);
+    const customerEmail = normalizeEmail(input?.customerEmail || "");
+    const fullName = normalizeFreeText(input?.fullName || "");
+    const companyName = normalizeFreeText(input?.companyName || "");
+    const sourcePage = normalizeFreeText(input?.sourcePage || "");
+    const successUrl = `${origin}${plan.successPath}${plan.successPath.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
+
+    return await stripe.checkout.sessions.create({
+        mode: plan.mode,
+        line_items: [
+            {
+                price: plan.priceId,
+                quantity: 1
+            }
+        ],
+        success_url: successUrl,
+        cancel_url: `${origin}${plan.cancelPath}`,
+        customer_email: customerEmail || undefined,
+        client_reference_id: normalizeFreeText(companyName || fullName || plan.key).slice(0, 200) || undefined,
+        allow_promotion_codes: true,
+        metadata: {
+            planKey: plan.key,
+            planLabel: plan.label,
+            companyName: companyName || "",
+            fullName: fullName || "",
+            sourcePage: sourcePage || ""
+        },
+        subscription_data: {
+            metadata: {
+                planKey: plan.key,
+                planLabel: plan.label,
+                companyName: companyName || "",
+                fullName: fullName || "",
+                sourcePage: sourcePage || ""
+            }
+        }
+    });
 }
 
 async function getPortalShipmentRecipients(client, accountName) {
@@ -8510,7 +10408,25 @@ function isPublicRequest(req) {
     if (!pathName) return false;
     if (pathName === "/api/health") return true;
     if (pathName === "/api/version") return true;
+    if (pathName === "/api/site/demo-request") return true;
+    if (pathName === "/api/site/stripe-config") return true;
+    if (pathName === "/api/site/stripe-checkout-session") return true;
+    if (pathName === "/api/site/stripe-checkout") return true;
+    if (pathName === "/api/site/stripe-webhook") return true;
     if (pathName === "/" || pathName === "/index.html") return true;
+    if (pathName === "/marketing" || pathName === "/marketing.html") return true;
+    if (pathName === "/pricing" || pathName === "/pricing.html") return true;
+    if (pathName === "/industries" || pathName === "/industries.html") return true;
+    if (pathName === "/book-demo" || pathName === "/book-demo.html") return true;
+    if (pathName === "/integrations" || pathName === "/integrations.html") return true;
+    if (pathName === "/implementation" || pathName === "/implementation.html") return true;
+    if (pathName === "/robots.txt" || pathName === "/sitemap.xml") return true;
+    if (pathName === "/marketing-logo.svg") return true;
+    if (pathName === "/hero-warehouse-scene.svg") return true;
+    if (pathName === "/industry-3pl-scene.svg") return true;
+    if (pathName === "/industry-ecommerce-scene.svg") return true;
+    if (pathName === "/industry-lot-control-scene.svg") return true;
+    if (pathName === "/marketing.css" || pathName === "/marketing.js") return true;
     if (pathName === "/login" || pathName === "/login.html") return true;
     if (pathName === "/portal" || pathName === "/portal.html") return true;
     if (pathName === "/favicon.ico") return true;
@@ -8676,3 +10592,5 @@ function delay(ms) {
         setTimeout(resolve, ms);
     });
 }
+
+

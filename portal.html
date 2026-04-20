@@ -188,11 +188,70 @@
             margin-top: 0.35rem;
             font-weight: 700;
         }
+        .feedback-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1200;
+            display: grid;
+            place-items: center;
+            padding: 1rem;
+        }
+        .feedback-modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(18, 39, 66, 0.46);
+            backdrop-filter: blur(4px);
+        }
+        .feedback-modal-dialog {
+            position: relative;
+            z-index: 1;
+            width: min(720px, 100%);
+            border-radius: 26px;
+            border: 1px solid rgba(193, 209, 228, 0.9);
+            background: #ffffff;
+            box-shadow: 0 28px 70px rgba(35, 55, 86, 0.22);
+            padding: 1.15rem;
+        }
+        .feedback-context-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 0.75rem;
+            margin: 1rem 0;
+        }
+        .feedback-context-card {
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: #f7fbff;
+            padding: 0.8rem 0.9rem;
+        }
+        .feedback-context-card span {
+            display: block;
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .feedback-context-card strong {
+            display: block;
+            margin-top: 0.3rem;
+            color: var(--text);
+            word-break: break-word;
+        }
         @media (max-width: 860px) {
             .two-up, .stats, .detail-grid, .form-grid, .line-fields { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
             body { padding: 0.75rem; }
             .auth-wrap { min-height: calc(100dvh - 1.5rem); }
+            .feedback-modal {
+                align-items: end;
+                padding: 0.75rem;
+            }
+            .feedback-modal-dialog {
+                width: 100%;
+                border-radius: 24px 24px 18px 18px;
+                max-height: 88vh;
+                overflow-y: auto;
+            }
         }
     </style>
 </head>
@@ -240,6 +299,7 @@
                     <button class="btn ghost" type="button" data-view="inbound">New Inbound</button>
                     <button class="btn ghost" type="button" data-view="orders">My Orders</button>
                     <button class="btn ghost" type="button" data-view="inbounds">My Inbounds</button>
+                    <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Issue</button>
                     <button class="btn secondary" id="logoutBtn" type="button">Log Out</button>
                 </div>
             </article>
@@ -429,6 +489,56 @@
                     <div class="empty">No orders created yet.</div>
                 </div>
             </section>
+
+            <div id="portalFeedbackModal" class="feedback-modal hidden" aria-hidden="true">
+                <div class="feedback-modal-backdrop" data-portal-feedback-close></div>
+                <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalFeedbackTitle">
+                    <div class="header-copy">
+                        <h2 id="portalFeedbackTitle">Send Feedback</h2>
+                        <p class="lead">Tell us about a bug or request a feature. Your company, portal view, build, and browser details are attached automatically.</p>
+                    </div>
+                    <div class="feedback-context-grid">
+                        <div class="feedback-context-card">
+                            <span>Portal View</span>
+                            <strong id="portalFeedbackView">Inventory</strong>
+                        </div>
+                        <div class="feedback-context-card">
+                            <span>Company</span>
+                            <strong id="portalFeedbackCompany">Not signed in</strong>
+                        </div>
+                        <div class="feedback-context-card">
+                            <span>Build</span>
+                            <strong id="portalFeedbackBuild">Build loading...</strong>
+                        </div>
+                    </div>
+                    <form id="portalFeedbackForm" class="form-grid" autocomplete="off">
+                        <label class="field">
+                            <span>Type</span>
+                            <select id="portalFeedbackType">
+                                <option value="BUG">Bug</option>
+                                <option value="FEATURE">Feature Request</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </label>
+                        <label class="field span-2">
+                            <span>Short Title</span>
+                            <input id="portalFeedbackTitleInput" type="text" maxlength="180" placeholder="Example: Inventory export should include pallet code">
+                        </label>
+                        <label class="field span-2">
+                            <span>Details</span>
+                            <textarea id="portalFeedbackDetails" rows="7" placeholder="Tell us what happened, what you expected, and any steps or examples that will help us review it faster."></textarea>
+                        </label>
+                        <div class="helper span-2">
+                            <div class="meta" id="portalFeedbackMeta">The current page URL and browser details will be sent with this request.</div>
+                        </div>
+                        <div class="button-row span-2">
+                            <button class="btn" type="submit">Submit Feedback</button>
+                            <button class="btn ghost" id="cancelPortalFeedbackBtn" type="button">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="portalFeedbackMessage" class="status" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
         </main>
         <p class="footer"><strong>WMS365 Customer Portal</strong><span class="footer-build" id="portalBuildLabel">Deployment: loading...</span></p>
     </div>
@@ -460,6 +570,7 @@
             loginEmail: document.getElementById("loginEmail"),
             loginPassword: document.getElementById("loginPassword"),
             navButtons: [...document.querySelectorAll("[data-view]")],
+            openPortalFeedbackBtn: document.getElementById("openPortalFeedbackBtn"),
             logoutBtn: document.getElementById("logoutBtn"),
             statSkus: document.getElementById("statSkus"),
             statQty: document.getElementById("statQty"),
@@ -523,7 +634,18 @@
             inboundLines: document.getElementById("inboundLines"),
             resetInboundBtn: document.getElementById("resetInboundBtn"),
             submitInboundBtn: document.getElementById("submitInboundBtn"),
-            inboundsList: document.getElementById("inboundsList")
+            inboundsList: document.getElementById("inboundsList"),
+            portalFeedbackModal: document.getElementById("portalFeedbackModal"),
+            portalFeedbackCloseButtons: [...document.querySelectorAll("[data-portal-feedback-close], #cancelPortalFeedbackBtn")],
+            portalFeedbackForm: document.getElementById("portalFeedbackForm"),
+            portalFeedbackType: document.getElementById("portalFeedbackType"),
+            portalFeedbackTitleInput: document.getElementById("portalFeedbackTitleInput"),
+            portalFeedbackDetails: document.getElementById("portalFeedbackDetails"),
+            portalFeedbackView: document.getElementById("portalFeedbackView"),
+            portalFeedbackCompany: document.getElementById("portalFeedbackCompany"),
+            portalFeedbackBuild: document.getElementById("portalFeedbackBuild"),
+            portalFeedbackMeta: document.getElementById("portalFeedbackMeta"),
+            portalFeedbackMessage: document.getElementById("portalFeedbackMessage")
         };
 
         init();
@@ -572,12 +694,20 @@
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", releaseCurrentOrder);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
+            ui.openPortalFeedbackBtn.addEventListener("click", openPortalFeedbackModal);
+            ui.portalFeedbackCloseButtons.forEach((button) => button.addEventListener("click", closePortalFeedbackModal));
+            ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
             ui.logoutBtn.addEventListener("click", logout);
             ui.ordersList.addEventListener("click", onOrdersListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
             ui.inboundLines.addEventListener("click", onOrderLinesClick);
             ui.orderLines.addEventListener("change", onOrderLinesChange);
             ui.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+            window.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !ui.portalFeedbackModal.classList.contains("hidden")) {
+                    closePortalFeedbackModal();
+                }
+            });
             restoreSession();
         }
 
@@ -585,6 +715,7 @@
             if (!ui.portalBuildLabel) return;
             const safeLabel = String(label || "Build unavailable").trim() || "Build unavailable";
             ui.portalBuildLabel.textContent = `Deployment: ${safeLabel}`;
+            if (ui.portalFeedbackBuild) ui.portalFeedbackBuild.textContent = safeLabel;
         }
 
         async function refreshBuildLabel() {
@@ -613,6 +744,7 @@
             ui.portalView.classList.add("hidden");
             ui.accountChip.classList.add("hidden");
             ui.loginPassword.value = "";
+            closePortalFeedbackModal();
             setMessage("", "info");
         }
 
@@ -622,6 +754,7 @@
             ui.accountChip.classList.remove("hidden");
             ui.accountChip.textContent = portalState.account?.accountName || "";
             applyPortalFeatureAccess();
+            syncPortalFeedbackContext();
         }
 
         async function onLoginSubmit(event) {
@@ -720,6 +853,104 @@
             ui.inboundPanel.classList.toggle("hidden", activeView !== "inbound");
             ui.ordersPanel.classList.toggle("hidden", activeView !== "orders");
             ui.inboundsPanel.classList.toggle("hidden", activeView !== "inbounds");
+            syncPortalFeedbackContext();
+        }
+
+        function resetPortalFeedbackForm({ keepType = true } = {}) {
+            if (!keepType) ui.portalFeedbackType.value = "BUG";
+            ui.portalFeedbackTitleInput.value = "";
+            ui.portalFeedbackDetails.value = "";
+            ui.portalFeedbackMessage.className = "status";
+            ui.portalFeedbackMessage.textContent = "";
+        }
+
+        function getPortalFeedbackViewLabel() {
+            const activeButton = ui.navButtons.find((button) => button.dataset.view === portalState.activeView);
+            return String(activeButton?.textContent || portalState.activeView || "Portal").trim();
+        }
+
+        function buildPortalBrowserInfo() {
+            const locale = [navigator.language, ...(Array.isArray(navigator.languages) ? navigator.languages : [])]
+                .filter(Boolean)
+                .filter((value, index, array) => array.indexOf(value) === index)
+                .join(", ");
+            const viewport = `${Math.round(window.innerWidth || 0)}x${Math.round(window.innerHeight || 0)}`;
+            return [
+                locale ? `Locale ${locale}` : "",
+                viewport !== "0x0" ? `Viewport ${viewport}` : "",
+                navigator.userAgent ? `UA ${navigator.userAgent}` : ""
+            ].filter(Boolean).join(" | ");
+        }
+
+        function syncPortalFeedbackContext() {
+            if (!ui.portalFeedbackView || !ui.portalFeedbackCompany || !ui.portalFeedbackBuild || !ui.portalFeedbackMeta) return;
+            ui.portalFeedbackView.textContent = getPortalFeedbackViewLabel();
+            ui.portalFeedbackCompany.textContent = portalState.account?.accountName || "Not signed in";
+            ui.portalFeedbackBuild.textContent = String(ui.portalBuildLabel?.textContent || "Build unavailable").replace(/^Deployment:\s*/i, "") || "Build unavailable";
+            ui.portalFeedbackMeta.textContent = `Current URL ${window.location.pathname || "/"}${window.location.search || ""} will be attached automatically.`;
+        }
+
+        function openPortalFeedbackModal() {
+            syncPortalFeedbackContext();
+            ui.portalFeedbackModal.classList.remove("hidden");
+            ui.portalFeedbackModal.setAttribute("aria-hidden", "false");
+            if (!ui.portalFeedbackTitleInput.value) ui.portalFeedbackTitleInput.focus();
+            else ui.portalFeedbackDetails.focus();
+        }
+
+        function closePortalFeedbackModal() {
+            ui.portalFeedbackModal.classList.add("hidden");
+            ui.portalFeedbackModal.setAttribute("aria-hidden", "true");
+            resetPortalFeedbackForm();
+        }
+
+        async function submitPortalFeedback(event) {
+            event.preventDefault();
+            const title = String(ui.portalFeedbackTitleInput.value || "").trim();
+            const details = String(ui.portalFeedbackDetails.value || "").trim();
+            if (!title) {
+                ui.portalFeedbackTitleInput.focus();
+                return setPortalFeedbackMessage("Add a short title for this request.", "error");
+            }
+            if (!details) {
+                ui.portalFeedbackDetails.focus();
+                return setPortalFeedbackMessage("Add a few details so the warehouse team can review this request.", "error");
+            }
+
+            const submitButton = event.submitter || ui.portalFeedbackForm.querySelector('[type="submit"]');
+            if (submitButton) submitButton.disabled = true;
+            try {
+                await requestJson("/api/portal/feedback", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        requestType: ui.portalFeedbackType.value || "BUG",
+                        title,
+                        details,
+                        pageName: getPortalFeedbackViewLabel(),
+                        appSection: portalState.activeView,
+                        pageUrl: `${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`,
+                        buildLabel: String(ui.portalBuildLabel?.textContent || "").replace(/^Deployment:\s*/i, ""),
+                        browserInfo: buildPortalBrowserInfo()
+                    })
+                });
+                setPortalFeedbackMessage("Feedback submitted. Thank you.", "success");
+                setMessage("Your feedback was sent to the warehouse team.", "success");
+                window.setTimeout(() => closePortalFeedbackModal(), 700);
+            } catch (error) {
+                setPortalFeedbackMessage(error.message, "error");
+            } finally {
+                if (submitButton) submitButton.disabled = false;
+            }
+        }
+
+        function setPortalFeedbackMessage(text, tone) {
+            if (!text) {
+                ui.portalFeedbackMessage.className = "status";
+                ui.portalFeedbackMessage.textContent = "";
+                return;
+            }
+            ui.portalFeedbackMessage.className = `status show ${tone}`;
+            ui.portalFeedbackMessage.textContent = text;
         }
 
         function renderStats() {
