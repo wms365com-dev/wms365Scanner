@@ -1338,6 +1338,18 @@ app.post("/api/move-location", async (req, res, next) => {
     }
 });
 
+app.post("/api/inventory/bulk-update", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner);
+        const summary = await withTransaction(async (client) => {
+            return saveBulkInventoryWorksheet(client, accountName, req.body?.rows, req.appUser);
+        });
+        res.json({ success: true, summary });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/import", async (req, res, next) => {
     try {
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
@@ -2269,6 +2281,22 @@ function getWarehouseRoutePath(req) {
     return detectWarehouseRouteMode(req) === "mobile" ? "/mobile" : "/desktop";
 }
 
+async function getAppDomainHomePath(req, res) {
+    try {
+        await requireAppSession(req);
+        return "/app";
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+    }
+    try {
+        await requirePortalSession(req);
+        return "/portal";
+    } catch (_error) {
+        clearPortalSessionCookie(res, req);
+    }
+    return "/login";
+}
+
 function sendWarehouseApp(res) {
     res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "index.html"));
@@ -2282,6 +2310,10 @@ function isPublicSiteRequest(req) {
 
 function sendMarketingPage(req, res, fileName) {
     if (!isPublicSiteRequest(req)) {
+        const publicOrigin = normalizeOriginUrl(PUBLIC_SITE_URL);
+        if (publicOrigin) {
+            return res.redirect(`${publicOrigin}${req.path === "/" ? "" : req.path}`);
+        }
         res.setHeader("X-Robots-Tag", "noindex, nofollow");
     }
     res.sendFile(path.join(ROOT_DIR, fileName));
@@ -2294,11 +2326,17 @@ function sendMarketingAsset(res, fileName, contentType) {
     res.sendFile(path.join(ROOT_DIR, fileName));
 }
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
+    if (!isPublicSiteRequest(req)) {
+        return res.redirect(await getAppDomainHomePath(req, res));
+    }
     sendMarketingPage(req, res, "site.html");
 });
 
-app.get("/index.html", (req, res) => {
+app.get("/index.html", async (req, res) => {
+    if (!isPublicSiteRequest(req)) {
+        return res.redirect(await getAppDomainHomePath(req, res));
+    }
     sendMarketingPage(req, res, "site.html");
 });
 
@@ -8937,6 +8975,204 @@ async function setInventoryQuantity(client, lineId, quantity) {
     await client.query("update inventory_lines set quantity = $1, updated_at = now() where id = $2", [quantity, lineId]);
 }
 
+function buildInventoryIdentityKey(entry) {
+    return [
+        normalizeText(entry?.accountName || ""),
+        normalizeText(entry?.location || ""),
+        normalizeText(entry?.sku || ""),
+        normalizeText(entry?.lotNumber || entry?.lot_number || entry?.lot || ""),
+        normalizeDateOnly(entry?.expirationDate || entry?.expiration_date || entry?.expiryDate || entry?.expiry_date || "")
+    ].join("::");
+}
+
+function sanitizeBulkInventoryWorksheetRowInput(line, fallbackAccountName = "") {
+    const id = toPositiveInt(line?.id);
+    const accountName = normalizeText(line?.accountName || line?.owner || line?.vendor || line?.customer || fallbackAccountName);
+    const location = normalizeText(line?.location);
+    const sku = normalizeText(line?.sku);
+    const upc = normalizeText(line?.upc || "");
+    const lotNumber = normalizeText(line?.lotNumber || line?.lot_number || line?.lot || "");
+    const expirationDate = normalizeDateOnly(line?.expirationDate || line?.expiration_date || line?.expiryDate || line?.expiry_date || "");
+    const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
+    const rawQuantity = line?.quantity;
+    const quantity = rawQuantity === "" || rawQuantity == null ? null : toNonNegativeInt(rawQuantity);
+    const isBlank = !id
+        && !location
+        && !sku
+        && !upc
+        && !lotNumber
+        && !expirationDate
+        && (quantity == null || quantity === 0);
+
+    return {
+        id,
+        accountName,
+        location,
+        sku,
+        upc,
+        lotNumber,
+        expirationDate,
+        trackingLevel,
+        quantity,
+        isBlank
+    };
+}
+
+async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser = null) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) {
+        throw httpError(400, "Choose a company before saving bulk inventory changes.");
+    }
+    if (!Array.isArray(rawRows)) {
+        throw httpError(400, "Worksheet rows are required.");
+    }
+
+    const rows = rawRows
+        .map((row) => sanitizeBulkInventoryWorksheetRowInput(row, normalizedAccount))
+        .filter((row) => !row.isBlank);
+
+    if (!rows.length) {
+        return { processed: 0, added: 0, updated: 0, deleted: 0 };
+    }
+
+    const existingResult = await client.query(
+        "select * from inventory_lines where account_name = $1 order by location asc, sku asc, id asc",
+        [normalizedAccount]
+    );
+    const existingById = new Map(existingResult.rows.map((row) => [String(row.id), row]));
+    const finalIdentityMap = new Map();
+
+    rows.forEach((row, index) => {
+        if (row.id) {
+            const existing = existingById.get(String(row.id));
+            if (!existing) {
+                throw httpError(404, `Worksheet row ${index + 1} no longer matches a saved inventory line for ${normalizedAccount}. Refresh and try again.`);
+            }
+        }
+
+        if (row.quantity === 0) {
+            if (!row.id) return;
+            return;
+        }
+
+        if (!row.location || !row.sku || row.quantity == null) {
+            throw httpError(400, `Worksheet row ${index + 1} must include Location, SKU, and Qty.`);
+        }
+
+        const identityKey = buildInventoryIdentityKey({ ...row, accountName: normalizedAccount });
+        if (finalIdentityMap.has(identityKey)) {
+            throw httpError(409, `Worksheet row ${index + 1} duplicates another inventory line with the same location, SKU, lot, and expiration date.`);
+        }
+        finalIdentityMap.set(identityKey, String(row.id || `new-${index}`));
+    });
+
+    let added = 0;
+    let updated = 0;
+    let deleted = 0;
+
+    try {
+        for (const row of rows) {
+            if (row.id) {
+                const existing = existingById.get(String(row.id));
+                if (!existing) {
+                    throw httpError(404, "One of the inventory worksheet rows could not be found anymore. Refresh and try again.");
+                }
+                if (row.quantity === 0) {
+                    await client.query("delete from inventory_lines where id = $1 and account_name = $2", [row.id, normalizedAccount]);
+                    deleted += 1;
+                    continue;
+                }
+            } else if (row.quantity === 0) {
+                continue;
+            }
+
+            await assertLocationCompatibleForOwner(client, normalizedAccount, row.location);
+            await upsertLocationMaster(client, row.location);
+            await upsertItemMaster(client, {
+                accountName: normalizedAccount,
+                sku: row.sku,
+                upc: row.upc,
+                trackingLevel: row.trackingLevel
+            });
+
+            if (row.id) {
+                await client.query(
+                    `
+                        update inventory_lines
+                        set
+                            location = $2,
+                            sku = $3,
+                            upc = $4,
+                            lot_number = $5,
+                            expiration_date = $6,
+                            tracking_level = $7,
+                            quantity = $8,
+                            updated_at = now()
+                        where id = $1
+                          and account_name = $9
+                    `,
+                    [
+                        row.id,
+                        row.location,
+                        row.sku,
+                        row.upc || "",
+                        row.lotNumber || "",
+                        row.expirationDate || "",
+                        row.trackingLevel || "UNIT",
+                        row.quantity,
+                        normalizedAccount
+                    ]
+                );
+                updated += 1;
+            } else {
+                await client.query(
+                    `
+                        insert into inventory_lines (
+                            account_name, location, sku, upc, lot_number, expiration_date, tracking_level, quantity
+                        )
+                        values ($1, $2, $3, $4, $5, $6, $7, $8)
+                    `,
+                    [
+                        normalizedAccount,
+                        row.location,
+                        row.sku,
+                        row.upc || "",
+                        row.lotNumber || "",
+                        row.expirationDate || "",
+                        row.trackingLevel || "UNIT",
+                        row.quantity
+                    ]
+                );
+                added += 1;
+            }
+        }
+    } catch (error) {
+        if (error?.code === "23505") {
+            throw httpError(409, "Bulk inventory save found duplicate location / SKU / lot / expiration rows. Merge duplicates and try again.");
+        }
+        throw error;
+    }
+
+    const processed = added + updated + deleted;
+    if (processed > 0) {
+        const actor = normalizeFreeText(appUser?.full_name || appUser?.email || "");
+        await insertActivity(
+            client,
+            "inventory",
+            `Bulk updated inventory worksheet for ${normalizedAccount}`,
+            [
+                `${processed} row${processed === 1 ? "" : "s"} processed`,
+                added ? `${added} added` : "",
+                updated ? `${updated} updated` : "",
+                deleted ? `${deleted} removed` : "",
+                actor || ""
+            ].filter(Boolean).join(" | ")
+        );
+    }
+
+    return { processed, added, updated, deleted };
+}
+
 async function insertActivity(client, type, title, details) {
     const result = await client.query(
         "insert into activity_log (type, title, details) values ($1, $2, $3) returning *",
@@ -9982,6 +10218,11 @@ function normalizeTrackingLevel(value) {
 function toPositiveInt(value) {
     const parsed = Number.parseInt(String(value), 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function toNonNegativeInt(value) {
+    const parsed = Number.parseInt(String(value), 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function toPositiveNumber(value) {

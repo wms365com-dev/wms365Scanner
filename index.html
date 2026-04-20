@@ -850,6 +850,44 @@
             padding: 0.6rem 0.7rem;
         }
 
+        .inventory-sheet-table {
+            min-width: 1200px;
+        }
+
+        .inventory-sheet-table input[type="text"],
+        .inventory-sheet-table input[type="number"],
+        .inventory-sheet-table input[type="date"],
+        .inventory-sheet-table select {
+            width: 100%;
+            min-width: 0;
+            padding: 0.55rem 0.65rem;
+            border-radius: 10px;
+            border: 1px solid #cfd9e6;
+            background: #ffffff;
+            color: var(--text);
+            font: inherit;
+        }
+
+        .inventory-sheet-table td.sheet-actions {
+            white-space: nowrap;
+            width: 88px;
+        }
+
+        .inventory-sheet-table td.sheet-readonly {
+            white-space: normal;
+            min-width: 180px;
+            color: var(--muted);
+        }
+
+        .inventory-sheet-table tr.marked-delete td {
+            background: rgba(248, 113, 113, 0.09);
+        }
+
+        .inventory-sheet-table tr.marked-delete input,
+        .inventory-sheet-table tr.marked-delete select {
+            opacity: 0.65;
+        }
+
         .billing-rate-toggle {
             width: 18px;
             height: 18px;
@@ -3814,6 +3852,44 @@
                     </div>
                     <p class="lead">Use the Backup tab to move or restore the shared server data when needed.</p>
                 </article>
+
+                <article class="card full-span workspace-sheet-card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Bulk Inventory Worksheet</h2>
+                            <p class="lead">Edit stock like a spreadsheet for the active company. Change locations, SKUs, and quantities in one pass, then save all changes together.</p>
+                        </div>
+                        <span class="meta" id="inventoryWorksheetMeta">Choose an active company</span>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <div class="meta">Bulk edits are locked to the active company in the header so one customer cannot affect another customer's stock. Use Remove on an existing row to delete it.</div>
+                        <div class="inline-actions">
+                            <button class="btn ghost" id="addInventoryWorksheetRowBtn" type="button">Add Row</button>
+                            <button class="btn ghost" id="resetInventoryWorksheetBtn" type="button">Reset Sheet</button>
+                            <button class="btn secondary" id="saveInventoryWorksheetBtn" type="button">Save Bulk Changes</button>
+                        </div>
+                    </div>
+                    <p class="empty" id="inventoryWorksheetEmpty">Choose an active company to open the bulk inventory worksheet.</p>
+                    <div class="table-wrap report-sheet-wrap hidden" id="inventoryWorksheetWrap">
+                        <table class="report-sheet-table inventory-sheet-table">
+                            <thead>
+                                <tr>
+                                    <th>Action</th>
+                                    <th>Location</th>
+                                    <th>SKU</th>
+                                    <th>UPC</th>
+                                    <th>Lot</th>
+                                    <th>Expiration</th>
+                                    <th>Tracking</th>
+                                    <th>Qty</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryWorksheetBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="status" id="inventoryWorksheetMessage"></div>
+                </article>
             </div>
             </div>
         </section>
@@ -5077,6 +5153,14 @@
             inventoryEmpty: document.getElementById("inventoryEmpty"),
             inventoryTableWrap: document.getElementById("inventoryTableWrap"),
             inventoryTableBody: document.getElementById("inventoryTableBody"),
+            inventoryWorksheetMeta: document.getElementById("inventoryWorksheetMeta"),
+            inventoryWorksheetEmpty: document.getElementById("inventoryWorksheetEmpty"),
+            inventoryWorksheetWrap: document.getElementById("inventoryWorksheetWrap"),
+            inventoryWorksheetBody: document.getElementById("inventoryWorksheetBody"),
+            inventoryWorksheetMessage: document.getElementById("inventoryWorksheetMessage"),
+            addInventoryWorksheetRowBtn: document.getElementById("addInventoryWorksheetRowBtn"),
+            resetInventoryWorksheetBtn: document.getElementById("resetInventoryWorksheetBtn"),
+            saveInventoryWorksheetBtn: document.getElementById("saveInventoryWorksheetBtn"),
             reportFilter: document.getElementById("reportFilter"),
             reportMessage: document.getElementById("reportMessage"),
             reportLocationsCount: document.getElementById("reportLocationsCount"),

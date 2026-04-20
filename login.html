@@ -27,8 +27,9 @@
     const form=document.getElementById('loginForm');
     const message=document.getElementById('message');
     const buildLabel=document.getElementById('loginBuildLabel');
+    const warehouseAppEntryPath='/app';
     fetch('/api/version').then(r=>r.ok?r.json():null).then(data=>{ if(buildLabel){ const label=data?.build?.label||'Build unavailable'; buildLabel.textContent=`Deployment: ${label}`; } }).catch(()=>{ if(buildLabel) buildLabel.textContent='Deployment: Build unavailable'; });
-    fetch('/api/app/me').then(r=>r.ok?r.json():null).then(data=>{ if(data&&data.authenticated){ window.location.href='/'; } }).catch(()=>{});
+    fetch('/api/app/me').then(r=>r.ok?r.json():null).then(data=>{ if(data&&data.authenticated){ window.location.href=warehouseAppEntryPath; } }).catch(()=>{});
     form.addEventListener('submit', async (e)=>{
       e.preventDefault();
       message.className='msg';
@@ -40,7 +41,7 @@
         if(!res.ok){ throw new Error(data.error||'Login failed.'); }
         message.className='msg ok';
         message.textContent='Login accepted. Opening warehouse app...';
-        window.location.href='/';
+        window.location.href=warehouseAppEntryPath;
       }catch(err){
         message.className='msg err';
         message.textContent=err.message||'Login failed.';
