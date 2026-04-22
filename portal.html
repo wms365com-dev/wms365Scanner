@@ -104,20 +104,46 @@
             gap: 0.7rem;
         }
         .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.55rem;
             min-height: 48px;
             padding: 0.9rem 1.15rem;
             border-radius: 14px;
             background: var(--brand);
             color: #fff;
             font-weight: 700;
+            transition: opacity 0.18s ease, transform 0.18s ease, filter 0.18s ease;
         }
+        .btn:hover:enabled { filter: brightness(1.03); }
+        .btn:disabled { opacity: 0.68; cursor: not-allowed; }
         .btn.secondary { background: #0f1d2e; }
         .btn.ghost {
             background: #fff;
             color: var(--text);
             border: 1px solid var(--line);
         }
+        .btn.is-busy,
+        .btn[aria-busy="true"] {
+            opacity: 0.92;
+            cursor: progress;
+        }
+        .btn.is-busy::after,
+        .btn[aria-busy="true"]::after {
+            content: "";
+            width: 0.95rem;
+            height: 0.95rem;
+            flex: 0 0 auto;
+            border-radius: 999px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            animation: buttonSpin 0.75s linear infinite;
+        }
         .btn.active { background: var(--brand); color: #fff; border-color: transparent; }
+        @keyframes buttonSpin {
+            to { transform: rotate(360deg); }
+        }
         .stats {
             display: grid;
             gap: 0.85rem;
@@ -761,21 +787,28 @@
             event.preventDefault();
             const email = norm(String(ui.loginEmail.value || "").toLowerCase());
             const password = String(ui.loginPassword.value || "");
+            const submitButton = event.submitter || ui.loginForm.querySelector('[type="submit"]');
 
             if (!email || !password) {
                 return setMessage("Email address and password are required.", "error");
             }
 
             try {
-                const payload = await requestJson("/api/portal/login", {
-                    method: "POST",
-                    body: JSON.stringify({ email, password })
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Signing in...",
+                    progressMessage: "Signing you into the customer portal..."
+                }, async () => {
+                    const payload = await requestJson("/api/portal/login", {
+                        method: "POST",
+                        body: JSON.stringify({ email, password })
+                    });
+                    portalState.account = payload.account;
+                    ui.loginPassword.value = "";
+                    showPortalShell();
+                    await loadPortalData();
+                    setMessage(`Logged in as ${payload.account.accountName}.`, "success");
                 });
-                portalState.account = payload.account;
-                ui.loginPassword.value = "";
-                showPortalShell();
-                await loadPortalData();
-                setMessage(`Logged in as ${payload.account.accountName}.`, "success");
             } catch (error) {
                 setMessage(error.message, "error");
             }
@@ -799,11 +832,18 @@
             showLogin();
         }
 
-        async function exportInventoryReport() {
+        async function exportInventoryReport(event) {
+            const actionButton = resolveActionButton(event, ui.exportInventoryBtn);
             try {
-                const download = await requestFile("/api/portal/inventory/export.csv");
-                downloadBlob(download.blob, download.filename);
-                setMessage("Inventory report downloaded.", "success");
+                await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Exporting...",
+                    progressMessage: "Preparing your inventory export..."
+                }, async () => {
+                    const download = await requestFile("/api/portal/inventory/export.csv");
+                    downloadBlob(download.blob, download.filename);
+                    setMessage("Inventory report downloaded.", "success");
+                });
             } catch (error) {
                 setMessage(error.message, "error");
             }
@@ -918,28 +958,32 @@
             }
 
             const submitButton = event.submitter || ui.portalFeedbackForm.querySelector('[type="submit"]');
-            if (submitButton) submitButton.disabled = true;
             try {
-                await requestJson("/api/portal/feedback", {
-                    method: "POST",
-                    body: JSON.stringify({
-                        requestType: ui.portalFeedbackType.value || "BUG",
-                        title,
-                        details,
-                        pageName: getPortalFeedbackViewLabel(),
-                        appSection: portalState.activeView,
-                        pageUrl: `${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`,
-                        buildLabel: String(ui.portalBuildLabel?.textContent || "").replace(/^Deployment:\s*/i, ""),
-                        browserInfo: buildPortalBrowserInfo()
-                    })
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Submitting...",
+                    progressMessage: "Sending your feedback to the warehouse team...",
+                    onProgress: (text, tone) => setPortalFeedbackMessage(text, tone)
+                }, async () => {
+                    await requestJson("/api/portal/feedback", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            requestType: ui.portalFeedbackType.value || "BUG",
+                            title,
+                            details,
+                            pageName: getPortalFeedbackViewLabel(),
+                            appSection: portalState.activeView,
+                            pageUrl: `${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`,
+                            buildLabel: String(ui.portalBuildLabel?.textContent || "").replace(/^Deployment:\s*/i, ""),
+                            browserInfo: buildPortalBrowserInfo()
+                        })
+                    });
+                    setPortalFeedbackMessage("Feedback submitted. Thank you.", "success");
+                    setMessage("Your feedback was sent to the warehouse team.", "success");
+                    window.setTimeout(() => closePortalFeedbackModal(), 700);
                 });
-                setPortalFeedbackMessage("Feedback submitted. Thank you.", "success");
-                setMessage("Your feedback was sent to the warehouse team.", "success");
-                window.setTimeout(() => closePortalFeedbackModal(), 700);
             } catch (error) {
                 setPortalFeedbackMessage(error.message, "error");
-            } finally {
-                if (submitButton) submitButton.disabled = false;
             }
         }
 
@@ -1054,7 +1098,8 @@
             ui.itemFormMessage.textContent = "";
         }
 
-        async function savePortalItem() {
+        async function savePortalItem(context = null) {
+            const options = context && !(context?.currentTarget instanceof HTMLElement) && !(context instanceof HTMLElement) ? context : {};
             const payload = {
                 sku: ui.itemSku.value.trim(),
                 upc: ui.itemUpc.value.trim(),
@@ -1068,21 +1113,34 @@
                 caseWidth: ui.itemCaseWidth.value,
                 caseHeight: ui.itemCaseHeight.value
             };
+            const actionButton = options.useBusy === false ? null : resolveActionButton(context, ui.saveItemBtn);
 
             try {
-                const response = await requestJson(portalState.editingItemSku ? `/api/portal/items/${encodeURIComponent(portalState.editingItemSku)}` : "/api/portal/items", {
-                    method: portalState.editingItemSku ? "PUT" : "POST",
-                    body: JSON.stringify(payload)
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: portalState.editingItemSku ? "Updating item..." : "Saving item...",
+                    progressMessage: portalState.editingItemSku ? `Updating item ${portalState.editingItemSku}...` : "Saving item...",
+                    onProgress: (text, tone) => {
+                        ui.itemFormMessage.className = `status show ${tone}`;
+                        ui.itemFormMessage.textContent = text;
+                    }
+                }, async () => {
+                    const response = await requestJson(portalState.editingItemSku ? `/api/portal/items/${encodeURIComponent(portalState.editingItemSku)}` : "/api/portal/items", {
+                        method: portalState.editingItemSku ? "PUT" : "POST",
+                        body: JSON.stringify(payload)
+                    });
+                    await loadPortalData();
+                    const savedItem = portalState.catalogItems.find((item) => item.sku === norm(response?.item?.sku || payload.sku)) || sanitizeCatalogItem(response?.item);
+                    resetItemForm(savedItem);
+                    setView("items");
+                    ui.itemFormMessage.className = "status show success";
+                    ui.itemFormMessage.textContent = `Saved item ${savedItem?.sku || payload.sku}.`;
+                    return response;
                 });
-                await loadPortalData();
-                const savedItem = portalState.catalogItems.find((item) => item.sku === norm(response?.item?.sku || payload.sku)) || sanitizeCatalogItem(response?.item);
-                resetItemForm(savedItem);
-                setView("items");
-                ui.itemFormMessage.className = "status show success";
-                ui.itemFormMessage.textContent = `Saved item ${savedItem?.sku || payload.sku}.`;
             } catch (error) {
                 ui.itemFormMessage.className = "status show error";
                 ui.itemFormMessage.textContent = error.message;
+                return null;
             }
         }
 
@@ -1241,20 +1299,27 @@
             };
         }
 
-        async function submitInbound() {
+        async function submitInbound(event) {
             if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)) {
                 return setMessage("Inbound notices are not enabled for your company.", "error");
             }
+            const actionButton = resolveActionButton(event, ui.submitInboundBtn);
             try {
-                const response = await requestJson('/api/portal/inbounds', {
-                    method: 'POST',
-                    body: JSON.stringify(collectInboundForm())
+                await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Submitting inbound...",
+                    progressMessage: "Submitting your inbound notice..."
+                }, async () => {
+                    const response = await requestJson('/api/portal/inbounds', {
+                        method: 'POST',
+                        body: JSON.stringify(collectInboundForm())
+                    });
+                    portalState.inbounds.unshift(sanitizeInbound(response.inbound));
+                    renderInbounds();
+                    resetInboundForm();
+                    setView('inbounds');
+                    setMessage(`Submitted inbound ${response.inbound.inboundCode}.`, 'success');
                 });
-                portalState.inbounds.unshift(sanitizeInbound(response.inbound));
-                renderInbounds();
-                resetInboundForm();
-                setView('inbounds');
-                setMessage(`Submitted inbound ${response.inbound.inboundCode}.`, 'success');
             } catch (error) {
                 setMessage(error.message, 'error');
             }
@@ -1380,42 +1445,68 @@
             };
         }
 
-        async function saveDraftOrder() {
+        async function saveDraftOrder(context = null) {
+            const options = context && !(context?.currentTarget instanceof HTMLElement) && !(context instanceof HTMLElement) ? context : {};
             if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
                 return setMessage("Sales orders are not enabled for your company.", "error");
             }
             const payload = collectOrderPayload();
+            const actionButton = options.useBusy === false ? null : resolveActionButton(context, ui.saveDraftBtn);
             try {
-                const response = await requestJson(portalState.editingOrderId ? `/api/portal/orders/${portalState.editingOrderId}` : "/api/portal/orders", {
-                    method: portalState.editingOrderId ? "PUT" : "POST",
-                    body: JSON.stringify(payload)
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Saving draft...",
+                    progressMessage: options.showProgress === false ? "" : "Saving your draft order..."
+                }, async () => {
+                    const response = await requestJson(portalState.editingOrderId ? `/api/portal/orders/${portalState.editingOrderId}` : "/api/portal/orders", {
+                        method: portalState.editingOrderId ? "PUT" : "POST",
+                        body: JSON.stringify(payload)
+                    });
+                    await loadPortalData();
+                    const savedOrder = portalState.orders.find((order) => order.id === response.order.id) || response.order;
+                    resetOrderForm(savedOrder);
+                    setView("order");
+                    if (options.suppressSuccessMessage !== true) {
+                        setMessage(`Saved draft ${savedOrder.orderCode}.`, "success");
+                    }
+                    return response;
                 });
-                await loadPortalData();
-                const savedOrder = portalState.orders.find((order) => order.id === response.order.id) || response.order;
-                resetOrderForm(savedOrder);
-                setView("order");
-                setMessage(`Saved draft ${savedOrder.orderCode}.`, "success");
             } catch (error) {
                 setMessage(error.message, "error");
+                return null;
             }
         }
 
-        async function releaseCurrentOrder() {
+        async function releaseCurrentOrder(context = null) {
+            const options = context && !(context?.currentTarget instanceof HTMLElement) && !(context instanceof HTMLElement) ? context : {};
             if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
                 return setMessage("Sales orders are not enabled for your company.", "error");
             }
+            const actionButton = options.useBusy === false ? null : resolveActionButton(context, ui.releaseOrderBtn);
             try {
-                if (!portalState.editingOrderId) {
-                    await saveDraftOrder();
-                }
-                if (!portalState.editingOrderId) return;
-                const response = await requestJson(`/api/portal/orders/${portalState.editingOrderId}/release`, { method: "POST" });
-                await loadPortalData();
-                resetOrderForm();
-                setView("orders");
-                setMessage(`Released order ${response.order.orderCode}.`, "success");
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Releasing...",
+                    progressMessage: "Sending your order to the warehouse..."
+                }, async () => {
+                    if (!portalState.editingOrderId) {
+                        const draftResponse = await saveDraftOrder({
+                            useBusy: false,
+                            showProgress: false,
+                            suppressSuccessMessage: true
+                        });
+                        if (!draftResponse || !portalState.editingOrderId) return null;
+                    }
+                    const response = await requestJson(`/api/portal/orders/${portalState.editingOrderId}/release`, { method: "POST" });
+                    await loadPortalData();
+                    resetOrderForm();
+                    setView("orders");
+                    setMessage(`Released order ${response.order.orderCode}.`, "success");
+                    return response;
+                });
             } catch (error) {
                 setMessage(error.message, "error");
+                return null;
             }
         }
 
@@ -1434,10 +1525,16 @@
             const releaseButton = event.target.closest("[data-release-order]");
             if (!releaseButton) return;
             try {
-                const response = await requestJson(`/api/portal/orders/${releaseButton.dataset.releaseOrder}/release`, { method: "POST" });
-                await loadPortalData();
-                setView("orders");
-                setMessage(`Released order ${response.order.orderCode}.`, "success");
+                await runActionWithFeedback({
+                    button: releaseButton,
+                    busyLabel: "Releasing...",
+                    progressMessage: `Sending order ${releaseButton.dataset.releaseOrder || ""} to the warehouse...`
+                }, async () => {
+                    const response = await requestJson(`/api/portal/orders/${releaseButton.dataset.releaseOrder}/release`, { method: "POST" });
+                    await loadPortalData();
+                    setView("orders");
+                    setMessage(`Released order ${response.order.orderCode}.`, "success");
+                });
             } catch (error) {
                 setMessage(error.message, "error");
             }
@@ -1451,6 +1548,57 @@
             }
             ui.portalMessage.className = `status show ${tone}`;
             ui.portalMessage.textContent = text;
+        }
+
+        function isActionButtonElement(value) {
+            return value instanceof HTMLButtonElement
+                || (value instanceof HTMLInputElement && ["button", "submit", "reset"].includes(String(value.type || "").toLowerCase()));
+        }
+
+        function resolveActionButton(source, fallback = null) {
+            if (isActionButtonElement(source?.submitter)) return source.submitter;
+            if (isActionButtonElement(source?.currentTarget)) return source.currentTarget;
+            if (isActionButtonElement(source)) return source;
+            if (isActionButtonElement(source?.button)) return source.button;
+            return isActionButtonElement(fallback) ? fallback : null;
+        }
+
+        function setButtonBusy(button, busy, busyLabel = "Working...") {
+            if (!(button instanceof HTMLElement)) return;
+            if (busy) {
+                if (!("busyOriginalLabel" in button.dataset)) button.dataset.busyOriginalLabel = button.textContent || "";
+                if (!("busyOriginalDisabled" in button.dataset)) button.dataset.busyOriginalDisabled = button.disabled ? "true" : "false";
+                button.disabled = true;
+                button.classList.add("is-busy");
+                button.setAttribute("aria-busy", "true");
+                if (busyLabel) button.textContent = busyLabel;
+                return;
+            }
+
+            if ("busyOriginalLabel" in button.dataset) {
+                button.textContent = button.dataset.busyOriginalLabel || "";
+            }
+            button.disabled = button.dataset.busyOriginalDisabled === "true";
+            button.classList.remove("is-busy");
+            button.removeAttribute("aria-busy");
+            delete button.dataset.busyOriginalLabel;
+            delete button.dataset.busyOriginalDisabled;
+        }
+
+        async function runActionWithFeedback({ button = null, busyLabel = "Working...", progressMessage = "", onProgress = null } = {}, action) {
+            if (button) setButtonBusy(button, true, busyLabel);
+            if (progressMessage) {
+                if (typeof onProgress === "function") {
+                    onProgress(progressMessage, "info");
+                } else {
+                    setMessage(progressMessage, "info");
+                }
+            }
+            try {
+                return await action();
+            } finally {
+                if (button) setButtonBusy(button, false);
+            }
         }
 
         async function requestJson(url, options = {}) {

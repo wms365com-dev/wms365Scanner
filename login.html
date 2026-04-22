@@ -7,7 +7,7 @@
   <style>
     body{font-family:Arial,sans-serif;background:#0f172a;color:#e5e7eb;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:20px}
     .card{width:100%;max-width:420px;background:#111827;border:1px solid #334155;border-radius:16px;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
-    h1{margin:0 0 8px;font-size:28px} p{color:#94a3b8;line-height:1.5} label{display:block;margin:14px 0 6px;font-weight:700} input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #475569;background:#0b1220;color:#fff;box-sizing:border-box} button{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer} .msg{margin-top:14px;font-size:14px;min-height:20px}.err{color:#fca5a5}.ok{color:#86efac}.small{font-size:12px;color:#94a3b8;margin-top:14px}
+    h1{margin:0 0 8px;font-size:28px} p{color:#94a3b8;line-height:1.5} label{display:block;margin:14px 0 6px;font-weight:700} input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #475569;background:#0b1220;color:#fff;box-sizing:border-box} button{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px;transition:opacity .18s ease,filter .18s ease} button:hover:enabled{filter:brightness(1.04)} button:disabled{opacity:.7;cursor:not-allowed} button.is-busy,button[aria-busy="true"]{opacity:.92;cursor:progress} button.is-busy::after,button[aria-busy="true"]::after{content:"";width:14px;height:14px;flex:0 0 auto;border-radius:999px;border:2px solid currentColor;border-right-color:transparent;animation:buttonSpin .75s linear infinite}@keyframes buttonSpin{to{transform:rotate(360deg)}} .msg{margin-top:14px;font-size:14px;min-height:20px}.err{color:#fca5a5}.ok{color:#86efac}.small{font-size:12px;color:#94a3b8;margin-top:14px}
   </style>
 </head>
 <body>
@@ -27,7 +27,33 @@
     const form=document.getElementById('loginForm');
     const message=document.getElementById('message');
     const buildLabel=document.getElementById('loginBuildLabel');
-    const warehouseAppEntryPath='/app';
+    const submitButton=form.querySelector('button[type="submit"]');
+    function setButtonBusy(button,busy,label){
+      if(!button) return;
+      if(busy){
+        if(!button.dataset.busyOriginalLabel) button.dataset.busyOriginalLabel=button.textContent||'';
+        if(!button.dataset.busyOriginalDisabled) button.dataset.busyOriginalDisabled=button.disabled?'true':'false';
+        button.disabled=true;
+        button.classList.add('is-busy');
+        button.setAttribute('aria-busy','true');
+        if(label) button.textContent=label;
+        return;
+      }
+      if('busyOriginalLabel' in button.dataset) button.textContent=button.dataset.busyOriginalLabel||'';
+      button.disabled=button.dataset.busyOriginalDisabled==='true';
+      button.classList.remove('is-busy');
+      button.removeAttribute('aria-busy');
+      delete button.dataset.busyOriginalLabel;
+      delete button.dataset.busyOriginalDisabled;
+    }
+    function sanitizeNextWarehousePath(value){
+      const text=String(value||'').trim();
+      if(!text || !text.startsWith('/') || text.startsWith('//') || text === '/login' || text === '/login.html'){
+        return '/app';
+      }
+      return text;
+    }
+    const warehouseAppEntryPath=sanitizeNextWarehousePath(new URLSearchParams(window.location.search||'').get('next'));
     fetch('/api/version').then(r=>r.ok?r.json():null).then(data=>{ if(buildLabel){ const label=data?.build?.label||'Build unavailable'; buildLabel.textContent=`Deployment: ${label}`; } }).catch(()=>{ if(buildLabel) buildLabel.textContent='Deployment: Build unavailable'; });
     fetch('/api/app/me').then(r=>r.ok?r.json():null).then(data=>{ if(data&&data.authenticated){ window.location.href=warehouseAppEntryPath; } }).catch(()=>{});
     form.addEventListener('submit', async (e)=>{
@@ -36,6 +62,7 @@
       message.textContent='Signing in...';
       const payload={email:form.email.value.trim(), password:form.password.value};
       try{
+        setButtonBusy(submitButton,true,'Signing in...');
         const res=await fetch('/api/app/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const data=await res.json().catch(()=>({}));
         if(!res.ok){ throw new Error(data.error||'Login failed.'); }
@@ -45,6 +72,8 @@
       }catch(err){
         message.className='msg err';
         message.textContent=err.message||'Login failed.';
+      }finally{
+        setButtonBusy(submitButton,false);
       }
     });
   </script>

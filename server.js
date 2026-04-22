@@ -1657,6 +1657,7 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
         const orders = requestedAccount
             ? await getPortalOrdersForAccount(requestedAccount)
             : await getAdminPortalOrders();
+        res.setHeader("Cache-Control", "no-store");
         res.json({ orders });
     } catch (error) {
         next(error);
@@ -2241,7 +2242,7 @@ app.get("/mobile-pick", async (req, res) => {
         res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/mobile-pick"));
     }
 });
 
@@ -2252,7 +2253,7 @@ app.get("/mobile-pick.html", async (req, res) => {
         res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/mobile-pick"));
     }
 });
 
@@ -2279,6 +2280,18 @@ function detectWarehouseRouteMode(req) {
 
 function getWarehouseRoutePath(req) {
     return detectWarehouseRouteMode(req) === "mobile" ? "/mobile" : "/desktop";
+}
+
+function sanitizeInternalAppPath(value, fallbackPath = "/app") {
+    const text = String(value || "").trim();
+    if (!text || !text.startsWith("/") || text.startsWith("//")) return fallbackPath;
+    if (text === "/login" || text === "/login.html") return fallbackPath;
+    return text;
+}
+
+function buildWarehouseLoginRedirect(req, fallbackPath = "/app") {
+    const nextPath = sanitizeInternalAppPath(req.originalUrl || fallbackPath, fallbackPath);
+    return `/login?next=${encodeURIComponent(nextPath)}`;
 }
 
 async function getAppDomainHomePath(req, res) {
@@ -2479,7 +2492,7 @@ app.get("/app", async (req, res) => {
         res.redirect(getWarehouseRoutePath(req));
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/app"));
     }
 });
 
@@ -2489,7 +2502,7 @@ app.get("/app/", async (req, res) => {
         res.redirect(getWarehouseRoutePath(req));
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/app"));
     }
 });
 
@@ -2499,7 +2512,7 @@ app.get("/desktop", async (req, res) => {
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/desktop"));
     }
 });
 
@@ -2509,7 +2522,27 @@ app.get("/desktop/", async (req, res) => {
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/desktop"));
+    }
+});
+
+app.get("/inventory-worksheet", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.redirect("/desktop?section=inventory&target=inventory-worksheet");
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, "/inventory-worksheet"));
+    }
+});
+
+app.get("/inventory-worksheet/", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.redirect("/desktop?section=inventory&target=inventory-worksheet");
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, "/inventory-worksheet"));
     }
 });
 
@@ -2519,7 +2552,7 @@ app.get("/mobile", async (req, res) => {
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/mobile"));
     }
 });
 
@@ -2529,7 +2562,7 @@ app.get("/mobile/", async (req, res) => {
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
-        res.redirect("/login");
+        res.redirect(buildWarehouseLoginRedirect(req, "/mobile"));
     }
 });
 
