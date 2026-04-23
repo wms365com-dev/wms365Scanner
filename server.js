@@ -3254,6 +3254,9 @@ async function initializeDatabase() {
             integration_name text not null default '',
             store_identifier text not null default '',
             access_token text not null default '',
+            auth_client_id text not null default '',
+            auth_client_secret text not null default '',
+            access_token_expires_at timestamptz,
             settings jsonb not null default '{}'::jsonb,
             import_status text not null default 'DRAFT',
             is_active boolean not null default true,
@@ -3273,6 +3276,9 @@ async function initializeDatabase() {
     await pool.query("alter table store_integrations add column if not exists integration_name text not null default ''");
     await pool.query("alter table store_integrations add column if not exists store_identifier text not null default ''");
     await pool.query("alter table store_integrations add column if not exists access_token text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists auth_client_id text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists auth_client_secret text not null default ''");
+    await pool.query("alter table store_integrations add column if not exists access_token_expires_at timestamptz");
     await pool.query("alter table store_integrations add column if not exists settings jsonb not null default '{}'::jsonb");
     await pool.query("alter table store_integrations add column if not exists import_status text not null default 'DRAFT'");
     await pool.query("alter table store_integrations add column if not exists is_active boolean not null default true");
@@ -4674,19 +4680,35 @@ async function saveStoreIntegration(client, rawInput) {
 
     const normalizedName = entry.integrationName || `${describeStoreIntegrationProvider(entry.provider)} ${entry.storeIdentifier}`;
     const accessToken = entry.accessToken || existing?.access_token || "";
+    const authClientId = entry.provider === SHOPIFY_SYNC_PROVIDER
+        ? (entry.authClientId || existing?.auth_client_id || "")
+        : "";
+    const authClientSecret = entry.provider === SHOPIFY_SYNC_PROVIDER
+        ? (entry.authClientSecret || existing?.auth_client_secret || "")
+        : "";
+    const replacingShopifyClientCredentials = entry.provider === SHOPIFY_SYNC_PROVIDER && !!entry.authClientId && !!entry.authClientSecret;
+    const storedAccessToken = replacingShopifyClientCredentials && !entry.accessToken ? "" : accessToken;
+    const accessTokenExpiresAt = entry.provider === SHOPIFY_SYNC_PROVIDER
+        ? (entry.accessToken ? null : (storedAccessToken ? (existing?.access_token_expires_at || null) : null))
+        : null;
     const shouldResetSyncState = !existing
         || existing.provider !== entry.provider
         || existing.store_identifier !== entry.storeIdentifier
         || JSON.stringify(sanitizeStoreIntegrationSettingsInput(existing?.provider || entry.provider, existing?.settings || {}))
             !== JSON.stringify(entry.settings || {})
-        || (entry.accessToken && entry.accessToken !== existing.access_token);
+        || (entry.accessToken && entry.accessToken !== existing.access_token)
+        || (entry.authClientId && entry.authClientId !== existing?.auth_client_id)
+        || (entry.authClientSecret && entry.authClientSecret !== existing?.auth_client_secret);
 
     if (entry.provider === SHOPIFY_SYNC_PROVIDER) {
         if (!entry.storeIdentifier.endsWith(".myshopify.com")) {
             throw httpError(400, "Shopify connections must use the shop's .myshopify.com domain.");
         }
-        if (!accessToken) {
-            throw httpError(400, "A Shopify Admin API access token is required.");
+        if ((entry.authClientId && !entry.authClientSecret) || (!entry.authClientId && entry.authClientSecret)) {
+            throw httpError(400, "Enter both the Shopify client ID and client secret when updating client credentials.");
+        }
+        if (!storedAccessToken && !(authClientId && authClientSecret)) {
+            throw httpError(400, "Enter either a Shopify Admin API access token or the Shopify client credentials.");
         }
     }
     if (entry.provider === SFTP_SYNC_PROVIDER) {
@@ -4725,14 +4747,17 @@ async function saveStoreIntegration(client, rawInput) {
                         integration_name = $4,
                         store_identifier = $5,
                         access_token = $6,
-                        settings = $7,
-                        import_status = $8,
-                        is_active = $9,
-                        sync_schedule = $10,
-                        next_scheduled_sync_at = $11,
-                        last_synced_at = $12,
-                        last_sync_status = $13,
-                        last_sync_message = $14,
+                        access_token_expires_at = $7,
+                        auth_client_id = $8,
+                        auth_client_secret = $9,
+                        settings = $10,
+                        import_status = $11,
+                        is_active = $12,
+                        sync_schedule = $13,
+                        next_scheduled_sync_at = $14,
+                        last_synced_at = $15,
+                        last_sync_status = $16,
+                        last_sync_message = $17,
                         updated_at = now()
                     where id = $1
                     returning *
@@ -4743,7 +4768,10 @@ async function saveStoreIntegration(client, rawInput) {
                     entry.provider,
                     normalizedName,
                     entry.storeIdentifier,
-                    accessToken,
+                    storedAccessToken,
+                    accessTokenExpiresAt,
+                    authClientId,
+                    authClientSecret,
                     entry.settings || {},
                     entry.importStatus,
                     entry.isActive,
@@ -4760,9 +4788,9 @@ async function saveStoreIntegration(client, rawInput) {
                 `
                     insert into store_integrations (
                         account_name, provider, integration_name, store_identifier,
-                        access_token, settings, import_status, is_active, sync_schedule, next_scheduled_sync_at
+                        access_token, access_token_expires_at, auth_client_id, auth_client_secret, settings, import_status, is_active, sync_schedule, next_scheduled_sync_at
                     )
-                    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     returning *
                 `,
                 [
@@ -4770,7 +4798,10 @@ async function saveStoreIntegration(client, rawInput) {
                     entry.provider,
                     normalizedName,
                     entry.storeIdentifier,
-                    accessToken,
+                    storedAccessToken,
+                    accessTokenExpiresAt,
+                    authClientId,
+                    authClientSecret,
                     entry.settings || {},
                     entry.importStatus,
                     entry.isActive,
@@ -5002,17 +5033,114 @@ async function fetchStoreOrdersForIntegration(integrationRow) {
     throw httpError(400, `${describeStoreIntegrationProvider(provider)} order pull is not wired in yet.`);
 }
 
-async function fetchShopifyOrdersForIntegration(integrationRow) {
-    const shopDomain = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, integrationRow.store_identifier);
-    const accessToken = String(integrationRow.access_token || "").trim();
+function integrationHasShopifyClientCredentials(integrationRow) {
+    return !!(
+        String(integrationRow?.auth_client_id || "").trim()
+        && String(integrationRow?.auth_client_secret || "").trim()
+    );
+}
+
+function canReuseIntegrationAccessToken(integrationRow, { minimumMs = 5 * 60 * 1000 } = {}) {
+    const accessToken = String(integrationRow?.access_token || "").trim();
+    if (!accessToken) return false;
+    const expiresAt = integrationRow?.access_token_expires_at ? new Date(integrationRow.access_token_expires_at) : null;
+    if (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime())) {
+        return true;
+    }
+    return expiresAt.getTime() - Date.now() > minimumMs;
+}
+
+async function refreshShopifyAccessTokenForIntegration(integrationRow) {
+    const shopDomain = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, integrationRow?.store_identifier);
+    const clientId = String(integrationRow?.auth_client_id || "").trim();
+    const clientSecret = String(integrationRow?.auth_client_secret || "").trim();
 
     if (!shopDomain || !shopDomain.endsWith(".myshopify.com")) {
         throw httpError(400, "This Shopify connection is missing a valid .myshopify.com domain.");
     }
-    if (!accessToken) {
-        throw httpError(400, "This Shopify connection is missing its Admin API access token.");
+    if (!clientId || !clientSecret) {
+        throw httpError(400, "This Shopify connection is missing its client credentials.");
     }
 
+    const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: clientId,
+            client_secret: clientSecret
+        }).toString(),
+        signal: AbortSignal.timeout(30000)
+    });
+
+    const text = await response.text();
+    let payload = {};
+    try {
+        payload = text ? JSON.parse(text) : {};
+    } catch (_error) {
+        payload = {};
+    }
+
+    if (!response.ok) {
+        const details = payload?.error_description
+            || payload?.error
+            || (payload?.errors ? JSON.stringify(payload.errors) : "")
+            || text
+            || response.statusText
+            || "Shopify token request failed.";
+        throw httpError(response.status === 401 || response.status === 403 ? 401 : 502, `Shopify token request failed: ${details}`);
+    }
+
+    const accessToken = String(payload?.access_token || "").trim();
+    if (!accessToken) {
+        throw httpError(502, "Shopify did not return an Admin API access token.");
+    }
+    const expiresInSeconds = toPositiveInt(payload?.expires_in) || (24 * 60 * 60);
+    const expiresAtIso = new Date(Date.now() + (expiresInSeconds * 1000)).toISOString();
+    const updateResult = await pool.query(
+        `
+            update store_integrations
+            set access_token = $2,
+                access_token_expires_at = $3,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [integrationRow.id, accessToken, expiresAtIso]
+    );
+    return updateResult.rowCount === 1
+        ? updateResult.rows[0]
+        : { ...integrationRow, access_token: accessToken, access_token_expires_at: expiresAtIso };
+}
+
+async function resolveShopifyAccessTokenForIntegration(integrationRow, { forceRefresh = false } = {}) {
+    if (!forceRefresh && canReuseIntegrationAccessToken(integrationRow)) {
+        return {
+            integrationRow,
+            accessToken: String(integrationRow.access_token || "").trim()
+        };
+    }
+    if (integrationHasShopifyClientCredentials(integrationRow)) {
+        const refreshedIntegrationRow = await refreshShopifyAccessTokenForIntegration(integrationRow);
+        return {
+            integrationRow: refreshedIntegrationRow,
+            accessToken: String(refreshedIntegrationRow.access_token || "").trim()
+        };
+    }
+    const accessToken = String(integrationRow?.access_token || "").trim();
+    if (!accessToken) {
+        throw httpError(400, "This Shopify connection is missing both an Admin API access token and client credentials.");
+    }
+    return {
+        integrationRow,
+        accessToken
+    };
+}
+
+async function fetchShopifyOrdersForIntegration(integrationRow) {
     const fields = [
         "id",
         "name",
@@ -5033,49 +5161,76 @@ async function fetchShopifyOrdersForIntegration(integrationRow) {
         "financial_status"
     ].join(",");
 
-    let nextUrl = new URL(`https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/orders.json`);
-    nextUrl.searchParams.set("status", "open");
-    nextUrl.searchParams.set("limit", String(SHOPIFY_ORDER_PAGE_LIMIT));
-    nextUrl.searchParams.set("fields", fields);
+    let forceRefresh = false;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const resolved = await resolveShopifyAccessTokenForIntegration(integrationRow, { forceRefresh });
+        const activeIntegrationRow = resolved.integrationRow || integrationRow;
+        const shopDomain = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, activeIntegrationRow.store_identifier);
+        const accessToken = String(resolved.accessToken || "").trim();
 
-    const collected = [];
-    let pageCount = 0;
-    while (nextUrl) {
-        pageCount += 1;
-        if (pageCount > 8) {
-            break;
+        if (!shopDomain || !shopDomain.endsWith(".myshopify.com")) {
+            throw httpError(400, "This Shopify connection is missing a valid .myshopify.com domain.");
+        }
+        if (!accessToken) {
+            throw httpError(400, "This Shopify connection is missing its Shopify access credential.");
         }
 
-        const response = await fetch(nextUrl, {
-            method: "GET",
-            headers: {
-                Accept: "application/json",
-                "X-Shopify-Access-Token": accessToken
-            },
-            signal: AbortSignal.timeout(30000)
-        });
+        let nextUrl = new URL(`https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/orders.json`);
+        nextUrl.searchParams.set("status", "open");
+        nextUrl.searchParams.set("limit", String(SHOPIFY_ORDER_PAGE_LIMIT));
+        nextUrl.searchParams.set("fields", fields);
 
-        const text = await response.text();
-        let payload = {};
-        try {
-            payload = text ? JSON.parse(text) : {};
-        } catch (_error) {
-            payload = {};
+        const collected = [];
+        let pageCount = 0;
+        let shouldRetryWithFreshToken = false;
+
+        while (nextUrl) {
+            pageCount += 1;
+            if (pageCount > 8) {
+                break;
+            }
+
+            const response = await fetch(nextUrl, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                    "X-Shopify-Access-Token": accessToken
+                },
+                signal: AbortSignal.timeout(30000)
+            });
+
+            const text = await response.text();
+            let payload = {};
+            try {
+                payload = text ? JSON.parse(text) : {};
+            } catch (_error) {
+                payload = {};
+            }
+
+            if (!response.ok) {
+                if ((response.status === 401 || response.status === 403) && integrationHasShopifyClientCredentials(activeIntegrationRow) && !forceRefresh) {
+                    shouldRetryWithFreshToken = true;
+                    break;
+                }
+                const details = payload?.errors
+                    ? (typeof payload.errors === "string" ? payload.errors : JSON.stringify(payload.errors))
+                    : (text || response.statusText || "Shopify request failed.");
+                throw httpError(response.status === 401 || response.status === 403 ? 401 : 502, `Shopify request failed: ${details}`);
+            }
+
+            const orders = Array.isArray(payload?.orders) ? payload.orders : [];
+            collected.push(...orders.filter((order) => !order?.cancelled_at));
+            nextUrl = parseShopifyNextLink(response.headers.get("link"));
         }
 
-        if (!response.ok) {
-            const details = payload?.errors
-                ? (typeof payload.errors === "string" ? payload.errors : JSON.stringify(payload.errors))
-                : (text || response.statusText || "Shopify request failed.");
-            throw httpError(response.status === 401 || response.status === 403 ? 401 : 502, `Shopify request failed: ${details}`);
+        if (!shouldRetryWithFreshToken) {
+            return collected;
         }
-
-        const orders = Array.isArray(payload?.orders) ? payload.orders : [];
-        collected.push(...orders.filter((order) => !order?.cancelled_at));
-        nextUrl = parseShopifyNextLink(response.headers.get("link"));
+        forceRefresh = true;
+        integrationRow = activeIntegrationRow;
     }
 
-    return collected;
+    throw httpError(401, "Shopify access token refresh failed.");
 }
 
 function parseShopifyNextLink(linkHeader) {
@@ -10406,6 +10561,12 @@ function sanitizeStoreIntegrationInput(item) {
             item?.storeIdentifier || item?.store || item?.storeUrl || item?.url || item?.shopDomain || item?.shop_domain
         ),
         accessToken: typeof item?.accessToken === "string" ? item.accessToken.trim() : "",
+        authClientId: provider === SHOPIFY_SYNC_PROVIDER
+            ? normalizeFreeText(item?.authClientId || item?.clientId || item?.client_id || "")
+            : "",
+        authClientSecret: provider === SHOPIFY_SYNC_PROVIDER
+            ? normalizeFreeText(item?.authClientSecret || item?.clientSecret || item?.client_secret || "")
+            : "",
         settings,
         importStatus: STORE_INTEGRATION_IMPORT_STATUSES.includes(normalizeText(item?.importStatus || item?.defaultOrderStatus || "DRAFT"))
             ? normalizeText(item?.importStatus || item?.defaultOrderStatus || "DRAFT")
@@ -10669,6 +10830,9 @@ function mapStoreIntegrationRow(row) {
         nextScheduledSyncAt: row.next_scheduled_sync_at ? new Date(row.next_scheduled_sync_at).toISOString() : null,
         hasAccessToken: !!String(row.access_token || "").trim(),
         accessTokenMasked: maskSecretTail(row.access_token || ""),
+        hasAuthClientCredentials: !!(String(row.auth_client_id || "").trim() && String(row.auth_client_secret || "").trim()),
+        authClientIdMasked: maskSecretTail(row.auth_client_id || ""),
+        accessTokenExpiresAt: row.access_token_expires_at ? new Date(row.access_token_expires_at).toISOString() : null,
         lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : null,
         lastSyncStatus: STORE_INTEGRATION_SYNC_STATUSES.includes(normalizeText(row.last_sync_status || "IDLE"))
             ? normalizeText(row.last_sync_status || "IDLE")

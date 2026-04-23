@@ -3020,7 +3020,7 @@
                             </div>
                             <div class="workspace-command-chips">
                                 <span class="workspace-chip" id="workspaceCompanyChip">All Companies</span>
-                                <span class="workspace-chip subtle" id="workspaceSyncChip">Server Sync: Never</span>
+                                <span class="workspace-chip subtle" id="workspaceSyncChip">Last Refresh: Never</span>
                             </div>
                         </div>
                         <div class="workspace-company-row">
@@ -3066,6 +3066,10 @@
                         <button class="quick-link" type="button" data-jump-section="scan">
                             <strong>Receiving</strong>
                             <span>Stage scans and save the open batch.</span>
+                        </button>
+                        <button class="quick-link" type="button" data-jump-section="inbounds">
+                            <strong>Purchase Orders</strong>
+                            <span>Create warehouse inbounds and review the expected receipt queue.</span>
                         </button>
                         <button class="quick-link" type="button" data-jump-section="search">
                             <strong>Lookup</strong>
@@ -3123,6 +3127,10 @@
                                 <strong>Sales Orders</strong>
                                 <span>Work released orders through pick, stage, and ship.</span>
                             </button>
+                            <button class="action-link" type="button" data-jump-section="inbounds">
+                                <strong>Purchase Orders</strong>
+                                <span>Create expected inbound receipts and review the inbound queue.</span>
+                            </button>
                             <button class="action-link" type="button" data-jump-section="shipped">
                                 <strong>Shipped Orders</strong>
                                 <span>Review completed shipments, tracking, and documents.</span>
@@ -3152,8 +3160,12 @@
                 <span class="tab-meta">Start from the warehouse task you need right now.</span>
             </button>
             <button class="tab" data-section="scan" type="button">
-                <span class="tab-label">Inbound</span>
+                <span class="tab-label">Receiving</span>
                 <span class="tab-meta">Receive stock, stage batches, and save inbound inventory.</span>
+            </button>
+            <button class="tab" data-section="inbounds" type="button">
+                <span class="tab-label">Purchase Orders</span>
+                <span class="tab-meta">Create warehouse inbounds and review expected receipt notices.</span>
             </button>
             <button class="tab" data-section="search" type="button">
                 <span class="tab-label">Inventory</span>
@@ -3248,9 +3260,9 @@
                     <p>High-frequency tasks for receiving and live warehouse control.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="scan"><strong>Receiving</strong><span>Stage inbound inventory and save the batch.</span></button>
+                        <button class="home-task" type="button" data-jump-section="inbounds"><strong>Purchase Orders</strong><span>Create internal inbounds and review the receiving queue.</span></button>
                         <button class="home-task" type="button" data-jump-section="orders"><strong>Picking</strong><span>Open released sales orders, print pick tickets, and work the pick flow.</span></button>
                         <button class="home-task" type="button" data-jump-section="search"><strong>Lookup</strong><span>Find inventory by BIN, SKU, UPC, or list.</span></button>
-                        <button class="home-task" type="button" data-jump-section="actions"><strong>Adjust Inventory</strong><span>Delete, transfer, convert, or move stock.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3859,6 +3871,20 @@
                                     <span id="integrationAccessTokenLabel">API Access Token</span>
                                     <input id="integrationAccessToken" type="password" placeholder="Required for Shopify sync. Leave blank on edit to keep the saved token." enterkeyhint="done">
                                 </label>
+                                <div class="helper span-2" id="integrationShopifyAuthFields">
+                                    <h3>Shopify Client Credentials</h3>
+                                    <p class="meta">Optional alternative to a direct Admin API token. Save the client ID and client secret here and WMS365 will fetch the short-lived Shopify access token automatically during sync.</p>
+                                    <div class="form-grid">
+                                        <label class="field">
+                                            <span>Client ID</span>
+                                            <input id="integrationShopifyClientId" type="text" placeholder="Optional on new connections if you already have an Admin API token" enterkeyhint="next">
+                                        </label>
+                                        <label class="field">
+                                            <span>Client Secret</span>
+                                            <input id="integrationShopifyClientSecret" type="password" placeholder="Leave blank on edit to keep the saved client secret" enterkeyhint="done">
+                                        </label>
+                                    </div>
+                                </div>
                                 <div class="helper span-2 hidden" id="integrationSftpFields">
                                     <h3>SFTP Sync Lanes</h3>
                                     <p class="meta">Leave any folder blank to turn that lane off. Orders and inbounds import from JSON files, and confirmations plus inventory export back as JSON files.</p>
@@ -5416,8 +5442,12 @@
                 meta: "Choose the next warehouse task by workflow: inbound, inventory, orders, setup, billing, or reports."
             },
             scan: {
-                title: "Inbound",
+                title: "Receiving",
                 meta: "Receive stock, stage inbound inventory, and save the open batch to live stock."
+            },
+            inbounds: {
+                title: "Purchase Orders",
+                meta: "Create warehouse inbound notices, enter expected receipt lines, and review the inbound queue by company."
             },
             search: {
                 title: "Inventory",
@@ -5605,6 +5635,9 @@
             integrationStoreIdentifier: document.getElementById("integrationStoreIdentifier"),
             integrationAccessTokenLabel: document.getElementById("integrationAccessTokenLabel"),
             integrationAccessToken: document.getElementById("integrationAccessToken"),
+            integrationShopifyAuthFields: document.getElementById("integrationShopifyAuthFields"),
+            integrationShopifyClientId: document.getElementById("integrationShopifyClientId"),
+            integrationShopifyClientSecret: document.getElementById("integrationShopifyClientSecret"),
             integrationSftpFields: document.getElementById("integrationSftpFields"),
             integrationSftpUsername: document.getElementById("integrationSftpUsername"),
             integrationSftpPort: document.getElementById("integrationSftpPort"),
@@ -5925,8 +5958,23 @@
             mountIntegrationsWorkspace();
             refreshAppBuildLabels().catch(() => {});
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
-            ui.syncNowBtn?.addEventListener("click", () => {
-                syncServerState(true).catch(() => {});
+            ui.syncNowBtn?.addEventListener("click", async () => {
+                const previousSyncLabel = ui.workspaceSyncChip?.textContent || "Last Refresh: Never";
+                if (ui.workspaceSyncChip) {
+                    ui.workspaceSyncChip.textContent = "Last Refresh: Refreshing...";
+                    ui.workspaceSyncChip.title = "Refreshing warehouse data from the server.";
+                }
+                try {
+                    await runActionWithFeedback({
+                        button: ui.syncNowBtn,
+                        busyLabel: "Refreshing..."
+                    }, () => syncServerState(true));
+                } catch (error) {
+                    if (ui.workspaceSyncChip) {
+                        ui.workspaceSyncChip.textContent = previousSyncLabel;
+                        ui.workspaceSyncChip.title = error?.message || "Refresh failed.";
+                    }
+                }
             });
             ["change", "blur"].forEach((eventName) => ui.activeCompany?.addEventListener(eventName, () => setActiveCompany(ui.activeCompany.value, { force: true })));
             ui.activeCompany?.addEventListener("keydown", (event) => {
@@ -6320,6 +6368,10 @@
                 : "";
         }
 
+        function isInboundOrdersSection(section = activeSection) {
+            return String(section || "").trim().toLowerCase() === "inbounds";
+        }
+
         function isShippedOrdersSection(section = activeSection) {
             return String(section || "").trim().toLowerCase() === "shipped";
         }
@@ -6393,6 +6445,19 @@
             }, 120);
         }
 
+        function focusWarehouseInboundWorkspace() {
+            const targetCard = ui.warehouseInboundEntryCard;
+            if (!targetCard) return;
+            window.setTimeout(() => {
+                targetCard.scrollIntoView({ behavior: "smooth", block: "start" });
+                if (!getActiveCompany() && ui.activeCompany && !ui.activeCompany.disabled) {
+                    ui.activeCompany.focus();
+                } else if (ui.warehouseInboundReferenceNumber && !ui.warehouseInboundReferenceNumber.disabled) {
+                    ui.warehouseInboundReferenceNumber.focus();
+                }
+            }, 120);
+        }
+
         function isDesktopMobilePreviewEnabled() {
             return detectedDeviceExperienceMode !== "mobile" && !!state.preferences.desktopMobilePreview;
         }
@@ -6430,7 +6495,9 @@
 
         function syncSectionVisibility(section) {
             const normalizedSection = !isMobileView() && section === "mobile-home" ? "home" : section;
-            const visiblePanelSection = isShippedOrdersSection(normalizedSection) ? "orders" : normalizedSection;
+            const visiblePanelSection = isShippedOrdersSection(normalizedSection)
+                ? "orders"
+                : (isInboundOrdersSection(normalizedSection) ? "scan" : normalizedSection);
             ui.panels.forEach((panel) => {
                 const isActive = panel.dataset.panel === visiblePanelSection;
                 panel.classList.toggle("active", isActive);
@@ -6490,6 +6557,15 @@
             if (section === "scan") {
                 if (!isMobileView()) focusScanStart();
                 else scrollCurrentViewTop();
+            }
+            if (section === "inbounds") {
+                if (isMobileView()) {
+                    scrollCurrentViewTop();
+                    focusWarehouseInboundWorkspace();
+                } else {
+                    focusWarehouseInboundWorkspace();
+                }
+                refreshPortalInboundsList(true).catch(() => {});
             }
             if (section === "search") {
                 if (isMobileView()) {
@@ -7357,7 +7433,8 @@
         function updateWorkspaceCommandBar() {
             const definition = DESKTOP_SECTION_META[activeSection] || DESKTOP_SECTION_META.scan;
             const company = getActiveCompany();
-            const syncStamp = state.meta.lastChangedAt || state.meta.serverSyncedAt || state.meta.localCacheAt || "";
+            const refreshStamp = state.meta.serverSyncedAt || state.meta.localCacheAt || state.meta.lastChangedAt || "";
+            const lastChangedStamp = state.meta.lastChangedAt || "";
             if (ui.workspaceSectionTitle) {
                 ui.workspaceSectionTitle.textContent = definition.title;
             }
@@ -7368,7 +7445,10 @@
                 ui.workspaceCompanyChip.textContent = company ? `Company: ${company}` : "Choose a company";
             }
             if (ui.workspaceSyncChip) {
-                ui.workspaceSyncChip.textContent = syncStamp ? `Server Sync: ${formatDate(syncStamp)}` : "Server Sync: Not yet synced";
+                ui.workspaceSyncChip.textContent = refreshStamp ? `Last Refresh: ${formatPreciseDate(refreshStamp)}` : "Last Refresh: Not yet synced";
+                ui.workspaceSyncChip.title = lastChangedStamp
+                    ? `Latest server data change: ${formatDate(lastChangedStamp)}`
+                    : "Shows the last successful refresh from the server.";
             }
         }
 
@@ -10880,6 +10960,8 @@
             const integrationName = String(ui.integrationName.value || "").trim();
             const storeIdentifier = String(ui.integrationStoreIdentifier.value || "").trim();
             const accessToken = String(ui.integrationAccessToken.value || "");
+            const authClientId = String(ui.integrationShopifyClientId?.value || "").trim();
+            const authClientSecret = String(ui.integrationShopifyClientSecret?.value || "").trim();
             const settings = buildIntegrationSettingsPayload(provider);
             const syncSchedule = integrationScheduleValue(ui.integrationSchedule.value || "MANUAL");
             const importStatus = norm(ui.integrationImportStatus.value || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT";
@@ -10902,6 +10984,12 @@
             }
             if (!storeIdentifier) {
                 return fail(ui.integrationMessage, provider === "SFTP" ? "Enter the SFTP host name for this connection." : "Enter the store URL or domain for this connection.", ui.integrationStoreIdentifier);
+            }
+            if (provider === "SHOPIFY" && ((authClientId && !authClientSecret) || (!authClientId && authClientSecret))) {
+                return fail(ui.integrationMessage, "Enter both the Shopify client ID and client secret when saving client credentials.", authClientId ? ui.integrationShopifyClientSecret : ui.integrationShopifyClientId);
+            }
+            if (provider === "SHOPIFY" && !integrationId && !accessToken && !(authClientId && authClientSecret)) {
+                return fail(ui.integrationMessage, "Enter either a Shopify Admin API access token or the Shopify client credentials for this connection.", ui.integrationAccessToken);
             }
             if (provider === "SFTP") {
                 if (!settings.username) {
@@ -10929,6 +11017,8 @@
                             integrationName,
                             storeIdentifier,
                             accessToken,
+                            authClientId,
+                            authClientSecret,
                             settings,
                             syncSchedule,
                             importStatus,
@@ -10943,7 +11033,7 @@
                     if (saved) loadStoreIntegrationIntoForm(saved);
                     showMessage(
                         ui.integrationMessage,
-                        `${response?.wasCreated ? "Saved" : "Updated"} ${integrationProviderLabel(provider)} connection for ${accountName}.`,
+                        `${response?.wasCreated ? "Saved" : "Updated"} ${integrationProviderLabel(provider)} connection for ${accountName}.${provider === "SHOPIFY" && (authClientId || saved?.hasAuthClientCredentials) ? " Client credentials are ready for automatic token refresh." : ""}`,
                         "success"
                     );
                 });
@@ -11013,7 +11103,12 @@
                             <strong>${esc(entry.integrationName || `${integrationProviderLabel(entry.provider)} ${entry.storeIdentifier}`)}</strong>
                             <div class="quick-meta">${esc(entry.accountName)} | ${esc(integrationProviderLabel(entry.provider))} | ${esc(entry.storeIdentifier)}</div>
                             <div class="quick-meta">
-                                ${entry.isActive ? "Connection active" : "Connection disabled"} | Orders import as ${esc(entry.importStatus)} | ${entry.hasAccessToken ? `Credential ${esc(entry.accessTokenMasked)}` : "No credential saved"}
+                                ${entry.isActive ? "Connection active" : "Connection disabled"} | Orders import as ${esc(entry.importStatus)} | ${entry.provider === "SHOPIFY"
+                                    ? [
+                                        entry.hasAccessToken ? `Token ${esc(entry.accessTokenMasked)}` : "",
+                                        entry.hasAuthClientCredentials ? `Client credentials ${esc(entry.authClientIdMasked || "saved")}` : ""
+                                    ].filter(Boolean).join(" | ") || "No credential saved"
+                                    : (entry.hasAccessToken ? `Credential ${esc(entry.accessTokenMasked)}` : "No credential saved")}
                             </div>
                             ${laneText ? `<div class="quick-meta">${esc(laneText)}</div>` : ""}
                             <div class="quick-meta">${esc(scheduleText)}</div>
@@ -11036,6 +11131,8 @@
             ui.integrationName.value = "";
             ui.integrationStoreIdentifier.value = "";
             ui.integrationAccessToken.value = "";
+            if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.value = "";
+            if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.value = "";
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = "";
             if (ui.integrationSftpPort) ui.integrationSftpPort.value = "22";
             if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = "";
@@ -11062,6 +11159,8 @@
             ui.integrationName.value = entry.integrationName || "";
             ui.integrationStoreIdentifier.value = entry.storeIdentifier || "";
             ui.integrationAccessToken.value = "";
+            if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.value = "";
+            if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.value = "";
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = entry.settings?.username || "";
             if (ui.integrationSftpPort) ui.integrationSftpPort.value = String(entry.settings?.port || 22);
             if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = entry.settings?.ordersFolder || "";
@@ -11075,7 +11174,11 @@
             ui.integrationActive.value = entry.isActive === false ? "false" : "true";
             updateIntegrationCompanyMeta();
             updateIntegrationProviderNote();
-            ui.integrationAccessToken.focus();
+            if (entry.provider === "SHOPIFY" && ui.integrationShopifyClientId) {
+                ui.integrationShopifyClientId.focus();
+            } else {
+                ui.integrationAccessToken.focus();
+            }
         }
 
         function updateIntegrationCompanyMeta() {
@@ -11139,12 +11242,16 @@
             if (!ui.integrationProviderNote) return;
             const company = getActiveCompany();
             const provider = norm(ui.integrationProvider?.value || "SHOPIFY");
+            const currentRecord = integrationRecords.find((entry) => entry.id === String(ui.integrationId?.value || "").trim());
             const supportsSync = integrationSupportsSync(provider);
             const supportsAutoSync = integrationSupportsAutoSync(provider);
             const featureLocked = company && !companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
             const providerLocked = company && ((provider === "SHOPIFY" && !companyHasFeature(company, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION)) || (provider === "SFTP" && !companyHasFeature(company, COMPANY_FEATURE_KEYS.SFTP_INTEGRATION)));
             if (ui.integrationSftpFields) {
                 ui.integrationSftpFields.classList.toggle("hidden", provider !== "SFTP");
+            }
+            if (ui.integrationShopifyAuthFields) {
+                ui.integrationShopifyAuthFields.classList.toggle("hidden", provider !== "SHOPIFY");
             }
             if (ui.integrationStoreIdentifierLabel) {
                 ui.integrationStoreIdentifierLabel.textContent = provider === "SFTP" ? "SFTP Host" : "Store URL / Domain";
@@ -11153,10 +11260,10 @@
                 ? "Example: your-store.myshopify.com"
                 : (provider === "SFTP" ? "Example: sftp.customer.com" : "Example: store URL, seller id, or platform domain");
             if (ui.integrationAccessTokenLabel) {
-                ui.integrationAccessTokenLabel.textContent = provider === "SFTP" ? "SFTP Password" : "API Access Token";
+                ui.integrationAccessTokenLabel.textContent = provider === "SFTP" ? "SFTP Password" : (provider === "SHOPIFY" ? "Admin API Access Token" : "API Access Token");
             }
             ui.integrationAccessToken.placeholder = provider === "SHOPIFY"
-                ? "Required for Shopify sync. Leave blank on edit to keep the saved token."
+                ? "Optional if you are saving Shopify client credentials. Leave blank on edit to keep the saved token."
                 : (provider === "SFTP"
                     ? "Required SFTP password. Leave blank on edit to keep the saved password."
                     : "Optional for now. Leave blank on edit to keep the saved token.");
@@ -11171,6 +11278,8 @@
             ui.integrationName.disabled = featureLocked;
             ui.integrationStoreIdentifier.disabled = featureLocked || providerLocked;
             ui.integrationAccessToken.disabled = featureLocked || providerLocked;
+            if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.disabled = featureLocked || providerLocked || provider !== "SHOPIFY";
+            if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.disabled = featureLocked || providerLocked || provider !== "SHOPIFY";
             ui.integrationImportStatus.disabled = featureLocked;
             ui.integrationActive.disabled = featureLocked;
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.disabled = featureLocked || providerLocked;
@@ -11182,7 +11291,7 @@
             if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.disabled = featureLocked || providerLocked;
             if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.disabled = featureLocked || providerLocked;
             ui.integrationProviderNote.innerHTML = provider === "SHOPIFY"
-                ? 'Use the Shopify shop\'s <strong>.myshopify.com</strong> domain plus an Admin API access token with <strong>read_orders</strong>. Run Sync only imports new open store orders for the selected customer, and Auto Pull Schedule keeps the sync scoped to that same company.'
+                ? `Use the Shopify shop's <strong>.myshopify.com</strong> domain with either a direct <strong>Admin API access token</strong> or the app's <strong>client ID + client secret</strong>. When client credentials are saved, WMS365 will fetch the short-lived Shopify access token automatically during sync.${currentRecord?.hasAuthClientCredentials ? ` Saved client credentials are already on file${currentRecord.authClientIdMasked ? ` (${esc(currentRecord.authClientIdMasked)})` : ""}. Enter a new pair only when you want to replace them.` : ""} Run Sync only imports new open store orders for the selected customer, and Auto Pull Schedule keeps the sync scoped to that same company.`
                 : (provider === "SFTP"
                     ? 'SFTP uses the saved <strong>host, username, password, and folders</strong> under the active company. Order and inbound folders are pulled in as JSON files, and shipped confirmations, receipt confirmations, and inventory snapshots are pushed back as JSON files to the folders you set here.'
                     : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify and SFTP first, and this provider is staged for the next pass.`);
@@ -14601,6 +14710,11 @@
                 isActive: item?.isActive !== false,
                 hasAccessToken: item?.hasAccessToken === true || !!String(item?.accessTokenMasked || "").trim(),
                 accessTokenMasked: String(item?.accessTokenMasked || item?.access_token_masked || "").trim(),
+                hasAuthClientCredentials: item?.hasAuthClientCredentials === true || item?.has_auth_client_credentials === true,
+                authClientIdMasked: String(item?.authClientIdMasked || item?.auth_client_id_masked || "").trim(),
+                accessTokenExpiresAt: typeof item?.accessTokenExpiresAt === "string"
+                    ? item.accessTokenExpiresAt
+                    : (typeof item?.access_token_expires_at === "string" ? item.access_token_expires_at : null),
                 lastSyncedAt: typeof item?.lastSyncedAt === "string" ? item.lastSyncedAt : (typeof item?.last_synced_at === "string" ? item.last_synced_at : null),
                 lastSyncStatus: norm(item?.lastSyncStatus || item?.last_sync_status || "IDLE") || "IDLE",
                 lastSyncMessage: String(item?.lastSyncMessage || item?.last_sync_message || "").trim(),
@@ -15176,6 +15290,14 @@
         function formatDate(value) {
             try {
                 return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+            } catch {
+                return value || "";
+            }
+        }
+
+        function formatPreciseDate(value) {
+            try {
+                return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value));
             } catch {
                 return value || "";
             }
