@@ -3228,10 +3228,6 @@
                             <span class="menu-card-title">Pallets</span>
                             <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
                         </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-nav="integrations">
-                            <span class="menu-card-title">Integrations</span>
-                            <span class="menu-card-meta">Open Shopify and storefront connections for customer order imports.</span>
-                        </button>
                         <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-pick">
                             <span class="menu-card-title">Picking</span>
                             <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order on mobile.</span>
@@ -4936,6 +4932,87 @@
                     </div>
                 </article>
 
+                <article class="card span-2" id="warehouseUserAdminCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Warehouse Users</h2>
+                            <p class="lead">Create warehouse logins, assign the companies each worker can operate in, and keep super users separate from company-scoped users.</p>
+                        </div>
+                        <span class="meta" id="warehouseUserSummaryCount">0 users</span>
+                    </div>
+                    <div class="helper" id="warehouseUserAccessGate">
+                        Super user access is required to manage warehouse users.
+                    </div>
+                    <div id="warehouseUserDashboard" class="hidden">
+                        <div class="action-grid" style="margin-top: 1rem; grid-template-columns: minmax(340px, 1.05fr) minmax(280px, 0.95fr);">
+                            <div class="helper">
+                                <div class="list-head">
+                                    <div>
+                                        <h3 id="warehouseUserTitle">New Warehouse User</h3>
+                                        <p class="meta" id="warehouseUserMeta">Create the login first, then assign the companies that worker should be able to open.</p>
+                                    </div>
+                                </div>
+                                <form id="warehouseUserForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
+                                    <input id="warehouseUserId" type="hidden">
+                                    <label class="field">
+                                        <span>Full Name</span>
+                                        <input id="warehouseUserFullName" type="text" placeholder="Required">
+                                    </label>
+                                    <label class="field">
+                                        <span>Email</span>
+                                        <input id="warehouseUserEmail" type="email" placeholder="Required">
+                                    </label>
+                                    <label class="field">
+                                        <span>Password</span>
+                                        <input id="warehouseUserPassword" type="password" placeholder="Required for new users">
+                                    </label>
+                                    <label class="field">
+                                        <span>Role</span>
+                                        <select id="warehouseUserRole">
+                                            <option value="WAREHOUSE_WORKER">Warehouse Worker</option>
+                                            <option value="SUPER_ADMIN">Super User</option>
+                                        </select>
+                                    </label>
+                                    <label class="field">
+                                        <span>Status</span>
+                                        <select id="warehouseUserActive">
+                                            <option value="true">Active</option>
+                                            <option value="false">Disabled</option>
+                                        </select>
+                                    </label>
+                                    <div class="helper span-2">
+                                        <div class="list-head" style="margin-bottom: 0.5rem;">
+                                            <div>
+                                                <h3 style="margin: 0;">Assigned Companies</h3>
+                                                <p class="meta" id="warehouseUserAssignedMeta">Workers only see and operate in the companies checked here. Super users keep full access.</p>
+                                            </div>
+                                        </div>
+                                        <div id="warehouseUserAssignedCompanies" class="feature-flag-grid">
+                                            <p class="empty">Save a few companies first, then assign them to warehouse workers here.</p>
+                                        </div>
+                                    </div>
+                                    <div class="button-row span-2">
+                                        <button class="btn" id="saveWarehouseUserBtn" type="submit">Save Warehouse User</button>
+                                        <button class="btn ghost" id="resetWarehouseUserBtn" type="button">New User</button>
+                                    </div>
+                                </form>
+                                <div class="status" id="warehouseUserMessage"></div>
+                            </div>
+                            <div class="helper">
+                                <div class="list-head">
+                                    <div>
+                                        <h3>Saved Warehouse Users</h3>
+                                        <p class="meta">Use Manage to reload a user, update their password, or change their assigned companies.</p>
+                                    </div>
+                                </div>
+                                <div id="warehouseUserList" class="stack-list" style="margin-top: 1rem;">
+                                    <p class="empty">No warehouse users saved yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
                 <article class="card span-2" id="feedbackAdminCard">
                     <div class="card-head">
                         <div>
@@ -5313,6 +5390,7 @@
         const state = loadState();
         let labelToolState = loadLabelToolState();
         let activeSection = "home";
+        const mobileSectionHistory = [];
         let searchMode = "sku";
         let activeSearchSubview = "menu";
         let activeActionSubview = "menu";
@@ -5328,6 +5406,8 @@
         let editingWarehouseOrderId = "";
         let companyFeatureDraftCompany = "";
         let companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
+        let editingWarehouseUserId = "";
+        let warehouseUserAssignedCompaniesDraft = [];
         const billingRateDrafts = new Map();
         let syncTimer = null;
         const DESKTOP_SECTION_META = {
@@ -5722,6 +5802,25 @@
             summaryUnits: document.getElementById("summaryUnits"),
             summarySaved: document.getElementById("summarySaved"),
             backupMessage: document.getElementById("backupMessage"),
+            warehouseUserAdminCard: document.getElementById("warehouseUserAdminCard"),
+            warehouseUserAccessGate: document.getElementById("warehouseUserAccessGate"),
+            warehouseUserDashboard: document.getElementById("warehouseUserDashboard"),
+            warehouseUserTitle: document.getElementById("warehouseUserTitle"),
+            warehouseUserMeta: document.getElementById("warehouseUserMeta"),
+            warehouseUserForm: document.getElementById("warehouseUserForm"),
+            warehouseUserId: document.getElementById("warehouseUserId"),
+            warehouseUserFullName: document.getElementById("warehouseUserFullName"),
+            warehouseUserEmail: document.getElementById("warehouseUserEmail"),
+            warehouseUserPassword: document.getElementById("warehouseUserPassword"),
+            warehouseUserRole: document.getElementById("warehouseUserRole"),
+            warehouseUserActive: document.getElementById("warehouseUserActive"),
+            warehouseUserAssignedMeta: document.getElementById("warehouseUserAssignedMeta"),
+            warehouseUserAssignedCompanies: document.getElementById("warehouseUserAssignedCompanies"),
+            saveWarehouseUserBtn: document.getElementById("saveWarehouseUserBtn"),
+            resetWarehouseUserBtn: document.getElementById("resetWarehouseUserBtn"),
+            warehouseUserMessage: document.getElementById("warehouseUserMessage"),
+            warehouseUserList: document.getElementById("warehouseUserList"),
+            warehouseUserSummaryCount: document.getElementById("warehouseUserSummaryCount"),
             companyFeatureAdminCard: document.getElementById("companyFeatureAdminCard"),
             companyFeatureAccessGate: document.getElementById("companyFeatureAccessGate"),
             companyFeatureDashboard: document.getElementById("companyFeatureDashboard"),
@@ -5873,7 +5972,7 @@
                     window.location.href = target;
                 }
             }));
-            ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => setSection("mobile-home")));
+            ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => goBackMobileSection()));
             ui.mobileSectionBackButtons.forEach((button) => button.addEventListener("click", () => handleMobileSectionBack(button.dataset.mobileSectionBack)));
             ui.mobileSubviewButtons.forEach((button) => button.addEventListener("click", () => {
                 const group = button.dataset.mobileSubviewBtnGroup;
@@ -6057,6 +6156,11 @@
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
+            ui.warehouseUserForm?.addEventListener("submit", saveWarehouseUser);
+            ui.resetWarehouseUserBtn?.addEventListener("click", resetWarehouseUserForm);
+            ui.warehouseUserRole?.addEventListener("change", renderWarehouseUserDashboard);
+            ui.warehouseUserAssignedCompanies?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
+            ui.warehouseUserList?.addEventListener("click", onWarehouseUserListClick);
             ui.companyFeatureForm?.addEventListener("submit", saveCompanyFeatures);
             ui.resetCompanyFeaturesBtn?.addEventListener("click", resetCompanyFeatureDraft);
             ui.companyFeatureChecklist?.addEventListener("change", onCompanyFeatureChecklistChange);
@@ -6342,12 +6446,43 @@
             return normalizedSection;
         }
 
-        function setSection(section) {
+        function getLastMobileHistorySection() {
+            for (let index = mobileSectionHistory.length - 1; index >= 0; index -= 1) {
+                const candidate = String(mobileSectionHistory[index] || "").trim();
+                if (candidate && candidate !== activeSection) return candidate;
+            }
+            return "";
+        }
+
+        function popMobileHistorySection() {
+            while (mobileSectionHistory.length) {
+                const candidate = String(mobileSectionHistory.pop() || "").trim();
+                if (candidate && candidate !== activeSection) return candidate;
+            }
+            return "";
+        }
+
+        function goBackMobileSection(fallback = "mobile-home") {
+            const target = popMobileHistorySection() || fallback;
+            setSection(target, { recordHistory: false });
+        }
+
+        function setSection(section, options = {}) {
+            const { recordHistory = true } = options;
             hideMobileAutocomplete();
+            const previousSection = activeSection;
+            if (isMobileView() && section === "integrations") {
+                section = "mobile-home";
+            }
             section = syncSectionVisibility(section);
+            if (isMobileView() && recordHistory && previousSection && previousSection !== section && previousSection !== "home") {
+                mobileSectionHistory.push(previousSection);
+                if (mobileSectionHistory.length > 24) mobileSectionHistory.splice(0, mobileSectionHistory.length - 24);
+            }
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             syncPortalOrdersSectionUi(section);
+            updateMobileBackButtons();
             if (section === "mobile-home") {
                 scrollCurrentViewTop();
                 return;
@@ -6395,6 +6530,9 @@
         function handleViewportChange() {
             hideMobileAutocomplete();
             applyDeviceExperienceMode();
+            if (!isMobileView()) {
+                mobileSectionHistory.length = 0;
+            }
             updateActiveCompanyUi();
             if (!isMobileView() && activeSection === "mobile-home") {
                 setSection("home");
@@ -6560,6 +6698,206 @@
                 default:
                     return `${companyLabel} does not have this feature enabled.`;
             }
+        }
+
+        function getWarehouseUserRecords() {
+            return [...(state.admin?.appUsers || [])].sort((a, b) => {
+                if (a.role !== b.role) return a.role.localeCompare(b.role);
+                return (a.fullName || a.email).localeCompare(b.fullName || b.email);
+            });
+        }
+
+        function warehouseUserRoleLabel(role) {
+            return norm(role) === "SUPER_ADMIN" ? "Super User" : "Warehouse Worker";
+        }
+
+        function syncWarehouseUserAssignedDraftFromUi() {
+            warehouseUserAssignedCompaniesDraft = [...(ui.warehouseUserAssignedCompanies?.querySelectorAll("[data-warehouse-user-company-input]:checked") || [])]
+                .map((input) => norm(input.value))
+                .filter(Boolean);
+        }
+
+        function resetWarehouseUserForm() {
+            editingWarehouseUserId = "";
+            warehouseUserAssignedCompaniesDraft = [];
+            if (ui.warehouseUserId) ui.warehouseUserId.value = "";
+            if (ui.warehouseUserFullName) ui.warehouseUserFullName.value = "";
+            if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = "";
+            if (ui.warehouseUserPassword) ui.warehouseUserPassword.value = "";
+            if (ui.warehouseUserRole) ui.warehouseUserRole.value = "WAREHOUSE_WORKER";
+            if (ui.warehouseUserActive) ui.warehouseUserActive.value = "true";
+            if (ui.warehouseUserMessage) {
+                ui.warehouseUserMessage.textContent = "";
+                ui.warehouseUserMessage.className = "status";
+            }
+            renderWarehouseUserDashboard();
+        }
+
+        function loadWarehouseUserForm(user) {
+            if (!user) return;
+            editingWarehouseUserId = String(user.id || "");
+            warehouseUserAssignedCompaniesDraft = [...(user.assignedCompanies || [])];
+            if (ui.warehouseUserId) ui.warehouseUserId.value = editingWarehouseUserId;
+            if (ui.warehouseUserFullName) ui.warehouseUserFullName.value = user.fullName || "";
+            if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = user.email || "";
+            if (ui.warehouseUserPassword) ui.warehouseUserPassword.value = "";
+            if (ui.warehouseUserRole) ui.warehouseUserRole.value = norm(user.role) === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
+            if (ui.warehouseUserActive) ui.warehouseUserActive.value = user.isActive !== false ? "true" : "false";
+            renderWarehouseUserDashboard();
+        }
+
+        function renderWarehouseUserDashboard() {
+            if (!ui.warehouseUserSummaryCount || !ui.warehouseUserList) return;
+            const users = getWarehouseUserRecords();
+            ui.warehouseUserSummaryCount.textContent = `${num(users.length)} user${users.length === 1 ? "" : "s"}`;
+
+            if (!currentUserIsSuperAdmin()) {
+                ui.warehouseUserAccessGate?.classList.remove("hidden");
+                ui.warehouseUserDashboard?.classList.add("hidden");
+                ui.warehouseUserList.innerHTML = users.length
+                    ? users.map((user) => `
+                        <div class="quick-row">
+                            <div class="quick-main">
+                                <strong>${esc(user.fullName || user.email)}</strong>
+                                <div class="quick-meta">${esc(warehouseUserRoleLabel(user.role))}</div>
+                            </div>
+                        </div>
+                    `).join("")
+                    : `<p class="empty">No warehouse users saved yet.</p>`;
+                return;
+            }
+
+            ui.warehouseUserAccessGate?.classList.add("hidden");
+            ui.warehouseUserDashboard?.classList.remove("hidden");
+
+            const role = norm(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER") === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
+            const availableCompanies = [...(state.masters.ownerRecords || [])].sort((a, b) => a.name.localeCompare(b.name));
+            const selectedCompanies = new Set(warehouseUserAssignedCompaniesDraft.map((value) => norm(value)).filter(Boolean));
+            const editingUser = users.find((user) => user.id === editingWarehouseUserId) || null;
+
+            if (ui.warehouseUserTitle) {
+                ui.warehouseUserTitle.textContent = editingUser
+                    ? `Edit ${editingUser.fullName || editingUser.email}`
+                    : "New Warehouse User";
+            }
+            if (ui.warehouseUserMeta) {
+                ui.warehouseUserMeta.textContent = editingUser
+                    ? `Update role, password, active status, and company access for ${editingUser.email}.`
+                    : "Create the login first, then assign the companies that worker should be able to open.";
+            }
+            if (ui.warehouseUserAssignedMeta) {
+                ui.warehouseUserAssignedMeta.textContent = role === "SUPER_ADMIN"
+                    ? "Super users keep full cross-company access, so company assignments are not required."
+                    : (availableCompanies.length
+                        ? "Workers only see and operate in the companies checked here."
+                        : "Save a few companies first, then assign them to warehouse workers here.");
+            }
+            if (ui.warehouseUserAssignedCompanies) {
+                ui.warehouseUserAssignedCompanies.innerHTML = availableCompanies.length
+                    ? availableCompanies.map((owner) => `
+                        <label class="toggle-card">
+                            <input
+                                type="checkbox"
+                                value="${attr(owner.name)}"
+                                data-warehouse-user-company-input
+                                ${selectedCompanies.has(owner.name) ? "checked" : ""}
+                                ${role === "SUPER_ADMIN" ? "disabled" : ""}
+                            >
+                            <span>
+                                <strong>${esc(owner.name)}</strong>
+                                <small>${esc(owner.legalName || owner.contactName || owner.email || "Active company profile")}</small>
+                            </span>
+                        </label>
+                    `).join("")
+                    : `<p class="empty">No companies saved yet.</p>`;
+            }
+            if (ui.warehouseUserList) {
+                ui.warehouseUserList.innerHTML = users.length
+                    ? users.map((user) => `
+                        <div class="quick-row">
+                            <div class="quick-main">
+                                <strong>${esc(user.fullName || user.email)}</strong>
+                                <div class="quick-meta">${esc(user.email)} | ${esc(warehouseUserRoleLabel(user.role))}${user.isActive === false ? " | Disabled" : ""}</div>
+                                <div class="quick-meta">${esc(
+                                    norm(user.role) === "SUPER_ADMIN"
+                                        ? "Full company access"
+                                        : ((user.assignedCompanies || []).length
+                                            ? user.assignedCompanies.join(", ")
+                                            : "No companies assigned")
+                                )}</div>
+                            </div>
+                            <button class="btn ghost mini" type="button" data-edit-warehouse-user="${attr(user.id)}">Manage</button>
+                        </div>
+                    `).join("")
+                    : `<p class="empty">No warehouse users saved yet.</p>`;
+            }
+        }
+
+        async function saveWarehouseUser(event) {
+            event.preventDefault();
+            if (!currentUserIsSuperAdmin()) {
+                return fail(ui.warehouseUserMessage, "Super user access is required to manage warehouse users.");
+            }
+            const role = norm(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER") === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
+            const assignedCompanies = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedCompaniesDraft.map((value) => norm(value)).filter(Boolean))];
+            if (!String(ui.warehouseUserFullName?.value || "").trim()) {
+                return fail(ui.warehouseUserMessage, "Enter the full name first.", ui.warehouseUserFullName);
+            }
+            if (!norm(ui.warehouseUserEmail?.value || "")) {
+                return fail(ui.warehouseUserMessage, "Enter a valid email address first.", ui.warehouseUserEmail);
+            }
+            if (!editingWarehouseUserId && !String(ui.warehouseUserPassword?.value || "").trim()) {
+                return fail(ui.warehouseUserMessage, "Set a password the first time you create a warehouse user.", ui.warehouseUserPassword);
+            }
+            if (String(ui.warehouseUserPassword?.value || "").trim() && String(ui.warehouseUserPassword?.value || "").trim().length < 8) {
+                return fail(ui.warehouseUserMessage, "Warehouse passwords must be at least 8 characters.", ui.warehouseUserPassword);
+            }
+            if (role !== "SUPER_ADMIN" && !assignedCompanies.length) {
+                return fail(ui.warehouseUserMessage, "Choose at least one company for warehouse workers.", ui.warehouseUserAssignedCompanies);
+            }
+
+            const submitButton = resolveActionButton(event, ui.saveWarehouseUserBtn);
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Saving user...",
+                    messageElement: ui.warehouseUserMessage,
+                    progressMessage: `Saving warehouse access for ${String(ui.warehouseUserFullName?.value || "").trim()}...`
+                }, async () => {
+                    const response = await requestJson("/api/admin/app-users", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            id: editingWarehouseUserId || "",
+                            fullName: ui.warehouseUserFullName?.value || "",
+                            email: ui.warehouseUserEmail?.value || "",
+                            password: ui.warehouseUserPassword?.value || "",
+                            role,
+                            isActive: ui.warehouseUserActive?.value !== "false",
+                            assignedCompanies
+                        })
+                    });
+                    await syncServerState(true);
+                    const savedUser = sanitizeWarehouseAppUser(response?.user) || getWarehouseUserRecords().find((user) => user.email === norm(ui.warehouseUserEmail?.value || ""));
+                    if (savedUser) {
+                        loadWarehouseUserForm(savedUser);
+                    } else {
+                        resetWarehouseUserForm();
+                    }
+                    showMessage(ui.warehouseUserMessage, `${savedUser?.fullName || savedUser?.email || "Warehouse user"} saved.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.warehouseUserMessage, error.message, "error");
+            }
+        }
+
+        function onWarehouseUserListClick(event) {
+            const button = event.target.closest("[data-edit-warehouse-user]");
+            if (!button) return;
+            const userId = String(button.dataset.editWarehouseUser || "").trim();
+            const user = getWarehouseUserRecords().find((entry) => entry.id === userId);
+            if (!user) return;
+            loadWarehouseUserForm(user);
+            ui.warehouseUserFullName?.focus();
         }
 
         function renderCompanyFeatureDashboard() {
@@ -6874,6 +7212,11 @@
 
         function renderFeedbackQueue() {
             if (!ui.feedbackQueueList || !ui.feedbackQueueMeta) return;
+            if (!currentUserIsSuperAdmin()) {
+                ui.feedbackQueueMeta.textContent = "Super user only";
+                ui.feedbackQueueList.innerHTML = `<p class="empty">Super user access is required to review the shared bug and feature queue.</p>`;
+                return;
+            }
             const visibleRecords = getVisibleFeedbackRecords();
             ui.feedbackQueueMeta.textContent = `${num(visibleRecords.length)} request${visibleRecords.length === 1 ? "" : "s"}`;
             if (!visibleRecords.length) {
@@ -6922,6 +7265,11 @@
         }
 
         async function refreshFeedbackQueue(silent = false) {
+            if (!currentUserIsSuperAdmin()) {
+                feedbackRecords = [];
+                renderFeedbackQueue();
+                return;
+            }
             try {
                 const payload = await requestJson("/api/admin/feedback");
                 feedbackRecords = Array.isArray(payload?.feedback)
@@ -7155,23 +7503,28 @@
         }
 
         function updateMobileBackButtons() {
+            const previousSection = getLastMobileHistorySection();
+            const genericBackLabel = previousSection && previousSection !== "mobile-home" ? "Back" : "Back To Menu";
+            ui.mobileBackButtons.forEach((button) => {
+                button.textContent = genericBackLabel;
+            });
             if (ui.searchMobileBackBtn) {
-                ui.searchMobileBackBtn.textContent = activeSearchSubview === "menu" ? "Back To Menu" : "Back To Search Tools";
+                ui.searchMobileBackBtn.textContent = activeSearchSubview === "menu" ? genericBackLabel : "Back To Search Tools";
             }
             const actionsBackBtn = document.getElementById("actionsMobileBackBtn");
             if (actionsBackBtn) {
-                actionsBackBtn.textContent = activeActionSubview === "menu" ? "Back To Menu" : "Back To Action Tools";
+                actionsBackBtn.textContent = activeActionSubview === "menu" ? genericBackLabel : "Back To Action Tools";
             }
         }
 
         function handleMobileSectionBack(group) {
             if (group === "search") {
-                if (activeSearchSubview === "menu") setSection("mobile-home");
+                if (activeSearchSubview === "menu") goBackMobileSection();
                 else setMobileSubview("search", "menu");
                 return;
             }
             if (group === "actions") {
-                if (activeActionSubview === "menu") setSection("mobile-home");
+                if (activeActionSubview === "menu") goBackMobileSection();
                 else setMobileSubview("actions", "menu");
             }
         }
@@ -8360,6 +8713,7 @@
             renderStats();
             renderDatalists();
             renderMasterLibrary();
+            renderWarehouseUserDashboard();
             renderCompanyFeatureDashboard();
             renderFeedbackQueue();
             renderBilling();
@@ -13676,6 +14030,9 @@
             state.billing.feeCatalog = Array.isArray(payload?.billing?.feeCatalog) ? payload.billing.feeCatalog.map(sanitizeBillingFee).filter(Boolean) : [];
             state.billing.ownerRates = Array.isArray(payload?.billing?.ownerRates) ? payload.billing.ownerRates.map(sanitizeOwnerBillingRate).filter(Boolean) : [];
             state.billing.events = Array.isArray(payload?.billing?.events) ? payload.billing.events.map(sanitizeBillingEvent).filter(Boolean) : [];
+            state.admin = {
+                appUsers: Array.isArray(payload?.admin?.appUsers) ? payload.admin.appUsers.map(sanitizeWarehouseAppUser).filter(Boolean) : []
+            };
             state.session = {
                 appUser: payload?.session?.appUser && typeof payload.session.appUser === "object"
                     ? {
@@ -13683,10 +14040,33 @@
                         email: String(payload.session.appUser.email || "").trim(),
                         fullName: String(payload.session.appUser.fullName || "").trim(),
                         role: norm(payload.session.appUser.role || ""),
-                        isActive: payload.session.appUser.isActive !== false
+                        isActive: payload.session.appUser.isActive !== false,
+                        assignedCompanies: Array.isArray(payload.session.appUser.assignedCompanies)
+                            ? payload.session.appUser.assignedCompanies.map((value) => norm(value)).filter(Boolean)
+                            : []
                     }
                     : null
             };
+            const availableCompanies = [...new Set(
+                []
+                    .concat(state.masters.owners || [])
+                    .concat((state.masters.ownerRecords || []).map((owner) => owner.name))
+                    .concat((state.masters.items || []).map((item) => item.accountName))
+                    .concat((state.inventory || []).map((line) => line.accountName))
+            )].map((value) => norm(value)).filter(Boolean);
+            const currentActiveCompany = norm(state.preferences.activeCompany);
+            if (!currentUserIsSuperAdmin()) {
+                state.batch = state.batch.filter((line) => availableCompanies.includes(norm(line.accountName)));
+                if (state.preferences.lastAccount && !availableCompanies.includes(norm(state.preferences.lastAccount))) {
+                    state.preferences.lastAccount = "";
+                }
+            }
+            if (currentActiveCompany && !availableCompanies.includes(currentActiveCompany)) {
+                state.preferences.activeCompany = "";
+            }
+            if (!currentUserIsSuperAdmin() && !state.preferences.activeCompany && availableCompanies.length === 1) {
+                state.preferences.activeCompany = availableCompanies[0];
+            }
             state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             state.meta.localCacheAt = new Date().toISOString();
@@ -13875,6 +14255,7 @@
                 activity: [],
                 masters: { locations: [], ownerRecords: [], items: [], owners: [] },
                 billing: { feeCatalog: [], ownerRates: [], events: [] },
+                admin: { appUsers: [] },
                 session: { appUser: null },
                 preferences: { lastLocation: "", lastAccount: "", activeCompany: "", desktopMobilePreview: false },
                 meta: { version: 8, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
@@ -13933,6 +14314,7 @@
                 activity: cache.activity,
                 masters: cache.masters,
                 billing: cache.billing,
+                admin: { appUsers: [] },
                 session: { appUser: null },
                 preferences: {
                     lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
@@ -14153,6 +14535,26 @@
                 featureFlagsUpdatedBy: String(item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by || "").trim(),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeWarehouseAppUser(item) {
+            const email = norm(String(item?.email || "").toLowerCase());
+            if (!email) return null;
+            return {
+                id: String(item?.id || ""),
+                email,
+                fullName: String(item?.fullName || item?.full_name || "").trim().replace(/\s+/g, " "),
+                role: norm(item?.role || ""),
+                isActive: item?.isActive !== false,
+                assignedCompanies: Array.isArray(item?.assignedCompanies)
+                    ? item.assignedCompanies.map((value) => norm(value)).filter(Boolean)
+                    : Array.isArray(item?.assigned_companies)
+                        ? item.assigned_companies.map((value) => norm(value)).filter(Boolean)
+                        : [],
+                lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : (typeof item?.last_login_at === "string" ? item.last_login_at : null),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : (typeof item?.created_at === "string" ? item.created_at : new Date().toISOString()),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : (typeof item?.updated_at === "string" ? item.updated_at : new Date().toISOString())
             };
         }
 

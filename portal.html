@@ -125,7 +125,85 @@
         .status.error { background: rgba(207, 61, 61, 0.1); border-color: rgba(207, 61, 61, 0.3); color: #8f2626; }
         .status.info { background: rgba(23, 104, 255, 0.08); border-color: rgba(23, 104, 255, 0.2); color: #104dbb; }
         .auth-wrap { min-height: calc(100dvh - 3rem); display: grid; place-items: center; }
-        .auth-card { width: min(460px, 100%); display: grid; gap: 1rem; }
+        .auth-shell {
+            width: min(980px, 100%);
+            display: grid;
+            grid-template-columns: minmax(0, 1.05fr) minmax(380px, 0.95fr);
+            gap: 1rem;
+            align-items: stretch;
+            margin: 0 auto;
+        }
+        .auth-intro,
+        .auth-panel {
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.96);
+            box-shadow: var(--shadow);
+        }
+        .auth-intro {
+            padding: 1.75rem;
+            display: grid;
+            gap: 1rem;
+            background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+        }
+        .auth-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+        .auth-feature {
+            padding: 0.95rem;
+            border-radius: 18px;
+            border: 1px solid #dbe7f4;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        }
+        .auth-feature strong {
+            display: block;
+            font-size: 0.95rem;
+            color: #12324a;
+        }
+        .auth-feature span {
+            display: block;
+            margin-top: 0.35rem;
+            color: #67798b;
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+        .auth-panel {
+            width: 100%;
+            padding: 1.6rem;
+            display: grid;
+            gap: 1rem;
+        }
+        .auth-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.7rem;
+        }
+        .auth-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 42px;
+            padding: 0.7rem 0.95rem;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #16324a;
+            text-decoration: none;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+        .small {
+            font-size: 0.82rem;
+            color: #7b8fa2;
+        }
+        .auth-build {
+            padding-top: 0.4rem;
+            border-top: 1px solid #e3edf6;
+            font-size: 0.82rem;
+            color: #7b8fa2;
+        }
         .form-grid, .detail-grid {
             display: grid;
             gap: 0.9rem;
@@ -371,6 +449,10 @@
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
             body { padding: 0.75rem; }
             .auth-wrap { min-height: calc(100dvh - 1.5rem); }
+            .auth-shell { grid-template-columns: 1fr; }
+            .auth-intro { order: 2; padding: 1.25rem; }
+            .auth-panel { order: 1; padding: 1.25rem; }
+            .auth-feature-grid { grid-template-columns: 1fr; }
             .portal-brand img {
                 width: 46px;
                 height: 46px;
@@ -411,25 +493,51 @@
         <div id="portalMessage" class="status"></div>
 
         <main id="loginView" class="auth-wrap">
-            <article class="card auth-card">
-                <div class="header-copy">
-                    <h2>Customer Login</h2>
-                    <p class="lead">Use your assigned email address and portal password. Your vendor / customer account is linked behind the scenes by the warehouse admin team.</p>
-                </div>
-                <form id="loginForm" class="form-grid" autocomplete="off">
-                    <label class="field span-2">
-                        <span>Email Address</span>
-                        <input id="loginEmail" type="email" placeholder="Enter your email address">
-                    </label>
-                    <label class="field span-2">
-                        <span>Password</span>
-                        <input id="loginPassword" type="password" placeholder="Enter your portal password">
-                    </label>
-                    <div class="button-row span-2">
-                        <button class="btn" type="submit">Log In</button>
+            <div class="auth-shell">
+                <section class="auth-intro" aria-label="Customer portal overview">
+                    <div class="portal-brand">
+                        <img src="/marketing-logo.svg" alt="WMS365 logo" width="52" height="52">
+                        <div class="portal-brand-copy">
+                            <span>Warehouse Software</span>
+                            <strong>WMS365</strong>
+                        </div>
                     </div>
-                </form>
-            </article>
+                    <div class="eyebrow">Customer Access</div>
+                    <h2 style="font-size:clamp(2rem,3vw,3rem);line-height:0.98;margin:0;color:#10253f;">Customer teams sign in here to review inventory and send work to the warehouse.</h2>
+                    <p class="lead">Use your company-scoped WMS365 portal to review inventory, create sales orders, submit inbound notices, and export reports without seeing any other customer’s data.</p>
+                    <div class="auth-feature-grid">
+                        <div class="auth-feature"><strong>Inventory Visibility</strong><span>Review only the stock assigned to your account with exports and filters built into the portal.</span></div>
+                        <div class="auth-feature"><strong>Order Entry</strong><span>Create draft orders, release them to the warehouse, and track released, picked, staged, and shipped counts.</span></div>
+                        <div class="auth-feature"><strong>Inbound Notices</strong><span>Submit inbound requests with item and shipment details before the warehouse receives the freight.</span></div>
+                        <div class="auth-feature"><strong>Build Visibility</strong><span>Every portal page shows the live deployment label so your team can confirm the active environment.</span></div>
+                    </div>
+                </section>
+                <article class="auth-panel">
+                    <div class="card-head">
+                        <h2>Customer Login</h2>
+                        <p>Customer users sign in here to access the account-scoped WMS365 portal.</p>
+                    </div>
+                    <form id="loginForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Email Address</span>
+                            <input id="loginEmail" type="email" placeholder="Enter your email address">
+                        </label>
+                        <label class="field span-2">
+                            <span>Password</span>
+                            <input id="loginPassword" type="password" placeholder="Enter your portal password">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn" type="submit">Sign in</button>
+                        </div>
+                    </form>
+                    <div class="auth-links">
+                        <a class="auth-link" href="https://app.wms365.co/login">Warehouse Login</a>
+                        <a class="auth-link" href="mailto:support@wms365.co">Support</a>
+                    </div>
+                    <div class="small">Warehouse users should use the separate warehouse login page.</div>
+                    <div class="auth-build" id="portalLoginBuildLabel">Deployment: loading...</div>
+                </article>
+            </div>
         </main>
 
         <main id="portalView" class="hidden">
@@ -749,6 +857,7 @@
             portalMessage: document.getElementById("portalMessage"),
             accountChip: document.getElementById("accountChip"),
             portalBuildLabel: document.getElementById("portalBuildLabel"),
+            portalLoginBuildLabel: document.getElementById("portalLoginBuildLabel"),
             loginView: document.getElementById("loginView"),
             portalView: document.getElementById("portalView"),
             loginForm: document.getElementById("loginForm"),
@@ -917,9 +1026,9 @@
         }
 
         function setBuildLabel(label) {
-            if (!ui.portalBuildLabel) return;
             const safeLabel = String(label || "Build unavailable").trim() || "Build unavailable";
-            ui.portalBuildLabel.textContent = `Deployment: ${safeLabel}`;
+            if (ui.portalBuildLabel) ui.portalBuildLabel.textContent = `Deployment: ${safeLabel}`;
+            if (ui.portalLoginBuildLabel) ui.portalLoginBuildLabel.textContent = `Deployment: ${safeLabel}`;
             if (ui.portalFeedbackBuild) ui.portalFeedbackBuild.textContent = safeLabel;
         }
 

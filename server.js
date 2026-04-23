@@ -434,7 +434,7 @@ app.post("/api/app/login", async (req, res, next) => {
             }
             const token = await createAppSession(client, user.id);
             await client.query("update app_users set last_login_at = now(), updated_at = now() where id = $1", [user.id]);
-            return { token, user: await getAppUserById(client, user.id) };
+            return { token, user: await attachAppUserCompanyAssignments(client, await getAppUserById(client, user.id)) };
         });
 
         setAppSessionCookie(res, session.token, req);
@@ -653,12 +653,12 @@ app.get("/api/state", async (req, res, next) => {
     }
 });
 
-app.get("/api/export", async (_req, res, next) => {
+app.get("/api/export", async (req, res, next) => {
     try {
         res.json({
             app: "WMS365 Scanner",
             exportedAt: new Date().toISOString(),
-            ...(await getServerState(pool, { billingEventLimit: null }))
+            ...(await getServerState(pool, { billingEventLimit: null, appUser: req.appUser }))
         });
     } catch (error) {
         next(error);
@@ -690,6 +690,7 @@ app.post("/api/master-location", async (req, res, next) => {
 
 app.post("/api/master-owner", async (req, res, next) => {
     try {
+        assertSuperAdminAccess(req.appUser);
         const entry = sanitizeOwnerMasterInput(req.body);
         if (!entry) {
             throw httpError(400, "A company name is required.");
@@ -725,6 +726,7 @@ app.post("/api/master-item", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, entry.accountName);
             await upsertOwnerMaster(client, entry.accountName);
             await upsertItemMaster(client, entry);
             await insertActivity(
@@ -763,6 +765,7 @@ app.post("/api/master-item/update", async (req, res, next) => {
         }
 
         const updatedItem = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, originalAccountName);
             const mergedEntry = await updateItemMasterAndInventory(client, originalAccountName, originalSku, entry);
             await insertActivity(
                 client,
@@ -792,6 +795,7 @@ app.post("/api/billing/rates", async (req, res, next) => {
         }
 
         const savedRates = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, accountName);
             await saveOwnerBillingRates(client, accountName, rates);
@@ -818,6 +822,7 @@ app.post("/api/billing/events/manual", async (req, res, next) => {
         }
 
         const billingEvent = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, entry.accountName);
             await assertCompanyFeatureEnabled(client, entry.accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, entry.accountName);
             const created = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
@@ -857,6 +862,7 @@ app.post("/api/billing/storage-accrual", async (req, res, next) => {
         }
 
         const events = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, accountName);
             const created = await createMonthlyStorageBillingEvents(client, accountName, month);
@@ -889,6 +895,7 @@ app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
         const updated = await withTransaction(async (client) => {
             const billingCompanies = await getBillingEventAccountNamesByIds(client, ids);
             for (const accountName of billingCompanies) {
+                await assertAppUserCompanyAccess(client, req.appUser, accountName);
                 await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
             }
             const result = await client.query(
@@ -956,6 +963,37 @@ app.post("/api/admin/company-features", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/app-users", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const user = await withTransaction(async (client) => {
+            const entry = sanitizeAppUserInput(req.body);
+            for (const accountName of entry.assignedCompanies) {
+                await upsertOwnerMaster(client, { name: accountName });
+            }
+            const savedUser = await saveAppUser(client, entry);
+            await insertActivity(
+                client,
+                "setup",
+                    `${savedUser.was_created ? "Added" : "Updated"} warehouse user ${savedUser.full_name || savedUser.email}`,
+                    [
+                        savedUser.email,
+                        normalizeText(savedUser.role) === "SUPER_ADMIN"
+                            ? "Super user"
+                            : `${formatCount((savedUser.assigned_companies || []).length, "company")} assigned`,
+                        entry.password ? `Password ${savedUser.was_created ? "created" : "updated"}` : "Profile updated",
+                        req.appUser?.email || req.appUser?.full_name || "super_admin"
+                    ].filter(Boolean).join(" | ")
+            );
+            return savedUser;
+        });
+
+        res.json({ success: true, user: mapAppUserRow(user) });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/master-items/import", async (req, res, next) => {
     try {
         const inputItems = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -967,6 +1005,7 @@ app.post("/api/master-items/import", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             for (const item of items) {
+                await assertAppUserCompanyAccess(client, req.appUser, item.accountName);
                 await upsertOwnerMaster(client, item.accountName);
                 await upsertItemMaster(client, item);
             }
@@ -987,6 +1026,7 @@ app.post("/api/master-items/import", async (req, res, next) => {
 
 app.post("/api/master-locations/import", async (req, res, next) => {
     try {
+        assertSuperAdminAccess(req.appUser);
         const inputLocations = Array.isArray(req.body?.locations) ? req.body.locations : [];
         if (!inputLocations.length) {
             throw httpError(400, "At least one BIN location is required.");
@@ -1027,6 +1067,7 @@ app.post("/api/batch-save", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             for (const rawItem of items) {
+                await assertAppUserCompanyAccess(client, req.appUser, rawItem.accountName);
                 const master = await findCatalogItem(client, rawItem.accountName, rawItem.sku, rawItem.upc);
                 if (master?.lotTracked && !rawItem.lotNumber) {
                     throw httpError(400, `Lot number is required for ${rawItem.accountName} / ${rawItem.sku}.`);
@@ -1091,6 +1132,7 @@ app.post("/api/remove-quantity", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             const line = await findInventoryLine(client, accountName, location, skuOrUpc);
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
@@ -1126,6 +1168,7 @@ app.post("/api/delete-line", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             const line = await findInventoryLine(client, accountName, location, skuOrUpc);
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
@@ -1162,6 +1205,7 @@ app.post("/api/transfer", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc);
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, source location, and SKU/UPC.");
@@ -1216,6 +1260,7 @@ app.post("/api/convert-item", async (req, res, next) => {
         }
 
         const conversion = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             const sourceLine = await findInventoryLine(client, accountName, fromLocation, fromSkuOrUpc);
             if (!sourceLine) {
                 throw httpError(404, "No exact source inventory line matched that company, location, and SKU/UPC.");
@@ -1295,6 +1340,7 @@ app.post("/api/move-location", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             const linesResult = await client.query(
                 "select * from inventory_lines where account_name = $1 and location = $2 order by sku asc",
                 [accountName, fromLocation]
@@ -1343,6 +1389,7 @@ app.post("/api/inventory/bulk-update", async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const summary = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             return saveBulkInventoryWorksheet(client, accountName, req.body?.rows, req.appUser);
         });
         res.json({ success: true, summary });
@@ -1353,6 +1400,7 @@ app.post("/api/inventory/bulk-update", async (req, res, next) => {
 
 app.post("/api/import", async (req, res, next) => {
     try {
+        assertSuperAdminAccess(req.appUser);
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
         const importedActivity = Array.isArray(req.body?.activity) ? req.body.activity.map(sanitizeActivityInput).filter(Boolean) : [];
         const importedPallets = Array.isArray(req.body?.pallets) ? req.body.pallets.map(sanitizePalletRecordInput).filter(Boolean) : [];
@@ -1605,6 +1653,7 @@ app.get("/api/pallets/:palletCode", async (req, res, next) => {
         if (!pallet) {
             throw httpError(404, `Pallet ${palletCode} could not be found.`);
         }
+        await assertAppUserCompanyAccess(pool, req.appUser, pallet.accountName);
 
         res.json({ pallet });
     } catch (error) {
@@ -1620,6 +1669,7 @@ app.post("/api/pallets/save", async (req, res, next) => {
         }
 
         const pallet = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, entry.accountName);
             const saved = await savePalletRecord(client, entry);
             await insertActivity(
                 client,
@@ -1642,10 +1692,14 @@ app.post("/api/pallets/save", async (req, res, next) => {
     }
 });
 
-app.get("/api/admin/portal-access", async (_req, res, next) => {
+app.get("/api/admin/portal-access", async (req, res, next) => {
     try {
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        const access = isSuperAdminUser(req.appUser)
+            ? await getPortalAccessList()
+            : (await getPortalAccessList()).filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
         res.json({
-            access: await getPortalAccessList()
+            access
         });
     } catch (error) {
         next(error);
@@ -1655,11 +1709,19 @@ app.get("/api/admin/portal-access", async (_req, res, next) => {
 app.get("/api/admin/portal-orders", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
         const orders = requestedAccount
             ? await getPortalOrdersForAccount(requestedAccount)
             : await getAdminPortalOrders();
         res.setHeader("Cache-Control", "no-store");
-        res.json({ orders });
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        res.json({
+            orders: isSuperAdminUser(req.appUser)
+                ? orders
+                : orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
+        });
     } catch (error) {
         next(error);
     }
@@ -1668,10 +1730,18 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
 app.get("/api/admin/portal-inbounds", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
         const inbounds = requestedAccount
             ? await getPortalInboundsForAccount(requestedAccount)
             : await getAdminPortalInbounds();
-        res.json({ inbounds });
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        res.json({
+            inbounds: isSuperAdminUser(req.appUser)
+                ? inbounds
+                : inbounds.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
+        });
     } catch (error) {
         next(error);
     }
@@ -1680,6 +1750,7 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
 app.get("/api/admin/feedback", async (req, res, next) => {
     try {
         assertDatabaseAvailable();
+        assertSuperAdminAccess(req.appUser);
         res.json({
             feedback: await listFeedbackSubmissions(pool, req.query || {})
         });
@@ -1691,6 +1762,7 @@ app.get("/api/admin/feedback", async (req, res, next) => {
 app.post("/api/admin/feedback/:id/status", async (req, res, next) => {
     try {
         assertDatabaseAvailable();
+        assertSuperAdminAccess(req.appUser);
         const feedback = await withTransaction((client) => updateFeedbackSubmissionStatus(client, req.params.id, req.body, req.appUser));
         res.json({ success: true, feedback });
     } catch (error) {
@@ -1705,6 +1777,7 @@ app.post("/api/admin/portal-orders", async (req, res, next) => {
             throw httpError(400, "Company is required.");
         }
         const order = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return saveWarehousePortalOrderDraft(client, accountName, req.body, null, req.appUser);
         });
@@ -1725,6 +1798,7 @@ app.put("/api/admin/portal-orders/:id", async (req, res, next) => {
             throw httpError(400, "Company is required.");
         }
         const order = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return saveWarehousePortalOrderDraft(client, accountName, req.body, orderId, req.appUser);
         });
@@ -1742,6 +1816,7 @@ app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
         }
         const order = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return releaseWarehousePortalOrder(client, orderId, req.appUser);
         });
@@ -1758,6 +1833,7 @@ app.post("/api/admin/portal-inbounds", async (req, res, next) => {
             throw httpError(400, "Company is required.");
         }
         const inbound = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
             return saveWarehousePortalInbound(client, accountName, req.body, req.appUser);
         });
@@ -1785,6 +1861,7 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
         }
 
         const savedAccess = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
             await upsertOwnerMaster(client, accountName);
             const access = await savePortalAccess(client, { accessId, accountName, email, password, isActive });
@@ -1814,8 +1891,15 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
 app.get("/api/admin/integrations", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        const integrations = await getStoreIntegrationList(pool, requestedAccount);
         res.json({
-            integrations: await getStoreIntegrationList(pool, requestedAccount)
+            integrations: isSuperAdminUser(req.appUser)
+                ? integrations
+                : integrations.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
         });
     } catch (error) {
         next(error);
@@ -1826,6 +1910,7 @@ app.post("/api/admin/integrations", async (req, res, next) => {
     try {
         const savedIntegration = await withTransaction(async (client) => {
             const integration = await saveStoreIntegration(client, req.body);
+            await assertAppUserCompanyAccess(client, req.appUser, integration.accountName);
             await assertCompanyFeatureEnabled(client, integration.accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
             if (integration.provider === SHOPIFY_SYNC_PROVIDER) {
                 await assertCompanyFeatureEnabled(client, integration.accountName, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
@@ -1868,6 +1953,11 @@ app.post("/api/admin/integrations/:id/sync", async (req, res, next) => {
             throw httpError(400, "A valid integration id is required.");
         }
 
+        const integrationRow = await getStoreIntegrationRowById(pool, integrationId);
+        if (!integrationRow) {
+            throw httpError(404, "That integration could not be found.");
+        }
+        await assertAppUserCompanyAccess(pool, req.appUser, integrationRow.account_name);
         const result = await syncStoreIntegrationById(integrationId, req.appUser);
         res.json({
             success: true,
@@ -2229,6 +2319,8 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
         }
 
         const order = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
             return updateAdminPortalOrderStatus(client, orderId, nextStatus, req.body, req.appUser);
         });
 
@@ -2250,6 +2342,11 @@ app.post("/api/admin/portal-inbounds/:id/status", async (req, res, next) => {
         }
 
         const inbound = await withTransaction(async (client) => {
+            const currentInbound = await getPortalInboundById(client, inboundId);
+            if (!currentInbound) {
+                throw httpError(404, "That inbound could not be found.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
             return updateAdminPortalInboundStatus(client, inboundId, nextStatus, req.appUser);
         });
 
@@ -2270,6 +2367,7 @@ app.get("/api/admin/portal-order-documents/:id", async (req, res, next) => {
         if (!document) {
             throw httpError(404, "That shipped document could not be found.");
         }
+        await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
 
         res.setHeader("Content-Type", document.file_type || "application/octet-stream");
         res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
@@ -2803,7 +2901,20 @@ async function initializeDatabase() {
         );
     `);
 
+    await pool.query(`
+        create table if not exists app_user_company_access (
+            id bigserial primary key,
+            app_user_id bigint not null references app_users(id) on delete cascade,
+            account_name text not null,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (app_user_id, account_name)
+        );
+    `);
+
     await pool.query("update app_users set email = lower(email) where email is not null and email <> lower(email)");
+    await pool.query("create index if not exists idx_app_user_company_access_user on app_user_company_access (app_user_id)");
+    await pool.query("create index if not exists idx_app_user_company_access_account on app_user_company_access (account_name)");
     await ensureDefaultAppAdmin();
 
     await pool.query(`
@@ -3386,29 +3497,58 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         `)
     ]);
 
+    const accessibleCompanies = appUser && !isSuperAdminUser(appUser)
+        ? await getAccessibleCompanyNamesForAppUser(client, appUser)
+        : [];
+    const companyScoped = appUser && !isSuperAdminUser(appUser);
+
+    const inventoryRows = companyScoped
+        ? filterRowsByAllowedCompanies(inventoryResult.rows, accessibleCompanies, (row) => row.account_name)
+        : inventoryResult.rows;
+    const palletRows = companyScoped
+        ? filterRowsByAllowedCompanies(palletResult.rows, accessibleCompanies, (row) => row.account_name)
+        : palletResult.rows;
+    const ownerRows = companyScoped
+        ? filterRowsByAllowedCompanies(ownerResult.rows, accessibleCompanies, (row) => row.name)
+        : ownerResult.rows;
+    const itemRows = companyScoped
+        ? filterRowsByAllowedCompanies(itemResult.rows, accessibleCompanies, (row) => row.account_name)
+        : itemResult.rows;
+    const ownerRateRows = companyScoped
+        ? filterRowsByAllowedCompanies(ownerRateResult.rows, accessibleCompanies, (row) => row.account_name)
+        : ownerRateResult.rows;
+    const billingEventRows = companyScoped
+        ? filterRowsByAllowedCompanies(billingEventResult.rows, accessibleCompanies, (row) => row.account_name)
+        : billingEventResult.rows;
+    const activityRows = companyScoped ? [] : activityResult.rows;
+    const appUsers = isSuperAdminUser(appUser) ? await getAppUsersWithAssignments(client) : [];
+
     const owners = [...new Set(
-        ownerResult.rows.map((row) => row.name)
-            .concat(inventoryResult.rows.map((row) => row.account_name))
-            .concat(itemResult.rows.map((row) => row.account_name))
+        ownerRows.map((row) => row.name)
+            .concat(inventoryRows.map((row) => row.account_name))
+            .concat(itemRows.map((row) => row.account_name))
     )].filter(Boolean).sort();
 
     return {
-        inventory: inventoryResult.rows.map(mapInventoryRow),
-        pallets: palletResult.rows.map(mapPalletRecordRow),
-        activity: activityResult.rows.map(mapActivityRow),
+        inventory: inventoryRows.map(mapInventoryRow),
+        pallets: palletRows.map(mapPalletRecordRow),
+        activity: activityRows.map(mapActivityRow),
         masters: {
             locations: locationResult.rows.map(mapLocationMasterRow),
-            ownerRecords: ownerResult.rows.map(mapOwnerMasterRow),
-            items: itemResult.rows.map(mapItemMasterRow),
+            ownerRecords: ownerRows.map(mapOwnerMasterRow),
+            items: itemRows.map(mapItemMasterRow),
             owners
         },
         billing: {
             feeCatalog: billingFeeResult.rows.map(mapBillingFeeRow),
-            ownerRates: ownerRateResult.rows.map(mapOwnerBillingRateRow),
-            events: billingEventResult.rows.map(mapBillingEventRow)
+            ownerRates: ownerRateRows.map(mapOwnerBillingRateRow),
+            events: billingEventRows.map(mapBillingEventRow)
         },
         session: {
             appUser: appUser ? mapAppUserRow(appUser) : null
+        },
+        admin: {
+            appUsers: appUsers.map(mapAppUserRow)
         },
         featureCatalog: COMPANY_FEATURE_CATALOG,
         meta: {
@@ -3901,6 +4041,148 @@ async function getAppUserById(client, userId) {
     return result.rows[0] || null;
 }
 
+async function getAppUserCompanyAssignments(client, userId) {
+    const normalizedUserId = Number(userId) || 0;
+    if (normalizedUserId <= 0) return [];
+    const result = await client.query(
+        `
+            select account_name
+            from app_user_company_access
+            where app_user_id = $1
+            order by account_name asc
+        `,
+        [normalizedUserId]
+    );
+    return result.rows.map((row) => normalizeText(row.account_name)).filter(Boolean);
+}
+
+async function attachAppUserCompanyAssignments(client, userRow) {
+    if (!userRow) return null;
+    const assignedCompanies = await getAppUserCompanyAssignments(client, userRow.id || userRow.app_user_id);
+    return {
+        ...userRow,
+        assigned_companies: assignedCompanies
+    };
+}
+
+async function getAppUsersWithAssignments(client = pool) {
+    const [userResult, accessResult] = await Promise.all([
+        client.query("select * from app_users order by role asc, full_name asc, email asc, id asc"),
+        client.query("select * from app_user_company_access order by account_name asc, id asc")
+    ]);
+
+    const assignmentsByUserId = new Map();
+    accessResult.rows.forEach((row) => {
+        const key = String(row.app_user_id);
+        if (!assignmentsByUserId.has(key)) assignmentsByUserId.set(key, []);
+        const normalizedAccount = normalizeText(row.account_name);
+        if (normalizedAccount) assignmentsByUserId.get(key).push(normalizedAccount);
+    });
+
+    return userResult.rows.map((row) => ({
+        ...row,
+        assigned_companies: [...new Set(assignmentsByUserId.get(String(row.id)) || [])]
+    }));
+}
+
+function normalizeAppUserRole(value) {
+    return normalizeText(value) === "SUPER_ADMIN" ? "super_admin" : "warehouse_worker";
+}
+
+function sanitizeAppUserInput(input) {
+    const assignedCompaniesSource = Array.isArray(input?.assignedCompanies)
+        ? input.assignedCompanies
+        : Array.isArray(input?.assigned_companies)
+            ? input.assigned_companies
+            : [];
+
+    return {
+        id: input?.id == null ? "" : String(input.id).trim(),
+        email: normalizeEmail(input?.email),
+        password: typeof input?.password === "string" ? input.password : "",
+        fullName: normalizeFreeText(input?.fullName || input?.full_name || input?.name),
+        role: normalizeAppUserRole(input?.role),
+        isActive: input?.isActive !== false,
+        assignedCompanies: [...new Set(
+            assignedCompaniesSource.map((value) => normalizeText(value)).filter(Boolean)
+        )]
+    };
+}
+
+async function saveAppUser(client, rawInput) {
+    const entry = sanitizeAppUserInput(rawInput);
+    const passwordText = typeof entry.password === "string" ? entry.password : "";
+    const existingById = entry.id ? await getAppUserById(client, entry.id) : null;
+    const existingByEmail = entry.email ? await getAppUserByEmail(client, entry.email) : null;
+    const existing = existingById || existingByEmail;
+
+    if (!entry.email) {
+        throw httpError(400, "A valid warehouse user email address is required.");
+    }
+    if (!entry.fullName) {
+        throw httpError(400, "A full name is required.");
+    }
+    if (!existing && !passwordText.trim()) {
+        throw httpError(400, "Set a password the first time you create a warehouse user.");
+    }
+    if (passwordText && passwordText.length < 8) {
+        throw httpError(400, "Warehouse passwords must be at least 8 characters.");
+    }
+    if (entry.role !== "super_admin" && !entry.assignedCompanies.length) {
+        throw httpError(400, "Assign at least one company to warehouse workers.");
+    }
+    if (existingByEmail && (!existing || String(existingByEmail.id) !== String(existing.id))) {
+        throw httpError(400, "That email address is already linked to another warehouse user.");
+    }
+
+    const assignedCompanies = entry.role === "super_admin" ? [] : entry.assignedCompanies;
+    let savedRow;
+    if (existing) {
+        const passwordHash = passwordText ? hashPortalPassword(passwordText) : existing.password_hash;
+        const result = await client.query(
+            `
+                update app_users
+                set
+                    email = $2,
+                    password_hash = $3,
+                    full_name = $4,
+                    role = $5,
+                    is_active = $6,
+                    updated_at = now()
+                where id = $1
+                returning *
+            `,
+            [existing.id, entry.email, passwordHash, entry.fullName, entry.role, entry.isActive !== false]
+        );
+        savedRow = { ...result.rows[0], was_created: false };
+    } else {
+        const result = await client.query(
+            `
+                insert into app_users (email, password_hash, full_name, role, is_active)
+                values ($1, $2, $3, $4, $5)
+                returning *
+            `,
+            [entry.email, hashPortalPassword(passwordText), entry.fullName, entry.role, entry.isActive !== false]
+        );
+        savedRow = { ...result.rows[0], was_created: true };
+    }
+
+    await client.query("delete from app_user_company_access where app_user_id = $1", [savedRow.id]);
+    for (const accountName of assignedCompanies) {
+        await client.query(
+            `
+                insert into app_user_company_access (app_user_id, account_name)
+                values ($1, $2)
+                on conflict (app_user_id, account_name) do update
+                set updated_at = now()
+            `,
+            [savedRow.id, accountName]
+        );
+    }
+
+    return attachAppUserCompanyAssignments(client, savedRow);
+}
+
 async function createAppSession(client, userId) {
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashPortalSessionToken(token);
@@ -3953,7 +4235,7 @@ async function requireAppSession(req, client = pool) {
         throw httpError(401, "Warehouse session expired. Please log in again.");
     }
 
-    const row = result.rows[0];
+    const row = await attachAppUserCompanyAssignments(client, result.rows[0]);
     if (!row.is_active) {
         throw httpError(401, "That warehouse login is no longer active.");
     }
@@ -3979,16 +4261,45 @@ function requiresAppAuth(req) {
 }
 
 function mapAppUserRow(row) {
+    const assignedCompanies = Array.isArray(row?.assignedCompanies)
+        ? row.assignedCompanies
+        : Array.isArray(row?.assigned_companies)
+            ? row.assigned_companies
+            : [];
     return {
         id: String(row.id),
         email: row.email,
         fullName: row.full_name || "",
         role: row.role || "",
         isActive: row.is_active !== false,
+        assignedCompanies: [...new Set(assignedCompanies.map((value) => normalizeText(value)).filter(Boolean))],
         lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
+}
+
+async function getAccessibleCompanyNamesForAppUser(client, user) {
+    if (!user || isSuperAdminUser(user)) return [];
+    return getAppUserCompanyAssignments(client, user.id || user.app_user_id);
+}
+
+async function assertAppUserCompanyAccess(client, user, accountName, message = "") {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount || !user || isSuperAdminUser(user)) {
+        return normalizedAccount;
+    }
+    const allowedCompanies = await getAccessibleCompanyNamesForAppUser(client, user);
+    if (!allowedCompanies.includes(normalizedAccount)) {
+        throw httpError(403, message || `Warehouse access for ${normalizedAccount} is not assigned to your login.`);
+    }
+    return normalizedAccount;
+}
+
+function filterRowsByAllowedCompanies(rows, allowedCompanies, selector) {
+    if (!Array.isArray(allowedCompanies) || !allowedCompanies.length) return [];
+    const allowed = new Set(allowedCompanies.map((value) => normalizeText(value)).filter(Boolean));
+    return (Array.isArray(rows) ? rows : []).filter((row) => allowed.has(normalizeText(selector(row))));
 }
 
 function sanitizeSiteDemoRequestInput(input) {
