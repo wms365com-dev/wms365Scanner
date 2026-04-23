@@ -3303,7 +3303,7 @@
                 <div class="mobile-appbar">
                     <div class="mobile-appbar-copy">
                         <span class="mobile-appbar-kicker">WMS365</span>
-                        <strong class="mobile-appbar-title">Receiving</strong>
+                        <strong class="mobile-appbar-title" id="scanPanelMobileTitle">Receiving</strong>
                     </div>
                     <span class="mobile-appbar-badge">Warehouse</span>
                 </div>
@@ -3311,7 +3311,7 @@
             </div>
             <div class="mobile-screen-body">
             <div class="section-grid scan-workspace-grid">
-                <article class="card workspace-control-card">
+                <article class="card workspace-control-card" id="scanStageCard">
                     <div class="card-head">
                         <div>
                             <h2>Scan & Stage</h2>
@@ -3419,7 +3419,7 @@
                     <div class="status" id="scanMessage"></div>
                 </article>
 
-                <article class="card desktop-complex workspace-sheet-card">
+                <article class="card desktop-complex workspace-sheet-card" id="currentBatchCard">
                     <div class="card-head">
                         <div>
                             <h2>Current Batch</h2>
@@ -3505,7 +3505,7 @@
                     <div class="status" id="warehouseInboundMessage"></div>
                 </article>
 
-                <article class="card desktop-complex workspace-sheet-card">
+                <article class="card desktop-complex workspace-sheet-card" id="warehouseInboundQueueCard">
                     <div class="card-head">
                         <div>
                             <h2>Inbound Queue</h2>
@@ -5657,6 +5657,9 @@
             integrationMessage: document.getElementById("integrationMessage"),
             integrationList: document.getElementById("integrationList"),
             integrationCount: document.getElementById("integrationCount"),
+            scanPanelMobileTitle: document.getElementById("scanPanelMobileTitle"),
+            scanStageCard: document.getElementById("scanStageCard"),
+            currentBatchCard: document.getElementById("currentBatchCard"),
             openPortalBtn: document.getElementById("openPortalBtn"),
             catalogMessage: document.getElementById("catalogMessage"),
             importLocationCsvInput: document.getElementById("importLocationCsvInput"),
@@ -5811,6 +5814,7 @@
             portalOrdersQueueTitle: document.getElementById("portalOrdersQueueTitle"),
             portalOrdersQueueLead: document.getElementById("portalOrdersQueueLead"),
             warehouseInboundEntryCard: document.getElementById("warehouseInboundEntryCard"),
+            warehouseInboundQueueCard: document.getElementById("warehouseInboundQueueCard"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
             warehouseInboundCompanyMeta: document.getElementById("warehouseInboundCompanyMeta"),
             warehouseInboundReferenceNumber: document.getElementById("warehouseInboundReferenceNumber"),
@@ -6372,6 +6376,25 @@
             return String(section || "").trim().toLowerCase() === "inbounds";
         }
 
+        function syncScanSectionUi(section = activeSection) {
+            const purchaseOrdersOnly = isInboundOrdersSection(section);
+            if (ui.scanPanelMobileTitle) {
+                ui.scanPanelMobileTitle.textContent = purchaseOrdersOnly ? "Purchase Orders" : "Receiving";
+            }
+            if (ui.scanStageCard) {
+                ui.scanStageCard.classList.toggle("hidden", purchaseOrdersOnly);
+            }
+            if (ui.currentBatchCard) {
+                ui.currentBatchCard.classList.toggle("hidden", purchaseOrdersOnly);
+            }
+            if (ui.warehouseInboundEntryCard) {
+                ui.warehouseInboundEntryCard.classList.toggle("full-span", purchaseOrdersOnly);
+            }
+            if (ui.warehouseInboundQueueCard) {
+                ui.warehouseInboundQueueCard.classList.toggle("full-span", purchaseOrdersOnly);
+            }
+        }
+
         function isShippedOrdersSection(section = activeSection) {
             return String(section || "").trim().toLowerCase() === "shipped";
         }
@@ -6548,6 +6571,7 @@
             }
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
+            syncScanSectionUi(section);
             syncPortalOrdersSectionUi(section);
             updateMobileBackButtons();
             if (section === "mobile-home") {
