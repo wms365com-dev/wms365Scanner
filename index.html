@@ -185,6 +185,88 @@
             background: #ffffff;
         }
 
+        .workspace-commandbar {
+            display: grid;
+            gap: 0.7rem;
+            padding: 0.95rem 1rem;
+            border-radius: 20px;
+            border: 1px solid #dbe7f3;
+            background: linear-gradient(135deg, #f7fbff 0%, #ffffff 72%);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+
+        .workspace-command-copy {
+            display: grid;
+            gap: 0.18rem;
+        }
+
+        .workspace-command-kicker {
+            color: #557593;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .workspace-command-copy strong {
+            font-size: 1.1rem;
+            line-height: 1.05;
+            color: #12324a;
+        }
+
+        .workspace-command-meta {
+            margin: 0;
+            color: #617589;
+            font-size: 0.93rem;
+            line-height: 1.45;
+        }
+
+        .workspace-command-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+        }
+
+        .workspace-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            min-height: 36px;
+            padding: 0.55rem 0.8rem;
+            border-radius: 999px;
+            border: 1px solid #d6e5f5;
+            background: #ffffff;
+            color: #1d4666;
+            font-size: 0.85rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .workspace-chip::before {
+            content: "";
+            width: 0.45rem;
+            height: 0.45rem;
+            border-radius: 999px;
+            background: var(--brand);
+            flex: 0 0 auto;
+        }
+
+        .workspace-chip.subtle {
+            color: #5f7082;
+            background: #f5f8fc;
+        }
+
+        .workspace-chip.subtle::before {
+            background: #8aa7c4;
+        }
+
+        .workspace-command-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            align-items: center;
+        }
+
         .stat {
             flex: 1 1 140px;
             padding: 1rem;
@@ -1722,26 +1804,27 @@
 
             .hero {
                 grid-area: header;
-                padding: 0.8rem 1rem;
+                padding: 0.7rem 0.9rem;
                 border-radius: 16px;
                 background: #ffffff;
             }
 
             .hero-grid {
-                grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-                align-items: center;
+                grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.9fr);
+                align-items: start;
+                gap: 0.85rem;
             }
 
             .hero-topline {
                 grid-template-columns: minmax(0, 1fr) auto;
-                align-items: start;
-                gap: 1rem;
+                align-items: center;
+                gap: 0.8rem;
             }
 
-            .hero-copy { gap: 0.85rem; }
+            .hero-copy { gap: 0.65rem; }
 
             .hero h1 {
-                font-size: clamp(1.7rem, 2.2vw, 2.2rem);
+                font-size: clamp(1.55rem, 2.05vw, 2.05rem);
                 line-height: 1;
             }
 
@@ -1817,15 +1900,39 @@
 
             .stats-grid {
                 display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 0.75rem;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 0.65rem;
+                align-content: start;
+            }
+
+            .company-context-card {
+                grid-column: 1 / -1;
+                gap: 0.65rem;
+                padding: 0.85rem 0.95rem;
+                background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+                border-color: #dbe7f3;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+            }
+
+            .company-context-card strong {
+                font-size: 1rem;
+            }
+
+            .company-context-row {
+                gap: 0.55rem;
             }
 
             .stat {
-                min-height: 88px;
+                min-height: 0;
                 border-radius: 14px;
-                padding: 0.75rem;
-                background: #f6f8fa;
+                padding: 0.8rem 0.85rem;
+                background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+                border-color: #dbe7f3;
+            }
+
+            .stat strong {
+                margin-top: 0.25rem;
+                font-size: clamp(1.2rem, 1.75vw, 1.55rem);
             }
 
             .tabbar {
