@@ -308,6 +308,32 @@
             color: var(--text);
             word-break: break-word;
         }
+        #portalFeedbackModal .feedback-modal-backdrop {
+            background: rgba(4, 10, 20, 0.68);
+            backdrop-filter: blur(6px);
+        }
+        #portalFeedbackModal .feedback-modal-dialog {
+            border: 1px solid rgba(139, 179, 214, 0.18);
+            background: linear-gradient(180deg, rgba(13, 28, 46, 0.98), rgba(7, 17, 29, 0.98));
+            box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+        }
+        #portalFeedbackModal .lead,
+        #portalFeedbackModal .field span,
+        #portalFeedbackModal .helper .meta {
+            color: #b9cde2;
+        }
+        #portalFeedbackModal .feedback-context-card {
+            border: 1px solid rgba(139, 179, 214, 0.16);
+            background: rgba(18, 34, 54, 0.82);
+        }
+        #portalFeedbackModal .feedback-context-card span {
+            color: #8da9c3;
+            font-size: 0.76rem;
+        }
+        #portalFeedbackModal .feedback-context-card strong,
+        #portalFeedbackModal h2 {
+            color: #f5f9ff;
+        }
         .toggle-card {
             display: flex;
             gap: 0.8rem;
@@ -415,7 +441,7 @@
                     <button class="btn ghost" type="button" data-view="inbound">New Inbound</button>
                     <button class="btn ghost" type="button" data-view="orders">My Orders</button>
                     <button class="btn ghost" type="button" data-view="inbounds">My Inbounds</button>
-                    <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Issue</button>
+                    <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Bug / Request Feature</button>
                     <button class="btn secondary" id="logoutBtn" type="button">Log Out</button>
                 </div>
             </article>
@@ -652,16 +678,16 @@
                 <div class="feedback-modal-backdrop" data-portal-feedback-close></div>
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalFeedbackTitle">
                     <div class="header-copy">
-                        <h2 id="portalFeedbackTitle">Send Feedback</h2>
-                        <p class="lead">Tell us about a bug or request a feature. Your company, portal view, build, and browser details are attached automatically.</p>
+                        <h2 id="portalFeedbackTitle">Send Product Feedback</h2>
+                        <p class="lead">Capture bugs and feature requests while the screen is still open so the team gets the exact workflow context.</p>
                     </div>
                     <div class="feedback-context-grid">
                         <div class="feedback-context-card">
-                            <span>Portal View</span>
+                            <span>Current Section</span>
                             <strong id="portalFeedbackView">Inventory</strong>
                         </div>
                         <div class="feedback-context-card">
-                            <span>Company</span>
+                            <span>Active Company</span>
                             <strong id="portalFeedbackCompany">Not signed in</strong>
                         </div>
                         <div class="feedback-context-card">
@@ -680,14 +706,14 @@
                         </label>
                         <label class="field span-2">
                             <span>Short Title</span>
-                            <input id="portalFeedbackTitleInput" type="text" maxlength="180" placeholder="Example: Inventory export should include pallet code">
+                            <input id="portalFeedbackTitleInput" type="text" maxlength="180" placeholder="Example: Released orders page does not show staged count">
                         </label>
                         <label class="field span-2">
                             <span>Details</span>
-                            <textarea id="portalFeedbackDetails" rows="7" placeholder="Tell us what happened, what you expected, and any steps or examples that will help us review it faster."></textarea>
+                            <textarea id="portalFeedbackDetails" rows="7" placeholder="What happened, what you expected, and any steps the team should follow to reproduce it."></textarea>
                         </label>
                         <div class="helper span-2">
-                            <div class="meta" id="portalFeedbackMeta">The current page URL and browser details will be sent with this request.</div>
+                            <div class="meta" id="portalFeedbackMeta">The current section, URL, company, browser, and build are attached automatically.</div>
                         </div>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Submit Feedback</button>
@@ -1077,10 +1103,11 @@
 
         function syncPortalFeedbackContext() {
             if (!ui.portalFeedbackView || !ui.portalFeedbackCompany || !ui.portalFeedbackBuild || !ui.portalFeedbackMeta) return;
+            const company = portalState.account?.accountName || "";
             ui.portalFeedbackView.textContent = getPortalFeedbackViewLabel();
-            ui.portalFeedbackCompany.textContent = portalState.account?.accountName || "Not signed in";
+            ui.portalFeedbackCompany.textContent = company || "Not signed in";
             ui.portalFeedbackBuild.textContent = String(ui.portalBuildLabel?.textContent || "Build unavailable").replace(/^Deployment:\s*/i, "") || "Build unavailable";
-            ui.portalFeedbackMeta.textContent = `Current URL ${window.location.pathname || "/"}${window.location.search || ""} will be attached automatically.`;
+            ui.portalFeedbackMeta.textContent = `Current URL ${window.location.pathname || "/"}${window.location.search || ""} will be attached automatically${company ? ` for ${company}` : ""}.`;
         }
 
         function openPortalFeedbackModal() {
