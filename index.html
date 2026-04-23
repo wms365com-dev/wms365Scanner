@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#14304a">
-    <title>WMS365 Scanner</title>
+    <link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+    <link rel="shortcut icon" href="/marketing-logo.svg">
+    <link rel="manifest" href="/site.webmanifest">
+    <title>WMS365 Warehouse Management System</title>
     <style>
         :root {
             --bg: #edf3f8;
@@ -262,6 +265,78 @@
 
         .workspace-inline-meta .meta {
             font-size: 0.86rem;
+        }
+
+        .workspace-inline-meta strong {
+            color: #11324d;
+        }
+
+        .action-board {
+            display: grid;
+            gap: 0.8rem;
+            padding: 1rem;
+            border-radius: 18px;
+            border: 1px solid #dbe7f3;
+            background: linear-gradient(180deg, #f9fcff 0%, #ffffff 100%);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+        }
+
+        .action-board-head {
+            display: grid;
+            gap: 0.18rem;
+        }
+
+        .action-board-head span {
+            color: #5d7891;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .action-board-head strong {
+            color: #11324d;
+            font-size: 1rem;
+        }
+
+        .action-board-head p {
+            margin: 0;
+            color: #66798b;
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+
+        .action-board-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+
+        .action-board-grid > select {
+            display: none !important;
+        }
+
+        .action-link {
+            display: grid;
+            gap: 0.2rem;
+            min-height: 84px;
+            padding: 0.85rem 0.9rem;
+            border-radius: 16px;
+            border: 1px solid #d8e5f2;
+            background: #ffffff;
+            text-align: left;
+            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+        }
+
+        .action-link strong {
+            color: #10314b;
+            font-size: 0.95rem;
+        }
+
+        .action-link span {
+            color: #6a7d90;
+            font-size: 0.8rem;
+            line-height: 1.4;
         }
 
         .workspace-chip {
@@ -1841,7 +1916,7 @@
 
             .hero {
                 grid-area: header;
-                padding: 0.7rem 0.9rem;
+                padding: 0.7rem 0.85rem 0.8rem;
                 border-radius: 18px;
                 border-color: #d5e4f2;
                 background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,253,0.98) 100%);
@@ -1849,7 +1924,7 @@
             }
 
             .hero-grid {
-                grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.9fr);
+                grid-template-columns: minmax(0, 1.25fr) minmax(380px, 0.95fr);
                 align-items: start;
                 gap: 0.85rem;
             }
@@ -1860,22 +1935,54 @@
                 gap: 0.8rem;
             }
 
-            .hero-copy { gap: 0.65rem; }
+            .hero-copy { gap: 0.75rem; }
 
             .hero h1 {
-                font-size: clamp(1.55rem, 2.05vw, 2.05rem);
-                line-height: 1;
+                font-size: clamp(1.8rem, 2.3vw, 2.5rem);
+                line-height: 0.98;
             }
 
             .hero p,
             .eyebrow,
             .hero-tags,
             .workflow-strip,
-            .quick-jumps,
             .hero-mode,
             .desktop-nav-head .meta,
             .tab-meta,
             .card-head .lead {
+                display: none !important;
+            }
+
+            .workspace-commandbar {
+                gap: 0.85rem;
+                padding: 1rem 1.05rem;
+                border-radius: 18px;
+                border-color: #d6e5f3;
+                background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+            }
+
+            .workspace-command-copy strong {
+                font-size: 1.22rem;
+            }
+
+            .workspace-context-bar {
+                align-items: center;
+                gap: 0.7rem 1rem;
+            }
+
+            .workspace-context-primary strong {
+                font-size: 1.35rem;
+            }
+
+            .workspace-company-row {
+                grid-template-columns: minmax(240px, 1fr) auto auto;
+            }
+
+            .workspace-company-row .btn {
+                white-space: nowrap;
+            }
+
+            .hero-copy .quick-jumps {
                 display: none !important;
             }
 
@@ -1922,26 +2029,21 @@
                 letter-spacing: 0.08em;
             }
 
-            .quick-jumps {
-                margin-top: 0.1rem;
-                grid-template-columns: repeat(6, minmax(0, 1fr));
-            }
-
-            .quick-link {
-                min-height: 0;
-                padding: 0.85rem 0.95rem;
-                border-radius: 16px;
-                background: rgba(255, 255, 255, 0.04);
-            }
-
-            .quick-link strong { font-size: 0.94rem; }
-            .quick-link span { font-size: 0.83rem; }
-
             .stats-grid {
                 display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
+                grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 0.65rem;
                 align-content: start;
+            }
+
+            .action-board {
+                grid-column: 1 / -1;
+            }
+
+            .action-link:hover {
+                transform: translateY(-1px);
+                border-color: #b9d1e8;
+                box-shadow: 0 12px 24px rgba(15, 23, 42, 0.07);
             }
 
             .stat {
@@ -2041,15 +2143,15 @@
 
             .home-callout {
                 margin-bottom: 14px;
-                padding: 16px 18px;
+                padding: 18px 20px;
                 border-radius: 20px;
                 border: 1px solid #d9e7f4;
-                background: linear-gradient(135deg, #f4f9ff 0%, #ffffff 72%);
+                background: linear-gradient(135deg, #eef6ff 0%, #ffffff 74%);
                 box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
             }
 
             .home-callout h2 {
-                font-size: 1.25rem;
+                font-size: 1.28rem;
                 color: #11324d;
             }
 
@@ -2897,8 +2999,8 @@
                 <div class="hero-copy">
                     <div class="hero-topline">
                         <div>
-                            <p class="eyebrow">Warehouse Operations Console</p>
-                            <h1>WMS365 Scanner <span class="build-badge" id="appBuildBadge">Build loading...</span></h1>
+                            <p class="eyebrow">WMS365 Warehouse Management System</p>
+                            <h1>Warehouse Control Tower <span class="build-badge" id="appBuildBadge">Build loading...</span></h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
@@ -2911,12 +3013,24 @@
                             <strong id="workspaceSectionTitle">Operations Home</strong>
                             <p class="workspace-command-meta" id="workspaceSectionMeta">Choose the next warehouse task by workflow and keep setup/admin out of daily operations.</p>
                         </div>
-                        <div class="workspace-command-chips">
-                            <span class="workspace-chip" id="workspaceCompanyChip">All Companies</span>
-                            <span class="workspace-chip subtle" id="workspaceSyncChip">Server Sync: Never</span>
+                        <div class="workspace-context-bar">
+                            <div class="workspace-context-primary">
+                                <span class="workspace-command-kicker">Active Company</span>
+                                <strong id="activeCompanyDisplay">All Companies</strong>
+                            </div>
+                            <div class="workspace-command-chips">
+                                <span class="workspace-chip" id="workspaceCompanyChip">All Companies</span>
+                                <span class="workspace-chip subtle" id="workspaceSyncChip">Server Sync: Never</span>
+                            </div>
                         </div>
-                        <div class="workspace-command-actions">
+                        <div class="workspace-company-row">
+                            <select id="activeCompany" class="company-context-input"><option value="">Select company…</option></select>
+                            <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Clear</button>
                             <button class="btn ghost mini" id="syncNowBtn" type="button">Refresh</button>
+                        </div>
+                        <div class="workspace-inline-meta">
+                            <div class="meta" id="activeCompanyMeta">Warehouse work stays scoped to the selected company.</div>
+                            <div class="meta" id="appBuildMeta">Build loading...</div>
                         </div>
                     </div>
                     <p>Run receiving, inventory lookup, stock adjustments, reporting, and label creation from one warehouse desktop. Mobile stays quick for operators while desktop handles the heavier WMS work.</p>
@@ -2992,17 +3106,32 @@
                     </div>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
-                    <div class="company-context-card desktop-only">
-                        <div>
-                            <span>Active Company</span>
-                            <strong id="activeCompanyDisplay">All Companies</strong>
+                    <div class="action-board desktop-only">
+                        <div class="action-board-head">
+                            <span>Actions</span>
+                            <strong>Jump into warehouse work</strong>
+                            <p>Open the next operational lane without digging through setup screens.</p>
                         </div>
-                        <div class="company-context-row">
+                        <div class="action-board-grid">
                             <select id="activeCompany" class="company-context-input"><option value="">Select company…</option></select>
                             <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Clear</button>
+                            <button class="action-link" type="button" data-jump-section="actions">
+                                <strong>Adjust & Move</strong>
+                                <span>Transfer, convert, or correct warehouse inventory.</span>
+                            </button>
+                            <button class="action-link" type="button" data-jump-section="orders">
+                                <strong>Sales Orders</strong>
+                                <span>Work released orders through pick, stage, and ship.</span>
+                            </button>
+                            <button class="action-link" type="button" data-jump-section="shipped">
+                                <strong>Shipped Orders</strong>
+                                <span>Review completed shipments, tracking, and documents.</span>
+                            </button>
+                            <button class="action-link" type="button" data-jump-section="reports">
+                                <strong>Reports & Counts</strong>
+                                <span>Run activity, count, and export review for the floor.</span>
+                            </button>
                         </div>
-                        <div class="meta" id="activeCompanyMeta">Warehouse work stays scoped to the selected company.</div>
-                        <div class="meta" id="appBuildMeta">Build loading...</div>
                     </div>
                     <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
@@ -3114,13 +3243,13 @@
 
                 <section class="panel active desktop-only" id="homePanel" data-panel="home">
             <div class="home-callout">
-                <h2>Operations Home</h2>
-                <p>Choose the next warehouse task. Daily work starts here; setup, billing, reports, and admin stay in their own areas.</p>
+                <h2>Warehouse Activity Center</h2>
+                <p>Run inbound, order execution, inventory control, and admin work from one desktop workspace built for warehouse teams.</p>
             </div>
             <div class="home-grid">
                 <article class="home-card">
-                    <h3>Daily Work</h3>
-                    <p>Fast access for the floor team.</p>
+                    <h3>Floor Operations</h3>
+                    <p>High-frequency tasks for receiving and live warehouse control.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="scan"><strong>Receiving</strong><span>Stage inbound inventory and save the batch.</span></button>
                         <button class="home-task" type="button" data-jump-section="orders"><strong>Picking</strong><span>Open released sales orders, print pick tickets, and work the pick flow.</span></button>
@@ -3129,8 +3258,8 @@
                     </div>
                 </article>
                 <article class="home-card">
-                    <h3>Order Processing</h3>
-                    <p>Move released portal orders through pick, stage, and ship.</p>
+                    <h3>Order Execution</h3>
+                    <p>Move customer orders from release to shipment with the right paperwork.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="orders"><strong>Sales Orders</strong><span>Review orders, shortages, and print documents.</span></button>
                         <button class="home-task" type="button" data-jump-section="orders"><strong>Pick Tickets</strong><span>Print internal pick paperwork with locations.</span></button>
@@ -3139,8 +3268,8 @@
                     </div>
                 </article>
                 <article class="home-card">
-                    <h3>Inventory Control</h3>
-                    <p>Control stock accuracy and warehouse movement.</p>
+                    <h3>Inventory & Accuracy</h3>
+                    <p>Protect stock accuracy, location discipline, and count execution.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="inventory"><strong>Inventory Control</strong><span>Review live stock and inventory summary.</span></button>
                         <button class="home-task" type="button" data-jump-section="reports"><strong>Cycle Count & Reports</strong><span>Run reports, exports, and follow-up checks.</span></button>
@@ -3149,8 +3278,8 @@
                     </div>
                 </article>
                 <article class="home-card">
-                    <h3>Setup, Billing & Admin</h3>
-                    <p>Use these less often and keep them out of the receiving screen.</p>
+                    <h3>Commercial Setup & Admin</h3>
+                    <p>Keep account setup, integrations, billing, and system controls in a dedicated lane.</p>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="inventory"><strong>Companies / Items / BINs</strong><span>Maintain master data, portal users, and saved records outside receiving.</span></button>
                         <button class="home-task" type="button" data-jump-section="integrations"><strong>Integrations</strong><span>Connect Shopify stores and pull customer orders into the warehouse.</span></button>
@@ -5165,6 +5294,22 @@
                 return accumulator;
             }, {})
         );
+        document.querySelectorAll('.action-board select[id="activeCompany"]').forEach((node) => {
+            const replacement = document.createElement("button");
+            replacement.className = "action-link";
+            replacement.type = "button";
+            replacement.dataset.jumpSection = "search";
+            replacement.innerHTML = "<strong>Inventory Lookup</strong><span>Search live stock by SKU, UPC, BIN, or location.</span>";
+            node.replaceWith(replacement);
+        });
+        document.querySelectorAll('.action-board button[id="clearActiveCompanyBtn"]').forEach((node) => {
+            const replacement = document.createElement("button");
+            replacement.className = "action-link";
+            replacement.type = "button";
+            replacement.dataset.jumpSection = "scan";
+            replacement.innerHTML = "<strong>Receiving</strong><span>Stage inbound stock and save the open batch.</span>";
+            node.replaceWith(replacement);
+        });
         const state = loadState();
         let labelToolState = loadLabelToolState();
         let activeSection = "home";

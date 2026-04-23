@@ -3,26 +3,96 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WMS 365 Warehouse Login</title>
+  <meta name="theme-color" content="#14304a">
+  <link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+  <link rel="shortcut icon" href="/marketing-logo.svg">
+  <link rel="manifest" href="/site.webmanifest">
+  <title>WMS365 Warehouse Login</title>
   <style>
-    body{font-family:Arial,sans-serif;background:#0f172a;color:#e5e7eb;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:20px}
-    .card{width:100%;max-width:420px;background:#111827;border:1px solid #334155;border-radius:16px;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
-    h1{margin:0 0 8px;font-size:28px} p{color:#94a3b8;line-height:1.5} label{display:block;margin:14px 0 6px;font-weight:700} input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #475569;background:#0b1220;color:#fff;box-sizing:border-box} button{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px;transition:opacity .18s ease,filter .18s ease} button:hover:enabled{filter:brightness(1.04)} button:disabled{opacity:.7;cursor:not-allowed} button.is-busy,button[aria-busy="true"]{opacity:.92;cursor:progress} button.is-busy::after,button[aria-busy="true"]::after{content:"";width:14px;height:14px;flex:0 0 auto;border-radius:999px;border:2px solid currentColor;border-right-color:transparent;animation:buttonSpin .75s linear infinite}@keyframes buttonSpin{to{transform:rotate(360deg)}} .msg{margin-top:14px;font-size:14px;min-height:20px}.err{color:#fca5a5}.ok{color:#86efac}.small{font-size:12px;color:#94a3b8;margin-top:14px}
+    :root{--bg:#edf3f8;--bg-accent:#dbe8f4;--panel:#ffffff;--panel-2:#f6f9fc;--line:#d5e0ea;--text:#142233;--muted:#627589;--brand:#1d4ed8;--brand-2:#143c8f;--brand-soft:#eaf2ff;--radius:18px;--shadow:0 18px 40px rgba(15,23,42,.12)}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:linear-gradient(180deg,var(--bg-accent) 0%,var(--bg) 18%,var(--bg) 100%);color:var(--text);font-family:"Trebuchet MS","Segoe UI Variable","Segoe UI",sans-serif}
+    body{padding:20px;display:grid;place-items:center}
+    a{color:inherit}
+    .shell{width:min(980px,100%);display:grid;grid-template-columns:minmax(0,1.05fr) minmax(380px,.95fr);gap:20px;align-items:stretch}
+    .intro,.card{border:1px solid var(--line);border-radius:24px;background:rgba(255,255,255,.96);box-shadow:var(--shadow)}
+    .intro{padding:28px;display:grid;gap:18px;background:linear-gradient(180deg,#f7fbff 0%,#ffffff 100%)}
+    .brand{display:flex;align-items:center;gap:14px}
+    .brand img{width:56px;height:56px;flex:0 0 56px;object-fit:contain}
+    .brand-copy{display:grid;gap:3px}
+    .brand-copy span{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#607892}
+    .brand-copy strong{font-size:29px;line-height:1;color:#112c45}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;width:max-content}
+    .eyebrow::before{content:"";width:8px;height:8px;border-radius:999px;background:var(--brand)}
+    h1{margin:0;font-size:clamp(2rem,3vw,3.2rem);line-height:.98;color:#10253f}
+    .lead{margin:0;color:var(--muted);font-size:1rem;line-height:1.6;max-width:52ch}
+    .feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .feature{padding:14px;border-radius:18px;border:1px solid #dbe7f4;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)}
+    .feature strong{display:block;font-size:15px;color:#12324a}
+    .feature span{display:block;margin-top:5px;color:#67798b;font-size:13px;line-height:1.45}
+    .card{width:100%;padding:28px;display:grid;gap:16px}
+    .card-head{display:grid;gap:8px}
+    .card-head h2{margin:0;font-size:1.55rem;color:#12324a}
+    .card-head p{margin:0;color:var(--muted);line-height:1.55}
+    label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#3f5a72}
+    input{width:100%;padding:14px 15px;border-radius:14px;border:1px solid var(--line);background:#fff;color:var(--text)}
+    input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 4px rgba(29,78,216,.12)}
+    button{width:100%;margin-top:4px;padding:14px 16px;border:0;border-radius:14px;background:linear-gradient(135deg,var(--brand) 0%,#1768ff 100%);color:#fff;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px;transition:opacity .18s ease,filter .18s ease,transform .18s ease}
+    button:hover:enabled{filter:brightness(1.04);transform:translateY(-1px)}
+    button:disabled{opacity:.7;cursor:not-allowed}
+    button.is-busy,button[aria-busy="true"]{opacity:.92;cursor:progress}
+    button.is-busy::after,button[aria-busy="true"]::after{content:"";width:14px;height:14px;flex:0 0 auto;border-radius:999px;border:2px solid currentColor;border-right-color:transparent;animation:buttonSpin .75s linear infinite}
+    @keyframes buttonSpin{to{transform:rotate(360deg)}}
+    .msg{margin-top:2px;font-size:14px;min-height:20px}
+    .err{color:#b93c3c}
+    .ok{color:#1c8a5f}
+    .small{font-size:12px;color:#7b8fa2}
+    .card-links{display:flex;flex-wrap:wrap;gap:12px}
+    .card-link{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;color:#16324a;text-decoration:none;font-size:13px;font-weight:700}
+    .build{padding-top:4px;border-top:1px solid #e3edf6}
+    @media (max-width:900px){.shell{grid-template-columns:1fr}.intro{order:2}.card{order:1}}
+    @media (max-width:640px){body{padding:14px}.intro,.card{padding:20px}.brand img{width:48px;height:48px;flex-basis:48px}.brand-copy strong{font-size:24px}.feature-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <form class="card" id="loginForm">
-    <h1>WMS 365</h1>
-    <p>Warehouse staff login required to access the internal app.</p>
-    <label for="email">Email</label>
-    <input id="email" name="email" type="email" autocomplete="username" required>
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button type="submit">Sign in</button>
-    <div class="msg" id="message"></div>
-    <div class="small">Customer portal users should use the separate portal login page.</div>
-    <div class="small" id="loginBuildLabel">Deployment: loading...</div>
-  </form>
+  <div class="shell">
+    <section class="intro" aria-label="WMS365 overview">
+      <div class="brand">
+        <img src="/marketing-logo.svg" alt="WMS365 logo" width="56" height="56">
+        <div class="brand-copy">
+          <span>Warehouse Software</span>
+          <strong>WMS365</strong>
+        </div>
+      </div>
+      <div class="eyebrow">Warehouse Access</div>
+      <h1>Warehouse teams sign in here to run daily operations.</h1>
+      <p class="lead">Use the same WMS365 workspace for receiving, inventory control, order execution, reporting, labels, and customer-facing workflows.</p>
+      <div class="feature-grid">
+        <div class="feature"><strong>Operations Console</strong><span>Run inbound, inventory lookup, adjustments, and shipped-order review from one desktop shell.</span></div>
+        <div class="feature"><strong>Customer-Safe Access</strong><span>Portal users stay in their own account-scoped workspace while warehouse users manage the operation.</span></div>
+        <div class="feature"><strong>Live Warehouse Data</strong><span>Track shared inventory, released orders, counts, and labels without jumping between disconnected tools.</span></div>
+        <div class="feature"><strong>Build Visibility</strong><span>Every page shows the current deployment label so your team can verify the live environment quickly.</span></div>
+      </div>
+    </section>
+    <form class="card" id="loginForm">
+      <div class="card-head">
+        <h2>Warehouse Login</h2>
+        <p>Warehouse staff login required to access the internal WMS365 application.</p>
+      </div>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+      <div class="msg" id="message"></div>
+      <div class="card-links">
+        <a class="card-link" href="https://app.wms365.co/portal">Customer Portal</a>
+        <a class="card-link" href="mailto:support@wms365.co">Support</a>
+      </div>
+      <div class="small">Customer portal users should use the separate portal login page.</div>
+      <div class="small build" id="loginBuildLabel">Deployment: loading...</div>
+    </form>
+  </div>
   <script>
     const form=document.getElementById('loginForm');
     const message=document.getElementById('message');
