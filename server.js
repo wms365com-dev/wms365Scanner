@@ -9104,7 +9104,7 @@ async function savePortalInboundForAccount(
         throw httpError(400, "Reference number, expected date, and contact name are required.");
     }
     if (!inbound.lines.length) {
-        throw httpError(400, "Add at least one inbound line before submitting.");
+        throw httpError(400, "Add at least one line before submitting.");
     }
     for (const line of inbound.lines) {
         await assertPortalInboundSkuAllowed(client, normalizedAccount, line.sku);

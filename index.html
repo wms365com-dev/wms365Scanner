@@ -10,36 +10,32 @@
     <title>WMS365 Warehouse Management System</title>
     <style>
         :root {
-            --bg: #edf3f8;
-            --bg-accent: #dbe8f4;
+            --bg: #eef2f6;
+            --bg-accent: #e4eaf0;
             --panel: #ffffff;
-            --panel-2: #f6f9fc;
-            --line: #d5e0ea;
-            --text: #142233;
-            --muted: #627589;
+            --panel-2: #f4f7fa;
+            --line: #c8d2dc;
+            --text: #162433;
+            --muted: #5e7082;
             --brand: #1d4ed8;
             --brand-2: #143c8f;
             --brand-soft: #eaf2ff;
             --ok: #1f9d68;
             --warn: #d79a00;
             --bad: #cf3d3d;
-            --radius: 18px;
-            --radius-sm: 12px;
-            --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
         }
 
         * { box-sizing: border-box; }
-
-        html {
-            background: linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 18%, var(--bg) 100%);
-        }
 
         body {
             margin: 0;
             min-height: 100vh;
             color: var(--text);
-            font-family: "Trebuchet MS", "Segoe UI Variable", "Segoe UI", sans-serif;
-            background: linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 18%, var(--bg) 100%);
+            font-family: "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
         }
 
         button, input, select, textarea { font: inherit; }
@@ -47,17 +43,18 @@
 
         input, select, textarea {
             width: 100%;
-            padding: 0.9rem 1rem;
+            padding: 0.82rem 0.9rem;
             border-radius: var(--radius-sm);
             border: 1px solid var(--line);
             background: #ffffff;
             color: var(--text);
+            box-shadow: none;
         }
 
         input:focus, select:focus, textarea:focus {
             outline: none;
-            border-color: rgba(89, 183, 255, 0.9);
-            box-shadow: 0 0 0 4px rgba(89, 183, 255, 0.12);
+            border-color: rgba(29, 78, 216, 0.55);
+            box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.12);
         }
 
         input::placeholder, textarea::placeholder { color: #8aa0b4; }
@@ -73,11 +70,10 @@
             border-radius: var(--radius);
             background: var(--panel);
             box-shadow: var(--shadow);
-            backdrop-filter: none;
         }
 
         .hero {
-            padding: 1rem 1.1rem;
+            padding: 0.9rem 1rem;
             overflow: hidden;
             position: relative;
         }
@@ -192,19 +188,27 @@
             display: grid;
             gap: 0.7rem;
             padding: 0.95rem 1rem;
-            border-radius: 20px;
-            border: 1px solid #dbe7f3;
-            background: linear-gradient(135deg, #f7fbff 0%, #ffffff 72%);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            border-radius: 10px;
+            border: 1px solid #c7d3de;
+            background: #ffffff;
+            box-shadow: none;
         }
 
         .workspace-command-copy {
             display: grid;
-            gap: 0.18rem;
+            gap: 0.28rem;
+        }
+
+        .workspace-drill-path {
+            color: #647789;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
         }
 
         .workspace-command-kicker {
-            color: #557593;
+            color: #5e7286;
             font-size: 0.76rem;
             font-weight: 700;
             letter-spacing: 0.14em;
@@ -275,10 +279,10 @@
             display: grid;
             gap: 0.8rem;
             padding: 1rem;
-            border-radius: 18px;
-            border: 1px solid #dbe7f3;
-            background: linear-gradient(180deg, #f9fcff 0%, #ffffff 100%);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+            border-radius: 10px;
+            border: 1px solid #ccd7e1;
+            background: #f7f9fb;
+            box-shadow: none;
         }
 
         .action-board-head {
@@ -321,11 +325,11 @@
             gap: 0.2rem;
             min-height: 84px;
             padding: 0.85rem 0.9rem;
-            border-radius: 16px;
-            border: 1px solid #d8e5f2;
+            border-radius: 8px;
+            border: 1px solid #cfd8e2;
             background: #ffffff;
             text-align: left;
-            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+            box-shadow: none;
         }
 
         .action-link strong {
@@ -345,9 +349,9 @@
             gap: 0.45rem;
             min-height: 36px;
             padding: 0.55rem 0.8rem;
-            border-radius: 999px;
-            border: 1px solid #d6e5f5;
-            background: #ffffff;
+            border-radius: 8px;
+            border: 1px solid #cfd9e3;
+            background: #f7f9fb;
             color: #1d4666;
             font-size: 0.85rem;
             font-weight: 700;
@@ -365,7 +369,7 @@
 
         .workspace-chip.subtle {
             color: #5f7082;
-            background: #f5f8fc;
+            background: #eef3f7;
         }
 
         .workspace-chip.subtle::before {
@@ -382,9 +386,9 @@
         .stat {
             flex: 1 1 140px;
             padding: 1rem;
-            border-radius: 18px;
+            border-radius: 10px;
             border: 1px solid var(--line);
-            background: var(--panel-2);
+            background: #ffffff;
         }
 
         .stat span {
@@ -405,22 +409,22 @@
         .tabbar {
             margin-top: 1rem;
             padding: 0.35rem;
-            border-radius: 999px;
+            border-radius: 12px;
             border: 1px solid var(--line);
-            background: var(--panel);
+            background: #ffffff;
             overflow-x: auto;
             position: sticky;
             top: 0.75rem;
             z-index: 30;
             box-shadow: none;
-            backdrop-filter: none;
         }
 
         .tab {
             min-height: 48px;
             padding: 0.85rem 1rem;
-            border-radius: 999px;
-            background: transparent;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            background: #ffffff;
             color: var(--muted);
             white-space: nowrap;
             text-align: left;
@@ -441,8 +445,9 @@
         }
 
         .tab.active {
-            color: #ffffff;
-            background: var(--brand);
+            color: var(--brand-2);
+            background: var(--brand-soft);
+            border-color: #bfd1f6;
             box-shadow: none;
         }
 
@@ -481,18 +486,20 @@
         }
 
         .field span {
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #d8e6f5;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #5f7386;
         }
 
         .span-2 { grid-column: 1 / -1; }
 
         .helper {
             padding: 1rem;
-            border-radius: 16px;
+            border-radius: 8px;
             border: 1px solid var(--line);
-            background: var(--panel-2);
+            background: #f7f9fb;
         }
 
         .desktop-only { display: block; }
@@ -514,15 +521,15 @@
             grid-template-columns: auto 1fr;
             gap: 0.8rem;
             padding: 0.95rem 1rem;
-            border-radius: 18px;
+            border-radius: 10px;
             border: 1px solid var(--line);
-            background: var(--panel-2);
+            background: #ffffff;
         }
 
         .workflow-step strong {
             width: 2rem;
             height: 2rem;
-            border-radius: 50%;
+            border-radius: 8px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -552,9 +559,9 @@
         .quick-link {
             min-height: 78px;
             padding: 0.95rem 1rem;
-            border-radius: 18px;
+            border-radius: 8px;
             border: 1px solid var(--line);
-            background: var(--panel-2);
+            background: #ffffff;
             color: var(--text);
             text-align: left;
         }
@@ -588,9 +595,9 @@
         }
 
         .fold {
-            border-radius: 18px;
+            border-radius: 10px;
             border: 1px solid var(--line);
-            background: var(--panel-2);
+            background: #ffffff;
         }
 
         .fold summary {
@@ -979,9 +986,9 @@
         .empty {
             margin: 0;
             padding: 1.1rem;
-            border-radius: 16px;
+            border-radius: 8px;
             border: 1px dashed var(--line);
-            background: rgba(255, 255, 255, 0.04);
+            background: #f7f9fb;
             color: var(--muted);
             text-align: center;
             line-height: 1.55;
@@ -992,9 +999,9 @@
         .summary {
             flex: 1 1 150px;
             padding: 0.9rem;
-            border-radius: 16px;
+            border-radius: 8px;
             border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.04);
+            background: #ffffff;
         }
 
         .summary span {
@@ -1036,9 +1043,9 @@
 
         .table-wrap {
             overflow-x: auto;
-            border-radius: 16px;
+            border-radius: 8px;
             border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.03);
+            background: #ffffff;
         }
 
         .report-sheet-wrap {
@@ -1568,6 +1575,10 @@
             -webkit-overflow-scrolling: touch;
         }
 
+        .feedback-modal-dialog .field span {
+            color: #d8e6f5;
+        }
+
         .feedback-context-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -1956,9 +1967,9 @@
             .workspace-commandbar {
                 gap: 0.85rem;
                 padding: 1rem 1.05rem;
-                border-radius: 18px;
-                border-color: #d6e5f3;
-                background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+                border-radius: 10px;
+                border-color: #c9d4de;
+                background: #ffffff;
             }
 
             .workspace-command-copy strong {
@@ -1989,9 +2000,9 @@
             .hero-mode {
                 min-width: 180px;
                 padding: 0.7rem 0.85rem;
-                border-radius: 14px;
-                border: 1px solid #d9e8f6;
-                background: #f7fbff;
+                border-radius: 8px;
+                border: 1px solid #d3dde6;
+                background: #f6f8fa;
                 justify-items: start;
             }
 
@@ -2015,8 +2026,8 @@
 
             .workflow-step {
                 padding: 0.85rem 0.95rem;
-                border-radius: 16px;
-                background: rgba(255, 255, 255, 0.04);
+                border-radius: 8px;
+                background: #ffffff;
             }
 
             .workflow-step strong {
@@ -2041,29 +2052,29 @@
             }
 
             .action-link:hover {
-                transform: translateY(-1px);
-                border-color: #b9d1e8;
-                box-shadow: 0 12px 24px rgba(15, 23, 42, 0.07);
+                transform: none;
+                border-color: #b5c4d3;
+                box-shadow: none;
             }
 
             .stat {
                 min-height: 0;
-                border-radius: 14px;
+                border-radius: 8px;
                 padding: 0.8rem 0.85rem;
                 position: relative;
                 overflow: hidden;
-                background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
-                border-color: #dbe7f3;
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+                background: #ffffff;
+                border-color: #ced8e2;
+                box-shadow: none;
             }
 
             .stat::before {
                 content: "";
                 position: absolute;
-                inset: 0 auto auto 0;
-                width: 100%;
-                height: 3px;
-                background: linear-gradient(90deg, var(--brand) 0%, #8ab4ff 100%);
+                inset: 0 auto 0 0;
+                width: 4px;
+                height: auto;
+                background: #c8d8ea;
             }
 
             .stat strong {
@@ -2080,21 +2091,21 @@
                 top: 0.85rem;
                 margin-top: 0;
                 padding: 0.9rem 0.8rem;
-                border-radius: 18px;
+                border-radius: 10px;
                 overflow: visible;
-                background: linear-gradient(180deg, #10263b 0%, #0c1c2e 100%);
-                border-color: #17344d;
-                box-shadow: 0 20px 45px rgba(7, 17, 29, 0.24);
+                background: #ffffff;
+                border-color: #cbd6df;
+                box-shadow: none;
             }
 
             .desktop-nav-head {
                 padding: 0 0.15rem 0.7rem;
-                border-bottom: 1px solid rgba(148, 184, 220, 0.14);
+                border-bottom: 1px solid #d5dde5;
                 margin-bottom: 0.15rem;
             }
 
             .desktop-nav-head span {
-                color: #7fa4c7;
+                color: #5d7285;
                 font-size: 0.72rem;
                 font-weight: 700;
                 letter-spacing: 0.14em;
@@ -2103,33 +2114,33 @@
 
             .desktop-nav-head strong {
                 font-size: 1rem;
-                color: #eef6ff;
+                color: #1a2d40;
             }
 
             .tab {
                 width: 100%;
                 min-height: 0;
                 padding: 0.82rem 0.85rem;
-                border-radius: 14px;
-                border: 1px solid rgba(148, 184, 220, 0.12);
+                border-radius: 8px;
+                border: 1px solid transparent;
                 display: grid;
                 gap: 0.2rem;
                 align-items: start;
                 white-space: normal;
-                background: rgba(255, 255, 255, 0.03);
-                color: #c9d9e8;
+                background: #ffffff;
+                color: #55687a;
             }
 
             .tab:hover {
-                background: rgba(255, 255, 255, 0.06);
-                border-color: rgba(148, 184, 220, 0.24);
+                background: #f6f8fb;
+                border-color: #cfd9e3;
             }
 
             .tab.active {
-                border-color: rgba(113, 161, 255, 0.5);
-                background: linear-gradient(135deg, #2a63e0 0%, #1f4fd8 100%);
-                color: #ffffff;
-                box-shadow: 0 12px 26px rgba(29, 78, 216, 0.28);
+                border-color: #bfd1f6;
+                background: #edf3ff;
+                color: #143c8f;
+                box-shadow: none;
             }
 
             .tab-label {
@@ -2144,10 +2155,10 @@
             .home-callout {
                 margin-bottom: 14px;
                 padding: 18px 20px;
-                border-radius: 20px;
-                border: 1px solid #d9e7f4;
-                background: linear-gradient(135deg, #eef6ff 0%, #ffffff 74%);
-                box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
+                border-radius: 10px;
+                border: 1px solid #cfd9e2;
+                background: #ffffff;
+                box-shadow: none;
             }
 
             .home-callout h2 {
@@ -2167,19 +2178,10 @@
             .home-card {
                 position: relative;
                 overflow: hidden;
-                border-radius: 20px;
-                border: 1px solid #d9e7f4;
-                background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-                box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
-            }
-
-            .home-card::before {
-                content: "";
-                position: absolute;
-                inset: 0 auto auto 0;
-                width: 100%;
-                height: 4px;
-                background: linear-gradient(90deg, #1d4ed8 0%, #66a3ff 100%);
+                border-radius: 10px;
+                border: 1px solid #cfd9e2;
+                background: #ffffff;
+                box-shadow: none;
             }
 
             .home-card h3 {
@@ -2204,17 +2206,17 @@
                 position: relative;
                 min-height: 82px;
                 padding: 13px 14px;
-                border-radius: 16px;
-                border: 1px solid #d9e7f4;
-                background: #ffffff;
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-                transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+                border-radius: 8px;
+                border: 1px solid #cfd8e2;
+                background: #f8fafc;
+                box-shadow: none;
+                transition: border-color 0.16s ease, background 0.16s ease;
             }
 
             .home-task:hover {
-                transform: translateY(-1px);
-                border-color: #b8d0e7;
-                box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+                transform: none;
+                border-color: #b7c8d8;
+                background: #f3f7fb;
             }
 
             .home-task strong {
@@ -2239,9 +2241,8 @@
 
             .card {
                 padding: 0.9rem 1rem;
-                border-radius: 16px;
+                border-radius: 10px;
                 background: #ffffff;
-                backdrop-filter: none;
                 box-shadow: none;
             }
 
@@ -2923,7 +2924,7 @@
         body.device-mobile .fold-content { padding: 0 0.95rem 0.95rem; }
     
         .hero {
-            background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246,249,252,0.98) 100%);
+            background: #ffffff;
         }
         .btn-primary,
         .cta,
@@ -2948,7 +2949,7 @@
             display: inline-block;
             margin-left: 10px;
             padding: 4px 10px;
-            border-radius: 999px;
+            border-radius: 8px;
             font-size: 12px;
             font-weight: 700;
             letter-spacing: .08em;
@@ -2966,10 +2967,10 @@
             gap:18px;
         }
         .home-card {
-            background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
-            border:1px solid #dbe7f3;
-            border-radius:18px;
-            box-shadow:0 10px 30px rgba(15,23,42,.06);
+            background:#ffffff;
+            border:1px solid #cfd9e2;
+            border-radius:10px;
+            box-shadow:none;
             padding:20px;
         }
         .home-card h3 { margin:0 0 6px; font-size:18px; }
@@ -2977,13 +2978,13 @@
         .home-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
         .home-task {
             display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:4px;
-            padding:14px; border-radius:14px; border:1px solid #d8e4f1; background:#fff; cursor:pointer; text-align:left;
+            padding:14px; border-radius:8px; border:1px solid #cfd8e2; background:#f8fafc; cursor:pointer; text-align:left;
         }
         .home-task strong { font-size:15px; color:#12324a; }
         .home-task span { font-size:12px; color:#6b7280; }
         .home-callout {
-            margin-bottom:18px; padding:18px; border-radius:18px; border:1px solid #dbe7f3;
-            background:linear-gradient(135deg,#eff6ff 0%,#f8fbff 100%);
+            margin-bottom:18px; padding:18px; border-radius:10px; border:1px solid #cfd9e2;
+            background:#ffffff;
         }
         .home-callout h2 { margin:0 0 6px; }
         .home-callout p { margin:0; color:#4b5563; }
@@ -3010,6 +3011,7 @@
                     <div class="workspace-commandbar desktop-only">
                         <div class="workspace-command-copy">
                             <span class="workspace-command-kicker">Current Workspace</span>
+                            <div class="workspace-drill-path" id="workspaceDrillPath">Operations / Home</div>
                             <strong id="workspaceSectionTitle">Operations Home</strong>
                             <p class="workspace-command-meta" id="workspaceSectionMeta">Choose the next warehouse task by workflow and keep setup/admin out of daily operations.</p>
                         </div>
@@ -3458,12 +3460,16 @@
                     <div class="card-head">
                         <div>
                             <h2 id="warehouseInboundTitle">Warehouse Purchase Order / Inbound Entry</h2>
-                            <p class="lead">Create expected inbound documents internally when the customer has not submitted one through the portal yet.</p>
+                            <p class="lead">Create expected inbound receipts for the active company before freight arrives so receiving has a clean queue to work from.</p>
                         </div>
-                        <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Inbound</button>
+                        <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
                     </div>
                     <div class="quick-meta" id="warehouseInboundCompanyMeta">Choose an active company in the header before entering a warehouse purchase order.</div>
                     <form id="warehouseInboundForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
+                        <div class="helper span-2 form-section-note">
+                            <strong>Purchase Order Workflow</strong>
+                            <div class="meta">1. Confirm the active company. 2. Enter the PO / reference and expected date. 3. Add the inbound lines the warehouse should expect. 4. Submit the PO so it lands in the receiving queue.</div>
+                        </div>
                         <label class="field">
                             <span>Purchase Order / Reference #</span>
                             <input id="warehouseInboundReferenceNumber" type="text" placeholder="Required">
@@ -3493,14 +3499,14 @@
                         <div class="line-head" style="margin-bottom: 0.8rem;">
                             <div>
                                 <h3>Inbound Lines</h3>
-                                <p class="meta">Only item masters saved for the active company can be selected.</p>
+                                <p class="meta" id="warehouseInboundLinesMeta">Only item masters saved for the active company can be selected.</p>
                             </div>
                             <button class="btn ghost" id="addWarehouseInboundLineBtn" type="button">Add Line</button>
                         </div>
                         <div id="warehouseInboundLines" class="line-items"></div>
                     </div>
                     <div class="button-row" style="margin-top: 1rem;">
-                        <button class="btn" id="submitWarehouseInboundBtn" type="button">Submit Purchase Order</button>
+                        <button class="btn" id="submitWarehouseInboundBtn" type="button">Create Purchase Order</button>
                     </div>
                     <div class="status" id="warehouseInboundMessage"></div>
                 </article>
@@ -3508,7 +3514,7 @@
                 <article class="card desktop-complex workspace-sheet-card" id="warehouseInboundQueueCard">
                     <div class="card-head">
                         <div>
-                            <h2>Inbound Queue</h2>
+                            <h2>Purchase Order Queue</h2>
                             <p class="lead">See expected receipts created by either the company portal or the warehouse team for the active company.</p>
                         </div>
                         <span class="meta" id="portalInboundsMeta">0 inbounds</span>
@@ -5523,6 +5529,7 @@
             desktopPreviewToggle: document.getElementById("desktopPreviewToggle"),
             workspaceSectionTitle: document.getElementById("workspaceSectionTitle"),
             workspaceSectionMeta: document.getElementById("workspaceSectionMeta"),
+            workspaceDrillPath: document.getElementById("workspaceDrillPath"),
             workspaceCompanyChip: document.getElementById("workspaceCompanyChip"),
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
             appBuildBadge: document.getElementById("appBuildBadge"),
@@ -5817,6 +5824,7 @@
             warehouseInboundQueueCard: document.getElementById("warehouseInboundQueueCard"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
             warehouseInboundCompanyMeta: document.getElementById("warehouseInboundCompanyMeta"),
+            warehouseInboundLinesMeta: document.getElementById("warehouseInboundLinesMeta"),
             warehouseInboundReferenceNumber: document.getElementById("warehouseInboundReferenceNumber"),
             warehouseInboundCarrierName: document.getElementById("warehouseInboundCarrierName"),
             warehouseInboundExpectedDate: document.getElementById("warehouseInboundExpectedDate"),
@@ -7454,11 +7462,47 @@
             setActiveCompany(nextCompany, { force: true });
         }
 
+        function getWorkspaceDrillPath(section = activeSection) {
+            switch (section) {
+                case "home":
+                    return "Operations / Home";
+                case "scan":
+                    return "Operations / Receiving / Scan & Stage";
+                case "inbounds":
+                    return "Operations / Receiving / Purchase Orders";
+                case "search":
+                    return "Inventory / Lookup";
+                case "actions":
+                    return "Inventory / Adjust & Move";
+                case "inventory":
+                    return "Setup / Master Data";
+                case "integrations":
+                    return "Setup / Integrations";
+                case "orders":
+                    return "Outbound / Sales Orders";
+                case "shipped":
+                    return "Outbound / Shipped Orders";
+                case "reports":
+                    return "Reporting / Counts";
+                case "billing":
+                    return "Finance / Billing";
+                case "labels":
+                    return "Warehouse / Labels";
+                case "backup":
+                    return "Admin / System";
+                default:
+                    return "Operations / Workspace";
+            }
+        }
+
         function updateWorkspaceCommandBar() {
             const definition = DESKTOP_SECTION_META[activeSection] || DESKTOP_SECTION_META.scan;
             const company = getActiveCompany();
             const refreshStamp = state.meta.serverSyncedAt || state.meta.localCacheAt || state.meta.lastChangedAt || "";
             const lastChangedStamp = state.meta.lastChangedAt || "";
+            if (ui.workspaceDrillPath) {
+                ui.workspaceDrillPath.textContent = getWorkspaceDrillPath(activeSection);
+            }
             if (ui.workspaceSectionTitle) {
                 ui.workspaceSectionTitle.textContent = definition.title;
             }
@@ -11757,6 +11801,10 @@
                 .sort((a, b) => a.sku.localeCompare(b.sku) || (a.description || "").localeCompare(b.description || ""));
         }
 
+        function getWarehouseInboundCatalogItemCount(company = getWarehouseInboundCompany()) {
+            return getWarehouseInboundCatalogItems(company).length;
+        }
+
         function buildWarehouseInboundSkuOptions(selectedSku = "") {
             const normalizedSelected = norm(selectedSku);
             const items = getWarehouseInboundCatalogItems(getWarehouseInboundCompany());
@@ -11807,13 +11855,24 @@
             const company = getWarehouseInboundCompany();
             const hasCompany = !!company;
             const featureEnabled = !company || companyHasFeature(company, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+            const itemCount = hasCompany ? getWarehouseInboundCatalogItemCount(company) : 0;
+            const hasItemCatalog = itemCount > 0;
             ui.warehouseInboundCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
-                    ? `Creating purchase orders and inbound notices for ${company}. Only that company's saved item masters can be selected.`
+                    ? (hasItemCatalog
+                        ? `Creating purchase orders and inbound notices for ${company}. Only that company's saved item masters can be selected.`
+                        : `Creating purchase orders for ${company} is almost ready. Save at least one item master for this company before adding inbound lines.`)
                     : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company)} Existing inbound history remains visible, but new inbound entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse purchase order.";
+            if (ui.warehouseInboundLinesMeta) {
+                ui.warehouseInboundLinesMeta.textContent = hasCompany
+                    ? (hasItemCatalog
+                        ? `Only item masters saved for ${company} can be selected.`
+                        : `No saved item masters were found for ${company} yet. Add company items in Master Data before creating a purchase order.`)
+                    : "Only item masters saved for the active company can be selected.";
+            }
             [ui.addWarehouseInboundLineBtn, ui.submitWarehouseInboundBtn].filter(Boolean).forEach((button) => {
-                button.disabled = !hasCompany || !featureEnabled;
+                button.disabled = !hasCompany || !featureEnabled || !hasItemCatalog;
             });
             if (ui.warehouseInboundLines) {
                 [...ui.warehouseInboundLines.querySelectorAll(".line-card")].forEach((card) => {
@@ -11834,7 +11893,7 @@
 
         function resetWarehouseInboundForm(inbound = null) {
             if (ui.warehouseInboundTitle) {
-                ui.warehouseInboundTitle.textContent = inbound ? `Inbound ${inbound.inboundCode}` : "Warehouse Purchase Order / Inbound Entry";
+                ui.warehouseInboundTitle.textContent = inbound ? `Purchase Order ${inbound.inboundCode}` : "Warehouse Purchase Order / Inbound Entry";
             }
             ui.warehouseInboundReferenceNumber.value = inbound?.referenceNumber || "";
             ui.warehouseInboundCarrierName.value = inbound?.carrierName || "";
@@ -11886,6 +11945,43 @@
             };
         }
 
+        function validateWarehouseInboundPayload(payload) {
+            if (!payload?.accountName) {
+                return fail(ui.warehouseInboundMessage, "Choose an active company before creating a purchase order.", ui.activeCompany);
+            }
+            if (!companyHasFeature(payload.accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES)) {
+                return fail(ui.warehouseInboundMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, payload.accountName), ui.activeCompany);
+            }
+            if (!getWarehouseInboundCatalogItemCount(payload.accountName)) {
+                return fail(ui.warehouseInboundMessage, `Save at least one item master for ${payload.accountName} before creating a purchase order.`, ui.masterItemAccount || ui.activeCompany);
+            }
+            if (!payload.referenceNumber) {
+                return fail(ui.warehouseInboundMessage, "Enter the purchase order or reference number first.", ui.warehouseInboundReferenceNumber);
+            }
+            if (!payload.expectedDate) {
+                return fail(ui.warehouseInboundMessage, "Enter the expected date for this purchase order.", ui.warehouseInboundExpectedDate);
+            }
+            if (!payload.contactName) {
+                return fail(ui.warehouseInboundMessage, "Enter the warehouse or vendor contact name for this purchase order.", ui.warehouseInboundContactName);
+            }
+            const cards = [...ui.warehouseInboundLines.querySelectorAll(".line-card")];
+            if (!cards.length || !payload.lines.length) {
+                return fail(ui.warehouseInboundMessage, "Add at least one inbound line before submitting this purchase order.", ui.addWarehouseInboundLineBtn);
+            }
+            const firstInvalidSkuCard = cards.find((card) => !norm(card.querySelector("[data-warehouse-inbound-line-sku]")?.value || ""));
+            if (firstInvalidSkuCard) {
+                return fail(ui.warehouseInboundMessage, "Choose a SKU for every inbound line before submitting.", firstInvalidSkuCard.querySelector("[data-warehouse-inbound-line-sku]"));
+            }
+            const firstInvalidQtyCard = cards.find((card) => {
+                const quantity = Number.parseInt(String(card.querySelector("[data-warehouse-inbound-line-qty]")?.value || ""), 10);
+                return !Number.isFinite(quantity) || quantity <= 0;
+            });
+            if (firstInvalidQtyCard) {
+                return fail(ui.warehouseInboundMessage, "Enter a quantity greater than zero for every inbound line.", firstInvalidQtyCard.querySelector("[data-warehouse-inbound-line-qty]"));
+            }
+            return payload;
+        }
+
         async function submitWarehouseInbound(event) {
             const company = getWarehouseInboundCompany();
             if (!company) {
@@ -11902,14 +11998,15 @@
                     messageElement: ui.warehouseInboundMessage,
                     progressMessage: `Submitting inbound for ${company}...`
                 }, async () => {
-                    const payload = collectWarehouseInboundPayload();
+                    const payload = validateWarehouseInboundPayload(collectWarehouseInboundPayload());
+                    if (!payload) return null;
                     const response = await requestJson("/api/admin/portal-inbounds", {
                         method: "POST",
                         body: JSON.stringify(payload)
                     });
                     await refreshPortalInboundsList(true);
                     resetWarehouseInboundForm();
-                    showMessage(ui.warehouseInboundMessage, `Submitted inbound ${response?.inbound?.inboundCode || "notice"}.`, "success");
+                    showMessage(ui.warehouseInboundMessage, `Created purchase order ${response?.inbound?.inboundCode || "notice"}.`, "success");
                 });
             } catch (error) {
                 showMessage(ui.warehouseInboundMessage, error.message, "error");
