@@ -121,6 +121,7 @@ const SMTP_USER = readEnv("SMTP_USER", "");
 const SMTP_PASS = readEnv("SMTP_PASS", "");
 const SMTP_FROM = readEnv("SMTP_FROM", "");
 const SMTP_REPLY_TO = readEnv("SMTP_REPLY_TO", "");
+const ORDER_RELEASE_TO = readEnv("ORDER_RELEASE_TO", "");
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
@@ -2127,8 +2128,87 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
         if (!orderId) {
             throw httpError(400, "A valid order id is required.");
         }
-        const order = await withTransaction(async (client) => releasePortalOrder(client, session.accessRow, orderId));
-        res.json({ success: true, order });
+        const releaseOptions = sanitizePortalOrderReleaseOptions(req.body);
+        let order = await withTransaction(async (client) => releasePortalOrder(client, session.accessRow, orderId));
+        let releasePdf = null;
+        const releaseActions = {
+            warehouseEmailRequested: releaseOptions.notifyWarehouse,
+            warehouseEmailSent: false,
+            warehouseRecipients: [],
+            ccRecipients: [...releaseOptions.ccEmails],
+            warehouseEmailError: "",
+            pdfCopyRequested: releaseOptions.savePdfCopy,
+            pdfSaved: false,
+            pdfAlreadySaved: false,
+            pdfFileName: "",
+            pdfSaveError: ""
+        };
+
+        if (releaseOptions.savePdfCopy) {
+            try {
+                releasePdf = buildPortalOrderReleasePdf(order);
+                releaseActions.pdfFileName = releasePdf.fileName;
+            } catch (error) {
+                const message = error?.message || "Could not create the order PDF copy.";
+                if (releaseOptions.savePdfCopy) {
+                    releaseActions.pdfSaveError = message;
+                }
+                releasePdf = null;
+            }
+        }
+
+        if (releaseOptions.savePdfCopy && releasePdf) {
+            try {
+                const saveResult = await withTransaction(async (client) => savePortalReleasePdfCopy(
+                    client,
+                    order,
+                    releasePdf,
+                    session.access.email || "Company portal",
+                    {
+                        downloadPathPrefix: "/api/portal/order-documents",
+                        activityActor: session.access.email || "Company portal"
+                    }
+                ));
+                order = saveResult.order || order;
+                releaseActions.pdfSaved = saveResult.alreadySaved !== true;
+                releaseActions.pdfAlreadySaved = saveResult.alreadySaved === true;
+                if (saveResult.document?.fileName) {
+                    releaseActions.pdfFileName = saveResult.document.fileName;
+                }
+            } catch (error) {
+                releaseActions.pdfSaveError = error?.message || "The PDF copy could not be saved.";
+            }
+        }
+
+        if (releaseOptions.notifyWarehouse) {
+            try {
+                const emailResult = await sendPortalOrderReleaseEmail(order, {
+                    ccRecipients: releaseOptions.ccEmails,
+                    pdfDocument: releasePdf
+                });
+                releaseActions.warehouseEmailSent = true;
+                releaseActions.warehouseRecipients = emailResult.recipients;
+                releaseActions.ccRecipients = emailResult.ccRecipients;
+
+                await withTransaction(async (client) => {
+                    await insertActivity(
+                        client,
+                        "order",
+                        `Emailed warehouse release ${order.orderCode}`,
+                        [
+                            order.accountName,
+                            emailResult.recipients.join(", "),
+                            emailResult.ccRecipients.length ? `CC ${emailResult.ccRecipients.join(", ")}` : "",
+                            session.access.email || "Company portal"
+                        ].filter(Boolean).join(" | ")
+                    );
+                });
+            } catch (error) {
+                releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be sent.";
+            }
+        }
+
+        res.json({ success: true, order, releaseActions });
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -6803,6 +6883,53 @@ function getDemoRequestRecipients() {
     return [...recipients];
 }
 
+function isValidEmailAddress(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function normalizeEmailList(value, { throwOnInvalid = false } = {}) {
+    const source = Array.isArray(value) ? value : String(value || "").split(/[\n\r,;]+/);
+    const emails = [];
+    const seen = new Set();
+    const invalidEntries = [];
+
+    for (const entry of source) {
+        const rawValue = String(entry || "").trim();
+        if (!rawValue) continue;
+        const email = normalizeEmail(rawValue);
+        if (!isValidEmailAddress(email)) {
+            invalidEntries.push(rawValue);
+            continue;
+        }
+        if (email.endsWith(".local") || seen.has(email)) continue;
+        seen.add(email);
+        emails.push(email);
+    }
+
+    if (throwOnInvalid && invalidEntries.length) {
+        throw httpError(400, `Enter valid email addresses. Problem entries: ${invalidEntries.join(", ")}`);
+    }
+
+    return emails;
+}
+
+function sanitizePortalOrderReleaseOptions(raw) {
+    const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const notifyWarehouse = toBooleanFlag(input.notifyWarehouse, false);
+    const savePdfCopy = toBooleanFlag(input.savePdfCopy, false);
+    const ccEmails = normalizeEmailList(input.ccEmails, { throwOnInvalid: true });
+
+    if (!notifyWarehouse && ccEmails.length) {
+        throw httpError(400, "Turn on the warehouse email option before adding CC recipients.");
+    }
+
+    return {
+        notifyWarehouse,
+        ccEmails,
+        savePdfCopy
+    };
+}
+
 function formatDemoRequestSubmittedAt(value) {
     try {
         return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -7843,6 +7970,25 @@ async function getPortalShipmentRecipients(client, accountName) {
     return [...recipients];
 }
 
+function getPortalOrderReleaseRecipients() {
+    const recipients = new Set();
+    const addRecipient = (value) => {
+        const email = normalizeEmail(value);
+        if (email && isValidEmailAddress(email) && !email.endsWith(".local")) {
+            recipients.add(email);
+        }
+    };
+
+    normalizeEmailList(ORDER_RELEASE_TO).forEach(addRecipient);
+    if (!recipients.size) {
+        addRecipient(SMTP_REPLY_TO);
+        addRecipient(DEMO_REQUEST_TO);
+        addRecipient(DEFAULT_ADMIN_EMAIL);
+    }
+
+    return [...recipients];
+}
+
 function formatPortalOrderShipToAddress(order) {
     return [
         normalizeFreeText(order.shipToName || ""),
@@ -7855,6 +8001,216 @@ function formatPortalOrderShipToAddress(order) {
         ].filter(Boolean).join(", "),
         normalizeFreeText(order.shipToCountry || "")
     ].filter(Boolean).join(" | ");
+}
+
+function formatPortalOrderEventTimestamp(value) {
+    const candidate = value ? new Date(value) : new Date();
+    if (!Number.isFinite(candidate.getTime())) {
+        return "";
+    }
+    return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(candidate);
+}
+
+function wrapPdfText(value, maxLength = 92) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text) return [""];
+
+    const words = text.split(" ");
+    const lines = [];
+    let current = "";
+
+    for (const word of words) {
+        if (!current) {
+            current = word;
+            continue;
+        }
+        if (`${current} ${word}`.length <= maxLength) {
+            current = `${current} ${word}`;
+            continue;
+        }
+        lines.push(current);
+        current = word;
+    }
+
+    if (current) {
+        lines.push(current);
+    }
+
+    return lines;
+}
+
+function escapePdfText(value) {
+    return String(value || "")
+        .replace(/[^\x20-\x7E]/g, "?")
+        .replace(/\\/g, "\\\\")
+        .replace(/\(/g, "\\(")
+        .replace(/\)/g, "\\)")
+        .replace(/\r?\n/g, " ");
+}
+
+function createSimpleTextPdfBuffer(lines) {
+    const normalizedLines = [];
+    const sourceLines = Array.isArray(lines) ? lines : [];
+    sourceLines.forEach((line) => {
+        if (line == null) return;
+        const text = String(line);
+        if (!text.trim()) {
+            normalizedLines.push("");
+            return;
+        }
+        normalizedLines.push(...wrapPdfText(text));
+    });
+
+    const pageLineLimit = 46;
+    const chunks = [];
+    for (let index = 0; index < normalizedLines.length; index += pageLineLimit) {
+        chunks.push(normalizedLines.slice(index, index + pageLineLimit));
+    }
+    if (!chunks.length) {
+        chunks.push(["WMS365"]);
+    }
+
+    const pageIds = chunks.map((_, index) => 4 + (index * 2));
+    const contentIds = chunks.map((_, index) => 5 + (index * 2));
+    const objectBodies = new Array((chunks.length * 2) + 4);
+    objectBodies[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+    objectBodies[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${chunks.length} >>`;
+    objectBodies[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+
+    chunks.forEach((chunk, index) => {
+        const pageId = pageIds[index];
+        const contentId = contentIds[index];
+        const contentStream = [
+            "BT",
+            "/F1 10 Tf",
+            "14 TL",
+            "50 760 Td",
+            ...chunk.flatMap((line) => [`(${escapePdfText(line)}) Tj`, "T*"]),
+            "ET"
+        ].join("\n");
+        const contentLength = Buffer.byteLength(contentStream, "utf8");
+        objectBodies[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`;
+        objectBodies[contentId] = `<< /Length ${contentLength} >>\nstream\n${contentStream}\nendstream`;
+    });
+
+    let pdf = "%PDF-1.4\n%WMS365\n";
+    const offsets = [0];
+
+    for (let index = 1; index < objectBodies.length; index += 1) {
+        offsets[index] = Buffer.byteLength(pdf, "utf8");
+        pdf += `${index} 0 obj\n${objectBodies[index]}\nendobj\n`;
+    }
+
+    const xrefOffset = Buffer.byteLength(pdf, "utf8");
+    pdf += `xref\n0 ${objectBodies.length}\n`;
+    pdf += "0000000000 65535 f \n";
+    for (let index = 1; index < objectBodies.length; index += 1) {
+        pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objectBodies.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+    return Buffer.from(pdf, "utf8");
+}
+
+function buildPortalOrderReleasePdf(order) {
+    const releaseTimestamp = formatPortalOrderEventTimestamp(order.releasedAt || new Date());
+    const lines = [
+        "WMS365 Portal Order Release Copy",
+        "",
+        `Order Code: ${order.orderCode}`,
+        `Company: ${order.accountName}`,
+        `Status: ${order.status}`,
+        releaseTimestamp ? `Released At: ${releaseTimestamp}` : "",
+        order.poNumber ? `PO Number: ${order.poNumber}` : "",
+        order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
+        order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        "",
+        "Warehouse Contact",
+        order.contactName ? `Name: ${order.contactName}` : "Name: Not provided",
+        order.contactPhone ? `Phone: ${order.contactPhone}` : "",
+        "",
+        "Ship To",
+        order.shipToName ? `Name: ${order.shipToName}` : "",
+        order.shipToPhone ? `Phone: ${order.shipToPhone}` : "",
+        order.shipToAddress1 ? `Address 1: ${order.shipToAddress1}` : "",
+        order.shipToAddress2 ? `Address 2: ${order.shipToAddress2}` : "",
+        order.shipToCity || order.shipToState || order.shipToPostalCode
+            ? `City / State / Postal: ${[order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", ")}`
+            : "",
+        order.shipToCountry ? `Country: ${order.shipToCountry}` : "",
+        order.orderNotes ? "" : "",
+        order.orderNotes ? "Order Notes" : "",
+        order.orderNotes ? order.orderNotes : "",
+        "",
+        "Order Lines"
+    ].filter((line, index, array) => line || (index > 0 && array[index - 1] !== ""));
+
+    order.lines.forEach((line, index) => {
+        lines.push(
+            `${index + 1}. ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
+        );
+    });
+
+    const fileBuffer = createSimpleTextPdfBuffer(lines);
+    const fileName = `wms365-${sanitizeFilenameSegment(order.orderCode || "order", "order")}-release-copy.pdf`;
+    return {
+        fileName,
+        fileType: "application/pdf",
+        fileSize: fileBuffer.length,
+        fileBuffer
+    };
+}
+
+async function savePortalReleasePdfCopy(
+    client,
+    order,
+    pdfDocument,
+    uploadedBy = "",
+    {
+        downloadPathPrefix = "/api/portal/order-documents",
+        activityActor = ""
+    } = {}
+) {
+    const existingResult = await client.query(
+        `
+            select *
+            from portal_order_documents
+            where order_id = $1
+              and file_name = $2
+            order by id desc
+            limit 1
+        `,
+        [order.id, pdfDocument.fileName]
+    );
+
+    if (existingResult.rowCount === 1) {
+        const currentOrder = await getPortalOrderById(client, order.id, order.accountName, downloadPathPrefix);
+        return {
+            order: currentOrder || order,
+            document: mapPortalOrderDocumentRow(existingResult.rows[0], downloadPathPrefix),
+            alreadySaved: true
+        };
+    }
+
+    await insertPortalOrderDocuments(client, order.id, [pdfDocument], uploadedBy);
+    await insertActivity(
+        client,
+        "order",
+        `Saved portal order PDF ${order.orderCode}`,
+        [
+            order.accountName,
+            pdfDocument.fileName,
+            activityActor || uploadedBy || ""
+        ].filter(Boolean).join(" | ")
+    );
+
+    const updatedOrder = await getPortalOrderById(client, order.id, order.accountName, downloadPathPrefix);
+    const savedDocument = updatedOrder?.documents?.find((document) => document.fileName === pdfDocument.fileName) || null;
+    return {
+        order: updatedOrder || order,
+        document: savedDocument,
+        alreadySaved: false
+    };
 }
 
 function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } = {}) {
@@ -7938,6 +8294,103 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
             ${documentList}
         </div>
     `;
+}
+
+function buildPortalReleaseEmailText(order, { ccRecipients = [], pdfDocument = null } = {}) {
+    const lines = [
+        `Portal order released: ${order.orderCode}`,
+        `Company: ${order.accountName}`,
+        `Status: ${order.status}`,
+        order.poNumber ? `PO Number: ${order.poNumber}` : "",
+        order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
+        order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        order.contactName ? `Customer Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
+        formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
+        ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
+        pdfDocument?.fileName ? `Attached PDF: ${pdfDocument.fileName}` : "",
+        "",
+        "Order Lines:"
+    ];
+
+    order.lines.forEach((line) => {
+        lines.push(
+            `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
+        );
+    });
+
+    return lines.filter((line, index, array) => line || (index > 0 && array[index - 1] !== "")).join("\n");
+}
+
+function buildPortalReleaseEmailHtml(order, { ccRecipients = [], pdfDocument = null } = {}) {
+    const linesHtml = order.lines.map((line) => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "-")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.upc || "-")}</td>
+        </tr>
+    `).join("");
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
+            <h2 style="margin:0 0 12px;">Portal Order Released</h2>
+            <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> was released from the customer portal and is ready for warehouse review.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;">
+                <tr><td style="padding:6px 0;font-weight:600;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Customer Contact</td><td style="padding:6px 0;">${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Ship To</td><td style="padding:6px 0;">${escapeHtml(formatPortalOrderShipToAddress(order) || "-")}</td></tr>
+                ${ccRecipients.length ? `<tr><td style="padding:6px 0;font-weight:600;">CC</td><td style="padding:6px 0;">${escapeHtml(ccRecipients.join(", "))}</td></tr>` : ""}
+                ${pdfDocument?.fileName ? `<tr><td style="padding:6px 0;font-weight:600;">Attached PDF</td><td style="padding:6px 0;">${escapeHtml(pdfDocument.fileName)}</td></tr>` : ""}
+            </table>
+            <p style="margin:20px 0 8px;font-weight:600;">Order Lines</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Quantity</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">UPC</th>
+                    </tr>
+                </thead>
+                <tbody>${linesHtml}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], pdfDocument = null } = {}) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Warehouse email is not configured yet. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
+    }
+
+    const recipients = getPortalOrderReleaseRecipients();
+    if (!recipients.length) {
+        throw httpError(400, "No warehouse notification email is configured. Set ORDER_RELEASE_TO or SMTP_REPLY_TO first.");
+    }
+
+    const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
+    const transporter = getSystemMailer("Warehouse email is not configured yet. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
+    await transporter.sendMail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `Portal Order Released - ${order.orderCode}`,
+        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, pdfDocument }),
+        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, pdfDocument }),
+        attachments: pdfDocument ? [{
+            filename: pdfDocument.fileName,
+            content: pdfDocument.fileBuffer,
+            contentType: pdfDocument.fileType
+        }] : []
+    });
+
+    return {
+        recipients,
+        ccRecipients: normalizedCcRecipients
+    };
 }
 
 async function sendPortalShipmentConfirmationEmail(client, order, confirmation, { isUpdate = false } = {}) {

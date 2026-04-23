@@ -1348,6 +1348,8 @@
             display: grid;
             place-items: center;
             padding: 1.25rem;
+            overflow-y: auto;
+            overscroll-behavior: contain;
         }
 
         .feedback-modal-backdrop {
@@ -1361,11 +1363,15 @@
             position: relative;
             z-index: 1;
             width: min(760px, 100%);
+            max-height: calc(100dvh - 2.5rem);
             border-radius: 28px;
             border: 1px solid rgba(139, 179, 214, 0.18);
             background: linear-gradient(180deg, rgba(13, 28, 46, 0.98), rgba(7, 17, 29, 0.98));
             box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
             padding: 1.35rem;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
 
         .feedback-context-grid {
@@ -2725,6 +2731,10 @@
                             <strong>Sales Orders</strong>
                             <span>Review released portal orders, print, pick, stage, and ship.</span>
                         </button>
+                        <button class="quick-link" type="button" data-jump-section="shipped">
+                            <strong>Shipped Orders</strong>
+                            <span>Review shipped orders, tracking, and completed shipment documents.</span>
+                        </button>
                         <button class="quick-link" type="button" data-jump-section="reports">
                             <strong>Reports</strong>
                             <span>Review company usage, pallet positions, and exports.</span>
@@ -2793,6 +2803,10 @@
             <button class="tab" data-section="orders" type="button">
                 <span class="tab-label">Sales Orders</span>
                 <span class="tab-meta">View released portal orders, print documents, and move orders through pick, stage, and ship.</span>
+            </button>
+            <button class="tab" data-section="shipped" type="button">
+                <span class="tab-label">Shipped Orders</span>
+                <span class="tab-meta">Review completed shipments, carrier details, tracking, and shipped documents separately from the live pick queue.</span>
             </button>
             <button class="tab" data-section="reports" type="button">
                 <span class="tab-label">Reports & Counts</span>
@@ -3959,7 +3973,7 @@
                 <div class="mobile-appbar">
                     <div class="mobile-appbar-copy">
                         <span class="mobile-appbar-kicker">WMS365</span>
-                        <strong class="mobile-appbar-title">Sales Orders</strong>
+                        <strong class="mobile-appbar-title" id="ordersPanelMobileTitle">Sales Orders</strong>
                     </div>
                     <span class="mobile-appbar-badge">Warehouse</span>
                 </div>
@@ -3970,12 +3984,12 @@
                     <article class="card workspace-control-card">
                         <div class="card-head">
                             <div>
-                                <h2>Sales Orders</h2>
-                                <p class="lead">Released company portal orders appear here for review, pick ticket printing, packing slips, staging, and shipping.</p>
+                                <h2 id="ordersPanelTitle">Sales Orders</h2>
+                                <p class="lead" id="ordersPanelLead">Released company portal orders appear here for review, pick ticket printing, packing slips, staging, and shipping.</p>
                             </div>
                         </div>
                         <div class="button-row" style="margin-bottom: 1rem;">
-                            <label class="field" style="flex: 1 1 220px;">
+                            <label class="field" id="portalOrderStatusFilterField" style="flex: 1 1 220px;">
                                 <span>Status Filter</span>
                                 <select id="portalOrderStatusFilter">
                                     <option value="">All statuses</option>
@@ -3998,8 +4012,8 @@
                     <article class="card workspace-metric-card">
                         <div class="card-head">
                             <div>
-                                <h2>Order Snapshot</h2>
-                                <p class="lead">Operational counts update for the active company so the warehouse team knows what is ready to pick, pack, and ship.</p>
+                                <h2 id="portalOrdersSnapshotTitle">Order Snapshot</h2>
+                                <p class="lead" id="portalOrdersSnapshotLead">Operational counts update for the active company so the warehouse team knows what is ready to pick, pack, and ship.</p>
                             </div>
                         </div>
                         <div class="summary-grid">
@@ -4100,8 +4114,8 @@
                 <article class="card desktop-complex workspace-sheet-card">
                     <div class="card-head">
                         <div>
-                            <h2>Sales Order Queue</h2>
-                            <p class="lead">See what each customer released, compare ordered quantity against available stock, and print the documents your team needs to pick and ship.</p>
+                            <h2 id="portalOrdersQueueTitle">Sales Order Queue</h2>
+                            <p class="lead" id="portalOrdersQueueLead">See what each customer released, compare ordered quantity against available stock, and print the documents your team needs to pick and ship.</p>
                         </div>
                         <span class="meta" id="portalOrdersMeta">0 orders</span>
                     </div>
@@ -4958,6 +4972,10 @@
                 title: "Sales Orders",
                 meta: "Process company portal orders, print pick tickets and packing slips, and only ship when stock is available."
             },
+            shipped: {
+                title: "Shipped Orders",
+                meta: "Review completed shipments, tracking, carrier details, and shipped paperwork without mixing them into the live warehouse queue."
+            },
             reports: {
                 title: "Reports & Counts",
                 meta: "Run cycle count reporting, utilization, activity review, and inventory worksheet exports."
@@ -5284,6 +5302,14 @@
             saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
             releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
             warehouseOrderMessage: document.getElementById("warehouseOrderMessage"),
+            ordersPanelMobileTitle: document.getElementById("ordersPanelMobileTitle"),
+            ordersPanelTitle: document.getElementById("ordersPanelTitle"),
+            ordersPanelLead: document.getElementById("ordersPanelLead"),
+            portalOrderStatusFilterField: document.getElementById("portalOrderStatusFilterField"),
+            portalOrdersSnapshotTitle: document.getElementById("portalOrdersSnapshotTitle"),
+            portalOrdersSnapshotLead: document.getElementById("portalOrdersSnapshotLead"),
+            portalOrdersQueueTitle: document.getElementById("portalOrdersQueueTitle"),
+            portalOrdersQueueLead: document.getElementById("portalOrdersQueueLead"),
             warehouseInboundEntryCard: document.getElementById("warehouseInboundEntryCard"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
             warehouseInboundCompanyMeta: document.getElementById("warehouseInboundCompanyMeta"),
@@ -5547,7 +5573,7 @@
             ui.warehouseInboundLines?.addEventListener("click", onWarehouseInboundLinesClick);
             ui.warehouseInboundLines?.addEventListener("change", onWarehouseInboundLinesChange);
             ui.clearPortalOrderFiltersBtn?.addEventListener("click", () => {
-                if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = "";
+                if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = getPortalOrderDefaultStatusFilter();
                 if (ui.portalOrderSearch) ui.portalOrderSearch.value = "";
                 renderPortalOrdersList();
             });
@@ -5803,6 +5829,58 @@
                 : "";
         }
 
+        function isShippedOrdersSection(section = activeSection) {
+            return String(section || "").trim().toLowerCase() === "shipped";
+        }
+
+        function getOrdersPanelSection(section = activeSection) {
+            return isShippedOrdersSection(section) ? "shipped" : "orders";
+        }
+
+        function getPortalOrderDefaultStatusFilter(section = activeSection) {
+            return isShippedOrdersSection(section) ? "SHIPPED" : "";
+        }
+
+        function syncPortalOrdersSectionUi(section = activeSection) {
+            const shippedOnly = isShippedOrdersSection(section);
+            if (ui.ordersPanelMobileTitle) ui.ordersPanelMobileTitle.textContent = shippedOnly ? "Shipped Orders" : "Sales Orders";
+            if (ui.ordersPanelTitle) ui.ordersPanelTitle.textContent = shippedOnly ? "Shipped Orders" : "Sales Orders";
+            if (ui.ordersPanelLead) {
+                ui.ordersPanelLead.textContent = shippedOnly
+                    ? "Shipped company portal orders appear here for tracking review, shipped documents, carrier details, and follow-up."
+                    : "Released company portal orders appear here for review, pick ticket printing, packing slips, staging, and shipping.";
+            }
+            if (ui.portalOrdersSnapshotTitle) ui.portalOrdersSnapshotTitle.textContent = shippedOnly ? "Shipped Snapshot" : "Order Snapshot";
+            if (ui.portalOrdersSnapshotLead) {
+                ui.portalOrdersSnapshotLead.textContent = shippedOnly
+                    ? "Shipped counts update for the active company so completed orders, tracking, and shipped documents are easy to review."
+                    : "Operational counts update for the active company so the warehouse team knows what is ready to pick, pack, and ship.";
+            }
+            if (ui.portalOrdersQueueTitle) ui.portalOrdersQueueTitle.textContent = shippedOnly ? "Shipped Order Queue" : "Sales Order Queue";
+            if (ui.portalOrdersQueueLead) {
+                ui.portalOrdersQueueLead.textContent = shippedOnly
+                    ? "Search completed shipments, review tracking and carrier notes, and reopen shipped paperwork without mixing them into the active pick queue."
+                    : "See what each customer released, compare ordered quantity against available stock, and print the documents your team needs to pick and ship.";
+            }
+            if (ui.portalOrderStatusFilterField) ui.portalOrderStatusFilterField.classList.toggle("hidden", shippedOnly);
+            if (ui.portalOrderStatusFilter) {
+                if (shippedOnly) {
+                    ui.portalOrderStatusFilter.value = "SHIPPED";
+                    ui.portalOrderStatusFilter.disabled = true;
+                } else {
+                    const wasForcedShipped = ui.portalOrderStatusFilter.disabled && norm(ui.portalOrderStatusFilter.value) === "SHIPPED";
+                    ui.portalOrderStatusFilter.disabled = false;
+                    if (wasForcedShipped) ui.portalOrderStatusFilter.value = "";
+                }
+            }
+            if (ui.clearPortalOrderFiltersBtn) {
+                ui.clearPortalOrderFiltersBtn.textContent = shippedOnly ? "Clear Search" : "Clear Filters";
+            }
+            if (ui.warehouseOrderEntryCard) {
+                ui.warehouseOrderEntryCard.classList.toggle("hidden", shippedOnly);
+            }
+        }
+
         function getInitialLinkTargetFromUrl() {
             const params = new URLSearchParams(window.location.search || "");
             const requestedTarget = String(params.get("target") || "").trim().toLowerCase();
@@ -5861,8 +5939,9 @@
 
         function syncSectionVisibility(section) {
             const normalizedSection = !isMobileView() && section === "mobile-home" ? "home" : section;
+            const visiblePanelSection = isShippedOrdersSection(normalizedSection) ? "orders" : normalizedSection;
             ui.panels.forEach((panel) => {
-                const isActive = panel.dataset.panel === normalizedSection;
+                const isActive = panel.dataset.panel === visiblePanelSection;
                 panel.classList.toggle("active", isActive);
                 panel.hidden = !isActive;
                 panel.setAttribute("aria-hidden", String(!isActive));
@@ -5881,6 +5960,7 @@
             section = syncSectionVisibility(section);
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
+            syncPortalOrdersSectionUi(section);
             if (section === "mobile-home") {
                 scrollCurrentViewTop();
                 return;
@@ -5919,7 +5999,8 @@
             if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
             if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
             syncServerState(true).catch(() => {});
-            if (section === "orders") {
+            if (section === "orders" || section === "shipped") {
+                if (!isMobileView() && ui.portalOrderSearch) ui.portalOrderSearch.focus();
                 refreshPortalOrdersList(true).catch(() => {});
             }
         }
@@ -11109,7 +11190,7 @@
 
         function getFilteredPortalOrders() {
             const company = getActiveCompany();
-            const statusFilter = norm(ui.portalOrderStatusFilter?.value || "");
+            const statusFilter = norm(ui.portalOrderStatusFilter?.value || getPortalOrderDefaultStatusFilter());
             const query = norm(ui.portalOrderSearch?.value || "");
             return portalOrderRecords.filter((order) => {
                 if (company && order.accountName !== company) return false;
@@ -11164,14 +11245,19 @@
 
         function renderPortalOrdersList(errorText = "") {
             const visibleOrders = getFilteredPortalOrders();
-            ui.portalOrdersMeta.textContent = `${num(visibleOrders.length)} order${visibleOrders.length === 1 ? "" : "s"}`;
+            const shippedOnly = isShippedOrdersSection();
+            ui.portalOrdersMeta.textContent = `${num(visibleOrders.length)} ${shippedOnly ? "shipped " : ""}order${visibleOrders.length === 1 ? "" : "s"}`;
             renderPortalOrderSummary(visibleOrders);
 
             if (!visibleOrders.length) {
                 const company = getActiveCompany();
                 const fallback = errorText || (company
-                    ? "No sales orders match the current company and order filters."
-                    : "Choose a company to review released sales orders.");
+                    ? (shippedOnly
+                        ? "No shipped orders match the current company and search filters."
+                        : "No sales orders match the current company and order filters.")
+                    : (shippedOnly
+                        ? "Choose a company to review shipped orders."
+                        : "Choose a company to review released sales orders."));
                 ui.portalOrdersList.innerHTML = `<p class="empty">${esc(fallback)}</p>`;
                 return;
             }

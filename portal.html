@@ -147,7 +147,7 @@
         .stats {
             display: grid;
             gap: 0.85rem;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(7, minmax(0, 1fr));
         }
         .stat, .inventory-card, .order-card, .line-card, .empty {
             padding: 1rem;
@@ -221,6 +221,8 @@
             display: grid;
             place-items: center;
             padding: 1rem;
+            overflow-y: auto;
+            overscroll-behavior: contain;
         }
         .feedback-modal-backdrop {
             position: absolute;
@@ -232,11 +234,15 @@
             position: relative;
             z-index: 1;
             width: min(720px, 100%);
+            max-height: calc(100dvh - 2rem);
             border-radius: 26px;
             border: 1px solid rgba(193, 209, 228, 0.9);
             background: #ffffff;
             box-shadow: 0 28px 70px rgba(35, 55, 86, 0.22);
             padding: 1.15rem;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
         .feedback-context-grid {
             display: grid;
@@ -262,6 +268,38 @@
             margin-top: 0.3rem;
             color: var(--text);
             word-break: break-word;
+        }
+        .toggle-card {
+            display: flex;
+            gap: 0.8rem;
+            align-items: flex-start;
+            padding: 0.9rem 1rem;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: #f7fbff;
+        }
+        .toggle-card input[type="checkbox"] {
+            width: auto;
+            margin: 0.15rem 0 0;
+        }
+        .toggle-copy {
+            display: grid;
+            gap: 0.2rem;
+        }
+        .toggle-copy strong {
+            font-size: 0.98rem;
+        }
+        .toggle-copy .meta {
+            font-size: 0.9rem;
+        }
+        .mini-context {
+            display: grid;
+            gap: 0.35rem;
+            margin: 1rem 0;
+            padding: 0.95rem 1rem;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: #f7fbff;
         }
         @media (max-width: 860px) {
             .two-up, .stats, .detail-grid, .form-grid, .line-fields { grid-template-columns: 1fr; }
@@ -335,7 +373,9 @@
                     <div class="stat"><span>Items</span><strong id="statSkus">0</strong></div>
                     <div class="stat"><span>Available Qty</span><strong id="statQty">0</strong></div>
                     <div class="stat"><span>Draft Orders</span><strong id="statDrafts">0</strong></div>
-                    <div class="stat"><span>Released / Picked / Staged</span><strong id="statReleased">0</strong></div>
+                    <div class="stat"><span>Released</span><strong id="statReleased">0</strong></div>
+                    <div class="stat"><span>Picked</span><strong id="statPicked">0</strong></div>
+                    <div class="stat"><span>Staged</span><strong id="statStaged">0</strong></div>
                     <div class="stat"><span>Shipped</span><strong id="statShipped">0</strong></div>
                 </div>
             </section>
@@ -516,6 +556,46 @@
                 </div>
             </section>
 
+            <div id="portalReleaseModal" class="feedback-modal hidden" aria-hidden="true">
+                <div class="feedback-modal-backdrop" data-portal-release-close></div>
+                <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalReleaseTitle">
+                    <div class="header-copy">
+                        <h2 id="portalReleaseTitle">Release Order</h2>
+                        <p class="lead">Choose whether to email the warehouse team now, add CC recipients, and save a PDF copy to this order.</p>
+                    </div>
+                    <div class="mini-context">
+                        <div><strong id="portalReleaseOrderCode">Draft order</strong></div>
+                        <div class="meta" id="portalReleaseReference">Reference: Not set</div>
+                        <div class="meta" id="portalReleaseShipTo">Ship to: Not set</div>
+                    </div>
+                    <form id="portalReleaseForm" class="form-grid" autocomplete="off">
+                        <label class="toggle-card span-2">
+                            <input id="portalReleaseEmailWarehouse" type="checkbox" checked>
+                            <span class="toggle-copy">
+                                <strong>Email the warehouse team</strong>
+                                <span class="meta">Send the released order to the warehouse inbox right away.</span>
+                            </span>
+                        </label>
+                        <label class="field span-2">
+                            <span>CC Others</span>
+                            <input id="portalReleaseCcEmails" type="text" placeholder="ops@example.com, manager@example.com">
+                        </label>
+                        <label class="toggle-card span-2">
+                            <input id="portalReleaseSavePdf" type="checkbox" checked>
+                            <span class="toggle-copy">
+                                <strong>Save a PDF copy</strong>
+                                <span class="meta">Attach the PDF to the email when sent and keep a copy under this order’s documents.</span>
+                            </span>
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn" id="portalReleaseSubmitBtn" type="submit">Release Order</button>
+                            <button class="btn ghost" id="cancelPortalReleaseBtn" type="button">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="portalReleaseMessage" class="status" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+
             <div id="portalFeedbackModal" class="feedback-modal hidden" aria-hidden="true">
                 <div class="feedback-modal-backdrop" data-portal-feedback-close></div>
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalFeedbackTitle">
@@ -583,7 +663,8 @@
             inbounds: [],
             activeView: "inventory",
             editingOrderId: null,
-            editingItemSku: null
+            editingItemSku: null,
+            pendingReleaseHandler: null
         };
 
         const ui = {
@@ -602,6 +683,8 @@
             statQty: document.getElementById("statQty"),
             statDrafts: document.getElementById("statDrafts"),
             statReleased: document.getElementById("statReleased"),
+            statPicked: document.getElementById("statPicked"),
+            statStaged: document.getElementById("statStaged"),
             statShipped: document.getElementById("statShipped"),
             inventoryPanel: document.getElementById("inventoryPanel"),
             itemsPanel: document.getElementById("itemsPanel"),
@@ -649,6 +732,17 @@
             saveDraftBtn: document.getElementById("saveDraftBtn"),
             releaseOrderBtn: document.getElementById("releaseOrderBtn"),
             ordersList: document.getElementById("ordersList"),
+            portalReleaseModal: document.getElementById("portalReleaseModal"),
+            portalReleaseCloseButtons: [...document.querySelectorAll("[data-portal-release-close], #cancelPortalReleaseBtn")],
+            portalReleaseForm: document.getElementById("portalReleaseForm"),
+            portalReleaseOrderCode: document.getElementById("portalReleaseOrderCode"),
+            portalReleaseReference: document.getElementById("portalReleaseReference"),
+            portalReleaseShipTo: document.getElementById("portalReleaseShipTo"),
+            portalReleaseEmailWarehouse: document.getElementById("portalReleaseEmailWarehouse"),
+            portalReleaseCcEmails: document.getElementById("portalReleaseCcEmails"),
+            portalReleaseSavePdf: document.getElementById("portalReleaseSavePdf"),
+            portalReleaseSubmitBtn: document.getElementById("portalReleaseSubmitBtn"),
+            portalReleaseMessage: document.getElementById("portalReleaseMessage"),
             inboundForm: document.getElementById("inboundForm"),
             inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
             inboundCarrierName: document.getElementById("inboundCarrierName"),
@@ -718,8 +812,11 @@
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
             ui.resetInboundBtn.addEventListener("click", () => resetInboundForm());
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
-            ui.releaseOrderBtn.addEventListener("click", releaseCurrentOrder);
+            ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
+            ui.portalReleaseCloseButtons.forEach((button) => button.addEventListener("click", closePortalReleaseModal));
+            ui.portalReleaseForm.addEventListener("submit", submitPortalRelease);
+            ui.portalReleaseEmailWarehouse.addEventListener("change", syncPortalReleaseFields);
             ui.openPortalFeedbackBtn.addEventListener("click", openPortalFeedbackModal);
             ui.portalFeedbackCloseButtons.forEach((button) => button.addEventListener("click", closePortalFeedbackModal));
             ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
@@ -730,6 +827,10 @@
             ui.orderLines.addEventListener("change", onOrderLinesChange);
             ui.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
             window.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !ui.portalReleaseModal.classList.contains("hidden")) {
+                    closePortalReleaseModal();
+                    return;
+                }
                 if (event.key === "Escape" && !ui.portalFeedbackModal.classList.contains("hidden")) {
                     closePortalFeedbackModal();
                 }
@@ -1002,7 +1103,9 @@
             ui.statSkus.textContent = num(portalState.catalogItems.length);
             ui.statQty.textContent = num(totals);
             ui.statDrafts.textContent = num(portalState.orders.filter((order) => order.status === "DRAFT").length);
-            ui.statReleased.textContent = num(portalState.orders.filter((order) => ["RELEASED", "PICKED", "STAGED"].includes(order.status)).length);
+            ui.statReleased.textContent = num(portalState.orders.filter((order) => order.status === "RELEASED").length);
+            ui.statPicked.textContent = num(portalState.orders.filter((order) => order.status === "PICKED").length);
+            ui.statStaged.textContent = num(portalState.orders.filter((order) => order.status === "STAGED").length);
             ui.statShipped.textContent = num(portalState.orders.filter((order) => order.status === "SHIPPED").length);
         }
 
@@ -1477,33 +1580,228 @@
             }
         }
 
+        function setPortalReleaseMessage(text, tone = "info") {
+            if (!text) {
+                ui.portalReleaseMessage.className = "status";
+                ui.portalReleaseMessage.textContent = "";
+                return;
+            }
+            ui.portalReleaseMessage.className = `status show ${tone}`;
+            ui.portalReleaseMessage.textContent = text;
+        }
+
+        function syncPortalReleaseFields() {
+            const emailEnabled = ui.portalReleaseEmailWarehouse.checked;
+            ui.portalReleaseCcEmails.disabled = !emailEnabled;
+            ui.portalReleaseCcEmails.placeholder = emailEnabled
+                ? "ops@example.com, manager@example.com"
+                : "Turn on warehouse email to add CC recipients";
+        }
+
+        function splitPortalEmailList(value) {
+            return String(value || "")
+                .split(/[\n\r,;]+/)
+                .map((entry) => entry.trim().toLowerCase())
+                .filter(Boolean);
+        }
+
+        function collectPortalReleaseOptions() {
+            const notifyWarehouse = ui.portalReleaseEmailWarehouse.checked;
+            const ccEmails = splitPortalEmailList(ui.portalReleaseCcEmails.value);
+            const invalidEmails = ccEmails.filter((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+            if (invalidEmails.length) {
+                throw new Error(`Enter valid email addresses for CC recipients. Problem entries: ${invalidEmails.join(", ")}`);
+            }
+            if (!notifyWarehouse && ccEmails.length) {
+                throw new Error("Turn on the warehouse email option before adding CC recipients.");
+            }
+            return {
+                notifyWarehouse,
+                ccEmails,
+                savePdfCopy: ui.portalReleaseSavePdf.checked
+            };
+        }
+
+        function getCurrentOrderReleasePreview() {
+            const currentOrder = portalState.orders.find((order) => order.id === portalState.editingOrderId) || null;
+            const shipToSummary = [
+                ui.orderShipToName.value.trim() || currentOrder?.shipToName || ui.orderContactName.value.trim() || currentOrder?.contactName || "",
+                [ui.orderShipToCity.value.trim(), ui.orderShipToState.value.trim()].filter(Boolean).join(", ")
+            ].filter(Boolean).join(" | ");
+            return {
+                orderCode: currentOrder?.orderCode || "New draft order",
+                reference: ui.orderShippingReference.value.trim() || currentOrder?.shippingReference || "Not set",
+                shipTo: shipToSummary || "Not set"
+            };
+        }
+
+        function openPortalReleaseModal({ orderCode = "Draft order", reference = "Not set", shipTo = "Not set", onConfirm = null } = {}) {
+            portalState.pendingReleaseHandler = typeof onConfirm === "function" ? onConfirm : null;
+            ui.portalReleaseOrderCode.textContent = orderCode || "Draft order";
+            ui.portalReleaseReference.textContent = `Reference: ${reference || "Not set"}`;
+            ui.portalReleaseShipTo.textContent = `Ship to: ${shipTo || "Not set"}`;
+            ui.portalReleaseEmailWarehouse.checked = true;
+            ui.portalReleaseCcEmails.value = "";
+            ui.portalReleaseSavePdf.checked = true;
+            syncPortalReleaseFields();
+            setPortalReleaseMessage("", "info");
+            ui.portalReleaseModal.classList.remove("hidden");
+            ui.portalReleaseModal.setAttribute("aria-hidden", "false");
+        }
+
+        function closePortalReleaseModal() {
+            portalState.pendingReleaseHandler = null;
+            ui.portalReleaseModal.classList.add("hidden");
+            ui.portalReleaseModal.setAttribute("aria-hidden", "true");
+            ui.portalReleaseEmailWarehouse.checked = true;
+            ui.portalReleaseCcEmails.value = "";
+            ui.portalReleaseSavePdf.checked = true;
+            syncPortalReleaseFields();
+            setPortalReleaseMessage("", "info");
+        }
+
+        function joinPortalReleaseSummary(items) {
+            if (!items.length) return "";
+            if (items.length === 1) return items[0];
+            if (items.length === 2) return `${items[0]} and ${items[1]}`;
+            return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+        }
+
+        function buildPortalReleaseResultMessage(response) {
+            const orderCode = response?.order?.orderCode || "order";
+            const actions = response?.releaseActions || {};
+            const successNotes = [];
+            const warningNotes = [];
+
+            if (actions.warehouseEmailRequested) {
+                if (actions.warehouseEmailSent) {
+                    successNotes.push(`emailed the warehouse${actions.ccRecipients?.length ? ` and copied ${actions.ccRecipients.join(", ")}` : ""}`);
+                } else if (actions.warehouseEmailError) {
+                    warningNotes.push(`the warehouse email did not send (${actions.warehouseEmailError})`);
+                }
+            }
+
+            if (actions.pdfCopyRequested) {
+                if (actions.pdfSaved) {
+                    successNotes.push(`saved a PDF copy as ${actions.pdfFileName || "a document"}`);
+                } else if (actions.pdfAlreadySaved) {
+                    successNotes.push(`kept the existing PDF copy ${actions.pdfFileName || ""}`.trim());
+                } else if (actions.pdfSaveError) {
+                    warningNotes.push(`the PDF copy could not be saved (${actions.pdfSaveError})`);
+                }
+            }
+
+            let message = `Released order ${orderCode}.`;
+            if (successNotes.length) {
+                message += ` Also ${joinPortalReleaseSummary(successNotes)}.`;
+            }
+            if (warningNotes.length) {
+                message += ` Note: ${joinPortalReleaseSummary(warningNotes)}.`;
+            }
+            return message;
+        }
+
+        function getPortalReleaseResultTone(response) {
+            const actions = response?.releaseActions || {};
+            const hasWarning = (actions.warehouseEmailRequested && !actions.warehouseEmailSent)
+                || (actions.pdfCopyRequested && !actions.pdfSaved && !actions.pdfAlreadySaved);
+            return hasWarning ? "info" : "success";
+        }
+
+        async function releaseOrderByIdFlow(orderId, { releaseOptions = {}, resetForm = false, nextView = "orders" } = {}) {
+            const response = await requestJson(`/api/portal/orders/${orderId}/release`, {
+                method: "POST",
+                body: JSON.stringify(releaseOptions)
+            });
+            await loadPortalData();
+            if (resetForm) {
+                resetOrderForm();
+            }
+            if (nextView) {
+                setView(nextView);
+            }
+            setMessage(buildPortalReleaseResultMessage(response), getPortalReleaseResultTone(response));
+            return response;
+        }
+
+        async function releaseCurrentOrderFlow({ releaseOptions = {}, resetForm = true, nextView = "orders" } = {}) {
+            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
+                throw new Error("Sales orders are not enabled for your company.");
+            }
+
+            if (!portalState.editingOrderId) {
+                const draftResponse = await saveDraftOrder({
+                    useBusy: false,
+                    showProgress: false,
+                    suppressSuccessMessage: true
+                });
+                if (!draftResponse || !portalState.editingOrderId) {
+                    throw new Error(ui.portalMessage.textContent || "Save the draft before releasing.");
+                }
+            }
+
+            return releaseOrderByIdFlow(portalState.editingOrderId, { releaseOptions, resetForm, nextView });
+        }
+
+        async function promptCurrentOrderRelease() {
+            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
+                setMessage("Sales orders are not enabled for your company.", "error");
+                return;
+            }
+            const preview = getCurrentOrderReleasePreview();
+            openPortalReleaseModal({
+                orderCode: preview.orderCode,
+                reference: preview.reference,
+                shipTo: preview.shipTo,
+                onConfirm: async (releaseOptions) => releaseCurrentOrderFlow({ releaseOptions, resetForm: true, nextView: "orders" })
+            });
+        }
+
+        async function submitPortalRelease(event) {
+            event.preventDefault();
+            if (!portalState.pendingReleaseHandler) {
+                closePortalReleaseModal();
+                return;
+            }
+            let releaseOptions;
+            try {
+                releaseOptions = collectPortalReleaseOptions();
+            } catch (error) {
+                setPortalReleaseMessage(error.message, "error");
+                return;
+            }
+
+            try {
+                const response = await runActionWithFeedback({
+                    button: ui.portalReleaseSubmitBtn,
+                    busyLabel: "Releasing...",
+                    progressMessage: releaseOptions.notifyWarehouse
+                        ? "Releasing the order and preparing the warehouse email..."
+                        : "Releasing the order...",
+                    onProgress: setPortalReleaseMessage
+                }, async () => portalState.pendingReleaseHandler(releaseOptions));
+
+                if (response) {
+                    closePortalReleaseModal();
+                }
+            } catch (error) {
+                setPortalReleaseMessage(error.message, "error");
+            }
+        }
+
         async function releaseCurrentOrder(context = null) {
             const options = context && !(context?.currentTarget instanceof HTMLElement) && !(context instanceof HTMLElement) ? context : {};
-            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)) {
-                return setMessage("Sales orders are not enabled for your company.", "error");
-            }
             const actionButton = options.useBusy === false ? null : resolveActionButton(context, ui.releaseOrderBtn);
             try {
                 return await runActionWithFeedback({
                     button: actionButton,
                     busyLabel: "Releasing...",
-                    progressMessage: "Sending your order to the warehouse..."
-                }, async () => {
-                    if (!portalState.editingOrderId) {
-                        const draftResponse = await saveDraftOrder({
-                            useBusy: false,
-                            showProgress: false,
-                            suppressSuccessMessage: true
-                        });
-                        if (!draftResponse || !portalState.editingOrderId) return null;
-                    }
-                    const response = await requestJson(`/api/portal/orders/${portalState.editingOrderId}/release`, { method: "POST" });
-                    await loadPortalData();
-                    resetOrderForm();
-                    setView("orders");
-                    setMessage(`Released order ${response.order.orderCode}.`, "success");
-                    return response;
-                });
+                    progressMessage: options.progressMessage || "Releasing your order..."
+                }, async () => releaseCurrentOrderFlow({
+                    releaseOptions: options.releaseOptions || {},
+                    resetForm: options.resetForm !== false,
+                    nextView: options.nextView || "orders"
+                }));
             } catch (error) {
                 setMessage(error.message, "error");
                 return null;
@@ -1524,20 +1822,18 @@
 
             const releaseButton = event.target.closest("[data-release-order]");
             if (!releaseButton) return;
-            try {
-                await runActionWithFeedback({
-                    button: releaseButton,
-                    busyLabel: "Releasing...",
-                    progressMessage: `Sending order ${releaseButton.dataset.releaseOrder || ""} to the warehouse...`
-                }, async () => {
-                    const response = await requestJson(`/api/portal/orders/${releaseButton.dataset.releaseOrder}/release`, { method: "POST" });
-                    await loadPortalData();
-                    setView("orders");
-                    setMessage(`Released order ${response.order.orderCode}.`, "success");
-                });
-            } catch (error) {
-                setMessage(error.message, "error");
-            }
+            const order = portalState.orders.find((entry) => entry.id === releaseButton.dataset.releaseOrder);
+            if (!order) return;
+            openPortalReleaseModal({
+                orderCode: order.orderCode,
+                reference: order.shippingReference || "Not set",
+                shipTo: [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not set",
+                onConfirm: async (releaseOptions) => releaseOrderByIdFlow(order.id, {
+                    releaseOptions,
+                    resetForm: false,
+                    nextView: "orders"
+                })
+            });
         }
 
         function setMessage(text, tone) {
