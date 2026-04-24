@@ -108,6 +108,7 @@ const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(readEnv("APP_ADMIN_EMAIL", "
 const DEFAULT_ADMIN_PASSWORD = readEnv("APP_ADMIN_PASSWORD", "ChangeMeNow123!");
 const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(readEnv("APP_ADMIN_NAME", "Platform Owner"));
 const DEMO_REQUEST_TO = bootstrapNormalizeEmail(readEnv("DEMO_REQUEST_TO", DEFAULT_ADMIN_EMAIL || ""));
+const ADMIN_ACTIVITY_SUMMARY_TO = bootstrapNormalizeEmail(readEnv("ADMIN_ACTIVITY_SUMMARY_TO", DEFAULT_ADMIN_EMAIL || ""));
 const PUBLIC_SITE_URL = readEnv("PUBLIC_SITE_URL", "").replace(/\/+$/, "");
 const PUBLIC_SITE_ALLOWED_ORIGINS = readEnv("PUBLIC_SITE_ALLOWED_ORIGINS", "");
 const STRIPE_SECRET_KEY = readEnv("STRIPE_SECRET_KEY", "");
@@ -122,6 +123,11 @@ const SMTP_PASS = readEnv("SMTP_PASS", "");
 const SMTP_FROM = readEnv("SMTP_FROM", "");
 const SMTP_REPLY_TO = readEnv("SMTP_REPLY_TO", "");
 const ORDER_RELEASE_TO = readEnv("ORDER_RELEASE_TO", "");
+const ADMIN_ACTIVITY_DIGEST_JOB_KEY = "ADMIN_ACTIVITY_DIGEST";
+const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
+const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
+const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
+const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
@@ -354,6 +360,9 @@ let stripeClient = null;
 let storeIntegrationSchedulerStarted = false;
 let storeIntegrationSchedulerRunning = false;
 let storeIntegrationSchedulerTimer = null;
+let adminActivityDigestSchedulerStarted = false;
+let adminActivityDigestSchedulerRunning = false;
+let adminActivityDigestSchedulerTimer = null;
 const storeIntegrationSyncLocks = new Set();
 
 const pool = DATABASE_URL
@@ -503,6 +512,27 @@ app.get("/api/version", (_req, res) => {
         app: "WMS365 Scanner",
         build: APP_BUILD_INFO
     });
+});
+
+app.post("/api/admin/system-email/daily-summary/send-now", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        if (!ADMIN_ACTIVITY_SUMMARY_TO) {
+            throw httpError(400, "No admin summary recipient is configured. Set ADMIN_ACTIVITY_SUMMARY_TO or APP_ADMIN_EMAIL first.");
+        }
+        const now = new Date();
+        const digest = await buildAdminActivityDigest(getTimeZoneDateKey(now, ADMIN_ACTIVITY_DIGEST_TIME_ZONE), { now });
+        await sendAdminActivityDigestEmail(digest);
+        res.json({
+            success: true,
+            recipient: ADMIN_ACTIVITY_SUMMARY_TO,
+            dateKey: digest.dateKey,
+            generatedAt: digest.generatedAt
+        });
+    } catch (error) {
+        next(error);
+    }
 });
 
 app.post("/api/site/demo-request", async (req, res, next) => {
@@ -2982,6 +3012,33 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
+        create table if not exists scheduled_job_runs (
+            id bigserial primary key,
+            job_key text not null,
+            run_key text not null,
+            status text not null default 'RUNNING',
+            started_at timestamptz not null default now(),
+            finished_at timestamptz,
+            error_message text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (job_key, run_key)
+        );
+    `);
+    await pool.query("alter table scheduled_job_runs add column if not exists status text not null default 'RUNNING'");
+    await pool.query("alter table scheduled_job_runs add column if not exists started_at timestamptz not null default now()");
+    await pool.query("alter table scheduled_job_runs add column if not exists finished_at timestamptz");
+    await pool.query("alter table scheduled_job_runs add column if not exists error_message text not null default ''");
+    await pool.query("alter table scheduled_job_runs add column if not exists metadata jsonb not null default '{}'::jsonb");
+    await pool.query("alter table scheduled_job_runs add column if not exists created_at timestamptz not null default now()");
+    await pool.query("alter table scheduled_job_runs add column if not exists updated_at timestamptz not null default now()");
+    await pool.query("update scheduled_job_runs set metadata = '{}'::jsonb where metadata is null");
+    await pool.query("alter table scheduled_job_runs drop constraint if exists scheduled_job_runs_status_check");
+    await pool.query("alter table scheduled_job_runs add constraint scheduled_job_runs_status_check check (status in ('RUNNING', 'SENT', 'FAILED'))");
+    await pool.query("create index if not exists idx_scheduled_job_runs_job_started_at on scheduled_job_runs (job_key, started_at desc)");
+
+    await pool.query(`
         create table if not exists feedback_submissions (
             id bigserial primary key,
             request_type text not null default 'BUG',
@@ -3460,6 +3517,7 @@ async function initializeDatabaseWithRetry() {
             databaseReady = true;
             databaseErrorMessage = "";
             ensureStoreIntegrationSchedulerStarted();
+            ensureAdminActivityDigestSchedulerStarted();
             console.log("PostgreSQL schema ready.");
         } catch (error) {
             databaseReady = false;
@@ -7479,6 +7537,277 @@ async function sendDemoRequestNotification(request) {
     return recipients;
 }
 
+function formatAdminDigestDateLabel(dateKey) {
+    const parsed = new Date(`${dateKey}T12:00:00Z`);
+    if (!Number.isFinite(parsed.getTime())) {
+        return dateKey;
+    }
+    return new Intl.DateTimeFormat("en-US", {
+        timeZone: ADMIN_ACTIVITY_DIGEST_TIME_ZONE,
+        dateStyle: "full"
+    }).format(parsed);
+}
+
+function formatAdminDigestTimestamp(value) {
+    try {
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone: ADMIN_ACTIVITY_DIGEST_TIME_ZONE,
+            dateStyle: "medium",
+            timeStyle: "short"
+        }).format(new Date(value));
+    } catch {
+        return value || "";
+    }
+}
+
+function formatAdminDigestTime(value) {
+    try {
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone: ADMIN_ACTIVITY_DIGEST_TIME_ZONE,
+            hour: "numeric",
+            minute: "2-digit"
+        }).format(new Date(value));
+    } catch {
+        return "";
+    }
+}
+
+function formatCurrency(value) {
+    return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD"
+    }).format(Number(value) || 0);
+}
+
+function coerceInteger(value) {
+    return Number.parseInt(String(value ?? "0"), 10) || 0;
+}
+
+async function buildAdminActivityDigest(dateKey, { now = new Date() } = {}) {
+    const dateValue = dateKey;
+    const [ordersResult, inboundsResult, billingResult, feedbackResult, activityCountResult, recentActivityResult, inventoryResult, companyTouchResult] = await Promise.all([
+        pool.query(
+            `
+                select
+                    coalesce(sum(case when timezone($1, created_at)::date = $2::date then 1 else 0 end), 0)::integer as created_count,
+                    coalesce(sum(case when released_at is not null and timezone($1, released_at)::date = $2::date then 1 else 0 end), 0)::integer as released_count,
+                    coalesce(sum(case when picked_at is not null and timezone($1, picked_at)::date = $2::date then 1 else 0 end), 0)::integer as picked_count,
+                    coalesce(sum(case when staged_at is not null and timezone($1, staged_at)::date = $2::date then 1 else 0 end), 0)::integer as staged_count,
+                    coalesce(sum(case when shipped_at is not null and timezone($1, shipped_at)::date = $2::date then 1 else 0 end), 0)::integer as shipped_count
+                from portal_orders
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                select
+                    coalesce(sum(case when timezone($1, created_at)::date = $2::date then 1 else 0 end), 0)::integer as created_count,
+                    coalesce(sum(case when received_at is not null and timezone($1, received_at)::date = $2::date then 1 else 0 end), 0)::integer as received_count
+                from portal_inbounds
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                select
+                    count(*)::integer as event_count,
+                    coalesce(sum(quantity * unit_amount), 0)::numeric as total_amount,
+                    coalesce(sum(case when status = 'OPEN' then quantity * unit_amount else 0 end), 0)::numeric as open_amount
+                from billing_events
+                where timezone($1, created_at)::date = $2::date
+                  and status <> 'VOID'
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                select
+                    count(*)::integer as total_count,
+                    coalesce(sum(case when request_type = 'BUG' then 1 else 0 end), 0)::integer as bug_count,
+                    coalesce(sum(case when request_type = 'FEATURE' then 1 else 0 end), 0)::integer as feature_count,
+                    coalesce(sum(case when source = 'WAREHOUSE' then 1 else 0 end), 0)::integer as warehouse_count,
+                    coalesce(sum(case when source = 'PORTAL' then 1 else 0 end), 0)::integer as portal_count
+                from feedback_submissions
+                where timezone($1, created_at)::date = $2::date
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                select count(*)::integer as total_count
+                from activity_log
+                where timezone($1, created_at)::date = $2::date
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                select type, title, details, created_at
+                from activity_log
+                where timezone($1, created_at)::date = $2::date
+                order by created_at desc
+                limit 12
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                select
+                    count(*)::integer as lines_added,
+                    coalesce(sum(quantity), 0)::integer as quantity_added
+                from inventory_lines
+                where timezone($1, created_at)::date = $2::date
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        ),
+        pool.query(
+            `
+                with touched as (
+                    select account_name
+                    from portal_orders
+                    where account_name <> ''
+                      and (
+                        timezone($1, created_at)::date = $2::date
+                        or (released_at is not null and timezone($1, released_at)::date = $2::date)
+                        or (picked_at is not null and timezone($1, picked_at)::date = $2::date)
+                        or (staged_at is not null and timezone($1, staged_at)::date = $2::date)
+                        or (shipped_at is not null and timezone($1, shipped_at)::date = $2::date)
+                      )
+                    union
+                    select account_name
+                    from portal_inbounds
+                    where account_name <> ''
+                      and (
+                        timezone($1, created_at)::date = $2::date
+                        or (received_at is not null and timezone($1, received_at)::date = $2::date)
+                      )
+                    union
+                    select account_name
+                    from billing_events
+                    where account_name <> ''
+                      and timezone($1, created_at)::date = $2::date
+                    union
+                    select account_name
+                    from feedback_submissions
+                    where account_name <> ''
+                      and timezone($1, created_at)::date = $2::date
+                )
+                select count(*)::integer as company_count
+                from touched
+            `,
+            [ADMIN_ACTIVITY_DIGEST_TIME_ZONE, dateValue]
+        )
+    ]);
+
+    const orders = ordersResult.rows[0] || {};
+    const inbounds = inboundsResult.rows[0] || {};
+    const billing = billingResult.rows[0] || {};
+    const feedback = feedbackResult.rows[0] || {};
+    const inventory = inventoryResult.rows[0] || {};
+    const activityCount = activityCountResult.rows[0] || {};
+    const companyTouch = companyTouchResult.rows[0] || {};
+
+    return {
+        dateKey,
+        dateLabel: formatAdminDigestDateLabel(dateKey),
+        generatedAt: now.toISOString(),
+        buildLabel: APP_BUILD_INFO.label,
+        recipient: ADMIN_ACTIVITY_SUMMARY_TO,
+        totals: {
+            companiesTouched: coerceInteger(companyTouch.company_count),
+            activityCount: coerceInteger(activityCount.total_count),
+            orderCreated: coerceInteger(orders.created_count),
+            orderReleased: coerceInteger(orders.released_count),
+            orderPicked: coerceInteger(orders.picked_count),
+            orderStaged: coerceInteger(orders.staged_count),
+            orderShipped: coerceInteger(orders.shipped_count),
+            inboundCreated: coerceInteger(inbounds.created_count),
+            inboundReceived: coerceInteger(inbounds.received_count),
+            inventoryLinesAdded: coerceInteger(inventory.lines_added),
+            inventoryQuantityAdded: coerceInteger(inventory.quantity_added),
+            billingEventCount: coerceInteger(billing.event_count),
+            billingTotalAmount: Number(billing.total_amount) || 0,
+            billingOpenAmount: Number(billing.open_amount) || 0,
+            feedbackTotal: coerceInteger(feedback.total_count),
+            feedbackBug: coerceInteger(feedback.bug_count),
+            feedbackFeature: coerceInteger(feedback.feature_count),
+            feedbackWarehouse: coerceInteger(feedback.warehouse_count),
+            feedbackPortal: coerceInteger(feedback.portal_count)
+        },
+        recentActivity: recentActivityResult.rows.map((row) => ({
+            type: row.type || "",
+            title: row.title || "",
+            details: row.details || "",
+            createdAt: row.created_at
+        }))
+    };
+}
+
+function buildAdminActivityDigestText(digest) {
+    const totals = digest.totals || {};
+    const recentActivityLines = (digest.recentActivity || []).length
+        ? digest.recentActivity.map((entry) => {
+            const detailText = normalizeFreeText(entry.details || "");
+            return `- ${formatAdminDigestTime(entry.createdAt)} | ${entry.title}${detailText ? ` | ${detailText}` : ""}`;
+        })
+        : ["- No activity was logged today."];
+
+    return [
+        "WMS365 Daily Activity Summary",
+        `Date: ${digest.dateLabel}`,
+        `Generated: ${formatAdminDigestTimestamp(digest.generatedAt)} (${ADMIN_ACTIVITY_DIGEST_TIME_ZONE})`,
+        `Build: ${digest.buildLabel}`,
+        "",
+        "Overview",
+        `- Companies touched: ${formatNumber(totals.companiesTouched)}`,
+        `- Activity log entries: ${formatNumber(totals.activityCount)}`,
+        "",
+        "Orders",
+        `- Created: ${formatNumber(totals.orderCreated)}`,
+        `- Released: ${formatNumber(totals.orderReleased)}`,
+        `- Picked: ${formatNumber(totals.orderPicked)}`,
+        `- Staged: ${formatNumber(totals.orderStaged)}`,
+        `- Shipped: ${formatNumber(totals.orderShipped)}`,
+        "",
+        "Inbounds",
+        `- Created: ${formatNumber(totals.inboundCreated)}`,
+        `- Received: ${formatNumber(totals.inboundReceived)}`,
+        "",
+        "Inventory",
+        `- Inventory lines added: ${formatNumber(totals.inventoryLinesAdded)}`,
+        `- Quantity added: ${formatNumber(totals.inventoryQuantityAdded)}`,
+        "",
+        "Billing",
+        `- New billing events: ${formatNumber(totals.billingEventCount)}`,
+        `- Captured amount: ${formatCurrency(totals.billingTotalAmount)}`,
+        `- Open amount: ${formatCurrency(totals.billingOpenAmount)}`,
+        "",
+        "Feedback",
+        `- Total submissions: ${formatNumber(totals.feedbackTotal)}`,
+        `- Bugs: ${formatNumber(totals.feedbackBug)}`,
+        `- Features: ${formatNumber(totals.feedbackFeature)}`,
+        `- Warehouse: ${formatNumber(totals.feedbackWarehouse)}`,
+        `- Portal: ${formatNumber(totals.feedbackPortal)}`,
+        "",
+        "Recent Activity",
+        ...recentActivityLines
+    ].join("\n");
+}
+
+async function sendAdminActivityDigestEmail(digest) {
+    if (!ADMIN_ACTIVITY_SUMMARY_TO) {
+        return;
+    }
+    const transporter = getSystemMailer("Admin activity email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
+    await transporter.sendMail({
+        from: SMTP_FROM,
+        to: ADMIN_ACTIVITY_SUMMARY_TO,
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `WMS365 daily activity summary - ${digest.dateLabel}`,
+        text: buildAdminActivityDigestText(digest)
+    });
+}
+
 function normalizeStripeResourceId(value, prefix = "") {
     const text = String(
         value && typeof value === "object" && !Array.isArray(value)
@@ -11477,6 +11806,150 @@ async function runDueStoreIntegrationSyncs() {
         console.error("Store integration scheduler failed:", error.message || error);
     } finally {
         storeIntegrationSchedulerRunning = false;
+    }
+}
+
+function getTimeZoneDateParts(date = new Date(), timeZone = ADMIN_ACTIVITY_DIGEST_TIME_ZONE) {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+    });
+    const parts = formatter.formatToParts(date).reduce((accumulator, part) => {
+        if (part.type !== "literal") {
+            accumulator[part.type] = part.value;
+        }
+        return accumulator;
+    }, {});
+    return {
+        year: Number.parseInt(parts.year || "0", 10) || 0,
+        month: Number.parseInt(parts.month || "0", 10) || 0,
+        day: Number.parseInt(parts.day || "0", 10) || 0,
+        hour: Number.parseInt(parts.hour || "0", 10) || 0,
+        minute: Number.parseInt(parts.minute || "0", 10) || 0,
+        second: Number.parseInt(parts.second || "0", 10) || 0
+    };
+}
+
+function getTimeZoneDateKey(date = new Date(), timeZone = ADMIN_ACTIVITY_DIGEST_TIME_ZONE) {
+    const parts = getTimeZoneDateParts(date, timeZone);
+    const year = String(parts.year || 0).padStart(4, "0");
+    const month = String(parts.month || 0).padStart(2, "0");
+    const day = String(parts.day || 0).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function isAdminActivityDigestDue(date = new Date()) {
+    const parts = getTimeZoneDateParts(date, ADMIN_ACTIVITY_DIGEST_TIME_ZONE);
+    if (!parts.year || !parts.month || !parts.day) {
+        return false;
+    }
+    if (parts.hour > ADMIN_ACTIVITY_DIGEST_HOUR) {
+        return true;
+    }
+    if (parts.hour < ADMIN_ACTIVITY_DIGEST_HOUR) {
+        return false;
+    }
+    return parts.minute >= ADMIN_ACTIVITY_DIGEST_MINUTE;
+}
+
+function ensureAdminActivityDigestSchedulerStarted() {
+    if (adminActivityDigestSchedulerStarted) {
+        return;
+    }
+    adminActivityDigestSchedulerStarted = true;
+    adminActivityDigestSchedulerTimer = setInterval(() => {
+        void runDailyAdminActivityDigest();
+    }, ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS);
+    if (typeof adminActivityDigestSchedulerTimer?.unref === "function") {
+        adminActivityDigestSchedulerTimer.unref();
+    }
+    void runDailyAdminActivityDigest();
+}
+
+async function claimScheduledJobRun(jobKey, runKey) {
+    const result = await pool.query(
+        `
+            insert into scheduled_job_runs (
+                job_key, run_key, status, started_at, updated_at
+            )
+            values ($1, $2, 'RUNNING', now(), now())
+            on conflict (job_key, run_key)
+            do update
+            set
+                status = 'RUNNING',
+                started_at = now(),
+                finished_at = null,
+                error_message = '',
+                updated_at = now()
+            where scheduled_job_runs.status = 'FAILED'
+               or (scheduled_job_runs.status = 'RUNNING' and scheduled_job_runs.started_at < now() - interval '30 minutes')
+            returning id
+        `,
+        [jobKey, runKey]
+    );
+    return result.rows[0]?.id ? Number(result.rows[0].id) : 0;
+}
+
+async function finishScheduledJobRun(runId, status, { errorMessage = "", metadata = null } = {}) {
+    if (!runId) return;
+    await pool.query(
+        `
+            update scheduled_job_runs
+            set
+                status = $2,
+                finished_at = now(),
+                error_message = $3,
+                metadata = coalesce($4::jsonb, metadata),
+                updated_at = now()
+            where id = $1
+        `,
+        [runId, status, errorMessage || "", metadata ? JSON.stringify(metadata) : null]
+    );
+}
+
+async function runDailyAdminActivityDigest() {
+    if (!databaseReady || adminActivityDigestSchedulerRunning) {
+        return;
+    }
+    if (!ADMIN_ACTIVITY_SUMMARY_TO || !hasSystemEmailConfig()) {
+        return;
+    }
+
+    const now = new Date();
+    if (!isAdminActivityDigestDue(now)) {
+        return;
+    }
+
+    adminActivityDigestSchedulerRunning = true;
+    const runKey = getTimeZoneDateKey(now, ADMIN_ACTIVITY_DIGEST_TIME_ZONE);
+    let runId = 0;
+    try {
+        runId = await claimScheduledJobRun(ADMIN_ACTIVITY_DIGEST_JOB_KEY, runKey);
+        if (!runId) {
+            return;
+        }
+        const digest = await buildAdminActivityDigest(runKey, { now });
+        await sendAdminActivityDigestEmail(digest);
+        await finishScheduledJobRun(runId, "SENT", {
+            metadata: {
+                recipient: ADMIN_ACTIVITY_SUMMARY_TO,
+                summaryDate: digest.dateKey,
+                totals: digest.totals
+            }
+        });
+    } catch (error) {
+        console.error("Admin activity digest failed:", error.message || error);
+        await finishScheduledJobRun(runId, "FAILED", {
+            errorMessage: error.message || String(error)
+        });
+    } finally {
+        adminActivityDigestSchedulerRunning = false;
     }
 }
 

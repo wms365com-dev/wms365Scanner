@@ -44,11 +44,11 @@ Runtime source of truth:
   - Inbound Lines
   - Inbound Queue
 
-## Group: Inventory Control
+## Group: Inventory
 
 ### Section: `search`
 - Title: `Inventory`
-- Drill path: `Inventory Control / Lookup`
+- Drill path: `Inventory / Lookup`
 - Purpose: live inventory lookup and search
 - Primary features:
   - Single Search
@@ -57,7 +57,7 @@ Runtime source of truth:
 
 ### Section: `actions`
 - Title: `Adjust & Move`
-- Drill path: `Inventory Control / Adjust & Move`
+- Drill path: `Inventory / Adjust & Move`
 - Purpose: stock corrections and location changes
 - Primary features:
   - Delete
@@ -67,7 +67,7 @@ Runtime source of truth:
 
 ### Section: `labels`
 - Title: `Labels`
-- Drill path: `Inventory Control / Labels`
+- Drill path: `Inventory / Labels`
 - Purpose: floor-facing location and pallet labels
 - Primary features:
   - Location Labels
@@ -108,11 +108,11 @@ Runtime source of truth:
   - Item Report
   - Inventory Export
 
-## Group: Setup & Commercial
+## Group: Setup
 
 ### Section: `inventory`
 - Title: `Master Data`
-- Drill path: `Setup & Commercial / Master Data`
+- Drill path: `Setup / Master Data`
 - Purpose: administrative warehouse master records
 - Primary features:
   - Company Profile
@@ -123,7 +123,7 @@ Runtime source of truth:
 
 ### Section: `integrations`
 - Title: `Integrations`
-- Drill path: `Setup & Commercial / Integrations`
+- Drill path: `Setup / Integrations`
 - Purpose: store and file-based order lanes
 - Primary features:
   - Shopify
@@ -131,9 +131,11 @@ Runtime source of truth:
   - Schedules
   - Manual Sync
 
+## Group: Commercial
+
 ### Section: `billing`
 - Title: `Billing`
-- Drill path: `Setup & Commercial / Billing`
+- Drill path: `Commercial / Billing`
 - Purpose: warehouse fee setup and billing capture
 - Primary features:
   - Company Fees

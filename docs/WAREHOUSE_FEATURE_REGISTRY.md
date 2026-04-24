@@ -34,7 +34,7 @@ How to use:
   - receipt confirmation
   - SFTP inbound sync lanes
 
-## Inventory Control
+## Inventory
 
 ### Inventory Lookup
 - Desktop section: `search`
@@ -108,7 +108,7 @@ How to use:
   - utilization
   - company scope and filters
 
-## Setup & Commercial
+## Setup
 
 ### Master Data
 - Desktop section: `inventory`
@@ -136,6 +136,8 @@ How to use:
   - company scoping
   - imported orders
   - shipment / receipt / inventory exports
+
+## Commercial
 
 ### Billing
 - Desktop section: `billing`
