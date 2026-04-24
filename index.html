@@ -281,6 +281,45 @@
             background: #eef4f8;
         }
 
+        .entry-workspace-stack {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .entry-secondary-toolbar {
+            display: grid;
+            gap: 0.7rem;
+            margin-bottom: 0.9rem;
+            padding: 0.8rem 0.9rem;
+            border: 1px solid #d7dfe5;
+            border-radius: 8px;
+            background: #f8fafb;
+        }
+
+        .entry-secondary-toolbar .button-row {
+            margin-bottom: 0;
+        }
+
+        .entry-secondary-toolbar h3,
+        .entry-secondary-snapshot h3 {
+            font-size: 0.94rem;
+            color: #27445a;
+        }
+
+        .entry-secondary-snapshot {
+            display: grid;
+            gap: 0.6rem;
+            margin-bottom: 0.9rem;
+            padding: 0.8rem 0.9rem;
+            border: 1px solid #d7dfe5;
+            border-radius: 8px;
+            background: #ffffff;
+        }
+
+        .entry-secondary-snapshot .summary-grid {
+            gap: 0.55rem;
+        }
+
         .workspace-commandbar {
             display: grid;
             gap: 0.4rem;
@@ -3797,23 +3836,7 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
-            <article class="card desktop-only workspace-index-card">
-                <div class="workspace-index-head">
-                    <span>Purchase Order Index</span>
-                    <strong>Drill into expected receipt entry and queue review</strong>
-                </div>
-                <div class="workspace-index-grid">
-                    <button class="workspace-index-btn" type="button" data-workspace-group="inbounds" data-workspace-anchor="warehouseInboundEntryCard">
-                        <strong>PO Entry</strong>
-                        <span>Create expected inbound receipts for the active company.</span>
-                    </button>
-                    <button class="workspace-index-btn" type="button" data-workspace-group="inbounds" data-workspace-anchor="warehouseInboundQueueCard">
-                        <strong>Inbound Queue</strong>
-                        <span>Review submitted warehouse and customer inbounds.</span>
-                    </button>
-                </div>
-            </article>
-            <div class="section-grid">
+            <div class="entry-workspace-stack">
                 <article class="card desktop-complex workspace-control-card" id="warehouseInboundEntryCard">
                     <div class="card-head">
                         <div>
@@ -4760,76 +4783,7 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
-                <article class="card desktop-only workspace-index-card">
-                    <div class="workspace-index-head">
-                        <span>Outbound Index</span>
-                        <strong>Drill into filters, snapshot, order entry, or queue</strong>
-                    </div>
-                    <div class="workspace-index-grid">
-                        <button class="workspace-index-btn" id="ordersWorkspaceFiltersBtn" type="button" data-workspace-group="orders" data-workspace-anchor="portalOrdersFiltersCard">
-                            <strong>Filters</strong>
-                            <span>Search the outbound work and narrow by status.</span>
-                        </button>
-                        <button class="workspace-index-btn" id="ordersWorkspaceSnapshotBtn" type="button" data-workspace-group="orders" data-workspace-anchor="portalOrdersSnapshotCard">
-                            <strong>Snapshot</strong>
-                            <span>Review released, picked, staged, and shipped counts.</span>
-                        </button>
-                        <button class="workspace-index-btn" id="ordersWorkspaceEntryBtn" type="button" data-workspace-group="orders" data-workspace-anchor="warehouseOrderEntryCard">
-                            <strong>Warehouse Entry</strong>
-                            <span>Create internal warehouse orders for the active company.</span>
-                        </button>
-                        <button class="workspace-index-btn" id="ordersWorkspaceQueueBtn" type="button" data-workspace-group="orders" data-workspace-anchor="portalOrdersQueueCard">
-                            <strong>Order Queue</strong>
-                            <span>Work live orders and shipped history from the queue.</span>
-                        </button>
-                    </div>
-                </article>
-                <div class="inventory-grid order-overview-grid">
-                    <article class="card workspace-control-card" id="portalOrdersFiltersCard">
-                        <div class="card-head">
-                            <div>
-                                <h2 id="ordersPanelTitle">Sales Orders</h2>
-                                <p class="lead" id="ordersPanelLead">Released company portal orders appear here for review, pick ticket printing, packing slips, staging, and shipping.</p>
-                            </div>
-                        </div>
-                        <div class="button-row" style="margin-bottom: 1rem;">
-                            <label class="field" id="portalOrderStatusFilterField" style="flex: 1 1 220px;">
-                                <span>Status Filter</span>
-                                <select id="portalOrderStatusFilter">
-                                    <option value="">All statuses</option>
-                                    <option value="DRAFT">Draft</option>
-                                    <option value="RELEASED">Released</option>
-                                    <option value="PICKED">Picked</option>
-                                    <option value="STAGED">Staged / Packed</option>
-                                    <option value="SHIPPED">Shipped</option>
-                                </select>
-                            </label>
-                            <label class="field" style="flex: 1 1 280px;">
-                                <span>Search Orders</span>
-                                <input id="portalOrderSearch" type="text" placeholder="Order #, PO, ship to, SKU, tracking, or note">
-                            </label>
-                            <button class="btn ghost" id="clearPortalOrderFiltersBtn" type="button">Clear Filters</button>
-                        </div>
-                        <div class="status" id="portalOrdersMessage"></div>
-                    </article>
-
-                    <article class="card workspace-metric-card" id="portalOrdersSnapshotCard">
-                        <div class="card-head">
-                            <div>
-                                <h2 id="portalOrdersSnapshotTitle">Order Snapshot</h2>
-                                <p class="lead" id="portalOrdersSnapshotLead">Operational counts update for the active company so the warehouse team knows what is ready to pick, pack, and ship.</p>
-                            </div>
-                        </div>
-                        <div class="summary-grid">
-                            <div class="summary"><span>Drafts</span><strong id="salesOrderDraftCount">0</strong></div>
-                            <div class="summary"><span>Released</span><strong id="salesOrderReleasedCount">0</strong></div>
-                            <div class="summary"><span>Picked</span><strong id="salesOrderPickedCount">0</strong></div>
-                            <div class="summary"><span>Staged</span><strong id="salesOrderStagedCount">0</strong></div>
-                            <div class="summary"><span>Shipped</span><strong id="salesOrderShippedCount">0</strong></div>
-                        </div>
-                    </article>
-                </div>
-
+                <div class="entry-workspace-stack">
                 <article class="card desktop-complex workspace-control-card" id="warehouseOrderEntryCard">
                     <div class="card-head">
                         <div>
@@ -4922,6 +4876,44 @@
                             <p class="lead" id="portalOrdersQueueLead">See what each customer released, compare ordered quantity against available stock, and print the documents your team needs to pick and ship.</p>
                         </div>
                         <span class="meta" id="portalOrdersMeta">0 orders</span>
+                    </div>
+                    <div class="entry-secondary-toolbar" id="portalOrdersFiltersCard">
+                        <div>
+                            <h3 id="ordersPanelTitle">Sales Orders</h3>
+                            <p class="meta" id="ordersPanelLead">Released company portal orders appear here for review, pick ticket printing, packing slips, staging, and shipping.</p>
+                        </div>
+                        <div class="button-row">
+                            <label class="field" id="portalOrderStatusFilterField" style="flex: 1 1 220px;">
+                                <span>Status Filter</span>
+                                <select id="portalOrderStatusFilter">
+                                    <option value="">All statuses</option>
+                                    <option value="DRAFT">Draft</option>
+                                    <option value="RELEASED">Released</option>
+                                    <option value="PICKED">Picked</option>
+                                    <option value="STAGED">Staged / Packed</option>
+                                    <option value="SHIPPED">Shipped</option>
+                                </select>
+                            </label>
+                            <label class="field" style="flex: 1 1 280px;">
+                                <span>Search Orders</span>
+                                <input id="portalOrderSearch" type="text" placeholder="Order #, PO, ship to, SKU, tracking, or note">
+                            </label>
+                            <button class="btn ghost" id="clearPortalOrderFiltersBtn" type="button">Clear Filters</button>
+                        </div>
+                        <div class="status" id="portalOrdersMessage"></div>
+                    </div>
+                    <div class="entry-secondary-snapshot" id="portalOrdersSnapshotCard">
+                        <div>
+                            <h3 id="portalOrdersSnapshotTitle">Order Snapshot</h3>
+                            <p class="meta" id="portalOrdersSnapshotLead">Operational counts update for the active company so the warehouse team knows what is ready to pick, pack, and ship.</p>
+                        </div>
+                        <div class="summary-grid">
+                            <div class="summary"><span>Drafts</span><strong id="salesOrderDraftCount">0</strong></div>
+                            <div class="summary"><span>Released</span><strong id="salesOrderReleasedCount">0</strong></div>
+                            <div class="summary"><span>Picked</span><strong id="salesOrderPickedCount">0</strong></div>
+                            <div class="summary"><span>Staged</span><strong id="salesOrderStagedCount">0</strong></div>
+                            <div class="summary"><span>Shipped</span><strong id="salesOrderShippedCount">0</strong></div>
+                        </div>
                     </div>
                     <div id="portalOrdersList">
                         <p class="empty">No sales orders loaded yet.</p>
@@ -7277,7 +7269,7 @@
                     scan: "scanStageCard",
                     inbounds: "warehouseInboundEntryCard",
                     inventory: "masterDataWorkspaceCard",
-                    orders: "portalOrdersQueueCard",
+                    orders: "warehouseOrderEntryCard",
                     shipped: "portalOrdersQueueCard"
                 })[section] || "");
             }
@@ -7285,7 +7277,10 @@
                 syncServerStateIfStale({ silent: true }).catch(() => {});
             }
             if (section === "orders" || section === "shipped") {
-                if (!isMobileView() && ui.portalOrderSearch && !focusAnchorId) ui.portalOrderSearch.focus();
+                if (!isMobileView() && !focusAnchorId) {
+                    if (section === "orders" && ui.warehouseOrderPoNumber) ui.warehouseOrderPoNumber.focus();
+                    if (section === "shipped" && ui.portalOrderSearch) ui.portalOrderSearch.focus();
+                }
                 refreshPortalOrdersList(true).catch(() => {});
             }
         }
