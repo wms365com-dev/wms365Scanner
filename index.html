@@ -184,6 +184,103 @@
             background: #ffffff;
         }
 
+        .desktop-utilitybar,
+        .desktop-alertbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.65rem 0.9rem;
+            padding: 0.55rem 0.7rem;
+            border: 1px solid #d4dde4;
+            border-radius: 9px;
+            background: #f8fafb;
+        }
+
+        .desktop-utility-brand,
+        .desktop-alertbar-copy {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            min-width: 0;
+        }
+
+        .desktop-utility-brandmark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 72px;
+            min-height: 34px;
+            padding: 0 0.75rem;
+            border-radius: 8px;
+            background: #0e5b84;
+            color: #ffffff;
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .desktop-utility-brandcopy,
+        .desktop-alertbar-copy div {
+            display: grid;
+            gap: 0.08rem;
+            min-width: 0;
+        }
+
+        .desktop-utility-brandcopy span,
+        .desktop-alertbar-copy span {
+            color: #6f8190;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .desktop-utility-brandcopy strong,
+        .desktop-alertbar-copy strong {
+            color: #264257;
+            font-size: 0.94rem;
+            line-height: 1.1;
+        }
+
+        .desktop-utility-actions,
+        .desktop-alerts,
+        .desktop-alertbar-tools {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .utility-status-pill,
+        .utility-account-pill,
+        .desktop-alert-pill,
+        .utility-action-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            min-height: 32px;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            border: 1px solid #d4dde4;
+            background: #ffffff;
+            color: #4d6678;
+            font-size: 0.76rem;
+            font-weight: 700;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .desktop-alert-pill strong {
+            color: #0e5b84;
+            font-size: 0.82rem;
+        }
+
+        .utility-action-link:hover {
+            background: #eef4f8;
+        }
+
         .workspace-commandbar {
             display: grid;
             gap: 0.4rem;
@@ -2047,22 +2144,22 @@
 
         @media (min-width: 860px) {
             .app {
-                width: min(1480px, calc(100vw - 1rem));
-                padding: 0.6rem 0 1rem;
+                width: min(1500px, calc(100vw - 1rem));
+                padding: 0.5rem 0 1rem;
                 display: grid;
-                grid-template-columns: 236px minmax(0, 1fr);
+                grid-template-columns: 252px minmax(0, 1fr);
                 grid-template-areas:
                     "header header"
                     "nav workspace";
-                gap: 0.6rem;
+                gap: 0.55rem;
                 align-items: start;
             }
 
             .hero {
                 grid-area: header;
-                padding: 0.5rem 0.6rem 0.6rem;
-                border-radius: 12px;
-                border-color: #d5e4f2;
+                padding: 0.45rem 0.55rem 0.55rem;
+                border-radius: 10px;
+                border-color: #ced8e1;
                 background: #ffffff;
                 box-shadow: none;
             }
@@ -2070,20 +2167,20 @@
             .hero-grid {
                 grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
                 align-items: start;
-                gap: 0.6rem;
+                gap: 0.55rem;
             }
 
             .hero-topline {
                 grid-template-columns: minmax(0, 1fr) auto;
                 align-items: center;
-                gap: 0.8rem;
+                gap: 0.6rem;
             }
 
-            .hero-copy { gap: 0.55rem; }
+            .hero-copy { gap: 0.45rem; }
 
             .hero h1 {
-                font-size: clamp(1.45rem, 1.9vw, 2rem);
-                line-height: 0.98;
+                font-size: clamp(1.2rem, 1.5vw, 1.55rem);
+                line-height: 1.02;
             }
 
             .hero p,
@@ -2097,12 +2194,35 @@
                 display: none !important;
             }
 
+            .desktop-utilitybar,
+            .desktop-alertbar {
+                padding: 0.45rem 0.55rem;
+                border-radius: 8px;
+                border-color: #d2dbe3;
+                background: #f8fafb;
+                margin-bottom: 0.45rem;
+            }
+
+            .desktop-utility-brandmark {
+                min-width: 66px;
+                min-height: 30px;
+                padding: 0 0.65rem;
+                border-radius: 7px;
+                background: #0b5c84;
+                font-size: 0.74rem;
+            }
+
+            .desktop-utility-brandcopy strong,
+            .desktop-alertbar-copy strong {
+                font-size: 0.88rem;
+            }
+
             .workspace-commandbar {
                 gap: 0.35rem;
-                padding: 0.5rem 0.6rem;
+                padding: 0.55rem 0.65rem;
                 border-radius: 8px;
-                border-color: #d4dde4;
-                background: var(--panel-2);
+                border-color: #d3dde5;
+                background: #f6f8fa;
             }
 
             .workspace-command-copy strong {
@@ -2217,22 +2337,22 @@
                 position: sticky;
                 top: 0.6rem;
                 margin-top: 0;
-                padding: 0.65rem 0.55rem;
+                padding: 0.75rem 0.55rem;
                 border-radius: 10px;
                 overflow: visible;
-                background: #ffffff;
-                border-color: #cbd6df;
+                background: linear-gradient(180deg, #0f628e 0%, #0a547a 100%);
+                border-color: #094f72;
                 box-shadow: none;
             }
 
             .desktop-nav-head {
                 padding: 0 0.1rem 0.45rem;
-                border-bottom: 1px solid #d5dde5;
+                border-bottom: 1px solid rgba(255,255,255,0.14);
                 margin-bottom: 0.15rem;
             }
 
             .desktop-nav-head span {
-                color: #5d7285;
+                color: rgba(255,255,255,0.7);
                 font-size: 0.72rem;
                 font-weight: 700;
                 letter-spacing: 0.14em;
@@ -2241,13 +2361,13 @@
 
             .desktop-nav-head strong {
                 font-size: 1rem;
-                color: #1a2d40;
+                color: #ffffff;
             }
 
             .nav-group-label {
                 padding: 0.55rem 0.15rem 0.1rem;
-                color: #6d8194;
-                border-top: 1px solid #d6dee6;
+                color: rgba(255,255,255,0.54);
+                border-top: 1px solid rgba(255,255,255,0.12);
                 margin-top: 0.25rem;
             }
 
@@ -2261,25 +2381,29 @@
                 gap: 0.1rem;
                 align-items: start;
                 white-space: normal;
-                background: #ffffff;
-                color: #55687a;
+                background: transparent;
+                color: rgba(255,255,255,0.88);
             }
 
             .tab:hover {
-                background: #f6f8f9;
-                border-color: #d1d9df;
+                background: rgba(255,255,255,0.1);
+                border-color: rgba(255,255,255,0.12);
             }
 
             .tab.active {
-                border-color: #cbd7df;
-                background: #edf3f6;
-                color: #3f5f76;
+                border-color: #ffffff;
+                background: #ffffff;
+                color: #0a547a;
                 box-shadow: none;
             }
 
             .tab-label {
                 font-size: 0.94rem;
                 letter-spacing: 0.01em;
+            }
+
+            .tab.active .tab-label {
+                color: #0a547a;
             }
 
             .home-callout {
@@ -3211,16 +3335,47 @@
     <button id="desktopPreviewToggle" class="desktop-preview-toggle" type="button" hidden aria-pressed="false">Mobile Preview</button>
     <div class="app">
         <header class="hero">
+            <div class="desktop-utilitybar desktop-only">
+                <div class="desktop-utility-brand">
+                    <div class="desktop-utility-brandmark">WMS365</div>
+                    <div class="desktop-utility-brandcopy">
+                        <span>Warehouse operations console</span>
+                        <strong>Shared warehouse workspace</strong>
+                    </div>
+                </div>
+                <div class="desktop-utility-actions">
+                    <span class="utility-status-pill" id="appBuildBadge">Build loading...</span>
+                    <a class="utility-action-link" href="mailto:support@wms365.co">Contact Support</a>
+                    <span class="utility-account-pill" id="desktopUtilityCompany">All Companies</span>
+                </div>
+            </div>
+            <div class="desktop-alertbar desktop-only">
+                <div class="desktop-alertbar-copy">
+                    <div>
+                        <span>Activity</span>
+                        <strong>Warehouse alerts</strong>
+                    </div>
+                </div>
+                <div class="desktop-alerts">
+                    <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
+                    <span class="desktop-alert-pill">Picked <strong id="desktopAlertPicked">0</strong></span>
+                    <span class="desktop-alert-pill">Staged <strong id="desktopAlertStaged">0</strong></span>
+                    <span class="desktop-alert-pill">Open Inbounds <strong id="desktopAlertInbounds">0</strong></span>
+                </div>
+                <div class="desktop-alertbar-tools">
+                    <a class="utility-action-link" href="mailto:support@wms365.co?subject=WMS365%20Support">Email Support</a>
+                </div>
+            </div>
             <div class="hero-grid">
                 <div class="hero-copy">
                     <div class="hero-topline">
                         <div>
                             <p class="eyebrow">WMS365 Warehouse Management System</p>
-                            <h1>Warehouse Operations <span class="build-badge" id="appBuildBadge">Build loading...</span></h1>
+                            <h1>Warehouse Operations</h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
-                            <strong>Shared WMS Control</strong>
+                            <strong>Control Center</strong>
                         </div>
                     </div>
                     <div class="workspace-commandbar desktop-only">
@@ -3253,7 +3408,7 @@
                             <div class="meta" id="appBuildMeta">Build loading...</div>
                         </div>
                     </div>
-                    <p>Run inbound, inventory, outbound, reporting, billing, and setup from one warehouse workspace.</p>
+                    <p>Use the left navigation to drill into one warehouse workflow at a time without losing the shared company context.</p>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
                     <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
@@ -3267,8 +3422,8 @@
         <nav class="tabbar" aria-label="Sections">
             <div class="desktop-nav-head desktop-only">
                 <span>WMS365</span>
-                <strong>Operations</strong>
-                <p class="meta">Organized by inbound, inventory, outbound, reporting, setup, commercial, and system work.</p>
+                <strong>Warehouse Menu</strong>
+                <p class="meta">Drill into one operational area at a time.</p>
             </div>
             <button class="tab active" data-section="home" type="button">
                 <span class="tab-label">Home</span>
@@ -3469,8 +3624,8 @@
             <div class="mobile-screen-body">
             <article class="card desktop-only workspace-index-card">
                 <div class="workspace-index-head">
-                    <span>Inbound Index</span>
-                    <strong>Drill into receiving or purchase order work</strong>
+                    <span>Receiving Index</span>
+                    <strong>Drill into scan and batch receiving work</strong>
                 </div>
                 <div class="workspace-index-grid">
                     <button class="workspace-index-btn" id="scanWorkspaceReceivingBtn" type="button" data-workspace-group="scan" data-workspace-anchor="scanStageCard">
@@ -3480,14 +3635,6 @@
                     <button class="workspace-index-btn" id="scanWorkspaceBatchBtn" type="button" data-workspace-group="scan" data-workspace-anchor="currentBatchCard">
                         <strong>Current Batch</strong>
                         <span>Review staged lines before they hit live inventory.</span>
-                    </button>
-                    <button class="workspace-index-btn" id="scanWorkspacePoBtn" type="button" data-workspace-group="scan" data-workspace-anchor="warehouseInboundEntryCard">
-                        <strong>Purchase Order Entry</strong>
-                        <span>Create expected inbound receipts for the active company.</span>
-                    </button>
-                    <button class="workspace-index-btn" id="scanWorkspaceQueueBtn" type="button" data-workspace-group="scan" data-workspace-anchor="warehouseInboundQueueCard">
-                        <strong>Inbound Queue</strong>
-                        <span>Review submitted warehouse and customer inbounds.</span>
                     </button>
                 </div>
             </article>
@@ -3634,7 +3781,39 @@
                         </table>
                     </div>
                 </article>
+            </div>
+            </div>
+        </section>
 
+        <section class="panel" id="inboundsPanel" data-panel="inbounds">
+            <div class="mobile-panel-head mobile-only">
+                <div class="mobile-appbar">
+                    <div class="mobile-appbar-copy">
+                        <span class="mobile-appbar-kicker">WMS365</span>
+                        <strong class="mobile-appbar-title">Purchase Orders</strong>
+                    </div>
+                    <span class="mobile-appbar-badge">Warehouse</span>
+                </div>
+                <button class="btn" type="button" data-mobile-home>Back To Menu</button>
+            </div>
+            <div class="mobile-screen-body">
+            <article class="card desktop-only workspace-index-card">
+                <div class="workspace-index-head">
+                    <span>Purchase Order Index</span>
+                    <strong>Drill into expected receipt entry and queue review</strong>
+                </div>
+                <div class="workspace-index-grid">
+                    <button class="workspace-index-btn" type="button" data-workspace-group="inbounds" data-workspace-anchor="warehouseInboundEntryCard">
+                        <strong>PO Entry</strong>
+                        <span>Create expected inbound receipts for the active company.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-group="inbounds" data-workspace-anchor="warehouseInboundQueueCard">
+                        <strong>Inbound Queue</strong>
+                        <span>Review submitted warehouse and customer inbounds.</span>
+                    </button>
+                </div>
+            </article>
+            <div class="section-grid">
                 <article class="card desktop-complex workspace-control-card" id="warehouseInboundEntryCard">
                     <div class="card-head">
                         <div>
@@ -3702,7 +3881,6 @@
                         <p class="empty">No purchase orders or inbound notices loaded yet.</p>
                     </div>
                 </article>
-
             </div>
             </div>
         </section>
@@ -5807,6 +5985,11 @@
             workspaceDrillPath: document.getElementById("workspaceDrillPath"),
             workspaceCompanyChip: document.getElementById("workspaceCompanyChip"),
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
+            desktopUtilityCompany: document.getElementById("desktopUtilityCompany"),
+            desktopAlertReleased: document.getElementById("desktopAlertReleased"),
+            desktopAlertPicked: document.getElementById("desktopAlertPicked"),
+            desktopAlertStaged: document.getElementById("desktopAlertStaged"),
+            desktopAlertInbounds: document.getElementById("desktopAlertInbounds"),
             appBuildBadge: document.getElementById("appBuildBadge"),
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
@@ -5944,8 +6127,6 @@
             currentBatchCard: document.getElementById("currentBatchCard"),
             scanWorkspaceReceivingBtn: document.getElementById("scanWorkspaceReceivingBtn"),
             scanWorkspaceBatchBtn: document.getElementById("scanWorkspaceBatchBtn"),
-            scanWorkspacePoBtn: document.getElementById("scanWorkspacePoBtn"),
-            scanWorkspaceQueueBtn: document.getElementById("scanWorkspaceQueueBtn"),
             openPortalBtn: document.getElementById("openPortalBtn"),
             catalogMessage: document.getElementById("catalogMessage"),
             importLocationCsvInput: document.getElementById("importLocationCsvInput"),
@@ -6725,28 +6906,21 @@
             return String(section || "").trim().toLowerCase() === "inbounds";
         }
 
-        function syncScanSectionUi(section = activeSection) {
-            const purchaseOrdersOnly = isInboundOrdersSection(section);
+        function syncScanSectionUi() {
             if (ui.scanPanelMobileTitle) {
-                ui.scanPanelMobileTitle.textContent = purchaseOrdersOnly ? "Purchase Orders" : "Receiving";
+                ui.scanPanelMobileTitle.textContent = "Receiving";
             }
             if (ui.scanStageCard) {
-                ui.scanStageCard.classList.toggle("hidden", purchaseOrdersOnly);
+                ui.scanStageCard.classList.remove("hidden");
             }
             if (ui.currentBatchCard) {
-                ui.currentBatchCard.classList.toggle("hidden", purchaseOrdersOnly);
-            }
-            if (ui.warehouseInboundEntryCard) {
-                ui.warehouseInboundEntryCard.classList.toggle("full-span", purchaseOrdersOnly);
-            }
-            if (ui.warehouseInboundQueueCard) {
-                ui.warehouseInboundQueueCard.classList.toggle("full-span", purchaseOrdersOnly);
+                ui.currentBatchCard.classList.remove("hidden");
             }
             if (ui.scanWorkspaceReceivingBtn) {
-                ui.scanWorkspaceReceivingBtn.classList.toggle("hidden", purchaseOrdersOnly);
+                ui.scanWorkspaceReceivingBtn.classList.remove("hidden");
             }
             if (ui.scanWorkspaceBatchBtn) {
-                ui.scanWorkspaceBatchBtn.classList.toggle("hidden", purchaseOrdersOnly);
+                ui.scanWorkspaceBatchBtn.classList.remove("hidden");
             }
         }
 
@@ -6823,7 +6997,7 @@
 
         function getWorkspaceGroup(section = activeSection) {
             if (isShippedOrdersSection(section)) return "orders";
-            if (isInboundOrdersSection(section)) return "scan";
+            if (isInboundOrdersSection(section)) return "inbounds";
             return String(section || "").trim().toLowerCase();
         }
 
@@ -6986,7 +7160,7 @@
             const normalizedSection = normalizeSectionForCurrentDevice(section);
             const visiblePanelSection = isShippedOrdersSection(normalizedSection)
                 ? "orders"
-                : (isInboundOrdersSection(normalizedSection) ? "scan" : normalizedSection);
+                : normalizedSection;
             ui.panels.forEach((panel) => {
                 const isActive = panel.dataset.panel === visiblePanelSection;
                 panel.classList.toggle("active", isActive);
@@ -7043,7 +7217,7 @@
             }
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
-            syncScanSectionUi(section);
+            syncScanSectionUi();
             syncPortalOrdersSectionUi(section);
             updateMobileBackButtons();
             updateDesktopSectionBackButton();
@@ -7971,12 +8145,16 @@
             if (ui.workspaceCompanyChip) {
                 ui.workspaceCompanyChip.textContent = company ? `Company: ${company}` : "Company: all";
             }
+            if (ui.desktopUtilityCompany) {
+                ui.desktopUtilityCompany.textContent = company || "All Companies";
+            }
             if (ui.workspaceSyncChip) {
                 ui.workspaceSyncChip.textContent = refreshStamp ? `Synced: ${formatPreciseDate(refreshStamp)}` : "Synced: waiting";
                 ui.workspaceSyncChip.title = lastChangedStamp
                     ? `Latest server data change: ${formatDate(lastChangedStamp)}`
                     : "Shows the last successful refresh from the server.";
             }
+            updateDesktopOperationsAlerts();
         }
 
         function detectDeviceExperienceMode() {
@@ -9377,6 +9555,38 @@
             ui.statLines.textContent = num(scopedInventory.length);
             ui.statLocations.textContent = num(locations);
             ui.statBatch.textContent = num(state.batch.length);
+            updateDesktopOperationsAlerts();
+        }
+
+        function getCompanyScopedPortalOrders() {
+            const company = norm(getActiveCompany());
+            return company
+                ? portalOrderRecords.filter((order) => norm(order.accountName) === company)
+                : portalOrderRecords;
+        }
+
+        function getCompanyScopedPortalInbounds() {
+            const company = norm(getActiveCompany());
+            return company
+                ? portalInboundRecords.filter((inbound) => norm(inbound.accountName) === company)
+                : portalInboundRecords;
+        }
+
+        function updateDesktopOperationsAlerts() {
+            const orders = getCompanyScopedPortalOrders();
+            const inbounds = getCompanyScopedPortalInbounds();
+            if (ui.desktopAlertReleased) {
+                ui.desktopAlertReleased.textContent = num(orders.filter((order) => norm(order.status) === "RELEASED").length);
+            }
+            if (ui.desktopAlertPicked) {
+                ui.desktopAlertPicked.textContent = num(orders.filter((order) => norm(order.status) === "PICKED").length);
+            }
+            if (ui.desktopAlertStaged) {
+                ui.desktopAlertStaged.textContent = num(orders.filter((order) => norm(order.status) === "STAGED").length);
+            }
+            if (ui.desktopAlertInbounds) {
+                ui.desktopAlertInbounds.textContent = num(inbounds.filter((inbound) => norm(inbound.status) !== "RECEIVED").length);
+            }
         }
 
         function renderDatalists() {
@@ -12492,11 +12702,13 @@
                 portalInboundRecords = inbounds;
                 renderPortalInboundsList();
                 renderWarehouseInboundContext();
+                updateDesktopOperationsAlerts();
             } catch (error) {
                 if (!silent) {
                     portalInboundRecords = [];
                     renderPortalInboundsList(error.message);
                     renderWarehouseInboundContext();
+                    updateDesktopOperationsAlerts();
                 }
                 throw error;
             }
@@ -12608,11 +12820,13 @@
                 portalOrderRecords = orders;
                 renderPortalOrdersList();
                 renderWarehouseSalesOrderContext();
+                updateDesktopOperationsAlerts();
             } catch (error) {
                 if (!silent) {
                     portalOrderRecords = [];
                     renderPortalOrdersList(error.message);
                     renderWarehouseSalesOrderContext();
+                    updateDesktopOperationsAlerts();
                 }
                 throw error;
             }
