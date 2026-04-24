@@ -275,94 +275,6 @@
             color: #31495d;
         }
 
-        .action-board {
-            display: grid;
-            gap: 0.4rem;
-            padding: 0.55rem 0.6rem;
-            border-radius: 8px;
-            border: 1px solid #d4dde4;
-            background: #f4f6f7;
-            box-shadow: none;
-        }
-
-        .action-board-head {
-            display: grid;
-            gap: 0.18rem;
-        }
-
-        .action-board-head span {
-            color: #738490;
-            font-size: 0.74rem;
-            font-weight: 700;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-        }
-
-        .action-board-head strong {
-            color: #31495d;
-            font-size: 0.92rem;
-        }
-
-        .action-board-head p {
-            margin: 0;
-            color: #728391;
-            font-size: 0.78rem;
-            line-height: 1.3;
-        }
-
-        .action-board-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 0;
-            border: 1px solid #d7dfe5;
-            border-radius: 8px;
-            overflow: hidden;
-            background: #ffffff;
-        }
-
-        .action-board-grid > select {
-            display: none !important;
-        }
-
-        .action-link {
-            display: grid;
-            grid-template-columns: minmax(128px, 170px) minmax(0, 1fr) auto;
-            align-items: center;
-            gap: 0.6rem;
-            min-height: 0;
-            padding: 0.68rem 0.75rem;
-            border-radius: 0;
-            border: 0;
-            border-top: 1px solid #e0e6eb;
-            background: #ffffff;
-            text-align: left;
-            box-shadow: none;
-        }
-
-        .action-link:first-child {
-            border-top: 0;
-        }
-
-        .action-link::after {
-            content: "Open";
-            color: #7b8b97;
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-        }
-
-        .action-link strong {
-            color: #334b5d;
-            font-size: 0.88rem;
-        }
-
-        .action-link span {
-            color: #728390;
-            font-size: 0.76rem;
-            line-height: 1.3;
-        }
-
         .workspace-chip {
             display: inline-flex;
             align-items: center;
@@ -2272,16 +2184,6 @@
                 align-content: start;
             }
 
-            .action-board {
-                grid-column: 1 / -1;
-            }
-
-            .action-link:hover {
-                transform: none;
-                border-color: #b5c4d3;
-                box-shadow: none;
-            }
-
             .stat {
                 min-height: 0;
                 border-radius: 8px;
@@ -2468,7 +2370,7 @@
             }
 
             .home-task::after {
-                content: "Open";
+                content: attr(data-open-label);
                 color: #75879a;
                 font-size: 0.72rem;
                 font-weight: 700;
@@ -3286,7 +3188,7 @@
             border-top:0;
         }
         .home-task::after {
-            content:"Open";
+            content:attr(data-open-label);
             color:#75879a;
             font-size:11px;
             font-weight:700;
@@ -3314,7 +3216,7 @@
                     <div class="hero-topline">
                         <div>
                             <p class="eyebrow">WMS365 Warehouse Management System</p>
-                            <h1>Warehouse Control Tower <span class="build-badge" id="appBuildBadge">Build loading...</span></h1>
+                            <h1>Warehouse Operations <span class="build-badge" id="appBuildBadge">Build loading...</span></h1>
                         </div>
                         <div class="hero-mode desktop-only">
                             <span>Desktop Workspace</span>
@@ -3351,46 +3253,9 @@
                             <div class="meta" id="appBuildMeta">Build loading...</div>
                         </div>
                     </div>
-                    <p>Run receiving, inventory, outbound work, reporting, and billing from one warehouse desktop.</p>
+                    <p>Run inbound, inventory, outbound, reporting, billing, and setup from one warehouse workspace.</p>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
-                    <div class="action-board desktop-only">
-                        <div class="action-board-head">
-                            <span>Sections</span>
-                            <strong>Section Index</strong>
-                            <p>Open the next workspace lane.</p>
-                        </div>
-                        <div class="action-board-grid">
-                            <button class="action-link" type="button" data-jump-section="search">
-                                <strong>Inventory Lookup</strong>
-                                <span>Search live stock by SKU, UPC, BIN, or location.</span>
-                            </button>
-                            <button class="action-link" type="button" data-jump-section="scan">
-                                <strong>Receiving</strong>
-                                <span>Stage inbound stock and save the open batch.</span>
-                            </button>
-                            <button class="action-link" type="button" data-jump-section="actions">
-                                <strong>Adjust & Move</strong>
-                                <span>Transfer, convert, or correct warehouse inventory.</span>
-                            </button>
-                            <button class="action-link" type="button" data-jump-section="orders">
-                                <strong>Sales Orders</strong>
-                                <span>Work released orders through pick, stage, and ship.</span>
-                            </button>
-                            <button class="action-link" type="button" data-jump-section="inbounds">
-                                <strong>Purchase Orders</strong>
-                                <span>Create expected inbound receipts and review the inbound queue.</span>
-                            </button>
-                            <button class="action-link" type="button" data-jump-section="shipped">
-                                <strong>Shipped Orders</strong>
-                                <span>Review completed shipments, tracking, and documents.</span>
-                            </button>
-                            <button class="action-link" type="button" data-jump-section="reports">
-                                <strong>Reports & Counts</strong>
-                                <span>Run activity, count, and export review for the floor.</span>
-                            </button>
-                        </div>
-                    </div>
                     <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
                     <div class="stat"><span>Locations</span><strong id="statLocations">0</strong></div>
@@ -3501,8 +3366,8 @@
 
                 <section class="panel active desktop-only" id="homePanel" data-panel="home">
             <div class="home-callout">
-                <h2>Warehouse System Directory</h2>
-                <p>Use the directory below to drill into the workflow lane you need. Each row opens the working screen directly, and the left navigation lets you step back out cleanly.</p>
+                <h2>Warehouse Directory</h2>
+                <p>Choose the workflow lane you need, drill into the section, then back out from the left navigation when you are done.</p>
             </div>
             <div class="home-grid">
                 <article class="home-card">
@@ -3513,8 +3378,8 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="scan"><strong>Receiving</strong><span>Stage scans, capture traceability, and save the batch.</span></button>
-                        <button class="home-task" type="button" data-jump-section="inbounds"><strong>Purchase Orders</strong><span>Create expected inbound receipts and manage the inbound queue.</span></button>
+                        <button class="home-task" type="button" data-jump-section="scan" data-open-label="Receive"><strong>Receiving</strong><span>Stage scans, capture traceability, and save the batch.</span></button>
+                        <button class="home-task" type="button" data-jump-section="inbounds" data-open-label="Create"><strong>Purchase Orders</strong><span>Create expected inbound receipts and manage the inbound queue.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3525,9 +3390,9 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="search"><strong>Inventory Lookup</strong><span>Search by SKU, UPC, BIN, location, or list.</span></button>
-                        <button class="home-task" type="button" data-jump-section="actions"><strong>Adjust & Move</strong><span>Correct stock, transfer, convert, or move BINs.</span></button>
-                        <button class="home-task" type="button" data-jump-section="labels"><strong>Labels</strong><span>Build or reprint location and pallet labels.</span></button>
+                        <button class="home-task" type="button" data-jump-section="search" data-open-label="Lookup"><strong>Inventory Lookup</strong><span>Search by SKU, UPC, BIN, location, or list.</span></button>
+                        <button class="home-task" type="button" data-jump-section="actions" data-open-label="Adjust"><strong>Adjust & Move</strong><span>Correct stock, transfer, convert, or move BINs.</span></button>
+                        <button class="home-task" type="button" data-jump-section="labels" data-open-label="Print"><strong>Labels</strong><span>Build or reprint location and pallet labels.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3538,8 +3403,8 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="orders"><strong>Sales Orders</strong><span>Work live orders through pick, stage, and ship.</span></button>
-                        <button class="home-task" type="button" data-jump-section="shipped"><strong>Shipped Orders</strong><span>Review shipment history, tracking, and documents.</span></button>
+                        <button class="home-task" type="button" data-jump-section="orders" data-open-label="Work"><strong>Sales Orders</strong><span>Work live orders through pick, stage, and ship.</span></button>
+                        <button class="home-task" type="button" data-jump-section="shipped" data-open-label="Review"><strong>Shipped Orders</strong><span>Review shipment history, tracking, and documents.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3550,7 +3415,7 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="reports"><strong>Reports & Counts</strong><span>Run utilization, location, item, and inventory reporting.</span></button>
+                        <button class="home-task" type="button" data-jump-section="reports" data-open-label="Review"><strong>Reports & Counts</strong><span>Run utilization, location, item, and inventory reporting.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3561,8 +3426,8 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="inventory"><strong>Master Data</strong><span>Maintain companies, BINs, items, portal access, and worksheet tools.</span></button>
-                        <button class="home-task" type="button" data-jump-section="integrations"><strong>Integrations</strong><span>Manage Shopify, SFTP, and sync schedules.</span></button>
+                        <button class="home-task" type="button" data-jump-section="inventory" data-open-label="Maintain"><strong>Master Data</strong><span>Maintain companies, BINs, items, portal access, and worksheet tools.</span></button>
+                        <button class="home-task" type="button" data-jump-section="integrations" data-open-label="Connect"><strong>Integrations</strong><span>Manage Shopify, SFTP, and sync schedules.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3573,7 +3438,7 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="billing"><strong>Billing</strong><span>Set fees and review invoice-ready billing lines.</span></button>
+                        <button class="home-task" type="button" data-jump-section="billing" data-open-label="Bill"><strong>Billing</strong><span>Set fees and review invoice-ready billing lines.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3584,7 +3449,7 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="backup"><strong>Admin & System</strong><span>Import/export, company features, warehouse users, backups, and feedback.</span></button>
+                        <button class="home-task" type="button" data-jump-section="backup" data-open-label="Admin"><strong>Admin & System</strong><span>Import/export, company features, warehouse users, backups, and feedback.</span></button>
                     </div>
                 </article>
             </div>
