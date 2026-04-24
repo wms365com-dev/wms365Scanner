@@ -403,6 +403,75 @@
             align-items: center;
         }
 
+        .workspace-index-card {
+            display: grid;
+            gap: 0.45rem;
+            margin-bottom: 0.7rem;
+            padding: 0.7rem 0.8rem;
+            border-radius: 10px;
+            border: 1px solid #d7dfe5;
+            background: #f7f9fa;
+        }
+
+        .workspace-index-head {
+            display: grid;
+            gap: 0.14rem;
+        }
+
+        .workspace-index-head span {
+            color: #738390;
+            font-size: 0.73rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .workspace-index-head strong {
+            color: #31495d;
+            font-size: 0.92rem;
+        }
+
+        .workspace-index-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 1px;
+            border: 1px solid #d7dfe5;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #dfe6eb;
+        }
+
+        .workspace-index-btn {
+            display: grid;
+            gap: 0.14rem;
+            min-height: 0;
+            padding: 0.62rem 0.72rem;
+            border: 0;
+            background: #ffffff;
+            text-align: left;
+            box-shadow: none;
+        }
+
+        .workspace-index-btn strong {
+            color: #334b5d;
+            font-size: 0.85rem;
+        }
+
+        .workspace-index-btn span {
+            color: #71818e;
+            font-size: 0.75rem;
+            line-height: 1.28;
+        }
+
+        .workspace-index-btn.active {
+            background: #edf3f6;
+        }
+
+        .workspace-index-btn.active strong,
+        .workspace-index-btn.active span {
+            color: #3f5f76;
+        }
+
         .stat {
             flex: 1 1 140px;
             padding: 0.75rem 0.8rem;
@@ -2897,21 +2966,54 @@
             overflow-x: hidden;
             overscroll-behavior: contain;
             -webkit-overflow-scrolling: touch;
-            padding: 0.45rem;
-            scroll-padding-top: 0.6rem;
+            padding: 0;
+            scroll-padding-top: 0;
+            background: #eef2f5;
+        }
+        body.device-mobile .mobile-screen-body {
+            min-height: 100%;
+            display: grid;
+            align-content: start;
+            gap: 0.55rem;
+            padding: 0.55rem 0.55rem calc(0.9rem + env(safe-area-inset-bottom));
+            background: #eef2f5;
+        }
+        body.device-mobile .mobile-panel-head {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            display: grid;
+            gap: 0.45rem;
+            padding: 0.55rem 0.55rem 0.45rem;
+            background: #eef2f5;
+            border-bottom: 1px solid #dbe3ea;
+        }
+        body.device-mobile .mobile-appbar {
+            align-items: center;
+            padding: 0.68rem 0.78rem;
+            border: 1px solid #d8e0e8;
+            border-radius: 12px;
+            background: #ffffff;
+        }
+        body.device-mobile .mobile-appbar-copy {
+            gap: 0.12rem;
+        }
+        body.device-mobile .mobile-appbar-badge {
+            align-self: center;
         }
         body.device-mobile .card {
-            padding: 0.8rem;
+            padding: 0.78rem 0.82rem;
             background: var(--panel);
             border-color: var(--line);
             backdrop-filter: none;
             box-shadow: none;
-            border-radius: 16px;
+            border-radius: 12px;
         }
         body.device-mobile .mobile-home-card {
-            min-height: 100%;
+            min-height: calc(100% - 0.1rem);
             display: grid;
             align-content: start;
+            gap: 0.45rem;
         }
         body.device-mobile .mobile-home-card h1 {
             margin-bottom: 0.2rem;
@@ -3046,13 +3148,25 @@
         body.device-mobile .menu-card-btn {
             min-height: 56px;
             padding: 0.75rem 0.85rem;
-            border-radius: 12px;
+            border-radius: 10px;
+            justify-items: start;
+            grid-template-columns: 1fr;
+            gap: 0.18rem;
         }
         body.device-mobile .menu-card-title { font-size: 0.98rem; }
         body.device-mobile .mobile-task-picker .btn.active {
             color: white;
             background: var(--brand);
             border-color: transparent;
+        }
+        body.device-mobile .label-mode-switch,
+        body.device-mobile #locationLabelTool,
+        body.device-mobile #locationLabelLibraryTool {
+            display: none !important;
+        }
+        body.device-mobile #palletLabelTool {
+            display: block !important;
+            margin-top: 0 !important;
         }
         body.device-mobile .section-grid,
         body.device-mobile .search-grid,
@@ -3213,6 +3327,9 @@
                             <div class="workspace-drill-path" id="workspaceDrillPath">Operations / Home</div>
                             <strong id="workspaceSectionTitle">Operations Home</strong>
                             <p class="workspace-command-meta" id="workspaceSectionMeta">Work from a single warehouse section and keep setup tasks separate from floor operations.</p>
+                        </div>
+                        <div class="workspace-command-actions">
+                            <button class="btn ghost mini" id="desktopSectionBackBtn" type="button" disabled>Back</button>
                         </div>
                         <div class="workspace-context-bar">
                             <div class="workspace-context-primary">
@@ -3485,6 +3602,30 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
+            <article class="card desktop-only workspace-index-card">
+                <div class="workspace-index-head">
+                    <span>Inbound Index</span>
+                    <strong>Drill into receiving or purchase order work</strong>
+                </div>
+                <div class="workspace-index-grid">
+                    <button class="workspace-index-btn" id="scanWorkspaceReceivingBtn" type="button" data-workspace-group="scan" data-workspace-anchor="scanStageCard">
+                        <strong>Receiving Entry</strong>
+                        <span>Scan location, item, quantity, and traceability.</span>
+                    </button>
+                    <button class="workspace-index-btn" id="scanWorkspaceBatchBtn" type="button" data-workspace-group="scan" data-workspace-anchor="currentBatchCard">
+                        <strong>Current Batch</strong>
+                        <span>Review staged lines before they hit live inventory.</span>
+                    </button>
+                    <button class="workspace-index-btn" id="scanWorkspacePoBtn" type="button" data-workspace-group="scan" data-workspace-anchor="warehouseInboundEntryCard">
+                        <strong>Purchase Order Entry</strong>
+                        <span>Create expected inbound receipts for the active company.</span>
+                    </button>
+                    <button class="workspace-index-btn" id="scanWorkspaceQueueBtn" type="button" data-workspace-group="scan" data-workspace-anchor="warehouseInboundQueueCard">
+                        <strong>Inbound Queue</strong>
+                        <span>Review submitted warehouse and customer inbounds.</span>
+                    </button>
+                </div>
+            </article>
             <div class="section-grid scan-workspace-grid">
                 <article class="card workspace-control-card" id="scanStageCard">
                     <div class="card-head">
@@ -4417,8 +4558,32 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
+            <article class="card desktop-only workspace-index-card">
+                <div class="workspace-index-head">
+                    <span>Inventory Index</span>
+                    <strong>Drill into setup, live stock, worksheet, or summary</strong>
+                </div>
+                <div class="workspace-index-grid">
+                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="masterDataWorkspaceCard">
+                        <strong>Master Data</strong>
+                        <span>Maintain companies, BINs, items, and portal access.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="inventorySnapshotCard">
+                        <strong>Live Inventory</strong>
+                        <span>Filter the current warehouse inventory snapshot.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="inventoryWorksheetCard">
+                        <strong>Inventory Worksheet</strong>
+                        <span>Bulk edit inventory like a spreadsheet for the active company.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="inventorySummaryCard">
+                        <strong>Warehouse Summary</strong>
+                        <span>Review the high-level warehouse totals and last sync.</span>
+                    </button>
+                </div>
+            </article>
             <div class="inventory-grid inventory-workspace-grid" id="inventoryWorkspaceGrid">
-                <article class="card workspace-sheet-card">
+                <article class="card workspace-sheet-card" id="inventorySnapshotCard">
                     <div class="card-head">
                         <div>
                             <h2>Inventory Snapshot</h2>
@@ -4455,7 +4620,7 @@
                     </div>
                 </article>
 
-                <article class="card workspace-metric-card">
+                <article class="card workspace-metric-card" id="inventorySummaryCard">
                     <div class="card-head">
                         <div>
                             <h2>Warehouse Summary</h2>
@@ -4552,8 +4717,32 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
+                <article class="card desktop-only workspace-index-card">
+                    <div class="workspace-index-head">
+                        <span>Outbound Index</span>
+                        <strong>Drill into filters, snapshot, order entry, or queue</strong>
+                    </div>
+                    <div class="workspace-index-grid">
+                        <button class="workspace-index-btn" id="ordersWorkspaceFiltersBtn" type="button" data-workspace-group="orders" data-workspace-anchor="portalOrdersFiltersCard">
+                            <strong>Filters</strong>
+                            <span>Search the outbound work and narrow by status.</span>
+                        </button>
+                        <button class="workspace-index-btn" id="ordersWorkspaceSnapshotBtn" type="button" data-workspace-group="orders" data-workspace-anchor="portalOrdersSnapshotCard">
+                            <strong>Snapshot</strong>
+                            <span>Review released, picked, staged, and shipped counts.</span>
+                        </button>
+                        <button class="workspace-index-btn" id="ordersWorkspaceEntryBtn" type="button" data-workspace-group="orders" data-workspace-anchor="warehouseOrderEntryCard">
+                            <strong>Warehouse Entry</strong>
+                            <span>Create internal warehouse orders for the active company.</span>
+                        </button>
+                        <button class="workspace-index-btn" id="ordersWorkspaceQueueBtn" type="button" data-workspace-group="orders" data-workspace-anchor="portalOrdersQueueCard">
+                            <strong>Order Queue</strong>
+                            <span>Work live orders and shipped history from the queue.</span>
+                        </button>
+                    </div>
+                </article>
                 <div class="inventory-grid order-overview-grid">
-                    <article class="card workspace-control-card">
+                    <article class="card workspace-control-card" id="portalOrdersFiltersCard">
                         <div class="card-head">
                             <div>
                                 <h2 id="ordersPanelTitle">Sales Orders</h2>
@@ -4581,7 +4770,7 @@
                         <div class="status" id="portalOrdersMessage"></div>
                     </article>
 
-                    <article class="card workspace-metric-card">
+                    <article class="card workspace-metric-card" id="portalOrdersSnapshotCard">
                         <div class="card-head">
                             <div>
                                 <h2 id="portalOrdersSnapshotTitle">Order Snapshot</h2>
@@ -4683,7 +4872,7 @@
                     <div class="status" id="warehouseOrderMessage"></div>
                 </article>
 
-                <article class="card desktop-complex workspace-sheet-card">
+                <article class="card desktop-complex workspace-sheet-card" id="portalOrdersQueueCard">
                     <div class="card-head">
                         <div>
                             <h2 id="portalOrdersQueueTitle">Sales Order Queue</h2>
@@ -5580,6 +5769,7 @@
         let labelToolState = loadLabelToolState();
         let activeSection = "home";
         const mobileSectionHistory = [];
+        const desktopSectionHistory = [];
         let searchMode = "sku";
         let activeSearchSubview = "menu";
         let activeActionSubview = "menu";
@@ -5707,6 +5897,14 @@
         const LINK_TARGETS = Object.freeze({
             INVENTORY_WORKSHEET: "inventory-worksheet"
         });
+        const MOBILE_HOME_SECTION = "mobile-home";
+        const MOBILE_ALLOWED_SECTIONS = new Set([
+            MOBILE_HOME_SECTION,
+            "scan",
+            "search",
+            "actions",
+            "labels"
+        ]);
         const mobileQuery = window.matchMedia("(max-width: 640px)");
         const forcedDeviceExperienceMode = getForcedDeviceExperienceMode();
         let detectedDeviceExperienceMode = detectDeviceExperienceMode();
@@ -5734,9 +5932,11 @@
             mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
             mobileSectionBackButtons: [...document.querySelectorAll("[data-mobile-section-back]")],
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
+            workspaceAnchorButtons: [...document.querySelectorAll("[data-workspace-anchor]")],
             saveBatchButtons: [...document.querySelectorAll("[data-save-batch]")],
             clearBatchButtons: [...document.querySelectorAll("[data-clear-batch]")],
             desktopPreviewToggle: document.getElementById("desktopPreviewToggle"),
+            desktopSectionBackBtn: document.getElementById("desktopSectionBackBtn"),
             workspaceSectionTitle: document.getElementById("workspaceSectionTitle"),
             workspaceSectionMeta: document.getElementById("workspaceSectionMeta"),
             workspaceDrillPath: document.getElementById("workspaceDrillPath"),
@@ -5877,6 +6077,10 @@
             scanPanelMobileTitle: document.getElementById("scanPanelMobileTitle"),
             scanStageCard: document.getElementById("scanStageCard"),
             currentBatchCard: document.getElementById("currentBatchCard"),
+            scanWorkspaceReceivingBtn: document.getElementById("scanWorkspaceReceivingBtn"),
+            scanWorkspaceBatchBtn: document.getElementById("scanWorkspaceBatchBtn"),
+            scanWorkspacePoBtn: document.getElementById("scanWorkspacePoBtn"),
+            scanWorkspaceQueueBtn: document.getElementById("scanWorkspaceQueueBtn"),
             openPortalBtn: document.getElementById("openPortalBtn"),
             catalogMessage: document.getElementById("catalogMessage"),
             importLocationCsvInput: document.getElementById("importLocationCsvInput"),
@@ -5923,6 +6127,8 @@
             moveTo: document.getElementById("moveTo"),
             activityList: document.getElementById("activityList"),
             inventoryFilter: document.getElementById("inventoryFilter"),
+            inventorySnapshotCard: document.getElementById("inventorySnapshotCard"),
+            inventorySummaryCard: document.getElementById("inventorySummaryCard"),
             inventoryMeta: document.getElementById("inventoryMeta"),
             inventoryEmpty: document.getElementById("inventoryEmpty"),
             inventoryTableWrap: document.getElementById("inventoryTableWrap"),
@@ -6025,11 +6231,18 @@
             ordersPanelMobileTitle: document.getElementById("ordersPanelMobileTitle"),
             ordersPanelTitle: document.getElementById("ordersPanelTitle"),
             ordersPanelLead: document.getElementById("ordersPanelLead"),
+            ordersWorkspaceFiltersBtn: document.getElementById("ordersWorkspaceFiltersBtn"),
+            ordersWorkspaceSnapshotBtn: document.getElementById("ordersWorkspaceSnapshotBtn"),
+            ordersWorkspaceEntryBtn: document.getElementById("ordersWorkspaceEntryBtn"),
+            ordersWorkspaceQueueBtn: document.getElementById("ordersWorkspaceQueueBtn"),
+            portalOrdersFiltersCard: document.getElementById("portalOrdersFiltersCard"),
+            portalOrdersSnapshotCard: document.getElementById("portalOrdersSnapshotCard"),
             portalOrderStatusFilterField: document.getElementById("portalOrderStatusFilterField"),
             portalOrdersSnapshotTitle: document.getElementById("portalOrdersSnapshotTitle"),
             portalOrdersSnapshotLead: document.getElementById("portalOrdersSnapshotLead"),
             portalOrdersQueueTitle: document.getElementById("portalOrdersQueueTitle"),
             portalOrdersQueueLead: document.getElementById("portalOrdersQueueLead"),
+            portalOrdersQueueCard: document.getElementById("portalOrdersQueueCard"),
             warehouseInboundEntryCard: document.getElementById("warehouseInboundEntryCard"),
             warehouseInboundQueueCard: document.getElementById("warehouseInboundQueueCard"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
@@ -6180,7 +6393,14 @@
             mountIntegrationsWorkspace();
             syncDesktopNavigationToc();
             refreshAppBuildLabels().catch(() => {});
+            updateDesktopSectionBackButton();
+            const debouncedRenderMasterLibrary = debounce(() => renderMasterLibrary(), 140);
+            const debouncedRenderPortalOrders = debounce(() => renderPortalOrdersList(), 140);
+            const debouncedRenderInventory = debounce(() => renderInventory(ui.inventoryFilter.value), 140);
+            const debouncedRenderReports = debounce(() => renderReports(ui.reportFilter.value), 140);
+            const debouncedRenderFeedbackQueue = debounce(() => renderFeedbackQueue(), 140);
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
+            ui.desktopSectionBackBtn?.addEventListener("click", () => goBackDesktopSection());
             ui.syncNowBtn?.addEventListener("click", async () => {
                 const previousSyncLabel = ui.workspaceSyncChip?.textContent || "Synced: waiting";
                 if (ui.workspaceSyncChip) {
@@ -6250,6 +6470,7 @@
                 const target = button.dataset.mobileSubviewTarget;
                 if (group && target) setMobileSubview(group, target);
             }));
+            ui.workspaceAnchorButtons.forEach((button) => button.addEventListener("click", () => handleWorkspaceAnchorButtonClick(button)));
             document.getElementById("masterOwnerForm").addEventListener("submit", saveMasterOwner);
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
@@ -6308,7 +6529,7 @@
             document.getElementById("loadVendorToBillingBtn").addEventListener("click", loadVendorToBilling);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
             ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
-            ui.masterFilter.addEventListener("input", renderMasterLibrary);
+            ui.masterFilter.addEventListener("input", debouncedRenderMasterLibrary);
             ui.masterOwnerList.addEventListener("click", onMasterOwnerListClick);
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
@@ -6317,7 +6538,7 @@
             ui.portalInboundsList?.addEventListener("click", onPortalInboundsListClick);
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
-            ui.portalOrderSearch?.addEventListener("input", () => renderPortalOrdersList());
+            ui.portalOrderSearch?.addEventListener("input", debouncedRenderPortalOrders);
             ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
             ui.resetWarehouseOrderBtn?.addEventListener("click", () => resetWarehouseSalesOrderForm());
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
@@ -6388,14 +6609,14 @@
                 ["input", "change", "blur"].forEach((eventName) => input.addEventListener(eventName, syncActionItemSelectors));
             });
 
-            ui.inventoryFilter.addEventListener("input", () => renderInventory(ui.inventoryFilter.value));
+            ui.inventoryFilter.addEventListener("input", debouncedRenderInventory);
             document.getElementById("clearInventoryFilterBtn").addEventListener("click", () => {
                 ui.inventoryFilter.value = "";
                 renderInventory("");
                 ui.inventoryFilter.focus();
             });
-            ui.reportFilter.addEventListener("input", () => renderReports(ui.reportFilter.value));
-            ui.reportOwner.addEventListener("input", () => renderReports(ui.reportFilter.value));
+            ui.reportFilter.addEventListener("input", debouncedRenderReports);
+            ui.reportOwner.addEventListener("input", debouncedRenderReports);
             document.getElementById("clearReportFilterBtn").addEventListener("click", () => {
                 ui.reportFilter.value = "";
                 ui.reportOwner.value = getActiveCompany() || "";
@@ -6442,7 +6663,7 @@
             ui.feedbackTypeFilter?.addEventListener("change", renderFeedbackQueue);
             ui.feedbackStatusFilter?.addEventListener("change", renderFeedbackQueue);
             ui.feedbackSourceFilter?.addEventListener("change", renderFeedbackQueue);
-            ui.feedbackSearch?.addEventListener("input", renderFeedbackQueue);
+            ui.feedbackSearch?.addEventListener("input", debouncedRenderFeedbackQueue);
             ui.refreshFeedbackQueueBtn?.addEventListener("click", () => refreshFeedbackQueue());
             ui.feedbackQueueList?.addEventListener("click", onFeedbackQueueClick);
             document.getElementById("addSingleLabelBtn").addEventListener("click", addSingleLocationLabel);
@@ -6513,7 +6734,7 @@
             updateIntegrationProviderNote();
             resetStoreIntegrationForm({ keepCompany: true });
             renderAll();
-            setSection(getInitialSectionFromUrl() || (isMobileView() ? "mobile-home" : "home"));
+            setSection(getInitialSectionFromUrl() || (isMobileView() ? "mobile-home" : "home"), { recordHistory: false, syncOnSectionChange: false });
             focusInitialLinkTarget();
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
@@ -6617,9 +6838,22 @@
         function getInitialSectionFromUrl() {
             const params = new URLSearchParams(window.location.search || "");
             const requestedSection = String(params.get("section") || "").trim().toLowerCase();
+            if (requestedSection === MOBILE_HOME_SECTION) {
+                return isMobileView() ? MOBILE_HOME_SECTION : "home";
+            }
             return Object.prototype.hasOwnProperty.call(DESKTOP_SECTION_META, requestedSection)
-                ? requestedSection
+                ? normalizeSectionForCurrentDevice(requestedSection)
                 : "";
+        }
+
+        function normalizeSectionForCurrentDevice(section) {
+            const normalizedSection = String(section || "").trim().toLowerCase();
+            if (isMobileView()) {
+                if (!normalizedSection || normalizedSection === "home") return MOBILE_HOME_SECTION;
+                return MOBILE_ALLOWED_SECTIONS.has(normalizedSection) ? normalizedSection : MOBILE_HOME_SECTION;
+            }
+            if (!normalizedSection || normalizedSection === MOBILE_HOME_SECTION) return "home";
+            return normalizedSection;
         }
 
         function isInboundOrdersSection(section = activeSection) {
@@ -6642,6 +6876,12 @@
             }
             if (ui.warehouseInboundQueueCard) {
                 ui.warehouseInboundQueueCard.classList.toggle("full-span", purchaseOrdersOnly);
+            }
+            if (ui.scanWorkspaceReceivingBtn) {
+                ui.scanWorkspaceReceivingBtn.classList.toggle("hidden", purchaseOrdersOnly);
+            }
+            if (ui.scanWorkspaceBatchBtn) {
+                ui.scanWorkspaceBatchBtn.classList.toggle("hidden", purchaseOrdersOnly);
             }
         }
 
@@ -6695,6 +6935,117 @@
             if (ui.warehouseOrderEntryCard) {
                 ui.warehouseOrderEntryCard.classList.toggle("hidden", shippedOnly);
             }
+            if (ui.ordersWorkspaceEntryBtn) {
+                ui.ordersWorkspaceEntryBtn.classList.toggle("hidden", shippedOnly);
+            }
+            if (ui.ordersWorkspaceSnapshotBtn) {
+                const title = ui.ordersWorkspaceSnapshotBtn.querySelector("strong");
+                const meta = ui.ordersWorkspaceSnapshotBtn.querySelector("span");
+                if (title) title.textContent = shippedOnly ? "Shipped Snapshot" : "Snapshot";
+                if (meta) meta.textContent = shippedOnly
+                    ? "Review shipped totals and completed outbound activity."
+                    : "Review released, picked, staged, and shipped counts.";
+            }
+            if (ui.ordersWorkspaceQueueBtn) {
+                const title = ui.ordersWorkspaceQueueBtn.querySelector("strong");
+                const meta = ui.ordersWorkspaceQueueBtn.querySelector("span");
+                if (title) title.textContent = shippedOnly ? "Shipped Queue" : "Order Queue";
+                if (meta) meta.textContent = shippedOnly
+                    ? "Review shipped history, tracking, and documents."
+                    : "Work live orders through pick, stage, and ship.";
+            }
+        }
+
+        function getWorkspaceGroup(section = activeSection) {
+            if (isShippedOrdersSection(section)) return "orders";
+            if (isInboundOrdersSection(section)) return "scan";
+            return String(section || "").trim().toLowerCase();
+        }
+
+        function getSectionTitle(section) {
+            return (DESKTOP_SECTION_META[section] || DESKTOP_SECTION_META.home || { title: "Warehouse" }).title;
+        }
+
+        function getLastDesktopHistorySection() {
+            for (let index = desktopSectionHistory.length - 1; index >= 0; index -= 1) {
+                const candidate = String(desktopSectionHistory[index] || "").trim();
+                if (candidate && candidate !== activeSection && candidate !== "mobile-home") return candidate;
+            }
+            return "";
+        }
+
+        function popDesktopHistorySection() {
+            while (desktopSectionHistory.length) {
+                const candidate = String(desktopSectionHistory.pop() || "").trim();
+                if (candidate && candidate !== activeSection && candidate !== "mobile-home") return candidate;
+            }
+            return "";
+        }
+
+        function updateDesktopSectionBackButton() {
+            if (!ui.desktopSectionBackBtn) return;
+            const previousSection = getLastDesktopHistorySection();
+            ui.desktopSectionBackBtn.disabled = !previousSection;
+            ui.desktopSectionBackBtn.textContent = "Back";
+            ui.desktopSectionBackBtn.title = previousSection
+                ? `Back to ${getSectionTitle(previousSection)}`
+                : "No previous warehouse section in this session.";
+        }
+
+        function markWorkspaceAnchor(section, anchorId) {
+            const group = getWorkspaceGroup(section);
+            ui.workspaceAnchorButtons.forEach((button) => {
+                const matchesGroup = String(button.dataset.workspaceGroup || "").trim() === group;
+                const matchesAnchor = String(button.dataset.workspaceAnchor || "").trim() === String(anchorId || "").trim();
+                button.classList.toggle("active", matchesGroup && matchesAnchor);
+            });
+        }
+
+        function getWorkspaceAnchorFocusTarget(anchorId) {
+            const focusMap = {
+                scanStageCard: ui.scanLocation,
+                warehouseInboundEntryCard: ui.warehouseInboundReferenceNumber,
+                inventorySnapshotCard: ui.inventoryFilter,
+                inventoryWorksheetCard: getActiveCompany() ? ui.addInventoryWorksheetRowBtn : ui.activeCompany,
+                masterDataWorkspaceCard: ui.masterFilter,
+                portalOrdersFiltersCard: ui.portalOrderSearch,
+                warehouseOrderEntryCard: ui.warehouseOrderPoNumber
+            };
+            const explicitTarget = focusMap[anchorId];
+            if (explicitTarget) return explicitTarget;
+            const anchor = document.getElementById(anchorId);
+            return anchor?.querySelector("input, select, textarea, button:not([disabled])") || null;
+        }
+
+        function focusWorkspaceAnchor(anchorId, { behavior = "smooth" } = {}) {
+            const target = document.getElementById(String(anchorId || "").trim());
+            if (!target) return false;
+            markWorkspaceAnchor(activeSection, anchorId);
+            window.setTimeout(() => {
+                target.scrollIntoView({ behavior, block: "start" });
+                const focusTarget = getWorkspaceAnchorFocusTarget(anchorId);
+                if (focusTarget && typeof focusTarget.focus === "function") {
+                    window.setTimeout(() => {
+                        try {
+                            focusTarget.focus({ preventScroll: true });
+                        } catch {
+                            focusTarget.focus();
+                        }
+                    }, behavior === "smooth" ? 180 : 40);
+                }
+            }, 40);
+            return true;
+        }
+
+        function handleWorkspaceAnchorButtonClick(button) {
+            const anchorId = String(button?.dataset?.workspaceAnchor || "").trim();
+            if (!anchorId) return;
+            const section = String(button?.dataset?.workspaceSection || activeSection).trim().toLowerCase() || activeSection;
+            if (section !== activeSection) {
+                setSection(section, { focusAnchorId: anchorId });
+                return;
+            }
+            focusWorkspaceAnchor(anchorId);
         }
 
         function getInitialLinkTargetFromUrl() {
@@ -6767,7 +7118,7 @@
         }
 
         function syncSectionVisibility(section) {
-            const normalizedSection = !isMobileView() && section === "mobile-home" ? "home" : section;
+            const normalizedSection = normalizeSectionForCurrentDevice(section);
             const visiblePanelSection = isShippedOrdersSection(normalizedSection)
                 ? "orders"
                 : (isInboundOrdersSection(normalizedSection) ? "scan" : normalizedSection);
@@ -6802,38 +7153,47 @@
             return "";
         }
 
-        function goBackMobileSection(fallback = "mobile-home") {
+        function goBackMobileSection(fallback = MOBILE_HOME_SECTION) {
             const target = popMobileHistorySection() || fallback;
             setSection(target, { recordHistory: false });
         }
 
+        function goBackDesktopSection(fallback = "home") {
+            const target = popDesktopHistorySection() || fallback;
+            setSection(target, { recordHistory: false });
+        }
+
         function setSection(section, options = {}) {
-            const { recordHistory = true } = options;
+            const { recordHistory = true, focusAnchorId = "", syncOnSectionChange = true } = options;
             hideMobileAutocomplete();
             const previousSection = activeSection;
-            if (isMobileView() && section === "integrations") {
-                section = "mobile-home";
-            }
             section = syncSectionVisibility(section);
             if (isMobileView() && recordHistory && previousSection && previousSection !== section && previousSection !== "home") {
                 mobileSectionHistory.push(previousSection);
                 if (mobileSectionHistory.length > 24) mobileSectionHistory.splice(0, mobileSectionHistory.length - 24);
+            }
+            if (!isMobileView() && recordHistory && previousSection && previousSection !== section && previousSection !== "mobile-home") {
+                desktopSectionHistory.push(previousSection);
+                if (desktopSectionHistory.length > 32) desktopSectionHistory.splice(0, desktopSectionHistory.length - 32);
             }
             activeSection = section;
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             syncScanSectionUi(section);
             syncPortalOrdersSectionUi(section);
             updateMobileBackButtons();
-            if (section === "mobile-home") {
+            updateDesktopSectionBackButton();
+            if (section === MOBILE_HOME_SECTION) {
                 scrollCurrentViewTop();
                 return;
             }
             if (section === "scan") {
-                if (!isMobileView()) focusScanStart();
+                if (!isMobileView() && !focusAnchorId) focusScanStart();
                 else scrollCurrentViewTop();
             }
             if (section === "inbounds") {
-                if (isMobileView()) {
+                if (focusAnchorId) {
+                    focusWorkspaceAnchor(focusAnchorId);
+                } else if (isMobileView()) {
                     scrollCurrentViewTop();
                     focusWarehouseInboundWorkspace();
                 } else {
@@ -6853,6 +7213,7 @@
                 scrollCurrentViewTop();
             }
             if (section === "labels" && isMobileView()) {
+                setLabelToolMode("pallet");
                 scrollCurrentViewTop();
             }
             if (section === "integrations") {
@@ -6867,12 +7228,25 @@
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();
             syncFeedbackContext();
-            if (section === "inventory" && !isMobileView()) ui.inventoryFilter.focus();
-            if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
-            if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
-            syncServerState(true).catch(() => {});
+            if (focusAnchorId) {
+                focusWorkspaceAnchor(focusAnchorId);
+            } else {
+                if (section === "inventory" && !isMobileView()) ui.masterFilter.focus();
+                if (section === "reports" && !isMobileView()) ui.reportFilter.focus();
+                if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
+                markWorkspaceAnchor(section, ({
+                    scan: "scanStageCard",
+                    inbounds: "warehouseInboundEntryCard",
+                    inventory: "masterDataWorkspaceCard",
+                    orders: "portalOrdersQueueCard",
+                    shipped: "portalOrdersQueueCard"
+                })[section] || "");
+            }
+            if (syncOnSectionChange) {
+                syncServerStateIfStale({ silent: true }).catch(() => {});
+            }
             if (section === "orders" || section === "shipped") {
-                if (!isMobileView() && ui.portalOrderSearch) ui.portalOrderSearch.focus();
+                if (!isMobileView() && ui.portalOrderSearch && !focusAnchorId) ui.portalOrderSearch.focus();
                 refreshPortalOrdersList(true).catch(() => {});
             }
         }
@@ -6884,12 +7258,19 @@
                 mobileSectionHistory.length = 0;
             }
             updateActiveCompanyUi();
+            updateDesktopSectionBackButton();
             if (!isMobileView() && activeSection === "mobile-home") {
                 setSection("home");
             }
             if (isMobileView()) {
+                const mobileSection = normalizeSectionForCurrentDevice(activeSection);
+                if (mobileSection !== activeSection) {
+                    setSection(mobileSection, { recordHistory: false, syncOnSectionChange: false });
+                    return;
+                }
                 if (activeSection === "search") setMobileSubview("search", "menu");
                 if (activeSection === "actions") setMobileSubview("actions", "menu");
+                if (activeSection === "labels") setLabelToolMode("pallet");
             }
             updateMobileSearchResultsVisibility();
         }
@@ -14460,6 +14841,19 @@
             }
         }
 
+        function isRecentTimestamp(value, maxAgeMs) {
+            const timestamp = Date.parse(String(value || ""));
+            if (!Number.isFinite(timestamp)) return false;
+            return (Date.now() - timestamp) <= Math.max(0, Number(maxAgeMs) || 0);
+        }
+
+        async function syncServerStateIfStale({ silent = true, maxAgeMs = 15000 } = {}) {
+            if (isRecentTimestamp(state.meta.serverSyncedAt, maxAgeMs)) {
+                return null;
+            }
+            return syncServerState(silent);
+        }
+
         function applyServerState(payload) {
             state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
             state.pallets = Array.isArray(payload?.pallets) ? payload.pallets.map(sanitizePalletRecord).filter(Boolean) : [];
@@ -15429,6 +15823,14 @@
 
         function norm(value) {
             return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+        }
+
+        function debounce(callback, wait = 120) {
+            let timeoutId = null;
+            return (...args) => {
+                if (timeoutId) window.clearTimeout(timeoutId);
+                timeoutId = window.setTimeout(() => callback(...args), wait);
+            };
         }
 
         function getCurrentAppUser() {

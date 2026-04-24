@@ -16,6 +16,8 @@ Use this before pushing any warehouse workflow change live.
 - Left nav section label
 - Left nav grouping
 - Home directory entry
+- Section drill index / local workspace navigation
+- In-app back / return behavior
 - Workspace title
 - Workspace helper text
 - Drill path
