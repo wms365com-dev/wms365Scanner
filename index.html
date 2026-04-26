@@ -253,6 +253,67 @@
             gap: 0.5rem;
         }
 
+        .topbar-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
+            padding: 0 0.35rem;
+            color: inherit;
+            font-size: 0.76rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .app-waffle {
+            width: 16px;
+            height: 16px;
+            display: inline-block;
+            background-image: radial-gradient(circle, currentColor 1.6px, transparent 1.8px);
+            background-size: 6px 6px;
+            background-position: 0 0;
+            color: #ffffff;
+        }
+
+        .desktop-view-filter,
+        .desktop-ribbon-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
+            border: 0;
+            background: transparent;
+            color: #244056;
+            font-size: 0.78rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .desktop-view-filter {
+            padding: 0.18rem 0.45rem;
+            color: #006d7f;
+        }
+
+        .desktop-ribbon-icon {
+            min-width: 28px;
+            padding: 0 0.28rem;
+            color: #006d7f;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+
+        .desktop-ribbon-icon:hover,
+        .desktop-view-filter:hover {
+            background: #eef3f7;
+        }
+
+        .desktop-ribbon-divider {
+            width: 1px;
+            align-self: stretch;
+            min-height: 22px;
+            background: #d8dde3;
+        }
+
         .utility-status-pill,
         .utility-account-pill,
         .desktop-alert-pill,
@@ -289,6 +350,125 @@
 
         .utility-action-link.primary:hover {
             background: #094f72;
+        }
+
+        .desktop-modulebar,
+        .desktop-modulebar.desktop-only {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid #d4dde4;
+            border-radius: 9px;
+            background: #ffffff;
+            min-height: 42px;
+        }
+
+        .module-company {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            min-width: 250px;
+            padding-right: 0.8rem;
+            border-right: 1px solid #d4dde4;
+            color: #28445a;
+            white-space: nowrap;
+        }
+
+        .module-company span {
+            color: #6a7d8d;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .module-company strong {
+            font-size: 0.9rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .module-menu-list {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.18rem;
+            min-width: 0;
+            overflow: visible;
+        }
+
+        .module-menu {
+            position: relative;
+            flex: 0 0 auto;
+        }
+
+        .module-menu summary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            min-height: 32px;
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
+            color: #1d3e57;
+            font-size: 0.82rem;
+            font-weight: 700;
+            list-style: none;
+            cursor: pointer;
+        }
+
+        .module-menu summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .module-menu summary::after {
+            content: "v";
+            color: #617587;
+            font-size: 0.78rem;
+        }
+
+        .module-menu[open] summary,
+        .module-menu summary:hover {
+            background: #eaf3f8;
+            color: #0a547a;
+        }
+
+        .module-menu-panel {
+            position: absolute;
+            top: calc(100% + 0.28rem);
+            left: 0;
+            z-index: 90;
+            display: grid;
+            gap: 0.12rem;
+            min-width: 230px;
+            padding: 0.35rem;
+            border: 1px solid #cfd9e2;
+            border-radius: 8px;
+            background: #ffffff;
+            box-shadow: 0 12px 24px rgba(15, 48, 72, 0.12);
+        }
+
+        .module-menu-item {
+            width: 100%;
+            padding: 0.55rem 0.65rem;
+            border-radius: 6px;
+            background: transparent;
+            color: #244056;
+            font-size: 0.82rem;
+            font-weight: 650;
+            text-align: left;
+        }
+
+        .module-menu-item:hover,
+        .module-menu-item.primary {
+            background: #edf5fa;
+            color: #0a547a;
+        }
+
+        .module-menu-separator {
+            height: 1px;
+            margin: 0.22rem 0;
+            background: #dce4eb;
         }
 
         .entry-workspace-stack {
@@ -664,6 +844,12 @@
         }
 
         .desktop-only { display: block; }
+
+        .desktop-utilitybar.desktop-only,
+        .desktop-alertbar.desktop-only,
+        .desktop-modulebar.desktop-only {
+            display: flex;
+        }
 
         .workflow-strip,
         .quick-jumps,
@@ -2192,37 +2378,41 @@
         }
 
         @media (min-width: 860px) {
+            body {
+                background: #ffffff;
+            }
+
             .app {
-                width: min(1500px, calc(100vw - 1rem));
-                padding: 0.5rem 0 1rem;
+                width: 100%;
+                max-width: none;
+                padding: 0 0 1.25rem;
                 display: grid;
-                grid-template-columns: 252px minmax(0, 1fr);
+                grid-template-columns: minmax(0, 1fr);
                 grid-template-areas:
-                    "header header"
-                    "nav workspace";
-                gap: 0.55rem;
+                    "header"
+                    "workspace";
+                gap: 0;
                 align-items: start;
             }
 
             .hero {
                 grid-area: header;
-                padding: 0.45rem 0.55rem 0.55rem;
-                border-radius: 10px;
-                border-color: #ced8e1;
-                background: #ffffff;
+                padding: 0;
+                border: 0;
+                border-radius: 0;
+                background: transparent;
                 box-shadow: none;
             }
 
             .hero-grid {
-                grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-                align-items: start;
-                gap: 0.55rem;
+                display: block;
+                padding: 0.55rem 1.35rem 0.6rem 7.6rem;
+                border-bottom: 1px solid #d8dde3;
+                background: #ffffff;
             }
 
             .hero-topline {
-                grid-template-columns: minmax(0, 1fr) auto;
-                align-items: center;
-                gap: 0.6rem;
+                display: none;
             }
 
             .hero-copy { gap: 0.45rem; }
@@ -2239,26 +2429,48 @@
             .hero-mode,
             .desktop-nav-head .meta,
             .tab-meta,
-            .card-head .lead {
+            .card-head .lead,
+            .stats-grid,
+            .workspace-inline-meta {
                 display: none !important;
             }
 
-            .desktop-utilitybar,
+            .desktop-utilitybar {
+                min-height: 38px;
+                padding: 0.28rem 1rem;
+                border: 0;
+                border-radius: 0;
+                background: #252423;
+                color: #ffffff;
+                margin-bottom: 0;
+            }
+
             .desktop-alertbar {
-                padding: 0.45rem 0.55rem;
-                border-radius: 8px;
-                border-color: #d2dbe3;
-                background: #f8fafb;
-                margin-bottom: 0.45rem;
+                justify-content: flex-start;
+                min-height: 40px;
+                padding: 0.28rem 1.35rem 0.28rem 7.6rem;
+                border: 0;
+                border-top: 1px solid #eceff2;
+                border-bottom: 1px solid #d8dde3;
+                border-radius: 0;
+                background: #f8f9fa;
+                margin-bottom: 0;
+                gap: 0.75rem;
             }
 
             .desktop-utility-brandmark {
-                min-width: 66px;
-                min-height: 30px;
-                padding: 0 0.65rem;
-                border-radius: 7px;
-                background: #0b5c84;
-                font-size: 0.74rem;
+                min-width: 26px;
+                min-height: 26px;
+                padding: 0 0.3rem;
+                border-radius: 4px;
+                background: transparent;
+                color: #ffffff;
+                font-size: 0.78rem;
+                letter-spacing: 0.06em;
+            }
+
+            .desktop-utility-brandcopy span {
+                display: none;
             }
 
             .desktop-utility-brandcopy strong,
@@ -2266,16 +2478,142 @@
                 font-size: 0.88rem;
             }
 
-            .workspace-commandbar {
+            .desktop-utility-brandcopy strong {
+                color: #ffffff;
+            }
+
+            .desktop-utility-actions .utility-status-pill,
+            .desktop-utility-actions .utility-account-pill,
+            .desktop-utility-actions .utility-action-link {
+                min-height: 28px;
+                border-color: transparent;
+                background: transparent;
+                color: #ffffff;
+                padding: 0.2rem 0.45rem;
+            }
+
+            .desktop-utility-actions .utility-action-link:hover {
+                background: rgba(255,255,255,0.12);
+            }
+
+            .desktop-modulebar,
+            .desktop-modulebar.desktop-only {
+                min-height: 42px;
+                padding: 0.35rem 1.35rem 0.35rem 7.6rem;
+                border: 0;
+                border-bottom: 1px solid #e1e5e9;
+                border-radius: 0;
+                background: #ffffff;
+                gap: 1.05rem;
+            }
+
+            .module-company {
+                min-width: 230px;
+                padding-right: 1rem;
+            }
+
+            .module-company span {
+                display: none;
+            }
+
+            .module-company strong {
+                font-size: 0.95rem;
+                font-weight: 600;
+            }
+
+            .module-menu summary {
+                min-height: 30px;
+                padding: 0.22rem 0.48rem;
+                border-radius: 0;
+                color: #28445a;
+                font-size: 0.82rem;
+                font-weight: 500;
+            }
+
+            .module-menu[open] summary,
+            .module-menu summary:hover {
+                background: transparent;
+                color: #006d7f;
+                text-decoration: underline;
+                text-underline-offset: 0.18rem;
+            }
+
+            .module-menu-panel {
+                top: calc(100% + 0.16rem);
+                border-radius: 2px;
+                box-shadow: 0 12px 28px rgba(0,0,0,0.16);
+            }
+
+            .desktop-alertbar-copy {
+                min-width: 150px;
+                color: #213747;
+            }
+
+            .desktop-alertbar-copy span {
+                display: none;
+            }
+
+            .desktop-alertbar-copy strong::after {
+                content: ":";
+            }
+
+            .desktop-view-filter {
+                margin-left: -0.55rem;
+            }
+
+            .desktop-alerts {
                 gap: 0.35rem;
-                padding: 0.55rem 0.65rem;
-                border-radius: 8px;
-                border-color: #d3dde5;
-                background: #f6f8fa;
+            }
+
+            .desktop-ribbon-divider {
+                display: inline-flex;
+            }
+
+            .desktop-alertbar .utility-action-link,
+            .desktop-alertbar .desktop-alert-pill {
+                min-height: 28px;
+                border-radius: 0;
+                border-color: transparent;
+                background: transparent;
+                color: #244056;
+                padding: 0.18rem 0.42rem;
+                font-size: 0.78rem;
+                font-weight: 500;
+            }
+
+            .desktop-alertbar .utility-action-link.primary {
+                background: transparent;
+                color: #006d7f;
+                font-weight: 600;
+            }
+
+            .desktop-alertbar .utility-action-link:hover {
+                background: #eef3f7;
+            }
+
+            .desktop-alertbar-tools {
+                margin-left: auto;
+            }
+
+            .workspace-commandbar {
+                display: grid;
+                grid-template-columns: minmax(360px, 520px);
+                align-items: center;
+                gap: 0.65rem;
+                padding: 0;
+                border: 0;
+                border-radius: 0;
+                background: transparent;
+            }
+
+            .workspace-command-copy,
+            .workspace-command-actions,
+            .workspace-context-bar {
+                display: none;
             }
 
             .workspace-command-copy strong {
-                font-size: 0.98rem;
+                font-size: 1rem;
             }
 
             .workspace-command-meta {
@@ -2292,7 +2630,7 @@
             }
 
             .workspace-company-row {
-                grid-template-columns: minmax(180px, 220px) auto auto;
+                grid-template-columns: minmax(220px, 1fr) auto auto;
             }
 
             .workspace-company-row .btn {
@@ -2379,8 +2717,8 @@
             }
 
             .tabbar {
+                display: none;
                 grid-area: nav;
-                display: grid;
                 gap: 0.3rem;
                 align-self: start;
                 position: sticky;
@@ -2567,15 +2905,60 @@
                 grid-area: workspace;
                 margin-top: 0;
                 min-width: 0;
+                padding: 1.05rem 1.35rem 2rem 7.6rem;
+                background: #ffffff;
             }
 
             .panel.active { display: block; }
 
             .card {
                 padding: 0.9rem 1rem;
-                border-radius: 10px;
+                border-radius: 2px;
                 background: #ffffff;
                 box-shadow: none;
+            }
+
+            .table-wrap {
+                border-radius: 0;
+                border-color: #d8dde3;
+            }
+
+            table {
+                min-width: 760px;
+            }
+
+            th,
+            td {
+                padding: 0.48rem 0.62rem;
+                border-bottom-color: #e1e5e9;
+                font-size: 0.8rem;
+            }
+
+            th {
+                color: #4f6575;
+                font-size: 0.68rem;
+                font-weight: 500;
+                letter-spacing: 0;
+                text-transform: none;
+                background: #ffffff;
+            }
+
+            tbody tr:hover td,
+            .quick-row:hover {
+                background: #d5f4f6;
+            }
+
+            .report-sheet-table th {
+                background: #ffffff;
+                color: #4f6575;
+            }
+
+            .report-sheet-table tbody tr:nth-child(even) td {
+                background: #fafafa;
+            }
+
+            .report-sheet-table tbody tr:hover td {
+                background: #d5f4f6;
             }
 
             .card-head {
@@ -3386,29 +3769,128 @@
         <header class="hero">
             <div class="desktop-utilitybar desktop-only">
                 <div class="desktop-utility-brand">
-                    <div class="desktop-utility-brandmark">WMS365</div>
+                    <div class="desktop-utility-brandmark" aria-hidden="true"><span class="app-waffle"></span></div>
                     <div class="desktop-utility-brandcopy">
                         <span>Warehouse operations console</span>
-                        <strong>Shared warehouse workspace</strong>
+                        <strong>WMS365 Warehouse Central</strong>
                     </div>
                 </div>
                 <div class="desktop-utility-actions">
-                    <button class="utility-action-link primary" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
-                    <button class="utility-action-link primary" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
-                    <button class="utility-action-link" type="button" data-jump-section="scan">Receive Stock</button>
                     <span class="utility-status-pill" id="appBuildBadge">Build loading...</span>
                     <a class="utility-action-link" href="mailto:support@wms365.co">Contact Support</a>
+                    <span class="topbar-icon">Find</span>
+                    <span class="topbar-icon">Notifications</span>
+                    <span class="topbar-icon">Settings</span>
+                    <span class="topbar-icon">Help</span>
                     <span class="utility-account-pill" id="desktopUtilityCompany">All Companies</span>
+                </div>
+            </div>
+            <div class="desktop-modulebar desktop-only" aria-label="Module navigation">
+                <div class="module-company">
+                    <span>Company</span>
+                    <strong id="desktopModuleCompany">All Companies</strong>
+                </div>
+                <div class="module-menu-list">
+                    <details class="module-menu">
+                        <summary>Finance</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="billing">Billing Ledger</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing">Customer Fees</button>
+                            <button class="module-menu-item" type="button" data-jump-section="reports">Billing Reports</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Cash Management</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="billing">Invoice Review</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing">Manual Charges</button>
+                            <button class="module-menu-item" type="button" data-jump-section="reports">Month-End Export</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Sales</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="orders">Sales Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
+                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipped Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing">Billing Ledger</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Purchasing</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="inbounds">Purchase Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
+                            <button class="module-menu-item" type="button" data-jump-section="scan">Receiving</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Inventory</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="search">Inventory Lookup</button>
+                            <button class="module-menu-item" type="button" data-jump-section="actions">Adjust & Move</button>
+                            <button class="module-menu-item" type="button" data-jump-section="labels">Labels</button>
+                            <div class="module-menu-separator"></div>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory">Master Data</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Shopify</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="integrations">Store Integrations</button>
+                            <button class="module-menu-item" type="button" data-jump-section="integrations">Sync Schedules</button>
+                            <button class="module-menu-item" type="button" data-jump-section="orders">Imported Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipment Confirmations</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>All Reports</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="reports">All Reports</button>
+                            <button class="module-menu-item" type="button" data-jump-section="reports">Inventory Export</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing">Billing Review</button>
+                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipment History</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Menu</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="home">Operations Home</button>
+                            <button class="module-menu-item" type="button" data-jump-section="scan">Receive Stock</button>
+                            <button class="module-menu-item" type="button" data-jump-section="orders">Pick / Stage / Ship</button>
+                            <button class="module-menu-item" type="button" data-jump-section="search">Inventory Lookup</button>
+                            <button class="module-menu-item" type="button" data-jump-section="actions">Adjust & Move</button>
+                            <div class="module-menu-separator"></div>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory">Master Data</button>
+                            <button class="module-menu-item" type="button" data-jump-section="integrations">Integrations</button>
+                            <button class="module-menu-item" type="button" data-jump-section="backup">Admin & System</button>
+                        </div>
+                    </details>
                 </div>
             </div>
             <div class="desktop-alertbar desktop-only">
                 <div class="desktop-alertbar-copy">
                     <div>
-                        <span>Activity</span>
-                        <strong>Warehouse alerts</strong>
+                        <span>Command Bar</span>
+                        <strong id="desktopCommandContext">Operations Home</strong>
                     </div>
                 </div>
+                <button class="desktop-view-filter" type="button">All v</button>
                 <div class="desktop-alerts">
+                    <button class="desktop-ribbon-icon" type="button" title="Share">Link</button>
+                    <button class="desktop-ribbon-icon" type="button" title="Search">Find</button>
+                    <button class="desktop-ribbon-icon" type="button" title="Open in Excel">Excel</button>
+                    <span class="desktop-ribbon-divider"></span>
+                    <button class="utility-action-link primary" type="button" data-jump-section="orders" data-start-new="sales-order">+ New</button>
+                    <button class="utility-action-link" type="button" data-jump-section="backup">Delete</button>
+                    <button class="utility-action-link" type="button" data-jump-section="home">Home v</button>
+                    <button class="utility-action-link" type="button" data-jump-section="orders">Release v</button>
+                    <button class="utility-action-link" type="button" data-jump-section="scan">Post...</button>
+                    <button class="utility-action-link" type="button" id="desktopCommandRefreshBtn">Refresh</button>
+                    <button class="utility-action-link" type="button" data-jump-section="reports">Print/Send v</button>
+                    <button class="utility-action-link" type="button" data-jump-section="orders">Order v</button>
+                    <button class="utility-action-link" type="button" data-jump-section="backup">More options</button>
+                    <span class="desktop-ribbon-divider"></span>
                     <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
                     <span class="desktop-alert-pill">Picked <strong id="desktopAlertPicked">0</strong></span>
                     <span class="desktop-alert-pill">Staged <strong id="desktopAlertStaged">0</strong></span>
@@ -5942,6 +6424,21 @@
                 return accumulator;
             }, {})
         );
+        const DESKTOP_LIST_CAPTIONS = Object.freeze({
+            home: "Operations Home",
+            inbounds: "Purchase Orders: All",
+            scan: "Receiving Worksheet",
+            search: "Inventory: All",
+            actions: "Inventory Actions",
+            labels: "Warehouse Labels",
+            orders: "Sales Orders: All",
+            shipped: "Shipped Orders: All",
+            inventory: "Master Data",
+            integrations: "Store Integrations",
+            reports: "All Reports",
+            billing: "Billing Ledger",
+            backup: "Admin & System"
+        });
         const LINK_TARGETS = Object.freeze({
             INVENTORY_WORKSHEET: "inventory-worksheet"
         });
@@ -5991,6 +6488,9 @@
             workspaceCompanyChip: document.getElementById("workspaceCompanyChip"),
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
             desktopUtilityCompany: document.getElementById("desktopUtilityCompany"),
+            desktopModuleCompany: document.getElementById("desktopModuleCompany"),
+            desktopCommandContext: document.getElementById("desktopCommandContext"),
+            desktopCommandRefreshBtn: document.getElementById("desktopCommandRefreshBtn"),
             desktopAlertReleased: document.getElementById("desktopAlertReleased"),
             desktopAlertPicked: document.getElementById("desktopAlertPicked"),
             desktopAlertStaged: document.getElementById("desktopAlertStaged"),
@@ -6501,8 +7001,21 @@
                 });
             });
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
+            document.querySelectorAll(".module-menu").forEach((menu) => {
+                menu.addEventListener("toggle", () => {
+                    if (!menu.open) return;
+                    document.querySelectorAll(".module-menu[open]").forEach((otherMenu) => {
+                        if (otherMenu !== menu) otherMenu.removeAttribute("open");
+                    });
+                });
+            });
+            document.addEventListener("click", (event) => {
+                if (event.target.closest(".module-menu")) return;
+                document.querySelectorAll(".module-menu[open]").forEach((menu) => menu.removeAttribute("open"));
+            });
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => {
                 setSection(button.dataset.jumpSection);
+                button.closest("details.module-menu")?.removeAttribute("open");
                 const startNew = String(button.dataset.startNew || "").trim();
                 if (startNew === "sales-order") {
                     resetWarehouseSalesOrderForm();
@@ -6513,6 +7026,9 @@
                     ui.warehouseInboundReferenceNumber?.focus();
                 }
             }));
+            ui.desktopCommandRefreshBtn?.addEventListener("click", () => {
+                ui.syncNowBtn?.click();
+            });
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button.dataset.mobileLabelMode) {
                     setLabelToolMode(button.dataset.mobileLabelMode);
@@ -8161,11 +8677,17 @@
             if (ui.workspaceSectionMeta) {
                 ui.workspaceSectionMeta.textContent = definition.meta;
             }
+            if (ui.desktopCommandContext) {
+                ui.desktopCommandContext.textContent = DESKTOP_LIST_CAPTIONS[activeSection] || definition.title;
+            }
             if (ui.workspaceCompanyChip) {
                 ui.workspaceCompanyChip.textContent = company ? `Company: ${company}` : "Company: all";
             }
             if (ui.desktopUtilityCompany) {
                 ui.desktopUtilityCompany.textContent = company || "All Companies";
+            }
+            if (ui.desktopModuleCompany) {
+                ui.desktopModuleCompany.textContent = company || "All Companies";
             }
             if (ui.workspaceSyncChip) {
                 ui.workspaceSyncChip.textContent = refreshStamp ? `Synced: ${formatPreciseDate(refreshStamp)}` : "Synced: waiting";

@@ -13,6 +13,9 @@ Runtime source of truth:
 
 Navigation principles:
 - Keep the left nav workflow-based, not feature-dump based.
+- Use a WMS365-branded Dynamics-style desktop method: top module menus, command bar, list/workspace page, then drill into the working form and back out.
+- Do not use Microsoft, Dynamics, or Business Central branding in the product UI; keep the experience familiar but clearly WMS365.
+- Treat the desktop left navigation as a hidden backing structure; users should primarily enter workflows from the top module menus and command bar.
 - Put document entry before execution when users naturally start with paperwork.
 - Keep Sales Orders and Purchase Orders as first-class sections.
 - Keep shipped orders separate from the live sales order work queue.
