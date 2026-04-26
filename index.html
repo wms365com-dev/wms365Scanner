@@ -314,6 +314,65 @@
             background: #d8dde3;
         }
 
+        .desktop-factbox {
+            display: grid;
+            gap: 0.75rem;
+            padding: 0.85rem;
+            border-left: 1px solid #d8dde3;
+            background: #f8f9fa;
+        }
+
+        .factbox-part {
+            display: grid;
+            gap: 0.45rem;
+            padding: 0.65rem;
+            border: 1px solid #d8dde3;
+            background: #ffffff;
+        }
+
+        .factbox-part h3 {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #263f52;
+        }
+
+        .factbox-line {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 0.5rem;
+            color: #5d6f7d;
+            font-size: 0.76rem;
+        }
+
+        .factbox-line strong {
+            color: #12324a;
+            font-weight: 600;
+        }
+
+        .factbox-action {
+            width: 100%;
+            padding: 0.36rem 0;
+            border: 0;
+            background: transparent;
+            color: #006d7f;
+            font-size: 0.78rem;
+            text-align: left;
+        }
+
+        .factbox-action:hover {
+            text-decoration: underline;
+            text-underline-offset: 0.16rem;
+        }
+
+        .erp-fasttab-heading {
+            margin-top: 0.85rem;
+            padding: 0.45rem 0 0.35rem;
+            border-bottom: 1px solid #b8c2cc;
+            color: #1d3347;
+            font-size: 0.92rem;
+            font-weight: 600;
+        }
+
         .utility-status-pill,
         .utility-account-pill,
         .desktop-alert-pill,
@@ -362,6 +421,32 @@
             border-radius: 9px;
             background: #ffffff;
             min-height: 42px;
+        }
+
+        .desktop-embeddingbar,
+        .desktop-embeddingbar.desktop-only {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            min-height: 34px;
+            padding: 0.28rem 0.6rem;
+            border: 1px solid #d4dde4;
+            border-radius: 9px;
+            background: #ffffff;
+        }
+
+        .desktop-embeddingbar button {
+            border: 0;
+            background: transparent;
+            color: #006d7f;
+            font-size: 0.78rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .desktop-embeddingbar button:hover {
+            text-decoration: underline;
+            text-underline-offset: 0.18rem;
         }
 
         .module-company {
@@ -847,7 +932,8 @@
 
         .desktop-utilitybar.desktop-only,
         .desktop-alertbar.desktop-only,
-        .desktop-modulebar.desktop-only {
+        .desktop-modulebar.desktop-only,
+        .desktop-embeddingbar.desktop-only {
             display: flex;
         }
 
@@ -2507,6 +2593,17 @@
                 gap: 1.05rem;
             }
 
+            .desktop-embeddingbar,
+            .desktop-embeddingbar.desktop-only {
+                min-height: 34px;
+                padding: 0.18rem 1.35rem 0.18rem 7.6rem;
+                border: 0;
+                border-bottom: 1px solid #e1e5e9;
+                border-radius: 0;
+                background: #ffffff;
+                gap: 1.15rem;
+            }
+
             .module-company {
                 min-width: 230px;
                 padding-right: 1rem;
@@ -2905,7 +3002,7 @@
                 grid-area: workspace;
                 margin-top: 0;
                 min-width: 0;
-                padding: 1.05rem 1.35rem 2rem 7.6rem;
+                padding: 1.05rem 19rem 2rem 7.6rem;
                 background: #ffffff;
             }
 
@@ -2959,6 +3056,47 @@
 
             .report-sheet-table tbody tr:hover td {
                 background: #d5f4f6;
+            }
+
+            .desktop-factbox {
+                position: fixed;
+                top: 155px;
+                right: 0;
+                bottom: 0;
+                z-index: 25;
+                width: 17.25rem;
+                overflow: auto;
+            }
+
+            .workspace-control-card .card-head,
+            .workspace-sheet-card .card-head {
+                align-items: start;
+                border-bottom-color: #b8c2cc;
+            }
+
+            .workspace-control-card .card-head h2,
+            .workspace-sheet-card .card-head h2 {
+                font-weight: 400;
+                letter-spacing: -0.02em;
+            }
+
+            .line-head {
+                border-bottom: 1px solid #b8c2cc;
+                padding-bottom: 0.35rem;
+            }
+
+            .line-head h3 {
+                font-weight: 500;
+            }
+
+            @media (max-width: 1220px) {
+                .desktop-factbox {
+                    display: none !important;
+                }
+
+                .panel {
+                    padding-right: 1.35rem;
+                }
             }
 
             .card-head {
@@ -3868,6 +4006,15 @@
                     </details>
                 </div>
             </div>
+            <div class="desktop-embeddingbar desktop-only" aria-label="Quick links">
+                <button type="button" data-jump-section="inventory">Customers</button>
+                <button type="button" data-jump-section="integrations">Vendors</button>
+                <button type="button" data-jump-section="inventory">Items</button>
+                <button type="button" data-jump-section="search">Inventory</button>
+                <button type="button" data-jump-section="orders">Sales Orders</button>
+                <button type="button" data-jump-section="inbounds">Purchase Orders</button>
+                <button type="button" data-jump-section="reports">Reports</button>
+            </div>
             <div class="desktop-alertbar desktop-only">
                 <div class="desktop-alertbar-copy">
                     <div>
@@ -4012,6 +4159,28 @@
                 <span class="tab-meta">Import, export, backup, restore, and system controls.</span>
             </button>
         </nav>
+        <aside class="desktop-factbox desktop-only" aria-label="FactBox">
+            <section class="factbox-part">
+                <h3>Page Information</h3>
+                <div class="factbox-line"><span>Page</span><strong id="desktopFactboxSection">Operations Home</strong></div>
+                <div class="factbox-line"><span>Company</span><strong id="desktopFactboxCompany">All Companies</strong></div>
+                <div class="factbox-line"><span>Sync</span><strong id="desktopFactboxSync">waiting</strong></div>
+            </section>
+            <section class="factbox-part">
+                <h3>Warehouse Statistics</h3>
+                <div class="factbox-line"><span>Released</span><strong id="desktopFactboxReleased">0</strong></div>
+                <div class="factbox-line"><span>Picked</span><strong id="desktopFactboxPicked">0</strong></div>
+                <div class="factbox-line"><span>Staged</span><strong id="desktopFactboxStaged">0</strong></div>
+                <div class="factbox-line"><span>Open POs</span><strong id="desktopFactboxInbounds">0</strong></div>
+            </section>
+            <section class="factbox-part">
+                <h3>Related Actions</h3>
+                <button class="factbox-action" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
+                <button class="factbox-action" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
+                <button class="factbox-action" type="button" data-jump-section="reports">Open Reports</button>
+                <button class="factbox-action" type="button" data-jump-section="backup">Feedback Queue</button>
+            </section>
+        </aside>
 
         <section class="panel mobile-only" id="mobileHomePanel" data-panel="mobile-home">
             <div class="mobile-screen-body">
@@ -4341,6 +4510,7 @@
                         <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
                     </div>
                     <div class="quick-meta" id="warehouseInboundCompanyMeta">Choose an active company in the header before entering a warehouse purchase order.</div>
+                    <div class="erp-fasttab-heading desktop-only">General</div>
                     <form id="warehouseInboundForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
                         <div class="helper span-2 form-section-note">
                             <strong>Purchase Order Workflow</strong>
@@ -5288,6 +5458,7 @@
                         <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Sales Order</button>
                     </div>
                     <div class="quick-meta" id="warehouseOrderCompanyMeta">Choose an active company in the header before entering a warehouse sales order.</div>
+                    <div class="erp-fasttab-heading desktop-only">General</div>
                     <form id="warehouseOrderForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
                         <input id="warehouseOrderId" type="hidden">
                         <label class="field">
@@ -6495,6 +6666,13 @@
             desktopAlertPicked: document.getElementById("desktopAlertPicked"),
             desktopAlertStaged: document.getElementById("desktopAlertStaged"),
             desktopAlertInbounds: document.getElementById("desktopAlertInbounds"),
+            desktopFactboxSection: document.getElementById("desktopFactboxSection"),
+            desktopFactboxCompany: document.getElementById("desktopFactboxCompany"),
+            desktopFactboxSync: document.getElementById("desktopFactboxSync"),
+            desktopFactboxReleased: document.getElementById("desktopFactboxReleased"),
+            desktopFactboxPicked: document.getElementById("desktopFactboxPicked"),
+            desktopFactboxStaged: document.getElementById("desktopFactboxStaged"),
+            desktopFactboxInbounds: document.getElementById("desktopFactboxInbounds"),
             appBuildBadge: document.getElementById("appBuildBadge"),
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
@@ -8680,6 +8858,9 @@
             if (ui.desktopCommandContext) {
                 ui.desktopCommandContext.textContent = DESKTOP_LIST_CAPTIONS[activeSection] || definition.title;
             }
+            if (ui.desktopFactboxSection) {
+                ui.desktopFactboxSection.textContent = definition.title;
+            }
             if (ui.workspaceCompanyChip) {
                 ui.workspaceCompanyChip.textContent = company ? `Company: ${company}` : "Company: all";
             }
@@ -8689,11 +8870,17 @@
             if (ui.desktopModuleCompany) {
                 ui.desktopModuleCompany.textContent = company || "All Companies";
             }
+            if (ui.desktopFactboxCompany) {
+                ui.desktopFactboxCompany.textContent = company || "All Companies";
+            }
             if (ui.workspaceSyncChip) {
                 ui.workspaceSyncChip.textContent = refreshStamp ? `Synced: ${formatPreciseDate(refreshStamp)}` : "Synced: waiting";
                 ui.workspaceSyncChip.title = lastChangedStamp
                     ? `Latest server data change: ${formatDate(lastChangedStamp)}`
                     : "Shows the last successful refresh from the server.";
+            }
+            if (ui.desktopFactboxSync) {
+                ui.desktopFactboxSync.textContent = refreshStamp ? formatPreciseDate(refreshStamp) : "waiting";
             }
             updateDesktopOperationsAlerts();
         }
@@ -10116,17 +10303,33 @@
         function updateDesktopOperationsAlerts() {
             const orders = getCompanyScopedPortalOrders();
             const inbounds = getCompanyScopedPortalInbounds();
+            const releasedCount = orders.filter((order) => norm(order.status) === "RELEASED").length;
+            const pickedCount = orders.filter((order) => norm(order.status) === "PICKED").length;
+            const stagedCount = orders.filter((order) => norm(order.status) === "STAGED").length;
+            const openInboundCount = inbounds.filter((inbound) => norm(inbound.status) !== "RECEIVED").length;
             if (ui.desktopAlertReleased) {
-                ui.desktopAlertReleased.textContent = num(orders.filter((order) => norm(order.status) === "RELEASED").length);
+                ui.desktopAlertReleased.textContent = num(releasedCount);
             }
             if (ui.desktopAlertPicked) {
-                ui.desktopAlertPicked.textContent = num(orders.filter((order) => norm(order.status) === "PICKED").length);
+                ui.desktopAlertPicked.textContent = num(pickedCount);
             }
             if (ui.desktopAlertStaged) {
-                ui.desktopAlertStaged.textContent = num(orders.filter((order) => norm(order.status) === "STAGED").length);
+                ui.desktopAlertStaged.textContent = num(stagedCount);
             }
             if (ui.desktopAlertInbounds) {
-                ui.desktopAlertInbounds.textContent = num(inbounds.filter((inbound) => norm(inbound.status) !== "RECEIVED").length);
+                ui.desktopAlertInbounds.textContent = num(openInboundCount);
+            }
+            if (ui.desktopFactboxReleased) {
+                ui.desktopFactboxReleased.textContent = num(releasedCount);
+            }
+            if (ui.desktopFactboxPicked) {
+                ui.desktopFactboxPicked.textContent = num(pickedCount);
+            }
+            if (ui.desktopFactboxStaged) {
+                ui.desktopFactboxStaged.textContent = num(stagedCount);
+            }
+            if (ui.desktopFactboxInbounds) {
+                ui.desktopFactboxInbounds.textContent = num(openInboundCount);
             }
         }
 
