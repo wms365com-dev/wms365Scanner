@@ -195,8 +195,8 @@ const COMPANY_FEATURE_CATALOG = Object.freeze([
     },
     {
         key: COMPANY_FEATURE_KEYS.INBOUND_NOTICES,
-        label: "Inbound Notices",
-        description: "Allow expected inbound / purchase order notices from the warehouse and customer workflows."
+        label: "Purchase Orders",
+        description: "Allow expected receipt and purchase order workflows from the warehouse and customer portal."
     },
     {
         key: COMPANY_FEATURE_KEYS.BILLING,
@@ -2365,16 +2365,16 @@ app.post("/api/admin/portal-inbounds/:id/status", async (req, res, next) => {
         const inboundId = toPositiveInt(req.params.id);
         const nextStatus = normalizePortalInboundStatus(req.body?.status);
         if (!inboundId) {
-            throw httpError(400, "A valid inbound id is required.");
+            throw httpError(400, "A valid purchase order id is required.");
         }
         if (!nextStatus) {
-            throw httpError(400, "A valid inbound status is required.");
+            throw httpError(400, "A valid purchase order status is required.");
         }
 
         const inbound = await withTransaction(async (client) => {
             const currentInbound = await getPortalInboundById(client, inboundId);
             if (!currentInbound) {
-                throw httpError(404, "That inbound could not be found.");
+                throw httpError(404, "That purchase order could not be found.");
             }
             await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
             return updateAdminPortalInboundStatus(client, inboundId, nextStatus, req.appUser);
@@ -5551,7 +5551,7 @@ function mapSftpInboundToPortalDraft(accountName, rawInbound, sourceContext = {}
         || rawInbound?.referenceNumber
         || rawInbound?.reference_number
         || rawInbound?.id,
-        `${sourceContext.fileName || "inbound"}-${sourceContext.index || 1}`
+        `${sourceContext.fileName || "purchase-order"}-${sourceContext.index || 1}`
     );
     const lines = (Array.isArray(rawInbound?.lines) ? rawInbound.lines : (Array.isArray(rawInbound?.items) ? rawInbound.items : []))
         .map((line) => ({
@@ -5561,10 +5561,10 @@ function mapSftpInboundToPortalDraft(accountName, rawInbound, sourceContext = {}
         .filter((line) => line.sku && line.quantity);
 
     if (!externalInboundId) {
-        throw httpError(400, `${sourceContext.fileName || "SFTP inbound"} is missing an external inbound id.`);
+        throw httpError(400, `${sourceContext.fileName || "SFTP purchase order"} is missing an external purchase order id.`);
     }
     if (!lines.length) {
-        throw httpError(400, `${externalInboundId} does not contain any inbound lines.`);
+        throw httpError(400, `${externalInboundId} does not contain any purchase order lines.`);
     }
 
     return {
@@ -5682,7 +5682,7 @@ async function importSftpInboundsForIntegration(client, integrationRow, mappedIn
     for (const entry of mappedInbounds) {
         if (!entry.externalInboundId) {
             failedCount += 1;
-            detailMessages.push("Skipped an SFTP inbound without an external id.");
+            detailMessages.push("Skipped an SFTP purchase order without an external id.");
             continue;
         }
         if (existingIds.has(entry.externalInboundId)) {
@@ -5697,7 +5697,7 @@ async function importSftpInboundsForIntegration(client, integrationRow, mappedIn
                 entry.payload,
                 {
                     portalAccessId: null,
-                    activityTitlePrefix: "sftp inbound import",
+                    activityTitlePrefix: "sftp purchase order import",
                     activityActor: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`
                 }
             );
@@ -6154,7 +6154,7 @@ async function syncSftpIntegration(integrationRow, appUser = null) {
     const baseMessage = [
         `Order files ${orderSummary.filesFound}`,
         `Orders ${orderSummary.importedCount} imported`,
-        `Inbounds ${inboundSummary.importedCount} imported`,
+        `Purchase Orders ${inboundSummary.importedCount} imported`,
         `Shipments ${shipmentSummary.exportedCount} exported`,
         `Receipts ${receiptSummary.exportedCount} exported`,
         `Inventory ${inventorySummary.exportedCount} exported`,
@@ -6199,7 +6199,7 @@ async function syncSftpIntegration(integrationRow, appUser = null) {
             [
                 integrationRow.store_identifier || "No host saved",
                 `Orders ${orderSummary.importedCount} imported`,
-                `Inbounds ${inboundSummary.importedCount} imported`,
+                `Purchase Orders ${inboundSummary.importedCount} imported`,
                 `Shipments ${shipmentSummary.exportedCount} exported`,
                 `Receipts ${receiptSummary.exportedCount} exported`,
                 `Inventory ${inventorySummary.exportedCount} exported`,
@@ -7769,7 +7769,7 @@ function buildAdminActivityDigestText(digest) {
         `- Staged: ${formatNumber(totals.orderStaged)}`,
         `- Shipped: ${formatNumber(totals.orderShipped)}`,
         "",
-        "Inbounds",
+        "Purchase Orders",
         `- Created: ${formatNumber(totals.inboundCreated)}`,
         `- Received: ${formatNumber(totals.inboundReceived)}`,
         "",
@@ -9479,7 +9479,7 @@ async function savePortalInboundForAccount(
     await insertActivity(
         client,
         "receipt",
-        `Submitted ${activityTitlePrefix} inbound ${savedInbound.inboundCode}`,
+        `Submitted ${activityTitlePrefix} purchase order ${savedInbound.inboundCode}`,
         [
             savedInbound.accountName,
             `${formatCount(savedInbound.lines.length, "line")}`,
@@ -9512,12 +9512,12 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
 async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null) {
     const inboundResult = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
     if (inboundResult.rowCount !== 1) {
-        throw httpError(404, "That inbound could not be found.");
+        throw httpError(404, "That purchase order could not be found.");
     }
 
     const currentInbound = await getPortalInboundById(client, inboundId);
     if (!currentInbound) {
-        throw httpError(404, "That inbound could not be found.");
+        throw httpError(404, "That purchase order could not be found.");
     }
     if (currentInbound.status === nextStatus) {
         return currentInbound;
@@ -9528,7 +9528,7 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     };
     const allowedNext = allowedTransitions[currentInbound.status] || [];
     if (!allowedNext.includes(nextStatus)) {
-        throw httpError(400, `Inbounds in ${currentInbound.status} can only move to ${allowedNext.join(" or ") || "their next allowed status"}.`);
+        throw httpError(400, `Purchase orders in ${currentInbound.status} can only move to ${allowedNext.join(" or ") || "their next allowed status"}.`);
     }
 
     await client.query(
@@ -9548,7 +9548,7 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     await insertActivity(
         client,
         "receipt",
-        `Marked inbound ${updatedInbound.inboundCode} ${nextStatus.toLowerCase()}`,
+        `Marked purchase order ${updatedInbound.inboundCode} ${nextStatus.toLowerCase()}`,
         `${updatedInbound.accountName} | ${formatCount(updatedInbound.lines.length, "line")} | ${actor}`
     );
     return updatedInbound;
@@ -11594,7 +11594,7 @@ function getCompanyFeatureErrorMessage(featureKey, accountName = "") {
         case COMPANY_FEATURE_KEYS.ORDER_ENTRY:
             return `Sales order entry is not enabled for ${companyLabel}.`;
         case COMPANY_FEATURE_KEYS.INBOUND_NOTICES:
-            return `Inbound notices are not enabled for ${companyLabel}.`;
+            return `Purchase orders are not enabled for ${companyLabel}.`;
         case COMPANY_FEATURE_KEYS.BILLING:
             return `Billing is not enabled for ${companyLabel}.`;
         case COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS:

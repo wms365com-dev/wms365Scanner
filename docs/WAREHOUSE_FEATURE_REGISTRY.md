@@ -1,154 +1,199 @@
 # WMS365 Warehouse Feature Registry
 
+Last reviewed: 2026-04-26
+
 Purpose:
 - Internal feature inventory so changes do not break related workflow pieces.
-- Use this file before moving, renaming, or expanding warehouse features.
+- Use this before moving, renaming, hiding, or expanding warehouse features.
+- This file catches hidden dependencies outside the visible screen.
 
 How to use:
-- If a feature changes, update its row and then walk the related touchpoints.
-- This file is intended to catch “hidden” dependencies outside the visible screen.
+- Find the feature area below.
+- Check its primary UI location.
+- Walk every related touchpoint before shipping.
+- Update this file when new features are added.
+
+## Desktop Warehouse Features
+
+| Area | Desktop section | Primary file | Feature owner |
+| --- | --- | --- | --- |
+| Operations Home | `home` | `C:\WMS365Scanner\index.html` | Warehouse launch pad |
+| Purchase Orders | `inbounds` | `C:\WMS365Scanner\index.html` | Expected receipts |
+| Receiving | `scan` | `C:\WMS365Scanner\index.html` | Physical stock receipt |
+| Inventory Lookup | `search` | `C:\WMS365Scanner\index.html` | Live inventory visibility |
+| Adjust & Move | `actions` | `C:\WMS365Scanner\index.html` | Stock corrections and transfers |
+| Labels | `labels` | `C:\WMS365Scanner\index.html` | Floor labels |
+| Sales Orders | `orders` | `C:\WMS365Scanner\index.html` | Active outbound work |
+| Shipped Orders | `shipped` | `C:\WMS365Scanner\index.html` | Completed shipment history |
+| Master Data | `inventory` | `C:\WMS365Scanner\index.html` | Companies, items, BINs, controls |
+| Integrations | `integrations` | `C:\WMS365Scanner\index.html` | Shopify, SFTP, sync |
+| Reports & Counts | `reports` | `C:\WMS365Scanner\index.html` | Reporting and exports |
+| Billing | `billing` | `C:\WMS365Scanner\index.html` | Customer charges |
+| Admin & System | `backup` | `C:\WMS365Scanner\index.html` | Super-user controls |
 
 ## Inbound
 
+### Purchase Orders
+- Desktop section: `inbounds`
+- Customer portal section: `inbounds`
+- Feature flag key: `INBOUND_NOTICES`
+- User-facing label: `Purchase Orders`
+- Related touchpoints:
+  - warehouse PO entry
+  - customer portal purchase order submission
+  - expected receipt queue
+  - mark received workflow
+  - receipt confirmation email/export
+  - SFTP purchase order import
+  - company scoping and feature gating
+  - item master filtering by active company
+
 ### Receiving
 - Desktop section: `scan`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
+- Mobile section: `scan`
 - Related touchpoints:
   - active company scoping
+  - scan location/SKU/UPC
+  - lot and expiration capture
   - batch save
-  - item master traceability
-  - billing events for receiving
-  - lot / expiration handling
-  - mobile receive flow
-
-### Purchase Orders / Inbounds
-- Desktop section: `inbounds`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
-- Related touchpoints:
-  - inbound queue
-  - customer portal inbound notices
-  - receiving queue visibility
-  - company feature flag for inbound notices
-  - receipt confirmation
-  - SFTP inbound sync lanes
+  - item master traceability rules
+  - receiving billing events
+  - inventory availability update
+  - receipt confirmation output
 
 ## Inventory
 
 ### Inventory Lookup
 - Desktop section: `search`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
+- Mobile section: `search`
 - Related touchpoints:
   - live inventory server state
   - company scope
-  - lot / expiration visibility
-  - search print/export flows
+  - SKU/UPC/location search
+  - multi-item search
+  - lot and expiration visibility
+  - inventory export permissions
 
 ### Adjust & Move
 - Desktop section: `actions`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
+- Mobile section: `actions`
 - Related touchpoints:
   - inventory row safety
-  - lot / expiration ambiguity rules
-  - pallet movement
+  - lot/expiration ambiguity rules
+  - quantity removal
+  - line deletion
+  - stock transfer
+  - item conversion
+  - BIN move
   - company permissions
 
 ### Labels
 - Desktop section: `labels`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
+- Mobile section: `labels`
 - Related touchpoints:
   - location records
   - pallet records
-  - print layouts
-  - mobile pallet handling
+  - location label print layout
+  - pallet label print layout
+  - reprint workflow
 
 ## Outbound
 
 ### Sales Orders
 - Desktop section: `orders`
-- Main UI files:
-  - `C:\WMS365Scanner\index.html`
-  - `C:\WMS365Scanner\portal.html`
+- Customer portal section: `orders`
+- Feature flag key: `ORDER_ENTRY`
 - Related touchpoints:
-  - customer order draft / release
-  - stock allocation
-  - pick / stage / ship statuses
-  - pick ticket / packing slip output
-  - release email / PDF options
-  - billing capture
-  - warehouse notifications
-  - shipped customer notifications
+  - warehouse sales order entry
+  - customer sales order draft/release
+  - release email prompt and CC list
+  - release PDF copy
+  - warehouse notification email
+  - stock allocation and FEFO picking
+  - pick ticket
+  - packing slip
+  - released/picked/staged/shipped status transitions
+  - visual processing feedback on buttons
+  - outbound billing event capture
+  - Shopify/SFTP order imports
 
 ### Shipped Orders
 - Desktop section: `shipped`
-- Main UI files:
-  - `C:\WMS365Scanner\index.html`
-  - `C:\WMS365Scanner\portal.html`
+- Customer portal section: `orders` shipment history
 - Related touchpoints:
   - shipment confirmation
-  - tracking
-  - POD / attachments
-  - customer email confirmation
+  - carrier and tracking data
+  - POD and attachments
+  - customer shipment email
+  - shipped confirmation SFTP export
   - billing readiness
-
-## Reporting
-
-### Reports & Counts
-- Desktop section: `reports`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
-- Related touchpoints:
-  - inventory worksheet
-  - CSV export
-  - count review
-  - utilization
-  - company scope and filters
+  - order archive separation from active queue
 
 ## Setup
 
 ### Master Data
 - Desktop section: `inventory`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
 - Related touchpoints:
-  - companies
-  - BINs
+  - company profile
+  - BIN locations
   - item master
-  - customer portal access
-  - warehouse users / company assignments
-  - feature flags
-  - inventory worksheet
+  - lot required flag
+  - expiration required flag
+  - FEFO picking eligibility
+  - customer portal login access
+  - bulk inventory worksheet
+  - company-scoped item lists
 
 ### Integrations
 - Desktop section: `integrations`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
-- Related server file:
-  - `C:\WMS365Scanner\server.js`
+- Related server file: `C:\WMS365Scanner\server.js`
+- Feature flag keys:
+  - `STORE_INTEGRATIONS`
+  - `SHOPIFY_INTEGRATION`
+  - `SFTP_INTEGRATION`
 - Related touchpoints:
-  - Shopify
-  - SFTP
-  - schedule options
+  - Shopify store URL
+  - Shopify Admin API access token
+  - Shopify client credentials
+  - SFTP host/port/user/folders
+  - pull orders schedule
+  - pull purchase orders schedule
+  - push shipped confirmations
+  - push receipt confirmations
+  - push inventory snapshots
+  - manual sync
+  - integration run logs
   - company scoping
-  - imported orders
-  - shipment / receipt / inventory exports
+
+## Reporting
+
+### Reports & Counts
+- Desktop section: `reports`
+- Related touchpoints:
+  - inventory export
+  - location report
+  - item report
+  - vendor inventory report
+  - utilization
+  - count review
+  - company scope and filters
+  - CSV/PDF output
 
 ## Commercial
 
 ### Billing
 - Desktop section: `billing`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
-- Related server file:
-  - `C:\WMS365Scanner\server.js`
+- Related server file: `C:\WMS365Scanner\server.js`
 - Related touchpoints:
-  - rate setup
-  - auto-generated billing events
+  - company fee setup
+  - receiving charges
+  - picking charges
+  - labeling charges
+  - supplies used
+  - storage billing
+  - shipping cost capture
   - manual billing lines
+  - billing ledger
   - month-end export
   - shipped-order billing completeness
 
@@ -156,41 +201,93 @@ How to use:
 
 ### Admin & System
 - Desktop section: `backup`
-- Main UI file:
-  - `C:\WMS365Scanner\index.html`
 - Related touchpoints:
-  - import / export
-  - backup / restore
+  - import/export
+  - backup/restore
   - company feature access
   - warehouse users
-  - bug / feature queue
+  - assigned-company access
+  - feedback/bug queue
+  - daily admin summary email
   - deployment/build visibility
+  - version endpoint
 
-## Portal / Customer-Facing Features
-
-These are not warehouse nav sections, but warehouse changes often affect them:
-- Customer login and portal layout
-- Customer inventory view / export
-- Customer sales order draft / release
-- Customer inbound notices
-- Customer feedback / bug reporting
-- Customer shipment notifications
+## Customer Portal Features
 
 Primary file:
 - `C:\WMS365Scanner\portal.html`
 
-## Cross-Cutting Features
+Portal features:
+- customer login
+- inventory view
+- inventory export
+- item master view
+- new sales order
+- sales order draft/release
+- release email/PDF options
+- new purchase order
+- purchase order history
+- shipped order visibility
+- feedback/bug reporting
+- deployment/build label
 
-These should always be checked when changing related workflows:
+Portal safety checks:
+- customer can only see its own inventory
+- customer can only export its own inventory
+- customer can only submit orders for its own company
+- customer company is derived from login/session, not a visible selector
+
+## Mobile Worker Features
+
+Primary file:
+- `C:\WMS365Scanner\index.html`
+
+Mobile features:
+- mobile home
+- receive stock
+- inventory lookup
+- adjust/move
+- pallet labels
+- picking support
+- mobile-only in-app back button
+- no desktop setup/integrations menu
+- force mobile experience on phones even when rotated
+
+## Public Website / Signup Features
+
+Primary folder:
+- `C:\WMS365Scanner\public-site`
+
+Related server file:
+- `C:\WMS365Scanner\server.js`
+
+Public features:
+- marketing home
+- platform page
+- integrations page
+- industries pages
+- pricing page
+- book demo form
+- SEO landing pages
+- sitemap and robots files
+- Stripe checkout/signup
+- public API CORS allowlist
+- domain routing for `wms365.co` and `app.wms365.co`
+
+## Cross-Cutting Checks
+
+Always check these when changing related workflows:
 - company scoping and permissions
 - warehouse user assigned-company access
 - company feature flags
 - lot tracking
-- expiration tracking / FEFO
+- expiration tracking
+- FEFO allocation/picking
+- button loading and success/error feedback
 - notifications and emails
-- attachments / PDFs
-- reports / exports
+- attachments and PDFs
+- reports and exports
 - billing events
 - mobile behavior
 - customer portal behavior
-- deployment/build label visibility
+- build/version visibility

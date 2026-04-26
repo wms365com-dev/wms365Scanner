@@ -3412,7 +3412,7 @@
                     <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
                     <span class="desktop-alert-pill">Picked <strong id="desktopAlertPicked">0</strong></span>
                     <span class="desktop-alert-pill">Staged <strong id="desktopAlertStaged">0</strong></span>
-                    <span class="desktop-alert-pill">Open Inbounds <strong id="desktopAlertInbounds">0</strong></span>
+                    <span class="desktop-alert-pill">Open POs <strong id="desktopAlertInbounds">0</strong></span>
                 </div>
                 <div class="desktop-alertbar-tools">
                     <a class="utility-action-link" href="mailto:support@wms365.co?subject=WMS365%20Support">Email Support</a>
@@ -3487,7 +3487,7 @@
             </button>
             <button class="tab" data-section="inbounds" type="button">
                 <span class="tab-label">Purchase Orders</span>
-                <span class="tab-meta">Create warehouse inbounds and review expected receipt notices.</span>
+                <span class="tab-meta">Create purchase orders and review expected receipts.</span>
             </button>
             <button class="tab" data-section="search" type="button">
                 <span class="tab-label">Inventory</span>
@@ -3586,7 +3586,7 @@
                     </div>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="scan" data-open-label="Receive"><strong>Receiving</strong><span>Stage scans, capture traceability, and save the batch.</span></button>
-                        <button class="home-task" type="button" data-jump-section="inbounds" data-open-label="Create"><strong>Purchase Orders</strong><span>Create expected inbound receipts and manage the inbound queue.</span></button>
+                        <button class="home-task" type="button" data-jump-section="inbounds" data-open-label="Create"><strong>Purchase Orders</strong><span>Create expected receipts and manage the purchase order queue.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -3854,7 +3854,7 @@
                     <div class="card-head">
                         <div>
                             <h2 id="warehouseInboundTitle">Warehouse Purchase Order Entry</h2>
-                            <p class="lead">Create expected inbound receipts for the active company before freight arrives so receiving has a clean queue to work from.</p>
+                            <p class="lead">Create expected receipts for the active company before freight arrives so receiving has a clean queue to work from.</p>
                         </div>
                         <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
                     </div>
@@ -3862,7 +3862,7 @@
                     <form id="warehouseInboundForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
                         <div class="helper span-2 form-section-note">
                             <strong>Purchase Order Workflow</strong>
-                            <div class="meta">1. Confirm the active company. 2. Enter the PO / reference and expected date. 3. Add the inbound lines the warehouse should expect. 4. Submit the PO so it lands in the receiving queue.</div>
+                            <div class="meta">1. Confirm the active company. 2. Enter the PO / reference and expected date. 3. Add the purchase order lines the warehouse should expect. 4. Submit the PO so it lands in the receiving queue.</div>
                         </div>
                         <label class="field">
                             <span>Purchase Order / Reference #</span>
@@ -3892,7 +3892,7 @@
                     <div style="margin-top: 1rem;">
                         <div class="line-head" style="margin-bottom: 0.8rem;">
                             <div>
-                                <h3>Inbound Lines</h3>
+                                <h3>Purchase Order Lines</h3>
                                 <p class="meta" id="warehouseInboundLinesMeta">Only item masters saved for the active company can be selected.</p>
                             </div>
                             <button class="btn ghost" id="addWarehouseInboundLineBtn" type="button">Add Line</button>
@@ -3911,7 +3911,7 @@
                             <h2>Purchase Order Queue</h2>
                             <p class="lead">See expected receipts created by either the company portal or the warehouse team for the active company.</p>
                         </div>
-                        <span class="meta" id="portalInboundsMeta">0 inbounds</span>
+                        <span class="meta" id="portalInboundsMeta">0 purchase orders</span>
                     </div>
                     <div id="portalInboundsList">
                         <p class="empty">No purchase orders loaded yet.</p>
@@ -4238,7 +4238,7 @@
                     <div class="library-grid" id="storeIntegrationsBlock" style="margin-top: 1rem; margin-bottom: 1rem;">
                         <div class="helper">
                             <h3>Store Integrations</h3>
-                            <p class="meta">Connect each customer's online store or SFTP feed and keep orders, inbounds, confirmations, and inventory synced inside one company-safe lane.</p>
+                            <p class="meta">Connect each customer's online store or SFTP feed and keep orders, purchase orders, confirmations, and inventory synced inside one company-safe lane.</p>
                             <form id="integrationForm" class="form-grid" autocomplete="off">
                                 <input id="integrationId" type="hidden">
                                 <input id="integrationAccount" type="hidden">
@@ -4286,7 +4286,7 @@
                                 </div>
                                 <div class="helper span-2 hidden" id="integrationSftpFields">
                                     <h3>SFTP Sync Lanes</h3>
-                                    <p class="meta">Leave any folder blank to turn that lane off. Orders and inbounds import from JSON files, and confirmations plus inventory export back as JSON files.</p>
+                                    <p class="meta">Leave any folder blank to turn that lane off. Orders and purchase orders import from JSON files, and confirmations plus inventory export back as JSON files.</p>
                                     <div class="form-grid">
                                         <label class="field">
                                             <span>SFTP Username</span>
@@ -4301,7 +4301,7 @@
                                             <input id="integrationOrdersFolder" type="text" placeholder="Example: /incoming/orders" enterkeyhint="next">
                                         </label>
                                         <label class="field span-2">
-                                            <span>Inbounds Inbox Folder</span>
+                                            <span>Purchase Orders Inbox Folder</span>
                                             <input id="integrationInboundsFolder" type="text" placeholder="Example: /incoming/inbounds" enterkeyhint="next">
                                         </label>
                                         <label class="field span-2">
@@ -4774,7 +4774,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Shopify & Store Integrations</h2>
-                            <p class="lead">Connect each customer's storefront or SFTP lane here, then sync new orders, inbounds, confirmations, and inventory safely into that company's workspace.</p>
+                            <p class="lead">Connect each customer's storefront or SFTP lane here, then sync new orders, purchase orders, confirmations, and inventory safely into that company's workspace.</p>
                         </div>
                     </div>
                     <div id="integrationsWorkspaceHost"></div>
@@ -5844,11 +5844,11 @@
         const WAREHOUSE_WORKSPACE_TOC = Object.freeze({
             groups: [
                 { key: "home", label: "Home", sections: ["home"] },
-                { key: "inbound", label: "Inbound", sections: ["scan", "inbounds"] },
+                { key: "inbound", label: "Inbound", sections: ["inbounds", "scan"] },
                 { key: "inventory", label: "Inventory", sections: ["search", "actions", "labels"] },
                 { key: "outbound", label: "Outbound", sections: ["orders", "shipped"] },
-                { key: "reporting", label: "Reporting", sections: ["reports"] },
                 { key: "setup", label: "Setup", sections: ["inventory", "integrations"] },
+                { key: "reporting", label: "Reporting", sections: ["reports"] },
                 { key: "commercial", label: "Commercial", sections: ["billing"] },
                 { key: "system", label: "System", sections: ["backup"] }
             ],
@@ -5857,79 +5857,79 @@
                     title: "Operations Home",
                     meta: "Choose the next warehouse task by workflow: inbound, inventory, outbound, reporting, setup, commercial, or system.",
                     drillPath: "Home / Operations",
-                    features: ["Receiving", "Purchase Orders", "Inventory Lookup", "Order Execution"]
+                    features: ["New Sales Order", "New Purchase Order", "Receive Stock", "Inventory Lookup"]
                 },
                 scan: {
                     title: "Receiving",
-                    meta: "Receive stock, stage inbound inventory, capture traceability, and save the open batch to live stock.",
+                    meta: "Receive stock against the floor workflow: scan location/SKU, capture lot and expiration, stage a batch, and save inventory.",
                     drillPath: "Inbound / Receiving",
-                    features: ["Scan & Stage", "Current Batch", "Traceability", "Batch Save"]
+                    features: ["Scan Receiving", "Current Batch", "Lot / Expiration Capture", "Save Batch"]
                 },
                 inbounds: {
                     title: "Purchase Orders",
-                    meta: "Create warehouse purchase orders, enter expected receipt lines, and review the inbound queue by company.",
+                    meta: "Create warehouse purchase orders, enter expected receipt lines, and review the expected receipt queue by company.",
                     drillPath: "Inbound / Purchase Orders",
-                    features: ["PO Entry", "Inbound Lines", "Inbound Queue"]
+                    features: ["New Purchase Order", "PO Lines", "Purchase Order Queue", "Mark Received"]
                 },
                 search: {
-                    title: "Inventory",
+                    title: "Inventory Lookup",
                     meta: "Lookup inventory by SKU, UPC, BIN, or list and review live stock in the active company.",
                     drillPath: "Inventory / Lookup",
-                    features: ["Single Search", "Multi Search", "Search Results"]
+                    features: ["SKU / UPC Search", "Location Search", "Multi Item Search", "Lot / Expiration Review"]
                 },
                 actions: {
                     title: "Adjust & Move",
                     meta: "Adjust counts, transfer stock, convert units, and move stock with company-safe controls.",
                     drillPath: "Inventory / Adjust & Move",
-                    features: ["Delete", "Transfer", "Convert", "Move BIN"]
+                    features: ["Remove Quantity", "Delete Line", "Transfer Stock", "Convert Items", "Move BIN"]
                 },
                 inventory: {
                     title: "Master Data",
-                    meta: "Maintain companies, BINs, items, portal users, and saved warehouse records.",
+                    meta: "Maintain company records, BINs, item masters, portal users, inventory controls, and bulk stock worksheets.",
                     drillPath: "Setup / Master Data",
-                    features: ["Company Profile", "BINs", "Item Master", "Portal Access", "Inventory Worksheet"]
+                    features: ["Company Profile", "BIN Locations", "Item Master", "Lot / Expiration Controls", "Portal Access", "Bulk Inventory Worksheet"]
                 },
                 integrations: {
                     title: "Integrations",
                     meta: "Connect Shopify, SFTP, and other storefront lanes to pull customer orders and sync warehouse updates.",
                     drillPath: "Setup / Integrations",
-                    features: ["Shopify", "SFTP", "Schedules", "Manual Sync"]
+                    features: ["Shopify", "SFTP", "Sync Schedules", "Pull Orders", "Pull Purchase Orders", "Push Confirmations"]
                 },
                 orders: {
                     title: "Sales Orders",
-                    meta: "Process company portal orders, print pick tickets and packing slips, and move orders through pick, stage, and ship.",
+                    meta: "Create and process customer sales orders, print pick tickets and packing slips, and move orders through release, pick, stage, and ship.",
                     drillPath: "Outbound / Sales Orders",
-                    features: ["Order Queue", "Pick Tickets", "Packing Slips", "Pick / Stage / Ship"]
+                    features: ["New Sales Order", "Sales Order Queue", "Pick Tickets", "Packing Slips", "Pick / Stage / Ship"]
                 },
                 shipped: {
                     title: "Shipped Orders",
                     meta: "Review completed shipments, tracking, carrier details, and shipped paperwork without mixing them into the live warehouse queue.",
                     drillPath: "Outbound / Shipped Orders",
-                    features: ["Shipment History", "Tracking", "Documents"]
+                    features: ["Shipped Queue", "Carrier / Tracking", "Shipment Documents", "Customer Email Confirmation", "SFTP Shipment Export"]
                 },
                 reports: {
                     title: "Reports & Counts",
                     meta: "Run cycle count reporting, utilization, activity review, and inventory worksheet exports.",
                     drillPath: "Reporting / Reports & Counts",
-                    features: ["Desktop Reports", "Utilization", "Location Report", "Item Report", "Inventory Export"]
+                    features: ["Inventory Export", "Location Report", "Item Report", "Vendor Inventory", "Utilization / Counts"]
                 },
                 billing: {
                     title: "Billing",
                     meta: "Manage company fee schedules, billing lines, and invoice-ready exports.",
                     drillPath: "Commercial / Billing",
-                    features: ["Company Fees", "Manual Billing", "Billing Ledger"]
+                    features: ["Company Fee Setup", "Manual Billing Events", "Storage Billing", "Billing Ledger", "Invoice Exports"]
                 },
                 labels: {
                     title: "Labels",
                     meta: "Build location and pallet labels for the floor and reprint as needed.",
                     drillPath: "Inventory / Labels",
-                    features: ["Location Labels", "Pallet Labels", "Reprint"]
+                    features: ["Location Labels", "Pallet Labels", "Pallet Reprint"]
                 },
                 backup: {
                     title: "Admin & System",
-                    meta: "Import, export, backup, restore, user access, feature controls, and safeguard shared warehouse data.",
+                    meta: "Import, export, backup, restore, feature controls, warehouse users, feedback, daily summaries, and deployment visibility.",
                     drillPath: "System / Admin & System",
-                    features: ["Import / Export", "Company Features", "Warehouse Users", "Feedback Queue"]
+                    features: ["Import / Export", "Company Feature Access", "Warehouse Users", "Feedback Queue", "Daily Admin Summary", "Build / Version"]
                 }
             }
         });
@@ -11847,7 +11847,7 @@
                 const laneText = entry.provider === "SFTP"
                     ? [
                         entry.settings?.ordersFolder ? `Orders ${entry.settings.ordersFolder}` : "",
-                        entry.settings?.inboundsFolder ? `Inbounds ${entry.settings.inboundsFolder}` : "",
+                        entry.settings?.inboundsFolder ? `Purchase Orders ${entry.settings.inboundsFolder}` : "",
                         entry.settings?.shipmentsFolder ? `Shipments ${entry.settings.shipmentsFolder}` : "",
                         entry.settings?.receiptsFolder ? `Receipts ${entry.settings.receiptsFolder}` : "",
                         entry.settings?.inventoryFolder ? `Inventory ${entry.settings.inventoryFolder}` : ""
@@ -11978,13 +11978,13 @@
             }
             if (schedule === "MANUAL") {
                 ui.integrationScheduleMeta.textContent = provider === "SFTP"
-                    ? "Manual sync is on. Use Run Sync Now to pull new order and inbound files and push confirmations plus inventory snapshots."
+                    ? "Manual sync is on. Use Run Sync Now to pull new order and purchase order files and push confirmations plus inventory snapshots."
                     : "Manual sync is on. Use Run Sync Now whenever you want to import the latest orders.";
                 return;
             }
 
             const cadenceHint = provider === "SFTP"
-                ? "The server will pull new order and inbound files, then push shipment confirmations, receipt confirmations, and inventory snapshots for this company on this cadence."
+                ? "The server will pull new order and purchase order files, then push shipment confirmations, receipt confirmations, and inventory snapshots for this company on this cadence."
                 : (schedule === "EVERY_5_MINUTES"
                     ? "This is the closest option to near real-time Shopify order intake."
                     : "The server will keep pulling only new orders for the active company on this cadence.");
@@ -12049,7 +12049,7 @@
             ui.integrationProviderNote.innerHTML = provider === "SHOPIFY"
                 ? `Use the Shopify shop's <strong>.myshopify.com</strong> domain with either a direct <strong>Admin API access token</strong> or the app's <strong>client ID + client secret</strong>. When client credentials are saved, WMS365 will fetch the short-lived Shopify access token automatically during sync.${currentRecord?.hasAuthClientCredentials ? ` Saved client credentials are already on file${currentRecord.authClientIdMasked ? ` (${esc(currentRecord.authClientIdMasked)})` : ""}. Enter a new pair only when you want to replace them.` : ""} Run Sync only imports new open store orders for the selected customer, and Auto Pull Schedule keeps the sync scoped to that same company.`
                 : (provider === "SFTP"
-                    ? 'SFTP uses the saved <strong>host, username, password, and folders</strong> under the active company. Order and inbound folders are pulled in as JSON files, and shipped confirmations, receipt confirmations, and inventory snapshots are pushed back as JSON files to the folders you set here.'
+                    ? 'SFTP uses the saved <strong>host, username, password, and folders</strong> under the active company. Order and purchase order folders are pulled in as JSON files, and shipped confirmations, receipt confirmations, and inventory snapshots are pushed back as JSON files to the folders you set here.'
                     : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify and SFTP first, and this provider is staged for the next pass.`);
             if (featureLocked) {
                 ui.integrationProviderNote.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
@@ -12549,8 +12549,8 @@
                 ? (featureEnabled
                     ? (hasItemCatalog
                         ? `Creating purchase orders for ${company}. Only that company's saved item masters can be selected.`
-                        : `Creating purchase orders for ${company} is almost ready. Save at least one item master for this company before adding inbound lines.`)
-                    : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company)} Existing inbound history remains visible, but new inbound entry is locked.`)
+                        : `Creating purchase orders for ${company} is almost ready. Save at least one item master for this company before adding purchase order lines.`)
+                    : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company)} Existing purchase order history remains visible, but new purchase order entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse purchase order.";
             if (ui.warehouseInboundLinesMeta) {
                 ui.warehouseInboundLinesMeta.textContent = hasCompany
@@ -12654,18 +12654,18 @@
             }
             const cards = [...ui.warehouseInboundLines.querySelectorAll(".line-card")];
             if (!cards.length || !payload.lines.length) {
-                return fail(ui.warehouseInboundMessage, "Add at least one inbound line before submitting this purchase order.", ui.addWarehouseInboundLineBtn);
+                return fail(ui.warehouseInboundMessage, "Add at least one purchase order line before submitting.", ui.addWarehouseInboundLineBtn);
             }
             const firstInvalidSkuCard = cards.find((card) => !norm(card.querySelector("[data-warehouse-inbound-line-sku]")?.value || ""));
             if (firstInvalidSkuCard) {
-                return fail(ui.warehouseInboundMessage, "Choose a SKU for every inbound line before submitting.", firstInvalidSkuCard.querySelector("[data-warehouse-inbound-line-sku]"));
+                return fail(ui.warehouseInboundMessage, "Choose a SKU for every purchase order line before submitting.", firstInvalidSkuCard.querySelector("[data-warehouse-inbound-line-sku]"));
             }
             const firstInvalidQtyCard = cards.find((card) => {
                 const quantity = Number.parseInt(String(card.querySelector("[data-warehouse-inbound-line-qty]")?.value || ""), 10);
                 return !Number.isFinite(quantity) || quantity <= 0;
             });
             if (firstInvalidQtyCard) {
-                return fail(ui.warehouseInboundMessage, "Enter a quantity greater than zero for every inbound line.", firstInvalidQtyCard.querySelector("[data-warehouse-inbound-line-qty]"));
+                return fail(ui.warehouseInboundMessage, "Enter a quantity greater than zero for every purchase order line.", firstInvalidQtyCard.querySelector("[data-warehouse-inbound-line-qty]"));
             }
             return payload;
         }
@@ -12682,9 +12682,9 @@
             try {
                 await runActionWithFeedback({
                     button: actionButton,
-                    busyLabel: "Submitting inbound...",
+                    busyLabel: "Submitting PO...",
                     messageElement: ui.warehouseInboundMessage,
-                    progressMessage: `Submitting inbound for ${company}...`
+                    progressMessage: `Submitting purchase order for ${company}...`
                 }, async () => {
                     const payload = validateWarehouseInboundPayload(collectWarehouseInboundPayload());
                     if (!payload) return null;
@@ -12694,7 +12694,7 @@
                     });
                     await refreshPortalInboundsList(true);
                     resetWarehouseInboundForm();
-                    showMessage(ui.warehouseInboundMessage, `Created purchase order ${response?.inbound?.inboundCode || "notice"}.`, "success");
+                    showMessage(ui.warehouseInboundMessage, `Created purchase order ${response?.inbound?.inboundCode || "record"}.`, "success");
                 });
             } catch (error) {
                 showMessage(ui.warehouseInboundMessage, error.message, "error");
@@ -12741,7 +12741,7 @@
                 : portalInboundRecords;
 
             if (ui.portalInboundsMeta) {
-                ui.portalInboundsMeta.textContent = `${num(visibleInbounds.length)} inbound${visibleInbounds.length === 1 ? "" : "s"}`;
+                ui.portalInboundsMeta.textContent = `${num(visibleInbounds.length)} purchase order${visibleInbounds.length === 1 ? "" : "s"}`;
             }
 
             if (!visibleInbounds.length) {
@@ -12805,14 +12805,14 @@
                     button: statusButton,
                     busyLabel: "Updating...",
                     messageElement: ui.warehouseInboundMessage,
-                    progressMessage: `Updating inbound ${inboundId} to ${nextStatus}...`
+                    progressMessage: `Updating purchase order ${inboundId} to ${nextStatus}...`
                 }, async () => {
                     const response = await requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/status`, {
                         method: "POST",
                         body: JSON.stringify({ status: nextStatus })
                     });
                     await refreshPortalInboundsList(true);
-                    showMessage(ui.warehouseInboundMessage, `Inbound ${response?.inbound?.inboundCode || inboundId} marked ${nextStatus}.`, "success");
+                    showMessage(ui.warehouseInboundMessage, `Purchase order ${response?.inbound?.inboundCode || inboundId} marked ${nextStatus}.`, "success");
                 });
             } catch (error) {
                 showMessage(ui.warehouseInboundMessage, error.message, "error");

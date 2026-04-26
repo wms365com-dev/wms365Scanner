@@ -737,7 +737,7 @@
                 <div style="margin-top: 1rem;">
                     <div class="line-head" style="margin-bottom: 0.8rem;">
                         <div class="header-copy">
-                            <h3>Inbound Lines</h3>
+                            <h3>Purchase Order Lines</h3>
                             <p class="meta">Use SKUs from your item list.</p>
                         </div>
                         <button class="btn ghost" id="addInboundLineBtn" type="button">Add Line</button>
@@ -1583,7 +1583,7 @@
             wrapper.className = "line-card";
             wrapper.innerHTML = `
                 <div class="line-head">
-                    <strong>Inbound Line</strong>
+                    <strong>Purchase Order Line</strong>
                     <button class="btn ghost mini" type="button" data-remove-inbound-line="1">Remove</button>
                 </div>
                 <div class="form-grid compact-grid">
@@ -1622,7 +1622,7 @@
 
         async function submitInbound(event) {
             if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)) {
-                return setMessage("Inbound notices are not enabled for your company.", "error");
+                return setMessage("Purchase orders are not enabled for your company.", "error");
             }
             const actionButton = resolveActionButton(event, ui.submitInboundBtn);
             try {
