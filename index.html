@@ -281,6 +281,16 @@
             background: #eef4f8;
         }
 
+        .utility-action-link.primary {
+            border-color: #0b5c84;
+            background: #0b5c84;
+            color: #ffffff;
+        }
+
+        .utility-action-link.primary:hover {
+            background: #094f72;
+        }
+
         .entry-workspace-stack {
             display: grid;
             gap: 0.75rem;
@@ -3383,6 +3393,9 @@
                     </div>
                 </div>
                 <div class="desktop-utility-actions">
+                    <button class="utility-action-link primary" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
+                    <button class="utility-action-link primary" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
+                    <button class="utility-action-link" type="button" data-jump-section="scan">Receive Stock</button>
                     <span class="utility-status-pill" id="appBuildBadge">Build loading...</span>
                     <a class="utility-action-link" href="mailto:support@wms365.co">Contact Support</a>
                     <span class="utility-account-pill" id="desktopUtilityCompany">All Companies</span>
@@ -3840,7 +3853,7 @@
                 <article class="card desktop-complex workspace-control-card" id="warehouseInboundEntryCard">
                     <div class="card-head">
                         <div>
-                            <h2 id="warehouseInboundTitle">Warehouse Purchase Order / Inbound Entry</h2>
+                            <h2 id="warehouseInboundTitle">Warehouse Purchase Order Entry</h2>
                             <p class="lead">Create expected inbound receipts for the active company before freight arrives so receiving has a clean queue to work from.</p>
                         </div>
                         <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
@@ -3901,7 +3914,7 @@
                         <span class="meta" id="portalInboundsMeta">0 inbounds</span>
                     </div>
                     <div id="portalInboundsList">
-                        <p class="empty">No purchase orders or inbound notices loaded yet.</p>
+                        <p class="empty">No purchase orders loaded yet.</p>
                     </div>
                 </article>
             </div>
@@ -4790,7 +4803,7 @@
                             <h2 id="warehouseOrderTitle">Warehouse Sales Order Entry</h2>
                             <p class="lead">Create draft sales orders internally for the active company, then release them into the warehouse workflow when they are ready.</p>
                         </div>
-                        <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Order</button>
+                        <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Sales Order</button>
                     </div>
                     <div class="quick-meta" id="warehouseOrderCompanyMeta">Choose an active company in the header before entering a warehouse sales order.</div>
                     <form id="warehouseOrderForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
@@ -5759,8 +5772,8 @@
             },
             {
                 key: COMPANY_FEATURE_KEYS.INBOUND_NOTICES,
-                label: "Inbound Notices",
-                description: "Allow expected inbound notices and purchase order intake for this company."
+                label: "Purchase Orders",
+                description: "Allow expected purchase order intake for this company."
             },
             {
                 key: COMPANY_FEATURE_KEYS.BILLING,
@@ -5854,7 +5867,7 @@
                 },
                 inbounds: {
                     title: "Purchase Orders",
-                    meta: "Create warehouse inbound notices, enter expected receipt lines, and review the inbound queue by company.",
+                    meta: "Create warehouse purchase orders, enter expected receipt lines, and review the inbound queue by company.",
                     drillPath: "Inbound / Purchase Orders",
                     features: ["PO Entry", "Inbound Lines", "Inbound Queue"]
                 },
@@ -6488,7 +6501,18 @@
                 });
             });
             ui.tabs.forEach((tab) => tab.addEventListener("click", () => setSection(tab.dataset.section)));
-            ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => setSection(button.dataset.jumpSection)));
+            ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => {
+                setSection(button.dataset.jumpSection);
+                const startNew = String(button.dataset.startNew || "").trim();
+                if (startNew === "sales-order") {
+                    resetWarehouseSalesOrderForm();
+                    ui.warehouseOrderPoNumber?.focus();
+                }
+                if (startNew === "purchase-order") {
+                    resetWarehouseInboundForm();
+                    ui.warehouseInboundReferenceNumber?.focus();
+                }
+            }));
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button.dataset.mobileLabelMode) {
                     setLabelToolMode(button.dataset.mobileLabelMode);
@@ -7451,7 +7475,7 @@
                 case COMPANY_FEATURE_KEYS.ORDER_ENTRY:
                     return `${companyLabel} does not have Sales Orders enabled.`;
                 case COMPANY_FEATURE_KEYS.INBOUND_NOTICES:
-                    return `${companyLabel} does not have Inbound Notices enabled.`;
+                    return `${companyLabel} does not have Purchase Orders enabled.`;
                 case COMPANY_FEATURE_KEYS.BILLING:
                     return `${companyLabel} does not have Billing enabled.`;
                 case COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS:
@@ -12524,7 +12548,7 @@
             ui.warehouseInboundCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
                     ? (hasItemCatalog
-                        ? `Creating purchase orders and inbound notices for ${company}. Only that company's saved item masters can be selected.`
+                        ? `Creating purchase orders for ${company}. Only that company's saved item masters can be selected.`
                         : `Creating purchase orders for ${company} is almost ready. Save at least one item master for this company before adding inbound lines.`)
                     : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company)} Existing inbound history remains visible, but new inbound entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse purchase order.";
@@ -12557,7 +12581,7 @@
 
         function resetWarehouseInboundForm(inbound = null) {
             if (ui.warehouseInboundTitle) {
-                ui.warehouseInboundTitle.textContent = inbound ? `Purchase Order ${inbound.inboundCode}` : "Warehouse Purchase Order / Inbound Entry";
+                ui.warehouseInboundTitle.textContent = inbound ? `Purchase Order ${inbound.inboundCode}` : "Warehouse Purchase Order Entry";
             }
             ui.warehouseInboundReferenceNumber.value = inbound?.referenceNumber || "";
             ui.warehouseInboundCarrierName.value = inbound?.carrierName || "";
@@ -12722,8 +12746,8 @@
 
             if (!visibleInbounds.length) {
                 const fallback = errorText || (company
-                    ? "No purchase orders or inbound notices are loaded for the active company."
-                    : "Choose a company to review warehouse and portal inbound notices.");
+                    ? "No purchase orders are loaded for the active company."
+                    : "Choose a company to review warehouse and portal purchase orders.");
                 ui.portalInboundsList.innerHTML = `<p class="empty">${esc(fallback)}</p>`;
                 return;
             }

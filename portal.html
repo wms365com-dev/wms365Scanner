@@ -221,6 +221,19 @@
             flex-wrap: wrap;
             gap: 0.7rem;
         }
+        .portal-nav {
+            justify-content: space-between;
+            align-items: center;
+        }
+        .portal-nav-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            align-items: center;
+        }
+        .portal-nav-primary .btn {
+            min-width: 160px;
+        }
         .btn {
             display: inline-flex;
             align-items: center;
@@ -448,6 +461,14 @@
         @media (max-width: 860px) {
             .two-up, .stats, .detail-grid, .form-grid, .line-fields { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
+            .portal-nav,
+            .portal-nav-group {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .portal-nav .btn {
+                width: 100%;
+            }
             body { padding: 0.75rem; }
             .auth-wrap { min-height: calc(100dvh - 1.5rem); }
             .auth-shell { grid-template-columns: 1fr; }
@@ -486,7 +507,7 @@
                 </div>
                 <div class="eyebrow">Customer Portal</div>
                 <h1>WMS365 Customer Portal</h1>
-                <p class="lead">Review your inventory, submit inbound notices, and release orders to the warehouse from one account-scoped portal.</p>
+                <p class="lead">Review inventory, enter sales orders, submit purchase orders, and track warehouse progress from one account-scoped portal.</p>
             </div>
             <div id="accountChip" class="account-chip hidden"></div>
         </header>
@@ -505,11 +526,11 @@
                     </div>
                     <div class="eyebrow">Customer Access</div>
                     <h2 style="font-size:clamp(1.9rem,3vw,2.7rem);line-height:1;margin:0;color:#1f3446;">Customer teams sign in here to review stock and release work.</h2>
-                    <p class="lead">Use your account-scoped WMS365 portal to review inventory, create orders, submit inbound notices, and export reports without seeing any other customer's data.</p>
+                    <p class="lead">Use your account-scoped WMS365 portal to review inventory, create sales orders, submit purchase orders, and export reports without seeing any other customer's data.</p>
                     <div class="auth-feature-grid">
                         <div class="auth-feature"><strong>Inventory Visibility</strong><span>Review only the stock assigned to your account with exports and filters built into the portal.</span></div>
                         <div class="auth-feature"><strong>Order Entry</strong><span>Create draft orders, release them to the warehouse, and track released, picked, staged, and shipped counts.</span></div>
-                        <div class="auth-feature"><strong>Inbound Notices</strong><span>Submit inbound requests with item and shipment details before the warehouse receives the freight.</span></div>
+                        <div class="auth-feature"><strong>Purchase Orders</strong><span>Submit expected receipts with item and shipment details before the warehouse receives the freight.</span></div>
                         <div class="auth-feature"><strong>Build Visibility</strong><span>Every portal page shows the live deployment label so your team can confirm the active environment.</span></div>
                     </div>
                 </section>
@@ -544,14 +565,20 @@
         <main id="portalView" class="hidden">
             <article class="card">
                 <div class="portal-nav">
-                    <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
-                    <button class="btn ghost" type="button" data-view="items">Items</button>
-                    <button class="btn ghost" type="button" data-view="order">New Order</button>
-                    <button class="btn ghost" type="button" data-view="inbound">New Inbound</button>
-                    <button class="btn ghost" type="button" data-view="orders">My Orders</button>
-                    <button class="btn ghost" type="button" data-view="inbounds">My Inbounds</button>
-                    <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Bug / Request Feature</button>
-                    <button class="btn secondary" id="logoutBtn" type="button">Log Out</button>
+                    <div class="portal-nav-group portal-nav-primary">
+                        <button class="btn ghost" type="button" data-view="order">New Sales Order</button>
+                        <button class="btn ghost" type="button" data-view="inbound">New Purchase Order</button>
+                    </div>
+                    <div class="portal-nav-group">
+                        <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
+                        <button class="btn ghost" type="button" data-view="items">Items</button>
+                        <button class="btn ghost" type="button" data-view="orders">My Sales Orders</button>
+                        <button class="btn ghost" type="button" data-view="inbounds">My Purchase Orders</button>
+                    </div>
+                    <div class="portal-nav-group">
+                        <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Bug / Request Feature</button>
+                        <button class="btn secondary" id="logoutBtn" type="button">Log Out</button>
+                    </div>
                 </div>
             </article>
 
@@ -603,7 +630,7 @@
                 <div class="order-form-head">
                     <div class="header-copy">
                         <h2 id="itemFormTitle">Item Setup</h2>
-                        <p class="lead">Create and maintain the item masters your team will use for inbound requests and the warehouse will use when receiving and shipping.</p>
+                        <p class="lead">Create and maintain the item masters your team will use for purchase orders and warehouse shipping.</p>
                     </div>
                     <button class="btn ghost" id="resetItemBtn" type="button">New Item</button>
                 </div>
@@ -637,7 +664,7 @@
                 <div style="margin-top: 1rem;">
                     <div class="header-copy" style="margin-bottom: 0.8rem;">
                         <h3>Saved Items</h3>
-                        <p class="meta">Use item setup first, then use the same items in your inbound requests.</p>
+                        <p class="meta">Use item setup first, then use the same items in your purchase orders.</p>
                     </div>
                     <div id="itemsList" class="orders-list">
                         <div class="empty">No item masters saved yet.</div>
@@ -648,7 +675,7 @@
             <section id="orderPanel" class="card hidden">
                 <div class="order-form-head">
                     <div class="header-copy">
-                        <h2 id="orderFormTitle">New Order</h2>
+                        <h2 id="orderFormTitle">New Sales Order</h2>
                         <p class="lead">Enter the ship-to details, then add the items you want us to process.</p>
                     </div>
                     <button class="btn ghost" id="resetOrderBtn" type="button">Clear Form</button>
@@ -692,14 +719,14 @@
             <section id="inboundPanel" class="card hidden">
                 <div class="order-form-head">
                     <div class="header-copy">
-                        <h2>New Inbound</h2>
+                        <h2>New Purchase Order</h2>
                         <p class="lead">Tell the warehouse what inventory is coming in so we can plan receiving.</p>
                     </div>
                     <button class="btn ghost" id="resetInboundBtn" type="button">Clear Form</button>
                 </div>
 
                 <form id="inboundForm" class="form-grid" autocomplete="off">
-                    <label class="field"><span>Reference #</span><input id="inboundReferenceNumber" type="text" placeholder="Required"></label>
+                    <label class="field"><span>Purchase Order / Reference #</span><input id="inboundReferenceNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Carrier</span><input id="inboundCarrierName" type="text" placeholder="Optional"></label>
                     <label class="field"><span>Expected Date</span><input id="inboundExpectedDate" type="date"></label>
                     <label class="field"><span>Contact Name</span><input id="inboundContactName" type="text" placeholder="Required"></label>
@@ -719,23 +746,23 @@
                 </div>
 
                 <div class="order-actions">
-                    <button class="btn" id="submitInboundBtn" type="button">Submit Inbound</button>
+                    <button class="btn" id="submitInboundBtn" type="button">Submit Purchase Order</button>
                 </div>
             </section>
 
             <section id="inboundsPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
-                    <h2>My Inbounds</h2>
-                    <p class="lead">Track inbound requests you submitted through the portal.</p>
+                    <h2>My Purchase Orders</h2>
+                    <p class="lead">Track purchase orders you submitted through the portal.</p>
                 </div>
                 <div id="inboundsList" class="orders-list">
-                    <div class="empty">No inbounds submitted yet.</div>
+                    <div class="empty">No purchase orders submitted yet.</div>
                 </div>
             </section>
 
             <section id="ordersPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
-                    <h2>My Orders</h2>
+                    <h2>My Sales Orders</h2>
                     <p class="lead">Draft orders can still be edited. Released, picked, staged, and shipped orders stay read-only.</p>
                 </div>
                 <div id="ordersList" class="orders-list">
@@ -1510,7 +1537,7 @@
 
         function renderInbounds() {
             if (!portalState.inbounds.length) {
-                ui.inboundsList.innerHTML = `<div class="empty">No inbounds submitted yet.</div>`;
+                ui.inboundsList.innerHTML = `<div class="empty">No purchase orders submitted yet.</div>`;
                 return;
             }
 
@@ -1601,8 +1628,8 @@
             try {
                 await runActionWithFeedback({
                     button: actionButton,
-                    busyLabel: "Submitting inbound...",
-                    progressMessage: "Submitting your inbound notice..."
+                    busyLabel: "Submitting purchase order...",
+                    progressMessage: "Submitting your purchase order..."
                 }, async () => {
                     const response = await requestJson('/api/portal/inbounds', {
                         method: 'POST',
@@ -1612,7 +1639,7 @@
                     renderInbounds();
                     resetInboundForm();
                     setView('inbounds');
-                    setMessage(`Submitted inbound ${response.inbound.inboundCode}.`, 'success');
+                    setMessage(`Submitted purchase order ${response.inbound.inboundCode}.`, 'success');
                 });
             } catch (error) {
                 setMessage(error.message, 'error');
@@ -1621,7 +1648,7 @@
 
         function resetOrderForm(order = null) {
             portalState.editingOrderId = order?.id || null;
-            ui.orderFormTitle.textContent = order ? `Edit ${order.orderCode}` : "New Order";
+            ui.orderFormTitle.textContent = order ? `Edit ${order.orderCode}` : "New Sales Order";
             ui.orderPoNumber.value = order?.poNumber || "";
             ui.orderShippingReference.value = order?.shippingReference || "";
             ui.orderRequestedShipDate.value = order?.requestedShipDate || "";
