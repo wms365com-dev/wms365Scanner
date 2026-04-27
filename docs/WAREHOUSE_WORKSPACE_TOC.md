@@ -19,6 +19,7 @@ Navigation principles:
 - Use the same ERP card/document pattern for Sales Order Entry, Purchase Order Entry, and Item Card views.
 - Use FastTab-style section headings such as General, Lines, Ship To, Inventory Controls, Photo / Barcode, and Dimensions / Packaging on entry forms.
 - Sales Order and Purchase Order document pages should include Business Central-style action tabs and a worksheet-like Lines grid rather than loose card rows.
+- Sales Orders and Purchase Orders should open to an ERP list page first; users drill into a document page by selecting the order number, then return to the list.
 - Keep desktop company switching consolidated in the top black bar building icon; do not duplicate company selectors in the workspace header, module bar, or FactBox.
 - Do not use Microsoft, Dynamics, or Business Central branding in the product UI; keep the experience familiar but clearly WMS365.
 - Treat the desktop left navigation as a hidden backing structure; users should primarily enter workflows from the top module menus and command bar.
@@ -60,9 +61,10 @@ Navigation principles:
 - Drill path: `Inbound / Purchase Orders`
 - Purpose: create and manage expected receipts before freight arrives
 - Primary features:
+  - Purchase Orders: All list
+  - Drill into Purchase Order document
   - New Purchase Order
   - PO Lines
-  - Purchase Order Queue
   - Mark Received
 - Related channels:
   - customer portal purchase orders
@@ -122,8 +124,9 @@ Navigation principles:
 - Drill path: `Outbound / Sales Orders`
 - Purpose: create and process active customer sales orders
 - Primary features:
+  - Sales Orders: All list
+  - Drill into Sales Order document
   - New Sales Order
-  - Sales Order Queue
   - Pick Tickets
   - Packing Slips
   - Pick / Stage / Ship

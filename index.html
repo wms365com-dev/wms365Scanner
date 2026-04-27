@@ -849,6 +849,114 @@
             font-size: 0.76rem;
         }
 
+        .erp-list-page {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .erp-list-titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            min-height: 2.4rem;
+            border-bottom: 1px solid #cfd8e2;
+        }
+
+        .erp-list-titlebar h2 {
+            margin: 0;
+            color: #172536;
+            font-size: 0.98rem;
+            font-weight: 600;
+        }
+
+        .erp-list-titlebar .meta {
+            margin: 0;
+            color: #5d6f7d;
+            font-size: 0.78rem;
+        }
+
+        .erp-list-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .erp-list-table-wrap {
+            min-height: 18rem;
+            overflow: auto;
+            border: 1px solid #cfd8e2;
+            background: #ffffff;
+        }
+
+        .erp-list-table {
+            width: 100%;
+            min-width: 62rem;
+            border-collapse: collapse;
+            color: #1c2d3d;
+            font-size: 0.78rem;
+        }
+
+        .erp-list-table th,
+        .erp-list-table td {
+            padding: 0.4rem 0.55rem;
+            border-bottom: 1px solid #e1e7ed;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .erp-list-table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #f8f9fa;
+            color: #40576a;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.035em;
+            text-transform: uppercase;
+        }
+
+        .erp-list-table tbody tr {
+            cursor: pointer;
+        }
+
+        .erp-list-table tbody tr:hover,
+        .erp-list-table tbody tr.active {
+            background: #dff6f7;
+        }
+
+        .erp-list-link {
+            border: 0;
+            background: transparent;
+            color: #006d7f;
+            font: inherit;
+            font-weight: 600;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            cursor: pointer;
+        }
+
+        .erp-list-row-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .erp-list-row-actions .btn {
+            min-height: 1.8rem;
+            padding: 0.25rem 0.45rem;
+            border-radius: 0;
+            font-size: 0.72rem;
+        }
+
+        .erp-document-back {
+            color: #006d7f;
+            font-size: 0.78rem;
+        }
+
         .utility-status-pill,
         .utility-account-pill,
         .desktop-alert-pill,
@@ -4995,7 +5103,7 @@
             </div>
             <div class="mobile-screen-body">
             <div class="entry-workspace-stack">
-                <article class="card desktop-complex workspace-control-card erp-document-card" id="warehouseInboundEntryCard">
+                <article class="card desktop-complex workspace-control-card erp-document-card hidden" id="warehouseInboundEntryCard">
                     <div class="card-head">
                         <div>
                             <div class="erp-document-kicker">Document Page</div>
@@ -5006,6 +5114,7 @@
                             <p class="lead">Create expected receipts for the active company before freight arrives so receiving has a clean queue to work from.</p>
                         </div>
                         <div class="erp-document-actions">
+                            <button class="btn ghost erp-document-back" id="closeWarehouseInboundEntryBtn" type="button">Back to Purchase Orders</button>
                             <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
                         </div>
                     </div>
@@ -5078,12 +5187,15 @@
                 </article>
 
                 <article class="card desktop-complex workspace-sheet-card" id="warehouseInboundQueueCard">
-                    <div class="card-head">
+                    <div class="card-head erp-list-titlebar">
                         <div>
-                            <h2>Purchase Order Queue</h2>
-                            <p class="lead">See expected receipts created by either the company portal or the warehouse team for the active company.</p>
+                            <h2>Purchase Orders: All</h2>
+                            <p class="meta">Select a purchase order number to open the document page.</p>
                         </div>
-                        <span class="meta" id="portalInboundsMeta">0 purchase orders</span>
+                        <div class="erp-list-actions">
+                            <span class="meta" id="portalInboundsMeta">0 purchase orders</span>
+                            <button class="btn ghost" id="openPurchaseOrderNewBtn" type="button">+ New</button>
+                        </div>
                     </div>
                     <div id="portalInboundsList">
                         <p class="empty">No purchase orders loaded yet.</p>
@@ -5982,7 +6094,7 @@
             </div>
             <div class="mobile-screen-body">
                 <div class="entry-workspace-stack">
-                <article class="card desktop-complex workspace-control-card erp-document-card" id="warehouseOrderEntryCard">
+                <article class="card desktop-complex workspace-control-card erp-document-card hidden" id="warehouseOrderEntryCard">
                     <div class="card-head">
                         <div>
                             <div class="erp-document-kicker">Document Page</div>
@@ -5993,6 +6105,7 @@
                             <p class="lead">Create draft sales orders internally for the active company, then release them into the warehouse workflow when they are ready.</p>
                         </div>
                         <div class="erp-document-actions">
+                            <button class="btn ghost erp-document-back" id="closeWarehouseOrderEntryBtn" type="button">Back to Sales Orders</button>
                             <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Sales Order</button>
                         </div>
                     </div>
@@ -6100,12 +6213,15 @@
                 </article>
 
                 <article class="card desktop-complex workspace-sheet-card" id="portalOrdersQueueCard">
-                    <div class="card-head">
+                    <div class="card-head erp-list-titlebar">
                         <div>
-                            <h2 id="portalOrdersQueueTitle">Sales Order Queue</h2>
-                            <p class="lead" id="portalOrdersQueueLead">See what each customer released, compare ordered quantity against available stock, and print the documents your team needs to pick and ship.</p>
+                            <h2 id="portalOrdersQueueTitle">Sales Orders: All</h2>
+                            <p class="meta" id="portalOrdersQueueLead">Select an order number to open the document page.</p>
                         </div>
-                        <span class="meta" id="portalOrdersMeta">0 orders</span>
+                        <div class="erp-list-actions">
+                            <span class="meta" id="portalOrdersMeta">0 orders</span>
+                            <button class="btn ghost" id="openSalesOrderNewBtn" type="button">+ New</button>
+                        </div>
                     </div>
                     <div class="entry-secondary-toolbar" id="portalOrdersFiltersCard">
                         <div>
@@ -7048,6 +7164,7 @@
         let portalInboundRecords = [];
         let feedbackRecords = [];
         let editingWarehouseOrderId = "";
+        let editingWarehouseInboundId = "";
         let companyFeatureDraftCompany = "";
         let companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
         let editingWarehouseUserId = "";
@@ -7523,6 +7640,8 @@
             warehouseOrderShipToCountry: document.getElementById("warehouseOrderShipToCountry"),
             warehouseOrderNotes: document.getElementById("warehouseOrderNotes"),
             warehouseOrderLines: document.getElementById("warehouseOrderLines"),
+            openSalesOrderNewBtn: document.getElementById("openSalesOrderNewBtn"),
+            closeWarehouseOrderEntryBtn: document.getElementById("closeWarehouseOrderEntryBtn"),
             addWarehouseOrderLineBtn: document.getElementById("addWarehouseOrderLineBtn"),
             resetWarehouseOrderBtn: document.getElementById("resetWarehouseOrderBtn"),
             saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
@@ -7560,6 +7679,8 @@
             warehouseInboundContactPhone: document.getElementById("warehouseInboundContactPhone"),
             warehouseInboundNotes: document.getElementById("warehouseInboundNotes"),
             warehouseInboundLines: document.getElementById("warehouseInboundLines"),
+            openPurchaseOrderNewBtn: document.getElementById("openPurchaseOrderNewBtn"),
+            closeWarehouseInboundEntryBtn: document.getElementById("closeWarehouseInboundEntryBtn"),
             addWarehouseInboundLineBtn: document.getElementById("addWarehouseInboundLineBtn"),
             resetWarehouseInboundBtn: document.getElementById("resetWarehouseInboundBtn"),
             submitWarehouseInboundBtn: document.getElementById("submitWarehouseInboundBtn"),
@@ -7786,12 +7907,10 @@
                 button.closest("details.module-menu")?.removeAttribute("open");
                 const startNew = String(button.dataset.startNew || "").trim();
                 if (startNew === "sales-order") {
-                    resetWarehouseSalesOrderForm();
-                    ui.warehouseOrderPoNumber?.focus();
+                    showSalesOrderDocument(null, { scroll: true });
                 }
                 if (startNew === "purchase-order") {
-                    resetWarehouseInboundForm();
-                    ui.warehouseInboundReferenceNumber?.focus();
+                    showPurchaseOrderDocument(null, { scroll: true });
                 }
             }));
             ui.desktopCommandRefreshBtn?.addEventListener("click", () => {
@@ -7885,20 +8004,24 @@
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
             ui.portalOrderSearch?.addEventListener("input", debouncedRenderPortalOrders);
+            ui.openSalesOrderNewBtn?.addEventListener("click", () => showSalesOrderDocument(null, { scroll: true }));
+            ui.closeWarehouseOrderEntryBtn?.addEventListener("click", () => showSalesOrderList({ scroll: true }));
             ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
-            ui.resetWarehouseOrderBtn?.addEventListener("click", () => resetWarehouseSalesOrderForm());
+            ui.resetWarehouseOrderBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
-            ui.salesOrderCommandNewBtn?.addEventListener("click", () => resetWarehouseSalesOrderForm());
+            ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
             ui.warehouseOrderLines?.addEventListener("click", onWarehouseOrderLinesClick);
             ui.warehouseOrderLines?.addEventListener("change", onWarehouseOrderLinesChange);
+            ui.openPurchaseOrderNewBtn?.addEventListener("click", () => showPurchaseOrderDocument(null, { scroll: true }));
+            ui.closeWarehouseInboundEntryBtn?.addEventListener("click", () => showPurchaseOrderList({ scroll: true }));
             ui.addWarehouseInboundLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
-            ui.resetWarehouseInboundBtn?.addEventListener("click", () => resetWarehouseInboundForm());
+            ui.resetWarehouseInboundBtn?.addEventListener("click", () => showPurchaseOrderDocument(null));
             ui.submitWarehouseInboundBtn?.addEventListener("click", submitWarehouseInbound);
-            ui.purchaseOrderCommandNewBtn?.addEventListener("click", () => resetWarehouseInboundForm());
+            ui.purchaseOrderCommandNewBtn?.addEventListener("click", () => showPurchaseOrderDocument(null));
             ui.purchaseOrderCommandPostBtn?.addEventListener("click", submitWarehouseInbound);
             ui.purchaseOrderCommandReceiveBtn?.addEventListener("click", submitWarehouseInbound);
             ui.purchaseOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
@@ -8259,11 +8382,11 @@
                     ? "Shipped counts update for the active company so completed orders, tracking, and shipped documents are easy to review."
                     : "Operational counts update for the active company so the warehouse team knows what is ready to pick, pack, and ship.";
             }
-            if (ui.portalOrdersQueueTitle) ui.portalOrdersQueueTitle.textContent = shippedOnly ? "Shipped Order Queue" : "Sales Order Queue";
+            if (ui.portalOrdersQueueTitle) ui.portalOrdersQueueTitle.textContent = shippedOnly ? "Shipped Orders: All" : "Sales Orders: All";
             if (ui.portalOrdersQueueLead) {
                 ui.portalOrdersQueueLead.textContent = shippedOnly
-                    ? "Search completed shipments, review tracking and carrier notes, and reopen shipped paperwork without mixing them into the active pick queue."
-                    : "See what each customer released, compare ordered quantity against available stock, and print the documents your team needs to pick and ship.";
+                    ? "Select a shipped order to review tracking, carrier notes, and attached paperwork."
+                    : "Select an order number to open the document page, edit details, print documents, or move it through the warehouse workflow.";
             }
             if (ui.portalOrderStatusFilterField) ui.portalOrderStatusFilterField.classList.toggle("hidden", shippedOnly);
             if (ui.portalOrderStatusFilter) {
@@ -8367,6 +8490,10 @@
         function focusWorkspaceAnchor(anchorId, { behavior = "smooth" } = {}) {
             const target = document.getElementById(String(anchorId || "").trim());
             if (!target) return false;
+            if (anchorId === "warehouseOrderEntryCard") showSalesOrderDocument(null);
+            if (anchorId === "portalOrdersQueueCard") showSalesOrderList();
+            if (anchorId === "warehouseInboundEntryCard") showPurchaseOrderDocument(null);
+            if (anchorId === "warehouseInboundQueueCard") showPurchaseOrderList();
             markWorkspaceAnchor(activeSection, anchorId);
             window.setTimeout(() => {
                 target.scrollIntoView({ behavior, block: "start" });
@@ -8544,7 +8671,8 @@
                     scrollCurrentViewTop();
                     focusWarehouseInboundWorkspace();
                 } else {
-                    focusWarehouseInboundWorkspace();
+                    showPurchaseOrderList({ scroll: false });
+                    scrollCurrentViewTop();
                 }
                 refreshPortalInboundsList(true).catch(() => {});
             }
@@ -8583,9 +8711,9 @@
                 if (section === "billing" && !isMobileView()) (getActiveCompany() ? ui.billingFeeFilter : ui.billingOwner).focus();
                 markWorkspaceAnchor(section, ({
                     scan: "scanStageCard",
-                    inbounds: "warehouseInboundEntryCard",
+                    inbounds: "warehouseInboundQueueCard",
                     inventory: "masterDataWorkspaceCard",
-                    orders: "warehouseOrderEntryCard",
+                    orders: "portalOrdersQueueCard",
                     shipped: "portalOrdersQueueCard"
                 })[section] || "");
             }
@@ -8594,7 +8722,8 @@
             }
             if (section === "orders" || section === "shipped") {
                 if (!isMobileView() && !focusAnchorId) {
-                    if (section === "orders" && ui.warehouseOrderPoNumber) ui.warehouseOrderPoNumber.focus();
+                    if (section === "orders") showSalesOrderList({ scroll: false });
+                    if (section === "shipped") showSalesOrderList({ scroll: false });
                     if (section === "shipped" && ui.portalOrderSearch) ui.portalOrderSearch.focus();
                 }
                 refreshPortalOrdersList(true).catch(() => {});
@@ -13927,6 +14056,8 @@
             const featureEnabled = !company || companyHasFeature(company, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
             const itemCount = hasCompany ? getWarehouseInboundCatalogItemCount(company) : 0;
             const hasItemCatalog = itemCount > 0;
+            const inboundStatus = norm(ui.warehouseInboundStatusChip?.textContent || "");
+            const lockedInbound = !!editingWarehouseInboundId && inboundStatus !== "SUBMITTED";
             ui.warehouseInboundCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
                     ? (hasItemCatalog
@@ -13948,7 +14079,7 @@
                 ui.purchaseOrderCommandReceiveBtn,
                 ui.purchaseOrderCommandAddLineBtn
             ].filter(Boolean).forEach((button) => {
-                button.disabled = !hasCompany || !featureEnabled || !hasItemCatalog;
+                button.disabled = !hasCompany || !featureEnabled || !hasItemCatalog || lockedInbound;
             });
             if (ui.warehouseInboundLines) {
                 [...ui.warehouseInboundLines.querySelectorAll(".line-card")].forEach((card) => {
@@ -13968,11 +14099,21 @@
         }
 
         function resetWarehouseInboundForm(inbound = null) {
+            editingWarehouseInboundId = inbound?.id ? String(inbound.id) : "";
+            if (inbound?.accountName && inbound.accountName !== getActiveCompany()) {
+                setActiveCompany(inbound.accountName, { force: true, rerender: false });
+            }
             if (ui.warehouseInboundTitle) {
                 ui.warehouseInboundTitle.textContent = inbound ? `Purchase Order ${inbound.inboundCode}` : "Warehouse Purchase Order Entry";
             }
             if (ui.warehouseInboundStatusChip) {
                 ui.warehouseInboundStatusChip.textContent = inbound?.status || "Open";
+            }
+            if (ui.submitWarehouseInboundBtn) {
+                ui.submitWarehouseInboundBtn.textContent = inbound ? "Save Purchase Order" : "Create Purchase Order";
+            }
+            if (ui.purchaseOrderCommandPostBtn) {
+                ui.purchaseOrderCommandPostBtn.textContent = inbound ? "Save" : "Post...";
             }
             ui.warehouseInboundReferenceNumber.value = inbound?.referenceNumber || "";
             ui.warehouseInboundCarrierName.value = inbound?.carrierName || "";
@@ -14079,13 +14220,19 @@
                 }, async () => {
                     const payload = validateWarehouseInboundPayload(collectWarehouseInboundPayload());
                     if (!payload) return null;
-                    const response = await requestJson("/api/admin/portal-inbounds", {
-                        method: "POST",
+                    const wasEditing = !!editingWarehouseInboundId;
+                    const response = await requestJson(editingWarehouseInboundId ? `/api/admin/portal-inbounds/${editingWarehouseInboundId}` : "/api/admin/portal-inbounds", {
+                        method: editingWarehouseInboundId ? "PUT" : "POST",
                         body: JSON.stringify(payload)
                     });
                     await refreshPortalInboundsList(true);
-                    resetWarehouseInboundForm();
-                    showMessage(ui.warehouseInboundMessage, `Created purchase order ${response?.inbound?.inboundCode || "record"}.`, "success");
+                    const savedInbound = getPortalInboundRecordById(response?.inbound?.id || editingWarehouseInboundId) || sanitizePortalInboundRecord(response?.inbound);
+                    if (savedInbound) {
+                        resetWarehouseInboundForm(savedInbound);
+                    } else {
+                        resetWarehouseInboundForm();
+                    }
+                    showMessage(ui.warehouseInboundMessage, `${wasEditing ? "Saved" : "Created"} purchase order ${response?.inbound?.inboundCode || "record"}.`, "success");
                 });
             } catch (error) {
                 showMessage(ui.warehouseInboundMessage, error.message, "error");
@@ -14143,70 +14290,79 @@
                 return;
             }
 
-            ui.portalInboundsList.innerHTML = visibleInbounds.map((inbound) => `
-                <div class="quick-row">
-                    <div class="quick-detail-stack">
-                        <div class="quick-main">
-                            <strong>${esc(inbound.inboundCode)} | ${esc(inbound.accountName)}</strong>
-                            <div class="quick-meta">${esc(inbound.status)} | Ref ${esc(inbound.referenceNumber || "None")} | Expected ${esc(inbound.expectedDate || "Not set")}</div>
-                            ${inbound.receivedAt ? `<div class="quick-meta">Received ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
-                            <div class="quick-meta">${esc(inbound.contactName || "No contact")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}${inbound.carrierName ? ` | Carrier ${esc(inbound.carrierName)}` : ""}</div>
-                            ${inbound.notes ? `<div class="quick-meta">Notes: ${esc(inbound.notes)}</div>` : ""}
-                            <div class="portal-order-line-table-wrap">
-                                <table class="data-table compact-table">
-                                    <thead>
-                                        <tr>
-                                            <th>SKU</th>
-                                            <th>Description</th>
-                                            <th>Tracking</th>
-                                            <th>Qty</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${inbound.lines.map((line) => `
-                                            <tr>
-                                                <td>${esc(line.sku)}</td>
-                                                <td>${esc(line.description || "")}</td>
-                                                <td>${esc(trackingLabel(line.trackingLevel))}</td>
-                                                <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
-                                            </tr>
-                                        `).join("")}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="quick-row-actions">
-                            <span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span>
-                            ${inbound.status === "SUBMITTED" ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
-                        </div>
-                    </div>
+            ui.portalInboundsList.innerHTML = `
+                <div class="erp-list-table-wrap">
+                    <table class="erp-list-table">
+                        <thead>
+                            <tr>
+                                <th>No.</th>
+                                <th>Reference No.</th>
+                                <th>Vendor / Contact</th>
+                                <th>Expected Date</th>
+                                <th>Carrier</th>
+                                <th>Lines</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${visibleInbounds.map((inbound) => `
+                                <tr data-open-warehouse-inbound="${attr(inbound.id)}">
+                                    <td><button class="erp-list-link" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">${esc(inbound.inboundCode)}</button></td>
+                                    <td>${esc(inbound.referenceNumber || "None")}</td>
+                                    <td>${esc(inbound.contactName || "No contact")}${inbound.contactPhone ? `<br><span class="meta">${esc(inbound.contactPhone)}</span>` : ""}</td>
+                                    <td>${esc(inbound.expectedDate || "Not set")}</td>
+                                    <td>${esc(inbound.carrierName || "")}</td>
+                                    <td>${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"}</td>
+                                    <td><span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span></td>
+                                    <td>
+                                        <div class="erp-list-row-actions">
+                                            <button class="btn ghost mini" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">Open</button>
+                                            ${inbound.status === "SUBMITTED" ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
+                                        </div>
+                                    </td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
                 </div>
-            `).join("");
+            `;
         }
 
         async function onPortalInboundsListClick(event) {
             const statusButton = event.target.closest("[data-portal-inbound-status]");
-            if (!statusButton) return;
-            const inboundId = statusButton.dataset.portalInboundStatus || "";
-            const nextStatus = norm(statusButton.dataset.nextStatus || "");
-            if (!inboundId || !nextStatus) return;
+            if (statusButton) {
+                const inboundId = statusButton.dataset.portalInboundStatus || "";
+                const nextStatus = norm(statusButton.dataset.nextStatus || "");
+                if (!inboundId || !nextStatus) return;
 
-            try {
-                await runActionWithFeedback({
-                    button: statusButton,
-                    busyLabel: "Updating...",
-                    messageElement: ui.warehouseInboundMessage,
-                    progressMessage: `Updating purchase order ${inboundId} to ${nextStatus}...`
-                }, async () => {
-                    const response = await requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/status`, {
-                        method: "POST",
-                        body: JSON.stringify({ status: nextStatus })
+                try {
+                    await runActionWithFeedback({
+                        button: statusButton,
+                        busyLabel: "Updating...",
+                        messageElement: ui.warehouseInboundMessage,
+                        progressMessage: `Updating purchase order ${inboundId} to ${nextStatus}...`
+                    }, async () => {
+                        const response = await requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/status`, {
+                            method: "POST",
+                            body: JSON.stringify({ status: nextStatus })
+                        });
+                        await refreshPortalInboundsList(true);
+                        showMessage(ui.warehouseInboundMessage, `Purchase order ${response?.inbound?.inboundCode || inboundId} marked ${nextStatus}.`, "success");
                     });
-                    await refreshPortalInboundsList(true);
-                    showMessage(ui.warehouseInboundMessage, `Purchase order ${response?.inbound?.inboundCode || inboundId} marked ${nextStatus}.`, "success");
-                });
-            } catch (error) {
-                showMessage(ui.warehouseInboundMessage, error.message, "error");
+                } catch (error) {
+                    showMessage(ui.warehouseInboundMessage, error.message, "error");
+                }
+                return;
+            }
+
+            const openInboundButton = event.target.closest("[data-open-warehouse-inbound]");
+            if (openInboundButton) {
+                const inbound = getPortalInboundRecordById(openInboundButton.dataset.openWarehouseInbound || "");
+                if (inbound) {
+                    showPurchaseOrderDocument(inbound, { scroll: true });
+                    showMessage(ui.warehouseInboundMessage, `Opened purchase order ${inbound.inboundCode}.`, "info");
+                }
             }
         }
 
@@ -14300,7 +14456,9 @@
         function renderPortalOrdersList(errorText = "") {
             const visibleOrders = getFilteredPortalOrders();
             const shippedOnly = isShippedOrdersSection();
-            ui.portalOrdersMeta.textContent = `${num(visibleOrders.length)} ${shippedOnly ? "shipped " : ""}order${visibleOrders.length === 1 ? "" : "s"}`;
+            if (ui.portalOrdersMeta) {
+                ui.portalOrdersMeta.textContent = `${num(visibleOrders.length)} ${shippedOnly ? "shipped " : ""}order${visibleOrders.length === 1 ? "" : "s"}`;
+            }
             renderPortalOrderSummary(visibleOrders);
 
             if (!visibleOrders.length) {
@@ -14316,7 +14474,7 @@
                 return;
             }
 
-            ui.portalOrdersList.innerHTML = visibleOrders.map((order) => {
+            const rows = visibleOrders.map((order) => {
                 const nextStatus = nextPortalOrderStatus(order.status);
                 const isDraft = order.status === "DRAFT";
                 const timeline = formatPortalOrderTimeline(order);
@@ -14336,91 +14494,37 @@
                     return allocatable < ordered;
                 });
                 const allAllocated = insufficientLines.length === 0 && order.lines.length > 0;
-                const detailedLines = order.lines.length
-                    ? `
-                        <div class="portal-order-line-table-wrap">
-                            <table class="data-table compact-table">
-                                <thead>
-                                    <tr>
-                                        <th>SKU</th>
-                                        <th>Description</th>
-                                        <th>Ordered</th>
-                                        <th>Available</th>
-                                        <th>Allocation</th>
-                                        <th>Pick Locations</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${order.lines.map((line) => {
-                                        const ordered = Number(line.quantity) || 0;
-                                        const available = Number(line.availableQuantity) || 0;
-                                        const allocated = isDraft
-                                            ? Math.min(ordered, available)
-                                            : ((Number(line.allocatedQuantity) || 0) > 0 ? (Number(line.allocatedQuantity) || 0) : Math.min(ordered, available));
-                                        const insufficient = allocated < ordered;
-                                        return `
-                                            <tr class="${insufficient ? "insufficient-line" : ""}">
-                                                <td>${esc(line.sku)}</td>
-                                                <td>${esc(line.description || "")}</td>
-                                                <td>${esc(formatTrackedQuantity(ordered, line.trackingLevel))}</td>
-                                                <td>${esc(formatTrackedQuantity(available, line.trackingLevel))}</td>
-                                                <td><span class="pill ${insufficient ? "warning" : "success"}">${insufficient ? `Short ${esc(formatTrackedQuantity(ordered - allocated, line.trackingLevel))}` : `Allocated ${esc(formatTrackedQuantity(allocated, line.trackingLevel))}`}</span></td>
-                                                <td>${line.pickLocations?.length ? line.pickLocations.map((entry) => formatPickLocationHtml(entry, line.trackingLevel)).join("<br>") : "No location found"}</td>
-                                            </tr>
-                                        `;
-                                    }).join("")}
-                                </tbody>
-                            </table>
-                        </div>
-                    `
-                    : "";
-                return `
-                    <div class="quick-row">
-                        <div class="quick-detail-stack">
-                            <div class="quick-main">
-                                <strong>${esc(order.orderCode)} | ${esc(order.accountName)}</strong>
-                                <div class="quick-meta">${esc(order.status)} | PO ${esc(order.poNumber || "None")} | ${esc(order.shippingReference || "No shipping ref")} | ${esc(formatDate(order.createdAt))}</div>
-                                <div class="quick-meta">Requested Ship Date: ${esc(order.requestedShipDate || "Not set")}${order.shipToName ? ` | Ship To ${esc(order.shipToName)}` : ""}</div>
-                                <div class="quick-meta">${esc(order.shipToName || order.contactName || "No contact")} ${(order.shipToPhone || order.contactPhone) ? `| ${esc(order.shipToPhone || order.contactPhone)}` : ""}</div>
-                                <div class="quick-meta">${esc(order.shipToAddress1 || "")}${order.shipToCity ? ` | ${esc([order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "))}` : ""}</div>
-                                <div class="order-health-grid">
-                                    <div class="order-health-card">
-                                        <span>Ordered Qty</span>
-                                        <strong>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</strong>
-                                    </div>
-                                    <div class="order-health-card ${insufficientLines.length ? "danger" : ""}">
-                                        <span>Allocatable Qty</span>
-                                        <strong>${esc(formatTrackedQuantity(totalAvailable, order.lines[0]?.trackingLevel || "UNIT"))}</strong>
-                                    </div>
-                                    <div class="order-health-card">
-                                        <span>Auto Allocation</span>
-                                        <strong>${allAllocated ? (isDraft ? "Draft ready" : "Ready to pick") : `${insufficientLines.length} line${insufficientLines.length === 1 ? "" : "s"} short`}</strong>
-                                    </div>
-                                </div>
-                                ${order.orderNotes ? `<div class="quick-meta">Order Notes: ${esc(order.orderNotes)}</div>` : ""}
-                                ${detailedLines}
-                                ${order.status === "SHIPPED" || order.confirmedShipDate || order.shippedCarrierName || order.shippedTrackingReference || order.shippedConfirmationNote ? `
-                                    <div class="quick-meta">
-                                        ${esc([
-                                            order.confirmedShipDate ? `Shipped Date ${order.confirmedShipDate}` : "",
-                                            order.shippedCarrierName ? `Carrier ${order.shippedCarrierName}` : "",
-                                            order.shippedTrackingReference ? `Tracking ${order.shippedTrackingReference}` : ""
-                                        ].filter(Boolean).join(" | ") || "Shipping confirmation saved")}
-                                    </div>
-                                ` : ""}
-                                ${order.shippedConfirmationNote ? `<div class="quick-meta">Warehouse Note: ${esc(order.shippedConfirmationNote)}</div>` : ""}
-                                ${timeline ? `<div class="quick-meta">${esc(timeline)}</div>` : ""}
-                            </div>
-                            <div class="quick-row-actions">
-                                <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
-                                ${insufficientLines.length ? `<span class="pill warning">Insufficient stock</span>` : `<span class="pill success">${isDraft ? "Draft ready" : "Allocation ready"}</span>`}
-                                ${isDraft ? `<button class="btn ghost mini" type="button" data-edit-warehouse-order="${attr(order.id)}">Load Draft</button>` : ""}
-                                ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket</button>` : ""}
-                                ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip</button>` : ""}
+                const shippingDetails = [
+                    order.confirmedShipDate ? `Shipped ${order.confirmedShipDate}` : "",
+                    order.shippedCarrierName ? `Carrier ${order.shippedCarrierName}` : "",
+                    order.shippedTrackingReference ? `Tracking ${order.shippedTrackingReference}` : "",
+                    timeline
+                ].filter(Boolean).join(" | ");
+                const listRow = `
+                    <tr data-open-warehouse-order="${attr(order.id)}">
+                        <td><button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.id)}">${esc(order.orderCode)}</button></td>
+                        <td>${esc(order.poNumber || "None")}</td>
+                        <td>${esc(order.shipToName || order.contactName || "No contact")}${(order.shipToPhone || order.contactPhone) ? `<br><span class="meta">${esc(order.shipToPhone || order.contactPhone)}</span>` : ""}</td>
+                        <td>${esc(order.shippingReference || "No shipping ref")}</td>
+                        <td>${esc(order.requestedShipDate || "Not set")}</td>
+                        <td>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</td>
+                        <td>${esc(formatTrackedQuantity(totalAvailable, order.lines[0]?.trackingLevel || "UNIT"))}</td>
+                        <td><span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>${insufficientLines.length ? `<br><span class="pill warning">Short ${insufficientLines.length} line${insufficientLines.length === 1 ? "" : "s"}</span>` : ""}</td>
+                        <td>${esc(allAllocated ? (isDraft ? "Draft ready" : "Ready") : "Needs stock")}${shippingDetails ? `<br><span class="meta">${esc(shippingDetails)}</span>` : ""}</td>
+                        <td>
+                            <div class="erp-list-row-actions">
+                                <button class="btn ghost mini" type="button" data-open-warehouse-order="${attr(order.id)}">Open</button>
+                                ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Pick Ticket</button>` : ""}
+                                ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Packing Slip</button>` : ""}
                                 ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
                             </div>
-                            ${(order.status === "STAGED" || order.status === "SHIPPED") ? `
-                                <div class="portal-order-shipping-box">
+                        </td>
+                    </tr>
+                `;
+                const shippingRow = (order.status === "STAGED" || order.status === "SHIPPED") ? `
+                    <tr class="erp-list-shipping-row">
+                        <td colspan="10">
+                            <div class="portal-order-shipping-box erp-list-shipping-panel">
                                     <div class="form-grid compact-grid">
                                         <label class="field">
                                             <span>Ship Date</span>
@@ -14456,12 +14560,34 @@
                                     <div class="quick-row-actions">
                                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                                     </div>
-                                </div>
-                            ` : ""}
-                        </div>
-                    </div>
-                `;
+                            </div>
+                        </td>
+                    </tr>
+                ` : "";
+                return `${listRow}${shippingRow}`;
             }).join("");
+
+            ui.portalOrdersList.innerHTML = `
+                <div class="erp-list-table-wrap">
+                    <table class="erp-list-table">
+                        <thead>
+                            <tr>
+                                <th>No.</th>
+                                <th>External Document No.</th>
+                                <th>Ship-To Name</th>
+                                <th>Shipping Ref</th>
+                                <th>Requested Ship Date</th>
+                                <th>Ordered Qty</th>
+                                <th>Allocatable Qty</th>
+                                <th>Status</th>
+                                <th>Complete?</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
         }
 
         function nextPortalOrderStatus(status) {
@@ -14504,6 +14630,42 @@
 
         function getPortalOrderById(orderId) {
             return portalOrderRecords.find((entry) => String(entry.id) === String(orderId)) || null;
+        }
+
+        function getPortalInboundRecordById(inboundId) {
+            return portalInboundRecords.find((entry) => String(entry.id) === String(inboundId)) || null;
+        }
+
+        function showSalesOrderList({ scroll = false } = {}) {
+            ui.warehouseOrderEntryCard?.classList.add("hidden");
+            ui.portalOrdersQueueCard?.classList.remove("hidden");
+            if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "portalOrdersQueueCard");
+            if (scroll) ui.portalOrdersQueueCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function showSalesOrderDocument(order = null, { scroll = false } = {}) {
+            ui.portalOrdersQueueCard?.classList.add("hidden");
+            ui.warehouseOrderEntryCard?.classList.remove("hidden");
+            resetWarehouseSalesOrderForm(order);
+            if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseOrderEntryCard");
+            if (scroll) ui.warehouseOrderEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            window.setTimeout(() => ui.warehouseOrderPoNumber?.focus(), scroll ? 180 : 40);
+        }
+
+        function showPurchaseOrderList({ scroll = false } = {}) {
+            ui.warehouseInboundEntryCard?.classList.add("hidden");
+            ui.warehouseInboundQueueCard?.classList.remove("hidden");
+            if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseInboundQueueCard");
+            if (scroll) ui.warehouseInboundQueueCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function showPurchaseOrderDocument(inbound = null, { scroll = false } = {}) {
+            ui.warehouseInboundQueueCard?.classList.add("hidden");
+            ui.warehouseInboundEntryCard?.classList.remove("hidden");
+            resetWarehouseInboundForm(inbound);
+            if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseInboundEntryCard");
+            if (scroll) ui.warehouseInboundEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            window.setTimeout(() => ui.warehouseInboundReferenceNumber?.focus(), scroll ? 180 : 40);
         }
 
         function mergePortalOrderRecord(updatedOrder) {
@@ -14643,9 +14805,8 @@
             if (editWarehouseOrderButton) {
                 const order = getPortalOrderById(editWarehouseOrderButton.dataset.editWarehouseOrder || "");
                 if (order) {
-                    resetWarehouseSalesOrderForm(order);
-                    ui.warehouseOrderEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    showMessage(ui.warehouseOrderMessage, `Loaded draft ${order.orderCode}.`, "info");
+                    showSalesOrderDocument(order, { scroll: true });
+                    showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode}.`, "info");
                 }
                 return;
             }
@@ -14678,7 +14839,7 @@
                             ? `Marking order ${currentOrder?.orderCode || orderId} shipped...`
                             : `Saving shipping confirmation for ${currentOrder?.orderCode || orderId}...`
                     }, async () => {
-                        const orderCard = shipButton.closest(".quick-detail-stack") || shipButton.closest(".quick-row");
+                        const orderCard = shipButton.closest(".erp-list-shipping-panel") || shipButton.closest(".quick-detail-stack") || shipButton.closest(".quick-row");
                         const shipDate = orderCard?.querySelector(`[data-portal-ship-date="${orderId}"]`)?.value || "";
                         const carrierName = orderCard?.querySelector(`[data-portal-ship-carrier="${orderId}"]`)?.value || "";
                         const trackingNumber = orderCard?.querySelector(`[data-portal-ship-tracking="${orderId}"]`)?.value || "";
@@ -14714,29 +14875,39 @@
             }
 
             const button = event.target.closest("[data-portal-order-status]");
-            if (!button) return;
+            if (button) {
+                const orderId = button.dataset.portalOrderStatus || "";
+                const nextStatus = norm(button.dataset.nextStatus || "");
+                if (!orderId || !nextStatus) return;
+                const label = portalOrderActionLabel(nextStatus);
 
-            const orderId = button.dataset.portalOrderStatus || "";
-            const nextStatus = norm(button.dataset.nextStatus || "");
-            if (!orderId || !nextStatus) return;
-            const label = portalOrderActionLabel(nextStatus);
-
-            try {
-                await runActionWithFeedback({
-                    button,
-                    busyLabel: `${label}...`,
-                    messageElement: ui.portalOrdersMessage,
-                    progressMessage: `Updating order ${orderId} to ${nextStatus}...`
-                }, async () => {
-                    const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
-                        method: "POST",
-                        body: JSON.stringify({ status: nextStatus })
+                try {
+                    await runActionWithFeedback({
+                        button,
+                        busyLabel: `${label}...`,
+                        messageElement: ui.portalOrdersMessage,
+                        progressMessage: `Updating order ${orderId} to ${nextStatus}...`
+                    }, async () => {
+                        const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
+                            method: "POST",
+                            body: JSON.stringify({ status: nextStatus })
+                        });
+                        applyPortalOrderUpdate(response?.order, `${label} complete for ${response?.order?.orderCode || orderId}.`);
+                        queuePortalOrderRefresh();
                     });
-                    applyPortalOrderUpdate(response?.order, `${label} complete for ${response?.order?.orderCode || orderId}.`);
-                    queuePortalOrderRefresh();
-                });
-            } catch (error) {
-                showMessage(ui.portalOrdersMessage, error.message, "error");
+                } catch (error) {
+                    showMessage(ui.portalOrdersMessage, error.message, "error");
+                }
+                return;
+            }
+
+            const openOrderButton = event.target.closest("[data-open-warehouse-order]");
+            if (openOrderButton) {
+                const order = getPortalOrderById(openOrderButton.dataset.openWarehouseOrder || "");
+                if (order) {
+                    showSalesOrderDocument(order, { scroll: true });
+                    showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode}.`, "info");
+                }
             }
         }
 

@@ -1873,6 +1873,31 @@ app.post("/api/admin/portal-inbounds", async (req, res, next) => {
     }
 });
 
+app.put("/api/admin/portal-inbounds/:id", async (req, res, next) => {
+    try {
+        const inboundId = toPositiveInt(req.params.id);
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.company || req.body?.customer);
+        if (!inboundId) {
+            throw httpError(400, "A valid purchase order id is required.");
+        }
+        if (!accountName) {
+            throw httpError(400, "Company is required.");
+        }
+        const inbound = await withTransaction(async (client) => {
+            const currentInbound = await getPortalInboundById(client, inboundId);
+            if (!currentInbound) {
+                throw httpError(404, "That purchase order could not be found.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
+            await assertCompanyFeatureEnabled(client, currentInbound.accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+            return updateWarehousePortalInbound(client, inboundId, accountName, req.body, req.appUser);
+        });
+        res.json({ success: true, inbound });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-access", async (req, res, next) => {
     try {
         const accessId = typeof req.body?.accessId === "string" || typeof req.body?.accessId === "number"
@@ -9507,6 +9532,80 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
         activityTitlePrefix: "warehouse purchase order",
         activityActor: actor
     });
+}
+
+async function updateWarehousePortalInbound(client, inboundId, accountName, rawInbound, appUser = null) {
+    const normalizedAccount = normalizeText(accountName);
+    const currentInbound = await getPortalInboundById(client, inboundId);
+    if (!currentInbound) {
+        throw httpError(404, "That purchase order could not be found.");
+    }
+    if (normalizeText(currentInbound.accountName) !== normalizedAccount) {
+        throw httpError(400, "Purchase order company cannot be changed.");
+    }
+    if (currentInbound.status !== "SUBMITTED") {
+        throw httpError(400, "Only open submitted purchase orders can be edited.");
+    }
+
+    const inbound = sanitizePortalInboundInput(rawInbound, normalizedAccount);
+    if (!inbound.referenceNumber || !inbound.expectedDate || !inbound.contactName) {
+        throw httpError(400, "Reference number, expected date, and contact name are required.");
+    }
+    if (!inbound.lines.length) {
+        throw httpError(400, "Add at least one line before submitting.");
+    }
+    for (const line of inbound.lines) {
+        await assertPortalInboundSkuAllowed(client, normalizedAccount, line.sku);
+    }
+
+    await client.query(
+        `
+            update portal_inbounds
+            set
+                reference_number = $2,
+                carrier_name = $3,
+                expected_date = $4,
+                contact_name = $5,
+                contact_phone = $6,
+                notes = $7,
+                updated_at = now()
+            where id = $1
+        `,
+        [
+            inboundId,
+            inbound.referenceNumber,
+            inbound.carrierName,
+            inbound.expectedDate,
+            inbound.contactName,
+            inbound.contactPhone,
+            inbound.notes
+        ]
+    );
+    await client.query("delete from portal_inbound_lines where inbound_id = $1", [inboundId]);
+    for (const [index, line] of inbound.lines.entries()) {
+        await client.query(
+            `
+                insert into portal_inbound_lines (inbound_id, line_number, sku, expected_quantity)
+                values ($1, $2, $3, $4)
+            `,
+            [inboundId, index + 1, line.sku, line.quantity]
+        );
+    }
+
+    const updatedInbound = await getPortalInboundById(client, inboundId);
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    await insertActivity(
+        client,
+        "receipt",
+        `Updated warehouse purchase order ${updatedInbound.inboundCode}`,
+        [
+            updatedInbound.accountName,
+            `${formatCount(updatedInbound.lines.length, "line")}`,
+            `Ref ${updatedInbound.referenceNumber}`,
+            actor
+        ].filter(Boolean).join(" | ")
+    );
+    return updatedInbound;
 }
 
 async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null) {
