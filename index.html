@@ -265,6 +265,151 @@
             white-space: nowrap;
         }
 
+        .topbar-icon-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        .topbar-icon-button:hover {
+            background: rgba(255,255,255,0.12);
+        }
+
+        .company-switcher {
+            position: relative;
+            color: #ffffff;
+        }
+
+        .company-switcher summary {
+            list-style: none;
+        }
+
+        .company-switcher summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .company-building-icon {
+            position: relative;
+            display: inline-block;
+            width: 13px;
+            height: 16px;
+            border: 1.5px solid currentColor;
+            color: currentColor;
+        }
+
+        .company-building-icon::before {
+            content: "";
+            position: absolute;
+            left: 3px;
+            top: 3px;
+            width: 2px;
+            height: 2px;
+            background: currentColor;
+            box-shadow: 5px 0 0 currentColor, 0 5px 0 currentColor, 5px 5px 0 currentColor, 0 10px 0 currentColor, 5px 10px 0 currentColor;
+        }
+
+        .company-switcher-panel {
+            position: fixed;
+            top: 38px;
+            right: 0;
+            bottom: 0;
+            z-index: 120;
+            display: grid;
+            grid-template-rows: auto auto minmax(0, 1fr);
+            gap: 0.75rem;
+            width: min(24rem, 92vw);
+            padding: 1rem;
+            border-left: 1px solid #cfd8e2;
+            background: #ffffff;
+            color: #1e2f3d;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.16);
+        }
+
+        .company-switcher-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .company-switcher-head strong {
+            font-size: 0.96rem;
+            font-weight: 700;
+        }
+
+        .company-switcher-close {
+            width: 28px;
+            height: 28px;
+            border: 0;
+            background: transparent;
+            color: #5a6d7f;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .company-switcher-search input {
+            width: 100%;
+            min-height: 32px;
+            padding: 0.35rem 0.55rem;
+            border-radius: 0;
+            border: 1px solid #008c95;
+            background: #ffffff;
+            font-size: 0.82rem;
+        }
+
+        .company-switcher-list {
+            display: grid;
+            align-content: start;
+            gap: 0.15rem;
+            overflow: auto;
+            padding-bottom: 1rem;
+        }
+
+        .company-switcher-company {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 0.75rem;
+            min-height: 36px;
+            padding: 0.3rem 0.4rem;
+            border: 0;
+            background: transparent;
+            color: #334b5f;
+            font-size: 0.82rem;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .company-switcher-company:hover,
+        .company-switcher-company.active {
+            background: #eef6f7;
+            color: #006d7f;
+        }
+
+        .company-switcher-check {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 14px;
+            color: #006d7f;
+        }
+
+        .company-switcher-company.active .company-switcher-check::before {
+            content: "";
+            display: block;
+            width: 8px;
+            height: 4px;
+            border-left: 1.5px solid currentColor;
+            border-bottom: 1.5px solid currentColor;
+            transform: rotate(-45deg);
+        }
+
         .app-waffle {
             width: 16px;
             height: 16px;
@@ -292,6 +437,17 @@
         .desktop-view-filter {
             padding: 0.18rem 0.45rem;
             color: #006d7f;
+        }
+
+        .has-caret::after,
+        .module-menu summary::after {
+            content: "";
+            width: 0.38rem;
+            height: 0.38rem;
+            border-right: 1px solid currentColor;
+            border-bottom: 1px solid currentColor;
+            transform: rotate(45deg) translateY(-0.08rem);
+            opacity: 0.72;
         }
 
         .desktop-ribbon-icon {
@@ -608,12 +764,6 @@
             display: none;
         }
 
-        .module-menu summary::after {
-            content: "v";
-            color: #617587;
-            font-size: 0.78rem;
-        }
-
         .module-menu[open] summary,
         .module-menu summary:hover {
             background: #eaf3f8;
@@ -772,6 +922,11 @@
             grid-template-columns: minmax(180px, 220px) auto auto;
             gap: 0.45rem;
             align-items: center;
+        }
+
+        .workspace-context-bar,
+        .workspace-company-row {
+            display: none !important;
         }
 
         .workspace-inline-meta {
@@ -2684,6 +2839,10 @@
                 background: rgba(255,255,255,0.12);
             }
 
+            .desktop-utility-actions .topbar-icon-button {
+                color: #ffffff;
+            }
+
             .desktop-modulebar,
             .desktop-modulebar.desktop-only {
                 min-height: 42px;
@@ -2707,8 +2866,7 @@
             }
 
             .module-company {
-                min-width: 230px;
-                padding-right: 1rem;
+                display: none !important;
             }
 
             .module-company span {
@@ -4018,15 +4176,31 @@
                 <div class="desktop-utility-actions">
                     <span class="utility-status-pill" id="appBuildBadge">Build loading...</span>
                     <a class="utility-action-link" href="mailto:support@wms365.co">Contact Support</a>
+                    <details class="company-switcher" id="desktopCompanySwitcher">
+                        <summary class="topbar-icon-button" id="desktopCompanySwitcherSummary" title="Available Companies" aria-label="Available Companies">
+                            <span class="company-building-icon" aria-hidden="true"></span>
+                        </summary>
+                        <div class="company-switcher-panel">
+                            <div class="company-switcher-head">
+                                <strong>Available Companies</strong>
+                                <button class="company-switcher-close" id="companySwitcherCloseBtn" type="button" aria-label="Close company list">x</button>
+                            </div>
+                            <label class="company-switcher-search" for="companySwitcherSearch">
+                                <input id="companySwitcherSearch" type="search" placeholder="Search" autocomplete="off">
+                            </label>
+                            <div class="company-switcher-list" id="companySwitcherList" role="listbox" aria-label="Available companies"></div>
+                            <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Show All Companies</button>
+                        </div>
+                    </details>
                     <span class="topbar-icon">Find</span>
                     <span class="topbar-icon">Notifications</span>
                     <span class="topbar-icon">Settings</span>
                     <span class="topbar-icon">Help</span>
-                    <span class="utility-account-pill" id="desktopUtilityCompany">All Companies</span>
+                    <span class="utility-account-pill" id="desktopUtilityCompany" hidden>All Companies</span>
                 </div>
             </div>
             <div class="desktop-modulebar desktop-only" aria-label="Module navigation">
-                <div class="module-company">
+                <div class="module-company" hidden>
                     <span>Company</span>
                     <strong id="desktopModuleCompany">All Companies</strong>
                 </div>
@@ -4124,7 +4298,7 @@
                         <strong id="desktopCommandContext">Operations Home</strong>
                     </div>
                 </div>
-                <button class="desktop-view-filter" type="button">All v</button>
+                <button class="desktop-view-filter has-caret" type="button">All</button>
                 <div class="desktop-alerts">
                     <button class="desktop-ribbon-icon" type="button" title="Share">Link</button>
                     <button class="desktop-ribbon-icon" type="button" title="Search">Find</button>
@@ -4132,12 +4306,12 @@
                     <span class="desktop-ribbon-divider"></span>
                     <button class="utility-action-link primary" type="button" data-jump-section="orders" data-start-new="sales-order">+ New</button>
                     <button class="utility-action-link" type="button" data-jump-section="backup">Delete</button>
-                    <button class="utility-action-link" type="button" data-jump-section="home">Home v</button>
-                    <button class="utility-action-link" type="button" data-jump-section="orders">Release v</button>
+                    <button class="utility-action-link has-caret" type="button" data-jump-section="home">Home</button>
+                    <button class="utility-action-link has-caret" type="button" data-jump-section="orders">Release</button>
                     <button class="utility-action-link" type="button" data-jump-section="scan">Post...</button>
                     <button class="utility-action-link" type="button" id="desktopCommandRefreshBtn">Refresh</button>
-                    <button class="utility-action-link" type="button" data-jump-section="reports">Print/Send v</button>
-                    <button class="utility-action-link" type="button" data-jump-section="orders">Order v</button>
+                    <button class="utility-action-link has-caret" type="button" data-jump-section="reports">Print/Send</button>
+                    <button class="utility-action-link has-caret" type="button" data-jump-section="orders">Order</button>
                     <button class="utility-action-link" type="button" data-jump-section="backup">More options</button>
                     <span class="desktop-ribbon-divider"></span>
                     <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
@@ -4183,7 +4357,7 @@
                         </div>
                         <div class="workspace-company-row">
                             <select id="activeCompany" class="company-context-input"><option value="">Select company…</option></select>
-                            <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Clear</button>
+                            <button class="btn ghost mini" id="clearActiveCompanyBtnLegacy" type="button" hidden>Clear</button>
                             <button class="btn ghost mini" id="syncNowBtn" type="button">Refresh</button>
                         </div>
                         <div class="workspace-inline-meta">
@@ -4265,7 +4439,7 @@
             <section class="factbox-part">
                 <h3>Page Information</h3>
                 <div class="factbox-line"><span>Page</span><strong id="desktopFactboxSection">Operations Home</strong></div>
-                <div class="factbox-line"><span>Company</span><strong id="desktopFactboxCompany">All Companies</strong></div>
+                <div hidden><strong id="desktopFactboxCompany">All Companies</strong></div>
                 <div class="factbox-line"><span>Sync</span><strong id="desktopFactboxSync">waiting</strong></div>
             </section>
             <section class="factbox-part">
@@ -6788,6 +6962,11 @@
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
             desktopUtilityCompany: document.getElementById("desktopUtilityCompany"),
             desktopModuleCompany: document.getElementById("desktopModuleCompany"),
+            desktopCompanySwitcher: document.getElementById("desktopCompanySwitcher"),
+            desktopCompanySwitcherSummary: document.getElementById("desktopCompanySwitcherSummary"),
+            companySwitcherSearch: document.getElementById("companySwitcherSearch"),
+            companySwitcherList: document.getElementById("companySwitcherList"),
+            companySwitcherCloseBtn: document.getElementById("companySwitcherCloseBtn"),
             desktopCommandContext: document.getElementById("desktopCommandContext"),
             desktopCommandRefreshBtn: document.getElementById("desktopCommandRefreshBtn"),
             desktopAlertReleased: document.getElementById("desktopAlertReleased"),
@@ -7287,7 +7466,17 @@
             });
             ui.clearActiveCompanyBtn?.addEventListener("click", () => {
                 clearActiveCompany();
-                ui.activeCompany?.focus();
+                ui.companySwitcherSearch?.focus();
+            });
+            ui.companySwitcherSearch?.addEventListener("input", () => renderCompanySwitcherList());
+            ui.companySwitcherList?.addEventListener("click", onCompanySwitcherListClick);
+            ui.companySwitcherCloseBtn?.addEventListener("click", () => {
+                if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
+            });
+            ui.desktopCompanySwitcher?.addEventListener("toggle", () => {
+                if (!ui.desktopCompanySwitcher.open) return;
+                renderCompanySwitcherList();
+                window.setTimeout(() => ui.companySwitcherSearch?.focus(), 0);
             });
             [
                 ui.scanAccount,
@@ -8227,6 +8416,12 @@
             if (ui.clearActiveCompanyBtn) {
                 ui.clearActiveCompanyBtn.disabled = !company;
             }
+            if (ui.desktopCompanySwitcherSummary) {
+                const label = "Available Companies";
+                ui.desktopCompanySwitcherSummary.title = label;
+                ui.desktopCompanySwitcherSummary.setAttribute("aria-label", label);
+            }
+            renderCompanySwitcherList();
             updateCompanyBoundUi();
             updateIntegrationCompanyMeta();
             updateIntegrationScheduleMeta();
@@ -10528,14 +10723,57 @@
             refreshMobileAutocomplete();
         }
 
+        function getCompanySwitcherOptions() {
+            if (!ui.activeCompany) return [];
+            return [...ui.activeCompany.options]
+                .map((option) => {
+                    const value = normalizeCompanyContextValue(option.value || "");
+                    return { value, label: value || "All Companies" };
+                })
+                .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.value === entry.value) === index);
+        }
+
+        function renderCompanySwitcherList() {
+            if (!ui.companySwitcherList) return;
+            const activeCompany = getActiveCompany();
+            const query = norm(ui.companySwitcherSearch?.value || "");
+            let options = getCompanySwitcherOptions();
+            if (!options.some((entry) => !entry.value)) {
+                options = [{ value: "", label: "All Companies" }].concat(options);
+            }
+            const visibleOptions = options.filter((entry) => !query || norm(entry.label).includes(query));
+            if (!visibleOptions.length) {
+                ui.companySwitcherList.innerHTML = `<p class="empty">No companies match that search.</p>`;
+                return;
+            }
+            ui.companySwitcherList.innerHTML = visibleOptions.map((entry) => {
+                const isActive = entry.value === activeCompany || (!entry.value && !activeCompany);
+                return `
+                    <button class="company-switcher-company ${isActive ? "active" : ""}" type="button" data-company-switcher-value="${attr(entry.value)}" role="option" aria-selected="${isActive ? "true" : "false"}">
+                        <span class="company-building-icon" aria-hidden="true"></span>
+                        <span>${esc(entry.label)}</span>
+                        <span class="company-switcher-check" aria-hidden="true"></span>
+                    </button>
+                `;
+            }).join("");
+        }
+
+        function onCompanySwitcherListClick(event) {
+            const button = event.target.closest("[data-company-switcher-value]");
+            if (!button) return;
+            setActiveCompany(button.dataset.companySwitcherValue || "", { force: true });
+            if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
+        }
+
         function renderActiveCompanyOptions(owners = []) {
             if (!ui.activeCompany) return;
             const current = norm(ui.activeCompany.value || state.preferences.activeCompany || "");
             const uniqueOwners = [...new Set((owners || []).map((owner) => norm(owner)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-            const options = ['<option value="">Select company…</option>']
+            const options = ['<option value="">All Companies</option>']
                 .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(owner)}</option>`));
             ui.activeCompany.innerHTML = options.join('');
             ui.activeCompany.value = current && uniqueOwners.includes(current) ? current : '';
+            renderCompanySwitcherList();
         }
 
         function renderActionSkuDatalists() {
