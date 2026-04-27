@@ -590,6 +590,71 @@
             font-size: 0.82rem;
         }
 
+        .erp-page-actions {
+            display: grid;
+            gap: 0.45rem;
+            margin: 0.35rem 0 0.8rem;
+            border-bottom: 1px solid #cfd8e2;
+        }
+
+        .erp-action-tabs,
+        .erp-command-strip {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.2rem 0.7rem;
+        }
+
+        .erp-action-tabs {
+            min-height: 32px;
+        }
+
+        .erp-action-tab {
+            min-height: 30px;
+            padding: 0.25rem 0.35rem;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: #28445a;
+            font-size: 0.78rem;
+            font-weight: 500;
+        }
+
+        .erp-action-tab.active,
+        .erp-action-tab:hover {
+            border-bottom-color: #008c95;
+            color: #006d7f;
+        }
+
+        .erp-command-strip {
+            min-height: 36px;
+            padding-bottom: 0.35rem;
+        }
+
+        .erp-command-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.32rem;
+            min-height: 28px;
+            padding: 0.2rem 0.35rem;
+            border: 0;
+            background: transparent;
+            color: #006d7f;
+            font-size: 0.78rem;
+            font-weight: 500;
+            text-align: left;
+        }
+
+        .erp-command-link:hover {
+            background: #eef6f7;
+        }
+
+        .erp-command-link:disabled {
+            color: #9aa8b4;
+            cursor: not-allowed;
+            background: transparent;
+        }
+
         .erp-fasttab {
             margin-top: 0.85rem;
         }
@@ -629,6 +694,159 @@
         .erp-card-aside .helper {
             border-radius: 0;
             box-shadow: none;
+        }
+
+        .erp-document-card .form-grid {
+            grid-template-columns: repeat(2, minmax(18rem, 1fr));
+            gap: 0.35rem 1.2rem;
+            align-items: start;
+        }
+
+        .erp-document-card .field {
+            display: grid;
+            grid-template-columns: minmax(8.5rem, 0.45fr) minmax(0, 1fr);
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.1rem 0;
+        }
+
+        .erp-document-card .field.span-2 {
+            grid-column: 1 / -1;
+            grid-template-columns: minmax(8.5rem, 0.225fr) minmax(0, 1fr);
+        }
+
+        .erp-document-card .field span {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: #395163;
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: none;
+            white-space: nowrap;
+        }
+
+        .erp-document-card .field span::after {
+            content: "";
+            flex: 1 1 auto;
+            border-bottom: 1px dotted #c8d2dc;
+            transform: translateY(0.08rem);
+        }
+
+        .erp-document-card input,
+        .erp-document-card select,
+        .erp-document-card textarea {
+            min-height: 30px;
+            padding: 0.32rem 0.45rem;
+            border-radius: 0;
+            border-color: #aebbc7;
+            box-shadow: none;
+            font-size: 0.82rem;
+        }
+
+        .erp-document-card input:focus,
+        .erp-document-card select:focus,
+        .erp-document-card textarea:focus {
+            border-color: #008c95;
+            box-shadow: 0 0 0 1px #008c95;
+        }
+
+        .erp-line-grid-head {
+            display: grid;
+            grid-template-columns: 3rem minmax(14rem, 1fr) 7rem 6rem;
+            gap: 0;
+            min-height: 30px;
+            align-items: center;
+            border: 1px solid #cfd8e2;
+            border-bottom: 0;
+            background: #f8f9fa;
+            color: #4e6374;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .erp-line-grid-head span {
+            padding: 0.45rem 0.55rem;
+            border-left: 1px solid #d8e0e7;
+        }
+
+        .erp-line-grid-head span:first-child {
+            border-left: 0;
+        }
+
+        .erp-lines-part .line-items {
+            counter-reset: erp-line;
+            border: 1px solid #cfd8e2;
+            border-top: 0;
+        }
+
+        .erp-lines-part .line-card {
+            counter-increment: erp-line;
+            display: grid;
+            grid-template-columns: 3rem minmax(0, 1fr);
+            gap: 0;
+            padding: 0;
+            border: 0;
+            border-top: 1px solid #d8e0e7;
+            border-radius: 0;
+            background: #ffffff;
+            box-shadow: none;
+        }
+
+        .erp-lines-part .line-card:first-child {
+            border-top: 0;
+        }
+
+        .erp-lines-part .line-card::before {
+            content: counter(erp-line);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid #d8e0e7;
+            color: #5d6f7d;
+            font-size: 0.8rem;
+        }
+
+        .erp-lines-part .line-fields {
+            display: grid;
+            grid-template-columns: minmax(14rem, 1fr) 7rem 6rem;
+            gap: 0;
+        }
+
+        .erp-lines-part .line-fields .field {
+            grid-template-columns: 1fr;
+            padding: 0;
+            border-right: 1px solid #d8e0e7;
+        }
+
+        .erp-lines-part .line-fields .field span {
+            display: none;
+        }
+
+        .erp-lines-part .line-fields select,
+        .erp-lines-part .line-fields input {
+            width: 100%;
+            min-height: 36px;
+            border: 0;
+            border-radius: 0;
+        }
+
+        .erp-lines-part .line-fields .btn {
+            min-height: 36px;
+            border: 0;
+            border-radius: 0;
+            color: #006d7f;
+        }
+
+        .erp-lines-part .line-note {
+            grid-column: 2;
+            padding: 0.36rem 0.55rem;
+            border-top: 1px solid #edf1f4;
+            color: #5d6f7d;
+            font-size: 0.76rem;
         }
 
         .utility-status-pill,
@@ -4791,6 +5009,22 @@
                             <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
                         </div>
                     </div>
+                    <div class="erp-page-actions desktop-only" aria-label="Purchase order actions">
+                        <div class="erp-action-tabs">
+                            <button class="erp-action-tab active" type="button">Home</button>
+                            <button class="erp-action-tab" type="button">Prepare</button>
+                            <button class="erp-action-tab" type="button">Print/Send</button>
+                            <button class="erp-action-tab" type="button">Order</button>
+                            <button class="erp-action-tab" type="button">Report</button>
+                            <button class="erp-action-tab" type="button">More options</button>
+                        </div>
+                        <div class="erp-command-strip">
+                            <button class="erp-command-link" type="button" id="purchaseOrderCommandNewBtn">+ New</button>
+                            <button class="erp-command-link" type="button" id="purchaseOrderCommandPostBtn">Post...</button>
+                            <button class="erp-command-link" type="button" id="purchaseOrderCommandReceiveBtn">Receive</button>
+                            <button class="erp-command-link" type="button" id="purchaseOrderCommandAddLineBtn">Select items...</button>
+                        </div>
+                    </div>
                     <div class="quick-meta" id="warehouseInboundCompanyMeta">Choose an active company in the header before entering a warehouse purchase order.</div>
                     <div class="erp-fasttab">
                         <div class="erp-fasttab-heading desktop-only">General</div>
@@ -4828,6 +5062,12 @@
                                 <p class="meta" id="warehouseInboundLinesMeta">Only item masters saved for the active company can be selected.</p>
                             </div>
                             <button class="btn ghost" id="addWarehouseInboundLineBtn" type="button">Add Line</button>
+                        </div>
+                        <div class="erp-line-grid-head desktop-only" aria-hidden="true">
+                            <span>No.</span>
+                            <span>Item / SKU</span>
+                            <span>Quantity</span>
+                            <span>Action</span>
                         </div>
                         <div id="warehouseInboundLines" class="line-items"></div>
                     </div>
@@ -5756,6 +5996,22 @@
                             <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Sales Order</button>
                         </div>
                     </div>
+                    <div class="erp-page-actions desktop-only" aria-label="Sales order actions">
+                        <div class="erp-action-tabs">
+                            <button class="erp-action-tab active" type="button">Home</button>
+                            <button class="erp-action-tab" type="button">Prepare</button>
+                            <button class="erp-action-tab" type="button">Print/Send</button>
+                            <button class="erp-action-tab" type="button">Order</button>
+                            <button class="erp-action-tab" type="button">Report</button>
+                            <button class="erp-action-tab" type="button">More options</button>
+                        </div>
+                        <div class="erp-command-strip">
+                            <button class="erp-command-link" type="button" id="salesOrderCommandNewBtn">+ New</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandAddLineBtn">Select items...</button>
+                        </div>
+                    </div>
                     <div class="quick-meta" id="warehouseOrderCompanyMeta">Choose an active company in the header before entering a warehouse sales order.</div>
                     <div class="erp-fasttab">
                         <div class="erp-fasttab-heading desktop-only">General</div>
@@ -5827,6 +6083,12 @@
                                 <p class="meta">Only SKUs with available inventory for the active company can be selected.</p>
                             </div>
                             <button class="btn ghost" id="addWarehouseOrderLineBtn" type="button">Add Line</button>
+                        </div>
+                        <div class="erp-line-grid-head desktop-only" aria-hidden="true">
+                            <span>No.</span>
+                            <span>Item / SKU</span>
+                            <span>Quantity</span>
+                            <span>Action</span>
                         </div>
                         <div id="warehouseOrderLines" class="line-items"></div>
                     </div>
@@ -7265,6 +7527,10 @@
             resetWarehouseOrderBtn: document.getElementById("resetWarehouseOrderBtn"),
             saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
             releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
+            salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
+            salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
+            salesOrderCommandReleaseBtn: document.getElementById("salesOrderCommandReleaseBtn"),
+            salesOrderCommandAddLineBtn: document.getElementById("salesOrderCommandAddLineBtn"),
             warehouseOrderMessage: document.getElementById("warehouseOrderMessage"),
             ordersPanelMobileTitle: document.getElementById("ordersPanelMobileTitle"),
             ordersPanelTitle: document.getElementById("ordersPanelTitle"),
@@ -7297,6 +7563,10 @@
             addWarehouseInboundLineBtn: document.getElementById("addWarehouseInboundLineBtn"),
             resetWarehouseInboundBtn: document.getElementById("resetWarehouseInboundBtn"),
             submitWarehouseInboundBtn: document.getElementById("submitWarehouseInboundBtn"),
+            purchaseOrderCommandNewBtn: document.getElementById("purchaseOrderCommandNewBtn"),
+            purchaseOrderCommandPostBtn: document.getElementById("purchaseOrderCommandPostBtn"),
+            purchaseOrderCommandReceiveBtn: document.getElementById("purchaseOrderCommandReceiveBtn"),
+            purchaseOrderCommandAddLineBtn: document.getElementById("purchaseOrderCommandAddLineBtn"),
             warehouseInboundMessage: document.getElementById("warehouseInboundMessage"),
             salesOrderDraftCount: document.getElementById("salesOrderDraftCount"),
             salesOrderReleasedCount: document.getElementById("salesOrderReleasedCount"),
@@ -7619,11 +7889,19 @@
             ui.resetWarehouseOrderBtn?.addEventListener("click", () => resetWarehouseSalesOrderForm());
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
+            ui.salesOrderCommandNewBtn?.addEventListener("click", () => resetWarehouseSalesOrderForm());
+            ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
+            ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
+            ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
             ui.warehouseOrderLines?.addEventListener("click", onWarehouseOrderLinesClick);
             ui.warehouseOrderLines?.addEventListener("change", onWarehouseOrderLinesChange);
             ui.addWarehouseInboundLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
             ui.resetWarehouseInboundBtn?.addEventListener("click", () => resetWarehouseInboundForm());
             ui.submitWarehouseInboundBtn?.addEventListener("click", submitWarehouseInbound);
+            ui.purchaseOrderCommandNewBtn?.addEventListener("click", () => resetWarehouseInboundForm());
+            ui.purchaseOrderCommandPostBtn?.addEventListener("click", submitWarehouseInbound);
+            ui.purchaseOrderCommandReceiveBtn?.addEventListener("click", submitWarehouseInbound);
+            ui.purchaseOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
             ui.warehouseInboundLines?.addEventListener("click", onWarehouseInboundLinesClick);
             ui.warehouseInboundLines?.addEventListener("change", onWarehouseInboundLinesChange);
             ui.clearPortalOrderFiltersBtn?.addEventListener("click", () => {
@@ -13397,7 +13675,14 @@
                     ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
                     : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company)} Existing orders remain visible, but new order entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse sales order.";
-            [ui.addWarehouseOrderLineBtn, ui.saveWarehouseOrderDraftBtn, ui.releaseWarehouseOrderBtn].filter(Boolean).forEach((button) => {
+            [
+                ui.addWarehouseOrderLineBtn,
+                ui.saveWarehouseOrderDraftBtn,
+                ui.releaseWarehouseOrderBtn,
+                ui.salesOrderCommandSaveBtn,
+                ui.salesOrderCommandReleaseBtn,
+                ui.salesOrderCommandAddLineBtn
+            ].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled;
             });
             if (ui.warehouseOrderLines) {
@@ -13656,7 +13941,13 @@
                         : `No saved item masters were found for ${company} yet. Add company items in Master Data before creating a purchase order.`)
                     : "Only item masters saved for the active company can be selected.";
             }
-            [ui.addWarehouseInboundLineBtn, ui.submitWarehouseInboundBtn].filter(Boolean).forEach((button) => {
+            [
+                ui.addWarehouseInboundLineBtn,
+                ui.submitWarehouseInboundBtn,
+                ui.purchaseOrderCommandPostBtn,
+                ui.purchaseOrderCommandReceiveBtn,
+                ui.purchaseOrderCommandAddLineBtn
+            ].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled || !hasItemCatalog;
             });
             if (ui.warehouseInboundLines) {
