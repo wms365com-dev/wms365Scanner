@@ -3318,6 +3318,9 @@
                 border-radius: 0;
                 background: transparent;
                 box-shadow: none;
+                overflow: visible;
+                position: relative;
+                z-index: 1200;
             }
 
             .hero-grid {
@@ -3425,6 +3428,9 @@
                 border-radius: 0;
                 background: #ffffff;
                 gap: 1.05rem;
+                overflow: visible;
+                position: relative;
+                z-index: 1210;
             }
 
             .desktop-embeddingbar,
@@ -3470,6 +3476,9 @@
 
             .module-menu-panel {
                 top: calc(100% + 0.16rem);
+                z-index: 1220;
+                max-height: min(70vh, 420px);
+                overflow-y: auto;
                 border-radius: 2px;
                 box-shadow: 0 12px 28px rgba(0,0,0,0.16);
             }
