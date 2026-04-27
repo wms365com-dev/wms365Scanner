@@ -5531,7 +5531,7 @@
                     </div>
 
                     <div class="library-grid">
-                        <div class="helper">
+                        <div class="helper" id="masterOwnerProfileCard">
                             <h3>Company Profile</h3>
                             <p class="meta">Capture company details once and link the portal login email to company portal access.</p>
                             <form id="masterOwnerForm" class="form-grid" autocomplete="off">
@@ -5559,7 +5559,7 @@
                             </form>
                         </div>
 
-                        <div class="helper">
+                        <div class="helper" id="masterBinLocationCard">
                             <h3>Add BIN Location</h3>
                             <form id="masterLocationForm" class="form-grid" autocomplete="off">
                                 <label class="field">
@@ -6146,7 +6146,7 @@
                 </div>
             </article>
             <div class="action-grid action-workspace-grid">
-                <article class="card mobile-subview active workspace-action-card" data-mobile-subview-group="actions" data-mobile-subview="adjust">
+                <article class="card mobile-subview active workspace-action-card" id="adjustInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="adjust">
                     <div class="card-head">
                         <div>
                             <h2>Remove Or Delete</h2>
@@ -6177,7 +6177,7 @@
                     </form>
                 </article>
 
-                <article class="card mobile-subview workspace-action-card" data-mobile-subview-group="actions" data-mobile-subview="transfer">
+                <article class="card mobile-subview workspace-action-card" id="transferInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="transfer">
                     <div class="card-head">
                         <div>
                             <h2>Transfer Stock</h2>
@@ -6211,7 +6211,7 @@
                     </form>
                 </article>
 
-                <article class="card mobile-subview workspace-action-card" data-mobile-subview-group="actions" data-mobile-subview="convert">
+                <article class="card mobile-subview workspace-action-card" id="convertInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="convert">
                     <div class="card-head">
                         <div>
                             <h2>Convert Item</h2>
@@ -6252,7 +6252,7 @@
                     </form>
                 </article>
 
-                <article class="card mobile-subview workspace-action-card" data-mobile-subview-group="actions" data-mobile-subview="move">
+                <article class="card mobile-subview workspace-action-card" id="moveInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="move">
                     <div class="card-head">
                         <div>
                             <h2>BIN To BIN Move</h2>
@@ -6309,24 +6309,68 @@
             <article class="card desktop-only workspace-index-card">
                 <div class="workspace-index-head">
                     <span>Inventory Index</span>
-                    <strong>Drill into setup, live stock, worksheet, or summary</strong>
+                    <strong>Drill into the exact inventory, setup, action, or admin workspace</strong>
                 </div>
                 <div class="workspace-index-grid">
-                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="masterDataWorkspaceCard">
-                        <strong>Master Data</strong>
-                        <span>Maintain companies, BINs, items, and portal access.</span>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="partnerListCard" data-master-list="CUSTOMER">
+                        <strong>Customers</strong>
+                        <span>Open customer cards saved under the active company.</span>
                     </button>
-                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="inventorySnapshotCard">
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="partnerListCard" data-master-list="VENDOR">
+                        <strong>Vendors</strong>
+                        <span>Open vendor cards saved under the active company.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterItemsListCard" data-master-list="ITEM">
+                        <strong>Items</strong>
+                        <span>Open the item master list and drill into item cards.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterBinLocationCard">
+                        <strong>BIN Locations</strong>
+                        <span>Create BINs and review saved warehouse locations.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterOwnerProfileCard">
+                        <strong>Company Profile</strong>
+                        <span>Maintain the active customer company profile.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="portalAccessListCard">
+                        <strong>Portal Users</strong>
+                        <span>Manage customer portal login access.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="inventorySnapshotCard">
                         <strong>Live Inventory</strong>
                         <span>Filter the current warehouse inventory snapshot.</span>
                     </button>
-                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="inventoryWorksheetCard">
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="inventoryWorksheetCard">
                         <strong>Inventory Worksheet</strong>
                         <span>Bulk edit inventory like a spreadsheet for the active company.</span>
                     </button>
-                    <button class="workspace-index-btn" type="button" data-workspace-group="inventory" data-workspace-anchor="inventorySummaryCard">
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="inventorySummaryCard">
                         <strong>Warehouse Summary</strong>
                         <span>Review the high-level warehouse totals and last sync.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="actions" data-workspace-group="actions" data-workspace-anchor="adjustInventoryCard">
+                        <strong>Adjust / Remove</strong>
+                        <span>Go to inventory correction and delete tools.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="actions" data-workspace-group="actions" data-workspace-anchor="transferInventoryCard">
+                        <strong>Transfers</strong>
+                        <span>Move stock between BINs or locations.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="actions" data-workspace-group="actions" data-workspace-anchor="convertInventoryCard">
+                        <strong>Conversions</strong>
+                        <span>Convert cases, units, pallets, or re-SKU inventory.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="integrations" data-workspace-group="integrations" data-workspace-anchor="integrationsWorkspaceHost">
+                        <strong>Integrations</strong>
+                        <span>Connect Shopify, SFTP, and scheduled sync lanes.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="reports" data-workspace-group="reports" data-workspace-anchor="reportsOverviewCard">
+                        <strong>Reports</strong>
+                        <span>Run inventory exports, counts, and report views.</span>
+                    </button>
+                    <button class="workspace-index-btn" type="button" data-workspace-section="backup" data-workspace-group="backup" data-workspace-anchor="companyFeatureAdminCard">
+                        <strong>Admin</strong>
+                        <span>Manage feature access, warehouse users, and support queue.</span>
                     </button>
                 </div>
             </article>
@@ -6654,7 +6698,7 @@
             </div>
             <div class="mobile-screen-body">
             <div class="inventory-grid report-overview-grid">
-                <article class="card workspace-control-card">
+                <article class="card workspace-control-card" id="reportsOverviewCard">
                     <div class="card-head">
                         <div>
                             <h2>Desktop Reports</h2>
@@ -8944,10 +8988,20 @@
                 inventorySnapshotCard: ui.inventoryFilter,
                 inventoryWorksheetCard: getActiveCompany() ? ui.addInventoryWorksheetRowBtn : ui.activeCompany,
                 masterDataWorkspaceCard: ui.masterFilter,
+                masterOwnerProfileCard: ui.masterOwnerName,
+                masterBinLocationCard: ui.masterLocationCode,
                 masterItemsListCard: ui.openMasterItemNewBtn || ui.masterFilter,
                 partnerListCard: getActiveCompany()
                     ? (activePartnerListType === "VENDOR" ? ui.openVendorNewBtn : ui.openCustomerNewBtn)
                     : ui.activeCompany,
+                portalAccessListCard: ui.portalAccessEmail || ui.portalAccessAccount,
+                adjustInventoryCard: ui.adjustLocation,
+                transferInventoryCard: ui.transferFrom,
+                convertInventoryCard: ui.convertFrom,
+                moveInventoryCard: ui.moveFrom,
+                integrationsWorkspaceHost: ui.integrationName,
+                reportsOverviewCard: ui.reportFilter,
+                companyFeatureAdminCard: ui.companyFeatureChecklist || ui.activeCompany,
                 portalOrdersFiltersCard: ui.portalOrderSearch,
                 warehouseOrderEntryCard: ui.warehouseOrderPoNumber
             };
@@ -8985,6 +9039,8 @@
             const anchorId = String(button?.dataset?.workspaceAnchor || "").trim();
             if (!anchorId) return;
             const section = String(button?.dataset?.workspaceSection || activeSection).trim().toLowerCase() || activeSection;
+            const masterListTarget = String(button?.dataset?.masterList || "").trim().toUpperCase();
+            if (masterListTarget) openMasterListTarget(masterListTarget, { scroll: false });
             if (section !== activeSection) {
                 setSection(section, { focusAnchorId: anchorId });
                 return;
