@@ -748,6 +748,37 @@ app.post("/api/master-owner", async (req, res, next) => {
     }
 });
 
+app.post("/api/master-partner", async (req, res, next) => {
+    try {
+        const entry = sanitizeCompanyPartnerInput(req.body);
+        if (!entry || !entry.accountName || !entry.partnerType || !entry.name) {
+            throw httpError(400, "Company, partner type, and partner name are required.");
+        }
+
+        await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, entry.accountName);
+            await upsertOwnerMaster(client, entry.accountName);
+            await upsertCompanyPartner(client, entry);
+            await insertActivity(
+                client,
+                "setup",
+                `Saved ${entry.partnerType === "VENDOR" ? "vendor" : "customer"} ${entry.name}`,
+                [
+                    `Company ${entry.accountName}`,
+                    entry.accountCode ? `Code ${entry.accountCode}` : "",
+                    entry.contactName ? `Contact ${entry.contactName}` : "",
+                    entry.email ? `Email ${entry.email}` : "",
+                    entry.note || ""
+                ].filter(Boolean).join(" | ")
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/master-item", async (req, res, next) => {
     try {
         const entry = sanitizeItemMasterInput(req.body);
@@ -1439,6 +1470,7 @@ app.post("/api/import", async (req, res, next) => {
         const importedBillingEvents = Array.isArray(req.body?.billing?.events) ? req.body.billing.events.map(sanitizeBillingEventInput).filter(Boolean) : [];
         const importedLocations = Array.isArray(req.body?.masters?.locations) ? req.body.masters.locations.map(sanitizeLocationMasterInput).filter(Boolean) : [];
         const importedItems = Array.isArray(req.body?.masters?.items) ? req.body.masters.items.map(sanitizeItemMasterInput).filter(Boolean) : [];
+        const importedPartners = Array.isArray(req.body?.masters?.partners) ? req.body.masters.partners.map(sanitizeCompanyPartnerInput).filter(Boolean) : [];
         const importedOwners = Array.isArray(req.body?.masters?.ownerRecords)
             ? req.body.masters.ownerRecords.map(sanitizeOwnerMasterInput).filter(Boolean)
             : Array.isArray(req.body?.masters?.owners)
@@ -1446,7 +1478,7 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, bin_locations, item_catalog, owner_accounts restart identity cascade");
+            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
 
             if (importedBillingFees.length) {
                 await client.query("truncate table billing_fee_catalog");
@@ -1545,6 +1577,11 @@ app.post("/api/import", async (req, res, next) => {
                     `,
                     [rate.accountName, rate.feeCode, rate.rate, rate.isEnabled === true, rate.unitLabel, rate.note, rate.createdAt, rate.updatedAt]
                 );
+            }
+
+            for (const partner of importedPartners) {
+                await upsertOwnerMaster(client, partner.accountName);
+                await upsertCompanyPartner(client, partner);
             }
 
             for (const event of importedBillingEvents) {
@@ -1662,7 +1699,7 @@ app.post("/api/import", async (req, res, next) => {
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedPartners.length, "partner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
             );
         });
 
@@ -2903,6 +2940,35 @@ async function initializeDatabase() {
     await pool.query("alter table owner_accounts add column if not exists feature_flags_updated_by text not null default '';");
 
     await pool.query(`
+        create table if not exists company_partner_accounts (
+            id bigserial primary key,
+            account_name text not null,
+            partner_type text not null,
+            name text not null,
+            account_code text not null default '',
+            contact_name text not null default '',
+            contact_title text not null default '',
+            email text not null default '',
+            phone text not null default '',
+            mobile text not null default '',
+            website text not null default '',
+            address1 text not null default '',
+            address2 text not null default '',
+            city text not null default '',
+            state text not null default '',
+            postal_code text not null default '',
+            country text not null default '',
+            is_active boolean not null default true,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create unique index if not exists idx_company_partner_accounts_unique on company_partner_accounts (account_name, partner_type, name);");
+    await pool.query("create index if not exists idx_company_partner_accounts_company on company_partner_accounts (account_name);");
+    await pool.query("create index if not exists idx_company_partner_accounts_type on company_partner_accounts (partner_type);");
+
+    await pool.query(`
         create table if not exists portal_vendor_access (
             id bigserial primary key,
             account_name text not null unique,
@@ -3558,11 +3624,12 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
 
-    const [inventoryResult, activityResult, locationResult, ownerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
         client.query("select * from owner_accounts order by name asc"),
+        client.query("select * from company_partner_accounts order by account_name asc, partner_type asc, name asc"),
         client.query("select * from item_catalog order by account_name asc, sku asc"),
         client.query("select * from pallet_records order by updated_at desc, pallet_code asc"),
         client.query("select * from billing_fee_catalog order by category asc, name asc"),
@@ -3575,6 +3642,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce((select max(created_at) from activity_log), to_timestamp(0)),
                     coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_accounts), to_timestamp(0)),
+                    coalesce((select max(updated_at) from company_partner_accounts), to_timestamp(0)),
                     coalesce((select max(updated_at) from item_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
@@ -3600,6 +3668,9 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
     const ownerRows = companyScoped
         ? filterRowsByAllowedCompanies(ownerResult.rows, accessibleCompanies, (row) => row.name)
         : ownerResult.rows;
+    const partnerRows = companyScoped
+        ? filterRowsByAllowedCompanies(partnerResult.rows, accessibleCompanies, (row) => row.account_name)
+        : partnerResult.rows;
     const itemRows = companyScoped
         ? filterRowsByAllowedCompanies(itemResult.rows, accessibleCompanies, (row) => row.account_name)
         : itemResult.rows;
@@ -3625,6 +3696,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         masters: {
             locations: locationResult.rows.map(mapLocationMasterRow),
             ownerRecords: ownerRows.map(mapOwnerMasterRow),
+            partners: partnerRows.map(mapCompanyPartnerRow),
             items: itemRows.map(mapItemMasterRow),
             owners
         },
@@ -10102,6 +10174,83 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
     );
 }
 
+async function upsertCompanyPartner(client, partnerInput) {
+    const entry = sanitizeCompanyPartnerInput(partnerInput);
+    if (!entry?.accountName || !entry?.partnerType || !entry?.name) return;
+    const partnerId = toPositiveInt(entry.id);
+
+    if (partnerId) {
+        const updated = await client.query(
+            `
+                update company_partner_accounts
+                set partner_type = $2,
+                    name = $3,
+                    account_code = $4,
+                    contact_name = $5,
+                    contact_title = $6,
+                    email = $7,
+                    phone = $8,
+                    mobile = $9,
+                    website = $10,
+                    address1 = $11,
+                    address2 = $12,
+                    city = $13,
+                    state = $14,
+                    postal_code = $15,
+                    country = $16,
+                    is_active = $17,
+                    note = $18,
+                    updated_at = now()
+                where id = $19 and account_name = $1
+            `,
+            [
+                entry.accountName, entry.partnerType, entry.name, entry.accountCode, entry.contactName, entry.contactTitle,
+                entry.email, entry.phone, entry.mobile, entry.website, entry.address1, entry.address2, entry.city, entry.state,
+                entry.postalCode, entry.country, entry.isActive, entry.note, partnerId
+            ]
+        );
+        if (updated.rowCount) return;
+    }
+
+    await client.query(
+        `
+            insert into company_partner_accounts (
+                account_name, partner_type, name, account_code, contact_name, contact_title,
+                email, phone, mobile, website, address1, address2, city, state,
+                postal_code, country, is_active, note
+            )
+            values (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11, $12, $13, $14,
+                $15, $16, $17, $18
+            )
+            on conflict (account_name, partner_type, name)
+            do update set
+                account_code = excluded.account_code,
+                contact_name = excluded.contact_name,
+                contact_title = excluded.contact_title,
+                email = excluded.email,
+                phone = excluded.phone,
+                mobile = excluded.mobile,
+                website = excluded.website,
+                address1 = excluded.address1,
+                address2 = excluded.address2,
+                city = excluded.city,
+                state = excluded.state,
+                postal_code = excluded.postal_code,
+                country = excluded.country,
+                is_active = excluded.is_active,
+                note = excluded.note,
+                updated_at = now()
+        `,
+        [
+            entry.accountName, entry.partnerType, entry.name, entry.accountCode, entry.contactName, entry.contactTitle,
+            entry.email, entry.phone, entry.mobile, entry.website, entry.address1, entry.address2, entry.city, entry.state,
+            entry.postalCode, entry.country, entry.isActive, entry.note
+        ]
+    );
+}
+
 async function upsertItemMaster(client, item) {
     const entry = sanitizeItemMasterInput(item);
     if (!entry || !entry.accountName || !entry.sku) return;
@@ -10953,6 +11102,41 @@ function sanitizeOwnerMasterInput(item) {
     };
 }
 
+function normalizeCompanyPartnerType(value) {
+    const normalized = normalizeText(value || "");
+    return normalized === "VENDOR" ? "VENDOR" : "CUSTOMER";
+}
+
+function sanitizeCompanyPartnerInput(item) {
+    const accountName = normalizeText(item?.accountName || item?.account_name || item?.owner || item?.company || item?.customerAccount || "");
+    const partnerType = normalizeCompanyPartnerType(item?.partnerType || item?.partner_type || item?.type);
+    const name = normalizeText(item?.name || item?.partnerName || item?.partner_name || item?.customer || item?.vendor);
+    if (!accountName || !partnerType || !name) return null;
+    return {
+        id: item?.id != null ? String(item.id) : "",
+        accountName,
+        partnerType,
+        name,
+        accountCode: normalizeText(item?.accountCode || item?.account_code || item?.code),
+        contactName: normalizeFreeText(item?.contactName || item?.contact_name),
+        contactTitle: normalizeFreeText(item?.contactTitle || item?.contact_title),
+        email: normalizeEmail(item?.email),
+        phone: normalizeFreeText(item?.phone),
+        mobile: normalizeFreeText(item?.mobile || item?.cell),
+        website: normalizeFreeText(item?.website),
+        address1: normalizeFreeText(item?.address1 || item?.address_1),
+        address2: normalizeFreeText(item?.address2 || item?.address_2),
+        city: normalizeFreeText(item?.city),
+        state: normalizeFreeText(item?.state || item?.province),
+        postalCode: normalizeText(item?.postalCode || item?.postal_code || item?.zip),
+        country: normalizeFreeText(item?.country),
+        isActive: item?.isActive !== false,
+        note: normalizeFreeText(item?.note),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
 function sanitizeStoreIntegrationSettingsInput(provider, settings = {}, rawInput = {}) {
     const normalizedProvider = normalizeStoreIntegrationProvider(provider);
     const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
@@ -11127,6 +11311,32 @@ function mapOwnerMasterRow(row) {
         featureFlagsInherited: legacyMode,
         featureFlagsUpdatedAt: row.feature_flags_updated_at ? new Date(row.feature_flags_updated_at).toISOString() : null,
         featureFlagsUpdatedBy: row.feature_flags_updated_by || "",
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapCompanyPartnerRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name,
+        partnerType: normalizeCompanyPartnerType(row.partner_type),
+        name: row.name,
+        accountCode: row.account_code || "",
+        contactName: row.contact_name || "",
+        contactTitle: row.contact_title || "",
+        email: row.email || "",
+        phone: row.phone || "",
+        mobile: row.mobile || "",
+        website: row.website || "",
+        address1: row.address1 || row.address_1 || "",
+        address2: row.address2 || row.address_2 || "",
+        city: row.city || "",
+        state: row.state || "",
+        postalCode: row.postal_code || "",
+        country: row.country || "",
+        isActive: row.is_active !== false,
+        note: row.note || "",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };

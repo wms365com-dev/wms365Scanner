@@ -1120,13 +1120,15 @@
         @media (min-width: 860px) {
             body.sales-order-popout-open,
             body.purchase-order-popout-open,
-            body.item-card-popout-open {
+            body.item-card-popout-open,
+            body.partner-card-popout-open {
                 overflow: hidden;
             }
 
             body.sales-order-popout-open::before,
             body.purchase-order-popout-open::before,
-            body.item-card-popout-open::before {
+            body.item-card-popout-open::before,
+            body.partner-card-popout-open::before {
                 content: "";
                 position: fixed;
                 inset: 0;
@@ -1144,7 +1146,8 @@
 
             body.sales-order-popout-open #warehouseOrderEntryCard,
             body.purchase-order-popout-open #warehouseInboundEntryCard,
-            body.item-card-popout-open #masterItemCard {
+            body.item-card-popout-open #masterItemCard,
+            body.partner-card-popout-open #partnerCard {
                 position: fixed;
                 top: 3.2rem;
                 left: 50%;
@@ -1159,13 +1162,15 @@
                 box-shadow: 0 1.4rem 3rem rgba(15, 23, 42, 0.34);
             }
 
-            body.item-card-popout-open #masterItemCard {
+            body.item-card-popout-open #masterItemCard,
+            body.partner-card-popout-open #partnerCard {
                 width: min(62rem, calc(100vw - 5rem));
             }
 
             body.sales-order-popout-open #warehouseOrderEntryCard .card-head,
             body.purchase-order-popout-open #warehouseInboundEntryCard .card-head,
-            body.item-card-popout-open #masterItemCard .card-head {
+            body.item-card-popout-open #masterItemCard .card-head,
+            body.partner-card-popout-open #partnerCard .card-head {
                 position: sticky;
                 top: 0;
                 z-index: 2;
@@ -4766,6 +4771,7 @@
                     <details class="module-menu">
                         <summary>Sales</summary>
                         <div class="module-menu-panel">
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="CUSTOMER">Customers</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="orders">Sales Orders</button>
                             <button class="module-menu-item" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
                             <button class="module-menu-item" type="button" data-jump-section="shipped">Shipped Orders</button>
@@ -4775,6 +4781,7 @@
                     <details class="module-menu">
                         <summary>Purchasing</summary>
                         <div class="module-menu-panel">
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="VENDOR">Vendors</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="inbounds">Purchase Orders</button>
                             <button class="module-menu-item" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
                             <button class="module-menu-item" type="button" data-jump-section="scan">Receiving</button>
@@ -4783,6 +4790,7 @@
                     <details class="module-menu">
                         <summary>Inventory</summary>
                         <div class="module-menu-panel">
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterItemsListCard" data-master-list="ITEM">Items</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="search">Inventory Lookup</button>
                             <button class="module-menu-item" type="button" data-jump-section="actions">Adjust & Move</button>
                             <button class="module-menu-item" type="button" data-jump-section="labels">Labels</button>
@@ -4825,9 +4833,9 @@
                 </div>
             </div>
             <div class="desktop-embeddingbar desktop-only" aria-label="Quick links">
-                <button type="button" data-jump-section="inventory">Customers</button>
-                <button type="button" data-jump-section="integrations">Vendors</button>
-                <button type="button" data-jump-section="inventory">Items</button>
+                <button type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="CUSTOMER">Customers</button>
+                <button type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="VENDOR">Vendors</button>
+                <button type="button" data-jump-section="inventory" data-workspace-anchor="masterItemsListCard" data-master-list="ITEM">Items</button>
                 <button type="button" data-jump-section="search">Inventory</button>
                 <button type="button" data-jump-section="orders">Sales Orders</button>
                 <button type="button" data-jump-section="inbounds">Purchase Orders</button>
@@ -5568,6 +5576,119 @@
                             </form>
                         </div>
 
+                        <div class="helper erp-list-page" id="partnerListCard">
+                            <div class="erp-list-titlebar">
+                                <div>
+                                    <h2 id="partnerListTitle">Customers</h2>
+                                    <p class="meta" id="partnerListMeta">Customer cards are scoped to the active company.</p>
+                                </div>
+                                <div class="erp-list-actions">
+                                    <span class="meta" id="partnerListCount">0 saved</span>
+                                    <button class="btn ghost mini" id="openCustomerNewBtn" type="button">+ New Customer</button>
+                                    <button class="btn ghost mini" id="openVendorNewBtn" type="button">+ New Vendor</button>
+                                </div>
+                            </div>
+                            <div id="partnerList" class="stack-list">
+                                <p class="empty">Choose a company to review saved customers and vendors.</p>
+                            </div>
+                        </div>
+
+                        <div class="helper erp-document-card hidden" id="partnerCard">
+                            <div class="card-head">
+                                <div>
+                                    <div class="erp-document-kicker">Card Page</div>
+                                    <div class="erp-document-title-row">
+                                        <h3 id="partnerCardTitle">Customer Card</h3>
+                                        <span class="erp-status-chip" id="partnerStatusChip">New</span>
+                                    </div>
+                                    <p class="meta" id="partnerCardMeta">Maintain customer and vendor contact records under the active company.</p>
+                                </div>
+                                <div class="erp-document-actions">
+                                    <button class="btn ghost erp-document-back" id="closePartnerCardBtn" type="button">Back to List</button>
+                                </div>
+                            </div>
+                            <form id="partnerForm" class="form-grid" autocomplete="off">
+                                <input id="partnerId" type="hidden">
+                                <input id="partnerType" type="hidden" value="CUSTOMER">
+                                <input id="partnerAccount" type="hidden">
+                                <div class="erp-fasttab-heading desktop-only span-2">General</div>
+                                <label class="field span-2">
+                                    <span id="partnerNameLabel">Customer Name</span>
+                                    <input id="partnerName" type="text" placeholder="Required name" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Code</span>
+                                    <input id="partnerCode" type="text" placeholder="Optional account code" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Status</span>
+                                    <select id="partnerActive">
+                                        <option value="true">Active</option>
+                                        <option value="false">Inactive</option>
+                                    </select>
+                                </label>
+                                <div class="erp-fasttab-heading desktop-only span-2">Contact</div>
+                                <label class="field">
+                                    <span>Contact Name</span>
+                                    <input id="partnerContactName" type="text" placeholder="Primary contact" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Contact Title</span>
+                                    <input id="partnerContactTitle" type="text" placeholder="Optional title" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Email</span>
+                                    <input id="partnerEmail" type="email" placeholder="Optional email" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Phone</span>
+                                    <input id="partnerPhone" type="text" placeholder="Optional phone" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Mobile</span>
+                                    <input id="partnerMobile" type="text" placeholder="Optional mobile" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Website</span>
+                                    <input id="partnerWebsite" type="text" placeholder="Optional website" enterkeyhint="next">
+                                </label>
+                                <div class="erp-fasttab-heading desktop-only span-2">Address</div>
+                                <label class="field span-2">
+                                    <span>Address 1</span>
+                                    <input id="partnerAddress1" type="text" placeholder="Street address" enterkeyhint="next">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Address 2</span>
+                                    <input id="partnerAddress2" type="text" placeholder="Suite, dock, unit, etc." enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>City</span>
+                                    <input id="partnerCity" type="text" placeholder="City" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Province / State</span>
+                                    <input id="partnerState" type="text" placeholder="Province or state" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Postal / ZIP</span>
+                                    <input id="partnerPostalCode" type="text" placeholder="Postal or ZIP code" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Country</span>
+                                    <input id="partnerCountry" type="text" placeholder="Country" enterkeyhint="next">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Note</span>
+                                    <input id="partnerNote" type="text" placeholder="Optional internal note" enterkeyhint="done">
+                                </label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" id="partnerSubmitBtn" type="submit">Save Customer</button>
+                                    <button class="btn ghost" id="partnerCancelBtn" type="button">Cancel</button>
+                                </div>
+                            </form>
+                            <div class="status" id="partnerMessage"></div>
+                        </div>
+
                         <div class="helper erp-document-card hidden" id="masterItemCard">
                             <div class="card-head">
                                 <div>
@@ -5961,7 +6082,7 @@
                             </div>
                         </div>
 
-                        <div class="helper">
+                        <div class="helper" id="masterItemsListCard">
                             <div class="list-head">
                                 <div>
                                     <h3>Saved Items</h3>
@@ -7409,6 +7530,8 @@
         let lastSingleSearch = null;
         let lastMultiSearch = null;
         let currentSearchView = null;
+        let activePartnerListType = "CUSTOMER";
+        let editingPartner = null;
         let editingMasterItem = null;
         let portalAccessRecords = [];
         let integrationRecords = [];
@@ -7650,6 +7773,42 @@
             masterOwnerNote: document.getElementById("masterOwnerNote"),
             masterLocationCode: document.getElementById("masterLocationCode"),
             masterLocationNote: document.getElementById("masterLocationNote"),
+            partnerListCard: document.getElementById("partnerListCard"),
+            partnerListTitle: document.getElementById("partnerListTitle"),
+            partnerListMeta: document.getElementById("partnerListMeta"),
+            partnerListCount: document.getElementById("partnerListCount"),
+            partnerList: document.getElementById("partnerList"),
+            partnerCard: document.getElementById("partnerCard"),
+            partnerCardTitle: document.getElementById("partnerCardTitle"),
+            partnerStatusChip: document.getElementById("partnerStatusChip"),
+            partnerCardMeta: document.getElementById("partnerCardMeta"),
+            closePartnerCardBtn: document.getElementById("closePartnerCardBtn"),
+            partnerId: document.getElementById("partnerId"),
+            partnerType: document.getElementById("partnerType"),
+            partnerAccount: document.getElementById("partnerAccount"),
+            partnerNameLabel: document.getElementById("partnerNameLabel"),
+            partnerName: document.getElementById("partnerName"),
+            partnerCode: document.getElementById("partnerCode"),
+            partnerActive: document.getElementById("partnerActive"),
+            partnerContactName: document.getElementById("partnerContactName"),
+            partnerContactTitle: document.getElementById("partnerContactTitle"),
+            partnerEmail: document.getElementById("partnerEmail"),
+            partnerPhone: document.getElementById("partnerPhone"),
+            partnerMobile: document.getElementById("partnerMobile"),
+            partnerWebsite: document.getElementById("partnerWebsite"),
+            partnerAddress1: document.getElementById("partnerAddress1"),
+            partnerAddress2: document.getElementById("partnerAddress2"),
+            partnerCity: document.getElementById("partnerCity"),
+            partnerState: document.getElementById("partnerState"),
+            partnerPostalCode: document.getElementById("partnerPostalCode"),
+            partnerCountry: document.getElementById("partnerCountry"),
+            partnerNote: document.getElementById("partnerNote"),
+            partnerSubmitBtn: document.getElementById("partnerSubmitBtn"),
+            partnerCancelBtn: document.getElementById("partnerCancelBtn"),
+            partnerMessage: document.getElementById("partnerMessage"),
+            openCustomerNewBtn: document.getElementById("openCustomerNewBtn"),
+            openVendorNewBtn: document.getElementById("openVendorNewBtn"),
+            masterItemsListCard: document.getElementById("masterItemsListCard"),
             masterItemCard: document.getElementById("masterItemCard"),
             masterItemCardTitle: document.getElementById("masterItemCardTitle"),
             masterItemCardMeta: document.getElementById("masterItemCardMeta"),
@@ -8169,7 +8328,9 @@
                 document.querySelectorAll(".module-menu[open]").forEach((menu) => menu.removeAttribute("open"));
             });
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => {
-                setSection(button.dataset.jumpSection);
+                const masterListTarget = String(button.dataset.masterList || "").trim().toUpperCase();
+                if (masterListTarget) openMasterListTarget(masterListTarget, { scroll: false });
+                setSection(button.dataset.jumpSection, { focusAnchorId: button.dataset.workspaceAnchor || "" });
                 button.closest("details.module-menu")?.removeAttribute("open");
                 const startNew = String(button.dataset.startNew || "").trim();
                 if (startNew === "sales-order") {
@@ -8203,6 +8364,12 @@
             }));
             ui.workspaceAnchorButtons.forEach((button) => button.addEventListener("click", () => handleWorkspaceAnchorButtonClick(button)));
             document.getElementById("masterOwnerForm").addEventListener("submit", saveMasterOwner);
+            document.getElementById("partnerForm")?.addEventListener("submit", saveCompanyPartner);
+            ui.partnerList?.addEventListener("click", onPartnerListClick);
+            ui.openCustomerNewBtn?.addEventListener("click", () => showPartnerCard(null, "CUSTOMER", { scroll: true }));
+            ui.openVendorNewBtn?.addEventListener("click", () => showPartnerCard(null, "VENDOR", { scroll: true }));
+            ui.closePartnerCardBtn?.addEventListener("click", () => closePartnerCard({ reset: true }));
+            ui.partnerCancelBtn?.addEventListener("click", () => closePartnerCard({ reset: true }));
             document.getElementById("scanForm").addEventListener("submit", addToBatch);
             document.getElementById("calcQtyBtn").addEventListener("click", () => calculateQuantity(true));
             document.getElementById("useLastLocationBtn").addEventListener("click", useLastLocation);
@@ -8533,6 +8700,10 @@
                 }
                 if (event.key === "Escape" && document.body.classList.contains("item-card-popout-open")) {
                     closeMasterItemCard({ reset: true });
+                    return;
+                }
+                if (event.key === "Escape" && document.body.classList.contains("partner-card-popout-open")) {
+                    closePartnerCard({ reset: true });
                 }
             });
             mobileQuery.addEventListener("change", handleViewportChange);
@@ -8773,6 +8944,10 @@
                 inventorySnapshotCard: ui.inventoryFilter,
                 inventoryWorksheetCard: getActiveCompany() ? ui.addInventoryWorksheetRowBtn : ui.activeCompany,
                 masterDataWorkspaceCard: ui.masterFilter,
+                masterItemsListCard: ui.openMasterItemNewBtn || ui.masterFilter,
+                partnerListCard: getActiveCompany()
+                    ? (activePartnerListType === "VENDOR" ? ui.openVendorNewBtn : ui.openCustomerNewBtn)
+                    : ui.activeCompany,
                 portalOrdersFiltersCard: ui.portalOrderSearch,
                 warehouseOrderEntryCard: ui.warehouseOrderPoNumber
             };
@@ -8955,8 +9130,9 @@
                 ui.warehouseInboundEntryCard?.classList.add("hidden");
             }
             if (section !== "inventory") {
-                document.body.classList.remove("item-card-popout-open");
+                document.body.classList.remove("item-card-popout-open", "partner-card-popout-open");
                 ui.masterItemCard?.classList.add("hidden");
+                ui.partnerCard?.classList.add("hidden");
             }
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             syncScanSectionUi();
@@ -9041,7 +9217,7 @@
             hideMobileAutocomplete();
             applyDeviceExperienceMode();
             if (isMobileView()) {
-                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open", "item-card-popout-open");
+                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open", "item-card-popout-open", "partner-card-popout-open");
             }
             if (!isMobileView()) {
                 mobileSectionHistory.length = 0;
@@ -15100,7 +15276,8 @@
             if (item) beginMasterItemEdit(item);
             else resetMasterItemForm(getActiveCompany() || state.preferences.lastAccount || "");
             if (!isMobileView()) {
-                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open");
+                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open", "partner-card-popout-open");
+                ui.partnerCard?.classList.add("hidden");
                 document.body.classList.add("item-card-popout-open");
             }
             if (scroll && isMobileView()) ui.masterItemCard?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -15564,6 +15741,234 @@
             showMessage(ui.catalogMessage, "Item edit canceled.", "info");
         }
 
+        function openMasterListTarget(targetType, { scroll = false } = {}) {
+            const target = String(targetType || "").trim().toUpperCase();
+            if (target === "CUSTOMER" || target === "VENDOR") {
+                showPartnerList(target, { scroll });
+                return;
+            }
+            if (target === "ITEM") {
+                document.body.classList.remove("partner-card-popout-open", "item-card-popout-open");
+                ui.partnerCard?.classList.add("hidden");
+                ui.masterItemCard?.classList.add("hidden");
+                if (ui.masterFilter) ui.masterFilter.value = "";
+                renderMasterLibrary();
+                markWorkspaceAnchor("inventory", "masterItemsListCard");
+                if (scroll) ui.masterItemsListCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        }
+
+        function showPartnerList(type = activePartnerListType, { scroll = false } = {}) {
+            activePartnerListType = normalizePartnerType(type);
+            closePartnerCard({ reset: true, silent: true });
+            renderPartnerList();
+            markWorkspaceAnchor("inventory", "partnerListCard");
+            if (scroll) ui.partnerListCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function renderPartnerList() {
+            if (!ui.partnerList) return;
+            const type = normalizePartnerType(activePartnerListType);
+            const label = partnerTypeLabel(type);
+            const plural = partnerTypeLabel(type, true);
+            const accountName = getActiveCompany();
+            if (ui.partnerListTitle) ui.partnerListTitle.textContent = `${plural}: All`;
+            if (ui.partnerListMeta) {
+                ui.partnerListMeta.textContent = accountName
+                    ? `${plural} saved under ${accountName}. Open a row to drill into the ${label.toLowerCase()} card.`
+                    : `Choose an active company before maintaining ${plural.toLowerCase()}.`;
+            }
+            if (ui.openCustomerNewBtn) ui.openCustomerNewBtn.disabled = !accountName;
+            if (ui.openVendorNewBtn) ui.openVendorNewBtn.disabled = !accountName;
+            const partners = (state.masters.partners || [])
+                .filter((entry) => entry.accountName === accountName && entry.partnerType === type)
+                .sort((a, b) => a.name.localeCompare(b.name));
+            if (ui.partnerListCount) ui.partnerListCount.textContent = `${num(partners.length)} saved`;
+            if (!accountName) {
+                ui.partnerList.innerHTML = `<p class="empty">Choose a company from the building icon first. ${plural} are stored inside the selected company.</p>`;
+                return;
+            }
+            ui.partnerList.innerHTML = renderPartnerRows(partners, type, accountName);
+        }
+
+        function renderPartnerRows(partners, type, accountName) {
+            const label = partnerTypeLabel(type);
+            if (!partners.length) {
+                return `<p class="empty">No ${label.toLowerCase()} cards saved for ${esc(accountName)} yet. Use + New ${esc(label)} to create the first one.</p>`;
+            }
+            const rows = partners.map((entry) => `
+                <tr data-open-partner="${attr(entry.id)}">
+                    <td>
+                        <button class="erp-list-link" type="button" data-open-partner="${attr(entry.id)}">${esc(entry.name)}</button>
+                        <div class="quick-meta">${esc(entry.note || entry.address1 || "No note saved")}</div>
+                    </td>
+                    <td>${esc(entry.accountCode || "") || "&mdash;"}</td>
+                    <td>${esc(entry.contactName || "") || "&mdash;"}</td>
+                    <td>${esc(entry.email || "") || "&mdash;"}</td>
+                    <td>${esc(entry.phone || entry.mobile || "") || "&mdash;"}</td>
+                    <td>${esc([entry.city, entry.state, entry.country].filter(Boolean).join(", ")) || "&mdash;"}</td>
+                    <td>${entry.isActive === false ? "Inactive" : "Active"}</td>
+                </tr>
+            `).join("");
+            return `
+                <div class="erp-list-table-wrap">
+                    <table class="erp-list-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Code</th>
+                                <th>Contact</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function resetPartnerForm(type = activePartnerListType) {
+            editingPartner = null;
+            document.getElementById("partnerForm")?.reset();
+            const normalizedType = normalizePartnerType(type);
+            const label = partnerTypeLabel(normalizedType);
+            if (ui.partnerId) ui.partnerId.value = "";
+            if (ui.partnerType) ui.partnerType.value = normalizedType;
+            if (ui.partnerAccount) ui.partnerAccount.value = getActiveCompany() || "";
+            if (ui.partnerActive) ui.partnerActive.value = "true";
+            if (ui.partnerCardTitle) ui.partnerCardTitle.textContent = `New ${label} Card`;
+            if (ui.partnerNameLabel) ui.partnerNameLabel.textContent = `${label} Name`;
+            if (ui.partnerStatusChip) ui.partnerStatusChip.textContent = "New";
+            if (ui.partnerSubmitBtn) ui.partnerSubmitBtn.textContent = `Save ${label}`;
+            if (ui.closePartnerCardBtn) ui.closePartnerCardBtn.textContent = `Back to ${partnerTypeLabel(normalizedType, true)}`;
+            if (ui.partnerCardMeta) {
+                ui.partnerCardMeta.textContent = `${label} is saved under ${getActiveCompany() || "the active company"} and will stay separate from other companies.`;
+            }
+        }
+
+        function beginPartnerEdit(partner) {
+            const entry = sanitizeMasterPartner(partner);
+            if (!entry) return;
+            activePartnerListType = entry.partnerType;
+            editingPartner = { id: entry.id, accountName: entry.accountName, partnerType: entry.partnerType, name: entry.name };
+            resetPartnerForm(entry.partnerType);
+            editingPartner = { id: entry.id, accountName: entry.accountName, partnerType: entry.partnerType, name: entry.name };
+            ui.partnerId.value = entry.id;
+            ui.partnerType.value = entry.partnerType;
+            ui.partnerAccount.value = entry.accountName;
+            ui.partnerName.value = entry.name;
+            ui.partnerCode.value = entry.accountCode || "";
+            ui.partnerActive.value = entry.isActive === false ? "false" : "true";
+            ui.partnerContactName.value = entry.contactName || "";
+            ui.partnerContactTitle.value = entry.contactTitle || "";
+            ui.partnerEmail.value = entry.email || "";
+            ui.partnerPhone.value = entry.phone || "";
+            ui.partnerMobile.value = entry.mobile || "";
+            ui.partnerWebsite.value = entry.website || "";
+            ui.partnerAddress1.value = entry.address1 || "";
+            ui.partnerAddress2.value = entry.address2 || "";
+            ui.partnerCity.value = entry.city || "";
+            ui.partnerState.value = entry.state || "";
+            ui.partnerPostalCode.value = entry.postalCode || "";
+            ui.partnerCountry.value = entry.country || "";
+            ui.partnerNote.value = entry.note || "";
+            if (ui.partnerCardTitle) ui.partnerCardTitle.textContent = `${entry.name} - ${partnerTypeLabel(entry.partnerType)} Card`;
+            if (ui.partnerStatusChip) ui.partnerStatusChip.textContent = "Editing";
+            if (ui.partnerSubmitBtn) ui.partnerSubmitBtn.textContent = `Update ${partnerTypeLabel(entry.partnerType)}`;
+        }
+
+        function showPartnerCard(partner = null, type = activePartnerListType, { scroll = false } = {}) {
+            const accountName = partner?.accountName || getActiveCompany();
+            const normalizedType = normalizePartnerType(partner?.partnerType || type);
+            activePartnerListType = normalizedType;
+            if (!accountName) {
+                showMessage(ui.catalogMessage, `Choose a company before creating ${partnerTypeLabel(normalizedType).toLowerCase()} cards.`, "error");
+                ui.activeCompany?.focus();
+                return;
+            }
+            ui.partnerCard?.classList.remove("hidden");
+            if (partner) beginPartnerEdit(partner);
+            else resetPartnerForm(normalizedType);
+            if (!isMobileView()) {
+                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open", "item-card-popout-open");
+                document.body.classList.add("partner-card-popout-open");
+            }
+            markWorkspaceAnchor("inventory", "partnerListCard");
+            if (scroll && isMobileView()) ui.partnerCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            window.setTimeout(() => ui.partnerName?.focus(), scroll ? 180 : 40);
+        }
+
+        function closePartnerCard({ reset = false, silent = false } = {}) {
+            document.body.classList.remove("partner-card-popout-open");
+            ui.partnerCard?.classList.add("hidden");
+            if (reset) resetPartnerForm(activePartnerListType);
+            if (!silent && !isMobileView()) ui.partnerList?.focus?.();
+        }
+
+        async function saveCompanyPartner(event) {
+            event.preventDefault();
+            const partnerType = normalizePartnerType(ui.partnerType?.value || activePartnerListType);
+            const label = partnerTypeLabel(partnerType);
+            const accountName = getActiveCompany();
+            const payload = {
+                id: ui.partnerId.value,
+                accountName,
+                partnerType,
+                name: ui.partnerName.value,
+                accountCode: ui.partnerCode.value,
+                contactName: ui.partnerContactName.value,
+                contactTitle: ui.partnerContactTitle.value,
+                email: ui.partnerEmail.value,
+                phone: ui.partnerPhone.value,
+                mobile: ui.partnerMobile.value,
+                website: ui.partnerWebsite.value,
+                address1: ui.partnerAddress1.value,
+                address2: ui.partnerAddress2.value,
+                city: ui.partnerCity.value,
+                state: ui.partnerState.value,
+                postalCode: ui.partnerPostalCode.value,
+                country: ui.partnerCountry.value,
+                isActive: ui.partnerActive.value !== "false",
+                note: ui.partnerNote.value
+            };
+            const entry = sanitizeMasterPartner(payload);
+            if (!accountName) return fail(ui.partnerMessage, "Choose the active company before saving.", ui.activeCompany);
+            if (!entry?.name) return fail(ui.partnerMessage, `Enter the ${label.toLowerCase()} name.`, ui.partnerName);
+            const submitButton = resolveActionButton(event, ui.partnerSubmitBtn);
+
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: editingPartner ? `Updating ${label.toLowerCase()}...` : `Saving ${label.toLowerCase()}...`,
+                    messageElement: ui.partnerMessage,
+                    progressMessage: `${editingPartner ? "Updating" : "Saving"} ${label.toLowerCase()} ${entry.name}...`
+                }, async () => {
+                    await requestJson("/api/master-partner", {
+                        method: "POST",
+                        body: JSON.stringify(entry)
+                    });
+                    await syncServerState(true);
+                    activePartnerListType = partnerType;
+                    renderPartnerList();
+                    closePartnerCard({ reset: true, silent: true });
+                    showMessage(ui.catalogMessage, `${label} ${entry.name} saved under ${accountName}.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.partnerMessage, error.message, "error");
+            }
+        }
+
+        function onPartnerListClick(event) {
+            const openButton = event.target.closest("[data-open-partner]");
+            if (!openButton) return;
+            const partnerId = openButton.dataset.openPartner || "";
+            const partner = (state.masters.partners || []).find((entry) => entry.id === partnerId);
+            if (partner) showPartnerCard(partner, partner.partnerType, { scroll: true });
+        }
+
         function renderMasterLibrary() {
             const query = norm(ui.masterFilter.value);
             const companyFilter = getActiveCompany();
@@ -15583,7 +15988,7 @@
 
             const visibleOwners = ownerMatches.slice(0, query ? 24 : 12);
             const visibleLocations = locationMatches.slice(0, query ? 24 : 12);
-            const visibleItems = itemMatches.slice(0, query ? 24 : 12);
+            const visibleItems = itemMatches;
 
             ui.masterOwnerCount.textContent = query
                 ? `${num(ownerMatches.length)} shown / ${num(state.masters.ownerRecords.length)} saved`
@@ -15598,6 +16003,7 @@
             ui.masterOwnerList.innerHTML = renderMasterOwnerRows(visibleOwners, ownerMatches.length, query);
             ui.masterLocationList.innerHTML = renderMasterLocationRows(visibleLocations, locationMatches.length, query);
             ui.masterItemList.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
+            renderPartnerList();
         }
 
         function renderMasterOwnerRows(owners, totalMatches, query) {
@@ -17056,6 +17462,7 @@
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
             state.masters.locations = Array.isArray(payload?.masters?.locations) ? payload.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [];
             state.masters.ownerRecords = Array.isArray(payload?.masters?.ownerRecords) ? payload.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [];
+            state.masters.partners = Array.isArray(payload?.masters?.partners) ? payload.masters.partners.map(sanitizeMasterPartner).filter(Boolean) : [];
             state.masters.items = Array.isArray(payload?.masters?.items) ? payload.masters.items.map(sanitizeMasterItem).filter(Boolean) : [];
             state.masters.owners = Array.isArray(payload?.masters?.owners)
                 ? payload.masters.owners.map((owner) => norm(owner)).filter(Boolean)
@@ -17084,6 +17491,7 @@
                 []
                     .concat(state.masters.owners || [])
                     .concat((state.masters.ownerRecords || []).map((owner) => owner.name))
+                    .concat((state.masters.partners || []).map((partner) => partner.accountName))
                     .concat((state.masters.items || []).map((item) => item.accountName))
                     .concat((state.inventory || []).map((line) => line.accountName))
             )].map((value) => norm(value)).filter(Boolean);
@@ -17286,7 +17694,7 @@
                 pallets: [],
                 batch: [],
                 activity: [],
-                masters: { locations: [], ownerRecords: [], items: [], owners: [] },
+                masters: { locations: [], ownerRecords: [], partners: [], items: [], owners: [] },
                 billing: { feeCatalog: [], ownerRates: [], events: [] },
                 admin: { appUsers: [] },
                 session: { appUser: null },
@@ -17374,6 +17782,7 @@
                 masters: {
                     locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
                     ownerRecords: Array.isArray(raw?.masters?.ownerRecords) ? raw.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [],
+                    partners: Array.isArray(raw?.masters?.partners) ? raw.masters.partners.map(sanitizeMasterPartner).filter(Boolean) : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
                 },
@@ -17402,6 +17811,7 @@
                         : Array.isArray(raw?.masters?.owners)
                             ? raw.masters.owners.map(sanitizeMasterOwner).filter(Boolean)
                             : [],
+                    partners: Array.isArray(raw?.masters?.partners) ? raw.masters.partners.map(sanitizeMasterPartner).filter(Boolean) : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
                 },
@@ -17566,6 +17976,46 @@
                 featureFlagsInherited,
                 featureFlagsUpdatedAt: typeof item?.featureFlagsUpdatedAt === "string" ? item.featureFlagsUpdatedAt : (typeof item?.feature_flags_updated_at === "string" ? item.feature_flags_updated_at : null),
                 featureFlagsUpdatedBy: String(item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by || "").trim(),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function normalizePartnerType(value) {
+            return norm(value || "") === "VENDOR" ? "VENDOR" : "CUSTOMER";
+        }
+
+        function partnerTypeLabel(type, plural = false) {
+            const normalized = normalizePartnerType(type);
+            if (normalized === "VENDOR") return plural ? "Vendors" : "Vendor";
+            return plural ? "Customers" : "Customer";
+        }
+
+        function sanitizeMasterPartner(item) {
+            const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.company || "");
+            const partnerType = normalizePartnerType(item?.partnerType || item?.partner_type || item?.type);
+            const name = norm(item?.name || item?.partnerName || item?.partner_name || item?.customer || item?.vendor || "");
+            if (!accountName || !partnerType || !name) return null;
+            return {
+                id: String(item?.id || makeId("partner")),
+                accountName,
+                partnerType,
+                name,
+                accountCode: norm(item?.accountCode || item?.account_code || item?.code || ""),
+                contactName: String(item?.contactName || item?.contact_name || "").trim().replace(/\s+/g, " "),
+                contactTitle: String(item?.contactTitle || item?.contact_title || "").trim().replace(/\s+/g, " "),
+                email: norm(String(item?.email || "").toLowerCase()),
+                phone: String(item?.phone || "").trim().replace(/\s+/g, " "),
+                mobile: String(item?.mobile || item?.cell || "").trim().replace(/\s+/g, " "),
+                website: String(item?.website || "").trim(),
+                address1: String(item?.address1 || item?.address_1 || "").trim().replace(/\s+/g, " "),
+                address2: String(item?.address2 || item?.address_2 || "").trim().replace(/\s+/g, " "),
+                city: String(item?.city || "").trim().replace(/\s+/g, " "),
+                state: String(item?.state || item?.province || "").trim().replace(/\s+/g, " "),
+                postalCode: norm(item?.postalCode || item?.postal_code || item?.zip || ""),
+                country: String(item?.country || "").trim().replace(/\s+/g, " "),
+                isActive: item?.isActive !== false,
+                note: String(item?.note || "").trim().replace(/\s+/g, " "),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
@@ -17889,6 +18339,7 @@
                 masters: {
                     locations: state.masters.locations,
                     ownerRecords: state.masters.ownerRecords,
+                    partners: state.masters.partners,
                     items: cachedItems,
                     owners: state.masters.owners
                 },
