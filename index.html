@@ -9371,13 +9371,17 @@
         function getActiveCompany() {
             const chipText = String(ui.workspaceCompanyChip?.textContent || "").replace(/^\s*(Company|Scope)\s*:\s*/i, "").trim();
             const displayText = String(ui.activeCompanyDisplay?.textContent || "").trim();
-            return normalizeCompanyContextValue(
-                ui.activeCompany?.value
-                || state.preferences.activeCompany
-                || chipText
-                || displayText
-                || ""
-            );
+            const candidates = [
+                ui.activeCompany?.value,
+                state.preferences.activeCompany,
+                chipText,
+                displayText
+            ];
+            for (const candidate of candidates) {
+                const normalized = normalizeCompanyContextValue(candidate);
+                if (normalized) return normalized;
+            }
+            return "";
         }
 
         function getScopedCompanyValue(rawValue = "") {
