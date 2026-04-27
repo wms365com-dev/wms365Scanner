@@ -406,7 +406,7 @@ app.use((req, res, next) => {
     return next();
 });
 
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "30mb" }));
 
 app.use(async (req, res, next) => {
     try {
@@ -2302,6 +2302,42 @@ app.put("/api/portal/orders/:id", async (req, res, next) => {
     }
 });
 
+app.post("/api/portal/orders/:id/archive", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => archivePortalOrder(client, session.accessRow, orderId));
+        res.json({ success: true, order });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/orders/:id/documents", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => savePortalOrderDocuments(client, session.accessRow, orderId, req.body));
+        res.json({ success: true, order });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.post("/api/portal/orders/:id/release", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -3298,9 +3334,10 @@ async function initializeDatabase() {
             shipped_tracking_reference text not null default '',
             shipped_confirmation_note text not null default '',
             released_at timestamptz,
+            archived_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED'))
+            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED'))
         );
     `);
     await pool.query("alter table portal_orders alter column order_code drop not null");
@@ -3315,8 +3352,9 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
     await pool.query("alter table portal_orders add column if not exists ship_to_phone text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists archived_at timestamptz");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
-    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED'))");
+    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED'))");
 
     await pool.query(`
         create table if not exists portal_inbounds (
@@ -6758,6 +6796,7 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
             select *
             from portal_orders
             where account_name = $1
+              and status <> 'ARCHIVED'
             order by created_at desc, id desc
             limit 100
         `,
@@ -6809,6 +6848,7 @@ async function getAdminPortalOrders(client = pool) {
         `
             select *
             from portal_orders
+            where status <> 'ARCHIVED'
             order by created_at desc, id desc
             limit 150
         `
@@ -7056,6 +7096,117 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
         downloadPathPrefix: "/api/portal/order-documents",
         activityTitlePrefix: "portal",
         activityActor: "Company portal"
+    });
+}
+
+async function archivePortalOrderForAccount(
+    client,
+    accountName,
+    orderId,
+    {
+        downloadPathPrefix = "/api/admin/portal-order-documents",
+        activityTitlePrefix = "portal",
+        activityActor = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    if (!order) {
+        throw httpError(404, "That order could not be found.");
+    }
+    if (order.status === "ARCHIVED") {
+        return order;
+    }
+    if (order.status !== "DRAFT") {
+        throw httpError(400, `Only draft orders can be archived. This order is ${order.status}.`);
+    }
+
+    await client.query("delete from portal_order_allocations where order_id = $1", [orderId]);
+    await client.query(
+        `
+            update portal_orders
+            set
+                status = 'ARCHIVED',
+                archived_at = coalesce(archived_at, now()),
+                updated_at = now()
+            where id = $1
+        `,
+        [orderId]
+    );
+
+    const archivedOrder = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    await insertActivity(
+        client,
+        "order",
+        `Archived ${activityTitlePrefix} draft order ${archivedOrder.orderCode}`,
+        [
+            archivedOrder.accountName,
+            `PO ${archivedOrder.poNumber || "None"}`,
+            archivedOrder.shippingReference || "No shipping reference",
+            activityActor || ""
+        ].filter(Boolean).join(" | ")
+    );
+    return archivedOrder;
+}
+
+async function archivePortalOrder(client, accessRow, orderId) {
+    const access = mapPortalAccessRow(accessRow);
+    return archivePortalOrderForAccount(client, access.accountName, orderId, {
+        downloadPathPrefix: "/api/portal/order-documents",
+        activityTitlePrefix: "portal",
+        activityActor: "Company portal"
+    });
+}
+
+async function savePortalOrderDocumentsForAccount(
+    client,
+    accountName,
+    orderId,
+    rawPayload,
+    {
+        downloadPathPrefix = "/api/admin/portal-order-documents",
+        activityActor = "",
+        uploadedBy = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    if (!order) {
+        throw httpError(404, "That order could not be found.");
+    }
+    if (order.status === "ARCHIVED") {
+        throw httpError(400, "Archived orders cannot receive new shipping labels or documents.");
+    }
+
+    const documents = sanitizePortalOrderDocumentsInput(Array.isArray(rawPayload?.documents) ? rawPayload.documents : []);
+    if (!documents.length) {
+        throw httpError(400, "Choose at least one PDF or image file to upload.");
+    }
+    if (documents.length > 5) {
+        throw httpError(400, "Upload up to 5 documents at a time.");
+    }
+
+    await insertPortalOrderDocuments(client, order.id, documents, uploadedBy || activityActor || "");
+    const updatedOrder = await getPortalOrderById(client, order.id, normalizedAccount, downloadPathPrefix);
+    await insertActivity(
+        client,
+        "order",
+        `Uploaded shipping labels/documents for ${updatedOrder.orderCode}`,
+        [
+            updatedOrder.accountName,
+            `${formatCount(documents.length, "document")}`,
+            activityActor || uploadedBy || ""
+        ].filter(Boolean).join(" | ")
+    );
+    return updatedOrder;
+}
+
+async function savePortalOrderDocuments(client, accessRow, orderId, rawPayload) {
+    const access = mapPortalAccessRow(accessRow);
+    return savePortalOrderDocumentsForAccount(client, access.accountName, orderId, rawPayload, {
+        downloadPathPrefix: "/api/portal/order-documents",
+        activityActor: "Company portal",
+        uploadedBy: access.email || "Company portal"
     });
 }
 
@@ -11549,6 +11700,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
         stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
+        archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString(),
         lines,
@@ -11699,6 +11851,9 @@ function sanitizePortalShippingConfirmationInput(payload) {
 }
 
 function sanitizePortalOrderDocumentsInput(documents) {
+    if (documents.length > 5) {
+        throw httpError(400, "Upload up to 5 documents at a time.");
+    }
     return documents.map(sanitizePortalOrderDocumentInput).filter(Boolean);
 }
 
@@ -11758,7 +11913,7 @@ function normalizeUploadFileName(value) {
 
 function normalizePortalOrderStatus(value) {
     const normalized = normalizeText(value);
-    return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(normalized) ? normalized : "";
+    return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "ARCHIVED"].includes(normalized) ? normalized : "";
 }
 
 function normalizePortalInboundStatus(value) {

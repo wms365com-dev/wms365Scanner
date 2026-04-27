@@ -14471,7 +14471,7 @@
                             <input data-portal-ship-note="${attr(order.id)}" type="text" placeholder="Optional shipped confirmation note" value="${attr(order.shippedConfirmationNote || "")}">
                         </label>
                         <label class="field span-2">
-                            <span>Shipped Documents</span>
+                            <span>Order Documents / Labels</span>
                             <input data-portal-ship-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
                         </label>
                     </div>
@@ -14484,7 +14484,7 @@
                                 </a>
                             `).join("")}
                         </div>
-                    ` : `<div class="quick-meta">No shipped documents saved yet.</div>`}
+                    ` : `<div class="quick-meta">No order documents or labels saved yet.</div>`}
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>

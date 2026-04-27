@@ -316,6 +316,20 @@
         .pill.success { background: rgba(31, 157, 104, 0.1); color: #146846; border-color: rgba(31, 157, 104, 0.25); }
         .pill.warn { background: rgba(210, 132, 0, 0.1); color: #9b5d00; border-color: rgba(210, 132, 0, 0.22); }
         .inventory-meta, .order-meta, .line-note { display: grid; gap: 0.35rem; margin-top: 0.6rem; color: var(--muted); font-size: 0.92rem; }
+        .order-document-upload {
+            display: grid;
+            gap: 0.65rem;
+            margin-top: 0.85rem;
+            padding: 0.85rem;
+            border: 1px dashed #c8d8e6;
+            border-radius: 14px;
+            background: #f8fbfd;
+        }
+        .order-document-upload .button-row { align-items: center; }
+        .order-document-upload input[type="file"] {
+            padding: 0.7rem;
+            background: #ffffff;
+        }
         .line-fields {
             display: grid;
             gap: 0.75rem;
@@ -763,7 +777,7 @@
             <section id="ordersPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
                     <h2>My Sales Orders</h2>
-                    <p class="lead">Draft orders can still be edited. Released, picked, staged, and shipped orders stay read-only.</p>
+                    <p class="lead">Draft orders can be edited, released, or archived. Upload shipping labels or documents to any active order so the warehouse can retrieve them.</p>
                 </div>
                 <div id="ordersList" class="orders-list">
                     <div class="empty">No orders created yet.</div>
@@ -1522,14 +1536,27 @@
                         <div class="button-row" style="margin-top: 0.85rem;">
                             ${order.documents.map((document) => `
                                 <a class="btn ghost mini" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                    ${esc(document.fileName)}
+                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
                                 </a>
                             `).join("")}
+                        </div>
+                    ` : ""}
+                    ${order.status !== "ARCHIVED" ? `
+                        <div class="order-document-upload">
+                            <label class="field">
+                                <span>Shipping Labels / Order Documents</span>
+                                <input data-order-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
+                            </label>
+                            <div class="button-row">
+                                <button class="btn ghost" type="button" data-upload-order-documents="${attr(order.id)}">Upload Labels / Docs</button>
+                                <span class="meta">PDF or image files, up to 5 at a time.</span>
+                            </div>
                         </div>
                     ` : ""}
                     <div class="button-row" style="margin-top: 0.85rem;">
                         ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
                         ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}">Release</button>` : ""}
+                        ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-archive-order="${attr(order.id)}">Archive Draft</button>` : ""}
                     </div>
                 </article>
             `).join("");
@@ -2027,6 +2054,18 @@
         }
 
         async function onOrdersListClick(event) {
+            const uploadButton = event.target.closest("[data-upload-order-documents]");
+            if (uploadButton) {
+                await uploadOrderDocuments(uploadButton.dataset.uploadOrderDocuments, uploadButton);
+                return;
+            }
+
+            const archiveButton = event.target.closest("[data-archive-order]");
+            if (archiveButton) {
+                await archiveDraftOrder(archiveButton.dataset.archiveOrder, archiveButton);
+                return;
+            }
+
             const editButton = event.target.closest("[data-edit-order]");
             if (editButton) {
                 const order = portalState.orders.find((entry) => entry.id === editButton.dataset.editOrder);
@@ -2051,6 +2090,101 @@
                     resetForm: false,
                     nextView: "orders"
                 })
+            });
+        }
+
+        async function archiveDraftOrder(orderId, button = null) {
+            const order = portalState.orders.find((entry) => entry.id === String(orderId));
+            if (!order) return;
+            if (order.status !== "DRAFT") {
+                setMessage("Only draft orders can be archived.", "error");
+                return;
+            }
+            const confirmed = window.confirm(`Archive draft order ${order.orderCode}? It will disappear from active orders, but Shopify/SFTP sync will still remember it so it is not imported again.`);
+            if (!confirmed) return;
+
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Archiving...",
+                    progressMessage: `Archiving draft ${order.orderCode}...`
+                }, async () => {
+                    const response = await requestJson(`/api/portal/orders/${order.id}/archive`, { method: "POST" });
+                    await loadPortalData();
+                    if (portalState.editingOrderId === order.id) {
+                        resetOrderForm();
+                    }
+                    setView("orders");
+                    setMessage(`Archived draft ${response?.order?.orderCode || order.orderCode}. It will not reserve stock or re-import from the same store sync record.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        async function uploadOrderDocuments(orderId, button = null) {
+            const order = portalState.orders.find((entry) => entry.id === String(orderId));
+            if (!order) return;
+            const orderCard = button?.closest?.(".order-card") || null;
+            const fileInput = orderCard?.querySelector("[data-order-documents]");
+            try {
+                const documents = await readOrderDocumentFiles(fileInput?.files);
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Uploading...",
+                    progressMessage: `Uploading ${documents.length} document${documents.length === 1 ? "" : "s"} to ${order.orderCode}...`
+                }, async () => {
+                    const response = await requestJson(`/api/portal/orders/${order.id}/documents`, {
+                        method: "POST",
+                        body: JSON.stringify({ documents })
+                    });
+                    if (fileInput) fileInput.value = "";
+                    await loadPortalData();
+                    setView("orders");
+                    setMessage(`Uploaded ${documents.length} document${documents.length === 1 ? "" : "s"} to ${response?.order?.orderCode || order.orderCode}. The warehouse can open them from the order.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        async function readOrderDocumentFiles(fileList) {
+            const files = [...(fileList || [])];
+            if (!files.length) {
+                throw new Error("Choose at least one PDF or image file to upload.");
+            }
+            if (files.length > 5) {
+                throw new Error("Upload up to 5 documents at a time.");
+            }
+
+            const documents = [];
+            for (const file of files) {
+                const fileName = String(file.name || "document").trim() || "document";
+                const inferredType = String(file.type || "").trim().toLowerCase()
+                    || (fileName.toLowerCase().endsWith(".pdf") ? "application/pdf" : "");
+                if (!(inferredType === "application/pdf" || inferredType.startsWith("image/"))) {
+                    throw new Error(`${fileName} must be a PDF or image file.`);
+                }
+                if (file.size > 4 * 1024 * 1024) {
+                    throw new Error(`${fileName} is too large. Keep each file under 4 MB.`);
+                }
+                documents.push({
+                    fileName,
+                    fileType: inferredType,
+                    dataUrl: await readFileAsDataUrl(file)
+                });
+            }
+            return documents;
+        }
+
+        function readFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ""));
+                reader.onerror = () => reject(new Error(`${file.name || "The file"} could not be read.`));
+                reader.readAsDataURL(file);
             });
         }
 
@@ -2275,6 +2409,7 @@
             return {
                 id: String(document.id || ""),
                 fileName,
+                fileSize: Number(document.fileSize || document.file_size || 0),
                 downloadUrl,
                 uploadedBy: String(document.uploadedBy || document.uploaded_by || "").trim(),
                 createdAt: document.createdAt || document.created_at || null
@@ -2360,6 +2495,13 @@
             } catch {
                 return value || "";
             }
+        }
+
+        function formatDocumentFileSize(bytes) {
+            const size = Number(bytes) || 0;
+            if (size < 1024) return `${size} B`;
+            if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+            return `${(size / (1024 * 1024)).toFixed(1)} MB`;
         }
 
         function esc(value) {
