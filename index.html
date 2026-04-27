@@ -373,6 +373,108 @@
             font-weight: 600;
         }
 
+        .erp-document-card {
+            border-radius: 0;
+            border-color: #c8d2dc;
+            box-shadow: none;
+        }
+
+        .erp-document-card .card-head {
+            align-items: start;
+            gap: 1rem;
+        }
+
+        .erp-document-kicker {
+            margin-bottom: 0.25rem;
+            color: #64798d;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .erp-document-title-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
+        .erp-document-title-row h2,
+        .erp-document-title-row h3 {
+            margin: 0;
+        }
+
+        .erp-status-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 1.55rem;
+            padding: 0.2rem 0.55rem;
+            border: 1px solid #c8d2dc;
+            background: #eef8f9;
+            color: #006d7f;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+
+        .erp-document-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem;
+            justify-content: flex-end;
+        }
+
+        .erp-document-actions .btn {
+            min-height: 2.25rem;
+            padding: 0.45rem 0.8rem;
+            border-radius: 0;
+            font-size: 0.82rem;
+        }
+
+        .erp-fasttab {
+            margin-top: 0.85rem;
+        }
+
+        .erp-fasttab .form-grid {
+            margin-top: 0.75rem;
+        }
+
+        .erp-fasttab-note {
+            margin-top: 0.45rem;
+            color: #5d6f7d;
+            font-size: 0.78rem;
+        }
+
+        .erp-lines-part {
+            margin-top: 0.9rem;
+            border-top: 1px solid #b8c2cc;
+        }
+
+        .erp-lines-part .line-head {
+            margin: 0;
+            padding: 0.45rem 0;
+        }
+
+        .erp-card-two-column {
+            display: grid;
+            grid-template-columns: minmax(0, 1.35fr) minmax(17rem, 0.65fr);
+            gap: 1rem;
+            align-items: start;
+        }
+
+        .erp-card-aside {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .erp-card-aside .helper {
+            border-radius: 0;
+            box-shadow: none;
+        }
+
         .utility-status-pill,
         .utility-account-pill,
         .desktop-alert-pill,
@@ -4501,50 +4603,54 @@
             </div>
             <div class="mobile-screen-body">
             <div class="entry-workspace-stack">
-                <article class="card desktop-complex workspace-control-card" id="warehouseInboundEntryCard">
+                <article class="card desktop-complex workspace-control-card erp-document-card" id="warehouseInboundEntryCard">
                     <div class="card-head">
                         <div>
-                            <h2 id="warehouseInboundTitle">Warehouse Purchase Order Entry</h2>
+                            <div class="erp-document-kicker">Document Page</div>
+                            <div class="erp-document-title-row">
+                                <h2 id="warehouseInboundTitle">Warehouse Purchase Order Entry</h2>
+                                <span class="erp-status-chip" id="warehouseInboundStatusChip">Open</span>
+                            </div>
                             <p class="lead">Create expected receipts for the active company before freight arrives so receiving has a clean queue to work from.</p>
                         </div>
-                        <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
+                        <div class="erp-document-actions">
+                            <button class="btn ghost" id="resetWarehouseInboundBtn" type="button">New Purchase Order</button>
+                        </div>
                     </div>
                     <div class="quick-meta" id="warehouseInboundCompanyMeta">Choose an active company in the header before entering a warehouse purchase order.</div>
-                    <div class="erp-fasttab-heading desktop-only">General</div>
-                    <form id="warehouseInboundForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
-                        <div class="helper span-2 form-section-note">
-                            <strong>Purchase Order Workflow</strong>
-                            <div class="meta">1. Confirm the active company. 2. Enter the PO / reference and expected date. 3. Add the purchase order lines the warehouse should expect. 4. Submit the PO so it lands in the receiving queue.</div>
-                        </div>
-                        <label class="field">
-                            <span>Purchase Order / Reference #</span>
-                            <input id="warehouseInboundReferenceNumber" type="text" placeholder="Required">
-                        </label>
-                        <label class="field">
-                            <span>Carrier</span>
-                            <input id="warehouseInboundCarrierName" type="text" placeholder="Optional">
-                        </label>
-                        <label class="field">
-                            <span>Expected Date</span>
-                            <input id="warehouseInboundExpectedDate" type="date">
-                        </label>
-                        <label class="field">
-                            <span>Contact Name</span>
-                            <input id="warehouseInboundContactName" type="text" placeholder="Required">
-                        </label>
-                        <label class="field">
-                            <span>Contact Tel</span>
-                            <input id="warehouseInboundContactPhone" type="text" placeholder="Optional">
-                        </label>
-                        <label class="field span-2">
-                            <span>Notes</span>
-                            <input id="warehouseInboundNotes" type="text" placeholder="Optional receiving notes">
-                        </label>
-                    </form>
-                    <div style="margin-top: 1rem;">
+                    <div class="erp-fasttab">
+                        <div class="erp-fasttab-heading desktop-only">General</div>
+                        <form id="warehouseInboundForm" class="form-grid" autocomplete="off">
+                            <label class="field">
+                                <span>Purchase Order / Reference #</span>
+                                <input id="warehouseInboundReferenceNumber" type="text" placeholder="Required">
+                            </label>
+                            <label class="field">
+                                <span>Carrier</span>
+                                <input id="warehouseInboundCarrierName" type="text" placeholder="Optional">
+                            </label>
+                            <label class="field">
+                                <span>Expected Date</span>
+                                <input id="warehouseInboundExpectedDate" type="date">
+                            </label>
+                            <label class="field">
+                                <span>Contact Name</span>
+                                <input id="warehouseInboundContactName" type="text" placeholder="Required">
+                            </label>
+                            <label class="field">
+                                <span>Contact Tel</span>
+                                <input id="warehouseInboundContactPhone" type="text" placeholder="Optional">
+                            </label>
+                            <label class="field span-2">
+                                <span>Notes</span>
+                                <input id="warehouseInboundNotes" type="text" placeholder="Optional receiving notes">
+                            </label>
+                        </form>
+                    </div>
+                    <div class="erp-lines-part">
                         <div class="line-head" style="margin-bottom: 0.8rem;">
                             <div>
-                                <h3>Purchase Order Lines</h3>
+                                <h3>Lines</h3>
                                 <p class="meta" id="warehouseInboundLinesMeta">Only item masters saved for the active company can be selected.</p>
                             </div>
                             <button class="btn ghost" id="addWarehouseInboundLineBtn" type="button">Add Line</button>
@@ -4719,13 +4825,23 @@
                             </form>
                         </div>
 
-                        <div class="helper">
-                            <h3>Add Item Master</h3>
+                        <div class="helper erp-document-card" id="masterItemCard">
+                            <div class="card-head">
+                                <div>
+                                    <div class="erp-document-kicker">Card Page</div>
+                                    <div class="erp-document-title-row">
+                                        <h3>Item Card</h3>
+                                        <span class="erp-status-chip" id="masterItemStatusChip">New</span>
+                                    </div>
+                                    <p class="meta">Maintain SKU identity, tracking controls, packaging, and product images in one consistent card view.</p>
+                                </div>
+                            </div>
                             <div class="helper editor-banner hidden" id="masterItemEditorBanner" style="margin-top: 1rem;">
                                 <strong id="masterItemEditorTitle">Editing Saved Item</strong>
                                 <div class="quick-meta" id="masterItemEditorMeta">SKU changes update matching inventory lines for this company.</div>
                             </div>
                             <form id="masterItemForm" class="form-grid" autocomplete="off">
+                                <div class="erp-fasttab-heading desktop-only span-2">General</div>
                                 <label class="field span-2">
                                     <span>Company</span>
                                     <input id="masterItemAccount" list="ownerList" type="text" placeholder="Required company" enterkeyhint="next">
@@ -4746,6 +4862,7 @@
                                     <span>Photo URL</span>
                                     <input id="masterItemImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
                                 </label>
+                                <div class="erp-fasttab-heading desktop-only span-2">Photo / Barcode</div>
                                 <div class="helper span-2">
                                     <h3>Product Photo</h3>
                                     <p class="meta">Optional. Paste a Google Drive image link or choose a photo and the app will compress it before saving.</p>
@@ -4759,6 +4876,7 @@
                                     </div>
                                     <input id="masterItemImageInput" class="hidden" type="file" accept="image/*" capture="environment">
                                 </div>
+                                <div class="erp-fasttab-heading desktop-only span-2">Inventory Controls</div>
                                 <label class="field">
                                     <span>Tracking</span>
                                     <select id="masterItemTrackingLevel">
@@ -4785,6 +4903,7 @@
                                         <option value="true">Yes</option>
                                     </select>
                                 </label>
+                                <div class="erp-fasttab-heading desktop-only span-2">Dimensions / Packaging</div>
                                 <label class="field">
                                     <span>Each Length</span>
                                     <input id="masterItemEachLength" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
@@ -5449,17 +5568,25 @@
             </div>
             <div class="mobile-screen-body">
                 <div class="entry-workspace-stack">
-                <article class="card desktop-complex workspace-control-card" id="warehouseOrderEntryCard">
+                <article class="card desktop-complex workspace-control-card erp-document-card" id="warehouseOrderEntryCard">
                     <div class="card-head">
                         <div>
-                            <h2 id="warehouseOrderTitle">Warehouse Sales Order Entry</h2>
+                            <div class="erp-document-kicker">Document Page</div>
+                            <div class="erp-document-title-row">
+                                <h2 id="warehouseOrderTitle">Warehouse Sales Order Entry</h2>
+                                <span class="erp-status-chip" id="warehouseOrderStatusChip">Draft</span>
+                            </div>
                             <p class="lead">Create draft sales orders internally for the active company, then release them into the warehouse workflow when they are ready.</p>
                         </div>
-                        <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Sales Order</button>
+                        <div class="erp-document-actions">
+                            <button class="btn ghost" id="resetWarehouseOrderBtn" type="button">New Sales Order</button>
+                        </div>
                     </div>
                     <div class="quick-meta" id="warehouseOrderCompanyMeta">Choose an active company in the header before entering a warehouse sales order.</div>
-                    <div class="erp-fasttab-heading desktop-only">General</div>
-                    <form id="warehouseOrderForm" class="form-grid" autocomplete="off" style="margin-top: 1rem;">
+                    <div class="erp-fasttab">
+                        <div class="erp-fasttab-heading desktop-only">General</div>
+                    </div>
+                    <form id="warehouseOrderForm" class="form-grid" autocomplete="off">
                         <input id="warehouseOrderId" type="hidden">
                         <label class="field">
                             <span>PO #</span>
@@ -5481,6 +5608,7 @@
                             <span>Contact Tel</span>
                             <input id="warehouseOrderContactPhone" type="text" placeholder="Required">
                         </label>
+                        <div class="erp-fasttab-heading desktop-only span-2">Ship To</div>
                         <label class="field span-2">
                             <span>Ship To Company / Receiver</span>
                             <input id="warehouseOrderShipToName" type="text" placeholder="Required company or receiver name">
@@ -5518,10 +5646,10 @@
                             <input id="warehouseOrderNotes" type="text" placeholder="Optional shipping or handling notes">
                         </label>
                     </form>
-                    <div style="margin-top: 1rem;">
+                    <div class="erp-lines-part">
                         <div class="line-head" style="margin-bottom: 0.8rem;">
                             <div>
-                                <h3>Order Lines</h3>
+                                <h3>Lines</h3>
                                 <p class="meta">Only SKUs with available inventory for the active company can be selected.</p>
                             </div>
                             <button class="btn ghost" id="addWarehouseOrderLineBtn" type="button">Add Line</button>
@@ -6726,6 +6854,7 @@
             masterItemEditorBanner: document.getElementById("masterItemEditorBanner"),
             masterItemEditorTitle: document.getElementById("masterItemEditorTitle"),
             masterItemEditorMeta: document.getElementById("masterItemEditorMeta"),
+            masterItemStatusChip: document.getElementById("masterItemStatusChip"),
             masterItemSubmitBtn: document.getElementById("masterItemSubmitBtn"),
             cancelMasterItemEditBtn: document.getElementById("cancelMasterItemEditBtn"),
             masterItemTrackingLevel: document.getElementById("masterItemTrackingLevel"),
@@ -6934,6 +7063,7 @@
             portalInboundsMeta: document.getElementById("portalInboundsMeta"),
             portalInboundsList: document.getElementById("portalInboundsList"),
             warehouseOrderTitle: document.getElementById("warehouseOrderTitle"),
+            warehouseOrderStatusChip: document.getElementById("warehouseOrderStatusChip"),
             warehouseOrderEntryCard: document.getElementById("warehouseOrderEntryCard"),
             warehouseOrderId: document.getElementById("warehouseOrderId"),
             warehouseOrderCompanyMeta: document.getElementById("warehouseOrderCompanyMeta"),
@@ -6975,6 +7105,7 @@
             warehouseInboundEntryCard: document.getElementById("warehouseInboundEntryCard"),
             warehouseInboundQueueCard: document.getElementById("warehouseInboundQueueCard"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
+            warehouseInboundStatusChip: document.getElementById("warehouseInboundStatusChip"),
             warehouseInboundCompanyMeta: document.getElementById("warehouseInboundCompanyMeta"),
             warehouseInboundLinesMeta: document.getElementById("warehouseInboundLinesMeta"),
             warehouseInboundReferenceNumber: document.getElementById("warehouseInboundReferenceNumber"),
@@ -13057,6 +13188,9 @@
             if (ui.warehouseOrderTitle) {
                 ui.warehouseOrderTitle.textContent = order ? `Edit ${order.orderCode}` : "Warehouse Sales Order Entry";
             }
+            if (ui.warehouseOrderStatusChip) {
+                ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
+            }
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
             ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
@@ -13307,6 +13441,9 @@
         function resetWarehouseInboundForm(inbound = null) {
             if (ui.warehouseInboundTitle) {
                 ui.warehouseInboundTitle.textContent = inbound ? `Purchase Order ${inbound.inboundCode}` : "Warehouse Purchase Order Entry";
+            }
+            if (ui.warehouseInboundStatusChip) {
+                ui.warehouseInboundStatusChip.textContent = inbound?.status || "Open";
             }
             ui.warehouseInboundReferenceNumber.value = inbound?.referenceNumber || "";
             ui.warehouseInboundCarrierName.value = inbound?.carrierName || "";
@@ -14170,6 +14307,7 @@
             document.getElementById("masterItemForm").reset();
             ui.masterItemAccount.disabled = false;
             ui.masterItemSubmitBtn.textContent = "Save Item";
+            if (ui.masterItemStatusChip) ui.masterItemStatusChip.textContent = "New";
             ui.cancelMasterItemEditBtn.classList.add("hidden");
             ui.masterItemEditorBanner.classList.add("hidden");
             ui.masterItemAccount.value = accountName || "";
@@ -14207,6 +14345,7 @@
             ui.masterItemCaseWidth.value = item.caseWidth ?? "";
             ui.masterItemCaseHeight.value = item.caseHeight ?? "";
             ui.masterItemSubmitBtn.textContent = "Update Item";
+            if (ui.masterItemStatusChip) ui.masterItemStatusChip.textContent = "Editing";
             ui.cancelMasterItemEditBtn.classList.remove("hidden");
             ui.masterItemEditorBanner.classList.remove("hidden");
             ui.masterItemEditorTitle.textContent = `Editing ${item.accountName} / ${item.sku}`;

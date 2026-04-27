@@ -16,7 +16,8 @@ Navigation principles:
 - Use a WMS365-branded Dynamics-style desktop method: top module menus, command bar, list/workspace page, then drill into the working form and back out.
 - Keep a second-level quick link strip under the module menus for high-frequency lists like Customers, Items, Inventory, Sales Orders, Purchase Orders, and Reports.
 - Use a right-side FactBox on desktop for page context, company scope, operational counts, and related actions.
-- Use FastTab-style section headings such as General and Lines on document entry forms.
+- Use the same ERP card/document pattern for Sales Order Entry, Purchase Order Entry, and Item Card views.
+- Use FastTab-style section headings such as General, Lines, Ship To, Inventory Controls, Photo / Barcode, and Dimensions / Packaging on entry forms.
 - Do not use Microsoft, Dynamics, or Business Central branding in the product UI; keep the experience familiar but clearly WMS365.
 - Treat the desktop left navigation as a hidden backing structure; users should primarily enter workflows from the top module menus and command bar.
 - Put document entry before execution when users naturally start with paperwork.
