@@ -933,35 +933,36 @@
 
         .item-card-focus {
             display: grid;
-            gap: 0.7rem;
-            margin: 0.85rem 0 1rem;
-            padding: 0.7rem 0.8rem;
+            gap: 0.75rem;
+            margin: 1rem 0 1.05rem;
+            padding: 0.85rem 0.95rem;
             border: 1px solid #c8d2dc;
             background: #f7f9fb;
+            overflow: hidden;
         }
 
         .item-card-focus-title {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 0.75rem;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.25rem;
         }
 
         .item-card-focus-title strong {
             color: #102235;
             font-size: 0.98rem;
             font-weight: 650;
+            line-height: 1.25;
         }
 
         .item-card-focus-title span {
             color: #5f7284;
             font-size: 0.76rem;
+            line-height: 1.35;
         }
 
         .item-card-focus-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 0.5rem;
         }
 
@@ -990,6 +991,12 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        @media (min-width: 1100px) {
+            .item-card-focus-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
         }
 
         .item-card-rule-list {
@@ -1125,6 +1132,14 @@
                 overflow: hidden;
             }
 
+            body.sales-order-popout-open .panel.active,
+            body.purchase-order-popout-open .panel.active,
+            body.item-card-popout-open .panel.active,
+            body.partner-card-popout-open .panel.active {
+                isolation: auto;
+                z-index: auto;
+            }
+
             body.sales-order-popout-open::before,
             body.purchase-order-popout-open::before,
             body.item-card-popout-open::before,
@@ -1159,6 +1174,10 @@
                 transform: translateX(-50%);
                 border-radius: 0;
                 border-color: #aebbc7;
+                background: #ffffff;
+                color: #102235;
+                opacity: 1;
+                filter: none;
                 box-shadow: 0 1.4rem 3rem rgba(15, 23, 42, 0.34);
             }
 
@@ -1175,6 +1194,13 @@
                 top: 0;
                 z-index: 2;
                 background: #ffffff;
+            }
+
+            body.sales-order-popout-open #openFeedbackBtn,
+            body.purchase-order-popout-open #openFeedbackBtn,
+            body.item-card-popout-open #openFeedbackBtn,
+            body.partner-card-popout-open #openFeedbackBtn {
+                display: none;
             }
         }
 
