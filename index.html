@@ -927,6 +927,107 @@
             background: #dff6f7;
         }
 
+        .erp-list-table tbody tr[data-open-master-item] {
+            cursor: pointer;
+        }
+
+        .item-card-focus {
+            display: grid;
+            gap: 0.7rem;
+            margin: 0.85rem 0 1rem;
+            padding: 0.7rem 0.8rem;
+            border: 1px solid #c8d2dc;
+            background: #f7f9fb;
+        }
+
+        .item-card-focus-title {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .item-card-focus-title strong {
+            color: #102235;
+            font-size: 0.98rem;
+            font-weight: 650;
+        }
+
+        .item-card-focus-title span {
+            color: #5f7284;
+            font-size: 0.76rem;
+        }
+
+        .item-card-focus-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.5rem;
+        }
+
+        .item-card-focus-cell {
+            min-height: 3.1rem;
+            padding: 0.55rem 0.65rem;
+            border: 1px solid #d7e0e8;
+            background: #ffffff;
+        }
+
+        .item-card-focus-cell span {
+            display: block;
+            color: #65798c;
+            font-size: 0.66rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .item-card-focus-cell strong {
+            display: block;
+            margin-top: 0.18rem;
+            color: #102235;
+            font-size: 0.94rem;
+            font-weight: 650;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .item-card-rule-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .item-card-rule {
+            display: inline-flex;
+            align-items: center;
+            min-height: 1.65rem;
+            padding: 0.22rem 0.55rem;
+            border: 1px solid #c8d2dc;
+            background: #ffffff;
+            color: #2d465d;
+            font-size: 0.76rem;
+            font-weight: 600;
+        }
+
+        .item-card-rule.strong {
+            border-color: #8fd4d8;
+            background: #e9fbfc;
+            color: #006d7f;
+        }
+
+        .item-card-rule.warning {
+            border-color: #f1ca8b;
+            background: #fff8e8;
+            color: #865b05;
+        }
+
+        .item-card-photo-panel {
+            padding: 0.7rem;
+            border: 1px solid #d7e0e8;
+            background: #fbfcfd;
+        }
+
         .erp-list-link {
             border: 0;
             background: transparent;
@@ -1017,11 +1118,15 @@
         }
 
         @media (min-width: 860px) {
-            body.sales-order-popout-open {
+            body.sales-order-popout-open,
+            body.purchase-order-popout-open,
+            body.item-card-popout-open {
                 overflow: hidden;
             }
 
-            body.sales-order-popout-open::before {
+            body.sales-order-popout-open::before,
+            body.purchase-order-popout-open::before,
+            body.item-card-popout-open::before {
                 content: "";
                 position: fixed;
                 inset: 0;
@@ -1033,7 +1138,13 @@
                 filter: grayscale(0.1);
             }
 
-            body.sales-order-popout-open #warehouseOrderEntryCard {
+            body.purchase-order-popout-open #warehouseInboundQueueCard {
+                filter: grayscale(0.1);
+            }
+
+            body.sales-order-popout-open #warehouseOrderEntryCard,
+            body.purchase-order-popout-open #warehouseInboundEntryCard,
+            body.item-card-popout-open #masterItemCard {
                 position: fixed;
                 top: 3.2rem;
                 left: 50%;
@@ -1048,7 +1159,13 @@
                 box-shadow: 0 1.4rem 3rem rgba(15, 23, 42, 0.34);
             }
 
-            body.sales-order-popout-open #warehouseOrderEntryCard .card-head {
+            body.item-card-popout-open #masterItemCard {
+                width: min(62rem, calc(100vw - 5rem));
+            }
+
+            body.sales-order-popout-open #warehouseOrderEntryCard .card-head,
+            body.purchase-order-popout-open #warehouseInboundEntryCard .card-head,
+            body.item-card-popout-open #masterItemCard .card-head {
                 position: sticky;
                 top: 0;
                 z-index: 2;
@@ -5451,20 +5568,51 @@
                             </form>
                         </div>
 
-                        <div class="helper erp-document-card" id="masterItemCard">
+                        <div class="helper erp-document-card hidden" id="masterItemCard">
                             <div class="card-head">
                                 <div>
                                     <div class="erp-document-kicker">Card Page</div>
                                     <div class="erp-document-title-row">
-                                        <h3>Item Card</h3>
+                                        <h3 id="masterItemCardTitle">Item Card</h3>
                                         <span class="erp-status-chip" id="masterItemStatusChip">New</span>
                                     </div>
-                                    <p class="meta">Maintain SKU identity, tracking controls, packaging, and product images in one consistent card view.</p>
+                                    <p class="meta" id="masterItemCardMeta">Maintain SKU identity, receiving rules, picking controls, packaging, and product images in one consistent card view.</p>
+                                </div>
+                                <div class="erp-document-actions">
+                                    <button class="btn ghost erp-document-back" id="closeMasterItemCardBtn" type="button">Back to Items</button>
                                 </div>
                             </div>
                             <div class="helper editor-banner hidden" id="masterItemEditorBanner" style="margin-top: 1rem;">
                                 <strong id="masterItemEditorTitle">Editing Saved Item</strong>
                                 <div class="quick-meta" id="masterItemEditorMeta">SKU changes update matching inventory lines for this company.</div>
+                            </div>
+                            <div class="item-card-focus" aria-live="polite">
+                                <div class="item-card-focus-title">
+                                    <strong id="masterItemHandlingSummary">New item setup</strong>
+                                    <span id="masterItemHandlingMeta">Set the warehouse handling rules before this SKU is used on receipts or orders.</span>
+                                </div>
+                                <div class="item-card-focus-grid">
+                                    <div class="item-card-focus-cell">
+                                        <span>Company</span>
+                                        <strong id="masterItemFocusCompany">Not selected</strong>
+                                    </div>
+                                    <div class="item-card-focus-cell">
+                                        <span>SKU</span>
+                                        <strong id="masterItemFocusSku">Required</strong>
+                                    </div>
+                                    <div class="item-card-focus-cell">
+                                        <span>Stock UOM</span>
+                                        <strong id="masterItemFocusTracking">Units</strong>
+                                    </div>
+                                    <div class="item-card-focus-cell">
+                                        <span>Pick Rule</span>
+                                        <strong id="masterItemFocusPickRule">Standard FIFO</strong>
+                                    </div>
+                                </div>
+                                <div class="item-card-rule-list" id="masterItemRuleSummary">
+                                    <span class="item-card-rule">No lot capture</span>
+                                    <span class="item-card-rule">No expiration capture</span>
+                                </div>
                             </div>
                             <form id="masterItemForm" class="form-grid" autocomplete="off">
                                 <div class="erp-fasttab-heading desktop-only span-2">General</div>
@@ -5484,27 +5632,9 @@
                                     <span>Description</span>
                                     <input id="masterItemDescription" type="text" placeholder="Optional item description" enterkeyhint="done">
                                 </label>
-                                <label class="field span-2">
-                                    <span>Photo URL</span>
-                                    <input id="masterItemImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
-                                </label>
-                                <div class="erp-fasttab-heading desktop-only span-2">Photo / Barcode</div>
-                                <div class="helper span-2">
-                                    <h3>Product Photo</h3>
-                                    <p class="meta">Optional. Paste a Google Drive image link or choose a photo and the app will compress it before saving.</p>
-                                    <div class="button-row">
-                                        <button class="btn ghost" id="masterItemImagePickBtn" type="button">Choose Photo</button>
-                                        <button class="btn ghost hidden" id="masterItemImageClearBtn" type="button">Clear Photo</button>
-                                    </div>
-                                    <div class="image-preview hidden" id="masterItemImagePreviewWrap">
-                                        <img id="masterItemImagePreview" alt="Item photo preview">
-                                        <div class="image-preview-meta" id="masterItemImagePreviewMeta">Compressed item photo preview</div>
-                                    </div>
-                                    <input id="masterItemImageInput" class="hidden" type="file" accept="image/*" capture="environment">
-                                </div>
-                                <div class="erp-fasttab-heading desktop-only span-2">Inventory Controls</div>
+                                <div class="erp-fasttab-heading desktop-only span-2">Warehouse Controls</div>
                                 <label class="field">
-                                    <span>Tracking</span>
+                                    <span>Stock Unit</span>
                                     <select id="masterItemTrackingLevel">
                                         <option value="UNIT">Units</option>
                                         <option value="CASE">Cases</option>
@@ -5554,6 +5684,24 @@
                                     <span>Case Height</span>
                                     <input id="masterItemCaseHeight" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
                                 </label>
+                                <div class="erp-fasttab-heading desktop-only span-2">Photo / Barcode</div>
+                                <label class="field span-2">
+                                    <span>Photo URL</span>
+                                    <input id="masterItemImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
+                                </label>
+                                <div class="item-card-photo-panel span-2">
+                                    <h3>Product Photo</h3>
+                                    <p class="meta">Optional. Paste a Google Drive image link or choose a photo and the app will compress it before saving.</p>
+                                    <div class="button-row">
+                                        <button class="btn ghost" id="masterItemImagePickBtn" type="button">Choose Photo</button>
+                                        <button class="btn ghost hidden" id="masterItemImageClearBtn" type="button">Clear Photo</button>
+                                    </div>
+                                    <div class="image-preview hidden" id="masterItemImagePreviewWrap">
+                                        <img id="masterItemImagePreview" alt="Item photo preview">
+                                        <div class="image-preview-meta" id="masterItemImagePreviewMeta">Compressed item photo preview</div>
+                                    </div>
+                                    <input id="masterItemImageInput" class="hidden" type="file" accept="image/*" capture="environment">
+                                </div>
                                 <div class="button-row span-2">
                                     <button class="btn secondary" id="masterItemSubmitBtn" type="submit">Save Item</button>
                                     <button class="btn ghost hidden" id="cancelMasterItemEditBtn" type="button">Cancel Edit</button>
@@ -5817,9 +5965,12 @@
                             <div class="list-head">
                                 <div>
                                     <h3>Saved Items</h3>
-                                    <p class="meta">Tap Use to load the item into the scan form and fill the SKU / UPC faster.</p>
+                                    <p class="meta">Open the SKU to drill into the item card, or use the action button to load it into scanning.</p>
                                 </div>
-                                <span class="meta" id="masterItemCount">0 saved</span>
+                                <div class="erp-list-actions">
+                                    <span class="meta" id="masterItemCount">0 saved</span>
+                                    <button class="btn ghost mini" id="openMasterItemNewBtn" type="button">+ New Item</button>
+                                </div>
                             </div>
                             <div id="masterItemList" class="stack-list">
                                 <p class="empty">No items saved yet. Add your common SKUs here to speed up repeat work.</p>
@@ -7499,6 +7650,18 @@
             masterOwnerNote: document.getElementById("masterOwnerNote"),
             masterLocationCode: document.getElementById("masterLocationCode"),
             masterLocationNote: document.getElementById("masterLocationNote"),
+            masterItemCard: document.getElementById("masterItemCard"),
+            masterItemCardTitle: document.getElementById("masterItemCardTitle"),
+            masterItemCardMeta: document.getElementById("masterItemCardMeta"),
+            masterItemHandlingSummary: document.getElementById("masterItemHandlingSummary"),
+            masterItemHandlingMeta: document.getElementById("masterItemHandlingMeta"),
+            masterItemFocusCompany: document.getElementById("masterItemFocusCompany"),
+            masterItemFocusSku: document.getElementById("masterItemFocusSku"),
+            masterItemFocusTracking: document.getElementById("masterItemFocusTracking"),
+            masterItemFocusPickRule: document.getElementById("masterItemFocusPickRule"),
+            masterItemRuleSummary: document.getElementById("masterItemRuleSummary"),
+            closeMasterItemCardBtn: document.getElementById("closeMasterItemCardBtn"),
+            openMasterItemNewBtn: document.getElementById("openMasterItemNewBtn"),
             masterItemAccount: document.getElementById("masterItemAccount"),
             masterItemSku: document.getElementById("masterItemSku"),
             masterItemUpc: document.getElementById("masterItemUpc"),
@@ -8096,6 +8259,21 @@
             document.getElementById("loadVendorToPortalBtn").addEventListener("click", loadVendorToPortalAccess);
             document.getElementById("loadVendorToBillingBtn").addEventListener("click", loadVendorToBilling);
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
+            ui.openMasterItemNewBtn?.addEventListener("click", () => showMasterItemCard(null, { scroll: true }));
+            ui.closeMasterItemCardBtn?.addEventListener("click", () => closeMasterItemCard({ reset: true }));
+            [
+                ui.masterItemAccount,
+                ui.masterItemSku,
+                ui.masterItemUpc,
+                ui.masterItemDescription,
+                ui.masterItemTrackingLevel,
+                ui.masterItemUnitsPerCase,
+                ui.masterItemLotTracked,
+                ui.masterItemExpirationTracked
+            ].filter(Boolean).forEach((field) => {
+                field.addEventListener("input", updateMasterItemFocusPanel);
+                field.addEventListener("change", updateMasterItemFocusPanel);
+            });
             ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
             ui.masterFilter.addEventListener("input", debouncedRenderMasterLibrary);
             ui.masterOwnerList.addEventListener("click", onMasterOwnerListClick);
@@ -8347,6 +8525,14 @@
                 }
                 if (event.key === "Escape" && document.body.classList.contains("sales-order-popout-open")) {
                     showSalesOrderList({ scroll: false });
+                    return;
+                }
+                if (event.key === "Escape" && document.body.classList.contains("purchase-order-popout-open")) {
+                    showPurchaseOrderList({ scroll: false });
+                    return;
+                }
+                if (event.key === "Escape" && document.body.classList.contains("item-card-popout-open")) {
+                    closeMasterItemCard({ reset: true });
                 }
             });
             mobileQuery.addEventListener("change", handleViewportChange);
@@ -8764,6 +8950,14 @@
                 document.body.classList.remove("sales-order-popout-open");
                 ui.warehouseOrderEntryCard?.classList.add("hidden");
             }
+            if (section !== "inbounds") {
+                document.body.classList.remove("purchase-order-popout-open");
+                ui.warehouseInboundEntryCard?.classList.add("hidden");
+            }
+            if (section !== "inventory") {
+                document.body.classList.remove("item-card-popout-open");
+                ui.masterItemCard?.classList.add("hidden");
+            }
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             syncScanSectionUi();
             syncPortalOrdersSectionUi(section);
@@ -8846,6 +9040,9 @@
         function handleViewportChange() {
             hideMobileAutocomplete();
             applyDeviceExperienceMode();
+            if (isMobileView()) {
+                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open", "item-card-popout-open");
+            }
             if (!isMobileView()) {
                 mobileSectionHistory.length = 0;
             }
@@ -14869,6 +15066,7 @@
             ui.warehouseOrderEntryCard?.classList.remove("hidden");
             resetWarehouseSalesOrderForm(order);
             if (!isMobileView()) {
+                document.body.classList.remove("purchase-order-popout-open", "item-card-popout-open");
                 document.body.classList.add("sales-order-popout-open");
             }
             if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseOrderEntryCard");
@@ -14877,6 +15075,7 @@
         }
 
         function showPurchaseOrderList({ scroll = false } = {}) {
+            document.body.classList.remove("purchase-order-popout-open");
             ui.warehouseInboundEntryCard?.classList.add("hidden");
             ui.warehouseInboundQueueCard?.classList.remove("hidden");
             if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseInboundQueueCard");
@@ -14884,12 +15083,35 @@
         }
 
         function showPurchaseOrderDocument(inbound = null, { scroll = false } = {}) {
-            ui.warehouseInboundQueueCard?.classList.add("hidden");
+            ui.warehouseInboundQueueCard?.classList.remove("hidden");
             ui.warehouseInboundEntryCard?.classList.remove("hidden");
             resetWarehouseInboundForm(inbound);
+            if (!isMobileView()) {
+                document.body.classList.remove("sales-order-popout-open", "item-card-popout-open");
+                document.body.classList.add("purchase-order-popout-open");
+            }
             if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseInboundEntryCard");
-            if (scroll) ui.warehouseInboundEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            if (scroll && isMobileView()) ui.warehouseInboundEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
             window.setTimeout(() => ui.warehouseInboundReferenceNumber?.focus(), scroll ? 180 : 40);
+        }
+
+        function showMasterItemCard(item = null, { scroll = false } = {}) {
+            ui.masterItemCard?.classList.remove("hidden");
+            if (item) beginMasterItemEdit(item);
+            else resetMasterItemForm(getActiveCompany() || state.preferences.lastAccount || "");
+            if (!isMobileView()) {
+                document.body.classList.remove("sales-order-popout-open", "purchase-order-popout-open");
+                document.body.classList.add("item-card-popout-open");
+            }
+            if (scroll && isMobileView()) ui.masterItemCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            window.setTimeout(() => ui.masterItemSku?.focus(), scroll ? 180 : 40);
+        }
+
+        function closeMasterItemCard({ reset = false } = {}) {
+            document.body.classList.remove("item-card-popout-open");
+            ui.masterItemCard?.classList.add("hidden");
+            if (reset) resetMasterItemForm(getActiveCompany() || state.preferences.lastAccount || "");
+            if (!isMobileView()) ui.masterFilter?.focus();
         }
 
         function mergePortalOrderRecord(updatedOrder) {
@@ -15235,6 +15457,46 @@
             }
         }
 
+        function updateMasterItemFocusPanel() {
+            if (!ui.masterItemHandlingSummary) return;
+            const accountName = getScopedCompanyValue(ui.masterItemAccount?.value || "");
+            const sku = norm(ui.masterItemSku?.value || "");
+            const upc = norm(ui.masterItemUpc?.value || "");
+            const description = String(ui.masterItemDescription?.value || "").trim().replace(/\s+/g, " ");
+            const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel?.value || "UNIT");
+            const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase?.value);
+            const lotTracked = ui.masterItemLotTracked?.value === "true";
+            const expirationTracked = ui.masterItemExpirationTracked?.value === "true";
+            const trackingText = trackingLabel(trackingLevel);
+            const pickRule = expirationTracked ? "FEFO by expiration" : (lotTracked ? "FIFO with lot capture" : "Standard FIFO");
+            const summaryText = sku ? `${sku}${description ? ` - ${description}` : ""}` : "New item setup";
+            const metaParts = [
+                accountName ? `Company ${accountName}` : "Choose a company",
+                upc ? `UPC ${upc}` : "UPC optional",
+                `${trackingText} stock`
+            ];
+            const ruleBadges = [
+                `<span class="item-card-rule strong">${esc(trackingText)} stock unit</span>`,
+                unitsPerCase ? `<span class="item-card-rule">${num(unitsPerCase)} units per case</span>` : `<span class="item-card-rule">Case pack optional</span>`,
+                lotTracked ? `<span class="item-card-rule warning">Lot capture required</span>` : `<span class="item-card-rule">No lot capture</span>`,
+                expirationTracked ? `<span class="item-card-rule warning">Expiration required - FEFO picking</span>` : `<span class="item-card-rule">No expiration capture</span>`
+            ];
+
+            if (ui.masterItemCardTitle) {
+                ui.masterItemCardTitle.textContent = sku ? `${sku} - Item Card` : "New Item Card";
+            }
+            if (ui.masterItemCardMeta) {
+                ui.masterItemCardMeta.textContent = "Define how this SKU is received, stored, picked, and shown to warehouse users.";
+            }
+            ui.masterItemHandlingSummary.textContent = summaryText;
+            if (ui.masterItemHandlingMeta) ui.masterItemHandlingMeta.textContent = metaParts.filter(Boolean).join(" | ");
+            if (ui.masterItemFocusCompany) ui.masterItemFocusCompany.textContent = accountName || "Not selected";
+            if (ui.masterItemFocusSku) ui.masterItemFocusSku.textContent = sku || "Required";
+            if (ui.masterItemFocusTracking) ui.masterItemFocusTracking.textContent = trackingText;
+            if (ui.masterItemFocusPickRule) ui.masterItemFocusPickRule.textContent = pickRule;
+            if (ui.masterItemRuleSummary) ui.masterItemRuleSummary.innerHTML = ruleBadges.join("");
+        }
+
         function resetMasterItemForm(accountName = "") {
             editingMasterItem = null;
             document.getElementById("masterItemForm").reset();
@@ -15255,6 +15517,7 @@
                 clearBtn: ui.masterItemImageClearBtn,
                 defaultMeta: "Compressed item photo preview"
             });
+            updateMasterItemFocusPanel();
         }
 
         function beginMasterItemEdit(item) {
@@ -15291,6 +15554,7 @@
                 clearBtn: ui.masterItemImageClearBtn,
                 defaultMeta: "Compressed item photo preview"
             });
+            updateMasterItemFocusPanel();
             ui.masterItemSku.focus();
         }
 
@@ -15396,27 +15660,63 @@
             }
 
             const rows = items.map((item) => {
-                const meta = formatItemMasterMeta(item);
+                const pickRule = item.expirationTracked ? "FEFO" : (item.lotTracked ? "Lot FIFO" : "Standard");
+                const traceability = [
+                    item.lotTracked ? "Lot" : "",
+                    item.expirationTracked ? "Expiration" : ""
+                ].filter(Boolean).join(" + ") || "None";
+                const packageText = [
+                    item.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "",
+                    formatDimensions(item.eachLength, item.eachWidth, item.eachHeight, "Each"),
+                    formatDimensions(item.caseLength, item.caseWidth, item.caseHeight, "Case")
+                ].filter(Boolean).join(" | ") || "&mdash;";
                 return `
-                    <div class="quick-row">
-                        ${item.imageUrl ? `<img class="quick-media" src="${attr(normalizeImageReference(item.imageUrl))}" alt="${attr(`${item.accountName} ${item.sku}`)}">` : ""}
-                        <div class="quick-main">
-                            <strong>${esc(item.accountName)} / ${esc(item.sku)}</strong>
-                            <div class="quick-meta">${esc(meta)}</div>
-                        </div>
-                        <div class="quick-row-actions">
-                            <button class="btn ghost mini" type="button" data-use-item="${attr(item.id)}">Use In Scan</button>
-                            <button class="btn ghost mini" type="button" data-edit-item="${attr(item.id)}">Edit</button>
-                        </div>
-                    </div>
+                    <tr data-open-master-item="${attr(item.id)}">
+                        <td>
+                            <button class="erp-list-link" type="button" data-open-master-item="${attr(item.id)}">${esc(item.sku)}</button>
+                            <div class="quick-meta">${esc(item.description || "No description saved")}</div>
+                        </td>
+                        <td>${esc(item.accountName)}</td>
+                        <td>${esc(item.upc || "") || "&mdash;"}</td>
+                        <td>${esc(trackingLabel(item.trackingLevel))}</td>
+                        <td>${esc(traceability)}</td>
+                        <td>${esc(pickRule)}</td>
+                        <td>${packageText}</td>
+                        <td>${item.imageUrl ? "Attached" : "&mdash;"}</td>
+                        <td>
+                            <div class="erp-list-row-actions">
+                                <button class="btn ghost mini" type="button" data-use-item="${attr(item.id)}">Use In Scan</button>
+                            </div>
+                        </td>
+                    </tr>
                 `;
             }).join("");
+            const table = `
+                <div class="erp-list-table-wrap">
+                    <table class="erp-list-table">
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Company</th>
+                                <th>UPC</th>
+                                <th>Stock UOM</th>
+                                <th>Traceability</th>
+                                <th>Pick Rule</th>
+                                <th>Pack / Dimensions</th>
+                                <th>Photo</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
 
             if (items.length < totalMatches) {
-                return `${rows}<p class="meta">Showing the first ${num(items.length)} of ${num(totalMatches)} items. Narrow the filter to see more.</p>`;
+                return `${table}<p class="meta">Showing the first ${num(items.length)} of ${num(totalMatches)} items. Narrow the filter to see more.</p>`;
             }
 
-            return rows;
+            return table;
         }
 
         async function exportLocationCsv() {
@@ -15559,15 +15859,16 @@
         }
 
         function onMasterItemListClick(event) {
-            const editButton = event.target.closest("[data-edit-item]");
-            if (editButton) {
-                const item = state.masters.items.find((entry) => entry.id === editButton.dataset.editItem);
-                beginMasterItemEdit(item);
+            const button = event.target.closest("[data-use-item]");
+            if (button) {
+                fillScanFromMasterItem(button.dataset.useItem);
                 return;
             }
-            const button = event.target.closest("[data-use-item]");
-            if (!button) return;
-            fillScanFromMasterItem(button.dataset.useItem);
+            const openButton = event.target.closest("[data-open-master-item], [data-edit-item]");
+            if (!openButton) return;
+            const itemId = openButton.dataset.openMasterItem || openButton.dataset.editItem || "";
+            const item = state.masters.items.find((entry) => entry.id === itemId);
+            showMasterItemCard(item, { scroll: true });
         }
 
         function fillScanFromOwner(name) {
