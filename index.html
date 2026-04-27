@@ -6468,13 +6468,15 @@
                     <div class="card-head">
                         <div>
                             <h2>Bulk Inventory Worksheet</h2>
-                            <p class="lead">Edit stock like a spreadsheet for the active company. Change locations, SKUs, and quantities in one pass, then save all changes together.</p>
+                            <p class="lead">Edit stock like a spreadsheet for the active company. Export CSV, update NEW_LOCATION, LOT, EXPIRATION_DATE, or QTY, then upload and save all changes together.</p>
                         </div>
                         <span class="meta" id="inventoryWorksheetMeta">Choose an active company</span>
                     </div>
                     <div class="button-row" style="margin-bottom: 1rem;">
                         <div class="meta">Bulk edits are locked to the active company in the header so one customer cannot affect another customer's stock. Use Remove on an existing row to delete it.</div>
                         <div class="inline-actions">
+                            <button class="btn ghost" id="exportInventoryWorksheetCsvBtn" type="button">Export CSV</button>
+                            <button class="btn ghost" id="importInventoryWorksheetCsvBtn" type="button">Upload CSV</button>
                             <button class="btn ghost" id="addInventoryWorksheetRowBtn" type="button">Add Row</button>
                             <button class="btn ghost" id="resetInventoryWorksheetBtn" type="button">Reset Sheet</button>
                             <button class="btn secondary" id="saveInventoryWorksheetBtn" type="button">Save Bulk Changes</button>
@@ -6486,7 +6488,7 @@
                             <thead>
                                 <tr>
                                     <th>Action</th>
-                                    <th>Location</th>
+                                    <th>New Location</th>
                                     <th>SKU</th>
                                     <th>UPC</th>
                                     <th>Lot</th>
@@ -6500,6 +6502,7 @@
                         </table>
                     </div>
                     <div class="status" id="inventoryWorksheetMessage"></div>
+                    <input id="importInventoryWorksheetCsvInput" class="hidden" type="file" accept=".csv,text/csv">
                 </article>
             </div>
             </div>
@@ -7619,6 +7622,8 @@
         let feedbackRecords = [];
         let editingWarehouseOrderId = "";
         let editingWarehouseInboundId = "";
+        let inventoryWorksheetDraftCompany = "";
+        let inventoryWorksheetDraftRows = null;
         let companyFeatureDraftCompany = "";
         let companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
         let editingWarehouseUserId = "";
@@ -8057,6 +8062,9 @@
             inventoryWorksheetWrap: document.getElementById("inventoryWorksheetWrap"),
             inventoryWorksheetBody: document.getElementById("inventoryWorksheetBody"),
             inventoryWorksheetMessage: document.getElementById("inventoryWorksheetMessage"),
+            importInventoryWorksheetCsvInput: document.getElementById("importInventoryWorksheetCsvInput"),
+            exportInventoryWorksheetCsvBtn: document.getElementById("exportInventoryWorksheetCsvBtn"),
+            importInventoryWorksheetCsvBtn: document.getElementById("importInventoryWorksheetCsvBtn"),
             addInventoryWorksheetRowBtn: document.getElementById("addInventoryWorksheetRowBtn"),
             resetInventoryWorksheetBtn: document.getElementById("resetInventoryWorksheetBtn"),
             saveInventoryWorksheetBtn: document.getElementById("saveInventoryWorksheetBtn"),
@@ -8621,6 +8629,13 @@
                 renderInventory("");
                 ui.inventoryFilter.focus();
             });
+            ui.exportInventoryWorksheetCsvBtn?.addEventListener("click", exportInventoryWorksheetCsv);
+            ui.importInventoryWorksheetCsvBtn?.addEventListener("click", () => ui.importInventoryWorksheetCsvInput?.click());
+            ui.importInventoryWorksheetCsvInput?.addEventListener("change", importInventoryWorksheetCsv);
+            ui.addInventoryWorksheetRowBtn?.addEventListener("click", addInventoryWorksheetRow);
+            ui.resetInventoryWorksheetBtn?.addEventListener("click", resetInventoryWorksheet);
+            ui.saveInventoryWorksheetBtn?.addEventListener("click", saveInventoryWorksheet);
+            ui.inventoryWorksheetBody?.addEventListener("change", onInventoryWorksheetTableChange);
             ui.reportFilter.addEventListener("input", debouncedRenderReports);
             ui.reportOwner.addEventListener("input", debouncedRenderReports);
             document.getElementById("clearReportFilterBtn").addEventListener("click", () => {
@@ -11543,6 +11558,7 @@
             renderLabelTool();
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
+            renderInventoryWorksheet();
             renderReports(ui.reportFilter.value);
             renderSummary();
             syncScanItemSelectors();
@@ -17053,6 +17069,380 @@
                     <td>${esc(formatDate(line.updatedAt))}</td>
                 </tr>
             `).join("");
+        }
+
+        function getInventoryWorksheetRows(company = getActiveCompany()) {
+            const normalizedCompany = norm(company);
+            if (!normalizedCompany) return [];
+            if (inventoryWorksheetDraftCompany === normalizedCompany && Array.isArray(inventoryWorksheetDraftRows)) {
+                return inventoryWorksheetDraftRows.map((row) => ({ ...row }));
+            }
+            return sortedInventory()
+                .filter((line) => norm(line.accountName) === normalizedCompany)
+                .map((line) => ({
+                    id: String(line.id || ""),
+                    accountName: normalizedCompany,
+                    currentLocation: norm(line.location),
+                    location: norm(line.location),
+                    sku: norm(line.sku),
+                    upc: norm(line.upc || ""),
+                    lotNumber: norm(line.lotNumber || ""),
+                    expirationDate: normalizeWorksheetDate(line.expirationDate || ""),
+                    trackingLevel: normalizeTrackingLevel(line.trackingLevel),
+                    quantity: Number(line.quantity || 0) || 0,
+                    remove: false
+                }));
+        }
+
+        function renderInventoryWorksheet() {
+            const company = getActiveCompany();
+            const hasCompany = !!company;
+            const rows = hasCompany ? getInventoryWorksheetRows(company) : [];
+            const hasDraft = hasCompany && inventoryWorksheetDraftCompany === company && Array.isArray(inventoryWorksheetDraftRows);
+            const hasRows = rows.length > 0;
+
+            if (ui.inventoryWorksheetMeta) {
+                ui.inventoryWorksheetMeta.textContent = hasCompany
+                    ? `${company} | ${num(rows.length)} worksheet line${rows.length === 1 ? "" : "s"}${hasDraft ? " | unsaved worksheet loaded" : ""}`
+                    : "Choose an active company";
+            }
+
+            [
+                ui.importInventoryWorksheetCsvBtn,
+                ui.addInventoryWorksheetRowBtn,
+                ui.resetInventoryWorksheetBtn,
+                ui.saveInventoryWorksheetBtn
+            ].filter(Boolean).forEach((button) => {
+                button.disabled = !hasCompany;
+            });
+            if (ui.exportInventoryWorksheetCsvBtn) {
+                ui.exportInventoryWorksheetCsvBtn.disabled = !hasCompany || !hasRows;
+            }
+
+            if (!hasCompany) {
+                ui.inventoryWorksheetEmpty.textContent = "Choose an active company to open the bulk inventory worksheet.";
+                ui.inventoryWorksheetEmpty.classList.remove("hidden");
+                ui.inventoryWorksheetWrap.classList.add("hidden");
+                ui.inventoryWorksheetBody.innerHTML = "";
+                return;
+            }
+
+            if (!hasRows) {
+                ui.inventoryWorksheetEmpty.textContent = `No inventory lines found for ${company}. Add a row or upload a CSV to create controlled stock lines.`;
+                ui.inventoryWorksheetEmpty.classList.remove("hidden");
+                ui.inventoryWorksheetWrap.classList.add("hidden");
+                ui.inventoryWorksheetBody.innerHTML = "";
+                return;
+            }
+
+            ui.inventoryWorksheetEmpty.classList.add("hidden");
+            ui.inventoryWorksheetWrap.classList.remove("hidden");
+            ui.inventoryWorksheetBody.innerHTML = rows.map((row, index) => inventoryWorksheetRowHtml(row, index)).join("");
+        }
+
+        function inventoryWorksheetRowHtml(row, index) {
+            const id = String(row.id || "");
+            const currentLocation = norm(row.currentLocation || row.location || "");
+            const description = inventoryWorksheetDescription(row);
+            const removeChecked = row.remove === true || Number(row.quantity || 0) === 0;
+            return `
+                <tr class="${removeChecked ? "marked-delete" : ""}" data-worksheet-index="${attr(index)}" data-inventory-line-id="${attr(id)}" data-current-location="${attr(currentLocation)}">
+                    <td class="sheet-actions">
+                        <label class="checkbox-line">
+                            <input type="checkbox" data-worksheet-field="remove" ${removeChecked ? "checked" : ""}>
+                            <span>Remove</span>
+                        </label>
+                    </td>
+                    <td><input type="text" data-worksheet-field="location" value="${attr(row.location || "")}" placeholder="New location"></td>
+                    <td><input type="text" data-worksheet-field="sku" value="${attr(row.sku || "")}" placeholder="SKU"></td>
+                    <td><input type="text" data-worksheet-field="upc" value="${attr(row.upc || "")}" placeholder="UPC"></td>
+                    <td><input type="text" data-worksheet-field="lotNumber" value="${attr(row.lotNumber || "")}" placeholder="Lot optional"></td>
+                    <td><input type="date" data-worksheet-field="expirationDate" value="${attr(normalizeWorksheetDate(row.expirationDate || ""))}"></td>
+                    <td>
+                        <select data-worksheet-field="trackingLevel">
+                            <option value="UNIT" ${normalizeTrackingLevel(row.trackingLevel) === "UNIT" ? "selected" : ""}>Units</option>
+                            <option value="CASE" ${normalizeTrackingLevel(row.trackingLevel) === "CASE" ? "selected" : ""}>Cases</option>
+                            <option value="PALLET" ${normalizeTrackingLevel(row.trackingLevel) === "PALLET" ? "selected" : ""}>Pallets</option>
+                        </select>
+                    </td>
+                    <td><input type="number" min="0" step="1" data-worksheet-field="quantity" value="${attr(row.quantity ?? "")}" placeholder="Qty"></td>
+                    <td class="sheet-readonly">${esc(description || "-")}</td>
+                </tr>
+            `;
+        }
+
+        function inventoryWorksheetDescription(row) {
+            const company = norm(row?.accountName || getActiveCompany());
+            const sku = norm(row?.sku || "");
+            const master = state.masters.items.find((item) => item.accountName === company && item.sku === sku);
+            const parts = [
+                row?.currentLocation && row.currentLocation !== row.location ? `From ${row.currentLocation}` : "",
+                master?.description || "",
+                row?.lotNumber ? `Lot ${row.lotNumber}` : "",
+                row?.expirationDate ? `Exp ${formatLabelDate(row.expirationDate)}` : ""
+            ];
+            return parts.filter(Boolean).join(" | ");
+        }
+
+        function collectInventoryWorksheetRows({ includeBlankRows = false } = {}) {
+            const company = getActiveCompany();
+            if (!company) return [];
+            return [...ui.inventoryWorksheetBody.querySelectorAll("tr")].map((row) => {
+                const field = (name) => row.querySelector(`[data-worksheet-field="${name}"]`);
+                const remove = field("remove")?.checked === true;
+                const id = normalizeWorksheetId(row.dataset.inventoryLineId || "");
+                const quantity = remove ? 0 : toNonNegativeWorksheetQuantity(field("quantity")?.value);
+                const entry = {
+                    id,
+                    accountName: company,
+                    currentLocation: norm(row.dataset.currentLocation || ""),
+                    location: norm(field("location")?.value || ""),
+                    sku: norm(field("sku")?.value || ""),
+                    upc: norm(field("upc")?.value || ""),
+                    lotNumber: norm(field("lotNumber")?.value || ""),
+                    expirationDate: normalizeWorksheetDate(field("expirationDate")?.value || ""),
+                    trackingLevel: normalizeTrackingLevel(field("trackingLevel")?.value || "UNIT"),
+                    quantity,
+                    remove
+                };
+                return entry;
+            }).filter((row) => includeBlankRows || row.id || row.location || row.sku || row.upc || row.lotNumber || row.expirationDate || row.quantity != null);
+        }
+
+        function addInventoryWorksheetRow() {
+            const company = getActiveCompany();
+            if (!company) return fail(ui.inventoryWorksheetMessage, "Choose an active company before adding worksheet rows.", ui.activeCompany);
+            inventoryWorksheetDraftCompany = company;
+            inventoryWorksheetDraftRows = collectInventoryWorksheetRows({ includeBlankRows: true });
+            inventoryWorksheetDraftRows.push({
+                id: "",
+                accountName: company,
+                currentLocation: "",
+                location: "",
+                sku: "",
+                upc: "",
+                lotNumber: "",
+                expirationDate: "",
+                trackingLevel: "UNIT",
+                quantity: null,
+                remove: false
+            });
+            renderInventoryWorksheet();
+            const lastLocationInput = ui.inventoryWorksheetBody.querySelector("tr:last-child [data-worksheet-field='location']");
+            lastLocationInput?.focus();
+        }
+
+        function resetInventoryWorksheet() {
+            const company = getActiveCompany();
+            inventoryWorksheetDraftCompany = "";
+            inventoryWorksheetDraftRows = null;
+            renderInventoryWorksheet();
+            showMessage(ui.inventoryWorksheetMessage, company ? `Reloaded the saved inventory worksheet for ${company}.` : "Choose a company to open the worksheet.", "info");
+        }
+
+        async function saveInventoryWorksheet() {
+            const company = getActiveCompany();
+            if (!company) return fail(ui.inventoryWorksheetMessage, "Choose an active company before saving bulk inventory changes.", ui.activeCompany);
+            const rows = collectInventoryWorksheetRows();
+            if (!rows.length) return fail(ui.inventoryWorksheetMessage, "Add at least one worksheet row before saving.", ui.addInventoryWorksheetRowBtn);
+
+            try {
+                await runActionWithFeedback({
+                    button: ui.saveInventoryWorksheetBtn,
+                    busyLabel: "Saving...",
+                    messageElement: ui.inventoryWorksheetMessage,
+                    progressMessage: "Saving bulk inventory worksheet..."
+                }, async () => {
+                    const result = await requestJson("/api/inventory/bulk-update", {
+                        method: "POST",
+                        body: JSON.stringify({ accountName: company, rows })
+                    });
+                    inventoryWorksheetDraftCompany = "";
+                    inventoryWorksheetDraftRows = null;
+                    await syncServerState(true);
+                    const summary = result.summary || {};
+                    const processed = Number(summary.processed || 0);
+                    showMessage(ui.inventoryWorksheetMessage, `Saved ${num(processed)} inventory change${processed === 1 ? "" : "s"} for ${company}.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.inventoryWorksheetMessage, error.message, "error");
+            }
+        }
+
+        function exportInventoryWorksheetCsv() {
+            const company = getActiveCompany();
+            if (!company) return fail(ui.inventoryWorksheetMessage, "Choose an active company before exporting inventory.", ui.activeCompany);
+            const rows = collectInventoryWorksheetRows().length ? collectInventoryWorksheetRows() : getInventoryWorksheetRows(company);
+            if (!rows.length) return showMessage(ui.inventoryWorksheetMessage, `No inventory rows are available to export for ${company}.`, "info");
+            const csvRows = [[
+                "ID",
+                "COMPANY",
+                "CURRENT_LOCATION",
+                "NEW_LOCATION",
+                "SKU",
+                "UPC",
+                "LOT",
+                "EXPIRATION_DATE",
+                "UOM",
+                "QTY",
+                "REMOVE",
+                "DESCRIPTION"
+            ]].concat(rows.map((row) => [
+                row.id || "",
+                company,
+                row.currentLocation || row.location || "",
+                row.location || "",
+                row.sku || "",
+                row.upc || "",
+                row.lotNumber || "",
+                row.expirationDate || "",
+                normalizeTrackingLevel(row.trackingLevel),
+                row.quantity ?? "",
+                row.remove ? "YES" : "",
+                inventoryWorksheetDescription(row)
+            ]));
+            downloadBlob(csvRows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-inventory-worksheet-${company}-${fileStamp()}.csv`, "text/csv;charset=utf-8");
+            showMessage(ui.inventoryWorksheetMessage, "Inventory worksheet exported. Edit NEW_LOCATION, LOT, EXPIRATION_DATE, or QTY, then upload and save.", "success");
+        }
+
+        function importInventoryWorksheetCsv(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const company = getActiveCompany();
+                    if (!company) throw new Error("Choose an active company before uploading an inventory worksheet.");
+                    const csvRows = parseCsv(String(reader.result || ""));
+                    const rows = mapInventoryWorksheetCsvRows(csvRows, company);
+                    if (!rows.length) {
+                        throw new Error("No inventory worksheet rows were found. Use columns like SKU, CURRENT_LOCATION, NEW_LOCATION, LOT, EXPIRATION_DATE, and QTY.");
+                    }
+                    inventoryWorksheetDraftCompany = company;
+                    inventoryWorksheetDraftRows = rows;
+                    renderInventoryWorksheet();
+                    showMessage(ui.inventoryWorksheetMessage, `Loaded ${num(rows.length)} worksheet row${rows.length === 1 ? "" : "s"} from CSV. Review the sheet, then click Save Bulk Changes.`, "success");
+                } catch (error) {
+                    showMessage(ui.inventoryWorksheetMessage, `Inventory worksheet upload failed: ${error.message}`, "error");
+                } finally {
+                    ui.importInventoryWorksheetCsvInput.value = "";
+                }
+            };
+            reader.onerror = () => {
+                showMessage(ui.inventoryWorksheetMessage, "Unable to read the selected inventory worksheet CSV file.", "error");
+                ui.importInventoryWorksheetCsvInput.value = "";
+            };
+            reader.readAsText(file);
+        }
+
+        function mapInventoryWorksheetCsvRows(rows, activeCompany) {
+            if (!rows.length) return [];
+            const headers = rows[0].map(csvHeaderKey);
+            const hasHeader = headers.some((value) => [
+                "ID",
+                "COMPANY",
+                "ACCOUNT",
+                "CURRENTLOCATION",
+                "LOCATION",
+                "NEWLOCATION",
+                "TOLOCATION",
+                "SKU",
+                "UPC",
+                "LOT",
+                "LOTNUMBER",
+                "EXPIRATIONDATE",
+                "EXPIRYDATE",
+                "QTY",
+                "QUANTITY",
+                "REMOVE"
+            ].includes(value));
+            const bodyRows = hasHeader ? rows.slice(1) : rows;
+            const normalizedActiveCompany = norm(activeCompany);
+
+            return bodyRows.map((cells, index) => {
+                const rowNumber = hasHeader ? index + 2 : index + 1;
+                if (!cells.some((cell) => String(cell || "").trim())) return null;
+
+                let record = null;
+                if (hasHeader) {
+                    record = Object.fromEntries(headers.map((header, cellIndex) => [header, String(cells[cellIndex] || "").trim()]));
+                }
+
+                const rowCompany = hasHeader
+                    ? norm(csvRecordValue(record, ["COMPANY", "ACCOUNT", "ACCOUNTNAME", "OWNER", "CUSTOMER", "VENDOR"]))
+                    : norm(cells[1] || "");
+                if (rowCompany && rowCompany !== normalizedActiveCompany) {
+                    throw new Error(`Row ${rowNumber} belongs to ${rowCompany}. Switch to that company before uploading it.`);
+                }
+
+                const id = hasHeader
+                    ? normalizeWorksheetId(csvRecordValue(record, ["ID", "LINEID", "INVENTORYID", "INVENTORYLINEID"]))
+                    : normalizeWorksheetId(cells[0] || "");
+                const currentLocation = hasHeader
+                    ? norm(csvRecordValue(record, ["CURRENTLOCATION", "FROMLOCATION", "SOURCELOCATION", "LOCATION", "BIN", "CURRENTBIN"]))
+                    : norm(cells[2] || "");
+                const newLocation = hasHeader
+                    ? norm(csvRecordValue(record, ["NEWLOCATION", "TOLOCATION", "DESTINATION", "DESTINATIONLOCATION", "TARGETLOCATION", "NEWBIN"]))
+                    : norm(cells[3] || "");
+                const quantityText = hasHeader
+                    ? csvRecordValue(record, ["QTY", "QUANTITY", "ONHAND", "ONHANDQTY", "COUNT"])
+                    : cells[9];
+                const remove = hasHeader
+                    ? parseWorksheetBoolean(csvRecordValue(record, ["REMOVE", "DELETE", "ARCHIVE"]))
+                    : parseWorksheetBoolean(cells[10]);
+                const row = {
+                    id,
+                    accountName: normalizedActiveCompany,
+                    currentLocation,
+                    location: newLocation || currentLocation,
+                    sku: hasHeader ? norm(csvRecordValue(record, ["SKU", "ITEM", "ITEMNO", "ITEMNUMBER", "ITEMSKU"])) : norm(cells[4] || ""),
+                    upc: hasHeader ? norm(csvRecordValue(record, ["UPC", "BARCODE", "UPCNUMBER"])) : norm(cells[5] || ""),
+                    lotNumber: hasHeader ? norm(csvRecordValue(record, ["LOT", "LOTNUMBER", "BATCH", "BATCHNUMBER"])) : norm(cells[6] || ""),
+                    expirationDate: hasHeader ? normalizeWorksheetDate(csvRecordValue(record, ["EXPIRATIONDATE", "EXPIRATION", "EXPIRYDATE", "EXPIRY", "EXPDATE"])) : normalizeWorksheetDate(cells[7] || ""),
+                    trackingLevel: hasHeader ? normalizeTrackingLevel(csvRecordValue(record, ["UOM", "TRACKING", "TRACKINGLEVEL", "STOCKUOM"])) : normalizeTrackingLevel(cells[8] || "UNIT"),
+                    quantity: remove ? 0 : toNonNegativeWorksheetQuantity(quantityText),
+                    remove
+                };
+
+                if (!row.id && !row.location && !row.sku && !row.upc && !row.lotNumber && !row.expirationDate && row.quantity == null) return null;
+                return row;
+            }).filter(Boolean);
+        }
+
+        function normalizeWorksheetId(value) {
+            const text = String(value || "").trim();
+            return /^\d+$/.test(text) ? text : "";
+        }
+
+        function toNonNegativeWorksheetQuantity(value) {
+            if (value === "" || value == null) return null;
+            const numValue = Number.parseInt(String(value).replace(/,/g, ""), 10);
+            return Number.isFinite(numValue) && numValue >= 0 ? numValue : null;
+        }
+
+        function normalizeWorksheetDate(value) {
+            const text = String(value || "").trim();
+            if (!text) return "";
+            if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+            let match = text.match(/^(\d{4})[/. -](\d{1,2})[/. -](\d{1,2})$/);
+            if (match) {
+                return `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}`;
+            }
+            match = text.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2,4})$/);
+            if (!match) return "";
+            const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+            return `${year}-${String(match[1]).padStart(2, "0")}-${String(match[2]).padStart(2, "0")}`;
+        }
+
+        function parseWorksheetBoolean(value) {
+            return /^(1|true|yes|y|x|remove|delete)$/i.test(String(value || "").trim());
+        }
+
+        function onInventoryWorksheetTableChange(event) {
+            const checkbox = event.target.closest("[data-worksheet-field='remove']");
+            if (!checkbox) return;
+            checkbox.closest("tr")?.classList.toggle("marked-delete", checkbox.checked);
         }
 
         function renderSummary() {
