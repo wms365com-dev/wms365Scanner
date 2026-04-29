@@ -9013,7 +9013,8 @@ async function getPortalShipmentRecipients(client, accountName) {
     return [...recipients];
 }
 
-function getPortalOrderReleaseRecipients() {
+async function getPortalOrderReleaseRecipients(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
     const recipients = new Set();
     const addRecipient = (value) => {
         const email = normalizeEmail(value);
@@ -9022,7 +9023,27 @@ function getPortalOrderReleaseRecipients() {
         }
     };
 
-    normalizeEmailList(ORDER_RELEASE_TO).forEach(addRecipient);
+    if (normalizedAccount) {
+        const assignedUsers = await client.query(
+            `
+                select u.email
+                from app_users u
+                join app_user_company_access a on a.app_user_id = u.id
+                where a.account_name = $1
+                  and u.is_active = true
+                  and u.email is not null
+                  and btrim(u.email) <> ''
+                  and lower(coalesce(u.role, '')) <> 'super_admin'
+                order by u.full_name asc, u.email asc
+            `,
+            [normalizedAccount]
+        );
+        assignedUsers.rows.forEach((row) => addRecipient(row.email));
+    }
+
+    if (!recipients.size) {
+        normalizeEmailList(ORDER_RELEASE_TO).forEach(addRecipient);
+    }
     if (!recipients.size) {
         addRecipient(SMTP_REPLY_TO);
         addRecipient(DEMO_REQUEST_TO);
@@ -9408,9 +9429,9 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], pdfDocume
         throw httpError(500, "Warehouse email is not configured yet. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
     }
 
-    const recipients = getPortalOrderReleaseRecipients();
+    const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName);
     if (!recipients.length) {
-        throw httpError(400, "No warehouse notification email is configured. Set ORDER_RELEASE_TO or SMTP_REPLY_TO first.");
+        throw httpError(400, "No warehouse notification email is configured. Assign an active warehouse user to this company, or set ORDER_RELEASE_TO or SMTP_REPLY_TO.");
     }
 
     const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
@@ -9723,7 +9744,10 @@ async function savePortalInboundForAccount(
         );
     }
 
-    const savedInbound = (await getPortalInboundsForAccount(normalizedAccount, client)).find((entry) => entry.id === inboundId);
+    const savedInbound = await getPortalInboundById(client, inboundId);
+    if (!savedInbound) {
+        throw httpError(500, "The purchase order was saved, but the saved record could not be reloaded.");
+    }
     await insertActivity(
         client,
         "receipt",

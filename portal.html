@@ -1662,11 +1662,15 @@
                         method: 'POST',
                         body: JSON.stringify(collectInboundForm())
                     });
-                    portalState.inbounds.unshift(sanitizeInbound(response.inbound));
+                    const savedInbound = sanitizeInbound(response?.inbound);
+                    if (!savedInbound?.inboundCode) {
+                        throw new Error("The purchase order was submitted, but the confirmation could not be read. Refresh My Purchase Orders to confirm it is listed.");
+                    }
+                    portalState.inbounds.unshift(savedInbound);
                     renderInbounds();
                     resetInboundForm();
                     setView('inbounds');
-                    setMessage(`Submitted purchase order ${response.inbound.inboundCode}.`, 'success');
+                    setMessage(`Submitted purchase order ${savedInbound.inboundCode}.`, 'success');
                 });
             } catch (error) {
                 setMessage(error.message, 'error');

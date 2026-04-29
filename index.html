@@ -14471,6 +14471,23 @@
                     </tr>
                 `;
             }).join("");
+            const documentsPanel = `
+                <div class="portal-order-shipping-box erp-document-shipping-panel">
+                    <div class="header-copy" style="margin-bottom: 0.8rem;">
+                        <h3>Order Documents / Labels</h3>
+                        <p class="meta">Customer-uploaded labels and order documents are available here as soon as the order is released.</p>
+                    </div>
+                    ${order.documents.length ? `
+                        <div class="portal-order-doc-list">
+                            ${order.documents.map((document) => `
+                                <a class="portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
+                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
+                                </a>
+                            `).join("")}
+                        </div>
+                    ` : `<div class="quick-meta">No order documents or labels saved yet.</div>`}
+                </div>
+            `;
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="form-grid compact-grid">
@@ -14491,20 +14508,11 @@
                             <input data-portal-ship-note="${attr(order.id)}" type="text" placeholder="Optional shipped confirmation note" value="${attr(order.shippedConfirmationNote || "")}">
                         </label>
                         <label class="field span-2">
-                            <span>Order Documents / Labels</span>
+                            <span>Add Shipment Documents</span>
                             <input data-portal-ship-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
                         </label>
                     </div>
                     <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : "Upload POD, signed BOL, packing slip, or carrier confirmation. Images are compressed before upload."}</div>
-                    ${order.documents.length ? `
-                        <div class="portal-order-doc-list">
-                            ${order.documents.map((document) => `
-                                <a class="portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
-                                </a>
-                            `).join("")}
-                        </div>
-                    ` : `<div class="quick-meta">No order documents or labels saved yet.</div>`}
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>
@@ -14543,6 +14551,7 @@
                     </thead>
                     <tbody>${lineRows || `<tr><td colspan="6">No lines saved yet.</td></tr>`}</tbody>
                 </table>
+                ${documentsPanel}
                 ${shippingPanel}
             `;
         }
@@ -15268,6 +15277,7 @@
                         <td>${num(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</td>
                         <td>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</td>
                         <td><span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span></td>
+                        <td>${order.documents?.length ? `${num(order.documents.length)} doc${order.documents.length === 1 ? "" : "s"}` : "-"}</td>
                         <td>${esc(isDraft ? "Draft" : "Open document")}</td>
                     </tr>
                 `;
@@ -15285,6 +15295,7 @@
                                 <th>Lines</th>
                                 <th>Ordered Qty</th>
                                 <th>Status</th>
+                                <th>Docs</th>
                                 <th>Complete?</th>
                             </tr>
                         </thead>
