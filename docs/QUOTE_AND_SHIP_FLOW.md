@@ -53,8 +53,8 @@ Options to support:
 ### Ship From
 
 Source:
-- Default warehouse location.
-- Can be overridden by user if needed.
+- Defaults from the customer company's primary fulfillment location / assigned 3PL partner.
+- Can be overridden by the shipping user when a shipment must leave from another approved location.
 
 Fields:
 - Company name
@@ -194,7 +194,8 @@ Internal adapter methods:
 
 Planned tables or logical records:
 - carrier_connections
-- warehouse_ship_locations
+- fulfillment_locations
+- company_fulfillment_locations
 - address_book_contacts
 - package_templates
 - sales_order_packages

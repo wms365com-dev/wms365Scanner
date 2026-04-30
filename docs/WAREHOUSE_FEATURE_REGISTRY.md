@@ -159,13 +159,17 @@ How to use:
 ### Master Data
 - Desktop section: `inventory`
 - Related touchpoints:
+  - super user company setup fast path
   - company profile
+  - fulfillment locations / 3PL partner sites
+  - company-to-fulfillment-location assignment
   - BIN locations
   - item master
   - lot required flag
   - expiration required flag
   - FEFO picking eligibility
   - customer portal login access
+  - company feature access handoff
   - bulk inventory worksheet
   - company-scoped item lists
 

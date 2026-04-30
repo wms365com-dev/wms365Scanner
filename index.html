@@ -2747,6 +2747,65 @@
             opacity: 0.72;
         }
 
+        .company-setup-panel {
+            display: grid;
+            gap: 0.85rem;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            border: 1px solid #bdd3e5;
+            background: linear-gradient(135deg, #f8fbff 0%, #eef7fb 100%);
+        }
+
+        .company-setup-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.55rem;
+        }
+
+        .company-setup-step {
+            padding: 0.7rem;
+            border: 1px solid var(--line);
+            background: #ffffff;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .company-setup-step strong {
+            display: block;
+            color: var(--text);
+            font-size: 0.92rem;
+        }
+
+        .master-section-divider {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.85rem 0 0.45rem;
+            border-bottom: 1px solid var(--line-strong);
+        }
+
+        .master-section-divider h3 {
+            margin: 0;
+            font-size: 1rem;
+            letter-spacing: 0.01em;
+        }
+
+        .master-section-divider p {
+            margin: 0.2rem 0 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .master-section-kicker {
+            color: var(--accent-strong);
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
         .list-head {
             display: flex;
             flex-wrap: wrap;
@@ -5615,7 +5674,70 @@
                         </div>
                     </div>
 
+                    <div class="company-setup-panel desktop-complex" id="companySetupPanel">
+                        <div class="list-head">
+                            <div>
+                                <h3>Super User Company Setup</h3>
+                                <p class="meta">Create the company, choose the starting modules, then jump directly into portal access, billing, integrations, or feature access.</p>
+                            </div>
+                            <span class="meta">Fast path for onboarding</span>
+                        </div>
+                        <div class="company-setup-steps">
+                            <div class="company-setup-step"><strong>1. Company</strong>Save the account profile.</div>
+                            <div class="company-setup-step"><strong>2. Location</strong>Assign the primary warehouse or 3PL partner.</div>
+                            <div class="company-setup-step"><strong>3. Features</strong>Turn on the modules this customer needs.</div>
+                            <div class="company-setup-step"><strong>4. Data</strong>Add portal access, items, rates, and integrations.</div>
+                        </div>
+                        <form id="companySetupForm" class="form-grid" autocomplete="off">
+                            <label class="field">
+                                <span>Company Name</span>
+                                <input id="companySetupName" type="text" placeholder="Required company name" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Main Email</span>
+                                <input id="companySetupEmail" type="email" placeholder="Optional general contact" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Portal Login Email</span>
+                                <input id="companySetupPortalEmail" type="email" placeholder="Optional customer login email" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Starting Setup</span>
+                                <select id="companySetupPreset">
+                                    <option value="STANDARD">Standard WMS: orders + purchase orders</option>
+                                    <option value="PORTAL">Customer portal enabled</option>
+                                    <option value="ECOMMERCE">Ecommerce: portal + Shopify/marketplace</option>
+                                    <option value="SFTP">SFTP customer lane</option>
+                                    <option value="FULL">Enable all current modules</option>
+                                    <option value="PROFILE_ONLY">Profile only, decide features later</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>Primary Fulfillment Location</span>
+                                <select id="companySetupFulfillmentLocation"></select>
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn" id="companySetupCreateBtn" type="submit">Create Company Setup</button>
+                                <button class="btn ghost" id="companySetupNewBtn" type="button">New Company</button>
+                                <button class="btn ghost" id="companySetupPortalBtn" type="button">Portal Access</button>
+                                <button class="btn ghost" id="companySetupFeaturesBtn" type="button">Feature Access</button>
+                                <button class="btn ghost" id="companySetupBillingBtn" type="button">Billing</button>
+                                <button class="btn ghost" id="companySetupIntegrationsBtn" type="button">Integrations</button>
+                            </div>
+                        </form>
+                        <div class="status" id="companySetupMessage"></div>
+                    </div>
+
                     <div class="library-grid">
+                        <div class="master-section-divider span-2">
+                            <div>
+                                <div class="master-section-kicker">Company Setup</div>
+                                <h3>Customer Account & Default Location</h3>
+                                <p>Company records stay separate from the physical warehouse or 3PL partner doing the work.</p>
+                            </div>
+                            <span class="meta">Customer scope</span>
+                        </div>
+
                         <div class="helper" id="masterOwnerProfileCard">
                             <h3>Company Profile</h3>
                             <p class="meta">Capture company details once and link the portal login email to company portal access.</p>
@@ -5624,6 +5746,7 @@
                                 <label class="field span-2"><span>Legal Name</span><input id="masterOwnerLegalName" type="text" placeholder="Optional legal company name" enterkeyhint="next"></label>
                                 <label class="field"><span>Account Code</span><input id="masterOwnerCode" type="text" placeholder="Optional internal code" enterkeyhint="next"></label>
                                 <label class="field"><span>Status</span><select id="masterOwnerActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
+                                <label class="field span-2"><span>Primary Fulfillment Location</span><select id="masterOwnerFulfillmentLocation"></select></label>
                                 <label class="field"><span>Main Contact</span><input id="masterOwnerContactName" type="text" placeholder="Primary contact name" enterkeyhint="next"></label>
                                 <label class="field"><span>Contact Title</span><input id="masterOwnerContactTitle" type="text" placeholder="Optional title" enterkeyhint="next"></label>
                                 <label class="field"><span>Main Email</span><input id="masterOwnerEmail" type="email" placeholder="General contact email" enterkeyhint="next"></label>
@@ -5642,6 +5765,99 @@
                                 <label class="field span-2"><span>Note</span><input id="masterOwnerNote" type="text" placeholder="Optional note for the team" enterkeyhint="done"></label>
                                 <div class="button-row span-2"><button class="btn secondary" type="submit">Save Company</button><button class="btn ghost" id="loadVendorToPortalBtn" type="button">Load Into Portal Access</button><button class="btn ghost" id="loadVendorToBillingBtn" type="button">Load Into Billing</button></div>
                             </form>
+                        </div>
+
+                        <div class="helper" id="companyFulfillmentCard">
+                            <h3>Company Location Assignment</h3>
+                            <p class="meta">Assign the active customer company to the warehouse or 3PL partner that normally processes their work.</p>
+                            <form id="companyFulfillmentForm" class="form-grid" autocomplete="off">
+                                <label class="field">
+                                    <span>Company</span>
+                                    <input id="companyFulfillmentAccount" list="ownerList" type="text" placeholder="Choose company" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Fulfillment Location</span>
+                                    <select id="companyFulfillmentLocation"></select>
+                                </label>
+                                <label class="field span-2"><span>Assignment Note</span><input id="companyFulfillmentNote" type="text" placeholder="Optional handling, billing, or routing note" enterkeyhint="done"></label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Assign as Primary</button>
+                                </div>
+                            </form>
+                            <div id="companyFulfillmentList" class="stack-list" style="margin-top: 1rem;">
+                                <p class="empty">No company location assignments saved yet.</p>
+                            </div>
+                        </div>
+
+                        <div class="master-section-divider span-2">
+                            <div>
+                                <div class="master-section-kicker">Fulfillment Network</div>
+                                <h3>Warehouses & 3PL Partner Sites</h3>
+                                <p>Physical ship-from and receiving sites live here. BINs remain inside each warehouse.</p>
+                            </div>
+                            <span class="meta">Ship-from defaults</span>
+                        </div>
+
+                        <div class="helper" id="fulfillmentLocationCard">
+                            <h3>Fulfillment Locations / 3PL Partners</h3>
+                            <p class="meta">Set up physical warehouses and partner 3PL sites. Customer companies are assigned here; BINs stay inside the warehouse.</p>
+                            <form id="fulfillmentLocationForm" class="form-grid" autocomplete="off">
+                                <label class="field">
+                                    <span>Location Code</span>
+                                    <input id="fulfillmentLocationCode" type="text" placeholder="Example: GW3PL-MISS" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Location Name</span>
+                                    <input id="fulfillmentLocationName" type="text" placeholder="Example: Grey Wolf 3PL - Mississauga" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Partner / Operator</span>
+                                    <input id="fulfillmentLocationPartnerName" type="text" placeholder="3PL or warehouse operator" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Type</span>
+                                    <select id="fulfillmentLocationType">
+                                        <option value="OWN_WAREHOUSE">Owned warehouse</option>
+                                        <option value="THIRD_PARTY_3PL">3PL partner</option>
+                                        <option value="CUSTOMER_SITE">Customer site</option>
+                                        <option value="VIRTUAL">Virtual / system location</option>
+                                    </select>
+                                </label>
+                                <label class="field span-2"><span>Address 1</span><input id="fulfillmentLocationAddress1" type="text" placeholder="Street address" enterkeyhint="next"></label>
+                                <label class="field span-2"><span>Address 2</span><input id="fulfillmentLocationAddress2" type="text" placeholder="Suite, unit, dock, etc." enterkeyhint="next"></label>
+                                <label class="field"><span>City</span><input id="fulfillmentLocationCity" type="text" placeholder="City" enterkeyhint="next"></label>
+                                <label class="field"><span>Province / State</span><input id="fulfillmentLocationState" type="text" placeholder="Province or state" enterkeyhint="next"></label>
+                                <label class="field"><span>Postal / ZIP</span><input id="fulfillmentLocationPostalCode" type="text" placeholder="Postal or ZIP" enterkeyhint="next"></label>
+                                <label class="field"><span>Country</span><input id="fulfillmentLocationCountry" type="text" placeholder="Country" enterkeyhint="next"></label>
+                                <label class="field"><span>Contact Email</span><input id="fulfillmentLocationContactEmail" type="email" placeholder="Warehouse contact email" enterkeyhint="next"></label>
+                                <label class="field"><span>Status</span><select id="fulfillmentLocationActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
+                                <label class="field span-2"><span>Note</span><input id="fulfillmentLocationNote" type="text" placeholder="Optional notes for routing, docks, carrier pickup, etc." enterkeyhint="done"></label>
+                                <div class="button-row span-2">
+                                    <button class="btn secondary" type="submit">Save Fulfillment Location</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="helper">
+                            <div class="list-head">
+                                <div>
+                                    <h3>Saved Fulfillment Locations</h3>
+                                    <p class="meta">Physical warehouses and 3PL partner sites used for ship-from, receiving, and work routing.</p>
+                                </div>
+                                <span class="meta" id="fulfillmentLocationCount">0 saved</span>
+                            </div>
+                            <div id="fulfillmentLocationList" class="stack-list">
+                                <p class="empty">No fulfillment locations saved yet.</p>
+                            </div>
+                        </div>
+
+                        <div class="master-section-divider span-2">
+                            <div>
+                                <div class="master-section-kicker">Warehouse Master Data</div>
+                                <h3>BINs, Customers, Vendors & Items</h3>
+                                <p>Operational records used after a customer and fulfillment site are assigned.</p>
+                            </div>
+                            <span class="meta">Daily setup records</span>
                         </div>
 
                         <div class="helper" id="masterBinLocationCard">
@@ -6165,7 +6381,7 @@
                             <div class="list-head">
                                 <div>
                                     <h3>Saved Companies</h3>
-                                    <p class="meta">Tap Use to load the company into the scan form faster.</p>
+                                    <p class="meta">Tap Use to load the company faster; Location opens its assigned warehouse/3PL setup.</p>
                                 </div>
                                 <span class="meta" id="masterOwnerCount">0 saved</span>
                             </div>
@@ -7925,6 +8141,35 @@
             scanMessage: document.getElementById("scanMessage"),
             masterOwnerName: document.getElementById("masterOwnerName"),
             masterOwnerNote: document.getElementById("masterOwnerNote"),
+            companySetupForm: document.getElementById("companySetupForm"),
+            companySetupName: document.getElementById("companySetupName"),
+            companySetupEmail: document.getElementById("companySetupEmail"),
+            companySetupPortalEmail: document.getElementById("companySetupPortalEmail"),
+            companySetupPreset: document.getElementById("companySetupPreset"),
+            companySetupFulfillmentLocation: document.getElementById("companySetupFulfillmentLocation"),
+            companySetupNewBtn: document.getElementById("companySetupNewBtn"),
+            companySetupPortalBtn: document.getElementById("companySetupPortalBtn"),
+            companySetupFeaturesBtn: document.getElementById("companySetupFeaturesBtn"),
+            companySetupBillingBtn: document.getElementById("companySetupBillingBtn"),
+            companySetupIntegrationsBtn: document.getElementById("companySetupIntegrationsBtn"),
+            companySetupMessage: document.getElementById("companySetupMessage"),
+            fulfillmentLocationCode: document.getElementById("fulfillmentLocationCode"),
+            fulfillmentLocationName: document.getElementById("fulfillmentLocationName"),
+            fulfillmentLocationPartnerName: document.getElementById("fulfillmentLocationPartnerName"),
+            fulfillmentLocationType: document.getElementById("fulfillmentLocationType"),
+            fulfillmentLocationAddress1: document.getElementById("fulfillmentLocationAddress1"),
+            fulfillmentLocationAddress2: document.getElementById("fulfillmentLocationAddress2"),
+            fulfillmentLocationCity: document.getElementById("fulfillmentLocationCity"),
+            fulfillmentLocationState: document.getElementById("fulfillmentLocationState"),
+            fulfillmentLocationPostalCode: document.getElementById("fulfillmentLocationPostalCode"),
+            fulfillmentLocationCountry: document.getElementById("fulfillmentLocationCountry"),
+            fulfillmentLocationContactEmail: document.getElementById("fulfillmentLocationContactEmail"),
+            fulfillmentLocationActive: document.getElementById("fulfillmentLocationActive"),
+            fulfillmentLocationNote: document.getElementById("fulfillmentLocationNote"),
+            companyFulfillmentAccount: document.getElementById("companyFulfillmentAccount"),
+            companyFulfillmentLocation: document.getElementById("companyFulfillmentLocation"),
+            companyFulfillmentNote: document.getElementById("companyFulfillmentNote"),
+            companyFulfillmentList: document.getElementById("companyFulfillmentList"),
             masterLocationCode: document.getElementById("masterLocationCode"),
             masterLocationNote: document.getElementById("masterLocationNote"),
             partnerListCard: document.getElementById("partnerListCard"),
@@ -8004,12 +8249,15 @@
             masterItemCaseHeight: document.getElementById("masterItemCaseHeight"),
             masterFilter: document.getElementById("masterFilter"),
             masterOwnerCount: document.getElementById("masterOwnerCount"),
+            fulfillmentLocationCount: document.getElementById("fulfillmentLocationCount"),
             masterLocationCount: document.getElementById("masterLocationCount"),
             masterItemCount: document.getElementById("masterItemCount"),
             masterOwnerList: document.getElementById("masterOwnerList"),
+            fulfillmentLocationList: document.getElementById("fulfillmentLocationList"),
             masterOwnerLegalName: document.getElementById("masterOwnerLegalName"),
             masterOwnerCode: document.getElementById("masterOwnerCode"),
             masterOwnerActive: document.getElementById("masterOwnerActive"),
+            masterOwnerFulfillmentLocation: document.getElementById("masterOwnerFulfillmentLocation"),
             masterOwnerContactName: document.getElementById("masterOwnerContactName"),
             masterOwnerContactTitle: document.getElementById("masterOwnerContactTitle"),
             masterOwnerEmail: document.getElementById("masterOwnerEmail"),
@@ -8572,8 +8820,16 @@
             })));
 
             document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
+            document.getElementById("fulfillmentLocationForm")?.addEventListener("submit", saveFulfillmentLocation);
+            document.getElementById("companyFulfillmentForm")?.addEventListener("submit", saveCompanyFulfillmentLocation);
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
+            ui.companySetupForm?.addEventListener("submit", saveCompanySetup);
+            ui.companySetupNewBtn?.addEventListener("click", resetCompanySetupFlow);
+            ui.companySetupPortalBtn?.addEventListener("click", () => openCompanySetupNextStep("portal"));
+            ui.companySetupFeaturesBtn?.addEventListener("click", () => openCompanySetupNextStep("features"));
+            ui.companySetupBillingBtn?.addEventListener("click", () => openCompanySetupNextStep("billing"));
+            ui.companySetupIntegrationsBtn?.addEventListener("click", () => openCompanySetupNextStep("integrations"));
             ui.portalAccessResetBtn?.addEventListener("click", () => resetPortalAccessForm({ keepCompany: true }));
             document.getElementById("integrationForm").addEventListener("submit", saveStoreIntegration);
             ui.integrationResetBtn?.addEventListener("click", () => resetStoreIntegrationForm({ keepCompany: true }));
@@ -8603,6 +8859,7 @@
             ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
             ui.masterFilter.addEventListener("input", debouncedRenderMasterLibrary);
             ui.masterOwnerList.addEventListener("click", onMasterOwnerListClick);
+            ui.fulfillmentLocationList?.addEventListener("click", onFulfillmentLocationListClick);
             ui.masterLocationList.addEventListener("click", onMasterLocationListClick);
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
@@ -9474,7 +9731,8 @@
                 ui.billingOwner,
                 ui.palletLabelAccount,
                 ui.portalAccessAccount,
-                ui.integrationAccount
+                ui.integrationAccount,
+                ui.companyFulfillmentAccount
             ].filter(Boolean);
         }
 
@@ -9500,6 +9758,8 @@
             updateCompanyBoundUi();
             updateIntegrationCompanyMeta();
             updateIntegrationScheduleMeta();
+            refreshFulfillmentLocationSelectors();
+            loadCompanyFulfillmentAssignment(company);
             renderWarehouseSalesOrderContext();
             renderWarehouseInboundContext();
             updateWorkspaceCommandBar();
@@ -13199,6 +13459,172 @@
             };
         }
 
+        function companySetupFeatureFlagsForPreset(presetValue = "STANDARD") {
+            const preset = norm(presetValue || "STANDARD");
+            if (preset === "PROFILE_ONLY") return null;
+            const flags = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
+            if (["PORTAL", "ECOMMERCE", "SFTP", "FULL"].includes(preset)) {
+                flags[COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL] = true;
+            }
+            if (["ECOMMERCE", "SFTP", "FULL"].includes(preset)) {
+                flags[COMPANY_FEATURE_KEYS.BILLING] = true;
+                flags[COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS] = true;
+            }
+            if (["ECOMMERCE", "FULL"].includes(preset)) {
+                flags[COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION] = true;
+            }
+            if (["SFTP", "FULL"].includes(preset)) {
+                flags[COMPANY_FEATURE_KEYS.SFTP_INTEGRATION] = true;
+            }
+            if (preset === "FULL") {
+                COMPANY_FEATURE_CATALOG.forEach((feature) => {
+                    flags[feature.key] = true;
+                });
+            }
+            return flags;
+        }
+
+        function resetCompanySetupFlow() {
+            ui.companySetupForm?.reset();
+            document.getElementById("masterOwnerForm")?.reset();
+            if (ui.masterOwnerActive) ui.masterOwnerActive.value = "true";
+            if (ui.companySetupPreset) ui.companySetupPreset.value = "STANDARD";
+            refreshFulfillmentLocationSelectors();
+            showMessage(ui.companySetupMessage, "Ready for a new company setup.", "info");
+            ui.companySetupName?.focus();
+        }
+
+        function loadCompanySetupIntoProfile(entry) {
+            const company = sanitizeMasterOwner(entry);
+            if (!company?.name) return;
+            loadOwnerProfile(company);
+            if (ui.companySetupName) ui.companySetupName.value = company.name;
+            if (ui.companySetupEmail) ui.companySetupEmail.value = company.email || "";
+            if (ui.companySetupPortalEmail) ui.companySetupPortalEmail.value = company.portalLoginEmail || company.email || "";
+            if (ui.companySetupFulfillmentLocation) {
+                ui.companySetupFulfillmentLocation.value = getPrimaryFulfillmentAssignment(company.name)?.locationCode || getDefaultFulfillmentLocationCode();
+            }
+        }
+
+        async function saveCompanySetup(event) {
+            event.preventDefault();
+            const entry = sanitizeMasterOwner({
+                name: ui.companySetupName?.value,
+                email: ui.companySetupEmail?.value,
+                portalLoginEmail: ui.companySetupPortalEmail?.value || ui.companySetupEmail?.value,
+                billingEmail: ui.companySetupEmail?.value,
+                isActive: true
+            });
+            if (!entry?.name) return fail(ui.companySetupMessage, "Enter the company name first.", ui.companySetupName);
+
+            const featureFlags = companySetupFeatureFlagsForPreset(ui.companySetupPreset?.value || "STANDARD");
+            const fulfillmentLocationCode = norm(ui.companySetupFulfillmentLocation?.value || getDefaultFulfillmentLocationCode());
+            const submitButton = resolveActionButton(event);
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Creating...",
+                    messageElement: ui.companySetupMessage,
+                    progressMessage: `Creating company setup for ${entry.name}...`
+                }, async () => {
+                    await requestJson("/api/master-owner", {
+                        method: "POST",
+                        body: JSON.stringify(entry)
+                    });
+
+                    if (fulfillmentLocationCode) {
+                        await requestJson("/api/company-fulfillment-location", {
+                            method: "POST",
+                            body: JSON.stringify({
+                                accountName: entry.name,
+                                locationCode: fulfillmentLocationCode,
+                                isPrimary: true
+                            })
+                        });
+                    }
+
+                    let featureMessage = "";
+                    if (featureFlags) {
+                        if (currentUserIsSuperAdmin()) {
+                            await requestJson("/api/admin/company-features", {
+                                method: "POST",
+                                body: JSON.stringify({ accountName: entry.name, featureFlags })
+                            });
+                            featureMessage = ` Features set: ${describeEnabledCompanyFeatures(featureFlags)}.`;
+                        } else {
+                            featureMessage = " Feature access was not changed because super user access is required.";
+                        }
+                    }
+
+                    await syncServerState(true);
+                    const savedOwner = getCompanyRecord(entry.name) || entry;
+                    setActiveCompany(entry.name, { force: true, rerender: false });
+                    loadCompanySetupIntoProfile(savedOwner);
+                    loadCompanyFulfillmentAssignment(entry.name);
+                    ui.scanAccount.value = entry.name;
+                    ui.masterItemAccount.value = entry.name;
+                    ui.portalAccessAccount.value = entry.name;
+                    ui.billingOwner.value = entry.name;
+                    if (entry.portalLoginEmail) ui.portalAccessEmail.value = entry.portalLoginEmail;
+                    const location = getFulfillmentLocationByCode(fulfillmentLocationCode);
+                    const locationMessage = location ? ` Primary location: ${location.name}.` : "";
+                    showMessage(ui.companySetupMessage, `Company ${entry.name} is ready.${locationMessage}${featureMessage} Next: create portal access, rates, items, and integrations as needed.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.companySetupMessage, error.message, "error");
+            }
+        }
+
+        function getCompanySetupTargetCompany() {
+            return norm(ui.companySetupName?.value || ui.masterOwnerName?.value || getActiveCompany());
+        }
+
+        function openCompanySetupNextStep(step) {
+            const company = getCompanySetupTargetCompany();
+            if (!company) return fail(ui.companySetupMessage, "Create or choose a company first.", ui.companySetupName);
+            const owner = getCompanyRecord(company) || sanitizeMasterOwner({ name: company, email: ui.companySetupEmail?.value, portalLoginEmail: ui.companySetupPortalEmail?.value });
+            loadCompanySetupIntoProfile(owner);
+            setActiveCompany(company, { force: true, rerender: false });
+
+            if (step === "portal") {
+                if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL)) {
+                    return fail(ui.companySetupMessage, `${company} does not have Customer Portal enabled yet. Use Feature Access first or choose the Customer Portal preset.`, ui.companySetupPreset);
+                }
+                loadVendorToPortalAccess();
+                showMessage(ui.companySetupMessage, `Loaded ${company} into Portal Access. Set the login email and password, then save.`, "info");
+                ui.portalAccessEmail?.focus();
+                return;
+            }
+            if (step === "features") {
+                if (!currentUserIsSuperAdmin()) {
+                    return fail(ui.companySetupMessage, "Super user access is required to change company features.");
+                }
+                syncCompanyFeatureDraft(company, { force: true });
+                setSection("backup");
+                renderCompanyFeatureDashboard();
+                showMessage(ui.companyFeatureMessage, `Managing feature access for ${company}.`, "info");
+                return;
+            }
+            if (step === "billing") {
+                if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.BILLING)) {
+                    return fail(ui.companySetupMessage, `${company} does not have Billing enabled yet. Use Feature Access first or choose an ecommerce/SFTP/full preset.`, ui.companySetupPreset);
+                }
+                loadVendorToBilling();
+                showMessage(ui.companySetupMessage, `Loaded ${company} into Billing. Enable rates and save fee setup.`, "info");
+                return;
+            }
+            if (step === "integrations") {
+                if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
+                    return fail(ui.companySetupMessage, `${company} does not have Marketplace Connections enabled yet. Use Feature Access first or choose an ecommerce/SFTP/full preset.`, ui.companySetupPreset);
+                }
+                setSection("integrations");
+                resetStoreIntegrationForm({ keepCompany: true });
+                updateIntegrationCompanyMeta();
+                showMessage(ui.integrationMessage, `Ready to add a marketplace connection for ${company}.`, "info");
+                return;
+            }
+        }
+
         async function saveMasterOwner(event) {
             event.preventDefault();
             const entry = sanitizeMasterOwner({
@@ -13224,6 +13650,7 @@
                 note: ui.masterOwnerNote.value
             });
             if (!entry?.name) return fail(ui.catalogMessage, "Enter a company name to save.", ui.masterOwnerName);
+            const fulfillmentLocationCode = norm(ui.masterOwnerFulfillmentLocation?.value || getDefaultFulfillmentLocationCode());
             const submitButton = resolveActionButton(event);
 
             try {
@@ -13237,6 +13664,16 @@
                         method: "POST",
                         body: JSON.stringify(entry)
                     });
+                    if (fulfillmentLocationCode) {
+                        await requestJson("/api/company-fulfillment-location", {
+                            method: "POST",
+                            body: JSON.stringify({
+                                accountName: entry.name,
+                                locationCode: fulfillmentLocationCode,
+                                isPrimary: true
+                            })
+                        });
+                    }
                     await syncServerState(true);
                     setActiveCompany(entry.name, { force: true, rerender: false });
                     ui.scanAccount.value = entry.name;
@@ -13261,6 +13698,10 @@
             ui.masterOwnerLegalName.value = entry.legalName || "";
             ui.masterOwnerCode.value = entry.accountCode || "";
             ui.masterOwnerActive.value = entry.isActive === false ? "false" : "true";
+            refreshFulfillmentLocationSelectors();
+            if (ui.masterOwnerFulfillmentLocation) {
+                ui.masterOwnerFulfillmentLocation.value = getPrimaryFulfillmentAssignment(entry.name)?.locationCode || getDefaultFulfillmentLocationCode();
+            }
             ui.masterOwnerContactName.value = entry.contactName || "";
             ui.masterOwnerContactTitle.value = entry.contactTitle || "";
             ui.masterOwnerEmail.value = entry.email || "";
@@ -15585,6 +16026,26 @@
                 .join("<br>");
         }
 
+        function formatPortalOrderShipFrom(order) {
+            const assignment = getPrimaryFulfillmentAssignment(order?.accountName);
+            const location = assignment ? (getFulfillmentLocationByCode(assignment.locationCode) || assignment) : null;
+            const lines = location
+                ? [
+                    location.partnerName || location.name,
+                    location.address1,
+                    location.address2,
+                    [location.city, location.state, location.postalCode].filter(Boolean).join(", "),
+                    location.country
+                ]
+                : [
+                    "Grey Wolf 3PL & Logistics Inc",
+                    "1330 Courtney Park Drive East",
+                    "Mississauga, Ontario L5T 1V6",
+                    "Canada"
+                ];
+            return lines.filter(Boolean).map((line) => esc(line)).join("<br>");
+        }
+
         function buildPickTicketHtml(order) {
             const lineRows = order.lines.map((line) => `
                 <tr>
@@ -15611,7 +16072,7 @@
         }
 
         function buildPackingSlipHtml(order) {
-            const shipFrom = [order.accountName || "", "c/o Grey Wolf 3PL & Logistics Inc.", "1330 Courtney Park Dr E, Dock 18", "Mississauga, ON L5T 1K5", "Canada"].filter(Boolean).join("<br>");
+            const shipFrom = formatPortalOrderShipFrom(order);
             const lineRows = order.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
@@ -15793,6 +16254,86 @@
                 showMessage(ui.catalogMessage, `Saved BIN ${code} to the shared library.`, "success");
                 document.getElementById("masterLocationForm").reset();
                 ui.masterLocationCode.focus();
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        async function saveFulfillmentLocation(event) {
+            event.preventDefault();
+            const entry = sanitizeFulfillmentLocation({
+                code: ui.fulfillmentLocationCode?.value,
+                name: ui.fulfillmentLocationName?.value,
+                partnerName: ui.fulfillmentLocationPartnerName?.value,
+                locationType: ui.fulfillmentLocationType?.value,
+                address1: ui.fulfillmentLocationAddress1?.value,
+                address2: ui.fulfillmentLocationAddress2?.value,
+                city: ui.fulfillmentLocationCity?.value,
+                state: ui.fulfillmentLocationState?.value,
+                postalCode: ui.fulfillmentLocationPostalCode?.value,
+                country: ui.fulfillmentLocationCountry?.value,
+                contactEmail: ui.fulfillmentLocationContactEmail?.value,
+                isActive: ui.fulfillmentLocationActive?.value !== "false",
+                note: ui.fulfillmentLocationNote?.value
+            });
+            if (!entry?.code) return fail(ui.catalogMessage, "Enter the fulfillment location code.", ui.fulfillmentLocationCode);
+            if (!entry?.name) return fail(ui.catalogMessage, "Enter the fulfillment location name.", ui.fulfillmentLocationName);
+            const submitButton = resolveActionButton(event);
+
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Saving location...",
+                    messageElement: ui.catalogMessage,
+                    progressMessage: `Saving fulfillment location ${entry.code}...`
+                }, async () => {
+                    await requestJson("/api/fulfillment-location", {
+                        method: "POST",
+                        body: JSON.stringify(entry)
+                    });
+                    await syncServerState(true);
+                    refreshFulfillmentLocationSelectors();
+                    showMessage(ui.catalogMessage, `Saved fulfillment location ${entry.code}.`, "success");
+                    document.getElementById("fulfillmentLocationForm")?.reset();
+                    if (ui.fulfillmentLocationType) ui.fulfillmentLocationType.value = "OWN_WAREHOUSE";
+                    if (ui.fulfillmentLocationActive) ui.fulfillmentLocationActive.value = "true";
+                    ui.fulfillmentLocationCode?.focus();
+                });
+            } catch (error) {
+                showMessage(ui.catalogMessage, error.message, "error");
+            }
+        }
+
+        async function saveCompanyFulfillmentLocation(event) {
+            event.preventDefault();
+            const accountName = norm(ui.companyFulfillmentAccount?.value || getActiveCompany());
+            const locationCode = norm(ui.companyFulfillmentLocation?.value || getDefaultFulfillmentLocationCode());
+            if (!accountName) return fail(ui.catalogMessage, "Choose the company before assigning a fulfillment location.", ui.companyFulfillmentAccount);
+            if (!locationCode) return fail(ui.catalogMessage, "Create or choose a fulfillment location first.", ui.companyFulfillmentLocation);
+            const submitButton = resolveActionButton(event);
+
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Assigning...",
+                    messageElement: ui.catalogMessage,
+                    progressMessage: `Assigning ${accountName} to ${locationCode}...`
+                }, async () => {
+                    await requestJson("/api/company-fulfillment-location", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            accountName,
+                            locationCode,
+                            isPrimary: true,
+                            note: ui.companyFulfillmentNote?.value || ""
+                        })
+                    });
+                    await syncServerState(true);
+                    setActiveCompany(accountName, { force: true, rerender: false });
+                    loadCompanyFulfillmentAssignment(accountName);
+                    const location = getFulfillmentLocationByCode(locationCode);
+                    showMessage(ui.catalogMessage, `${accountName} now defaults to ${location?.name || locationCode}. Quote/Ship can still override ship-from when needed.`, "success");
+                });
             } catch (error) {
                 showMessage(ui.catalogMessage, error.message, "error");
             }
@@ -16210,6 +16751,13 @@
             const ownerMatches = [...state.masters.ownerRecords]
                 .filter((entry) => (!companyFilter || entry.name === companyFilter) && (!query || entry.name.includes(query) || norm(entry.note).includes(query)))
                 .sort((a, b) => a.name.localeCompare(b.name));
+            const fulfillmentMatches = [...(state.masters.fulfillmentLocations || [])]
+                .filter((entry) => !query
+                    || entry.code.includes(query)
+                    || norm(entry.name).includes(query)
+                    || norm(entry.partnerName).includes(query)
+                    || norm(formatFulfillmentAddress(entry)).includes(query))
+                .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true) || a.code.localeCompare(b.code));
             const locationMatches = [...state.masters.locations]
                 .filter((entry) => !query || entry.code.includes(query) || norm(entry.note).includes(query))
                 .sort((a, b) => a.code.localeCompare(b.code));
@@ -16222,12 +16770,18 @@
                 .sort((a, b) => a.accountName.localeCompare(b.accountName) || a.sku.localeCompare(b.sku));
 
             const visibleOwners = ownerMatches.slice(0, query ? 24 : 12);
+            const visibleFulfillmentLocations = fulfillmentMatches.slice(0, query ? 24 : 12);
             const visibleLocations = locationMatches.slice(0, query ? 24 : 12);
             const visibleItems = itemMatches;
 
             ui.masterOwnerCount.textContent = query
                 ? `${num(ownerMatches.length)} shown / ${num(state.masters.ownerRecords.length)} saved`
                 : `${num(state.masters.ownerRecords.length)} saved`;
+            if (ui.fulfillmentLocationCount) {
+                ui.fulfillmentLocationCount.textContent = query
+                    ? `${num(fulfillmentMatches.length)} shown / ${num((state.masters.fulfillmentLocations || []).length)} saved`
+                    : `${num((state.masters.fulfillmentLocations || []).length)} saved`;
+            }
             ui.masterLocationCount.textContent = query
                 ? `${num(locationMatches.length)} shown / ${num(state.masters.locations.length)} saved`
                 : `${num(state.masters.locations.length)} saved`;
@@ -16236,8 +16790,11 @@
                 : `${num(state.masters.items.length)} saved`;
 
             ui.masterOwnerList.innerHTML = renderMasterOwnerRows(visibleOwners, ownerMatches.length, query);
+            if (ui.fulfillmentLocationList) ui.fulfillmentLocationList.innerHTML = renderFulfillmentLocationRows(visibleFulfillmentLocations, fulfillmentMatches.length, query);
             ui.masterLocationList.innerHTML = renderMasterLocationRows(visibleLocations, locationMatches.length, query);
             ui.masterItemList.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
+            renderCompanyFulfillmentAssignments();
+            refreshFulfillmentLocationSelectors();
             renderPartnerList();
         }
 
@@ -16247,10 +16804,12 @@
             }
 
             const rows = owners.map((entry) => {
+                const primaryAssignment = getPrimaryFulfillmentAssignment(entry.name);
                 const meta = [
                     entry.contactName ? `Contact ${entry.contactName}` : "",
                     entry.email ? `Email ${entry.email}` : "",
                     entry.portalLoginEmail ? `Portal ${entry.portalLoginEmail}` : "",
+                    primaryAssignment ? `Location ${primaryAssignment.locationCode || primaryAssignment.locationName}` : "",
                     entry.phone ? `Phone ${entry.phone}` : "",
                     entry.city ? [entry.city, entry.state, entry.country].filter(Boolean).join(", ") : "",
                     entry.isActive === false ? "Inactive" : "Active"
@@ -16262,7 +16821,15 @@
                         <div class="quick-meta">${esc(meta || entry.note || "Saved company")}</div>
                         ${entry.note ? `<div class="quick-meta">${esc(entry.note)}</div>` : ""}
                     </div>
-                    <button class="btn ghost mini" type="button" data-use-owner="${attr(entry.name)}">Use</button>
+                    <div class="quick-row-actions">
+                        <button class="btn ghost mini" type="button" data-open-owner-profile="${attr(entry.name)}">Profile</button>
+                        <button class="btn ghost mini" type="button" data-setup-owner-portal="${attr(entry.name)}">Portal</button>
+                        <button class="btn ghost mini" type="button" data-setup-owner-features="${attr(entry.name)}">Features</button>
+                        <button class="btn ghost mini" type="button" data-setup-owner-fulfillment="${attr(entry.name)}">Location</button>
+                        <button class="btn ghost mini" type="button" data-setup-owner-billing="${attr(entry.name)}">Billing</button>
+                        <button class="btn ghost mini" type="button" data-setup-owner-integrations="${attr(entry.name)}">Integrations</button>
+                        <button class="btn ghost mini" type="button" data-use-owner="${attr(entry.name)}">Use</button>
+                    </div>
                 </div>
             `;}).join("");
 
@@ -16271,6 +16838,103 @@
             }
 
             return rows;
+        }
+
+        function renderFulfillmentLocationRows(locations, totalMatches, query) {
+            if (!locations.length) {
+                return `<p class="empty">${query ? `No fulfillment locations matched "${esc(query)}".` : "No fulfillment locations saved yet. Grey Wolf Mississauga will seed automatically after the server initializes."}</p>`;
+            }
+
+            const rows = locations.map((entry) => {
+                const assignedCount = (state.masters.companyFulfillmentLocations || [])
+                    .filter((assignment) => norm(assignment.locationCode) === entry.code)
+                    .length;
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(entry.code)} - ${esc(entry.name)}</strong>
+                            <div class="quick-meta">${esc(formatFulfillmentLocationMeta(entry))}</div>
+                            <div class="quick-meta">${esc(`${assignedCount} assigned compan${assignedCount === 1 ? "y" : "ies"}`)}</div>
+                        </div>
+                        <div class="quick-row-actions">
+                            <button class="btn ghost mini" type="button" data-edit-fulfillment-location="${attr(entry.code)}">Edit</button>
+                            <button class="btn ghost mini" type="button" data-use-fulfillment-location="${attr(entry.code)}">Use For Company</button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+
+            if (locations.length < totalMatches) {
+                return `${rows}<p class="meta">Showing the first ${num(locations.length)} of ${num(totalMatches)} fulfillment locations. Narrow the filter to see more.</p>`;
+            }
+
+            return rows;
+        }
+
+        function renderCompanyFulfillmentAssignments() {
+            if (!ui.companyFulfillmentList) return;
+            const company = norm(ui.companyFulfillmentAccount?.value || getActiveCompany());
+            if (ui.companyFulfillmentAccount && !ui.companyFulfillmentAccount.value && company) {
+                ui.companyFulfillmentAccount.value = company;
+            }
+            const assignments = company
+                ? getCompanyFulfillmentAssignments(company)
+                : [...(state.masters.companyFulfillmentLocations || [])]
+                    .sort((a, b) => a.accountName.localeCompare(b.accountName) || Number(b.isPrimary === true) - Number(a.isPrimary === true));
+            if (!assignments.length) {
+                ui.companyFulfillmentList.innerHTML = `<p class="empty">${company ? `${esc(company)} has no fulfillment location assignment yet.` : "Choose a company to review its fulfillment locations."}</p>`;
+                return;
+            }
+            ui.companyFulfillmentList.innerHTML = assignments.map((assignment) => {
+                const location = getFulfillmentLocationByCode(assignment.locationCode) || assignment;
+                const workflow = [
+                    assignment.allowInbound ? "Inbound" : "",
+                    assignment.allowOutbound ? "Outbound" : "",
+                    assignment.allowStorage ? "Storage" : "",
+                    assignment.allowReturns ? "Returns" : ""
+                ].filter(Boolean).join(", ");
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(assignment.accountName)} -> ${esc(assignment.locationCode || location.name || "Location")}</strong>
+                            <div class="quick-meta">${esc(`${assignment.isPrimary ? "Primary | " : ""}${location.name || assignment.locationName || ""}${location.partnerName ? ` | ${location.partnerName}` : ""}`)}</div>
+                            <div class="quick-meta">${esc([workflow, formatFulfillmentAddress(location), assignment.note].filter(Boolean).join(" | "))}</div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function loadFulfillmentLocationForm(locationCode = "") {
+            const entry = getFulfillmentLocationByCode(locationCode);
+            if (!entry) return;
+            if (ui.fulfillmentLocationCode) ui.fulfillmentLocationCode.value = entry.code;
+            if (ui.fulfillmentLocationName) ui.fulfillmentLocationName.value = entry.name || "";
+            if (ui.fulfillmentLocationPartnerName) ui.fulfillmentLocationPartnerName.value = entry.partnerName || "";
+            if (ui.fulfillmentLocationType) ui.fulfillmentLocationType.value = normalizeFulfillmentLocationType(entry.locationType);
+            if (ui.fulfillmentLocationAddress1) ui.fulfillmentLocationAddress1.value = entry.address1 || "";
+            if (ui.fulfillmentLocationAddress2) ui.fulfillmentLocationAddress2.value = entry.address2 || "";
+            if (ui.fulfillmentLocationCity) ui.fulfillmentLocationCity.value = entry.city || "";
+            if (ui.fulfillmentLocationState) ui.fulfillmentLocationState.value = entry.state || "";
+            if (ui.fulfillmentLocationPostalCode) ui.fulfillmentLocationPostalCode.value = entry.postalCode || "";
+            if (ui.fulfillmentLocationCountry) ui.fulfillmentLocationCountry.value = entry.country || "";
+            if (ui.fulfillmentLocationContactEmail) ui.fulfillmentLocationContactEmail.value = entry.contactEmail || "";
+            if (ui.fulfillmentLocationActive) ui.fulfillmentLocationActive.value = entry.isActive === false ? "false" : "true";
+            if (ui.fulfillmentLocationNote) ui.fulfillmentLocationNote.value = entry.note || "";
+            ui.fulfillmentLocationCode?.focus();
+        }
+
+        function loadCompanyFulfillmentAssignment(company = getActiveCompany()) {
+            const normalizedCompany = norm(company);
+            if (!normalizedCompany) return;
+            if (ui.companyFulfillmentAccount) ui.companyFulfillmentAccount.value = normalizedCompany;
+            refreshFulfillmentLocationSelectors();
+            const primary = getPrimaryFulfillmentAssignment(normalizedCompany);
+            if (ui.companyFulfillmentLocation) {
+                ui.companyFulfillmentLocation.value = primary?.locationCode || getDefaultFulfillmentLocationCode();
+            }
+            if (ui.companyFulfillmentNote) ui.companyFulfillmentNote.value = primary?.note || "";
+            renderCompanyFulfillmentAssignments();
         }
 
         function renderMasterLocationRows(locations, totalMatches, query) {
@@ -16493,10 +17157,94 @@
             fillScanFromMasterLocation(button.dataset.useLocation);
         }
 
+        function onFulfillmentLocationListClick(event) {
+            const editButton = event.target.closest("[data-edit-fulfillment-location]");
+            if (editButton) {
+                loadFulfillmentLocationForm(editButton.dataset.editFulfillmentLocation || "");
+                showMessage(ui.catalogMessage, "Loaded fulfillment location into the setup form.", "info");
+                return;
+            }
+            const useButton = event.target.closest("[data-use-fulfillment-location]");
+            if (useButton) {
+                const company = getActiveCompany();
+                if (!company) {
+                    showMessage(ui.catalogMessage, "Choose an active company first, then assign this fulfillment location.", "error");
+                    return;
+                }
+                if (ui.companyFulfillmentAccount) ui.companyFulfillmentAccount.value = company;
+                if (ui.companyFulfillmentLocation) ui.companyFulfillmentLocation.value = norm(useButton.dataset.useFulfillmentLocation || "");
+                renderCompanyFulfillmentAssignments();
+                showMessage(ui.catalogMessage, `Ready to assign ${company} to ${ui.companyFulfillmentLocation?.value || "this location"}.`, "info");
+            }
+        }
+
         function onMasterOwnerListClick(event) {
+            const profileButton = event.target.closest("[data-open-owner-profile]");
+            if (profileButton) {
+                const company = norm(profileButton.dataset.openOwnerProfile || "");
+                const owner = getCompanyRecord(company);
+                if (owner) {
+                    loadCompanySetupIntoProfile(owner);
+                    showMessage(ui.companySetupMessage, `Loaded ${company} into Company Profile.`, "info");
+                    ui.masterOwnerName?.focus();
+                }
+                return;
+            }
+
+            const portalButton = event.target.closest("[data-setup-owner-portal]");
+            if (portalButton) {
+                const company = norm(portalButton.dataset.setupOwnerPortal || "");
+                if (company) {
+                    ui.companySetupName.value = company;
+                    openCompanySetupNextStep("portal");
+                }
+                return;
+            }
+
+            const featureButton = event.target.closest("[data-setup-owner-features]");
+            if (featureButton) {
+                const company = norm(featureButton.dataset.setupOwnerFeatures || "");
+                if (company) {
+                    ui.companySetupName.value = company;
+                    openCompanySetupNextStep("features");
+                }
+                return;
+            }
+
+            const billingButton = event.target.closest("[data-setup-owner-billing]");
+            if (billingButton) {
+                const company = norm(billingButton.dataset.setupOwnerBilling || "");
+                if (company) {
+                    ui.companySetupName.value = company;
+                    openCompanySetupNextStep("billing");
+                }
+                return;
+            }
+
+            const fulfillmentButton = event.target.closest("[data-setup-owner-fulfillment]");
+            if (fulfillmentButton) {
+                const company = norm(fulfillmentButton.dataset.setupOwnerFulfillment || "");
+                if (company) {
+                    setActiveCompany(company, { force: true, rerender: false });
+                    loadCompanyFulfillmentAssignment(company);
+                    showMessage(ui.catalogMessage, `Loaded ${company} into Company Location Assignment.`, "info");
+                    ui.companyFulfillmentLocation?.focus();
+                }
+                return;
+            }
+
+            const integrationsButton = event.target.closest("[data-setup-owner-integrations]");
+            if (integrationsButton) {
+                const company = norm(integrationsButton.dataset.setupOwnerIntegrations || "");
+                if (company) {
+                    ui.companySetupName.value = company;
+                    openCompanySetupNextStep("integrations");
+                }
+                return;
+            }
+
             const button = event.target.closest("[data-use-owner]");
-            if (!button) return;
-            fillScanFromOwner(button.dataset.useOwner);
+            if (button) fillScanFromOwner(button.dataset.useOwner);
         }
 
         function onMasterItemListClick(event) {
@@ -18071,6 +18819,8 @@
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
             state.masters.locations = Array.isArray(payload?.masters?.locations) ? payload.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [];
             state.masters.ownerRecords = Array.isArray(payload?.masters?.ownerRecords) ? payload.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [];
+            state.masters.fulfillmentLocations = Array.isArray(payload?.masters?.fulfillmentLocations) ? payload.masters.fulfillmentLocations.map(sanitizeFulfillmentLocation).filter(Boolean) : [];
+            state.masters.companyFulfillmentLocations = Array.isArray(payload?.masters?.companyFulfillmentLocations) ? payload.masters.companyFulfillmentLocations.map(sanitizeCompanyFulfillmentLocation).filter(Boolean) : [];
             state.masters.partners = Array.isArray(payload?.masters?.partners) ? payload.masters.partners.map(sanitizeMasterPartner).filter(Boolean) : [];
             state.masters.items = Array.isArray(payload?.masters?.items) ? payload.masters.items.map(sanitizeMasterItem).filter(Boolean) : [];
             state.masters.owners = Array.isArray(payload?.masters?.owners)
@@ -18100,6 +18850,7 @@
                 []
                     .concat(state.masters.owners || [])
                     .concat((state.masters.ownerRecords || []).map((owner) => owner.name))
+                    .concat((state.masters.companyFulfillmentLocations || []).map((assignment) => assignment.accountName))
                     .concat((state.masters.partners || []).map((partner) => partner.accountName))
                     .concat((state.masters.items || []).map((item) => item.accountName))
                     .concat((state.inventory || []).map((line) => line.accountName))
@@ -18303,7 +19054,7 @@
                 pallets: [],
                 batch: [],
                 activity: [],
-                masters: { locations: [], ownerRecords: [], partners: [], items: [], owners: [] },
+                masters: { locations: [], ownerRecords: [], fulfillmentLocations: [], companyFulfillmentLocations: [], partners: [], items: [], owners: [] },
                 billing: { feeCatalog: [], ownerRates: [], events: [] },
                 admin: { appUsers: [] },
                 session: { appUser: null },
@@ -18391,6 +19142,8 @@
                 masters: {
                     locations: Array.isArray(raw?.masters?.locations) ? raw.masters.locations.map(sanitizeMasterLocation).filter(Boolean) : [],
                     ownerRecords: Array.isArray(raw?.masters?.ownerRecords) ? raw.masters.ownerRecords.map(sanitizeMasterOwner).filter(Boolean) : [],
+                    fulfillmentLocations: Array.isArray(raw?.masters?.fulfillmentLocations) ? raw.masters.fulfillmentLocations.map(sanitizeFulfillmentLocation).filter(Boolean) : [],
+                    companyFulfillmentLocations: Array.isArray(raw?.masters?.companyFulfillmentLocations) ? raw.masters.companyFulfillmentLocations.map(sanitizeCompanyFulfillmentLocation).filter(Boolean) : [],
                     partners: Array.isArray(raw?.masters?.partners) ? raw.masters.partners.map(sanitizeMasterPartner).filter(Boolean) : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
@@ -18420,6 +19173,8 @@
                         : Array.isArray(raw?.masters?.owners)
                             ? raw.masters.owners.map(sanitizeMasterOwner).filter(Boolean)
                             : [],
+                    fulfillmentLocations: Array.isArray(raw?.masters?.fulfillmentLocations) ? raw.masters.fulfillmentLocations.map(sanitizeFulfillmentLocation).filter(Boolean) : [],
+                    companyFulfillmentLocations: Array.isArray(raw?.masters?.companyFulfillmentLocations) ? raw.masters.companyFulfillmentLocations.map(sanitizeCompanyFulfillmentLocation).filter(Boolean) : [],
                     partners: Array.isArray(raw?.masters?.partners) ? raw.masters.partners.map(sanitizeMasterPartner).filter(Boolean) : [],
                     items: Array.isArray(raw?.masters?.items) ? raw.masters.items.map(sanitizeMasterItem).filter(Boolean) : [],
                     owners: Array.isArray(raw?.masters?.owners) ? raw.masters.owners.map((owner) => norm(owner)).filter(Boolean) : []
@@ -18585,6 +19340,79 @@
                 featureFlagsInherited,
                 featureFlagsUpdatedAt: typeof item?.featureFlagsUpdatedAt === "string" ? item.featureFlagsUpdatedAt : (typeof item?.feature_flags_updated_at === "string" ? item.feature_flags_updated_at : null),
                 featureFlagsUpdatedBy: String(item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by || "").trim(),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function normalizeFulfillmentLocationType(value) {
+            const normalized = norm(value || "");
+            if (["THIRD_PARTY_3PL", "3PL", "PARTNER"].includes(normalized)) return "THIRD_PARTY_3PL";
+            if (["CUSTOMER_SITE", "CUSTOMER"].includes(normalized)) return "CUSTOMER_SITE";
+            if (["VIRTUAL", "VIRTUAL_LOCATION"].includes(normalized)) return "VIRTUAL";
+            return "OWN_WAREHOUSE";
+        }
+
+        function fulfillmentLocationTypeLabel(value) {
+            const normalized = normalizeFulfillmentLocationType(value);
+            if (normalized === "THIRD_PARTY_3PL") return "3PL partner";
+            if (normalized === "CUSTOMER_SITE") return "Customer site";
+            if (normalized === "VIRTUAL") return "Virtual";
+            return "Owned warehouse";
+        }
+
+        function sanitizeFulfillmentLocation(item) {
+            const code = norm(item?.code || item?.locationCode || item?.location_code || "");
+            const name = String(item?.name || item?.locationName || item?.location_name || "").trim().replace(/\s+/g, " ");
+            if (!code || !name) return null;
+            return {
+                id: String(item?.id || makeId("fulfillment-location")),
+                code,
+                name,
+                partnerName: String(item?.partnerName || item?.partner_name || "").trim().replace(/\s+/g, " "),
+                locationType: normalizeFulfillmentLocationType(item?.locationType || item?.location_type || item?.type),
+                contactName: String(item?.contactName || item?.contact_name || "").trim().replace(/\s+/g, " "),
+                contactEmail: norm(String(item?.contactEmail || item?.contact_email || item?.email || "").toLowerCase()),
+                contactPhone: String(item?.contactPhone || item?.contact_phone || item?.phone || "").trim().replace(/\s+/g, " "),
+                address1: String(item?.address1 || item?.address_1 || "").trim().replace(/\s+/g, " "),
+                address2: String(item?.address2 || item?.address_2 || "").trim().replace(/\s+/g, " "),
+                city: String(item?.city || "").trim().replace(/\s+/g, " "),
+                state: String(item?.state || item?.province || "").trim().replace(/\s+/g, " "),
+                postalCode: norm(item?.postalCode || item?.postal_code || item?.zip || ""),
+                country: String(item?.country || "").trim().replace(/\s+/g, " "),
+                note: String(item?.note || "").trim().replace(/\s+/g, " "),
+                isActive: item?.isActive !== false,
+                isDefault: item?.isDefault === true || item?.is_default === true,
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeCompanyFulfillmentLocation(item) {
+            const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.company || item?.customer || "");
+            const locationCode = norm(item?.locationCode || item?.location_code || item?.code || "");
+            const fulfillmentLocationId = String(item?.fulfillmentLocationId || item?.fulfillment_location_id || item?.locationId || item?.location_id || "");
+            if (!accountName || (!locationCode && !fulfillmentLocationId)) return null;
+            return {
+                id: String(item?.id || makeId("company-fulfillment")),
+                accountName,
+                fulfillmentLocationId,
+                locationCode,
+                locationName: String(item?.locationName || item?.location_name || "").trim().replace(/\s+/g, " "),
+                partnerName: String(item?.partnerName || item?.partner_name || "").trim().replace(/\s+/g, " "),
+                locationType: normalizeFulfillmentLocationType(item?.locationType || item?.location_type || item?.type),
+                address1: String(item?.address1 || item?.address_1 || "").trim().replace(/\s+/g, " "),
+                address2: String(item?.address2 || item?.address_2 || "").trim().replace(/\s+/g, " "),
+                city: String(item?.city || "").trim().replace(/\s+/g, " "),
+                state: String(item?.state || item?.province || "").trim().replace(/\s+/g, " "),
+                postalCode: norm(item?.postalCode || item?.postal_code || item?.zip || ""),
+                country: String(item?.country || "").trim().replace(/\s+/g, " "),
+                isPrimary: item?.isPrimary !== false && item?.is_primary !== false,
+                allowInbound: item?.allowInbound !== false && item?.allow_inbound !== false,
+                allowOutbound: item?.allowOutbound !== false && item?.allow_outbound !== false,
+                allowStorage: item?.allowStorage !== false && item?.allow_storage !== false,
+                allowReturns: item?.allowReturns !== false && item?.allow_returns !== false,
+                note: String(item?.note || "").trim().replace(/\s+/g, " "),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
@@ -18951,6 +19779,8 @@
                 masters: {
                     locations: state.masters.locations,
                     ownerRecords: state.masters.ownerRecords,
+                    fulfillmentLocations: state.masters.fulfillmentLocations,
+                    companyFulfillmentLocations: state.masters.companyFulfillmentLocations,
                     partners: state.masters.partners,
                     items: cachedItems,
                     owners: state.masters.owners
@@ -19120,6 +19950,85 @@
             return (state.masters.ownerRecords || []).find((entry) => norm(entry.name) === normalizedCompany) || null;
         }
 
+        function getFulfillmentLocationByCode(locationCode = "") {
+            const normalizedCode = norm(locationCode);
+            if (!normalizedCode) return null;
+            return (state.masters.fulfillmentLocations || []).find((entry) => norm(entry.code) === normalizedCode) || null;
+        }
+
+        function getDefaultFulfillmentLocationCode() {
+            const activePrimary = getPrimaryFulfillmentAssignment(getActiveCompany())?.locationCode || "";
+            if (activePrimary) return activePrimary;
+            return (state.masters.fulfillmentLocations || []).find((entry) => entry.isDefault && entry.isActive !== false)?.code
+                || (state.masters.fulfillmentLocations || []).find((entry) => entry.isActive !== false)?.code
+                || "";
+        }
+
+        function getCompanyFulfillmentAssignments(accountName = getActiveCompany()) {
+            const normalizedCompany = norm(accountName);
+            if (!normalizedCompany) return [];
+            return (state.masters.companyFulfillmentLocations || [])
+                .filter((entry) => norm(entry.accountName) === normalizedCompany)
+                .sort((a, b) => Number(b.isPrimary === true) - Number(a.isPrimary === true) || (a.locationCode || "").localeCompare(b.locationCode || ""));
+        }
+
+        function getPrimaryFulfillmentAssignment(accountName = getActiveCompany()) {
+            const assignments = getCompanyFulfillmentAssignments(accountName);
+            return assignments.find((entry) => entry.isPrimary) || assignments[0] || null;
+        }
+
+        function formatFulfillmentAddress(entry = {}) {
+            return [
+                entry.address1,
+                entry.address2,
+                [entry.city, entry.state, entry.postalCode].filter(Boolean).join(", "),
+                entry.country
+            ].filter(Boolean).join(" | ");
+        }
+
+        function formatFulfillmentLocationMeta(entry = {}) {
+            return [
+                fulfillmentLocationTypeLabel(entry.locationType),
+                entry.partnerName,
+                formatFulfillmentAddress(entry),
+                entry.isDefault ? "Default" : "",
+                entry.isActive === false ? "Inactive" : "Active"
+            ].filter(Boolean).join(" | ") || "Saved fulfillment location";
+        }
+
+        function renderFulfillmentLocationSelectOptions(selectedCode = "") {
+            const normalizedSelected = norm(selectedCode);
+            const locations = [...(state.masters.fulfillmentLocations || [])]
+                .filter((entry) => entry.isActive !== false)
+                .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true) || a.code.localeCompare(b.code));
+            if (!locations.length) return `<option value="">No fulfillment locations saved</option>`;
+            return locations.map((entry) => {
+                const label = `${entry.code} - ${entry.name}${entry.partnerName ? ` (${entry.partnerName})` : ""}`;
+                return `<option value="${attr(entry.code)}" ${entry.code === normalizedSelected ? "selected" : ""}>${esc(label)}</option>`;
+            }).join("");
+        }
+
+        function refreshFulfillmentLocationSelectors() {
+            const activeCompany = getActiveCompany();
+            const selectedForCompany = getPrimaryFulfillmentAssignment(activeCompany)?.locationCode || getDefaultFulfillmentLocationCode();
+            if (ui.companySetupFulfillmentLocation) {
+                const current = ui.companySetupFulfillmentLocation.value || selectedForCompany;
+                ui.companySetupFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(current);
+                if (current) ui.companySetupFulfillmentLocation.value = current;
+            }
+            if (ui.masterOwnerFulfillmentLocation) {
+                const company = norm(ui.masterOwnerName?.value || activeCompany);
+                const current = getPrimaryFulfillmentAssignment(company)?.locationCode || selectedForCompany;
+                ui.masterOwnerFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(current);
+                if (current) ui.masterOwnerFulfillmentLocation.value = current;
+            }
+            if (ui.companyFulfillmentLocation) {
+                const current = ui.companyFulfillmentLocation.value || selectedForCompany;
+                ui.companyFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(current);
+                if (current) ui.companyFulfillmentLocation.value = current;
+            }
+        }
+
         function getCompanyFeatureFlags(accountName = getActiveCompany()) {
             const owner = getCompanyRecord(accountName);
             if (!owner) {
@@ -19220,6 +20129,7 @@
             const owners = new Set();
             (state.masters.owners || []).forEach((owner) => owners.add(norm(owner)));
             (state.masters.ownerRecords || []).forEach((owner) => owners.add(owner.name));
+            (state.masters.companyFulfillmentLocations || []).forEach((assignment) => owners.add(assignment.accountName));
             state.masters.items.forEach((item) => owners.add(item.accountName));
             state.inventory.forEach((line) => owners.add(line.accountName));
             state.batch.forEach((line) => owners.add(line.accountName));

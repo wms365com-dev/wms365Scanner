@@ -64,6 +64,24 @@ function readEnv(name, fallback = "") {
 const normalizeEmail = bootstrapNormalizeEmail;
 const normalizeFreeText = bootstrapNormalizeFreeText;
 
+const DEFAULT_FULFILLMENT_LOCATION = Object.freeze({
+    code: "GW3PL-MISS",
+    name: "Grey Wolf 3PL - Mississauga",
+    partnerName: "Grey Wolf 3PL & Logistics Inc",
+    locationType: "THIRD_PARTY_3PL",
+    address1: "1330 Courtney Park Drive East",
+    address2: "",
+    city: "Mississauga",
+    state: "Ontario",
+    postalCode: "L5T 1V6",
+    country: "Canada",
+    contactName: "",
+    contactEmail: "support@wms365.co",
+    contactPhone: "",
+    note: "Default fulfillment location for current WMS365 customers.",
+    isDefault: true
+});
+
 const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const ROOT_DIR = __dirname;
 const APP_BUILD_FILES = [
@@ -728,6 +746,7 @@ app.post("/api/master-owner", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             await upsertOwnerMaster(client, entry);
+            await ensureCompanyDefaultFulfillmentAssignment(client, entry.name);
             await insertActivity(
                 client,
                 "setup",
@@ -743,6 +762,56 @@ app.post("/api/master-owner", async (req, res, next) => {
         });
 
         res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/fulfillment-location", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const entry = sanitizeFulfillmentLocationInput(req.body);
+        if (!entry) {
+            throw httpError(400, "A fulfillment location code and name are required.");
+        }
+
+        const savedLocation = await withTransaction(async (client) => {
+            const location = await upsertFulfillmentLocation(client, entry);
+            await insertActivity(
+                client,
+                "setup",
+                `Saved fulfillment location ${entry.code}`,
+                [entry.name, entry.partnerName, entry.city, entry.state].filter(Boolean).join(" | ")
+            );
+            return location;
+        });
+
+        res.json({ success: true, location: savedLocation });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/company-fulfillment-location", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const entry = sanitizeCompanyFulfillmentLocationInput(req.body);
+        if (!entry) {
+            throw httpError(400, "Company and fulfillment location are required.");
+        }
+
+        const assignment = await withTransaction(async (client) => {
+            const savedAssignment = await upsertCompanyFulfillmentLocation(client, entry);
+            await insertActivity(
+                client,
+                "setup",
+                `Assigned fulfillment location for ${entry.accountName}`,
+                `${entry.locationCode || `Location ID ${entry.locationId}`}${entry.isPrimary ? " | Primary" : ""}`
+            );
+            return savedAssignment;
+        });
+
+        res.json({ success: true, assignment });
     } catch (error) {
         next(error);
     }
@@ -1469,6 +1538,8 @@ app.post("/api/import", async (req, res, next) => {
         const importedOwnerRates = Array.isArray(req.body?.billing?.ownerRates) ? req.body.billing.ownerRates.map(sanitizeOwnerBillingRateInput).filter(Boolean) : [];
         const importedBillingEvents = Array.isArray(req.body?.billing?.events) ? req.body.billing.events.map(sanitizeBillingEventInput).filter(Boolean) : [];
         const importedLocations = Array.isArray(req.body?.masters?.locations) ? req.body.masters.locations.map(sanitizeLocationMasterInput).filter(Boolean) : [];
+        const importedFulfillmentLocations = Array.isArray(req.body?.masters?.fulfillmentLocations) ? req.body.masters.fulfillmentLocations.map(sanitizeFulfillmentLocationInput).filter(Boolean) : [];
+        const importedCompanyFulfillmentLocations = Array.isArray(req.body?.masters?.companyFulfillmentLocations) ? req.body.masters.companyFulfillmentLocations.map(sanitizeCompanyFulfillmentLocationInput).filter(Boolean) : [];
         const importedItems = Array.isArray(req.body?.masters?.items) ? req.body.masters.items.map(sanitizeItemMasterInput).filter(Boolean) : [];
         const importedPartners = Array.isArray(req.body?.masters?.partners) ? req.body.masters.partners.map(sanitizeCompanyPartnerInput).filter(Boolean) : [];
         const importedOwners = Array.isArray(req.body?.masters?.ownerRecords)
@@ -1478,7 +1549,7 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
+            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
 
             if (importedBillingFees.length) {
                 await client.query("truncate table billing_fee_catalog");
@@ -1565,6 +1636,18 @@ app.post("/api/import", async (req, res, next) => {
                     `,
                     [owner.name, owner.note, owner.createdAt, owner.updatedAt]
                 );
+            }
+
+            if (importedFulfillmentLocations.length) {
+                for (const location of importedFulfillmentLocations) {
+                    await upsertFulfillmentLocation(client, location);
+                }
+            } else {
+                await ensureDefaultFulfillmentLocation(client);
+            }
+
+            for (const assignment of importedCompanyFulfillmentLocations) {
+                await upsertCompanyFulfillmentLocation(client, assignment);
             }
 
             for (const rate of importedOwnerRates) {
@@ -1695,11 +1778,28 @@ app.post("/api/import", async (req, res, next) => {
                 });
             }
 
+            if (!importedCompanyFulfillmentLocations.length) {
+                await client.query(`
+                    insert into company_fulfillment_locations (account_name, fulfillment_location_id, is_primary)
+                    select o.name, fl.id, true
+                    from owner_accounts o
+                    cross join fulfillment_locations fl
+                    where fl.code = $1
+                      and o.name <> ''
+                      and not exists (
+                          select 1
+                          from company_fulfillment_locations existing
+                          where existing.account_name = o.name
+                      )
+                    on conflict (account_name, fulfillment_location_id) do nothing
+                `, [DEFAULT_FULFILLMENT_LOCATION.code]);
+            }
+
             await insertActivity(
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedPartners.length, "partner")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedPartners.length, "partner")}, ${formatCount(importedFulfillmentLocations.length, "fulfillment location")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
             );
         });
 
@@ -3041,6 +3141,47 @@ async function initializeDatabase() {
     await pool.query("alter table owner_accounts add column if not exists feature_flags_updated_by text not null default '';");
 
     await pool.query(`
+        create table if not exists fulfillment_locations (
+            id bigserial primary key,
+            code text not null unique,
+            name text not null,
+            partner_name text not null default '',
+            location_type text not null default 'OWN_WAREHOUSE',
+            contact_name text not null default '',
+            contact_email text not null default '',
+            contact_phone text not null default '',
+            address1 text not null default '',
+            address2 text not null default '',
+            city text not null default '',
+            state text not null default '',
+            postal_code text not null default '',
+            country text not null default '',
+            note text not null default '',
+            is_active boolean not null default true,
+            is_default boolean not null default false,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await pool.query(`
+        create table if not exists company_fulfillment_locations (
+            id bigserial primary key,
+            account_name text not null,
+            fulfillment_location_id bigint not null references fulfillment_locations(id) on delete cascade,
+            is_primary boolean not null default false,
+            allow_inbound boolean not null default true,
+            allow_outbound boolean not null default true,
+            allow_storage boolean not null default true,
+            allow_returns boolean not null default true,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, fulfillment_location_id)
+        );
+    `);
+
+    await pool.query(`
         create table if not exists company_partner_accounts (
             id bigserial primary key,
             account_name text not null,
@@ -3629,6 +3770,9 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_lines_tracking_level on inventory_lines (tracking_level);");
     await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
     await pool.query("create index if not exists idx_owner_accounts_name on owner_accounts (name);");
+    await pool.query("create index if not exists idx_fulfillment_locations_code on fulfillment_locations (code);");
+    await pool.query("create index if not exists idx_company_fulfillment_locations_account on company_fulfillment_locations (account_name);");
+    await pool.query("create index if not exists idx_company_fulfillment_locations_location on company_fulfillment_locations (fulfillment_location_id);");
     await pool.query("create index if not exists idx_item_catalog_account_name on item_catalog (account_name);");
     await pool.query("create index if not exists idx_item_catalog_sku on item_catalog (sku);");
     await pool.query("create index if not exists idx_item_catalog_upc on item_catalog (upc);");
@@ -3671,6 +3815,64 @@ async function initializeDatabase() {
         ) owners
         where account_name <> ''
         on conflict (name) do nothing
+    `);
+
+    await pool.query(
+        `
+            insert into fulfillment_locations (
+                code, name, partner_name, location_type, contact_name, contact_email, contact_phone,
+                address1, address2, city, state, postal_code, country, note, is_active, is_default
+            )
+            values (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $12, $13, $14, true, true
+            )
+            on conflict (code)
+            do update set
+                name = excluded.name,
+                partner_name = excluded.partner_name,
+                location_type = excluded.location_type,
+                address1 = excluded.address1,
+                address2 = excluded.address2,
+                city = excluded.city,
+                state = excluded.state,
+                postal_code = excluded.postal_code,
+                country = excluded.country,
+                note = case when fulfillment_locations.note = '' then excluded.note else fulfillment_locations.note end,
+                is_default = true,
+                updated_at = now()
+        `,
+        [
+            DEFAULT_FULFILLMENT_LOCATION.code,
+            DEFAULT_FULFILLMENT_LOCATION.name,
+            DEFAULT_FULFILLMENT_LOCATION.partnerName,
+            DEFAULT_FULFILLMENT_LOCATION.locationType,
+            DEFAULT_FULFILLMENT_LOCATION.contactName,
+            DEFAULT_FULFILLMENT_LOCATION.contactEmail,
+            DEFAULT_FULFILLMENT_LOCATION.contactPhone,
+            DEFAULT_FULFILLMENT_LOCATION.address1,
+            DEFAULT_FULFILLMENT_LOCATION.address2,
+            DEFAULT_FULFILLMENT_LOCATION.city,
+            DEFAULT_FULFILLMENT_LOCATION.state,
+            DEFAULT_FULFILLMENT_LOCATION.postalCode,
+            DEFAULT_FULFILLMENT_LOCATION.country,
+            DEFAULT_FULFILLMENT_LOCATION.note
+        ]
+    );
+
+    await pool.query(`
+        insert into company_fulfillment_locations (account_name, fulfillment_location_id, is_primary)
+        select o.name, fl.id, true
+        from owner_accounts o
+        cross join fulfillment_locations fl
+        where fl.code = '${DEFAULT_FULFILLMENT_LOCATION.code}'
+          and o.name <> ''
+          and not exists (
+              select 1
+              from company_fulfillment_locations existing
+              where existing.account_name = o.name
+          )
+        on conflict (account_name, fulfillment_location_id) do nothing
     `);
 
     await pool.query(`
@@ -3740,11 +3942,29 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
 
-    const [inventoryResult, activityResult, locationResult, ownerResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
         client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
         client.query("select * from owner_accounts order by name asc"),
+        client.query("select * from fulfillment_locations order by is_default desc, code asc"),
+        client.query(`
+            select
+                cfl.*,
+                fl.code as location_code,
+                fl.name as location_name,
+                fl.partner_name as partner_name,
+                fl.location_type as location_type,
+                fl.address1 as location_address1,
+                fl.address2 as location_address2,
+                fl.city as location_city,
+                fl.state as location_state,
+                fl.postal_code as location_postal_code,
+                fl.country as location_country
+            from company_fulfillment_locations cfl
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            order by cfl.account_name asc, cfl.is_primary desc, fl.code asc
+        `),
         client.query("select * from company_partner_accounts order by account_name asc, partner_type asc, name asc"),
         client.query("select * from item_catalog order by account_name asc, sku asc"),
         client.query("select * from pallet_records order by updated_at desc, pallet_code asc"),
@@ -3758,6 +3978,8 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce((select max(created_at) from activity_log), to_timestamp(0)),
                     coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_accounts), to_timestamp(0)),
+                    coalesce((select max(updated_at) from fulfillment_locations), to_timestamp(0)),
+                    coalesce((select max(updated_at) from company_fulfillment_locations), to_timestamp(0)),
                     coalesce((select max(updated_at) from company_partner_accounts), to_timestamp(0)),
                     coalesce((select max(updated_at) from item_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
@@ -3784,6 +4006,13 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
     const ownerRows = companyScoped
         ? filterRowsByAllowedCompanies(ownerResult.rows, accessibleCompanies, (row) => row.name)
         : ownerResult.rows;
+    const companyFulfillmentLocationRows = companyScoped
+        ? filterRowsByAllowedCompanies(companyFulfillmentLocationResult.rows, accessibleCompanies, (row) => row.account_name)
+        : companyFulfillmentLocationResult.rows;
+    const scopedFulfillmentLocationIds = new Set(companyFulfillmentLocationRows.map((row) => String(row.fulfillment_location_id)));
+    const fulfillmentLocationRows = companyScoped
+        ? fulfillmentLocationResult.rows.filter((row) => scopedFulfillmentLocationIds.has(String(row.id)))
+        : fulfillmentLocationResult.rows;
     const partnerRows = companyScoped
         ? filterRowsByAllowedCompanies(partnerResult.rows, accessibleCompanies, (row) => row.account_name)
         : partnerResult.rows;
@@ -3812,6 +4041,8 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         masters: {
             locations: locationResult.rows.map(mapLocationMasterRow),
             ownerRecords: ownerRows.map(mapOwnerMasterRow),
+            fulfillmentLocations: fulfillmentLocationRows.map(mapFulfillmentLocationRow),
+            companyFulfillmentLocations: companyFulfillmentLocationRows.map(mapCompanyFulfillmentLocationRow),
             partners: partnerRows.map(mapCompanyPartnerRow),
             items: itemRows.map(mapItemMasterRow),
             owners
@@ -10564,6 +10795,212 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
     );
 }
 
+async function getFulfillmentLocationByIdOrCode(client, { locationId = null, locationCode = "" } = {}) {
+    const id = toPositiveInt(locationId);
+    const code = normalizeText(locationCode);
+    if (id) {
+        const result = await client.query("select * from fulfillment_locations where id = $1 limit 1", [id]);
+        return result.rows[0] || null;
+    }
+    if (code) {
+        const result = await client.query("select * from fulfillment_locations where code = $1 limit 1", [code]);
+        return result.rows[0] || null;
+    }
+    return null;
+}
+
+async function upsertFulfillmentLocation(client, locationInput) {
+    const entry = sanitizeFulfillmentLocationInput(locationInput);
+    if (!entry?.code || !entry?.name) return null;
+    const locationId = toPositiveInt(entry.id);
+    let result;
+
+    if (locationId) {
+        result = await client.query(
+            `
+                update fulfillment_locations
+                set code = $2,
+                    name = $3,
+                    partner_name = $4,
+                    location_type = $5,
+                    contact_name = $6,
+                    contact_email = $7,
+                    contact_phone = $8,
+                    address1 = $9,
+                    address2 = $10,
+                    city = $11,
+                    state = $12,
+                    postal_code = $13,
+                    country = $14,
+                    note = $15,
+                    is_active = $16,
+                    is_default = $17,
+                    updated_at = now()
+                where id = $1
+                returning *
+            `,
+            [
+                locationId,
+                entry.code,
+                entry.name,
+                entry.partnerName,
+                entry.locationType,
+                entry.contactName,
+                entry.contactEmail,
+                entry.contactPhone,
+                entry.address1,
+                entry.address2,
+                entry.city,
+                entry.state,
+                entry.postalCode,
+                entry.country,
+                entry.note,
+                entry.isActive,
+                entry.isDefault
+            ]
+        );
+        if (result.rowCount) return mapFulfillmentLocationRow(result.rows[0]);
+    }
+
+    result = await client.query(
+        `
+            insert into fulfillment_locations (
+                code, name, partner_name, location_type, contact_name, contact_email, contact_phone,
+                address1, address2, city, state, postal_code, country, note, is_active, is_default
+            )
+            values (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $12, $13, $14, $15, $16
+            )
+            on conflict (code)
+            do update set
+                name = excluded.name,
+                partner_name = excluded.partner_name,
+                location_type = excluded.location_type,
+                contact_name = excluded.contact_name,
+                contact_email = excluded.contact_email,
+                contact_phone = excluded.contact_phone,
+                address1 = excluded.address1,
+                address2 = excluded.address2,
+                city = excluded.city,
+                state = excluded.state,
+                postal_code = excluded.postal_code,
+                country = excluded.country,
+                note = excluded.note,
+                is_active = excluded.is_active,
+                is_default = excluded.is_default,
+                updated_at = now()
+            returning *
+        `,
+        [
+            entry.code,
+            entry.name,
+            entry.partnerName,
+            entry.locationType,
+            entry.contactName,
+            entry.contactEmail,
+            entry.contactPhone,
+            entry.address1,
+            entry.address2,
+            entry.city,
+            entry.state,
+            entry.postalCode,
+            entry.country,
+            entry.note,
+            entry.isActive,
+            entry.isDefault
+        ]
+    );
+    return mapFulfillmentLocationRow(result.rows[0]);
+}
+
+async function upsertCompanyFulfillmentLocation(client, assignmentInput) {
+    const entry = sanitizeCompanyFulfillmentLocationInput(assignmentInput);
+    if (!entry?.accountName) return null;
+    await upsertOwnerMaster(client, { name: entry.accountName });
+    let location = await getFulfillmentLocationByIdOrCode(client, {
+        locationId: entry.locationId,
+        locationCode: entry.locationCode
+    });
+    if (!location && entry.locationCode === DEFAULT_FULFILLMENT_LOCATION.code) {
+        await ensureDefaultFulfillmentLocation(client);
+        location = await getFulfillmentLocationByIdOrCode(client, { locationCode: entry.locationCode });
+    }
+    if (!location) {
+        throw httpError(400, "Choose a saved fulfillment location.");
+    }
+
+    if (entry.isPrimary) {
+        await client.query(
+            "update company_fulfillment_locations set is_primary = false, updated_at = now() where account_name = $1",
+            [entry.accountName]
+        );
+    }
+
+    const result = await client.query(
+        `
+            insert into company_fulfillment_locations (
+                account_name, fulfillment_location_id, is_primary,
+                allow_inbound, allow_outbound, allow_storage, allow_returns, note
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            on conflict (account_name, fulfillment_location_id)
+            do update set
+                is_primary = excluded.is_primary,
+                allow_inbound = excluded.allow_inbound,
+                allow_outbound = excluded.allow_outbound,
+                allow_storage = excluded.allow_storage,
+                allow_returns = excluded.allow_returns,
+                note = excluded.note,
+                updated_at = now()
+            returning *
+        `,
+        [
+            entry.accountName,
+            location.id,
+            entry.isPrimary,
+            entry.allowInbound,
+            entry.allowOutbound,
+            entry.allowStorage,
+            entry.allowReturns,
+            entry.note
+        ]
+    );
+    return mapCompanyFulfillmentLocationRow({
+        ...result.rows[0],
+        location_code: location.code,
+        location_name: location.name,
+        partner_name: location.partner_name,
+        location_type: location.location_type,
+        location_address1: location.address1,
+        location_address2: location.address2,
+        location_city: location.city,
+        location_state: location.state,
+        location_postal_code: location.postal_code,
+        location_country: location.country
+    });
+}
+
+async function ensureDefaultFulfillmentLocation(client) {
+    await upsertFulfillmentLocation(client, DEFAULT_FULFILLMENT_LOCATION);
+}
+
+async function ensureCompanyDefaultFulfillmentAssignment(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return;
+    await ensureDefaultFulfillmentLocation(client);
+    const existing = await client.query(
+        "select id from company_fulfillment_locations where account_name = $1 limit 1",
+        [normalizedAccount]
+    );
+    if (existing.rowCount) return;
+    await upsertCompanyFulfillmentLocation(client, {
+        accountName: normalizedAccount,
+        locationCode: DEFAULT_FULFILLMENT_LOCATION.code,
+        isPrimary: true
+    });
+}
+
 async function upsertCompanyPartner(client, partnerInput) {
     const entry = sanitizeCompanyPartnerInput(partnerInput);
     if (!entry?.accountName || !entry?.partnerType || !entry?.name) return;
@@ -11492,6 +11929,62 @@ function sanitizeOwnerMasterInput(item) {
     };
 }
 
+function normalizeFulfillmentLocationType(value) {
+    const normalized = normalizeText(value || "");
+    if (["THIRD_PARTY_3PL", "3PL", "PARTNER"].includes(normalized)) return "THIRD_PARTY_3PL";
+    if (["CUSTOMER_SITE", "CUSTOMER"].includes(normalized)) return "CUSTOMER_SITE";
+    if (["VIRTUAL", "VIRTUAL_LOCATION"].includes(normalized)) return "VIRTUAL";
+    return "OWN_WAREHOUSE";
+}
+
+function sanitizeFulfillmentLocationInput(item) {
+    const code = normalizeText(item?.code || item?.locationCode || item?.location_code || item?.warehouseCode || item?.warehouse_code);
+    const name = normalizeFreeText(item?.name || item?.locationName || item?.location_name || item?.warehouseName || item?.warehouse_name);
+    if (!code || !name) return null;
+    return {
+        id: item?.id != null ? String(item.id) : "",
+        code,
+        name,
+        partnerName: normalizeFreeText(item?.partnerName || item?.partner_name || item?.providerName || item?.provider_name || ""),
+        locationType: normalizeFulfillmentLocationType(item?.locationType || item?.location_type || item?.type),
+        contactName: normalizeFreeText(item?.contactName || item?.contact_name),
+        contactEmail: normalizeEmail(item?.contactEmail || item?.contact_email || item?.email),
+        contactPhone: normalizeFreeText(item?.contactPhone || item?.contact_phone || item?.phone),
+        address1: normalizeFreeText(item?.address1 || item?.address_1),
+        address2: normalizeFreeText(item?.address2 || item?.address_2),
+        city: normalizeFreeText(item?.city),
+        state: normalizeFreeText(item?.state || item?.province),
+        postalCode: normalizeText(item?.postalCode || item?.postal_code || item?.zip),
+        country: normalizeFreeText(item?.country),
+        note: normalizeFreeText(item?.note),
+        isActive: item?.isActive !== false,
+        isDefault: toBooleanFlag(item?.isDefault ?? item?.is_default, false),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
+function sanitizeCompanyFulfillmentLocationInput(item) {
+    const accountName = normalizeText(item?.accountName || item?.account_name || item?.owner || item?.company || item?.customer);
+    const locationId = toPositiveInt(item?.locationId || item?.fulfillmentLocationId || item?.fulfillment_location_id);
+    const locationCode = normalizeText(item?.locationCode || item?.location_code || item?.code);
+    if (!accountName || (!locationId && !locationCode)) return null;
+    return {
+        id: item?.id != null ? String(item.id) : "",
+        accountName,
+        locationId,
+        locationCode,
+        isPrimary: toBooleanFlag(item?.isPrimary ?? item?.is_primary, true),
+        allowInbound: toBooleanFlag(item?.allowInbound ?? item?.allow_inbound, true),
+        allowOutbound: toBooleanFlag(item?.allowOutbound ?? item?.allow_outbound, true),
+        allowStorage: toBooleanFlag(item?.allowStorage ?? item?.allow_storage, true),
+        allowReturns: toBooleanFlag(item?.allowReturns ?? item?.allow_returns, true),
+        note: normalizeFreeText(item?.note),
+        createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+    };
+}
+
 function normalizeCompanyPartnerType(value) {
     const normalized = normalizeText(value || "");
     return normalized === "VENDOR" ? "VENDOR" : "CUSTOMER";
@@ -11701,6 +12194,56 @@ function mapOwnerMasterRow(row) {
         featureFlagsInherited: legacyMode,
         featureFlagsUpdatedAt: row.feature_flags_updated_at ? new Date(row.feature_flags_updated_at).toISOString() : null,
         featureFlagsUpdatedBy: row.feature_flags_updated_by || "",
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapFulfillmentLocationRow(row) {
+    return {
+        id: String(row.id),
+        code: row.code,
+        name: row.name,
+        partnerName: row.partner_name || "",
+        locationType: normalizeFulfillmentLocationType(row.location_type),
+        contactName: row.contact_name || "",
+        contactEmail: row.contact_email || "",
+        contactPhone: row.contact_phone || "",
+        address1: row.address1 || row.address_1 || "",
+        address2: row.address2 || row.address_2 || "",
+        city: row.city || "",
+        state: row.state || "",
+        postalCode: row.postal_code || "",
+        country: row.country || "",
+        note: row.note || "",
+        isActive: row.is_active !== false,
+        isDefault: row.is_default === true,
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
+function mapCompanyFulfillmentLocationRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name,
+        fulfillmentLocationId: String(row.fulfillment_location_id),
+        locationCode: row.location_code || "",
+        locationName: row.location_name || "",
+        partnerName: row.partner_name || "",
+        locationType: normalizeFulfillmentLocationType(row.location_type),
+        address1: row.location_address1 || "",
+        address2: row.location_address2 || "",
+        city: row.location_city || "",
+        state: row.location_state || "",
+        postalCode: row.location_postal_code || "",
+        country: row.location_country || "",
+        isPrimary: row.is_primary === true,
+        allowInbound: row.allow_inbound !== false,
+        allowOutbound: row.allow_outbound !== false,
+        allowStorage: row.allow_storage !== false,
+        allowReturns: row.allow_returns !== false,
+        note: row.note || "",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };

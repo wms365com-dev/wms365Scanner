@@ -42,9 +42,11 @@ Use this before pushing any warehouse workflow change live.
 ## Security / Scope
 
 - company scoping
+- super user company setup flow
 - warehouse user assigned-company access
 - customer portal isolation
 - feature flag gating
+- fulfillment location / 3PL partner assignment
 - export restrictions
 - integration company ownership
 

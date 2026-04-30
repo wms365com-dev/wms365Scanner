@@ -176,7 +176,10 @@ Navigation principles:
 - Drill path: `Setup / Master Data`
 - Purpose: maintain the records that power all warehouse work
 - Primary features:
+  - Super User Company Setup
   - Company Profile
+  - Fulfillment Locations / 3PL Partners
+  - Company Location Assignment
   - BIN Locations
   - Item Master
   - Lot / Expiration Controls
