@@ -553,6 +553,65 @@ app.post("/api/admin/system-email/daily-summary/send-now", async (req, res, next
     }
 });
 
+app.post("/api/admin/system-email/test", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const defaultRecipient = req.appUser?.email || DEFAULT_ADMIN_EMAIL;
+        const recipients = normalizeEmailList(req.body?.recipient || req.body?.to || defaultRecipient, { throwOnInvalid: true });
+        if (!recipients.length) {
+            throw httpError(400, "Enter an email address to receive the test message.");
+        }
+
+        const recipient = recipients[0];
+        const now = new Date();
+        const transporter = getSystemMailer("System email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
+        const subject = `WMS365 system email test - ${APP_BUILD_INFO.deploymentRef}`;
+        const lines = [
+            "WMS365 system email test",
+            "",
+            "This confirms the configured SMTP account can send email from the WMS365 app.",
+            `Sent at: ${now.toISOString()}`,
+            `Requested by: ${req.appUser?.email || "Unknown admin"}`,
+            `Build: ${APP_BUILD_INFO.label}`,
+            `SMTP host: ${SMTP_HOST}:${SMTP_PORT}`,
+            `From: ${SMTP_FROM}`,
+            SMTP_REPLY_TO ? `Reply-To: ${SMTP_REPLY_TO}` : ""
+        ].filter(Boolean);
+
+        await transporter.sendMail({
+            from: SMTP_FROM,
+            to: recipient,
+            replyTo: SMTP_REPLY_TO || undefined,
+            subject,
+            text: lines.join("\n"),
+            html: `
+                <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
+                    <h2 style="margin:0 0 12px;">WMS365 system email test</h2>
+                    <p>This confirms the configured SMTP account can send email from the WMS365 app.</p>
+                    <table style="border-collapse:collapse;width:100%;max-width:720px;">
+                        <tr><td style="padding:6px 0;font-weight:600;">Sent at</td><td style="padding:6px 0;">${escapeHtml(now.toISOString())}</td></tr>
+                        <tr><td style="padding:6px 0;font-weight:600;">Requested by</td><td style="padding:6px 0;">${escapeHtml(req.appUser?.email || "Unknown admin")}</td></tr>
+                        <tr><td style="padding:6px 0;font-weight:600;">Build</td><td style="padding:6px 0;">${escapeHtml(APP_BUILD_INFO.label)}</td></tr>
+                        <tr><td style="padding:6px 0;font-weight:600;">SMTP host</td><td style="padding:6px 0;">${escapeHtml(`${SMTP_HOST}:${SMTP_PORT}`)}</td></tr>
+                        <tr><td style="padding:6px 0;font-weight:600;">From</td><td style="padding:6px 0;">${escapeHtml(SMTP_FROM)}</td></tr>
+                        ${SMTP_REPLY_TO ? `<tr><td style="padding:6px 0;font-weight:600;">Reply-To</td><td style="padding:6px 0;">${escapeHtml(SMTP_REPLY_TO)}</td></tr>` : ""}
+                    </table>
+                </div>
+            `
+        });
+
+        res.json({
+            success: true,
+            recipient,
+            sentAt: now.toISOString(),
+            from: SMTP_FROM,
+            smtpHost: SMTP_HOST
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/site/demo-request", async (req, res, next) => {
     try {
         assertDatabaseAvailable();

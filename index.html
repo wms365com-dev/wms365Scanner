@@ -8027,6 +8027,29 @@
                     <p class="lead">Import replaces the shared server inventory, recent activity, saved BINs, and item masters for everyone using this app.</p>
                 </article>
 
+                <article class="card span-2" id="systemEmailTestCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>System Email Test</h2>
+                            <p class="lead">Send a live test email from the configured WMS365 SMTP account to verify notifications are working.</p>
+                        </div>
+                        <span class="meta" id="systemEmailTestMeta">Super users only</span>
+                    </div>
+                    <div class="helper" id="systemEmailTestAccessGate">
+                        Super user access is required to send system email tests.
+                    </div>
+                    <form id="systemEmailTestForm" class="form-grid hidden" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Send Test To</span>
+                            <input id="systemEmailTestRecipient" type="email" placeholder="admin@example.com">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn" id="sendSystemEmailTestBtn" type="submit">Send Test Email</button>
+                        </div>
+                    </form>
+                    <div class="status" id="systemEmailTestMessage"></div>
+                </article>
+
                 <article class="card span-2" id="companyFeatureAdminCard">
                     <div class="card-head">
                         <div>
@@ -8756,6 +8779,12 @@
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
             appBuildFooter: document.getElementById("appBuildFooter"),
+            systemEmailTestForm: document.getElementById("systemEmailTestForm"),
+            systemEmailTestRecipient: document.getElementById("systemEmailTestRecipient"),
+            systemEmailTestMeta: document.getElementById("systemEmailTestMeta"),
+            systemEmailTestAccessGate: document.getElementById("systemEmailTestAccessGate"),
+            systemEmailTestMessage: document.getElementById("systemEmailTestMessage"),
+            sendSystemEmailTestBtn: document.getElementById("sendSystemEmailTestBtn"),
             masterDataWorkspaceCard: document.getElementById("masterDataWorkspaceCard"),
             inventoryWorkspaceGrid: document.getElementById("inventoryWorkspaceGrid"),
             storeIntegrationsBlock: document.getElementById("storeIntegrationsBlock"),
@@ -9681,6 +9710,7 @@
             document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
+            ui.systemEmailTestForm?.addEventListener("submit", sendSystemEmailTest);
             ui.warehouseUserForm?.addEventListener("submit", saveWarehouseUser);
             ui.resetWarehouseUserBtn?.addEventListener("click", resetWarehouseUserForm);
             ui.warehouseUserRole?.addEventListener("change", renderWarehouseUserDashboard);
@@ -12594,6 +12624,7 @@
             renderWarehouseSalesOrderContext();
             renderWarehouseInboundContext();
             syncFeedbackContext();
+            syncSystemEmailTestUi();
         }
 
         function renderBatch() {
@@ -19669,6 +19700,47 @@
                     `).join("")}
                 `
             );
+        }
+
+        function syncSystemEmailTestUi() {
+            const isSuperUser = currentUserIsSuperAdmin();
+            ui.systemEmailTestAccessGate?.classList.toggle("hidden", isSuperUser);
+            ui.systemEmailTestForm?.classList.toggle("hidden", !isSuperUser);
+            if (ui.systemEmailTestMeta) {
+                ui.systemEmailTestMeta.textContent = isSuperUser ? "SMTP live test" : "Super users only";
+            }
+            if (isSuperUser && ui.systemEmailTestRecipient && !ui.systemEmailTestRecipient.value.trim()) {
+                ui.systemEmailTestRecipient.value = getCurrentAppUser()?.email || "";
+            }
+        }
+
+        async function sendSystemEmailTest(event) {
+            event?.preventDefault?.();
+            if (!currentUserIsSuperAdmin()) {
+                return showMessage(ui.systemEmailTestMessage, "Super user access is required to send a system email test.", "error");
+            }
+            const recipient = String(ui.systemEmailTestRecipient?.value || "").trim();
+            if (!recipient) {
+                ui.systemEmailTestRecipient?.focus();
+                return showMessage(ui.systemEmailTestMessage, "Enter the email address that should receive the test.", "error");
+            }
+            try {
+                await runActionWithFeedback({
+                    button: ui.sendSystemEmailTestBtn,
+                    busyLabel: "Sending...",
+                    messageElement: ui.systemEmailTestMessage,
+                    progressMessage: `Sending test email to ${recipient}...`
+                }, async () => {
+                    const response = await requestJson("/api/admin/system-email/test", {
+                        method: "POST",
+                        body: JSON.stringify({ recipient })
+                    });
+                    showMessage(ui.systemEmailTestMessage, `Test email sent to ${response.recipient || recipient}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.systemEmailTestMessage, error.message, "error");
+            }
         }
 
         async function exportJson() {
