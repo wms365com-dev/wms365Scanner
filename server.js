@@ -8231,8 +8231,8 @@ async function buildAdminActivityDigest(dateKey, { now = new Date() } = {}) {
             `
                 select
                     count(*)::integer as event_count,
-                    coalesce(sum(quantity * unit_amount), 0)::numeric as total_amount,
-                    coalesce(sum(case when status = 'OPEN' then quantity * unit_amount else 0 end), 0)::numeric as open_amount
+                    coalesce(sum(amount), 0)::numeric as total_amount,
+                    coalesce(sum(case when status = 'OPEN' then amount else 0 end), 0)::numeric as open_amount
                 from billing_events
                 where timezone($1, created_at)::date = $2::date
                   and status <> 'VOID'
