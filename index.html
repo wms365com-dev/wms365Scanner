@@ -7479,6 +7479,8 @@
                             <button class="erp-command-link" type="button" id="salesOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandPickTicketBtn">Print Pick Ticket</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandPackingSlipBtn">Print Packing Slip</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandAddLineBtn">Select items...</button>
                         </div>
                     </div>
@@ -9138,6 +9140,8 @@
             salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
             salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
             salesOrderCommandReleaseBtn: document.getElementById("salesOrderCommandReleaseBtn"),
+            salesOrderCommandPickTicketBtn: document.getElementById("salesOrderCommandPickTicketBtn"),
+            salesOrderCommandPackingSlipBtn: document.getElementById("salesOrderCommandPackingSlipBtn"),
             salesOrderCommandAddLineBtn: document.getElementById("salesOrderCommandAddLineBtn"),
             warehouseOrderMessage: document.getElementById("warehouseOrderMessage"),
             ordersPanelMobileTitle: document.getElementById("ordersPanelMobileTitle"),
@@ -9548,6 +9552,8 @@
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
+            ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
+            ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
             ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
             ui.warehouseOrderLines?.addEventListener("click", onWarehouseOrderLinesClick);
             ui.warehouseOrderLines?.addEventListener("change", onWarehouseOrderLinesChange);
@@ -15922,6 +15928,8 @@
             const company = getWarehouseSalesOrderCompany();
             const hasCompany = !!company;
             const featureEnabled = !company || companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+            const currentOrder = editingWarehouseOrderId ? getPortalOrderById(editingWarehouseOrderId) : null;
+            const canPrintOrderDocuments = !!currentOrder?.id && currentOrder.status !== "DRAFT";
             ui.warehouseOrderCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
                     ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
@@ -15936,6 +15944,12 @@
                 ui.salesOrderCommandAddLineBtn
             ].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled;
+            });
+            [
+                ui.salesOrderCommandPickTicketBtn,
+                ui.salesOrderCommandPackingSlipBtn
+            ].filter(Boolean).forEach((button) => {
+                button.disabled = !canPrintOrderDocuments;
             });
             if (ui.warehouseOrderLines) {
                 [...ui.warehouseOrderLines.querySelectorAll(".line-card")].forEach((card) => {
@@ -17122,6 +17136,20 @@
                 console.error("Document print window error", error);
                 showMessage(messageElement, "Unable to open the print view.", "error");
             }
+        }
+
+        function printCurrentWarehouseSalesOrderDocument(type, event = null) {
+            const order = editingWarehouseOrderId ? getPortalOrderById(editingWarehouseOrderId) : null;
+            if (!order?.id) {
+                showMessage(ui.warehouseOrderMessage, "Open a released sales order before printing.", "error");
+                return;
+            }
+            if (order.status === "DRAFT") {
+                showMessage(ui.warehouseOrderMessage, "Release the sales order before printing warehouse documents.", "error");
+                return;
+            }
+            printPortalOrderDocument(order, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
+            event?.currentTarget?.blur?.();
         }
 
         async function onPortalOrdersListClick(event) {
@@ -20605,9 +20633,11 @@
             if (!item?.id) return null;
             const downloadUrl = String(item.downloadUrl || item.download_url || "").trim();
             if (!downloadUrl) return null;
+            const fileName = String(item.fileName || item.file_name || "Document").trim() || "Document";
+            if (/^wms365-.*-release-copy\.pdf$/i.test(fileName)) return null;
             return {
                 id: String(item.id),
-                fileName: String(item.fileName || item.file_name || "Document").trim() || "Document",
+                fileName,
                 fileType: String(item.fileType || item.file_type || "").trim(),
                 fileSize: Number(item.fileSize || item.file_size || 0) || 0,
                 uploadedBy: String(item.uploadedBy || item.uploaded_by || "").trim(),

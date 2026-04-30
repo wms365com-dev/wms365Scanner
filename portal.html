@@ -803,7 +803,7 @@
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalReleaseTitle">
                     <div class="header-copy">
                         <h2 id="portalReleaseTitle">Release Order</h2>
-                        <p class="lead">Choose whether to email the warehouse team now, add CC recipients, and save a PDF copy to this order.</p>
+                        <p class="lead">Choose whether to email the warehouse team now and add CC recipients.</p>
                     </div>
                     <div class="mini-context">
                         <div><strong id="portalReleaseOrderCode">Draft order</strong></div>
@@ -821,13 +821,6 @@
                         <label class="field span-2">
                             <span>CC Others</span>
                             <input id="portalReleaseCcEmails" type="text" placeholder="ops@example.com, manager@example.com">
-                        </label>
-                        <label class="toggle-card span-2">
-                            <input id="portalReleaseSavePdf" type="checkbox" checked>
-                            <span class="toggle-copy">
-                                <strong>Save a PDF copy</strong>
-                                <span class="meta">Attach the PDF to the email when sent and keep a copy under this order’s documents.</span>
-                            </span>
                         </label>
                         <div class="button-row span-2">
                             <button class="btn" id="portalReleaseSubmitBtn" type="submit">Release Order</button>
@@ -983,7 +976,6 @@
             portalReleaseShipTo: document.getElementById("portalReleaseShipTo"),
             portalReleaseEmailWarehouse: document.getElementById("portalReleaseEmailWarehouse"),
             portalReleaseCcEmails: document.getElementById("portalReleaseCcEmails"),
-            portalReleaseSavePdf: document.getElementById("portalReleaseSavePdf"),
             portalReleaseSubmitBtn: document.getElementById("portalReleaseSubmitBtn"),
             portalReleaseMessage: document.getElementById("portalReleaseMessage"),
             inboundForm: document.getElementById("inboundForm"),
@@ -1903,8 +1895,7 @@
             }
             return {
                 notifyWarehouse,
-                ccEmails,
-                savePdfCopy: ui.portalReleaseSavePdf.checked
+                ccEmails
             };
         }
 
@@ -1928,7 +1919,6 @@
             ui.portalReleaseShipTo.textContent = `Ship to: ${shipTo || "Not set"}`;
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseCcEmails.value = "";
-            ui.portalReleaseSavePdf.checked = true;
             syncPortalReleaseFields();
             setPortalReleaseMessage("", "info");
             ui.portalReleaseModal.classList.remove("hidden");
@@ -1941,7 +1931,6 @@
             ui.portalReleaseModal.setAttribute("aria-hidden", "true");
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseCcEmails.value = "";
-            ui.portalReleaseSavePdf.checked = true;
             syncPortalReleaseFields();
             setPortalReleaseMessage("", "info");
         }
@@ -1967,16 +1956,6 @@
                 }
             }
 
-            if (actions.pdfCopyRequested) {
-                if (actions.pdfSaved) {
-                    successNotes.push(`saved a PDF copy as ${actions.pdfFileName || "a document"}`);
-                } else if (actions.pdfAlreadySaved) {
-                    successNotes.push(`kept the existing PDF copy ${actions.pdfFileName || ""}`.trim());
-                } else if (actions.pdfSaveError) {
-                    warningNotes.push(`the PDF copy could not be saved (${actions.pdfSaveError})`);
-                }
-            }
-
             let message = `Released order ${orderCode}.`;
             if (successNotes.length) {
                 message += ` Also ${joinPortalReleaseSummary(successNotes)}.`;
@@ -1989,8 +1968,7 @@
 
         function getPortalReleaseResultTone(response) {
             const actions = response?.releaseActions || {};
-            const hasWarning = (actions.warehouseEmailRequested && !actions.warehouseEmailSent)
-                || (actions.pdfCopyRequested && !actions.pdfSaved && !actions.pdfAlreadySaved);
+            const hasWarning = actions.warehouseEmailRequested && !actions.warehouseEmailSent;
             return hasWarning ? "info" : "success";
         }
 
@@ -2483,6 +2461,7 @@
             const fileName = String(document.fileName || document.file_name || "").trim();
             const downloadUrl = String(document.downloadUrl || document.download_url || "").trim();
             if (!fileName || !downloadUrl) return null;
+            if (/^wms365-.*-release-copy\.pdf$/i.test(fileName)) return null;
             return {
                 id: String(document.id || ""),
                 fileName,
