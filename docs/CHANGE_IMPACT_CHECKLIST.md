@@ -65,6 +65,11 @@ Use this before pushing any warehouse workflow change live.
 - file attachments
 - warehouse order email
 - customer shipment email
+- shipment quote
+- carrier label
+- tracking number
+- return label
+- address validation result
 - receipt confirmation
 - shipped confirmation
 - daily admin summary email
@@ -76,6 +81,10 @@ Use this before pushing any warehouse workflow change live.
 - labeling charge capture
 - supplies charge capture
 - shipping cost capture
+- package material capture
+- carrier surcharge/tax capture
+- return label capture
+- dangerous goods/special handling capture
 - storage charge capture
 - manual billing availability
 - month-end export
@@ -90,6 +99,10 @@ Use this before pushing any warehouse workflow change live.
 - SFTP shipment confirmation export folder
 - SFTP receipt confirmation export folder
 - SFTP inventory export folder
+- marketplace provider catalog
+- Best Buy marketplace connector
+- ClickShip carrier connection
+- direct UPS/FedEx/Canada Post carrier connections
 - manual sync
 - scheduled sync
 - integration run log

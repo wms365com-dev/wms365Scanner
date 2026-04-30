@@ -36,7 +36,7 @@ Navigation principles:
 | Home | Operations Home | Launch pad and quick actions |
 | Inbound | Purchase Orders, Receiving | Enter expected receipts first, then physically receive |
 | Inventory | Inventory Lookup, Adjust & Move, Labels | Find stock, correct/move stock, print floor labels |
-| Outbound | Sales Orders, Shipped Orders | Process active orders separately from completed shipments |
+| Outbound | Sales Orders, planned Quote & Ship, Shipped Orders | Process orders, create labels, then separate completed shipments |
 | Setup | Master Data, Integrations | Configure companies/items/locations before connections |
 | Reporting | Reports & Counts | Review/export warehouse data |
 | Commercial | Billing | Capture and review customer charges |
@@ -136,6 +136,28 @@ Navigation principles:
   - Shopify/SFTP imported orders
   - outbound billing events
 
+### Planned Section: `shipping`
+- Title: `Quote & Ship`
+- Drill path: `Outbound / Quote & Ship`
+- Purpose: create packages, compare carrier rates, buy labels, and capture shipment cost after orders are picked
+- Primary features:
+  - Package Type
+  - Ship From
+  - Ship To
+  - Package Details
+  - Address Validation
+  - Rate Compare
+  - Label Create / Save
+  - Shipment Cost Capture
+- Related channels:
+  - ClickShip
+  - UPS
+  - FedEx
+  - Canada Post
+  - manual carrier fallback
+- Internal spec:
+  - `C:\WMS365Scanner\docs\QUOTE_AND_SHIP_FLOW.md`
+
 ### Section: `shipped`
 - Title: `Shipped Orders`
 - Drill path: `Outbound / Shipped Orders`
@@ -168,6 +190,9 @@ Navigation principles:
 - Primary features:
   - Shopify
   - SFTP
+  - Marketplace provider catalog
+  - Best Buy marketplace staging
+  - Carrier connection setup
   - Sync Schedules
   - Pull Orders
   - Pull Purchase Orders

@@ -2635,6 +2635,56 @@
             gap: 0.75rem;
         }
 
+        .marketplace-catalog {
+            display: grid;
+            gap: 0.75rem;
+            padding: 0.9rem;
+            border: 1px solid var(--line);
+            background: #ffffff;
+        }
+
+        .marketplace-catalog-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 1rem;
+            border-bottom: 1px solid var(--line);
+            padding-bottom: 0.65rem;
+        }
+
+        .marketplace-logo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0.55rem;
+        }
+
+        .marketplace-logo-tile {
+            min-height: 58px;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid #c9d5df;
+            background: #f8fafc;
+            color: var(--text);
+            font-weight: 800;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .marketplace-logo-tile:hover,
+        .marketplace-logo-tile:focus {
+            border-color: #008c95;
+            background: #e9fbfd;
+        }
+
+        .marketplace-logo-tile small {
+            display: block;
+            margin-top: 0.15rem;
+            color: var(--muted);
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
         .stack-list {
             display: grid;
             gap: 0.75rem;
@@ -5938,14 +5988,33 @@
 
                     <div class="library-grid" id="storeIntegrationsBlock" style="margin-top: 1rem; margin-bottom: 1rem;">
                         <div class="helper">
-                            <h3>Store Integrations</h3>
-                            <p class="meta">Connect each customer's online store or SFTP feed and keep orders, purchase orders, confirmations, and inventory synced inside one company-safe lane.</p>
+                            <h3>Marketplace Connections</h3>
+                            <p class="meta">Connect each customer's Shopify, Best Buy, Amazon, marketplace, or SFTP order lane and keep all imported orders company-safe.</p>
                             <form id="integrationForm" class="form-grid" autocomplete="off">
                                 <input id="integrationId" type="hidden">
                                 <input id="integrationAccount" type="hidden">
                                 <div class="helper span-2">
                                     <h3>Active Company</h3>
                                     <p class="meta" id="integrationCompanyMeta">Choose an active company in the header before saving a store connection.</p>
+                                </div>
+                                <div class="marketplace-catalog span-2" id="integrationMarketplaceCatalog">
+                                    <div class="marketplace-catalog-head">
+                                        <div>
+                                            <h3>Connect a Store or Marketplace</h3>
+                                            <p class="meta">Select a channel first, then enter the credentials below for the active company.</p>
+                                        </div>
+                                        <span class="meta">Best Buy included</span>
+                                    </div>
+                                    <div class="marketplace-logo-grid">
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="SHOPIFY">Shopify<small>Storefront</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="WOOCOMMERCE">Woo<small>Storefront</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="AMAZON">Amazon<small>Marketplace</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="BEST_BUY">Best Buy<small>Marketplace</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="BIGCOMMERCE">BigCommerce<small>Storefront</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="ETSY">Etsy<small>Marketplace</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="SFTP">SFTP / XML<small>File Lane</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="CUSTOM_API">Custom API<small>Partner</small></button>
+                                    </div>
                                 </div>
                                 <label class="field">
                                     <span>Provider</span>
@@ -5955,6 +6024,7 @@
                                         <option value="WOOCOMMERCE">WooCommerce</option>
                                         <option value="BIGCOMMERCE">BigCommerce</option>
                                         <option value="AMAZON">Amazon</option>
+                                        <option value="BEST_BUY">Best Buy</option>
                                         <option value="ETSY">Etsy</option>
                                         <option value="CUSTOM_API">Custom API</option>
                                     </select>
@@ -6071,13 +6141,13 @@
                         <div class="helper">
                             <div class="list-head">
                                 <div>
-                                    <h3>Saved Integrations</h3>
-                                    <p class="meta">Connections are scoped to one company, so imported store orders stay customer-safe.</p>
+                                    <h3>Saved Marketplace Connections</h3>
+                                    <p class="meta">Connections are scoped to one company, so imported marketplace and store orders stay customer-safe.</p>
                                 </div>
                                 <span class="meta" id="integrationCount">0 connections</span>
                             </div>
                             <div id="integrationList" class="stack-list">
-                                <p class="empty">No store integrations saved yet.</p>
+                                <p class="empty">No marketplace connections saved yet.</p>
                             </div>
                         </div>
                     </div>
@@ -6524,8 +6594,8 @@
                 <article class="card full-span workspace-control-card">
                     <div class="card-head">
                         <div>
-                            <h2>Shopify & Store Integrations</h2>
-                            <p class="lead">Connect each customer's storefront or SFTP lane here, then sync new orders, purchase orders, confirmations, and inventory safely into that company's workspace.</p>
+                            <h2>Storefront & Marketplace Connections</h2>
+                            <p class="lead">Connect Shopify, Best Buy, Amazon, SFTP, and other customer order channels, then sync orders, purchase orders, confirmations, and inventory into the right company workspace.</p>
                         </div>
                     </div>
                     <div id="integrationsWorkspaceHost"></div>
@@ -7570,8 +7640,8 @@
             },
             {
                 key: COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS,
-                label: "Store Integrations",
-                description: "Allow storefront and file integrations under this company."
+                label: "Marketplace Connections",
+                description: "Allow storefront, marketplace, and file integrations under this company."
             },
             {
                 key: COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION,
@@ -7745,7 +7815,7 @@
             orders: "Sales Orders: All",
             shipped: "Shipped Orders: All",
             inventory: "Master Data",
-            integrations: "Store Integrations",
+            integrations: "Marketplace Connections",
             reports: "All Reports",
             billing: "Billing Ledger",
             backup: "Admin & System"
@@ -7971,6 +8041,7 @@
             integrationAccount: document.getElementById("integrationAccount"),
             integrationId: document.getElementById("integrationId"),
             integrationProvider: document.getElementById("integrationProvider"),
+            integrationMarketplaceCatalog: document.getElementById("integrationMarketplaceCatalog"),
             integrationName: document.getElementById("integrationName"),
             integrationCompanyMeta: document.getElementById("integrationCompanyMeta"),
             integrationStoreIdentifierLabel: document.getElementById("integrationStoreIdentifierLabel"),
@@ -8507,6 +8578,7 @@
             document.getElementById("integrationForm").addEventListener("submit", saveStoreIntegration);
             ui.integrationResetBtn?.addEventListener("click", () => resetStoreIntegrationForm({ keepCompany: true }));
             ui.integrationSyncBtn?.addEventListener("click", syncSelectedIntegration);
+            ui.integrationMarketplaceCatalog?.addEventListener("click", onIntegrationMarketplaceClick);
             ui.integrationProvider?.addEventListener("change", updateIntegrationProviderNote);
             ui.integrationSchedule?.addEventListener("change", updateIntegrationScheduleMeta);
             ui.integrationActive?.addEventListener("change", updateIntegrationScheduleMeta);
@@ -9502,7 +9574,7 @@
                 case COMPANY_FEATURE_KEYS.BILLING:
                     return `${companyLabel} does not have Billing enabled.`;
                 case COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS:
-                    return `${companyLabel} does not have Store Integrations enabled.`;
+                    return `${companyLabel} does not have Marketplace Connections enabled.`;
                 case COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION:
                     return `${companyLabel} does not have Shopify enabled.`;
                 case COMPANY_FEATURE_KEYS.SFTP_INTEGRATION:
@@ -13914,7 +13986,7 @@
             const company = getActiveCompany();
             if (!company) {
                 ui.integrationCount.textContent = "Choose a company";
-                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "Choose an active company in the header to manage store integrations.")}</p>`;
+                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "Choose an active company in the header to manage marketplace connections.")}</p>`;
                 return;
             }
             if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS)) {
@@ -13926,7 +13998,7 @@
             ui.integrationCount.textContent = `${num(visibleIntegrations.length)} connection${visibleIntegrations.length === 1 ? "" : "s"}`;
 
             if (!visibleIntegrations.length) {
-                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "No store integrations saved yet.")}</p>`;
+                ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "No marketplace connections saved yet.")}</p>`;
                 return;
             }
 
@@ -13977,6 +14049,19 @@
                     </div>
                 `;
             }).join("");
+        }
+
+        function onIntegrationMarketplaceClick(event) {
+            const providerButton = event.target.closest("[data-select-integration-provider]");
+            if (!providerButton) return;
+            const provider = norm(providerButton.dataset.selectIntegrationProvider || "");
+            if (!provider || ![...ui.integrationProvider.options].some((option) => option.value === provider)) return;
+            ui.integrationProvider.value = provider;
+            if (!ui.integrationName.value.trim()) {
+                ui.integrationName.value = `${integrationProviderLabel(provider)} Connection`;
+            }
+            updateIntegrationProviderNote();
+            ui.integrationStoreIdentifier?.focus();
         }
 
         function resetStoreIntegrationForm({ keepCompany = false } = {}) {
@@ -14045,7 +14130,7 @@
             }
             ui.integrationCompanyMeta.innerHTML = company
                 ? `This connection will be saved under <strong>${esc(company)}</strong>.`
-                : "Choose an active company in the header before saving a store connection.";
+                : "Choose an active company in the header before saving a marketplace connection.";
         }
 
         function updateIntegrationScheduleMeta() {
@@ -14108,13 +14193,17 @@
                 ui.integrationShopifyAuthFields.classList.toggle("hidden", provider !== "SHOPIFY");
             }
             if (ui.integrationStoreIdentifierLabel) {
-                ui.integrationStoreIdentifierLabel.textContent = provider === "SFTP" ? "SFTP Host" : "Store URL / Domain";
+                ui.integrationStoreIdentifierLabel.textContent = provider === "SFTP" ? "SFTP Host" : "Store / Marketplace ID";
             }
             ui.integrationStoreIdentifier.placeholder = provider === "SHOPIFY"
                 ? "Example: your-store.myshopify.com"
-                : (provider === "SFTP" ? "Example: sftp.customer.com" : "Example: store URL, seller id, or platform domain");
+                : (provider === "SFTP"
+                    ? "Example: sftp.customer.com"
+                    : (provider === "BEST_BUY" ? "Example: Best Buy seller ID or marketplace shop ID" : "Example: store URL, seller id, or platform domain"));
             if (ui.integrationAccessTokenLabel) {
-                ui.integrationAccessTokenLabel.textContent = provider === "SFTP" ? "SFTP Password" : (provider === "SHOPIFY" ? "Admin API Access Token" : "API Access Token");
+                ui.integrationAccessTokenLabel.textContent = provider === "SFTP"
+                    ? "SFTP Password"
+                    : (provider === "SHOPIFY" ? "Admin API Access Token" : (provider === "BEST_BUY" ? "Best Buy / Mirakl API Key" : "API Access Token"));
             }
             ui.integrationAccessToken.placeholder = provider === "SHOPIFY"
                 ? "Optional if you are saving Shopify client credentials. Leave blank on edit to keep the saved token."
@@ -14148,7 +14237,9 @@
                 ? `Use the Shopify shop's <strong>.myshopify.com</strong> domain with either a direct <strong>Admin API access token</strong> or the app's <strong>client ID + client secret</strong>. When client credentials are saved, WMS365 will fetch the short-lived Shopify access token automatically during sync.${currentRecord?.hasAuthClientCredentials ? ` Saved client credentials are already on file${currentRecord.authClientIdMasked ? ` (${esc(currentRecord.authClientIdMasked)})` : ""}. Enter a new pair only when you want to replace them.` : ""} Run Sync only imports new open store orders for the selected customer, and Auto Pull Schedule keeps the sync scoped to that same company.`
                 : (provider === "SFTP"
                     ? 'SFTP uses the saved <strong>host, username, password, and folders</strong> under the active company. Order and purchase order folders are pulled in as JSON files, and shipped confirmations, receipt confirmations, and inventory snapshots are pushed back as JSON files to the folders you set here.'
-                    : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify and SFTP first, and this provider is staged for the next pass.`);
+                    : (provider === "BEST_BUY"
+                        ? "Best Buy Marketplace is staged as a marketplace connector. Save the seller/shop ID and API key here; order sync will be wired once the seller account credentials and API workflow are confirmed."
+                        : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify and SFTP first, and this provider is staged for the next pass.`));
             if (featureLocked) {
                 ui.integrationProviderNote.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
             } else if (providerLocked) {
@@ -14275,6 +14366,8 @@
                     return "BigCommerce";
                 case "AMAZON":
                     return "Amazon";
+                case "BEST_BUY":
+                    return "Best Buy";
                 case "ETSY":
                     return "Etsy";
                 case "CUSTOM_API":
@@ -14843,6 +14936,23 @@
                     <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
                 </tr>
             `).join("");
+            const documentsPanel = `
+                <div class="portal-order-shipping-box erp-document-shipping-panel">
+                    <div class="header-copy" style="margin-bottom: 0.8rem;">
+                        <h3>Purchase Order Documents</h3>
+                        <p class="meta">Customer-uploaded purchase order documents are available here for receiving.</p>
+                    </div>
+                    ${inbound.documents?.length ? `
+                        <div class="portal-order-doc-list">
+                            ${inbound.documents.map((document) => `
+                                <a class="portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
+                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
+                                </a>
+                            `).join("")}
+                        </div>
+                    ` : `<div class="quick-meta">No purchase order documents uploaded yet.</div>`}
+                </div>
+            `;
 
             ui.warehouseInboundWorkflowPanel.classList.remove("hidden");
             ui.warehouseInboundWorkflowPanel.innerHTML = `
@@ -14872,6 +14982,7 @@
                     </thead>
                     <tbody>${lineRows || `<tr><td colspan="4">No lines saved yet.</td></tr>`}</tbody>
                 </table>
+                ${documentsPanel}
             `;
         }
 
@@ -15077,6 +15188,7 @@
                                 <th>Reference No.</th>
                                 <th>Expected Date</th>
                                 <th>Lines</th>
+                                <th>Docs</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
@@ -15087,6 +15199,7 @@
                                     <td>${esc(inbound.referenceNumber || "None")}</td>
                                     <td>${esc(inbound.expectedDate || "Not set")}</td>
                                     <td>${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"}</td>
+                                    <td>${inbound.documents?.length ? `${num(inbound.documents.length)} doc${inbound.documents.length === 1 ? "" : "s"}` : "-"}</td>
                                     <td><span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span></td>
                                 </tr>
                             `).join("")}
@@ -18610,6 +18723,9 @@
                 notes: String(item.notes || "").trim(),
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString()),
+                documents: Array.isArray(item.documents)
+                    ? item.documents.map((document) => sanitizePortalOrderDocumentRecord(document)).filter(Boolean)
+                    : [],
                 lines: Array.isArray(item.lines) ? item.lines.map((line) => ({
                     sku: norm(line?.sku),
                     quantity: Number(line?.quantity || line?.expectedQuantity || 0) || 0,

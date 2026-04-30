@@ -24,6 +24,7 @@ How to use:
 | Adjust & Move | `actions` | `C:\WMS365Scanner\index.html` | Stock corrections and transfers |
 | Labels | `labels` | `C:\WMS365Scanner\index.html` | Floor labels |
 | Sales Orders | `orders` | `C:\WMS365Scanner\index.html` | Active outbound work |
+| Quote & Ship | planned `shipping` | `C:\WMS365Scanner\index.html` | Shipment quotes, packages, labels |
 | Shipped Orders | `shipped` | `C:\WMS365Scanner\index.html` | Completed shipment history |
 | Master Data | `inventory` | `C:\WMS365Scanner\index.html` | Companies, items, BINs, controls |
 | Integrations | `integrations` | `C:\WMS365Scanner\index.html` | Shopify, SFTP, sync |
@@ -117,6 +118,30 @@ How to use:
   - outbound billing event capture
   - Shopify/SFTP order imports
 
+### Quote & Ship
+- Planned desktop section: `shipping`
+- Internal spec: `C:\WMS365Scanner\docs\QUOTE_AND_SHIP_FLOW.md`
+- Related touchpoints:
+  - picked sales orders
+  - pack / ship workflow
+  - item master dimensions and weight
+  - package templates
+  - ship-from warehouse locations
+  - ship-to sales order address
+  - address validation
+  - package, pallet, courier pak, and envelope shipment types
+  - ready time and close time
+  - signature and adult-signature services
+  - return label option
+  - dangerous goods and special handling flags
+  - declared value and insurance
+  - ClickShip quote/rate API
+  - UPS, FedEx, Canada Post direct carrier APIs
+  - label PDF/ZPL storage
+  - tracking number storage
+  - shipping cost billing capture
+  - package material billing capture
+
 ### Shipped Orders
 - Desktop section: `shipped`
 - Customer portal section: `orders` shipment history
@@ -156,6 +181,9 @@ How to use:
   - Shopify Admin API access token
   - Shopify client credentials
   - SFTP host/port/user/folders
+  - marketplace provider catalog
+  - Best Buy marketplace connector staging
+  - carrier connection setup for ClickShip/direct carriers
   - pull orders schedule
   - pull purchase orders schedule
   - push shipped confirmations
@@ -192,6 +220,10 @@ How to use:
   - supplies used
   - storage billing
   - shipping cost capture
+  - package material charges
+  - address validation charges
+  - return label charges
+  - dangerous goods/special handling charges
   - manual billing lines
   - billing ledger
   - month-end export

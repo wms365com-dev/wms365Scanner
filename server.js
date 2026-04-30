@@ -129,7 +129,7 @@ const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
-const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "ETSY", "CUSTOM_API"];
+const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
 const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
@@ -2223,6 +2223,24 @@ app.post("/api/portal/inbounds", async (req, res, next) => {
     }
 });
 
+app.post("/api/portal/inbounds/:id/documents", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        const inboundId = toPositiveInt(req.params.id);
+        if (!inboundId) {
+            throw httpError(400, "A valid purchase order id is required.");
+        }
+        const inbound = await withTransaction(async (client) => savePortalInboundDocuments(client, session.accessRow, inboundId, req.body));
+        res.json({ success: true, inbound });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.get("/api/portal/items", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -2517,6 +2535,53 @@ app.get("/api/portal/order-documents/:id", async (req, res, next) => {
         const document = await getPortalOrderDocumentById(documentId);
         if (!document || normalizeText(document.account_name) !== normalizeText(session.access.accountName)) {
             throw httpError(404, "That shipped document could not be found.");
+        }
+
+        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
+        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
+        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
+        res.send(document.file_data);
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.get("/api/admin/portal-inbound-documents/:id", async (req, res, next) => {
+    try {
+        const documentId = toPositiveInt(req.params.id);
+        if (!documentId) {
+            throw httpError(400, "A valid document id is required.");
+        }
+
+        const document = await getPortalInboundDocumentById(documentId);
+        if (!document) {
+            throw httpError(404, "That purchase order document could not be found.");
+        }
+        await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
+
+        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
+        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
+        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
+        res.send(document.file_data);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/portal/inbound-documents/:id", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const documentId = toPositiveInt(req.params.id);
+        if (!documentId) {
+            throw httpError(400, "A valid document id is required.");
+        }
+
+        const document = await getPortalInboundDocumentById(documentId);
+        if (!document || normalizeText(document.account_name) !== normalizeText(session.access.accountName)) {
+            throw httpError(404, "That purchase order document could not be found.");
         }
 
         res.setHeader("Content-Type", document.file_type || "application/octet-stream");
@@ -3433,6 +3498,18 @@ async function initializeDatabase() {
         );
     `);
     await pool.query(`
+        create table if not exists portal_inbound_documents (
+            id bigserial primary key,
+            inbound_id bigint not null references portal_inbounds(id) on delete cascade,
+            file_name text not null default '',
+            file_type text not null default 'application/octet-stream',
+            file_size integer not null default 0 check (file_size >= 0),
+            file_data bytea not null,
+            uploaded_by text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query(`
         create table if not exists store_integrations (
             id bigserial primary key,
             account_name text not null,
@@ -3453,7 +3530,7 @@ async function initializeDatabase() {
             last_sync_message text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API')),
+            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API')),
             constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED')),
             constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR')),
             constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))
@@ -3474,7 +3551,7 @@ async function initializeDatabase() {
     await pool.query("alter table store_integrations add column if not exists last_sync_status text not null default 'IDLE'");
     await pool.query("alter table store_integrations add column if not exists last_sync_message text not null default ''");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_provider_check");
-    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'ETSY', 'CUSTOM_API'))");
+    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_import_status_check");
     await pool.query("alter table store_integrations add constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_status_check");
@@ -3571,6 +3648,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
     await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
     await pool.query("create index if not exists idx_portal_inbound_lines_inbound_id on portal_inbound_lines (inbound_id);");
+    await pool.query("create index if not exists idx_portal_inbound_documents_inbound_id on portal_inbound_documents (inbound_id);");
     await pool.query("create unique index if not exists idx_store_integrations_account_provider_store_unique on store_integrations (account_name, provider, store_identifier);");
     await pool.query("create index if not exists idx_store_integrations_account_name on store_integrations (account_name);");
     await pool.query("create index if not exists idx_store_integrations_provider on store_integrations (provider);");
@@ -6055,7 +6133,7 @@ function buildSftpReceiptConfirmationPayload(inbound, externalInboundId = "") {
     };
 }
 
-async function getPortalInboundById(client, inboundId) {
+async function getPortalInboundById(client, inboundId, downloadPathPrefix = "/api/admin/portal-inbound-documents") {
     const result = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
     if (result.rowCount !== 1) {
         return null;
@@ -6079,7 +6157,21 @@ async function getPortalInboundById(client, inboundId) {
         `,
         [inboundId]
     );
-    return mapPortalInboundRow(inboundRow, linesResult.rows.map(mapPortalInboundLineRow));
+    const documentsResult = await client.query(
+        `
+            select *
+            from portal_inbound_documents
+            where inbound_id = $1
+            order by created_at asc, id asc
+        `,
+        [inboundId]
+    );
+    return mapPortalInboundRow(
+        inboundRow,
+        linesResult.rows.map(mapPortalInboundLineRow),
+        documentsResult.rows,
+        downloadPathPrefix
+    );
 }
 
 async function exportSftpShipmentConfirmations(client, sftpClient, integrationRow, settings) {
@@ -6667,7 +6759,18 @@ async function getAdminPortalInbounds(client = pool) {
             [inboundIds]
         )
         : { rows: [] };
-    return mapPortalInbounds(inboundResult.rows, linesResult.rows);
+    const documentsResult = inboundIds.length
+        ? await client.query(
+            `
+                select *
+                from portal_inbound_documents
+                where inbound_id = any($1::bigint[])
+                order by inbound_id desc, created_at asc, id asc
+            `,
+            [inboundIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-inbound-documents");
 }
 
 
@@ -7594,6 +7697,27 @@ async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy
     }
 }
 
+async function insertPortalInboundDocuments(client, inboundId, documents, uploadedBy = "") {
+    for (const document of documents) {
+        await client.query(
+            `
+                insert into portal_inbound_documents (
+                    inbound_id, file_name, file_type, file_size, file_data, uploaded_by
+                )
+                values ($1, $2, $3, $4, $5, $6)
+            `,
+            [
+                inboundId,
+                document.fileName,
+                document.fileType,
+                document.fileSize,
+                document.fileBuffer,
+                normalizeFreeText(uploadedBy)
+            ]
+        );
+    }
+}
+
 async function getPortalOrderDocumentById(documentId, client = pool) {
     const result = await client.query(
         `
@@ -7603,6 +7727,23 @@ async function getPortalOrderDocumentById(documentId, client = pool) {
                 o.order_code
             from portal_order_documents d
             join portal_orders o on o.id = d.order_id
+            where d.id = $1
+            limit 1
+        `,
+        [documentId]
+    );
+    return result.rowCount === 1 ? result.rows[0] : null;
+}
+
+async function getPortalInboundDocumentById(documentId, client = pool) {
+    const result = await client.query(
+        `
+            select
+                d.*,
+                i.account_name,
+                i.inbound_code
+            from portal_inbound_documents d
+            join portal_inbounds i on i.id = d.inbound_id
             where d.id = $1
             limit 1
         `,
@@ -9682,7 +9823,18 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
             [inboundIds]
         )
         : { rows: [] };
-    return mapPortalInbounds(inboundResult.rows, linesResult.rows);
+    const documentsResult = inboundIds.length
+        ? await client.query(
+            `
+                select *
+                from portal_inbound_documents
+                where inbound_id = any($1::bigint[])
+                order by inbound_id desc, created_at asc, id asc
+            `,
+            [inboundIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/inbound-documents");
 }
 
 async function savePortalInboundForAccount(
@@ -9768,6 +9920,58 @@ async function savePortalInbound(client, accessRow, rawInbound) {
         portalAccessId: accessRow.id,
         activityTitlePrefix: "portal",
         activityActor: "Company portal"
+    });
+}
+
+async function savePortalInboundDocumentsForAccount(
+    client,
+    accountName,
+    inboundId,
+    rawPayload,
+    {
+        downloadPathPrefix = "/api/admin/portal-inbound-documents",
+        activityActor = "",
+        uploadedBy = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const inbound = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    if (!inbound || normalizeText(inbound.accountName) !== normalizedAccount) {
+        throw httpError(404, "That purchase order could not be found.");
+    }
+    if (inbound.status === "CANCELLED") {
+        throw httpError(400, "Cancelled purchase orders cannot receive new documents.");
+    }
+
+    const documents = sanitizePortalOrderDocumentsInput(Array.isArray(rawPayload?.documents) ? rawPayload.documents : []);
+    if (!documents.length) {
+        throw httpError(400, "Choose at least one PDF or image file to upload.");
+    }
+    if (documents.length > 5) {
+        throw httpError(400, "Upload up to 5 documents at a time.");
+    }
+
+    await insertPortalInboundDocuments(client, inbound.id, documents, uploadedBy || activityActor || "");
+    const updatedInbound = await getPortalInboundById(client, inbound.id, downloadPathPrefix);
+    await insertActivity(
+        client,
+        "receipt",
+        `Uploaded purchase order documents for ${updatedInbound.inboundCode}`,
+        [
+            updatedInbound.accountName,
+            `${formatCount(documents.length, "document")}`,
+            activityActor || uploadedBy || ""
+        ].filter(Boolean).join(" | ")
+    );
+    return updatedInbound;
+}
+
+async function savePortalInboundDocuments(client, accessRow, inboundId, rawPayload) {
+    const access = mapPortalAccessRow(accessRow);
+    return savePortalInboundDocumentsForAccount(client, access.accountName, inboundId, rawPayload, {
+        downloadPathPrefix: "/api/portal/inbound-documents",
+        activityActor: "Company portal",
+        uploadedBy: access.email || "Company portal"
     });
 }
 
@@ -10044,14 +10248,25 @@ async function assertPortalInboundSkuAllowed(client, accountName, sku) {
     }
 }
 
-function mapPortalInbounds(inboundRows, lineRows) {
+function mapPortalInbounds(inboundRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-inbound-documents") {
     const linesByInboundId = new Map();
     lineRows.forEach((row) => {
         const key = String(row.inbound_id);
         if (!linesByInboundId.has(key)) linesByInboundId.set(key, []);
         linesByInboundId.get(key).push(mapPortalInboundLineRow(row));
     });
-    return inboundRows.map((row) => mapPortalInboundRow(row, linesByInboundId.get(String(row.id)) || []));
+    const documentsByInboundId = new Map();
+    documentRows.forEach((row) => {
+        const key = String(row.inbound_id);
+        if (!documentsByInboundId.has(key)) documentsByInboundId.set(key, []);
+        documentsByInboundId.get(key).push(row);
+    });
+    return inboundRows.map((row) => mapPortalInboundRow(
+        row,
+        linesByInboundId.get(String(row.id)) || [],
+        documentsByInboundId.get(String(row.id)) || [],
+        downloadPathPrefix
+    ));
 }
 
 async function withTransaction(handler) {
@@ -11786,7 +12001,20 @@ function mapPortalOrderDocumentRow(row, downloadPathPrefix = "/api/admin/portal-
     };
 }
 
-function mapPortalInboundRow(row, lines = []) {
+function mapPortalInboundDocumentRow(row, downloadPathPrefix = "/api/admin/portal-inbound-documents") {
+    return {
+        id: String(row.id),
+        inboundId: String(row.inbound_id),
+        fileName: row.file_name || "Document",
+        fileType: row.file_type || "application/octet-stream",
+        fileSize: Number(row.file_size) || 0,
+        uploadedBy: row.uploaded_by || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        downloadUrl: `${downloadPathPrefix}/${row.id}`
+    };
+}
+
+function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-inbound-documents") {
     return {
         id: Number(row.id),
         inboundCode: row.inbound_code || makePortalInboundCode(row.id),
@@ -11801,7 +12029,8 @@ function mapPortalInboundRow(row, lines = []) {
         notes: row.notes || "",
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-        lines
+        lines,
+        documents: documents.map((document) => mapPortalInboundDocumentRow(document, downloadPathPrefix))
     };
 }
 
@@ -11887,7 +12116,7 @@ function sanitizePortalOrderDocumentInput(document) {
     const dataUrl = String(document.dataUrl || document.data || "").trim();
     if (!fileName && !dataUrl) return null;
     if (!fileName || !dataUrl) {
-        throw httpError(400, "Each shipped document must include a file and file name.");
+        throw httpError(400, "Each document must include a file and file name.");
     }
 
     const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
@@ -11916,7 +12145,7 @@ function sanitizePortalOrderDocumentInput(document) {
         throw httpError(400, `${fileName} did not contain file data.`);
     }
     if (buffer.length > 4 * 1024 * 1024) {
-        throw httpError(400, `${fileName} is too large. Keep each shipped document under 4 MB.`);
+        throw httpError(400, `${fileName} is too large. Keep each document under 4 MB.`);
     }
 
     return {
@@ -12172,6 +12401,8 @@ function describeStoreIntegrationProvider(provider) {
             return "BigCommerce";
         case "AMAZON":
             return "Amazon";
+        case "BEST_BUY":
+            return "Best Buy";
         case "ETSY":
             return "Etsy";
         case "CUSTOM_API":

@@ -330,6 +330,20 @@
             padding: 0.7rem;
             background: #ffffff;
         }
+        .order-documents {
+            display: grid;
+            gap: 0.45rem;
+            margin-top: 0.85rem;
+            padding: 0.85rem;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #ffffff;
+        }
+        .order-documents a {
+            color: var(--primary);
+            font-weight: 700;
+            text-decoration: none;
+        }
         .line-fields {
             display: grid;
             gap: 0.75rem;
@@ -1051,6 +1065,7 @@
             ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
             ui.logoutBtn.addEventListener("click", logout);
             ui.ordersList.addEventListener("click", onOrdersListClick);
+            ui.inboundsList.addEventListener("click", onInboundsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
             ui.inboundLines.addEventListener("click", onOrderLinesClick);
             ui.orderLines.addEventListener("change", onOrderLinesChange);
@@ -1595,6 +1610,28 @@
                             </div>
                         `).join("")}
                     </div>
+                    ${inbound.documents?.length ? `
+                        <div class="order-documents">
+                            <strong>Purchase Order Documents</strong>
+                            ${inbound.documents.map((document) => `
+                                <a href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
+                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
+                                </a>
+                            `).join("")}
+                        </div>
+                    ` : ""}
+                    ${inbound.status !== "CANCELLED" ? `
+                        <div class="order-document-upload">
+                            <label class="field">
+                                <span>Purchase Order Documents</span>
+                                <input data-inbound-documents="${attr(inbound.id)}" type="file" accept="application/pdf,image/*" multiple>
+                            </label>
+                            <div class="button-row">
+                                <button class="btn ghost" type="button" data-upload-inbound-documents="${attr(inbound.id)}">Upload PO Docs</button>
+                                <span class="meta">PDF or image files, up to 5 at a time.</span>
+                            </div>
+                        </div>
+                    ` : ""}
                 </article>
             `).join("");
         }
@@ -2154,6 +2191,39 @@
             }
         }
 
+        async function onInboundsListClick(event) {
+            const uploadButton = event.target.closest("[data-upload-inbound-documents]");
+            if (!uploadButton) return;
+            await uploadInboundDocuments(uploadButton.dataset.uploadInboundDocuments, uploadButton);
+        }
+
+        async function uploadInboundDocuments(inboundId, button = null) {
+            const inbound = portalState.inbounds.find((entry) => String(entry.id) === String(inboundId));
+            if (!inbound) return;
+            const inboundCard = button?.closest?.(".order-card") || null;
+            const fileInput = inboundCard?.querySelector("[data-inbound-documents]");
+            try {
+                const documents = await readOrderDocumentFiles(fileInput?.files);
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Uploading...",
+                    progressMessage: `Uploading ${documents.length} document${documents.length === 1 ? "" : "s"} to ${inbound.inboundCode}...`
+                }, async () => {
+                    const response = await requestJson(`/api/portal/inbounds/${inbound.id}/documents`, {
+                        method: "POST",
+                        body: JSON.stringify({ documents })
+                    });
+                    if (fileInput) fileInput.value = "";
+                    await loadPortalData();
+                    setView("inbounds");
+                    setMessage(`Uploaded ${documents.length} document${documents.length === 1 ? "" : "s"} to ${response?.inbound?.inboundCode || inbound.inboundCode}. The warehouse can open them from the purchase order.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
         async function readOrderDocumentFiles(fileList) {
             const files = [...(fileList || [])];
             if (!files.length) {
@@ -2363,7 +2433,10 @@
                     description: String(line.description || ""),
                     upc: String(line.upc || ""),
                     trackingLevel: String(line.trackingLevel || line.tracking_level || "UNIT")
-                })).filter((line) => line.sku && line.quantity > 0) : []
+                })).filter((line) => line.sku && line.quantity > 0) : [],
+                documents: Array.isArray(inbound.documents)
+                    ? inbound.documents.map(sanitizeOrderDocument).filter(Boolean)
+                    : []
             };
         }
 
