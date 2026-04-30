@@ -7513,7 +7513,7 @@
                         <div class="erp-fasttab-heading desktop-only span-2">Ship To</div>
                         <label class="field span-2">
                             <span>Ship To Company / Receiver</span>
-                            <input id="warehouseOrderShipToName" type="text" placeholder="Required company or receiver name">
+                            <input id="warehouseOrderShipToName" type="text" list="warehouseShipToAddressList" placeholder="Type to find a saved ship-to">
                         </label>
                         <label class="field">
                             <span>Ship To Phone</span>
@@ -8416,6 +8416,7 @@
     <datalist id="convertSourceSkuList"></datalist>
     <datalist id="convertTargetSkuList"></datalist>
     <datalist id="palletLabelSkuList"></datalist>
+    <datalist id="warehouseShipToAddressList"></datalist>
     <div id="mobileAutocomplete" class="mobile-typeahead hidden" role="dialog" aria-modal="true" aria-label="Mobile picker">
         <div class="mobile-picker-shell">
             <div class="mobile-picker-grab" aria-hidden="true"></div>
@@ -8524,6 +8525,7 @@
         let integrationRecords = [];
         let portalOrderRecords = [];
         let portalInboundRecords = [];
+        let shipToAddressRecords = [];
         let feedbackRecords = [];
         let editingWarehouseOrderId = "";
         let editingWarehouseInboundId = "";
@@ -9128,6 +9130,7 @@
             warehouseOrderShipToState: document.getElementById("warehouseOrderShipToState"),
             warehouseOrderShipToPostalCode: document.getElementById("warehouseOrderShipToPostalCode"),
             warehouseOrderShipToCountry: document.getElementById("warehouseOrderShipToCountry"),
+            warehouseShipToAddressList: document.getElementById("warehouseShipToAddressList"),
             warehouseOrderNotes: document.getElementById("warehouseOrderNotes"),
             warehouseOrderLines: document.getElementById("warehouseOrderLines"),
             warehouseOrderWorkflowPanel: document.getElementById("warehouseOrderWorkflowPanel"),
@@ -9555,6 +9558,9 @@
             ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
             ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
             ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
+            ui.warehouseOrderShipToName?.addEventListener("input", maybeApplyWarehouseShipToAddressSelection);
+            ui.warehouseOrderShipToName?.addEventListener("change", maybeApplyWarehouseShipToAddressSelection);
+            ui.warehouseOrderShipToName?.addEventListener("blur", maybeApplyWarehouseShipToAddressSelection);
             ui.warehouseOrderLines?.addEventListener("click", onWarehouseOrderLinesClick);
             ui.warehouseOrderLines?.addEventListener("change", onWarehouseOrderLinesChange);
             ui.warehouseOrderWorkflowPanel?.addEventListener("click", onPortalOrdersListClick);
@@ -16096,6 +16102,47 @@
             `;
         }
 
+        function warehouseShipToAddressSummary(entry) {
+            return [
+                entry.shipToName,
+                entry.shipToAddress1,
+                [entry.shipToCity, entry.shipToState, entry.shipToPostalCode].filter(Boolean).join(", "),
+                entry.shipToCountry
+            ].filter(Boolean).join(" | ");
+        }
+
+        function renderWarehouseShipToAddressOptions() {
+            if (!ui.warehouseShipToAddressList) return;
+            ui.warehouseShipToAddressList.innerHTML = shipToAddressRecords
+                .map((entry) => `<option value="${attr(warehouseShipToAddressSummary(entry))}">${esc(entry.shipToPhone || entry.shipToName || "")}</option>`)
+                .join("");
+        }
+
+        function findWarehouseShipToAddressMatch(value) {
+            const query = norm(value);
+            if (!query) return null;
+            return shipToAddressRecords.find((entry) => norm(warehouseShipToAddressSummary(entry)) === query)
+                || shipToAddressRecords.find((entry) => norm(entry.shipToName) === query)
+                || null;
+        }
+
+        function applyWarehouseShipToAddress(entry) {
+            if (!entry) return;
+            ui.warehouseOrderShipToName.value = entry.shipToName || "";
+            ui.warehouseOrderShipToPhone.value = entry.shipToPhone || "";
+            ui.warehouseOrderShipToAddress1.value = entry.shipToAddress1 || "";
+            ui.warehouseOrderShipToAddress2.value = entry.shipToAddress2 || "";
+            ui.warehouseOrderShipToCity.value = entry.shipToCity || "";
+            ui.warehouseOrderShipToState.value = entry.shipToState || "";
+            ui.warehouseOrderShipToPostalCode.value = entry.shipToPostalCode || "";
+            ui.warehouseOrderShipToCountry.value = entry.shipToCountry || "USA";
+        }
+
+        function maybeApplyWarehouseShipToAddressSelection() {
+            const match = findWarehouseShipToAddressMatch(ui.warehouseOrderShipToName.value);
+            if (match) applyWarehouseShipToAddress(match);
+        }
+
         function resetWarehouseSalesOrderForm(order = null) {
             editingWarehouseOrderId = order?.id ? String(order.id) : "";
             if (order?.accountName && order.accountName !== getActiveCompany()) {
@@ -16719,11 +16766,37 @@
             }
         }
 
+        async function refreshShipToAddresses(silent = true) {
+            const company = getActiveCompany();
+            if (!company) {
+                shipToAddressRecords = [];
+                renderWarehouseShipToAddressOptions();
+                return [];
+            }
+            try {
+                const payload = await requestJson(`/api/admin/ship-to-addresses?accountName=${encodeURIComponent(company)}`);
+                shipToAddressRecords = Array.isArray(payload?.addresses)
+                    ? payload.addresses.map(sanitizeShipToAddressRecord).filter(Boolean)
+                    : [];
+                renderWarehouseShipToAddressOptions();
+                return shipToAddressRecords;
+            } catch (error) {
+                shipToAddressRecords = [];
+                renderWarehouseShipToAddressOptions();
+                if (!silent) showMessage(ui.warehouseOrderMessage, error.message, "error");
+                throw error;
+            }
+        }
+
         async function refreshPortalOrdersList(silent = false) {
             try {
                 const company = getActiveCompany();
                 const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
-                let payload = await requestJson(`/api/admin/portal-orders${query}`);
+                const [ordersPayload] = await Promise.all([
+                    requestJson(`/api/admin/portal-orders${query}`),
+                    refreshShipToAddresses(true).catch(() => [])
+                ]);
+                let payload = ordersPayload;
                 let orders = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
@@ -20626,6 +20699,30 @@
                     ? item.documents.map((document) => sanitizePortalOrderDocumentRecord(document)).filter(Boolean)
                     : [],
                 lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : []
+            };
+        }
+
+        function sanitizeShipToAddressRecord(item) {
+            if (!item?.id) return null;
+            const accountName = norm(item.accountName || item.account_name || "");
+            const shipToAddress1 = String(item.shipToAddress1 || item.ship_to_address1 || "").trim();
+            const shipToCity = String(item.shipToCity || item.ship_to_city || "").trim();
+            const shipToState = String(item.shipToState || item.ship_to_state || "").trim();
+            const shipToPostalCode = String(item.shipToPostalCode || item.ship_to_postal_code || "").trim();
+            if (!accountName || !shipToAddress1 || !shipToCity || !shipToState || !shipToPostalCode) return null;
+            return {
+                id: String(item.id),
+                accountName,
+                shipToName: String(item.shipToName || item.ship_to_name || "").trim(),
+                shipToPhone: String(item.shipToPhone || item.ship_to_phone || "").trim(),
+                shipToAddress1,
+                shipToAddress2: String(item.shipToAddress2 || item.ship_to_address2 || "").trim(),
+                shipToCity,
+                shipToState,
+                shipToPostalCode,
+                shipToCountry: String(item.shipToCountry || item.ship_to_country || "USA").trim() || "USA",
+                useCount: Number(item.useCount || item.use_count || 0) || 0,
+                lastUsedAt: typeof item.lastUsedAt === "string" ? item.lastUsedAt : (typeof item.last_used_at === "string" ? item.last_used_at : null)
             };
         }
 

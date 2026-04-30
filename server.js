@@ -1894,6 +1894,23 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/ship-to-addresses", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (!requestedAccount) {
+            res.json({ addresses: [] });
+            return;
+        }
+        await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            addresses: await getShipToAddressesForAccount(requestedAccount)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/portal-inbounds", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
@@ -2286,6 +2303,22 @@ app.get("/api/portal/orders", async (req, res, next) => {
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
         res.json({
             orders: await getPortalOrdersForAccount(session.access.accountName)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.get("/api/portal/ship-to-addresses", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            addresses: await getShipToAddressesForAccount(session.access.accountName)
         });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -3518,6 +3551,83 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists archived_at timestamptz");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
     await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED'))");
+
+    await pool.query(`
+        create table if not exists portal_ship_to_addresses (
+            id bigserial primary key,
+            account_name text not null,
+            normalized_key text not null,
+            ship_to_name text not null default '',
+            ship_to_phone text not null default '',
+            ship_to_address1 text not null default '',
+            ship_to_address2 text not null default '',
+            ship_to_city text not null default '',
+            ship_to_state text not null default '',
+            ship_to_postal_code text not null default '',
+            ship_to_country text not null default '',
+            use_count integer not null default 1 check (use_count >= 0),
+            last_used_at timestamptz not null default now(),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, normalized_key)
+        );
+    `);
+    await pool.query("create index if not exists idx_portal_ship_to_addresses_account on portal_ship_to_addresses (account_name, last_used_at desc)");
+    await pool.query(`
+        with source_orders as (
+            select
+                account_name,
+                concat_ws('|',
+                    upper(regexp_replace(trim(coalesce(ship_to_name, '')), '[[:space:]]+', ' ', 'g')),
+                    upper(regexp_replace(trim(coalesce(ship_to_address1, '')), '[[:space:]]+', ' ', 'g')),
+                    upper(regexp_replace(trim(coalesce(ship_to_address2, '')), '[[:space:]]+', ' ', 'g')),
+                    upper(regexp_replace(trim(coalesce(ship_to_city, '')), '[[:space:]]+', ' ', 'g')),
+                    upper(regexp_replace(trim(coalesce(ship_to_state, '')), '[[:space:]]+', ' ', 'g')),
+                    upper(regexp_replace(trim(coalesce(ship_to_postal_code, '')), '[[:space:]]+', ' ', 'g')),
+                    upper(regexp_replace(trim(coalesce(ship_to_country, '')), '[[:space:]]+', ' ', 'g'))
+                ) as normalized_key,
+                ship_to_name,
+                ship_to_phone,
+                ship_to_address1,
+                ship_to_address2,
+                ship_to_city,
+                ship_to_state,
+                ship_to_postal_code,
+                ship_to_country,
+                created_at,
+                updated_at
+            from portal_orders
+            where trim(coalesce(account_name, '')) <> ''
+              and trim(coalesce(ship_to_address1, '')) <> ''
+              and trim(coalesce(ship_to_city, '')) <> ''
+              and trim(coalesce(ship_to_state, '')) <> ''
+              and trim(coalesce(ship_to_postal_code, '')) <> ''
+              and trim(coalesce(ship_to_country, '')) <> ''
+        )
+        insert into portal_ship_to_addresses (
+            account_name, normalized_key, ship_to_name, ship_to_phone,
+            ship_to_address1, ship_to_address2, ship_to_city, ship_to_state,
+            ship_to_postal_code, ship_to_country, use_count, last_used_at, created_at, updated_at
+        )
+        select
+            account_name,
+            normalized_key,
+            max(ship_to_name) as ship_to_name,
+            max(ship_to_phone) as ship_to_phone,
+            max(ship_to_address1) as ship_to_address1,
+            max(ship_to_address2) as ship_to_address2,
+            max(ship_to_city) as ship_to_city,
+            max(ship_to_state) as ship_to_state,
+            max(ship_to_postal_code) as ship_to_postal_code,
+            max(ship_to_country) as ship_to_country,
+            count(*)::integer as use_count,
+            max(updated_at) as last_used_at,
+            min(created_at) as created_at,
+            max(updated_at) as updated_at
+        from source_orders
+        group by account_name, normalized_key
+        on conflict (account_name, normalized_key) do nothing;
+    `);
 
     await pool.query(`
         create table if not exists portal_inbounds (
@@ -7134,6 +7244,22 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", locationSummaries, allocationSummaries);
 }
 
+async function getShipToAddressesForAccount(accountName, client = pool) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+    const result = await client.query(
+        `
+            select *
+            from portal_ship_to_addresses
+            where account_name = $1
+            order by last_used_at desc, use_count desc, ship_to_name asc, id desc
+            limit 100
+        `,
+        [normalizedAccount]
+    );
+    return result.rows.map(mapShipToAddressRow);
+}
+
 async function getAdminPortalOrders(client = pool) {
     const ordersResult = await client.query(
         `
@@ -7227,6 +7353,83 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
     return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries)[0] || null;
+}
+
+function buildShipToAddressInput(accountName, order) {
+    const entry = {
+        accountName: normalizeText(accountName),
+        shipToName: normalizeFreeText(order?.shipToName || order?.ship_to_name),
+        shipToPhone: normalizeFreeText(order?.shipToPhone || order?.ship_to_phone),
+        shipToAddress1: normalizeFreeText(order?.shipToAddress1 || order?.ship_to_address1),
+        shipToAddress2: normalizeFreeText(order?.shipToAddress2 || order?.ship_to_address2),
+        shipToCity: normalizeFreeText(order?.shipToCity || order?.ship_to_city),
+        shipToState: normalizeFreeText(order?.shipToState || order?.ship_to_state),
+        shipToPostalCode: normalizeFreeText(order?.shipToPostalCode || order?.ship_to_postal_code),
+        shipToCountry: normalizeFreeText(order?.shipToCountry || order?.ship_to_country || "USA")
+    };
+    const requiredAddressParts = [
+        entry.accountName,
+        entry.shipToAddress1,
+        entry.shipToCity,
+        entry.shipToState,
+        entry.shipToPostalCode,
+        entry.shipToCountry
+    ];
+    if (requiredAddressParts.some((value) => !value)) return null;
+    return {
+        ...entry,
+        normalizedKey: [
+            entry.shipToName,
+            entry.shipToAddress1,
+            entry.shipToAddress2,
+            entry.shipToCity,
+            entry.shipToState,
+            entry.shipToPostalCode,
+            entry.shipToCountry
+        ].map((value) => normalizeText(value)).join("|")
+    };
+}
+
+async function upsertShipToAddressFromOrder(client, accountName, order) {
+    const entry = buildShipToAddressInput(accountName, order);
+    if (!entry?.normalizedKey) return null;
+    const result = await client.query(
+        `
+            insert into portal_ship_to_addresses (
+                account_name, normalized_key, ship_to_name, ship_to_phone,
+                ship_to_address1, ship_to_address2, ship_to_city, ship_to_state,
+                ship_to_postal_code, ship_to_country, use_count, last_used_at, updated_at
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, now(), now())
+            on conflict (account_name, normalized_key) do update
+            set
+                ship_to_name = excluded.ship_to_name,
+                ship_to_phone = excluded.ship_to_phone,
+                ship_to_address1 = excluded.ship_to_address1,
+                ship_to_address2 = excluded.ship_to_address2,
+                ship_to_city = excluded.ship_to_city,
+                ship_to_state = excluded.ship_to_state,
+                ship_to_postal_code = excluded.ship_to_postal_code,
+                ship_to_country = excluded.ship_to_country,
+                use_count = portal_ship_to_addresses.use_count + 1,
+                last_used_at = now(),
+                updated_at = now()
+            returning *
+        `,
+        [
+            entry.accountName,
+            entry.normalizedKey,
+            entry.shipToName,
+            entry.shipToPhone,
+            entry.shipToAddress1,
+            entry.shipToAddress2,
+            entry.shipToCity,
+            entry.shipToState,
+            entry.shipToPostalCode,
+            entry.shipToCountry
+        ]
+    );
+    return result.rowCount === 1 ? mapShipToAddressRow(result.rows[0]) : null;
 }
 
 async function savePortalOrderDraftForAccount(
@@ -7363,6 +7566,7 @@ async function savePortalOrderDraftForAccount(
             [savedOrderId, index + 1, line.sku, line.quantity]
         );
     }
+    await upsertShipToAddressFromOrder(client, normalizedAccount, order);
 
     const savedOrder = await getPortalOrderById(client, savedOrderId, normalizedAccount, downloadPathPrefix);
     await insertActivity(
@@ -12196,6 +12400,25 @@ function mapPortalItemRow(row) {
 function isPortalOrderReleaseCopyDocument(document) {
     const fileName = normalizeUploadFileName(document?.file_name || document?.fileName || "");
     return /^wms365-.*-release-copy\.pdf$/i.test(fileName);
+}
+
+function mapShipToAddressRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name || "",
+        shipToName: row.ship_to_name || "",
+        shipToPhone: row.ship_to_phone || "",
+        shipToAddress1: row.ship_to_address1 || "",
+        shipToAddress2: row.ship_to_address2 || "",
+        shipToCity: row.ship_to_city || "",
+        shipToState: row.ship_to_state || "",
+        shipToPostalCode: row.ship_to_postal_code || "",
+        shipToCountry: row.ship_to_country || "",
+        useCount: Number(row.use_count) || 0,
+        lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : null,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
 }
 
 function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents") {

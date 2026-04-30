@@ -715,7 +715,7 @@
                     <label class="field"><span>Requested Ship Date</span><input id="orderRequestedShipDate" type="date"></label>
                     <label class="field"><span>Contact Name</span><input id="orderContactName" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Tel</span><input id="orderContactPhone" type="text" placeholder="Required"></label>
-                    <label class="field span-2"><span>Ship To Company / Receiver</span><input id="orderShipToName" type="text" placeholder="Required company or receiver name"></label>
+                    <label class="field span-2"><span>Ship To Company / Receiver</span><input id="orderShipToName" type="text" list="portalShipToAddressList" placeholder="Type to find a saved ship-to"></label>
                     <label class="field"><span>Ship To Phone</span><input id="orderShipToPhone" type="text" placeholder="Optional ship-to phone"></label>
                     <label class="field span-2"><span>Ship To Address 1</span><input id="orderShipToAddress1" type="text" placeholder="Required street address"></label>
                     <label class="field span-2"><span>Ship To Address 2</span><input id="orderShipToAddress2" type="text" placeholder="Optional suite, unit, or dock"></label>
@@ -831,6 +831,8 @@
                 </div>
             </div>
 
+            <datalist id="portalShipToAddressList"></datalist>
+
             <div id="portalFeedbackModal" class="feedback-modal hidden" aria-hidden="true">
                 <div class="feedback-modal-backdrop" data-portal-feedback-close></div>
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalFeedbackTitle">
@@ -896,6 +898,7 @@
             catalogItems: [],
             orders: [],
             inbounds: [],
+            shipToAddresses: [],
             activeView: "inventory",
             editingOrderId: null,
             editingItemSku: null,
@@ -961,6 +964,7 @@
             orderShipToState: document.getElementById("orderShipToState"),
             orderShipToPostalCode: document.getElementById("orderShipToPostalCode"),
             orderShipToCountry: document.getElementById("orderShipToCountry"),
+            portalShipToAddressList: document.getElementById("portalShipToAddressList"),
             orderNotes: document.getElementById("orderNotes"),
             addLineBtn: document.getElementById("addLineBtn"),
             orderLines: document.getElementById("orderLines"),
@@ -1049,6 +1053,9 @@
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
+            ui.orderShipToName.addEventListener("input", maybeApplyShipToAddressSelection);
+            ui.orderShipToName.addEventListener("change", maybeApplyShipToAddressSelection);
+            ui.orderShipToName.addEventListener("blur", maybeApplyShipToAddressSelection);
             ui.portalReleaseCloseButtons.forEach((button) => button.addEventListener("click", closePortalReleaseModal));
             ui.portalReleaseForm.addEventListener("submit", submitPortalRelease);
             ui.portalReleaseEmailWarehouse.addEventListener("change", syncPortalReleaseFields);
@@ -1189,7 +1196,7 @@
         }
 
         async function loadPortalData() {
-            const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload, shipToPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
                 requestJson("/api/portal/items"),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
@@ -1197,14 +1204,19 @@
                     : Promise.resolve({ orders: [] }),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
                     ? requestJson("/api/portal/inbounds")
-                    : Promise.resolve({ inbounds: [] })
+                    : Promise.resolve({ inbounds: [] }),
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
+                    ? requestJson("/api/portal/ship-to-addresses")
+                    : Promise.resolve({ addresses: [] })
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
             portalState.catalogItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items.map(sanitizeCatalogItem).filter(Boolean) : [];
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
+            portalState.shipToAddresses = Array.isArray(shipToPayload?.addresses) ? shipToPayload.addresses.map(sanitizeShipToAddress).filter(Boolean) : [];
             applyPortalFeatureAccess();
+            renderShipToAddressOptions();
             renderStats();
             renderInventory();
             renderItems();
@@ -1726,6 +1738,47 @@
             ui.orderLines.innerHTML = "";
             const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
             lines.forEach((line) => addOrderLine(line));
+        }
+
+        function shipToAddressSummary(entry) {
+            return [
+                entry.shipToName,
+                entry.shipToAddress1,
+                [entry.shipToCity, entry.shipToState, entry.shipToPostalCode].filter(Boolean).join(", "),
+                entry.shipToCountry
+            ].filter(Boolean).join(" | ");
+        }
+
+        function renderShipToAddressOptions() {
+            if (!ui.portalShipToAddressList) return;
+            ui.portalShipToAddressList.innerHTML = portalState.shipToAddresses
+                .map((entry) => `<option value="${attr(shipToAddressSummary(entry))}">${esc(entry.shipToPhone || entry.shipToName || "")}</option>`)
+                .join("");
+        }
+
+        function findShipToAddressMatch(value) {
+            const query = norm(value);
+            if (!query) return null;
+            return portalState.shipToAddresses.find((entry) => norm(shipToAddressSummary(entry)) === query)
+                || portalState.shipToAddresses.find((entry) => norm(entry.shipToName) === query)
+                || null;
+        }
+
+        function applyShipToAddress(entry) {
+            if (!entry) return;
+            ui.orderShipToName.value = entry.shipToName || "";
+            ui.orderShipToPhone.value = entry.shipToPhone || "";
+            ui.orderShipToAddress1.value = entry.shipToAddress1 || "";
+            ui.orderShipToAddress2.value = entry.shipToAddress2 || "";
+            ui.orderShipToCity.value = entry.shipToCity || "";
+            ui.orderShipToState.value = entry.shipToState || "";
+            ui.orderShipToPostalCode.value = entry.shipToPostalCode || "";
+            ui.orderShipToCountry.value = entry.shipToCountry || "USA";
+        }
+
+        function maybeApplyShipToAddressSelection() {
+            const match = findShipToAddressMatch(ui.orderShipToName.value);
+            if (match) applyShipToAddress(match);
         }
 
         function addOrderLine(line = { sku: "", quantity: 1 }) {
@@ -2453,6 +2506,29 @@
                 documents: Array.isArray(order.documents)
                     ? order.documents.map(sanitizeOrderDocument).filter(Boolean)
                     : []
+            };
+        }
+
+        function sanitizeShipToAddress(address) {
+            if (!address?.id) return null;
+            const shipToAddress1 = String(address.shipToAddress1 || address.ship_to_address1 || "").trim();
+            const shipToCity = String(address.shipToCity || address.ship_to_city || "").trim();
+            const shipToState = String(address.shipToState || address.ship_to_state || "").trim();
+            const shipToPostalCode = String(address.shipToPostalCode || address.ship_to_postal_code || "").trim();
+            if (!shipToAddress1 || !shipToCity || !shipToState || !shipToPostalCode) return null;
+            return {
+                id: String(address.id),
+                accountName: norm(address.accountName || address.account_name || portalState.account?.accountName || ""),
+                shipToName: String(address.shipToName || address.ship_to_name || "").trim(),
+                shipToPhone: String(address.shipToPhone || address.ship_to_phone || "").trim(),
+                shipToAddress1,
+                shipToAddress2: String(address.shipToAddress2 || address.ship_to_address2 || "").trim(),
+                shipToCity,
+                shipToState,
+                shipToPostalCode,
+                shipToCountry: String(address.shipToCountry || address.ship_to_country || "USA").trim() || "USA",
+                useCount: Number(address.useCount || address.use_count || 0) || 0,
+                lastUsedAt: address.lastUsedAt || address.last_used_at || null
             };
         }
 
