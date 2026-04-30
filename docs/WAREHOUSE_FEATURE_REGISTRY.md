@@ -1,6 +1,6 @@
 # WMS365 Warehouse Feature Registry
 
-Last reviewed: 2026-04-26
+Last reviewed: 2026-04-30
 
 Purpose:
 - Internal feature inventory so changes do not break related workflow pieces.
@@ -17,7 +17,7 @@ How to use:
 
 | Area | Desktop section | Primary file | Feature owner |
 | --- | --- | --- | --- |
-| Operations Home | `home` | `C:\WMS365Scanner\index.html` | Warehouse launch pad |
+| Warehouse Dashboard | `home` | `C:\WMS365Scanner\index.html` | Daily inbound/outbound planning and launch pad |
 | Purchase Orders | `inbounds` | `C:\WMS365Scanner\index.html` | Expected receipts |
 | Receiving | `scan` | `C:\WMS365Scanner\index.html` | Physical stock receipt |
 | Inventory Lookup | `search` | `C:\WMS365Scanner\index.html` | Live inventory visibility |
@@ -31,6 +31,20 @@ How to use:
 | Reports & Counts | `reports` | `C:\WMS365Scanner\index.html` | Reporting and exports |
 | Billing | `billing` | `C:\WMS365Scanner\index.html` | Customer charges |
 | Admin & System | `backup` | `C:\WMS365Scanner\index.html` | Super-user controls |
+
+## Home
+
+### Warehouse Dashboard
+- Desktop section: `home`
+- Related touchpoints:
+  - active company scoping
+  - open purchase order queue
+  - open sales order queue
+  - released/picked/staged outbound counts
+  - due today and overdue inbound planning
+  - dashboard drill-in to sales order and purchase order document pages
+  - top/factbox operational alert counts
+  - server refresh and 30-second sync timer
 
 ## Inbound
 

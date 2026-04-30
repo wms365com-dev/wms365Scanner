@@ -3949,6 +3949,221 @@
                 color: #67798b;
             }
 
+            .warehouse-dashboard {
+                display: grid;
+                gap: 0.6rem;
+                margin-bottom: 0.75rem;
+            }
+
+            .dashboard-titlebar,
+            .dashboard-panel,
+            .dashboard-metric {
+                border: 1px solid #cfd9e2;
+                background: #ffffff;
+                box-shadow: none;
+            }
+
+            .dashboard-titlebar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                padding: 0.75rem 0.85rem;
+                border-radius: 10px;
+            }
+
+            .dashboard-kicker {
+                display: inline-flex;
+                margin-bottom: 0.15rem;
+                color: #006d7f;
+                font-size: 0.68rem;
+                font-weight: 800;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+            }
+
+            .dashboard-titlebar h2 {
+                margin: 0;
+                color: #0f2b44;
+                font-size: 1.15rem;
+                font-weight: 700;
+            }
+
+            .dashboard-titlebar p {
+                margin: 0.2rem 0 0;
+                color: #55687c;
+                font-size: 0.78rem;
+            }
+
+            .dashboard-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+                gap: 0.35rem;
+            }
+
+            .dashboard-metrics {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 0.45rem;
+            }
+
+            .dashboard-metric {
+                min-height: 74px;
+                padding: 0.58rem 0.7rem;
+                border-radius: 8px;
+                text-align: left;
+                cursor: pointer;
+            }
+
+            .dashboard-metric:hover {
+                background: #f3f7fb;
+                border-color: #9cc9d0;
+            }
+
+            .dashboard-metric span {
+                display: block;
+                color: #5f7285;
+                font-size: 0.66rem;
+                font-weight: 800;
+                letter-spacing: 0.11em;
+                text-transform: uppercase;
+            }
+
+            .dashboard-metric strong {
+                display: block;
+                margin-top: 0.22rem;
+                color: #10243a;
+                font-size: 1.35rem;
+                line-height: 1;
+            }
+
+            .dashboard-metric small {
+                display: block;
+                margin-top: 0.28rem;
+                color: #617589;
+                font-size: 0.72rem;
+            }
+
+            .dashboard-columns {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 0.78fr);
+                gap: 0.55rem;
+                align-items: start;
+            }
+
+            .dashboard-panel {
+                border-radius: 10px;
+                overflow: hidden;
+            }
+
+            .dashboard-panel-head {
+                display: flex;
+                align-items: start;
+                justify-content: space-between;
+                gap: 0.75rem;
+                padding: 0.62rem 0.72rem;
+                border-bottom: 1px solid #dce4eb;
+                background: #fbfcfd;
+            }
+
+            .dashboard-panel-head h3 {
+                margin: 0;
+                color: #0f2b44;
+                font-size: 0.92rem;
+            }
+
+            .dashboard-panel-head p {
+                margin: 0.14rem 0 0;
+                color: #66798b;
+                font-size: 0.72rem;
+                line-height: 1.25;
+            }
+
+            .dashboard-panel-head span {
+                flex: 0 0 auto;
+                color: #006d7f;
+                font-size: 0.7rem;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .dashboard-work-list,
+            .dashboard-plan-list {
+                display: grid;
+                gap: 0;
+            }
+
+            .dashboard-work-row {
+                width: 100%;
+                display: grid;
+                grid-template-columns: minmax(112px, 0.9fr) minmax(0, 1.2fr) auto;
+                gap: 0.55rem;
+                align-items: center;
+                padding: 0.58rem 0.72rem;
+                border: 0;
+                border-bottom: 1px solid #e2e8ef;
+                background: #ffffff;
+                text-align: left;
+                cursor: pointer;
+            }
+
+            .dashboard-work-row:hover {
+                background: #f4fafb;
+            }
+
+            .dashboard-work-row strong {
+                color: #006d7f;
+                font-size: 0.8rem;
+                text-decoration: underline;
+                text-underline-offset: 2px;
+            }
+
+            .dashboard-work-row span,
+            .dashboard-work-row small {
+                color: #53677b;
+                font-size: 0.72rem;
+                line-height: 1.25;
+            }
+
+            .dashboard-work-row small {
+                color: #708397;
+            }
+
+            .dashboard-plan-item {
+                padding: 0.58rem 0.72rem;
+                border-bottom: 1px solid #e2e8ef;
+                color: #33495f;
+                font-size: 0.76rem;
+                line-height: 1.35;
+            }
+
+            .dashboard-plan-item strong {
+                display: block;
+                margin-bottom: 0.08rem;
+                color: #0f2b44;
+                font-size: 0.78rem;
+            }
+
+            .dashboard-plan-item.warn {
+                background: #fff8e8;
+            }
+
+            .dashboard-plan-item.ready {
+                background: #effafa;
+            }
+
+            @media (max-width: 1180px) {
+                .dashboard-metrics {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
+                .dashboard-columns {
+                    grid-template-columns: 1fr;
+                }
+            }
+
             .panel {
                 grid-area: workspace;
                 margin-top: 0;
@@ -5077,8 +5292,8 @@
                 <p class="meta">Drill into one operational area at a time.</p>
             </div>
             <button class="tab active" data-section="home" type="button">
-                <span class="tab-label">Home</span>
-                <span class="tab-meta">Start from the warehouse task you need right now.</span>
+                <span class="tab-label">Dashboard</span>
+                <span class="tab-meta">Plan today's inbounds, outbounds, picking, staging, and shipping workload.</span>
             </button>
             <button class="tab" data-section="scan" type="button">
                 <span class="tab-label">Receiving</span>
@@ -5132,7 +5347,7 @@
         <aside class="desktop-factbox desktop-only" aria-label="FactBox">
             <section class="factbox-part">
                 <h3>Page Information</h3>
-                <div class="factbox-line"><span>Page</span><strong id="desktopFactboxSection">Operations Home</strong></div>
+                <div class="factbox-line"><span>Page</span><strong id="desktopFactboxSection">Warehouse Dashboard</strong></div>
                 <div hidden><strong id="desktopFactboxCompany">All Companies</strong></div>
                 <div class="factbox-line"><span>Sync</span><strong id="desktopFactboxSync">waiting</strong></div>
             </section>
@@ -5192,7 +5407,79 @@
             </div>
         </section>
 
-                <section class="panel active desktop-only" id="homePanel" data-panel="home">
+        <section class="panel active desktop-only" id="homePanel" data-panel="home">
+            <div class="warehouse-dashboard">
+                <div class="dashboard-titlebar">
+                    <div>
+                        <span class="dashboard-kicker">Warehouse Dashboard</span>
+                        <h2>Plan Today's Work</h2>
+                        <p id="warehouseDashboardLead">Loading inbound and outbound workload from the server.</p>
+                    </div>
+                    <div class="dashboard-toolbar">
+                        <button class="btn ghost mini" type="button" data-jump-section="inbounds">Purchase Orders</button>
+                        <button class="btn ghost mini" type="button" data-jump-section="orders">Sales Orders</button>
+                        <button class="btn ghost mini" type="button" data-jump-section="scan">Receiving</button>
+                    </div>
+                </div>
+
+                <div class="dashboard-metrics" aria-label="Warehouse workload">
+                    <button class="dashboard-metric" type="button" data-jump-section="inbounds">
+                        <span>Open Inbounds</span>
+                        <strong id="dashboardOpenInbounds">0</strong>
+                        <small id="dashboardDueInbounds">0 due today</small>
+                    </button>
+                    <button class="dashboard-metric" type="button" data-jump-section="orders">
+                        <span>Open Outbounds</span>
+                        <strong id="dashboardOpenOutbounds">0</strong>
+                        <small id="dashboardPickLines">0 lines to work</small>
+                    </button>
+                    <button class="dashboard-metric" type="button" data-jump-section="orders">
+                        <span>Ready To Ship</span>
+                        <strong id="dashboardStagedOutbounds">0</strong>
+                        <small>staged orders</small>
+                    </button>
+                    <button class="dashboard-metric" type="button" data-jump-section="inventory">
+                        <span>Active Customers</span>
+                        <strong id="dashboardCustomerCount">0</strong>
+                        <small>in today's queue</small>
+                    </button>
+                </div>
+
+                <div class="dashboard-columns">
+                    <article class="dashboard-panel">
+                        <div class="dashboard-panel-head">
+                            <div>
+                                <h3>Inbound Plan</h3>
+                                <p>Expected purchase orders and receipts that need warehouse attention.</p>
+                            </div>
+                            <span id="dashboardInboundMeta">0 open</span>
+                        </div>
+                        <div class="dashboard-work-list" id="warehouseDashboardInboundList"></div>
+                    </article>
+
+                    <article class="dashboard-panel">
+                        <div class="dashboard-panel-head">
+                            <div>
+                                <h3>Outbound Plan</h3>
+                                <p>Released, picked, and staged sales orders that drive labor planning.</p>
+                            </div>
+                            <span id="dashboardOutboundMeta">0 open</span>
+                        </div>
+                        <div class="dashboard-work-list" id="warehouseDashboardOutboundList"></div>
+                    </article>
+
+                    <article class="dashboard-panel dashboard-panel-narrow">
+                        <div class="dashboard-panel-head">
+                            <div>
+                                <h3>Planning Notes</h3>
+                                <p>System cues to help decide what the team should work first.</p>
+                            </div>
+                            <span id="dashboardPlanningMeta">Today</span>
+                        </div>
+                        <div class="dashboard-plan-list" id="warehouseDashboardPlanningList"></div>
+                    </article>
+                </div>
+            </div>
             <div class="home-callout">
                 <h2>Warehouse Directory</h2>
                 <p>Choose the workflow lane you need, drill into the section, then back out from the left navigation when you are done.</p>
@@ -7922,7 +8209,7 @@
         // - C:\WMS365Scanner\docs\CHANGE_IMPACT_CHECKLIST.md
         const WAREHOUSE_WORKSPACE_TOC = Object.freeze({
             groups: [
-                { key: "home", label: "Home", sections: ["home"] },
+                { key: "home", label: "Dashboard", sections: ["home"] },
                 { key: "inbound", label: "Inbound", sections: ["inbounds", "scan"] },
                 { key: "inventory", label: "Inventory", sections: ["search", "actions", "labels"] },
                 { key: "outbound", label: "Outbound", sections: ["orders", "shipped"] },
@@ -7933,10 +8220,10 @@
             ],
             sections: {
                 home: {
-                    title: "Operations Home",
-                    meta: "Choose the next warehouse task by workflow: inbound, inventory, outbound, reporting, setup, commercial, or system.",
-                    drillPath: "Home / Operations",
-                    features: ["New Sales Order", "New Purchase Order", "Receive Stock", "Inventory Lookup"]
+                    title: "Warehouse Dashboard",
+                    meta: "Plan today's inbound receipts, outbound orders, picking, staging, shipping, and customer workload from one landing page.",
+                    drillPath: "Home / Dashboard",
+                    features: ["Inbound Plan", "Outbound Plan", "Open Purchase Orders", "Open Sales Orders", "Planning Notes"]
                 },
                 scan: {
                     title: "Receiving",
@@ -8022,7 +8309,7 @@
             }, {})
         );
         const DESKTOP_LIST_CAPTIONS = Object.freeze({
-            home: "Operations Home",
+            home: "Warehouse Dashboard",
             inbounds: "Purchase Orders: All",
             scan: "Receiving Worksheet",
             search: "Inventory: All",
@@ -8112,6 +8399,19 @@
             inventoryWorkspaceGrid: document.getElementById("inventoryWorkspaceGrid"),
             storeIntegrationsBlock: document.getElementById("storeIntegrationsBlock"),
             integrationsWorkspaceHost: document.getElementById("integrationsWorkspaceHost"),
+            warehouseDashboardLead: document.getElementById("warehouseDashboardLead"),
+            dashboardOpenInbounds: document.getElementById("dashboardOpenInbounds"),
+            dashboardDueInbounds: document.getElementById("dashboardDueInbounds"),
+            dashboardOpenOutbounds: document.getElementById("dashboardOpenOutbounds"),
+            dashboardPickLines: document.getElementById("dashboardPickLines"),
+            dashboardStagedOutbounds: document.getElementById("dashboardStagedOutbounds"),
+            dashboardCustomerCount: document.getElementById("dashboardCustomerCount"),
+            dashboardInboundMeta: document.getElementById("dashboardInboundMeta"),
+            dashboardOutboundMeta: document.getElementById("dashboardOutboundMeta"),
+            dashboardPlanningMeta: document.getElementById("dashboardPlanningMeta"),
+            warehouseDashboardInboundList: document.getElementById("warehouseDashboardInboundList"),
+            warehouseDashboardOutboundList: document.getElementById("warehouseDashboardOutboundList"),
+            warehouseDashboardPlanningList: document.getElementById("warehouseDashboardPlanningList"),
             syncNowBtn: document.getElementById("syncNowBtn"),
             activeCompany: document.getElementById("activeCompany"),
             activeCompanyDisplay: document.getElementById("activeCompanyDisplay"),
@@ -8857,6 +9157,8 @@
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
             ui.integrationList.addEventListener("click", onIntegrationListClick);
+            ui.warehouseDashboardInboundList?.addEventListener("click", onPortalInboundsListClick);
+            ui.warehouseDashboardOutboundList?.addEventListener("click", onPortalOrdersListClick);
             ui.portalInboundsList?.addEventListener("click", onPortalInboundsListClick);
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
@@ -11890,6 +12192,7 @@
             renderInventoryWorksheet();
             renderReports(ui.reportFilter.value);
             renderSummary();
+            renderWarehouseDashboard();
             syncScanItemSelectors();
             syncPalletLabelSkuOptions();
             renderWarehouseSalesOrderContext();
@@ -11985,6 +12288,146 @@
             }
             if (ui.desktopFactboxInbounds) {
                 ui.desktopFactboxInbounds.textContent = num(openInboundCount);
+            }
+        }
+
+        function dashboardDateKey(value = "") {
+            const text = String(value || "").trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+            if (!text) return "";
+            const date = new Date(text);
+            if (Number.isNaN(date.getTime())) return "";
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, "0");
+            const day = String(date.getDate()).padStart(2, "0");
+            return `${year}-${month}-${day}`;
+        }
+
+        function dashboardDateSort(value = "") {
+            return dashboardDateKey(value) || "9999-12-31";
+        }
+
+        function dashboardLines(records = []) {
+            return records.flatMap((record) => Array.isArray(record.lines) ? record.lines : []);
+        }
+
+        function renderWarehouseDashboard() {
+            if (!ui.warehouseDashboardLead) return;
+            const company = getActiveCompany();
+            const today = todayInputValue();
+            const scopedInbounds = getCompanyScopedPortalInbounds();
+            const scopedOrders = getCompanyScopedPortalOrders();
+            const openInbounds = scopedInbounds
+                .filter((inbound) => norm(inbound.status) !== "RECEIVED")
+                .sort((a, b) => dashboardDateSort(a.expectedDate).localeCompare(dashboardDateSort(b.expectedDate)) || (a.inboundCode || "").localeCompare(b.inboundCode || ""));
+            const openOrders = scopedOrders
+                .filter((order) => ["RELEASED", "PICKED", "STAGED"].includes(norm(order.status)))
+                .sort((a, b) => {
+                    const statusRank = { RELEASED: 1, PICKED: 2, STAGED: 3 };
+                    return (statusRank[norm(a.status)] || 9) - (statusRank[norm(b.status)] || 9)
+                        || dashboardDateSort(a.requestedShipDate).localeCompare(dashboardDateSort(b.requestedShipDate))
+                        || (a.orderCode || "").localeCompare(b.orderCode || "");
+                });
+            const releasedOrders = openOrders.filter((order) => norm(order.status) === "RELEASED");
+            const pickedOrders = openOrders.filter((order) => norm(order.status) === "PICKED");
+            const stagedOrders = openOrders.filter((order) => norm(order.status) === "STAGED");
+            const dueTodayInbounds = openInbounds.filter((inbound) => dashboardDateKey(inbound.expectedDate) === today);
+            const overdueInbounds = openInbounds.filter((inbound) => {
+                const dateKey = dashboardDateKey(inbound.expectedDate);
+                return dateKey && dateKey < today;
+            });
+            const outboundDueToday = openOrders.filter((order) => dashboardDateKey(order.requestedShipDate) === today);
+            const shippedToday = scopedOrders.filter((order) => dashboardDateKey(order.shippedAt) === today);
+            const inboundTotals = summarizeTrackedTotals(dashboardLines(openInbounds));
+            const outboundTotals = summarizeTrackedTotals(dashboardLines(openOrders));
+            const dashboardCompanies = new Set(
+                openInbounds.map((inbound) => inbound.accountName)
+                    .concat(openOrders.map((order) => order.accountName))
+                    .filter(Boolean)
+            );
+
+            ui.warehouseDashboardLead.textContent = [
+                company ? `Active company: ${company}` : "All assigned companies",
+                `${num(openInbounds.length)} open inbound${openInbounds.length === 1 ? "" : "s"}`,
+                `${num(openOrders.length)} open outbound${openOrders.length === 1 ? "" : "s"}`,
+                `Last view refresh: ${formatDate(new Date())}`
+            ].join(" | ");
+
+            if (ui.dashboardOpenInbounds) ui.dashboardOpenInbounds.textContent = num(openInbounds.length);
+            if (ui.dashboardDueInbounds) {
+                ui.dashboardDueInbounds.textContent = [
+                    `${num(dueTodayInbounds.length)} due today`,
+                    overdueInbounds.length ? `${num(overdueInbounds.length)} overdue` : ""
+                ].filter(Boolean).join(" | ");
+            }
+            if (ui.dashboardOpenOutbounds) ui.dashboardOpenOutbounds.textContent = num(openOrders.length);
+            if (ui.dashboardPickLines) {
+                ui.dashboardPickLines.textContent = `${num(dashboardLines(openOrders).length)} line${dashboardLines(openOrders).length === 1 ? "" : "s"} | ${formatTrackedSummary(outboundTotals)}`;
+            }
+            if (ui.dashboardStagedOutbounds) ui.dashboardStagedOutbounds.textContent = num(stagedOrders.length);
+            if (ui.dashboardCustomerCount) ui.dashboardCustomerCount.textContent = num(dashboardCompanies.size);
+            if (ui.dashboardInboundMeta) {
+                ui.dashboardInboundMeta.textContent = `${num(openInbounds.length)} open | ${formatTrackedSummary(inboundTotals)}`;
+            }
+            if (ui.dashboardOutboundMeta) {
+                ui.dashboardOutboundMeta.textContent = `${num(openOrders.length)} open | ${formatTrackedSummary(outboundTotals)}`;
+            }
+            if (ui.dashboardPlanningMeta) {
+                ui.dashboardPlanningMeta.textContent = today;
+            }
+
+            if (ui.warehouseDashboardInboundList) {
+                ui.warehouseDashboardInboundList.innerHTML = openInbounds.length
+                    ? openInbounds.slice(0, 6).map((inbound) => {
+                        const lineTotals = summarizeTrackedTotals(inbound.lines || []);
+                        const dateKey = dashboardDateKey(inbound.expectedDate);
+                        const dateText = dateKey ? (dateKey < today ? `Overdue ${dateKey}` : (dateKey === today ? "Due today" : `Due ${dateKey}`)) : "No date";
+                        return `
+                            <button class="dashboard-work-row" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">
+                                <strong>${esc(inbound.inboundCode || "Purchase Order")}</strong>
+                                <span>${esc(inbound.accountName)} | ${esc(inbound.referenceNumber || "No reference")}<br><small>${esc(dateText)} | ${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
+                                <span class="pill ${norm(inbound.status) === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status || "SUBMITTED")}</span>
+                            </button>
+                        `;
+                    }).join("")
+                    : `<p class="empty">No open purchase orders are loaded${company ? ` for ${esc(company)}` : ""}.</p>`;
+            }
+
+            if (ui.warehouseDashboardOutboundList) {
+                ui.warehouseDashboardOutboundList.innerHTML = openOrders.length
+                    ? openOrders.slice(0, 6).map((order) => {
+                        const lineTotals = summarizeTrackedTotals(order.lines || []);
+                        const dateKey = dashboardDateKey(order.requestedShipDate);
+                        const dateText = dateKey ? (dateKey < today ? `Past due ${dateKey}` : (dateKey === today ? "Ship today" : `Ship ${dateKey}`)) : "No ship date";
+                        return `
+                            <button class="dashboard-work-row" type="button" data-open-warehouse-order="${attr(order.id)}">
+                                <strong>${esc(order.orderCode || "Sales Order")}</strong>
+                                <span>${esc(order.accountName)} | ${esc(order.poNumber || "No PO")}<br><small>${esc(dateText)} | ${num(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
+                                <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
+                            </button>
+                        `;
+                    }).join("")
+                    : `<p class="empty">No released, picked, or staged sales orders are loaded${company ? ` for ${esc(company)}` : ""}.</p>`;
+            }
+
+            if (ui.warehouseDashboardPlanningList) {
+                const notes = [];
+                const addNote = (title, body, tone = "") => notes.push({ title, body, tone });
+                if (overdueInbounds.length) addNote("Receiving risk", `${num(overdueInbounds.length)} purchase order${overdueInbounds.length === 1 ? " is" : "s are"} past the expected date. Review inbound appointments first.`, "warn");
+                if (dueTodayInbounds.length) addNote("Inbound work today", `${num(dueTodayInbounds.length)} purchase order${dueTodayInbounds.length === 1 ? "" : "s"} due today with ${formatTrackedSummary(summarizeTrackedTotals(dashboardLines(dueTodayInbounds)))} expected.`, "ready");
+                if (releasedOrders.length) addNote("Picking queue", `${num(releasedOrders.length)} released sales order${releasedOrders.length === 1 ? "" : "s"} ready to pick. Start here before staging work grows.`, "ready");
+                if (pickedOrders.length) addNote("Stage / pack queue", `${num(pickedOrders.length)} picked order${pickedOrders.length === 1 ? "" : "s"} waiting to stage or pack.`, "");
+                if (stagedOrders.length) addNote("Shipping queue", `${num(stagedOrders.length)} staged order${stagedOrders.length === 1 ? "" : "s"} ready for carrier, tracking, labels, or ship confirmation.`, "warn");
+                if (outboundDueToday.length) addNote("Ship-date focus", `${num(outboundDueToday.length)} open outbound order${outboundDueToday.length === 1 ? " has" : "s have"} today's requested ship date.`, "");
+                if (shippedToday.length) addNote("Completed today", `${num(shippedToday.length)} order${shippedToday.length === 1 ? "" : "s"} already shipped today.`, "");
+                if (!notes.length) addNote("Queue is clear", "No open inbounds or outbounds are currently loaded. Refresh or choose another company if work is expected.", "ready");
+
+                ui.warehouseDashboardPlanningList.innerHTML = notes.map((note) => `
+                    <div class="dashboard-plan-item ${attr(note.tone)}">
+                        <strong>${esc(note.title)}</strong>
+                        ${esc(note.body)}
+                    </div>
+                `).join("");
             }
         }
 
@@ -15583,12 +16026,14 @@
                 renderPortalInboundsList();
                 renderWarehouseInboundContext();
                 updateDesktopOperationsAlerts();
+                renderWarehouseDashboard();
             } catch (error) {
                 if (!silent) {
                     portalInboundRecords = [];
                     renderPortalInboundsList(error.message);
                     renderWarehouseInboundContext();
                     updateDesktopOperationsAlerts();
+                    renderWarehouseDashboard();
                 }
                 throw error;
             }
@@ -15725,12 +16170,14 @@
                 renderPortalOrdersList();
                 renderWarehouseSalesOrderContext();
                 updateDesktopOperationsAlerts();
+                renderWarehouseDashboard();
             } catch (error) {
                 if (!silent) {
                     portalOrderRecords = [];
                     renderPortalOrdersList(error.message);
                     renderWarehouseSalesOrderContext();
                     updateDesktopOperationsAlerts();
+                    renderWarehouseDashboard();
                 }
                 throw error;
             }
@@ -15980,6 +16427,8 @@
             const sanitized = mergePortalOrderRecord(updatedOrder);
             renderPortalOrdersList();
             renderWarehouseSalesOrderContext();
+            updateDesktopOperationsAlerts();
+            renderWarehouseDashboard();
             if (sanitized && String(sanitized.id) === String(editingWarehouseOrderId)) {
                 resetWarehouseSalesOrderForm(sanitized);
             }

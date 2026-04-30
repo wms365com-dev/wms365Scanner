@@ -1,6 +1,6 @@
 # WMS365 Warehouse Workspace TOC
 
-Last reviewed: 2026-04-26
+Last reviewed: 2026-04-30
 
 Purpose:
 - This is the human-maintained table of contents for the warehouse desktop app.
@@ -33,7 +33,7 @@ Navigation principles:
 
 | Group | Section order | Reason |
 | --- | --- | --- |
-| Home | Operations Home | Launch pad and quick actions |
+| Home | Warehouse Dashboard | Daily inbound/outbound planning, then launch pad and quick actions |
 | Inbound | Purchase Orders, Receiving | Enter expected receipts first, then physically receive |
 | Inventory | Inventory Lookup, Adjust & Move, Labels | Find stock, correct/move stock, print floor labels |
 | Outbound | Sales Orders, planned Quote & Ship, Shipped Orders | Process orders, create labels, then separate completed shipments |
@@ -45,14 +45,16 @@ Navigation principles:
 ## Group: Home
 
 ### Section: `home`
-- Title: `Operations Home`
-- Drill path: `Home / Operations`
-- Purpose: compact launch directory for the main warehouse workflows
+- Title: `Warehouse Dashboard`
+- Drill path: `Home / Dashboard`
+- Purpose: daily landing page for warehouse users to plan open inbounds, open outbounds, picking, staging, shipping, and then drill into workflow sections
 - Primary features:
-  - New Sales Order
-  - New Purchase Order
-  - Receive Stock
-  - Inventory Lookup
+  - Inbound Plan
+  - Outbound Plan
+  - Open Purchase Orders
+  - Open Sales Orders
+  - Planning Notes
+  - Warehouse Directory
 
 ## Group: Inbound
 
