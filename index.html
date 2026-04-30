@@ -364,11 +364,7 @@
         }
 
         .company-switcher-add {
-            display: grid;
-            gap: 0.5rem;
-            padding: 0.65rem;
-            border: 1px solid #d6e0e8;
-            background: #f8fbfc;
+            display: block;
         }
 
         .company-switcher-add[hidden] {
@@ -387,34 +383,95 @@
             cursor: pointer;
         }
 
-        .company-switcher-add-form {
-            display: grid;
-            gap: 0.45rem;
-        }
-
-        .company-switcher-add-form.hidden {
+        .company-switcher-company-form {
             display: none;
         }
 
-        .company-switcher-add-form input {
-            width: 100%;
-            min-height: 32px;
-            padding: 0.35rem 0.55rem;
-            border: 1px solid #c8d6e1;
+        .company-switcher-company-form.hidden {
+            display: none;
+        }
+
+        .company-switcher-popout {
+            position: fixed;
+            inset: 0;
+            z-index: 3600;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            background: rgba(22, 30, 38, 0.42);
+        }
+
+        .company-switcher-popout.hidden {
+            display: none;
+        }
+
+        .company-switcher-popout-card {
+            width: min(860px, calc(100vw - 4rem));
+            max-height: min(780px, calc(100vh - 4rem));
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr);
+            border: 1px solid #b8c6d2;
+            border-radius: 4px;
             background: #ffffff;
             color: #172536;
+            box-shadow: 0 20px 54px rgba(15, 23, 42, 0.24);
+            overflow: hidden;
+        }
+
+        .company-switcher-popout-head {
+            display: flex;
+            align-items: start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid #dce4eb;
+            background: #fbfcfd;
+        }
+
+        .company-switcher-popout-head h3 {
+            margin: 0;
+            color: #0f2b44;
+            font-size: 1.08rem;
+        }
+
+        .company-switcher-popout-head p {
+            margin: 0.2rem 0 0;
+            color: #5d7184;
             font-size: 0.78rem;
         }
 
-        .company-switcher-add-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.35rem;
+        .company-switcher-popout-body {
+            overflow: auto;
+            padding: 1rem;
         }
 
-        .company-switcher-add .status {
-            margin: 0;
-            font-size: 0.74rem;
+        .company-switcher-popout-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.72rem;
+        }
+
+        .company-switcher-popout-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.45rem;
+            margin-top: 1rem;
+        }
+
+        @media (max-width: 860px) {
+            .company-switcher-popout {
+                padding: 1rem;
+            }
+
+            .company-switcher-popout-card {
+                width: calc(100vw - 2rem);
+                max-height: calc(100vh - 2rem);
+            }
+
+            .company-switcher-popout-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .company-switcher-list {
@@ -5240,15 +5297,6 @@
                             </label>
                             <div class="company-switcher-add" id="companySwitcherAddPanel" hidden>
                                 <button class="company-switcher-add-toggle" id="companySwitcherAddToggleBtn" type="button">+ Add Company</button>
-                                <form class="company-switcher-add-form hidden" id="companySwitcherAddForm" autocomplete="off">
-                                    <input id="companySwitcherNewCompanyName" type="text" placeholder="Company name" aria-label="Company name">
-                                    <input id="companySwitcherNewCompanyEmail" type="email" placeholder="Contact / portal email optional" aria-label="Company email">
-                                    <div class="company-switcher-add-actions">
-                                        <button class="btn mini" type="submit">Create</button>
-                                        <button class="btn ghost mini" id="companySwitcherAddCancelBtn" type="button">Cancel</button>
-                                    </div>
-                                    <div class="status" id="companySwitcherAddMessage"></div>
-                                </form>
                             </div>
                             <div class="company-switcher-list" id="companySwitcherList" role="listbox" aria-label="Available companies"></div>
                             <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Show All Companies</button>
@@ -5259,6 +5307,112 @@
                     <span class="topbar-icon">Settings</span>
                     <span class="topbar-icon">Help</span>
                     <span class="utility-account-pill" id="desktopUtilityCompany" hidden>All Companies</span>
+                </div>
+            </div>
+            <div class="company-switcher-popout hidden" id="companySwitcherAddPopout" role="dialog" aria-modal="true" aria-labelledby="companySwitcherAddTitle">
+                <div class="company-switcher-popout-card">
+                    <div class="company-switcher-popout-head">
+                        <div>
+                            <span class="dashboard-kicker">Company Setup</span>
+                            <h3 id="companySwitcherAddTitle">Add Company</h3>
+                            <p>Create the company record, assign its default fulfillment location, and select it for the current workspace.</p>
+                        </div>
+                        <button class="btn ghost mini" id="companySwitcherAddCloseBtn" type="button">Close</button>
+                    </div>
+                    <div class="company-switcher-popout-body">
+                        <form class="company-switcher-company-form" id="companySwitcherAddForm" autocomplete="off">
+                            <div class="company-switcher-popout-grid">
+                                <label class="field">
+                                    <span>Company Name</span>
+                                    <input id="companySwitcherNewCompanyName" type="text" placeholder="Required company name">
+                                </label>
+                                <label class="field">
+                                    <span>Account Code</span>
+                                    <input id="companySwitcherNewCompanyCode" type="text" placeholder="Optional internal code">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Legal Name</span>
+                                    <input id="companySwitcherNewCompanyLegalName" type="text" placeholder="Optional legal name">
+                                </label>
+                                <label class="field">
+                                    <span>Primary Fulfillment Location</span>
+                                    <select id="companySwitcherNewCompanyFulfillmentLocation"></select>
+                                </label>
+                                <label class="field">
+                                    <span>Status</span>
+                                    <select id="companySwitcherNewCompanyActive">
+                                        <option value="true">Active</option>
+                                        <option value="false">Inactive</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Contact Name</span>
+                                    <input id="companySwitcherNewCompanyContactName" type="text" placeholder="Primary contact">
+                                </label>
+                                <label class="field">
+                                    <span>Contact Title</span>
+                                    <input id="companySwitcherNewCompanyContactTitle" type="text" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Contact / Portal Email</span>
+                                    <input id="companySwitcherNewCompanyEmail" type="email" placeholder="name@company.com">
+                                </label>
+                                <label class="field">
+                                    <span>Billing Email</span>
+                                    <input id="companySwitcherNewCompanyBillingEmail" type="email" placeholder="Optional billing email">
+                                </label>
+                                <label class="field">
+                                    <span>AP Email</span>
+                                    <input id="companySwitcherNewCompanyApEmail" type="email" placeholder="Optional AP email">
+                                </label>
+                                <label class="field">
+                                    <span>Phone</span>
+                                    <input id="companySwitcherNewCompanyPhone" type="text" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Mobile</span>
+                                    <input id="companySwitcherNewCompanyMobile" type="text" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Website</span>
+                                    <input id="companySwitcherNewCompanyWebsite" type="text" placeholder="Optional">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Address 1</span>
+                                    <input id="companySwitcherNewCompanyAddress1" type="text" placeholder="Street address">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Address 2</span>
+                                    <input id="companySwitcherNewCompanyAddress2" type="text" placeholder="Suite, unit, etc.">
+                                </label>
+                                <label class="field">
+                                    <span>City</span>
+                                    <input id="companySwitcherNewCompanyCity" type="text" placeholder="City">
+                                </label>
+                                <label class="field">
+                                    <span>Province / State</span>
+                                    <input id="companySwitcherNewCompanyState" type="text" placeholder="Province / state">
+                                </label>
+                                <label class="field">
+                                    <span>Postal / ZIP</span>
+                                    <input id="companySwitcherNewCompanyPostalCode" type="text" placeholder="Postal code">
+                                </label>
+                                <label class="field">
+                                    <span>Country</span>
+                                    <input id="companySwitcherNewCompanyCountry" type="text" placeholder="Country">
+                                </label>
+                                <label class="field span-2">
+                                    <span>Notes</span>
+                                    <input id="companySwitcherNewCompanyNote" type="text" placeholder="Optional internal note">
+                                </label>
+                            </div>
+                            <div class="company-switcher-popout-actions">
+                                <button class="btn" type="submit">Create Company</button>
+                                <button class="btn ghost" id="companySwitcherAddCancelBtn" type="button">Cancel</button>
+                                <div class="status" id="companySwitcherAddMessage"></div>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
             <div class="desktop-modulebar desktop-only" aria-label="Module navigation">
@@ -8554,9 +8708,29 @@
             companySwitcherSearch: document.getElementById("companySwitcherSearch"),
             companySwitcherAddPanel: document.getElementById("companySwitcherAddPanel"),
             companySwitcherAddToggleBtn: document.getElementById("companySwitcherAddToggleBtn"),
+            companySwitcherAddPopout: document.getElementById("companySwitcherAddPopout"),
+            companySwitcherAddCloseBtn: document.getElementById("companySwitcherAddCloseBtn"),
             companySwitcherAddForm: document.getElementById("companySwitcherAddForm"),
             companySwitcherNewCompanyName: document.getElementById("companySwitcherNewCompanyName"),
+            companySwitcherNewCompanyCode: document.getElementById("companySwitcherNewCompanyCode"),
+            companySwitcherNewCompanyLegalName: document.getElementById("companySwitcherNewCompanyLegalName"),
+            companySwitcherNewCompanyFulfillmentLocation: document.getElementById("companySwitcherNewCompanyFulfillmentLocation"),
+            companySwitcherNewCompanyActive: document.getElementById("companySwitcherNewCompanyActive"),
+            companySwitcherNewCompanyContactName: document.getElementById("companySwitcherNewCompanyContactName"),
+            companySwitcherNewCompanyContactTitle: document.getElementById("companySwitcherNewCompanyContactTitle"),
             companySwitcherNewCompanyEmail: document.getElementById("companySwitcherNewCompanyEmail"),
+            companySwitcherNewCompanyBillingEmail: document.getElementById("companySwitcherNewCompanyBillingEmail"),
+            companySwitcherNewCompanyApEmail: document.getElementById("companySwitcherNewCompanyApEmail"),
+            companySwitcherNewCompanyPhone: document.getElementById("companySwitcherNewCompanyPhone"),
+            companySwitcherNewCompanyMobile: document.getElementById("companySwitcherNewCompanyMobile"),
+            companySwitcherNewCompanyWebsite: document.getElementById("companySwitcherNewCompanyWebsite"),
+            companySwitcherNewCompanyAddress1: document.getElementById("companySwitcherNewCompanyAddress1"),
+            companySwitcherNewCompanyAddress2: document.getElementById("companySwitcherNewCompanyAddress2"),
+            companySwitcherNewCompanyCity: document.getElementById("companySwitcherNewCompanyCity"),
+            companySwitcherNewCompanyState: document.getElementById("companySwitcherNewCompanyState"),
+            companySwitcherNewCompanyPostalCode: document.getElementById("companySwitcherNewCompanyPostalCode"),
+            companySwitcherNewCompanyCountry: document.getElementById("companySwitcherNewCompanyCountry"),
+            companySwitcherNewCompanyNote: document.getElementById("companySwitcherNewCompanyNote"),
             companySwitcherAddCancelBtn: document.getElementById("companySwitcherAddCancelBtn"),
             companySwitcherAddMessage: document.getElementById("companySwitcherAddMessage"),
             companySwitcherList: document.getElementById("companySwitcherList"),
@@ -9172,8 +9346,12 @@
                 ui.companySwitcherSearch?.focus();
             });
             ui.companySwitcherSearch?.addEventListener("input", () => renderCompanySwitcherList());
-            ui.companySwitcherAddToggleBtn?.addEventListener("click", () => toggleCompanySwitcherAddForm(true));
-            ui.companySwitcherAddCancelBtn?.addEventListener("click", () => toggleCompanySwitcherAddForm(false));
+            ui.companySwitcherAddToggleBtn?.addEventListener("click", openCompanySwitcherAddPopout);
+            ui.companySwitcherAddCloseBtn?.addEventListener("click", closeCompanySwitcherAddPopout);
+            ui.companySwitcherAddCancelBtn?.addEventListener("click", closeCompanySwitcherAddPopout);
+            ui.companySwitcherAddPopout?.addEventListener("click", (event) => {
+                if (event.target === ui.companySwitcherAddPopout) closeCompanySwitcherAddPopout();
+            });
             ui.companySwitcherAddForm?.addEventListener("submit", saveCompanyFromSwitcher);
             ui.companySwitcherList?.addEventListener("click", onCompanySwitcherListClick);
             ui.companySwitcherCloseBtn?.addEventListener("click", () => {
@@ -9602,6 +9780,10 @@
                 refreshFeedbackQueue(true).catch(() => {});
             });
             window.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !ui.companySwitcherAddPopout?.classList.contains("hidden")) {
+                    closeCompanySwitcherAddPopout();
+                    return;
+                }
                 if (event.key === "Escape" && !ui.dashboardListPopout?.classList.contains("hidden")) {
                     closeDashboardListPopout();
                     return;
@@ -12817,22 +12999,33 @@
             if (!ui.companySwitcherAddPanel) return;
             const canAddCompany = currentUserIsSuperAdmin();
             ui.companySwitcherAddPanel.hidden = !canAddCompany;
-            if (!canAddCompany) toggleCompanySwitcherAddForm(false);
+            if (!canAddCompany) closeCompanySwitcherAddPopout();
         }
 
-        function toggleCompanySwitcherAddForm(open = false) {
-            if (!ui.companySwitcherAddForm) return;
-            ui.companySwitcherAddForm.classList.toggle("hidden", !open);
-            if (ui.companySwitcherAddToggleBtn) {
-                ui.companySwitcherAddToggleBtn.textContent = open ? "Add Company" : "+ Add Company";
+        function resetCompanySwitcherAddForm() {
+            ui.companySwitcherAddForm?.reset?.();
+            if (ui.companySwitcherNewCompanyActive) ui.companySwitcherNewCompanyActive.value = "true";
+            if (ui.companySwitcherNewCompanyFulfillmentLocation) {
+                ui.companySwitcherNewCompanyFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(getDefaultFulfillmentLocationCode());
+                ui.companySwitcherNewCompanyFulfillmentLocation.value = getDefaultFulfillmentLocationCode();
             }
-            if (!open) {
-                ui.companySwitcherAddForm.reset?.();
-                if (ui.companySwitcherAddMessage) ui.companySwitcherAddMessage.className = "status";
-                if (ui.companySwitcherAddMessage) ui.companySwitcherAddMessage.textContent = "";
-                return;
+            if (ui.companySwitcherAddMessage) {
+                ui.companySwitcherAddMessage.className = "status";
+                ui.companySwitcherAddMessage.textContent = "";
             }
+        }
+
+        function openCompanySwitcherAddPopout() {
+            if (!currentUserIsSuperAdmin()) return;
+            resetCompanySwitcherAddForm();
+            ui.desktopCompanySwitcher?.removeAttribute("open");
+            ui.companySwitcherAddPopout?.classList.remove("hidden");
             window.setTimeout(() => ui.companySwitcherNewCompanyName?.focus(), 0);
+        }
+
+        function closeCompanySwitcherAddPopout() {
+            ui.companySwitcherAddPopout?.classList.add("hidden");
+            resetCompanySwitcherAddForm();
         }
 
         async function saveCompanyFromSwitcher(event) {
@@ -12842,14 +13035,30 @@
             }
             const entry = sanitizeMasterOwner({
                 name: ui.companySwitcherNewCompanyName?.value,
+                accountCode: ui.companySwitcherNewCompanyCode?.value,
+                legalName: ui.companySwitcherNewCompanyLegalName?.value,
+                contactName: ui.companySwitcherNewCompanyContactName?.value,
+                contactTitle: ui.companySwitcherNewCompanyContactTitle?.value,
                 email: ui.companySwitcherNewCompanyEmail?.value,
                 portalLoginEmail: ui.companySwitcherNewCompanyEmail?.value,
-                billingEmail: ui.companySwitcherNewCompanyEmail?.value,
-                isActive: true
+                billingEmail: ui.companySwitcherNewCompanyBillingEmail?.value || ui.companySwitcherNewCompanyEmail?.value,
+                apEmail: ui.companySwitcherNewCompanyApEmail?.value,
+                phone: ui.companySwitcherNewCompanyPhone?.value,
+                mobile: ui.companySwitcherNewCompanyMobile?.value,
+                website: ui.companySwitcherNewCompanyWebsite?.value,
+                address1: ui.companySwitcherNewCompanyAddress1?.value,
+                address2: ui.companySwitcherNewCompanyAddress2?.value,
+                city: ui.companySwitcherNewCompanyCity?.value,
+                state: ui.companySwitcherNewCompanyState?.value,
+                postalCode: ui.companySwitcherNewCompanyPostalCode?.value,
+                country: ui.companySwitcherNewCompanyCountry?.value,
+                note: ui.companySwitcherNewCompanyNote?.value,
+                isActive: ui.companySwitcherNewCompanyActive?.value !== "false"
             });
             if (!entry?.name) {
                 return fail(ui.companySwitcherAddMessage, "Enter the company name first.", ui.companySwitcherNewCompanyName);
             }
+            const fulfillmentLocationCode = norm(ui.companySwitcherNewCompanyFulfillmentLocation?.value || getDefaultFulfillmentLocationCode());
             const submitButton = resolveActionButton(event);
             try {
                 await runActionWithFeedback({
@@ -12862,13 +13071,22 @@
                         method: "POST",
                         body: JSON.stringify(entry)
                     });
+                    if (fulfillmentLocationCode) {
+                        await requestJson("/api/company-fulfillment-location", {
+                            method: "POST",
+                            body: JSON.stringify({
+                                accountName: entry.name,
+                                locationCode: fulfillmentLocationCode,
+                                isPrimary: true
+                            })
+                        });
+                    }
                     await syncServerState(true);
                     setActiveCompany(entry.name, { force: true, rerender: false });
+                    loadCompanyFulfillmentAssignment(entry.name);
                     renderCompanySwitcherList();
-                    ui.companySwitcherAddForm?.reset?.();
-                    ui.companySwitcherAddForm?.classList.add("hidden");
-                    if (ui.companySwitcherAddToggleBtn) ui.companySwitcherAddToggleBtn.textContent = "+ Add Company";
-                    showMessage(ui.companySwitcherAddMessage, `Company ${entry.name} was added and selected.`, "success");
+                    const location = getFulfillmentLocationByCode(fulfillmentLocationCode);
+                    showMessage(ui.companySwitcherAddMessage, `Company ${entry.name} was added and selected${location ? ` with ${location.name} as the primary fulfillment location` : ""}.`, "success");
                 });
             } catch (error) {
                 showMessage(ui.companySwitcherAddMessage, error.message, "error");
@@ -20806,6 +21024,11 @@
                 const current = ui.companyFulfillmentLocation.value || selectedForCompany;
                 ui.companyFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(current);
                 if (current) ui.companyFulfillmentLocation.value = current;
+            }
+            if (ui.companySwitcherNewCompanyFulfillmentLocation) {
+                const current = ui.companySwitcherNewCompanyFulfillmentLocation.value || selectedForCompany;
+                ui.companySwitcherNewCompanyFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(current);
+                if (current) ui.companySwitcherNewCompanyFulfillmentLocation.value = current;
             }
         }
 
