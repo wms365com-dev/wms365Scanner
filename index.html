@@ -321,7 +321,7 @@
             bottom: 0;
             z-index: 120;
             display: grid;
-            grid-template-rows: auto auto minmax(0, 1fr);
+            grid-template-rows: auto auto auto minmax(0, 1fr) auto;
             gap: 0.75rem;
             width: min(24rem, 92vw);
             padding: 1rem;
@@ -361,6 +361,60 @@
             border: 1px solid #008c95;
             background: #ffffff;
             font-size: 0.82rem;
+        }
+
+        .company-switcher-add {
+            display: grid;
+            gap: 0.5rem;
+            padding: 0.65rem;
+            border: 1px solid #d6e0e8;
+            background: #f8fbfc;
+        }
+
+        .company-switcher-add[hidden] {
+            display: none !important;
+        }
+
+        .company-switcher-add-toggle {
+            width: 100%;
+            min-height: 32px;
+            border: 1px solid #bdd5df;
+            background: #ffffff;
+            color: #006d7f;
+            font-size: 0.78rem;
+            font-weight: 800;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .company-switcher-add-form {
+            display: grid;
+            gap: 0.45rem;
+        }
+
+        .company-switcher-add-form.hidden {
+            display: none;
+        }
+
+        .company-switcher-add-form input {
+            width: 100%;
+            min-height: 32px;
+            padding: 0.35rem 0.55rem;
+            border: 1px solid #c8d6e1;
+            background: #ffffff;
+            color: #172536;
+            font-size: 0.78rem;
+        }
+
+        .company-switcher-add-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .company-switcher-add .status {
+            margin: 0;
+            font-size: 0.74rem;
         }
 
         .company-switcher-list {
@@ -4089,6 +4143,28 @@
                 text-transform: uppercase;
             }
 
+            .dashboard-panel-actions {
+                display: grid;
+                justify-items: end;
+                gap: 0.3rem;
+            }
+
+            .dashboard-drill-btn {
+                min-height: 1.7rem;
+                padding: 0.18rem 0.45rem;
+                border: 1px solid #bdd5df;
+                border-radius: 4px;
+                background: #ffffff;
+                color: #006d7f;
+                font-size: 0.68rem;
+                font-weight: 700;
+                cursor: pointer;
+            }
+
+            .dashboard-drill-btn:hover {
+                background: #eef9fb;
+            }
+
             .dashboard-work-list,
             .dashboard-plan-list {
                 display: grid;
@@ -4152,6 +4228,74 @@
 
             .dashboard-plan-item.ready {
                 background: #effafa;
+            }
+
+            .dashboard-summary-block {
+                display: grid;
+                gap: 0.35rem;
+                padding: 0.72rem;
+                border-bottom: 1px solid #e2e8ef;
+                background: #ffffff;
+                color: #455b70;
+                font-size: 0.76rem;
+                line-height: 1.35;
+            }
+
+            .dashboard-summary-block strong {
+                color: #0f2b44;
+                font-size: 0.84rem;
+            }
+
+            .dashboard-popout {
+                position: fixed;
+                inset: 0;
+                z-index: 3550;
+                display: grid;
+                place-items: center;
+                padding: 2rem;
+                background: rgba(22, 30, 38, 0.42);
+            }
+
+            .dashboard-popout.hidden {
+                display: none;
+            }
+
+            .dashboard-popout-card {
+                width: min(920px, calc(100vw - 4rem));
+                max-height: min(760px, calc(100vh - 4rem));
+                display: grid;
+                grid-template-rows: auto minmax(0, 1fr);
+                border: 1px solid #b8c6d2;
+                border-radius: 4px;
+                background: #ffffff;
+                box-shadow: 0 20px 54px rgba(15, 23, 42, 0.22);
+                overflow: hidden;
+            }
+
+            .dashboard-popout-head {
+                display: flex;
+                align-items: start;
+                justify-content: space-between;
+                gap: 1rem;
+                padding: 0.8rem 0.9rem;
+                border-bottom: 1px solid #dce4eb;
+                background: #fbfcfd;
+            }
+
+            .dashboard-popout-head h3 {
+                margin: 0;
+                color: #0f2b44;
+                font-size: 1rem;
+            }
+
+            .dashboard-popout-head p {
+                margin: 0.18rem 0 0;
+                color: #5d7184;
+                font-size: 0.76rem;
+            }
+
+            .dashboard-popout-list {
+                overflow: auto;
             }
 
             @media (max-width: 1180px) {
@@ -5094,6 +5238,18 @@
                             <label class="company-switcher-search" for="companySwitcherSearch">
                                 <input id="companySwitcherSearch" type="search" placeholder="Search" autocomplete="off">
                             </label>
+                            <div class="company-switcher-add" id="companySwitcherAddPanel" hidden>
+                                <button class="company-switcher-add-toggle" id="companySwitcherAddToggleBtn" type="button">+ Add Company</button>
+                                <form class="company-switcher-add-form hidden" id="companySwitcherAddForm" autocomplete="off">
+                                    <input id="companySwitcherNewCompanyName" type="text" placeholder="Company name" aria-label="Company name">
+                                    <input id="companySwitcherNewCompanyEmail" type="email" placeholder="Contact / portal email optional" aria-label="Company email">
+                                    <div class="company-switcher-add-actions">
+                                        <button class="btn mini" type="submit">Create</button>
+                                        <button class="btn ghost mini" id="companySwitcherAddCancelBtn" type="button">Cancel</button>
+                                    </div>
+                                    <div class="status" id="companySwitcherAddMessage"></div>
+                                </form>
+                            </div>
                             <div class="company-switcher-list" id="companySwitcherList" role="listbox" aria-label="Available companies"></div>
                             <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Show All Companies</button>
                         </div>
@@ -5452,7 +5608,10 @@
                                 <h3>Inbound Plan</h3>
                                 <p>Expected purchase orders and receipts that need warehouse attention.</p>
                             </div>
-                            <span id="dashboardInboundMeta">0 open</span>
+                            <div class="dashboard-panel-actions">
+                                <span id="dashboardInboundMeta">0 open</span>
+                                <button class="dashboard-drill-btn" type="button" data-dashboard-popout="inbound">View List</button>
+                            </div>
                         </div>
                         <div class="dashboard-work-list" id="warehouseDashboardInboundList"></div>
                     </article>
@@ -5463,7 +5622,10 @@
                                 <h3>Outbound Plan</h3>
                                 <p>Released, picked, and staged sales orders that drive labor planning.</p>
                             </div>
-                            <span id="dashboardOutboundMeta">0 open</span>
+                            <div class="dashboard-panel-actions">
+                                <span id="dashboardOutboundMeta">0 open</span>
+                                <button class="dashboard-drill-btn" type="button" data-dashboard-popout="outbound">View List</button>
+                            </div>
                         </div>
                         <div class="dashboard-work-list" id="warehouseDashboardOutboundList"></div>
                     </article>
@@ -5478,6 +5640,20 @@
                         </div>
                         <div class="dashboard-plan-list" id="warehouseDashboardPlanningList"></div>
                     </article>
+                </div>
+
+                <div class="dashboard-popout hidden" id="dashboardListPopout" role="dialog" aria-modal="true" aria-labelledby="dashboardPopoutTitle">
+                    <div class="dashboard-popout-card">
+                        <div class="dashboard-popout-head">
+                            <div>
+                                <span class="dashboard-kicker">Drill-In List</span>
+                                <h3 id="dashboardPopoutTitle">Dashboard List</h3>
+                                <p id="dashboardPopoutMeta">Select a row to open the document page.</p>
+                            </div>
+                            <button class="btn ghost mini" type="button" id="dashboardPopoutCloseBtn">Close</button>
+                        </div>
+                        <div class="dashboard-popout-list" id="dashboardPopoutList"></div>
+                    </div>
                 </div>
             </div>
             <div class="home-callout">
@@ -8376,6 +8552,13 @@
             desktopCompanySwitcher: document.getElementById("desktopCompanySwitcher"),
             desktopCompanySwitcherSummary: document.getElementById("desktopCompanySwitcherSummary"),
             companySwitcherSearch: document.getElementById("companySwitcherSearch"),
+            companySwitcherAddPanel: document.getElementById("companySwitcherAddPanel"),
+            companySwitcherAddToggleBtn: document.getElementById("companySwitcherAddToggleBtn"),
+            companySwitcherAddForm: document.getElementById("companySwitcherAddForm"),
+            companySwitcherNewCompanyName: document.getElementById("companySwitcherNewCompanyName"),
+            companySwitcherNewCompanyEmail: document.getElementById("companySwitcherNewCompanyEmail"),
+            companySwitcherAddCancelBtn: document.getElementById("companySwitcherAddCancelBtn"),
+            companySwitcherAddMessage: document.getElementById("companySwitcherAddMessage"),
             companySwitcherList: document.getElementById("companySwitcherList"),
             companySwitcherCloseBtn: document.getElementById("companySwitcherCloseBtn"),
             desktopCommandContext: document.getElementById("desktopCommandContext"),
@@ -8412,6 +8595,11 @@
             warehouseDashboardInboundList: document.getElementById("warehouseDashboardInboundList"),
             warehouseDashboardOutboundList: document.getElementById("warehouseDashboardOutboundList"),
             warehouseDashboardPlanningList: document.getElementById("warehouseDashboardPlanningList"),
+            dashboardListPopout: document.getElementById("dashboardListPopout"),
+            dashboardPopoutTitle: document.getElementById("dashboardPopoutTitle"),
+            dashboardPopoutMeta: document.getElementById("dashboardPopoutMeta"),
+            dashboardPopoutList: document.getElementById("dashboardPopoutList"),
+            dashboardPopoutCloseBtn: document.getElementById("dashboardPopoutCloseBtn"),
             syncNowBtn: document.getElementById("syncNowBtn"),
             activeCompany: document.getElementById("activeCompany"),
             activeCompanyDisplay: document.getElementById("activeCompanyDisplay"),
@@ -8984,12 +9172,16 @@
                 ui.companySwitcherSearch?.focus();
             });
             ui.companySwitcherSearch?.addEventListener("input", () => renderCompanySwitcherList());
+            ui.companySwitcherAddToggleBtn?.addEventListener("click", () => toggleCompanySwitcherAddForm(true));
+            ui.companySwitcherAddCancelBtn?.addEventListener("click", () => toggleCompanySwitcherAddForm(false));
+            ui.companySwitcherAddForm?.addEventListener("submit", saveCompanyFromSwitcher);
             ui.companySwitcherList?.addEventListener("click", onCompanySwitcherListClick);
             ui.companySwitcherCloseBtn?.addEventListener("click", () => {
                 if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
             });
             ui.desktopCompanySwitcher?.addEventListener("toggle", () => {
                 if (!ui.desktopCompanySwitcher.open) return;
+                syncCompanySwitcherAddAccess();
                 renderCompanySwitcherList();
                 window.setTimeout(() => ui.companySwitcherSearch?.focus(), 0);
             });
@@ -9157,8 +9349,14 @@
             ui.masterItemList.addEventListener("click", onMasterItemListClick);
             ui.portalAccessList.addEventListener("click", onPortalAccessListClick);
             ui.integrationList.addEventListener("click", onIntegrationListClick);
-            ui.warehouseDashboardInboundList?.addEventListener("click", onPortalInboundsListClick);
-            ui.warehouseDashboardOutboundList?.addEventListener("click", onPortalOrdersListClick);
+            document.querySelectorAll("[data-dashboard-popout]").forEach((button) => button.addEventListener("click", () => openDashboardListPopout(button.dataset.dashboardPopout)));
+            ui.dashboardPopoutCloseBtn?.addEventListener("click", closeDashboardListPopout);
+            ui.dashboardListPopout?.addEventListener("click", (event) => {
+                if (event.target === ui.dashboardListPopout) closeDashboardListPopout();
+            });
+            ui.warehouseDashboardInboundList?.addEventListener("click", onWarehouseDashboardListClick);
+            ui.warehouseDashboardOutboundList?.addEventListener("click", onWarehouseDashboardListClick);
+            ui.dashboardPopoutList?.addEventListener("click", onWarehouseDashboardListClick);
             ui.portalInboundsList?.addEventListener("click", onPortalInboundsListClick);
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
@@ -9404,6 +9602,10 @@
                 refreshFeedbackQueue(true).catch(() => {});
             });
             window.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !ui.dashboardListPopout?.classList.contains("hidden")) {
+                    closeDashboardListPopout();
+                    return;
+                }
                 if (event.key === "Escape" && !ui.feedbackModal?.classList.contains("hidden")) {
                     closeFeedbackModal();
                     return;
@@ -12311,16 +12513,14 @@
             return records.flatMap((record) => Array.isArray(record.lines) ? record.lines : []);
         }
 
-        function renderWarehouseDashboard() {
-            if (!ui.warehouseDashboardLead) return;
-            const company = getActiveCompany();
-            const today = todayInputValue();
-            const scopedInbounds = getCompanyScopedPortalInbounds();
-            const scopedOrders = getCompanyScopedPortalOrders();
-            const openInbounds = scopedInbounds
+        function getDashboardOpenInbounds() {
+            return getCompanyScopedPortalInbounds()
                 .filter((inbound) => norm(inbound.status) !== "RECEIVED")
                 .sort((a, b) => dashboardDateSort(a.expectedDate).localeCompare(dashboardDateSort(b.expectedDate)) || (a.inboundCode || "").localeCompare(b.inboundCode || ""));
-            const openOrders = scopedOrders
+        }
+
+        function getDashboardOpenOrders() {
+            return getCompanyScopedPortalOrders()
                 .filter((order) => ["RELEASED", "PICKED", "STAGED"].includes(norm(order.status)))
                 .sort((a, b) => {
                     const statusRank = { RELEASED: 1, PICKED: 2, STAGED: 3 };
@@ -12328,6 +12528,99 @@
                         || dashboardDateSort(a.requestedShipDate).localeCompare(dashboardDateSort(b.requestedShipDate))
                         || (a.orderCode || "").localeCompare(b.orderCode || "");
                 });
+        }
+
+        function dashboardInboundRowMarkup(inbound, today = todayInputValue()) {
+            const lines = Array.isArray(inbound.lines) ? inbound.lines : [];
+            const lineTotals = summarizeTrackedTotals(lines);
+            const dateKey = dashboardDateKey(inbound.expectedDate);
+            const dateText = dateKey ? (dateKey < today ? `Overdue ${dateKey}` : (dateKey === today ? "Due today" : `Due ${dateKey}`)) : "No date";
+            return `
+                <button class="dashboard-work-row" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">
+                    <strong>${esc(inbound.inboundCode || "Purchase Order")}</strong>
+                    <span>${esc(inbound.accountName)} | ${esc(inbound.referenceNumber || "No reference")}<br><small>${esc(dateText)} | ${num(lines.length)} line${lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
+                    <span class="pill ${norm(inbound.status) === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status || "SUBMITTED")}</span>
+                </button>
+            `;
+        }
+
+        function dashboardOutboundRowMarkup(order, today = todayInputValue()) {
+            const lines = Array.isArray(order.lines) ? order.lines : [];
+            const lineTotals = summarizeTrackedTotals(lines);
+            const dateKey = dashboardDateKey(order.requestedShipDate);
+            const dateText = dateKey ? (dateKey < today ? `Past due ${dateKey}` : (dateKey === today ? "Ship today" : `Ship ${dateKey}`)) : "No ship date";
+            return `
+                <button class="dashboard-work-row" type="button" data-open-warehouse-order="${attr(order.id)}">
+                    <strong>${esc(order.orderCode || "Sales Order")}</strong>
+                    <span>${esc(order.accountName)} | ${esc(order.poNumber || "No PO")}<br><small>${esc(dateText)} | ${num(lines.length)} line${lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
+                    <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
+                </button>
+            `;
+        }
+
+        function dashboardAggregatePromptMarkup(type, count, totals) {
+            const label = type === "inbound" ? "purchase order" : "sales order";
+            const action = type === "inbound" ? "View purchase order list" : "View sales order list";
+            return `
+                <div class="dashboard-summary-block">
+                    <strong>${num(count)} open ${label}${count === 1 ? "" : "s"} across all companies</strong>
+                    <span>${esc(formatTrackedSummary(totals))}. Detailed rows are hidden in All Companies mode to keep the dashboard clean.</span>
+                    <button class="dashboard-drill-btn" type="button" data-dashboard-popout="${attr(type)}">${esc(action)}</button>
+                </div>
+            `;
+        }
+
+        function openDashboardListPopout(type = "outbound") {
+            const normalizedType = type === "inbound" ? "inbound" : "outbound";
+            const today = todayInputValue();
+            const rows = normalizedType === "inbound" ? getDashboardOpenInbounds() : getDashboardOpenOrders();
+            const title = normalizedType === "inbound" ? "Open Purchase Orders" : "Open Sales Orders";
+            const meta = getActiveCompany()
+                ? `${getActiveCompany()} | ${num(rows.length)} open ${normalizedType === "inbound" ? "purchase order" : "sales order"}${rows.length === 1 ? "" : "s"}`
+                : `All assigned companies | ${num(rows.length)} open ${normalizedType === "inbound" ? "purchase order" : "sales order"}${rows.length === 1 ? "" : "s"}`;
+            if (ui.dashboardPopoutTitle) ui.dashboardPopoutTitle.textContent = title;
+            if (ui.dashboardPopoutMeta) ui.dashboardPopoutMeta.textContent = `${meta}. Select a row to open the document page.`;
+            if (ui.dashboardPopoutList) {
+                ui.dashboardPopoutList.innerHTML = rows.length
+                    ? rows.map((entry) => normalizedType === "inbound" ? dashboardInboundRowMarkup(entry, today) : dashboardOutboundRowMarkup(entry, today)).join("")
+                    : `<p class="empty">No open ${normalizedType === "inbound" ? "purchase orders" : "sales orders"} are loaded.</p>`;
+            }
+            ui.dashboardListPopout?.classList.remove("hidden");
+        }
+
+        function closeDashboardListPopout() {
+            ui.dashboardListPopout?.classList.add("hidden");
+        }
+
+        function onWarehouseDashboardListClick(event) {
+            const popoutButton = event.target.closest("[data-dashboard-popout]");
+            if (popoutButton) {
+                openDashboardListPopout(popoutButton.dataset.dashboardPopout);
+                return;
+            }
+            const inboundButton = event.target.closest("[data-open-warehouse-inbound]");
+            if (inboundButton) {
+                closeDashboardListPopout();
+                setSection("inbounds", { focusAnchorId: "warehouseInboundQueueCard" });
+                onPortalInboundsListClick(event);
+                return;
+            }
+            const orderButton = event.target.closest("[data-open-warehouse-order]");
+            if (orderButton) {
+                closeDashboardListPopout();
+                setSection("orders", { focusAnchorId: "portalOrdersQueueCard" });
+                onPortalOrdersListClick(event);
+            }
+        }
+
+        function renderWarehouseDashboard() {
+            if (!ui.warehouseDashboardLead) return;
+            const company = getActiveCompany();
+            const today = todayInputValue();
+            const allCompanyMode = !company;
+            const scopedOrders = getCompanyScopedPortalOrders();
+            const openInbounds = getDashboardOpenInbounds();
+            const openOrders = getDashboardOpenOrders();
             const releasedOrders = openOrders.filter((order) => norm(order.status) === "RELEASED");
             const pickedOrders = openOrders.filter((order) => norm(order.status) === "PICKED");
             const stagedOrders = openOrders.filter((order) => norm(order.status) === "STAGED");
@@ -12377,36 +12670,18 @@
             }
 
             if (ui.warehouseDashboardInboundList) {
-                ui.warehouseDashboardInboundList.innerHTML = openInbounds.length
-                    ? openInbounds.slice(0, 6).map((inbound) => {
-                        const lineTotals = summarizeTrackedTotals(inbound.lines || []);
-                        const dateKey = dashboardDateKey(inbound.expectedDate);
-                        const dateText = dateKey ? (dateKey < today ? `Overdue ${dateKey}` : (dateKey === today ? "Due today" : `Due ${dateKey}`)) : "No date";
-                        return `
-                            <button class="dashboard-work-row" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">
-                                <strong>${esc(inbound.inboundCode || "Purchase Order")}</strong>
-                                <span>${esc(inbound.accountName)} | ${esc(inbound.referenceNumber || "No reference")}<br><small>${esc(dateText)} | ${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
-                                <span class="pill ${norm(inbound.status) === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status || "SUBMITTED")}</span>
-                            </button>
-                        `;
-                    }).join("")
+                ui.warehouseDashboardInboundList.innerHTML = allCompanyMode && openInbounds.length
+                    ? dashboardAggregatePromptMarkup("inbound", openInbounds.length, inboundTotals)
+                    : openInbounds.length
+                        ? openInbounds.slice(0, 6).map((inbound) => dashboardInboundRowMarkup(inbound, today)).join("")
                     : `<p class="empty">No open purchase orders are loaded${company ? ` for ${esc(company)}` : ""}.</p>`;
             }
 
             if (ui.warehouseDashboardOutboundList) {
-                ui.warehouseDashboardOutboundList.innerHTML = openOrders.length
-                    ? openOrders.slice(0, 6).map((order) => {
-                        const lineTotals = summarizeTrackedTotals(order.lines || []);
-                        const dateKey = dashboardDateKey(order.requestedShipDate);
-                        const dateText = dateKey ? (dateKey < today ? `Past due ${dateKey}` : (dateKey === today ? "Ship today" : `Ship ${dateKey}`)) : "No ship date";
-                        return `
-                            <button class="dashboard-work-row" type="button" data-open-warehouse-order="${attr(order.id)}">
-                                <strong>${esc(order.orderCode || "Sales Order")}</strong>
-                                <span>${esc(order.accountName)} | ${esc(order.poNumber || "No PO")}<br><small>${esc(dateText)} | ${num(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
-                                <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
-                            </button>
-                        `;
-                    }).join("")
+                ui.warehouseDashboardOutboundList.innerHTML = allCompanyMode && openOrders.length
+                    ? dashboardAggregatePromptMarkup("outbound", openOrders.length, outboundTotals)
+                    : openOrders.length
+                        ? openOrders.slice(0, 6).map((order) => dashboardOutboundRowMarkup(order, today)).join("")
                     : `<p class="empty">No released, picked, or staged sales orders are loaded${company ? ` for ${esc(company)}` : ""}.</p>`;
             }
 
@@ -12507,6 +12782,7 @@
 
         function renderCompanySwitcherList() {
             if (!ui.companySwitcherList) return;
+            syncCompanySwitcherAddAccess();
             const activeCompany = getActiveCompany();
             const query = norm(ui.companySwitcherSearch?.value || "");
             let options = getCompanySwitcherOptions();
@@ -12535,6 +12811,68 @@
             if (!button) return;
             setActiveCompany(button.dataset.companySwitcherValue || "", { force: true });
             if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
+        }
+
+        function syncCompanySwitcherAddAccess() {
+            if (!ui.companySwitcherAddPanel) return;
+            const canAddCompany = currentUserIsSuperAdmin();
+            ui.companySwitcherAddPanel.hidden = !canAddCompany;
+            if (!canAddCompany) toggleCompanySwitcherAddForm(false);
+        }
+
+        function toggleCompanySwitcherAddForm(open = false) {
+            if (!ui.companySwitcherAddForm) return;
+            ui.companySwitcherAddForm.classList.toggle("hidden", !open);
+            if (ui.companySwitcherAddToggleBtn) {
+                ui.companySwitcherAddToggleBtn.textContent = open ? "Add Company" : "+ Add Company";
+            }
+            if (!open) {
+                ui.companySwitcherAddForm.reset?.();
+                if (ui.companySwitcherAddMessage) ui.companySwitcherAddMessage.className = "status";
+                if (ui.companySwitcherAddMessage) ui.companySwitcherAddMessage.textContent = "";
+                return;
+            }
+            window.setTimeout(() => ui.companySwitcherNewCompanyName?.focus(), 0);
+        }
+
+        async function saveCompanyFromSwitcher(event) {
+            event.preventDefault();
+            if (!currentUserIsSuperAdmin()) {
+                return fail(ui.companySwitcherAddMessage, "Super user access is required to add companies here.");
+            }
+            const entry = sanitizeMasterOwner({
+                name: ui.companySwitcherNewCompanyName?.value,
+                email: ui.companySwitcherNewCompanyEmail?.value,
+                portalLoginEmail: ui.companySwitcherNewCompanyEmail?.value,
+                billingEmail: ui.companySwitcherNewCompanyEmail?.value,
+                isActive: true
+            });
+            if (!entry?.name) {
+                return fail(ui.companySwitcherAddMessage, "Enter the company name first.", ui.companySwitcherNewCompanyName);
+            }
+            const submitButton = resolveActionButton(event);
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Creating...",
+                    messageElement: ui.companySwitcherAddMessage,
+                    progressMessage: `Creating company ${entry.name}...`
+                }, async () => {
+                    await requestJson("/api/master-owner", {
+                        method: "POST",
+                        body: JSON.stringify(entry)
+                    });
+                    await syncServerState(true);
+                    setActiveCompany(entry.name, { force: true, rerender: false });
+                    renderCompanySwitcherList();
+                    ui.companySwitcherAddForm?.reset?.();
+                    ui.companySwitcherAddForm?.classList.add("hidden");
+                    if (ui.companySwitcherAddToggleBtn) ui.companySwitcherAddToggleBtn.textContent = "+ Add Company";
+                    showMessage(ui.companySwitcherAddMessage, `Company ${entry.name} was added and selected.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.companySwitcherAddMessage, error.message, "error");
+            }
         }
 
         function renderActiveCompanyOptions(owners = []) {
