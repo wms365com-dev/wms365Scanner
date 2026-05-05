@@ -5524,7 +5524,7 @@
                     <button class="desktop-ribbon-icon" type="button" title="Open in Excel">Excel</button>
                     <span class="desktop-ribbon-divider"></span>
                     <button class="utility-action-link primary" type="button" data-jump-section="orders" data-start-new="sales-order">+ New</button>
-                    <button class="utility-action-link" type="button" data-jump-section="backup">Delete</button>
+                    <button class="utility-action-link" type="button" id="desktopCommandDeleteBtn">Delete</button>
                     <button class="utility-action-link has-caret" type="button" data-jump-section="home">Home</button>
                     <button class="utility-action-link has-caret" type="button" data-jump-section="orders">Release</button>
                     <button class="utility-action-link" type="button" data-jump-section="scan">Post...</button>
@@ -7478,6 +7478,7 @@
                         <div class="erp-command-strip">
                             <button class="erp-command-link" type="button" id="salesOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandDeleteBtn" hidden>Delete Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPickTicketBtn">Print Pick Ticket</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPackingSlipBtn">Print Packing Slip</button>
@@ -7567,6 +7568,7 @@
                     <div class="erp-document-process hidden" id="warehouseOrderWorkflowPanel"></div>
                     <div class="button-row" style="margin-top: 1rem;">
                         <button class="btn secondary" id="saveWarehouseOrderDraftBtn" type="button">Save Draft</button>
+                        <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Delete Draft</button>
                         <button class="btn" id="releaseWarehouseOrderBtn" type="button">Release Order</button>
                     </div>
                     <div class="status" id="warehouseOrderMessage"></div>
@@ -8763,6 +8765,7 @@
             companySwitcherList: document.getElementById("companySwitcherList"),
             companySwitcherCloseBtn: document.getElementById("companySwitcherCloseBtn"),
             desktopCommandContext: document.getElementById("desktopCommandContext"),
+            desktopCommandDeleteBtn: document.getElementById("desktopCommandDeleteBtn"),
             desktopCommandRefreshBtn: document.getElementById("desktopCommandRefreshBtn"),
             desktopAlertReleased: document.getElementById("desktopAlertReleased"),
             desktopAlertPicked: document.getElementById("desktopAlertPicked"),
@@ -9168,9 +9171,11 @@
             addWarehouseOrderLineBtn: document.getElementById("addWarehouseOrderLineBtn"),
             resetWarehouseOrderBtn: document.getElementById("resetWarehouseOrderBtn"),
             saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
+            deleteWarehouseOrderBtn: document.getElementById("deleteWarehouseOrderBtn"),
             releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
             salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
             salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
+            salesOrderCommandDeleteBtn: document.getElementById("salesOrderCommandDeleteBtn"),
             salesOrderCommandReleaseBtn: document.getElementById("salesOrderCommandReleaseBtn"),
             salesOrderCommandPickTicketBtn: document.getElementById("salesOrderCommandPickTicketBtn"),
             salesOrderCommandPackingSlipBtn: document.getElementById("salesOrderCommandPackingSlipBtn"),
@@ -9448,6 +9453,13 @@
             ui.desktopCommandRefreshBtn?.addEventListener("click", () => {
                 ui.syncNowBtn?.click();
             });
+            ui.desktopCommandDeleteBtn?.addEventListener("click", (event) => {
+                if (activeSection === "orders" || document.body.classList.contains("sales-order-popout-open")) {
+                    deleteWarehouseSalesOrder(event);
+                    return;
+                }
+                showMessage(ui.scanMessage, "Open a draft sales order before using Delete.", "info");
+            });
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button.dataset.mobileLabelMode) {
                     setLabelToolMode(button.dataset.mobileLabelMode);
@@ -9580,9 +9592,11 @@
             ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
             ui.resetWarehouseOrderBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
+            ui.deleteWarehouseOrderBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
+            ui.salesOrderCommandDeleteBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
             ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
@@ -16186,6 +16200,14 @@
             if (ui.warehouseOrderStatusChip) {
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
             }
+            const canDeleteDraft = !!order?.id && order.status === "DRAFT";
+            [ui.deleteWarehouseOrderBtn, ui.salesOrderCommandDeleteBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canDeleteDraft;
+                button.disabled = !canDeleteDraft;
+                button.title = canDeleteDraft
+                    ? "Delete this draft order from the warehouse queue."
+                    : "Only saved draft orders can be deleted.";
+            });
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
             ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
@@ -16325,6 +16347,46 @@
                     resetWarehouseSalesOrderForm();
                     showMessage(ui.warehouseOrderMessage, `Released order ${response?.order?.orderCode || ""}.`, "success");
                     return response;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        async function deleteWarehouseSalesOrder(context = null) {
+            if (!editingWarehouseOrderId) {
+                resetWarehouseSalesOrderForm();
+                return showMessage(ui.warehouseOrderMessage, "Unsaved draft cleared.", "success");
+            }
+            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
+            if (!currentOrder?.id) {
+                return showMessage(ui.warehouseOrderMessage, "Open a saved draft sales order before deleting.", "error");
+            }
+            if (currentOrder.status !== "DRAFT") {
+                return showMessage(ui.warehouseOrderMessage, `Only draft orders can be deleted. This order is ${currentOrder.status}.`, "error");
+            }
+            const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
+            if (!window.confirm(`Delete draft order ${orderLabel}? It will be archived and removed from the active sales order queue.`)) {
+                return null;
+            }
+            const actionButton = resolveActionButton(context, ui.deleteWarehouseOrderBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Deleting...",
+                    messageElement: ui.warehouseOrderMessage,
+                    progressMessage: `Deleting draft order ${orderLabel}...`
+                }, async () => {
+                    await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/archive`, {
+                        method: "POST"
+                    });
+                    portalOrderRecords = portalOrderRecords.filter((entry) => String(entry.id) !== String(editingWarehouseOrderId));
+                    await refreshPortalOrdersList(true);
+                    showSalesOrderList({ scroll: false });
+                    resetWarehouseSalesOrderForm();
+                    showMessage(ui.portalOrdersMessage, `Draft order ${orderLabel} deleted from the active queue.`, "success");
+                    return true;
                 });
             } catch (error) {
                 showMessage(ui.warehouseOrderMessage, error.message, "error");

@@ -2069,6 +2069,29 @@ app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/portal-orders/:id/archive", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+            const actor = req.appUser?.full_name || req.appUser?.email || "Warehouse";
+            return archivePortalOrderForAccount(client, accountName, orderId, {
+                downloadPathPrefix: "/api/admin/portal-order-documents",
+                activityTitlePrefix: "warehouse sales",
+                activityActor: actor
+            });
+        });
+        res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-inbounds", async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.company || req.body?.customer);
