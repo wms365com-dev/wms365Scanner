@@ -17293,8 +17293,8 @@
                         busyLabel: currentOrder?.status === "STAGED" ? "Marking shipped..." : "Saving confirmation...",
                         messageElement: actionMessageElement,
                         progressMessage: currentOrder?.status === "STAGED"
-                            ? `Marking order ${currentOrder?.orderCode || orderId} shipped...`
-                            : `Saving shipping confirmation for ${currentOrder?.orderCode || orderId}...`
+                            ? `Marking order ${currentOrder?.orderCode || orderId} shipped, deducting inventory, and queuing the customer email...`
+                            : `Saving shipping confirmation for ${currentOrder?.orderCode || orderId} and queuing the customer email...`
                     }, async () => {
                         const orderCard = shipButton.closest(".erp-document-shipping-panel") || shipButton.closest(".erp-list-shipping-panel") || shipButton.closest(".quick-detail-stack") || shipButton.closest(".quick-row");
                         const shipDate = orderCard?.querySelector(`[data-portal-ship-date="${orderId}"]`)?.value || "";
@@ -17314,11 +17314,14 @@
                                 documents
                             })
                         });
+                        const emailQueuedNote = response?.shipmentEmailQueued
+                            ? " Customer shipment email is sending in the background."
+                            : "";
                         const savedOrder = applyPortalOrderUpdate(
                             response?.order,
                             currentOrder?.status === "STAGED"
-                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.`
-                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.`,
+                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.${emailQueuedNote}`
+                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}`,
                             actionMessageElement
                         );
                         if (savedOrder?.status === "SHIPPED" && fileInput) {

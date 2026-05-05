@@ -2613,13 +2613,22 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
             throw httpError(400, "A valid order status is required.");
         }
 
+        let previousOrderStatus = "";
         const order = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            if (nextStatus === "SHIPPED") {
+                const currentOrder = await getPortalOrderById(client, orderId, accountName);
+                previousOrderStatus = currentOrder?.status || "";
+            }
             return updateAdminPortalOrderStatus(client, orderId, nextStatus, req.body, req.appUser);
         });
 
-        res.json({ success: true, order });
+        const shipmentEmailQueued = nextStatus === "SHIPPED";
+        res.json({ success: true, order, shipmentEmailQueued });
+        if (shipmentEmailQueued) {
+            queuePortalShipmentConfirmationEmail(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
+        }
     } catch (error) {
         next(error);
     }
@@ -9855,6 +9864,49 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
     return recipients;
 }
 
+function queuePortalShipmentConfirmationEmail(order, rawConfirmation, { isUpdate = false } = {}) {
+    if (!order?.id || !order?.accountName) return;
+    const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
+    const emailConfirmation = {
+        ...confirmation,
+        confirmedShipDate: order.confirmedShipDate || confirmation.confirmedShipDate || "",
+        shippedCarrierName: order.shippedCarrierName || confirmation.shippedCarrierName || "",
+        shippedTrackingReference: order.shippedTrackingReference || confirmation.shippedTrackingReference || "",
+        shippedConfirmationNote: order.shippedConfirmationNote || confirmation.shippedConfirmationNote || ""
+    };
+    const orderLabel = order.orderCode || String(order.id);
+
+    setTimeout(async () => {
+        try {
+            const recipients = await sendPortalShipmentConfirmationEmail(pool, order, emailConfirmation, { isUpdate });
+            await withTransaction((client) => insertActivity(
+                client,
+                "order",
+                `Shipment email sent for portal order ${orderLabel}`,
+                [
+                    order.accountName,
+                    `Sent to ${formatCount(recipients.length, "recipient")}`
+                ].filter(Boolean).join(" | ")
+            ));
+        } catch (error) {
+            console.error(`Shipment email failed for portal order ${orderLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "order",
+                    `Shipment email failed for portal order ${orderLabel}`,
+                    [
+                        order.accountName,
+                        error.message || "Unknown email error"
+                    ].filter(Boolean).join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record shipment email failure for portal order ${orderLabel}:`, logError);
+            }
+        }
+    }, 0);
+}
+
 async function savePortalShippingConfirmation(client, order, rawConfirmation, appUser = null, { transitionToShipped = false } = {}) {
     const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
@@ -9902,18 +9954,6 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     }
 
     const updatedOrder = await getPortalOrderById(client, order.id, order.accountName);
-    const notificationRecipients = await sendPortalShipmentConfirmationEmail(
-        client,
-        updatedOrder,
-        {
-            ...confirmation,
-            confirmedShipDate,
-            shippedCarrierName,
-            shippedTrackingReference,
-            shippedConfirmationNote
-        },
-        { isUpdate: !transitionToShipped }
-    );
     if (transitionToShipped) {
         await createPortalOrderBillingEvents(client, updatedOrder);
     }
@@ -9926,7 +9966,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
-            notificationRecipients.length ? `Email sent to ${formatCount(notificationRecipients.length, "recipient")}` : "",
+            "Shipment email queued",
             actor
         ].filter(Boolean).join(" | ")
     );
