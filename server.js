@@ -153,6 +153,7 @@ const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
 const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
 const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
 const SFTP_SYNC_PROVIDER = "SFTP";
+const SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE = "SHOPIFY_FULFILLMENT";
 const FEEDBACK_REQUEST_TYPES = ["BUG", "FEATURE", "OTHER"];
 const FEEDBACK_SOURCES = ["WAREHOUSE", "PORTAL"];
 const FEEDBACK_STATUSES = ["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"];
@@ -2648,9 +2649,11 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
         });
 
         const shipmentEmailQueued = nextStatus === "SHIPPED";
-        res.json({ success: true, order, shipmentEmailQueued });
+        const storeShipmentConfirmationQueued = nextStatus === "SHIPPED";
+        res.json({ success: true, order, shipmentEmailQueued, storeShipmentConfirmationQueued });
         if (shipmentEmailQueued) {
             queuePortalShipmentConfirmationEmail(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
+            queueStoreShipmentConfirmation(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
         }
     } catch (error) {
         next(error);
@@ -5898,6 +5901,195 @@ function parseShopifyNextLink(linkHeader) {
     if (!text) return null;
     const match = text.match(/<([^>]+)>;\s*rel="next"/i);
     return match?.[1] ? new URL(match[1]) : null;
+}
+
+function buildShopifyAdminApiUrl(shopDomain, resourcePath) {
+    const normalizedPath = String(resourcePath || "").startsWith("/")
+        ? String(resourcePath || "")
+        : `/${String(resourcePath || "")}`;
+    return new URL(`https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}${normalizedPath}`);
+}
+
+function extractShopifyErrorDetails(payload, text, fallback = "Shopify request failed.") {
+    if (payload?.errors) {
+        return typeof payload.errors === "string" ? payload.errors : JSON.stringify(payload.errors);
+    }
+    if (payload?.error_description) return String(payload.error_description);
+    if (payload?.error) return String(payload.error);
+    return text || fallback;
+}
+
+async function shopifyAdminRequestForIntegration(integrationRow, resourcePath, { method = "GET", body = null } = {}) {
+    let forceRefresh = false;
+    let activeIntegrationRow = integrationRow;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const resolved = await resolveShopifyAccessTokenForIntegration(activeIntegrationRow, { forceRefresh });
+        activeIntegrationRow = resolved.integrationRow || activeIntegrationRow;
+        const shopDomain = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, activeIntegrationRow?.store_identifier);
+        const accessToken = String(resolved.accessToken || "").trim();
+
+        if (!shopDomain || !shopDomain.endsWith(".myshopify.com")) {
+            throw httpError(400, "This Shopify connection is missing a valid .myshopify.com domain.");
+        }
+        if (!accessToken) {
+            throw httpError(400, "This Shopify connection is missing its Shopify access credential.");
+        }
+
+        const requestOptions = {
+            method,
+            headers: {
+                Accept: "application/json",
+                "X-Shopify-Access-Token": accessToken
+            },
+            signal: AbortSignal.timeout(30000)
+        };
+        if (body) {
+            requestOptions.headers["Content-Type"] = "application/json";
+            requestOptions.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(buildShopifyAdminApiUrl(shopDomain, resourcePath), requestOptions);
+        const text = await response.text();
+        let payload = {};
+        try {
+            payload = text ? JSON.parse(text) : {};
+        } catch (_error) {
+            payload = {};
+        }
+
+        if (response.ok) {
+            return { payload, integrationRow: activeIntegrationRow, shopDomain };
+        }
+
+        if ((response.status === 401 || response.status === 403)
+            && integrationHasShopifyClientCredentials(activeIntegrationRow)
+            && !forceRefresh) {
+            forceRefresh = true;
+            continue;
+        }
+
+        const details = extractShopifyErrorDetails(payload, text, response.statusText || "Shopify request failed.");
+        throw httpError(response.status === 401 || response.status === 403 ? 401 : 502, `Shopify request failed: ${details}`);
+    }
+
+    throw httpError(401, "Shopify access token refresh failed.");
+}
+
+function normalizeShopifyTrackingCompany(value) {
+    const text = normalizeFreeText(value);
+    if (!text) return "";
+    const key = normalizeText(text).replace(/[^A-Z0-9]/g, "");
+    const aliases = {
+        UPS: "UPS",
+        FEDEX: "FedEx",
+        FEDERALEXPRESS: "FedEx",
+        CANADAPOST: "Canada Post",
+        POSTESCANADA: "Canada Post",
+        CANPAR: "Canpar",
+        PUROLATOR: "Purolator",
+        DHL: "DHL Express",
+        DHLEXPRESS: "DHL Express",
+        USPS: "USPS",
+        UNITEDSTATESPOSTALSERVICE: "USPS"
+    };
+    return aliases[key] || text;
+}
+
+function isShopifyFulfillmentOrderFulfillable(fulfillmentOrder) {
+    if (normalizeText(fulfillmentOrder?.status) !== "OPEN") return false;
+    const lineItems = Array.isArray(fulfillmentOrder?.line_items) ? fulfillmentOrder.line_items : [];
+    if (!lineItems.length) return true;
+    return lineItems.some((line) => toPositiveInt(line?.quantity || line?.fulfillable_quantity || line?.remaining_quantity));
+}
+
+async function fetchShopifyFulfillmentOrdersForIntegration(integrationRow, externalOrderId) {
+    const safeExternalOrderId = encodeURIComponent(String(externalOrderId || "").trim());
+    if (!safeExternalOrderId) {
+        throw httpError(400, "This Shopify order is missing its external order id.");
+    }
+
+    const result = await shopifyAdminRequestForIntegration(
+        integrationRow,
+        `/orders/${safeExternalOrderId}/fulfillment_orders.json`
+    );
+    return {
+        ...result,
+        fulfillmentOrders: Array.isArray(result.payload?.fulfillment_orders)
+            ? result.payload.fulfillment_orders
+            : []
+    };
+}
+
+function buildShopifyFulfillmentRequestBody(order, fulfillmentOrders, { notifyCustomer = true } = {}) {
+    const trackingNumber = normalizeFreeText(order?.shippedTrackingReference || "");
+    const trackingCompany = normalizeShopifyTrackingCompany(order?.shippedCarrierName || "");
+    const fulfillment = {
+        line_items_by_fulfillment_order: fulfillmentOrders.map((fulfillmentOrder) => ({
+            fulfillment_order_id: fulfillmentOrder.id
+        })),
+        notify_customer: notifyCustomer === true,
+        message: `Shipped from WMS365${order?.orderCode ? ` for ${order.orderCode}` : ""}`
+    };
+
+    if (trackingNumber || trackingCompany) {
+        fulfillment.tracking_info = {};
+        if (trackingNumber) fulfillment.tracking_info.number = trackingNumber;
+        if (trackingCompany) fulfillment.tracking_info.company = trackingCompany;
+    }
+
+    return { fulfillment };
+}
+
+function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
+    return {
+        messageType: SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE,
+        externalOrderId: String(externalOrderId || ""),
+        portalOrderId: String(order?.id || ""),
+        orderCode: order?.orderCode || "",
+        accountName: order?.accountName || "",
+        confirmedShipDate: order?.confirmedShipDate || "",
+        shippedAt: order?.shippedAt || "",
+        shippedCarrierName: order?.shippedCarrierName || "",
+        shippedTrackingReference: order?.shippedTrackingReference || "",
+        lines: Array.isArray(order?.lines)
+            ? order.lines.map((line) => ({
+                sku: line.sku || "",
+                quantity: Number(line.quantity) || 0
+            }))
+            : []
+    };
+}
+
+async function createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId) {
+    const fulfillmentOrderResult = await fetchShopifyFulfillmentOrdersForIntegration(integrationRow, externalOrderId);
+    const fulfillableOrders = fulfillmentOrderResult.fulfillmentOrders.filter(isShopifyFulfillmentOrderFulfillable);
+    if (!fulfillableOrders.length) {
+        return {
+            skipped: true,
+            reason: fulfillmentOrderResult.fulfillmentOrders.length
+                ? "Shopify has no open fulfillment orders left for this order."
+                : "Shopify did not return any fulfillment orders for this order."
+        };
+    }
+
+    const notifyCustomer = fulfillmentOrderResult.integrationRow?.settings?.notifyCustomerOnFulfillment !== false;
+    const fulfillmentPayload = buildShopifyFulfillmentRequestBody(order, fulfillableOrders, { notifyCustomer });
+    const fulfillmentResult = await shopifyAdminRequestForIntegration(
+        fulfillmentOrderResult.integrationRow,
+        "/fulfillments.json",
+        {
+            method: "POST",
+            body: fulfillmentPayload
+        }
+    );
+
+    return {
+        skipped: false,
+        shopDomain: fulfillmentResult.shopDomain || fulfillmentOrderResult.shopDomain || "",
+        fulfillment: fulfillmentResult.payload?.fulfillment || null,
+        fulfillmentOrderCount: fulfillableOrders.length
+    };
 }
 
 function mapShopifyOrderToPortalDraft(accountName, order, integrationRow) {
@@ -9930,6 +10122,153 @@ function queuePortalShipmentConfirmationEmail(order, rawConfirmation, { isUpdate
     }, 0);
 }
 
+async function getStoreOrderIntegrationRowsForPortalOrder(client, orderId, accountName) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedOrderId || !normalizedAccount) return [];
+
+    const result = await client.query(
+        `
+            select
+                imports.external_order_id,
+                integrations.*
+            from store_order_imports imports
+            join store_integrations integrations
+              on integrations.id = imports.integration_id
+            where imports.portal_order_id = $1
+              and integrations.account_name = $2
+            order by integrations.id asc
+        `,
+        [normalizedOrderId, normalizedAccount]
+    );
+    return result.rows;
+}
+
+async function assertIntegratedStoreShipmentRequirements(client, order, shipmentDetails) {
+    const integrations = await getStoreOrderIntegrationRowsForPortalOrder(client, order?.id, order?.accountName);
+    const hasShopifyImport = integrations.some((integration) => normalizeStoreIntegrationProvider(integration.provider) === SHOPIFY_SYNC_PROVIDER);
+    if (!hasShopifyImport) return;
+
+    const carrier = normalizeFreeText(shipmentDetails?.shippedCarrierName || "");
+    const tracking = normalizeFreeText(shipmentDetails?.shippedTrackingReference || "");
+    if (!carrier || !tracking) {
+        throw httpError(400, "Shopify imported orders require carrier and tracking before marking shipped so WMS365 can mark the Shopify order fulfilled.");
+    }
+}
+
+function queueStoreShipmentConfirmation(order, rawConfirmation, { isUpdate = false } = {}) {
+    if (!order?.id || !order?.accountName) return;
+    const orderLabel = order.orderCode || String(order.id);
+
+    setTimeout(async () => {
+        try {
+            await sendStoreShipmentConfirmationsForPortalOrder(order, rawConfirmation, { isUpdate });
+        } catch (error) {
+            console.error(`Store shipment confirmation failed for portal order ${orderLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "order",
+                    `Store shipment confirmation failed for portal order ${orderLabel}`,
+                    [
+                        order.accountName,
+                        error.message || "Unknown integration error"
+                    ].filter(Boolean).join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record store shipment confirmation failure for portal order ${orderLabel}:`, logError);
+            }
+        }
+    }, 0);
+}
+
+async function sendStoreShipmentConfirmationsForPortalOrder(order, rawConfirmation = {}, { isUpdate = false } = {}) {
+    const normalizedAccount = normalizeText(order?.accountName);
+    const latestOrder = await getPortalOrderById(pool, order?.id, normalizedAccount);
+    if (!latestOrder || latestOrder.status !== "SHIPPED") return;
+
+    const integrations = await getStoreOrderIntegrationRowsForPortalOrder(pool, latestOrder.id, latestOrder.accountName);
+    for (const integration of integrations) {
+        const provider = normalizeStoreIntegrationProvider(integration.provider);
+        if (provider === SHOPIFY_SYNC_PROVIDER) {
+            await sendShopifyShipmentConfirmationForImport(pool, integration, latestOrder, integration.external_order_id, rawConfirmation, { isUpdate });
+        }
+    }
+}
+
+async function sendShopifyShipmentConfirmationForImport(client, integrationRow, order, externalOrderId, _rawConfirmation = {}, { isUpdate = false } = {}) {
+    const orderLabel = order?.orderCode || String(order?.id || "");
+    const storeLabel = integrationRow?.integration_name || integrationRow?.store_identifier || "Shopify";
+    const normalizedAccount = normalizeText(order?.accountName);
+
+    if (normalizeText(integrationRow?.account_name) !== normalizedAccount) {
+        throw httpError(403, "Shopify confirmation blocked because the integration company does not match the shipped order.");
+    }
+    if (integrationRow?.is_active !== true) {
+        await insertActivity(
+            client,
+            "order",
+            `Shopify fulfillment skipped for portal order ${orderLabel}`,
+            `${normalizedAccount} | ${storeLabel} is inactive`
+        );
+        return { skipped: true, reason: "Shopify integration inactive." };
+    }
+
+    await assertCompanyFeatureEnabled(client, normalizedAccount, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+    await assertCompanyFeatureEnabled(client, normalizedAccount, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+
+    const carrier = normalizeFreeText(order?.shippedCarrierName || "");
+    const tracking = normalizeFreeText(order?.shippedTrackingReference || "");
+    if (!carrier || !tracking) {
+        throw httpError(400, "Shopify fulfillment requires carrier and tracking.");
+    }
+
+    const exportPayload = buildShopifyFulfillmentExportPayload(order, externalOrderId);
+    const contentHash = computeStoreSyncContentHash(exportPayload);
+    const entityRef = String(order.id);
+    if (await hasStoreSyncExport(client, integrationRow.id, SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE, entityRef, contentHash)) {
+        return { skipped: true, reason: "Shopify fulfillment already sent for this shipment detail." };
+    }
+
+    const result = await createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId);
+    if (result.skipped) {
+        await insertActivity(
+            client,
+            "order",
+            `Shopify fulfillment skipped for portal order ${orderLabel}`,
+            [
+                normalizedAccount,
+                storeLabel,
+                result.reason || "No open fulfillment order"
+            ].filter(Boolean).join(" | ")
+        );
+        return result;
+    }
+
+    const shopDomain = result.shopDomain || normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, integrationRow.store_identifier);
+    const fulfillmentId = result.fulfillment?.id ? String(result.fulfillment.id) : "";
+    const remotePath = `shopify://${shopDomain}/orders/${externalOrderId}/fulfillments/${fulfillmentId || "created"}`;
+    await recordStoreSyncExport(client, integrationRow.id, SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE, entityRef, contentHash, remotePath);
+    await insertActivity(
+        client,
+        "order",
+        `Shopify fulfillment sent for portal order ${orderLabel}`,
+        [
+            normalizedAccount,
+            storeLabel,
+            `External order ${externalOrderId}`,
+            `Carrier ${carrier}`,
+            `Tracking ${tracking}`,
+            isUpdate ? "Updated shipped order" : "Marked shipped"
+        ].filter(Boolean).join(" | ")
+    );
+    return {
+        skipped: false,
+        fulfillmentId,
+        fulfillmentOrderCount: result.fulfillmentOrderCount || 0
+    };
+}
+
 async function savePortalShippingConfirmation(client, order, rawConfirmation, appUser = null, { transitionToShipped = false } = {}) {
     const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
@@ -9937,6 +10276,8 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
     const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
+
+    await assertIntegratedStoreShipmentRequirements(client, order, { shippedCarrierName, shippedTrackingReference });
 
     if (transitionToShipped) {
         await consumePortalOrderInventory(client, order);
