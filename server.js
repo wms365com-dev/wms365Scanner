@@ -2086,6 +2086,29 @@ app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/portal-orders/:id/reopen", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+            const actor = req.appUser?.full_name || req.appUser?.email || "Warehouse";
+            return reopenReleasedPortalOrderForAccount(client, accountName, orderId, {
+                downloadPathPrefix: "/api/admin/portal-order-documents",
+                activityTitlePrefix: "warehouse sales",
+                activityActor: actor
+            });
+        });
+        res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-orders/:id/archive", async (req, res, next) => {
     try {
         const orderId = toPositiveInt(req.params.id);
@@ -7972,6 +7995,58 @@ async function archivePortalOrder(client, accessRow, orderId) {
         activityTitlePrefix: "portal",
         activityActor: "Company portal"
     });
+}
+
+async function reopenReleasedPortalOrderForAccount(
+    client,
+    accountName,
+    orderId,
+    {
+        downloadPathPrefix = "/api/admin/portal-order-documents",
+        activityTitlePrefix = "portal",
+        activityActor = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    if (!order) {
+        throw httpError(404, "That order could not be found.");
+    }
+    if (order.status === "DRAFT") {
+        return order;
+    }
+    if (order.status !== "RELEASED") {
+        throw httpError(400, `Only released orders can be reopened before picking. This order is ${order.status}.`);
+    }
+
+    await client.query("delete from portal_order_allocations where order_id = $1", [orderId]);
+    await client.query(
+        `
+            update portal_orders
+            set
+                status = 'DRAFT',
+                released_at = null,
+                picked_at = null,
+                staged_at = null,
+                updated_at = now()
+            where id = $1
+        `,
+        [orderId]
+    );
+
+    const reopenedOrder = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    await insertActivity(
+        client,
+        "order",
+        `Reopened ${activityTitlePrefix} order ${reopenedOrder.orderCode}`,
+        [
+            reopenedOrder.accountName,
+            "Released allocation cleared",
+            reopenedOrder.shippingReference || "No shipping reference",
+            activityActor || ""
+        ].filter(Boolean).join(" | ")
+    );
+    return reopenedOrder;
 }
 
 async function savePortalOrderDocumentsForAccount(

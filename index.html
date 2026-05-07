@@ -7480,6 +7480,7 @@
                             <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandDeleteBtn" hidden>Delete Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandReopenBtn" hidden>Reopen to Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPickTicketBtn">Print Pick Ticket</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPackingSlipBtn">Print Packing Slip</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandAddLineBtn">Select items...</button>
@@ -7570,6 +7571,7 @@
                         <button class="btn secondary" id="saveWarehouseOrderDraftBtn" type="button">Save Draft</button>
                         <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Delete Draft</button>
                         <button class="btn" id="releaseWarehouseOrderBtn" type="button">Release Order</button>
+                        <button class="btn ghost" id="reopenWarehouseOrderBtn" type="button" hidden>Reopen to Draft</button>
                     </div>
                     <div class="status" id="warehouseOrderMessage"></div>
                 </article>
@@ -9173,10 +9175,12 @@
             saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
             deleteWarehouseOrderBtn: document.getElementById("deleteWarehouseOrderBtn"),
             releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
+            reopenWarehouseOrderBtn: document.getElementById("reopenWarehouseOrderBtn"),
             salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
             salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
             salesOrderCommandDeleteBtn: document.getElementById("salesOrderCommandDeleteBtn"),
             salesOrderCommandReleaseBtn: document.getElementById("salesOrderCommandReleaseBtn"),
+            salesOrderCommandReopenBtn: document.getElementById("salesOrderCommandReopenBtn"),
             salesOrderCommandPickTicketBtn: document.getElementById("salesOrderCommandPickTicketBtn"),
             salesOrderCommandPackingSlipBtn: document.getElementById("salesOrderCommandPackingSlipBtn"),
             salesOrderCommandAddLineBtn: document.getElementById("salesOrderCommandAddLineBtn"),
@@ -9594,10 +9598,12 @@
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.deleteWarehouseOrderBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
+            ui.reopenWarehouseOrderBtn?.addEventListener("click", reopenWarehouseSalesOrder);
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.salesOrderCommandDeleteBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
+            ui.salesOrderCommandReopenBtn?.addEventListener("click", reopenWarehouseSalesOrder);
             ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
             ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
             ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
@@ -16201,12 +16207,20 @@
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
             }
             const canDeleteDraft = !!order?.id && order.status === "DRAFT";
+            const canReopenReleased = !!order?.id && order.status === "RELEASED";
             [ui.deleteWarehouseOrderBtn, ui.salesOrderCommandDeleteBtn].filter(Boolean).forEach((button) => {
                 button.hidden = !canDeleteDraft;
                 button.disabled = !canDeleteDraft;
                 button.title = canDeleteDraft
                     ? "Delete this draft order from the warehouse queue."
                     : "Only saved draft orders can be deleted.";
+            });
+            [ui.reopenWarehouseOrderBtn, ui.salesOrderCommandReopenBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canReopenReleased;
+                button.disabled = !canReopenReleased;
+                button.title = canReopenReleased
+                    ? "Clear the released allocation and return this order to draft."
+                    : "Only released orders can be reopened before picking.";
             });
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
@@ -16346,6 +16360,46 @@
                     await refreshPortalOrdersList(true);
                     resetWarehouseSalesOrderForm();
                     showMessage(ui.warehouseOrderMessage, `Released order ${response?.order?.orderCode || ""}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        async function reopenWarehouseSalesOrder(context = null) {
+            if (!editingWarehouseOrderId) {
+                return showMessage(ui.warehouseOrderMessage, "Open a released sales order before reopening it.", "error");
+            }
+            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
+            if (!currentOrder?.id) {
+                return showMessage(ui.warehouseOrderMessage, "Open a released sales order before reopening it.", "error");
+            }
+            if (currentOrder.status !== "RELEASED") {
+                return showMessage(ui.warehouseOrderMessage, `Only released orders can be reopened before picking. This order is ${currentOrder.status}.`, "error");
+            }
+            const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
+            if (!window.confirm(`Reopen released order ${orderLabel} back to draft? This clears its reserved allocation so it can be edited or deleted.`)) {
+                return null;
+            }
+            const actionButton = resolveActionButton(context, ui.reopenWarehouseOrderBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Reopening...",
+                    messageElement: ui.warehouseOrderMessage,
+                    progressMessage: `Reopening order ${orderLabel} and clearing its allocation...`
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/reopen`, {
+                        method: "POST"
+                    });
+                    await refreshPortalOrdersList(true);
+                    const reopenedOrder = getPortalOrderById(response?.order?.id || editingWarehouseOrderId) || sanitizePortalOrderRecord(response?.order);
+                    if (reopenedOrder) {
+                        resetWarehouseSalesOrderForm(reopenedOrder);
+                    }
+                    showMessage(ui.warehouseOrderMessage, `Order ${response?.order?.orderCode || orderLabel} reopened to draft. You can now edit or delete it.`, "success");
                     return response;
                 });
             } catch (error) {
