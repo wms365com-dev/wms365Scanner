@@ -1343,11 +1343,16 @@ app.post("/api/remove-quantity", async (req, res, next) => {
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
             }
-            if (quantity > Number(line.quantity)) {
-                throw httpError(400, `Cannot remove ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(Number(line.quantity), line.tracking_level)} are available.`);
+            const availableQuantity = Math.max((Number(line.quantity) || 0) - (await getInventoryLineCommitment(client, line.id)).activeQuantity, 0);
+            if (quantity > availableQuantity) {
+                throw httpError(400, `Cannot remove ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(availableQuantity, line.tracking_level)} are available.`);
             }
 
             const remaining = Number(line.quantity) - quantity;
+            await assertInventoryLineCanChange(client, line, {
+                nextQuantity: remaining,
+                actionLabel: "remove that quantity"
+            });
             await setInventoryQuantity(client, line.id, remaining);
             await insertActivity(
                 client,
@@ -1380,6 +1385,10 @@ app.post("/api/delete-line", async (req, res, next) => {
                 throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
             }
 
+            await assertInventoryLineCanChange(client, line, {
+                nextQuantity: 0,
+                actionLabel: "delete this inventory line"
+            });
             await client.query("delete from inventory_lines where id = $1", [line.id]);
             await insertActivity(
                 client,
@@ -1416,12 +1425,18 @@ app.post("/api/transfer", async (req, res, next) => {
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, source location, and SKU/UPC.");
             }
-            if (quantity > Number(line.quantity)) {
-                throw httpError(400, `Cannot transfer ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(Number(line.quantity), line.tracking_level)} are available.`);
+            const availableQuantity = Math.max((Number(line.quantity) || 0) - (await getInventoryLineCommitment(client, line.id)).activeQuantity, 0);
+            if (quantity > availableQuantity) {
+                throw httpError(400, `Cannot transfer ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(availableQuantity, line.tracking_level)} are available.`);
             }
             await assertLocationCompatibleForOwner(client, accountName, toLocation);
 
-            await setInventoryQuantity(client, line.id, Number(line.quantity) - quantity);
+            const remaining = Number(line.quantity) - quantity;
+            await assertInventoryLineCanChange(client, line, {
+                nextQuantity: remaining,
+                actionLabel: "transfer that quantity"
+            });
+            await setInventoryQuantity(client, line.id, remaining);
             await upsertInventoryLine(client, {
                 accountName,
                 location: toLocation,
@@ -1471,10 +1486,11 @@ app.post("/api/convert-item", async (req, res, next) => {
             if (!sourceLine) {
                 throw httpError(404, "No exact source inventory line matched that company, location, and SKU/UPC.");
             }
-            if (sourceQuantity > Number(sourceLine.quantity)) {
+            const sourceAvailable = Math.max((Number(sourceLine.quantity) || 0) - (await getInventoryLineCommitment(client, sourceLine.id)).activeQuantity, 0);
+            if (sourceQuantity > sourceAvailable) {
                 throw httpError(
                     400,
-                    `Cannot convert ${formatTrackedQuantity(sourceQuantity, sourceLine.tracking_level)} because only ${formatTrackedQuantity(Number(sourceLine.quantity), sourceLine.tracking_level)} are available.`
+                    `Cannot convert ${formatTrackedQuantity(sourceQuantity, sourceLine.tracking_level)} because only ${formatTrackedQuantity(sourceAvailable, sourceLine.tracking_level)} are available.`
                 );
             }
 
@@ -1498,7 +1514,12 @@ app.post("/api/convert-item", async (req, res, next) => {
                 sourceQuantity
             });
 
-            await setInventoryQuantity(client, sourceLine.id, Number(sourceLine.quantity) - sourceQuantity);
+            const sourceRemaining = Number(sourceLine.quantity) - sourceQuantity;
+            await assertInventoryLineCanChange(client, sourceLine, {
+                nextQuantity: sourceRemaining,
+                actionLabel: "convert that quantity"
+            });
+            await setInventoryQuantity(client, sourceLine.id, sourceRemaining);
             await upsertInventoryLine(client, {
                 accountName,
                 location: toLocation,
@@ -1558,6 +1579,10 @@ app.post("/api/move-location", async (req, res, next) => {
             await assertLocationCompatibleForOwner(client, accountName, toLocation);
 
             for (const line of linesResult.rows) {
+                await assertInventoryLineCanChange(client, line, {
+                    nextQuantity: 0,
+                    actionLabel: "move this location"
+                });
                 await upsertInventoryLine(client, {
                     accountName,
                     location: toLocation,
@@ -4256,7 +4281,33 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         : client.query("select * from billing_events order by service_date desc, id desc");
 
     const [inventoryResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
-        client.query("select * from inventory_lines order by account_name asc, location asc, sku asc"),
+        client.query(
+            `
+                select
+                    i.*,
+                    coalesce(a.released_quantity, 0)::integer as released_quantity,
+                    coalesce(a.picked_quantity, 0)::integer as picked_quantity,
+                    coalesce(a.staged_quantity, 0)::integer as staged_quantity,
+                    coalesce(a.active_quantity, 0)::integer as reserved_quantity,
+                    greatest((coalesce(i.quantity, 0) - coalesce(a.active_quantity, 0)), 0)::integer as available_quantity
+                from inventory_lines i
+                left join (
+                    select
+                        a.inventory_line_id,
+                        coalesce(sum(case when o.status = 'RELEASED' then a.allocated_quantity else 0 end), 0)::integer as released_quantity,
+                        coalesce(sum(case when o.status = 'PICKED' then a.allocated_quantity else 0 end), 0)::integer as picked_quantity,
+                        coalesce(sum(case when o.status = 'STAGED' then a.allocated_quantity else 0 end), 0)::integer as staged_quantity,
+                        coalesce(sum(a.allocated_quantity), 0)::integer as active_quantity
+                    from portal_order_allocations a
+                    join portal_orders o on o.id = a.order_id
+                    where o.status = any($1::text[])
+                      and a.inventory_line_id is not null
+                    group by a.inventory_line_id
+                ) a on a.inventory_line_id = i.id
+                order by i.account_name asc, i.location asc, i.sku asc
+            `,
+            [ACTIVE_PORTAL_ORDER_STATUSES]
+        ),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
         client.query("select * from owner_accounts order by name asc"),
@@ -4296,6 +4347,8 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce((select max(updated_at) from company_partner_accounts), to_timestamp(0)),
                     coalesce((select max(updated_at) from item_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
+                    coalesce((select max(updated_at) from portal_orders), to_timestamp(0)),
+                    coalesce((select max(updated_at) from portal_order_allocations), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_billing_rates), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_events), to_timestamp(0))
@@ -11475,7 +11528,16 @@ async function consumePortalOrderInventory(client, order) {
             [normalizeText(order.accountName), normalizeText(line.sku)]
         );
 
-        const available = result.rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+        const inventoryRows = [];
+        for (const row of result.rows) {
+            const commitment = await getInventoryLineCommitment(client, row.id);
+            inventoryRows.push({
+                ...row,
+                available_quantity: Math.max((Number(row.quantity) || 0) - commitment.activeQuantity, 0)
+            });
+        }
+
+        const available = inventoryRows.reduce((sum, row) => sum + (Number(row.available_quantity) || 0), 0);
         if (available < remaining) {
             throw httpError(
                 409,
@@ -11483,11 +11545,12 @@ async function consumePortalOrderInventory(client, order) {
             );
         }
 
-        for (const inventoryLine of result.rows) {
+        for (const inventoryLine of inventoryRows) {
             if (remaining <= 0) break;
+            const availableQuantity = Number(inventoryLine.available_quantity) || 0;
+            if (availableQuantity <= 0) continue;
             const currentQuantity = Number(inventoryLine.quantity) || 0;
-            if (currentQuantity <= 0) continue;
-            const deduction = Math.min(currentQuantity, remaining);
+            const deduction = Math.min(availableQuantity, remaining);
             await setInventoryQuantity(client, inventoryLine.id, currentQuantity - deduction);
             remaining -= deduction;
         }
@@ -12279,6 +12342,20 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
     const targetUpc = finalEntry.upc || "";
     const targetTrackingLevel = finalEntry.trackingLevel || "UNIT";
 
+    for (const line of originalLines.rows) {
+        await assertInventoryLineCanChange(client, line, {
+            nextQuantity: Number(line.quantity) || 0,
+            nextIdentity: {
+                location: line.location,
+                sku: finalEntry.sku,
+                lotNumber: line.lot_number || "",
+                expirationDate: normalizeDateOnly(line.expiration_date || ""),
+                trackingLevel: targetTrackingLevel
+            },
+            actionLabel: "change this item while active orders are allocated"
+        });
+    }
+
     if (finalEntry.sku === normalizedOriginalSku) {
         await client.query(
             `
@@ -12368,6 +12445,88 @@ async function setInventoryQuantity(client, lineId, quantity) {
         return;
     }
     await client.query("update inventory_lines set quantity = $1, updated_at = now() where id = $2", [quantity, lineId]);
+}
+
+async function getInventoryLineCommitment(client, inventoryLineId) {
+    const lineId = toPositiveInt(inventoryLineId);
+    if (!lineId) {
+        return { releasedQuantity: 0, pickedQuantity: 0, stagedQuantity: 0, activeQuantity: 0 };
+    }
+
+    const result = await client.query(
+        `
+            select
+                coalesce(sum(case when o.status = 'RELEASED' then a.allocated_quantity else 0 end), 0)::integer as released_quantity,
+                coalesce(sum(case when o.status = 'PICKED' then a.allocated_quantity else 0 end), 0)::integer as picked_quantity,
+                coalesce(sum(case when o.status = 'STAGED' then a.allocated_quantity else 0 end), 0)::integer as staged_quantity,
+                coalesce(sum(a.allocated_quantity), 0)::integer as active_quantity
+            from portal_order_allocations a
+            join portal_orders o on o.id = a.order_id
+            where a.inventory_line_id = $1
+              and o.status = any($2::text[])
+        `,
+        [lineId, ACTIVE_PORTAL_ORDER_STATUSES]
+    );
+    const row = result.rows[0] || {};
+    return {
+        releasedQuantity: Number(row.released_quantity) || 0,
+        pickedQuantity: Number(row.picked_quantity) || 0,
+        stagedQuantity: Number(row.staged_quantity) || 0,
+        activeQuantity: Number(row.active_quantity) || 0
+    };
+}
+
+function describeInventoryCommitment(commitment, trackingLevel = "UNIT") {
+    const parts = [
+        commitment.releasedQuantity ? `${formatTrackedQuantity(commitment.releasedQuantity, trackingLevel)} released` : "",
+        commitment.pickedQuantity ? `${formatTrackedQuantity(commitment.pickedQuantity, trackingLevel)} picked` : "",
+        commitment.stagedQuantity ? `${formatTrackedQuantity(commitment.stagedQuantity, trackingLevel)} staged` : ""
+    ].filter(Boolean);
+    return parts.join(", ") || `${formatTrackedQuantity(commitment.activeQuantity, trackingLevel)} committed`;
+}
+
+async function assertInventoryLineCanChange(client, line, { nextQuantity = Number(line?.quantity) || 0, nextIdentity = null, actionLabel = "change this inventory line" } = {}) {
+    const commitment = await getInventoryLineCommitment(client, line?.id);
+    if (commitment.activeQuantity <= 0) return commitment;
+
+    const trackingLevel = normalizeTrackingLevel(line?.tracking_level || line?.trackingLevel || "UNIT");
+    if ((Number(nextQuantity) || 0) < commitment.activeQuantity) {
+        throw httpError(
+            409,
+            `Cannot ${actionLabel} because ${describeInventoryCommitment(commitment, trackingLevel)} is allocated to active sales orders. Reopen or ship those orders first.`
+        );
+    }
+
+    if (nextIdentity) {
+        const currentIdentity = {
+            location: normalizeText(line.location),
+            sku: normalizeText(line.sku),
+            lotNumber: normalizeText(line.lot_number || line.lotNumber || ""),
+            expirationDate: normalizeDateOnly(line.expiration_date || line.expirationDate || ""),
+            trackingLevel
+        };
+        const requestedIdentity = {
+            location: normalizeText(nextIdentity.location ?? currentIdentity.location),
+            sku: normalizeText(nextIdentity.sku ?? currentIdentity.sku),
+            lotNumber: normalizeText(nextIdentity.lotNumber ?? nextIdentity.lot_number ?? currentIdentity.lotNumber),
+            expirationDate: normalizeDateOnly(nextIdentity.expirationDate ?? nextIdentity.expiration_date ?? currentIdentity.expirationDate),
+            trackingLevel: normalizeTrackingLevel(nextIdentity.trackingLevel ?? nextIdentity.tracking_level ?? currentIdentity.trackingLevel)
+        };
+        const identityChanged = currentIdentity.location !== requestedIdentity.location
+            || currentIdentity.sku !== requestedIdentity.sku
+            || currentIdentity.lotNumber !== requestedIdentity.lotNumber
+            || currentIdentity.expirationDate !== requestedIdentity.expirationDate
+            || currentIdentity.trackingLevel !== requestedIdentity.trackingLevel;
+
+        if (identityChanged) {
+            throw httpError(
+                409,
+                `Cannot ${actionLabel} because ${describeInventoryCommitment(commitment, trackingLevel)} is allocated to active sales orders. Reopen or ship those orders first.`
+            );
+        }
+    }
+
+    return commitment;
 }
 
 function buildInventoryIdentityKey(entry) {
@@ -12473,6 +12632,10 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
                     throw httpError(404, "One of the inventory worksheet rows could not be found anymore. Refresh and try again.");
                 }
                 if (row.quantity === 0) {
+                    await assertInventoryLineCanChange(client, existing, {
+                        nextQuantity: 0,
+                        actionLabel: "remove this worksheet line"
+                    });
                     await client.query("delete from inventory_lines where id = $1 and account_name = $2", [row.id, normalizedAccount]);
                     deleted += 1;
                     continue;
@@ -12491,6 +12654,12 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
             });
 
             if (row.id) {
+                const existing = existingById.get(String(row.id));
+                await assertInventoryLineCanChange(client, existing, {
+                    nextQuantity: row.quantity,
+                    nextIdentity: row,
+                    actionLabel: "update this worksheet line"
+                });
                 await client.query(
                     `
                         update inventory_lines
@@ -13170,6 +13339,15 @@ function sanitizePalletRecordInput(item) {
 }
 
 function mapInventoryRow(row) {
+    const onHandQuantity = Number(row.quantity) || 0;
+    const releasedQuantity = Number(row.released_quantity) || 0;
+    const pickedQuantity = Number(row.picked_quantity) || 0;
+    const stagedQuantity = Number(row.staged_quantity) || 0;
+    const reservedQuantity = Number(row.reserved_quantity) || (releasedQuantity + pickedQuantity + stagedQuantity);
+    const availableQuantity = row.available_quantity == null
+        ? Math.max(onHandQuantity - reservedQuantity, 0)
+        : Number(row.available_quantity) || 0;
+
     return {
         id: String(row.id),
         accountName: row.account_name,
@@ -13179,7 +13357,13 @@ function mapInventoryRow(row) {
         lotNumber: row.lot_number || "",
         expirationDate: normalizeDateOnly(row.expiration_date),
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
-        quantity: Number(row.quantity),
+        quantity: onHandQuantity,
+        onHandQuantity,
+        releasedQuantity,
+        pickedQuantity,
+        stagedQuantity,
+        reservedQuantity,
+        availableQuantity,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };

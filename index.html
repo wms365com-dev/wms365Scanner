@@ -5587,7 +5587,7 @@
                     <p>Use the left navigation to drill into one warehouse workflow at a time without losing the shared company context.</p>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
-                    <div class="stat"><span>Tracked Qty</span><strong id="statUnits">0</strong></div>
+                    <div class="stat"><span>Available Qty</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
                     <div class="stat"><span>Locations</span><strong id="statLocations">0</strong></div>
                     <div class="stat"><span>Open Batch</span><strong id="statBatch">0</strong></div>
@@ -7370,7 +7370,11 @@
                                     <th>Expiration</th>
                                     <th>Description</th>
                                     <th>Tracking</th>
-                                    <th>Qty</th>
+                                    <th>On Hand</th>
+                                    <th>Released</th>
+                                    <th>Picked</th>
+                                    <th>Staged</th>
+                                    <th>Available</th>
                                     <th>Updated</th>
                                 </tr>
                             </thead>
@@ -7390,7 +7394,7 @@
                         <div class="summary"><span>Total Locations</span><strong id="summaryLocations">0</strong></div>
                         <div class="summary"><span>Companies</span><strong id="summaryOwners">0</strong></div>
                         <div class="summary"><span>Company / SKU Pairs</span><strong id="summarySkus">0</strong></div>
-                        <div class="summary"><span>Tracked Qty</span><strong id="summaryUnits">0</strong></div>
+                        <div class="summary"><span>Available Qty</span><strong id="summaryUnits">0</strong></div>
                         <div class="summary"><span>Server Updated</span><strong id="summarySaved">Never</strong></div>
                     </div>
                     <p class="lead">Use the Backup tab to move or restore the shared server data when needed.</p>
@@ -12655,7 +12659,7 @@
 
                 const groups = terms.map((term) => {
                     const matches = getScopedInventory(ownerFilter).filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
-                    return { term, matches, totals: summarizeTrackedTotals(matches) };
+                    return { term, matches, totals: summarizeTrackedTotals(matches, lineAvailableQuantity) };
                 });
 
                 lastMultiSearch = { terms, ownerFilter, groups };
@@ -12731,7 +12735,7 @@
 
         function renderStats() {
             const scopedInventory = getScopedInventory();
-            const trackedTotals = summarizeTrackedTotals(scopedInventory);
+            const trackedTotals = summarizeTrackedTotals(scopedInventory, lineAvailableQuantity);
             const locations = new Set(scopedInventory.map((line) => line.location)).size;
             ui.statUnits.textContent = formatTrackedSummary(trackedTotals);
             ui.statLines.textContent = num(scopedInventory.length);
@@ -13526,7 +13530,7 @@
 
             const sourceMaster = findMasterItemByCode(sourceLine.sku, owner) || sourceLine;
             const sourceTrackingLevel = normalizeTrackingLevel(sourceMaster?.trackingLevel || sourceLine.trackingLevel || sourceLine.tracking_level || "UNIT");
-            const sourceAvailable = toPositiveInt(sourceLine.quantity);
+            const sourceAvailable = lineAvailableQuantity(sourceLine);
             if (quantity > sourceAvailable) {
                 throw new Error(`Only ${formatTrackedQuantity(sourceAvailable, sourceTrackingLevel)} are available to convert.`);
             }
@@ -19260,7 +19264,7 @@
                 return;
             }
 
-            const trackedTotals = summarizeTrackedTotals(matches);
+            const trackedTotals = summarizeTrackedTotals(matches, lineAvailableQuantity);
             const locations = new Set(matches.map((line) => line.location)).size;
             const skus = new Set(matches.map((line) => line.sku)).size;
             const owners = new Set(matches.map((line) => line.accountName)).size;
@@ -19270,7 +19274,7 @@
 
             desktopMarkup = `
                 <div class="summary-grid">
-                    <div class="summary"><span>Matched Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
+                    <div class="summary"><span>Available Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
                     <div class="summary"><span>Matched Lines</span><strong>${num(matches.length)}</strong></div>
                     <div class="summary"><span>Locations</span><strong>${num(locations)}</strong></div>
                     <div class="summary"><span>Companies / SKUs</span><strong>${num(owners)} / ${num(skus)}</strong></div>
@@ -19285,7 +19289,7 @@
             `;
             mobileMarkup = `
                 <div class="summary-grid">
-                    <div class="summary"><span>Matched Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
+                    <div class="summary"><span>Available Qty</span><strong>${esc(formatTrackedSummary(trackedTotals))}</strong></div>
                     <div class="summary"><span>Lines</span><strong>${num(matches.length)}</strong></div>
                     <div class="summary"><span>Locations</span><strong>${num(locations)}</strong></div>
                     <div class="summary"><span>Companies / SKUs</span><strong>${num(owners)} / ${num(skus)}</strong></div>
@@ -19316,7 +19320,7 @@
                 <div class="summary-grid">
                     <div class="summary"><span>Items Requested</span><strong>${num(groups.length)}</strong></div>
                     <div class="summary"><span>Items Found</span><strong>${num(found)}</strong></div>
-                    <div class="summary"><span>Total Matched Qty</span><strong>${esc(formatTrackedSummary(overallTotals))}</strong></div>
+                    <div class="summary"><span>Total Available Qty</span><strong>${esc(formatTrackedSummary(overallTotals))}</strong></div>
                 </div>
                 ${groups.map((group) => group.matches.length ? `
                     <div class="result-group">
@@ -19340,7 +19344,7 @@
                 <div class="summary-grid">
                     <div class="summary"><span>Requested</span><strong>${num(groups.length)}</strong></div>
                     <div class="summary"><span>Found</span><strong>${num(found)}</strong></div>
-                    <div class="summary"><span>Total Qty</span><strong>${esc(formatTrackedSummary(overallTotals))}</strong></div>
+                    <div class="summary"><span>Available Qty</span><strong>${esc(formatTrackedSummary(overallTotals))}</strong></div>
                 </div>
                 ${groups.map((group) => group.matches.length ? `
                     <div class="result-group">
@@ -19415,7 +19419,11 @@
                     <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                     <td>${esc(getLineDescription(line) || "-")}</td>
                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
-                    <td>${num(line.quantity)}</td>
+                    <td>${esc(formatTrackedQuantity(lineOnHandQuantity(line), line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(line.releasedQuantity || 0, line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(line.pickedQuantity || 0, line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(line.stagedQuantity || 0, line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(lineAvailableQuantity(line), line.trackingLevel))}</td>
                     <td>${esc(formatDate(line.updatedAt))}</td>
                 </tr>
             `).join("");
@@ -19440,6 +19448,11 @@
                     expirationDate: normalizeWorksheetDate(line.expirationDate || ""),
                     trackingLevel: normalizeTrackingLevel(line.trackingLevel),
                     quantity: Number(line.quantity || 0) || 0,
+                    releasedQuantity: line.releasedQuantity || 0,
+                    pickedQuantity: line.pickedQuantity || 0,
+                    stagedQuantity: line.stagedQuantity || 0,
+                    reservedQuantity: lineReservedQuantity(line),
+                    availableQuantity: lineAvailableQuantity(line),
                     remove: false
                 }));
         }
@@ -19528,6 +19541,8 @@
             const parts = [
                 row?.currentLocation && row.currentLocation !== row.location ? `From ${row.currentLocation}` : "",
                 master?.description || "",
+                lineReservedQuantity(row) ? `Committed ${formatInventoryCommitmentSummary(row)}` : "",
+                row?.availableQuantity != null ? `Available ${formatTrackedQuantity(row.availableQuantity, row.trackingLevel)}` : "",
                 row?.lotNumber ? `Lot ${row.lotNumber}` : "",
                 row?.expirationDate ? `Exp ${formatLabelDate(row.expirationDate)}` : ""
             ];
@@ -19800,7 +19815,7 @@
             const locations = new Set(scopedInventory.map((line) => line.location)).size;
             const owners = new Set(scopedInventory.map((line) => line.accountName)).size;
             const ownerSkus = new Set(scopedInventory.map((line) => `${line.accountName}::${line.sku}`)).size;
-            const trackedTotals = summarizeTrackedTotals(scopedInventory);
+            const trackedTotals = summarizeTrackedTotals(scopedInventory, lineAvailableQuantity);
             ui.summaryLocations.textContent = num(locations);
             ui.summaryOwners.textContent = num(owners);
             ui.summarySkus.textContent = num(ownerSkus);
@@ -19825,8 +19840,9 @@
             if (!matchingLine) {
                 return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected company and location.", "error");
             }
-            if (quantity > Number(matchingLine.quantity || 0)) {
-                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(Number(matchingLine.quantity || 0), matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} are available in that location.`, "error");
+            const availableQuantity = lineAvailableQuantity(matchingLine);
+            if (quantity > availableQuantity) {
+                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(availableQuantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} are available in that location.`, "error");
             }
 
             try {
@@ -19857,6 +19873,9 @@
             }
             if (!matchingLine) {
                 return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected company and location.", "error");
+            }
+            if (lineReservedQuantity(matchingLine) > 0) {
+                return showMessage(ui.actionMessage, `Cannot delete this inventory line because ${formatInventoryCommitmentSummary(matchingLine)} is committed to active sales orders. Ship or reopen those orders first.`, "error");
             }
 
             if (!window.confirm(`Delete ${accountName} / ${skuOrUpc} from ${location}?`)) return;
@@ -19894,8 +19913,9 @@
             if (!matchingLine) {
                 return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected source location for this company.", "error");
             }
-            if (quantity > Number(matchingLine.quantity || 0)) {
-                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(Number(matchingLine.quantity || 0), matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} are available in the source location.`, "error");
+            const availableQuantity = lineAvailableQuantity(matchingLine);
+            if (quantity > availableQuantity) {
+                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(availableQuantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} are available in the source location.`, "error");
             }
             const conflictingOwners = getForeignOwnersAtLocation(accountName, to);
             if (conflictingOwners.length) {
@@ -19981,6 +20001,10 @@
             if (!sourceLines.length) {
                 return showMessage(ui.actionMessage, "The selected source location does not have inventory for that company.", "error");
             }
+            const committedLines = sourceLines.filter((line) => lineReservedQuantity(line) > 0);
+            if (committedLines.length) {
+                return showMessage(ui.actionMessage, `Cannot move the whole location because ${num(committedLines.length)} line${committedLines.length === 1 ? "" : "s"} have released, picked, or staged order commitments. Move only uncommitted stock or ship/reopen the orders first.`, "error");
+            }
             const conflictingOwners = getForeignOwnersAtLocation(accountName, to);
             if (conflictingOwners.length) {
                 return showMessage(ui.actionMessage, `Cannot move into ${to} because it already contains another company: ${conflictingOwners.join(", ")}.`, "error");
@@ -20004,7 +20028,7 @@
                 showMessage(ui.searchMessage, "Run a search before printing results.", "error");
                 return;
             }
-            const trackedTotals = summarizeTrackedTotals(lastSingleSearch.matches);
+            const trackedTotals = summarizeTrackedTotals(lastSingleSearch.matches, lineAvailableQuantity);
             openPrintWindow(
                 `WMS365 Scanner - ${lastSingleSearch.mode === "sku" ? "SKU / UPC Search" : "Location Search"}`,
                 `
@@ -20012,7 +20036,7 @@
                     <p><strong>${lastSingleSearch.mode === "sku" ? "SKU / UPC Search" : "Location Search"}</strong></p>
                     <p>Company Filter: ${esc(lastSingleSearch.ownerFilter || "ALL")}</p>
                     <p>Query: ${esc(lastSingleSearch.query)}</p>
-                    <p>Matches: ${num(lastSingleSearch.matches.length)} | Total Qty: ${esc(formatTrackedSummary(trackedTotals))}</p>
+                    <p>Matches: ${num(lastSingleSearch.matches.length)} | Available Qty: ${esc(formatTrackedSummary(trackedTotals))}</p>
                     ${printTableHtml(lastSingleSearch.matches)}
                 `
             );
@@ -20033,7 +20057,7 @@
                     ${lastMultiSearch.groups.map((group) => group.matches.length ? `
                         <section>
                             <h2>${esc(group.term)}</h2>
-                            <p>Total Qty: ${esc(formatTrackedSummary(group.totals))}</p>
+                            <p>Available Qty: ${esc(formatTrackedSummary(group.totals))}</p>
                             ${printTableHtml(group.matches)}
                         </section>
                     ` : `
@@ -20100,7 +20124,7 @@
         async function exportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Company", "Location", "SKU", "UPC", "Lot", "Expiration", "Description", "Tracking", "Quantity", "CreatedAt", "UpdatedAt"]].concat(
+                const rows = [["Company", "Location", "SKU", "UPC", "Lot", "Expiration", "Description", "Tracking", "OnHand", "Released", "Picked", "Staged", "Available", "CreatedAt", "UpdatedAt"]].concat(
                     getScopedInventory().map((line) => [
                         line.accountName,
                         line.location,
@@ -20110,7 +20134,11 @@
                         line.expirationDate || "",
                         getLineDescription(line) || "",
                         line.trackingLevel,
-                        String(line.quantity),
+                        String(lineOnHandQuantity(line)),
+                        String(line.releasedQuantity || 0),
+                        String(line.pickedQuantity || 0),
+                        String(line.stagedQuantity || 0),
+                        String(lineAvailableQuantity(line)),
                         line.createdAt,
                         line.updatedAt
                     ])
@@ -20170,7 +20198,11 @@
                                 <th>Expiration</th>
                                 <th>Description</th>
                                 <th>Tracking</th>
-                                <th>Qty</th>
+                                <th>On Hand</th>
+                                <th>Released</th>
+                                <th>Picked</th>
+                                <th>Staged</th>
+                                <th>Available</th>
                                 <th>Updated</th>
                             </tr>
                         </thead>
@@ -20185,7 +20217,11 @@
                                     <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                                     <td>${esc(getLineDescription(line) || "-")}</td>
                                     <td>${esc(trackingLabel(line.trackingLevel))}</td>
-                                    <td>${num(line.quantity)}</td>
+                                    <td>${esc(formatTrackedQuantity(lineOnHandQuantity(line), line.trackingLevel))}</td>
+                                    <td>${esc(formatTrackedQuantity(line.releasedQuantity || 0, line.trackingLevel))}</td>
+                                    <td>${esc(formatTrackedQuantity(line.pickedQuantity || 0, line.trackingLevel))}</td>
+                                    <td>${esc(formatTrackedQuantity(line.stagedQuantity || 0, line.trackingLevel))}</td>
+                                    <td>${esc(formatTrackedQuantity(lineAvailableQuantity(line), line.trackingLevel))}</td>
                                     <td>${esc(formatDate(line.updatedAt))}</td>
                                 </tr>
                             `).join("")}
@@ -20216,8 +20252,12 @@
                                     <strong>${esc(trackingLabel(line.trackingLevel))}</strong>
                                 </div>
                                 <div class="mobile-result-stat">
-                                    <span>Qty</span>
-                                    <strong>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</strong>
+                                    <span>Available</span>
+                                    <strong>${esc(formatTrackedQuantity(lineAvailableQuantity(line), line.trackingLevel))}</strong>
+                                </div>
+                                <div class="mobile-result-stat">
+                                    <span>Committed</span>
+                                    <strong>${esc(formatInventoryCommitmentSummary(line))}</strong>
                                 </div>
                                 <div class="mobile-result-stat">
                                     <span>Updated</span>
@@ -20243,7 +20283,11 @@
                             <th>Expiration</th>
                             <th>Description</th>
                             <th>Tracking</th>
-                            <th>Qty</th>
+                            <th>On Hand</th>
+                            <th>Released</th>
+                            <th>Picked</th>
+                            <th>Staged</th>
+                            <th>Available</th>
                             <th>Updated</th>
                         </tr>
                     </thead>
@@ -20258,7 +20302,11 @@
                                 <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
                                 <td>${esc(getLineDescription(line) || "-")}</td>
                                 <td>${esc(trackingLabel(line.trackingLevel))}</td>
-                                <td>${num(line.quantity)}</td>
+                                <td>${esc(formatTrackedQuantity(lineOnHandQuantity(line), line.trackingLevel))}</td>
+                                <td>${esc(formatTrackedQuantity(line.releasedQuantity || 0, line.trackingLevel))}</td>
+                                <td>${esc(formatTrackedQuantity(line.pickedQuantity || 0, line.trackingLevel))}</td>
+                                <td>${esc(formatTrackedQuantity(line.stagedQuantity || 0, line.trackingLevel))}</td>
+                                <td>${esc(formatTrackedQuantity(lineAvailableQuantity(line), line.trackingLevel))}</td>
                                 <td>${esc(formatDate(line.updatedAt))}</td>
                             </tr>
                         `).join("")}
@@ -20718,7 +20766,7 @@
 
             const groups = currentSearchView.terms.map((term) => {
                 const matches = filterInventoryByOwner(currentSearchView.ownerFilter).filter((line) => line.sku.includes(term) || (line.upc || "").includes(term));
-                return { term, matches, totals: summarizeTrackedTotals(matches) };
+                return { term, matches, totals: summarizeTrackedTotals(matches, lineAvailableQuantity) };
             });
             lastMultiSearch = { terms: currentSearchView.terms, ownerFilter: currentSearchView.ownerFilter, groups };
             lastSingleSearch = null;
@@ -20735,6 +20783,12 @@
             const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
             const quantity = toPositiveInt(line?.quantity);
             if (!accountName || !location || !sku || !quantity) return null;
+            const onHandQuantity = normalizeQuantity(line?.onHandQuantity ?? line?.on_hand_quantity ?? quantity);
+            const releasedQuantity = normalizeQuantity(line?.releasedQuantity ?? line?.released_quantity ?? 0);
+            const pickedQuantity = normalizeQuantity(line?.pickedQuantity ?? line?.picked_quantity ?? 0);
+            const stagedQuantity = normalizeQuantity(line?.stagedQuantity ?? line?.staged_quantity ?? 0);
+            const reservedQuantity = normalizeQuantity(line?.reservedQuantity ?? line?.reserved_quantity ?? (releasedQuantity + pickedQuantity + stagedQuantity));
+            const availableQuantity = normalizeQuantity(line?.availableQuantity ?? line?.available_quantity ?? Math.max(onHandQuantity - reservedQuantity, 0));
             return {
                 id: typeof line.id === "string" ? line.id : makeId("inv"),
                 accountName,
@@ -20745,6 +20799,12 @@
                 expirationDate,
                 trackingLevel,
                 quantity,
+                onHandQuantity,
+                releasedQuantity,
+                pickedQuantity,
+                stagedQuantity,
+                reservedQuantity,
+                availableQuantity,
                 createdAt: typeof line.createdAt === "string" ? line.createdAt : new Date().toISOString(),
                 updatedAt: typeof line.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
             };
@@ -21651,9 +21711,42 @@
             return `${num(value)} ${noun}${value === 1 ? "" : "s"}`;
         }
 
-        function summarizeTrackedTotals(lines) {
+        function normalizeQuantity(value) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        }
+
+        function lineOnHandQuantity(line) {
+            return normalizeQuantity(line?.onHandQuantity ?? line?.on_hand_quantity ?? line?.quantity);
+        }
+
+        function lineReservedQuantity(line) {
+            return normalizeQuantity(line?.reservedQuantity ?? line?.reserved_quantity ?? (
+                normalizeQuantity(line?.releasedQuantity ?? line?.released_quantity)
+                + normalizeQuantity(line?.pickedQuantity ?? line?.picked_quantity)
+                + normalizeQuantity(line?.stagedQuantity ?? line?.staged_quantity)
+            ));
+        }
+
+        function lineAvailableQuantity(line) {
+            return normalizeQuantity(line?.availableQuantity ?? line?.available_quantity ?? Math.max(lineOnHandQuantity(line) - lineReservedQuantity(line), 0));
+        }
+
+        function formatInventoryCommitmentSummary(line) {
+            const parts = [
+                normalizeQuantity(line?.releasedQuantity) ? `${formatTrackedQuantity(line.releasedQuantity, line.trackingLevel)} released` : "",
+                normalizeQuantity(line?.pickedQuantity) ? `${formatTrackedQuantity(line.pickedQuantity, line.trackingLevel)} picked` : "",
+                normalizeQuantity(line?.stagedQuantity) ? `${formatTrackedQuantity(line.stagedQuantity, line.trackingLevel)} staged` : ""
+            ].filter(Boolean);
+            return parts.join(" | ") || "-";
+        }
+
+        function summarizeTrackedTotals(lines, quantityField = "quantity") {
             return lines.reduce((totals, line) => {
-                totals[normalizeTrackingLevel(line?.trackingLevel)] += Number(line?.quantity) || 0;
+                const value = typeof quantityField === "function"
+                    ? quantityField(line)
+                    : normalizeQuantity(line?.[quantityField] ?? line?.quantity);
+                totals[normalizeTrackingLevel(line?.trackingLevel)] += value;
                 return totals;
             }, { UNIT: 0, CASE: 0, PALLET: 0 });
         }
