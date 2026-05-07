@@ -148,6 +148,11 @@ const SMTP_PASS = normalizeSmtpPassword(SMTP_HOST, readEnv("SMTP_PASS", ""));
 const SMTP_FROM = readEnv("SMTP_FROM", "");
 const SMTP_REPLY_TO = readEnv("SMTP_REPLY_TO", "");
 const ORDER_RELEASE_TO = readEnv("ORDER_RELEASE_TO", "");
+const EMAIL_PROVIDER = normalizeText(readEnv("EMAIL_PROVIDER", ""));
+const RESEND_API_KEY = readEnv("RESEND_API_KEY", "");
+const RESEND_API_URL = readEnv("RESEND_API_URL", "https://api.resend.com").replace(/\/+$/, "");
+const SENDGRID_API_KEY = readEnv("SENDGRID_API_KEY", "");
+const SENDGRID_API_URL = readEnv("SENDGRID_API_URL", "https://api.sendgrid.com").replace(/\/+$/, "");
 const ADMIN_ACTIVITY_DIGEST_JOB_KEY = "ADMIN_ACTIVITY_DIGEST";
 const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
@@ -572,21 +577,22 @@ app.post("/api/admin/system-email/test", async (req, res, next) => {
 
         const recipient = recipients[0];
         const now = new Date();
-        const transporter = getSystemMailer("System email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
         const subject = `WMS365 system email test - ${APP_BUILD_INFO.deploymentRef}`;
+        const provider = getConfiguredEmailProvider() || "Not configured";
         const lines = [
             "WMS365 system email test",
             "",
-            "This confirms the configured SMTP account can send email from the WMS365 app.",
+            "This confirms the configured WMS365 email provider can send email from the live app.",
             `Sent at: ${now.toISOString()}`,
             `Requested by: ${req.appUser?.email || "Unknown admin"}`,
             `Build: ${APP_BUILD_INFO.label}`,
-            `SMTP host: ${SMTP_HOST}:${SMTP_PORT}`,
+            `Email provider: ${provider}`,
+            SMTP_HOST ? `SMTP host: ${SMTP_HOST}:${SMTP_PORT}` : "",
             `From: ${SMTP_FROM}`,
             SMTP_REPLY_TO ? `Reply-To: ${SMTP_REPLY_TO}` : ""
         ].filter(Boolean);
 
-        await transporter.sendMail({
+        const emailResult = await sendSystemEmail({
             from: SMTP_FROM,
             to: recipient,
             replyTo: SMTP_REPLY_TO || undefined,
@@ -595,25 +601,28 @@ app.post("/api/admin/system-email/test", async (req, res, next) => {
             html: `
                 <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
                     <h2 style="margin:0 0 12px;">WMS365 system email test</h2>
-                    <p>This confirms the configured SMTP account can send email from the WMS365 app.</p>
+                    <p>This confirms the configured WMS365 email provider can send email from the live app.</p>
                     <table style="border-collapse:collapse;width:100%;max-width:720px;">
                         <tr><td style="padding:6px 0;font-weight:600;">Sent at</td><td style="padding:6px 0;">${escapeHtml(now.toISOString())}</td></tr>
                         <tr><td style="padding:6px 0;font-weight:600;">Requested by</td><td style="padding:6px 0;">${escapeHtml(req.appUser?.email || "Unknown admin")}</td></tr>
                         <tr><td style="padding:6px 0;font-weight:600;">Build</td><td style="padding:6px 0;">${escapeHtml(APP_BUILD_INFO.label)}</td></tr>
-                        <tr><td style="padding:6px 0;font-weight:600;">SMTP host</td><td style="padding:6px 0;">${escapeHtml(`${SMTP_HOST}:${SMTP_PORT}`)}</td></tr>
+                        <tr><td style="padding:6px 0;font-weight:600;">Email provider</td><td style="padding:6px 0;">${escapeHtml(provider)}</td></tr>
+                        ${SMTP_HOST ? `<tr><td style="padding:6px 0;font-weight:600;">SMTP host</td><td style="padding:6px 0;">${escapeHtml(`${SMTP_HOST}:${SMTP_PORT}`)}</td></tr>` : ""}
                         <tr><td style="padding:6px 0;font-weight:600;">From</td><td style="padding:6px 0;">${escapeHtml(SMTP_FROM)}</td></tr>
                         ${SMTP_REPLY_TO ? `<tr><td style="padding:6px 0;font-weight:600;">Reply-To</td><td style="padding:6px 0;">${escapeHtml(SMTP_REPLY_TO)}</td></tr>` : ""}
                     </table>
                 </div>
             `
-        });
+        }, "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
         res.json({
             success: true,
             recipient,
             sentAt: now.toISOString(),
             from: SMTP_FROM,
-            smtpHost: SMTP_HOST
+            smtpHost: SMTP_HOST,
+            emailProvider: emailResult.provider || provider,
+            messageId: emailResult.messageId || ""
         });
     } catch (error) {
         next(error);
@@ -8457,12 +8466,31 @@ async function getPortalInboundDocumentById(documentId, client = pool) {
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
-function hasSystemEmailConfig() {
+function getConfiguredEmailProvider() {
+    if (EMAIL_PROVIDER === "RESEND" || EMAIL_PROVIDER === "SENDGRID" || EMAIL_PROVIDER === "SMTP") {
+        return EMAIL_PROVIDER;
+    }
+    if (RESEND_API_KEY) return "RESEND";
+    if (SENDGRID_API_KEY) return "SENDGRID";
+    if (hasSmtpEmailConfig()) return "SMTP";
+    return "";
+}
+
+function hasSmtpEmailConfig() {
     return !!SMTP_HOST && !!SMTP_PORT && !!SMTP_FROM;
 }
 
+function hasSystemEmailConfig() {
+    if (!SMTP_FROM) return false;
+    const provider = getConfiguredEmailProvider();
+    if (provider === "RESEND") return !!RESEND_API_KEY;
+    if (provider === "SENDGRID") return !!SENDGRID_API_KEY;
+    if (provider === "SMTP") return hasSmtpEmailConfig();
+    return false;
+}
+
 function getSystemMailer(configErrorMessage = "System email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.") {
-    if (!hasSystemEmailConfig()) {
+    if (!hasSmtpEmailConfig()) {
         throw httpError(500, configErrorMessage);
     }
     if (/(^|\.)gmail\.com$/i.test(SMTP_HOST) && (!SMTP_USER || !SMTP_PASS)) {
@@ -8480,6 +8508,214 @@ function getSystemMailer(configErrorMessage = "System email is not configured. S
         });
     }
     return systemMailer;
+}
+
+function getEmailConfigErrorMessage(context = "System email") {
+    const provider = getConfiguredEmailProvider();
+    if (!SMTP_FROM) {
+        return `${context} is not configured. Set SMTP_FROM to a verified sender address.`;
+    }
+    if (provider === "RESEND" && !RESEND_API_KEY) {
+        return `${context} is not configured. Set RESEND_API_KEY or choose another EMAIL_PROVIDER.`;
+    }
+    if (provider === "SENDGRID" && !SENDGRID_API_KEY) {
+        return `${context} is not configured. Set SENDGRID_API_KEY or choose another EMAIL_PROVIDER.`;
+    }
+    if (provider === "SMTP" && !hasSmtpEmailConfig()) {
+        return `${context} is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM.`;
+    }
+    return `${context} is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings.`;
+}
+
+function asEmailRecipientArray(value) {
+    if (Array.isArray(value)) {
+        return value.flatMap(asEmailRecipientArray);
+    }
+    return String(value || "")
+        .split(/[,;]+/)
+        .map((entry) => normalizeEmail(entry))
+        .filter((email) => email && isValidEmailAddress(email));
+}
+
+function parseEmailAddressHeader(value) {
+    const text = String(value || "").trim();
+    const match = text.match(/^(.*?)<([^>]+)>$/);
+    if (match) {
+        return {
+            name: normalizeFreeText(match[1].replace(/^"|"$/g, "")),
+            email: normalizeEmail(match[2])
+        };
+    }
+    return {
+        name: "",
+        email: normalizeEmail(text)
+    };
+}
+
+function attachmentContentToBase64(attachment) {
+    const content = attachment?.content;
+    if (Buffer.isBuffer(content)) return content.toString("base64");
+    if (content instanceof Uint8Array) return Buffer.from(content).toString("base64");
+    return Buffer.from(String(content || ""), "utf8").toString("base64");
+}
+
+function normalizeEmailAttachments(attachments = []) {
+    return (Array.isArray(attachments) ? attachments : [])
+        .filter((attachment) => attachment?.filename && attachment?.content != null)
+        .map((attachment) => ({
+            filename: normalizeUploadFileName(attachment.filename),
+            content: attachmentContentToBase64(attachment),
+            contentType: String(attachment.contentType || attachment.type || "application/octet-stream").trim() || "application/octet-stream"
+        }))
+        .filter((attachment) => attachment.filename && attachment.content);
+}
+
+function buildEmailSendResult(provider, payload = {}) {
+    return {
+        accepted: payload.accepted || [],
+        rejected: payload.rejected || [],
+        response: payload.response || "",
+        messageId: payload.messageId || payload.id || "",
+        provider
+    };
+}
+
+async function parseEmailApiResponse(response) {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch (_error) {
+        return { raw: text };
+    }
+}
+
+async function sendEmailViaResend(mailOptions) {
+    if (!RESEND_API_KEY) {
+        throw httpError(500, getEmailConfigErrorMessage("Resend email"));
+    }
+    const attachments = normalizeEmailAttachments(mailOptions.attachments);
+    const payload = {
+        from: mailOptions.from || SMTP_FROM,
+        to: asEmailRecipientArray(mailOptions.to),
+        subject: mailOptions.subject || "WMS365 Notification"
+    };
+    const cc = asEmailRecipientArray(mailOptions.cc);
+    const bcc = asEmailRecipientArray(mailOptions.bcc);
+    const replyTo = asEmailRecipientArray(mailOptions.replyTo || mailOptions.reply_to);
+    if (cc.length) payload.cc = cc;
+    if (bcc.length) payload.bcc = bcc;
+    if (replyTo.length) payload.reply_to = replyTo.length === 1 ? replyTo[0] : replyTo;
+    if (mailOptions.html) payload.html = mailOptions.html;
+    if (mailOptions.text) payload.text = mailOptions.text;
+    if (attachments.length) {
+        payload.attachments = attachments.map((attachment) => ({
+            filename: attachment.filename,
+            content: attachment.content
+        }));
+    }
+
+    const response = await fetch(`${RESEND_API_URL}/emails`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000)
+    });
+    const result = await parseEmailApiResponse(response);
+    if (!response.ok) {
+        const message = result?.message || result?.error || result?.raw || response.statusText || "Resend email request failed.";
+        throw httpError(response.status >= 400 && response.status < 500 ? 400 : 502, `Resend email failed: ${message}`);
+    }
+    return buildEmailSendResult("RESEND", {
+        id: result.id,
+        response: result.id ? `Resend accepted email ${result.id}` : "Resend accepted email",
+        accepted: payload.to
+    });
+}
+
+async function sendEmailViaSendGrid(mailOptions) {
+    if (!SENDGRID_API_KEY) {
+        throw httpError(500, getEmailConfigErrorMessage("SendGrid email"));
+    }
+    const from = parseEmailAddressHeader(mailOptions.from || SMTP_FROM);
+    if (!from.email) {
+        throw httpError(500, "SendGrid email is not configured. SMTP_FROM must include a valid sender email.");
+    }
+    const to = asEmailRecipientArray(mailOptions.to);
+    if (!to.length) {
+        throw httpError(400, "No email recipients were provided.");
+    }
+    const personalization = {
+        to: to.map((email) => ({ email }))
+    };
+    const cc = asEmailRecipientArray(mailOptions.cc);
+    const bcc = asEmailRecipientArray(mailOptions.bcc);
+    if (cc.length) personalization.cc = cc.map((email) => ({ email }));
+    if (bcc.length) personalization.bcc = bcc.map((email) => ({ email }));
+
+    const payload = {
+        personalizations: [personalization],
+        from: from.name ? { email: from.email, name: from.name } : { email: from.email },
+        subject: mailOptions.subject || "WMS365 Notification",
+        content: []
+    };
+    if (mailOptions.text) payload.content.push({ type: "text/plain", value: mailOptions.text });
+    if (mailOptions.html) payload.content.push({ type: "text/html", value: mailOptions.html });
+    if (!payload.content.length) payload.content.push({ type: "text/plain", value: "" });
+
+    const replyTo = parseEmailAddressHeader(mailOptions.replyTo || mailOptions.reply_to || "");
+    if (replyTo.email) {
+        payload.reply_to = replyTo.name ? { email: replyTo.email, name: replyTo.name } : { email: replyTo.email };
+    }
+
+    const attachments = normalizeEmailAttachments(mailOptions.attachments);
+    if (attachments.length) {
+        payload.attachments = attachments.map((attachment) => ({
+            content: attachment.content,
+            filename: attachment.filename,
+            type: attachment.contentType,
+            disposition: "attachment"
+        }));
+    }
+
+    const response = await fetch(`${SENDGRID_API_URL}/v3/mail/send`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${SENDGRID_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000)
+    });
+    const result = await parseEmailApiResponse(response);
+    if (!response.ok) {
+        const errors = Array.isArray(result?.errors)
+            ? result.errors.map((error) => error.message).filter(Boolean).join(" | ")
+            : "";
+        const message = errors || result?.raw || response.statusText || "SendGrid email request failed.";
+        throw httpError(response.status >= 400 && response.status < 500 ? 400 : 502, `SendGrid email failed: ${message}`);
+    }
+    return buildEmailSendResult("SENDGRID", {
+        response: `SendGrid accepted email with status ${response.status}`,
+        accepted: to
+    });
+}
+
+async function sendSystemEmail(mailOptions, configErrorMessage = "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.") {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, configErrorMessage || getEmailConfigErrorMessage("System email"));
+    }
+    const provider = getConfiguredEmailProvider();
+    if (provider === "RESEND") return sendEmailViaResend(mailOptions);
+    if (provider === "SENDGRID") return sendEmailViaSendGrid(mailOptions);
+    const transporter = getSystemMailer(configErrorMessage);
+    return {
+        ...(await transporter.sendMail(mailOptions)),
+        provider: "SMTP"
+    };
 }
 
 function hasShipmentEmailConfig() {
@@ -8620,8 +8856,7 @@ async function sendDemoRequestNotification(request) {
         return [];
     }
 
-    const transporter = getSystemMailer();
-    await transporter.sendMail({
+    await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         replyTo: request.workEmail || SMTP_REPLY_TO || undefined,
@@ -8893,14 +9128,13 @@ async function sendAdminActivityDigestEmail(digest) {
     if (!ADMIN_ACTIVITY_SUMMARY_TO) {
         return;
     }
-    const transporter = getSystemMailer("Admin activity email is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
-    await transporter.sendMail({
+    await sendSystemEmail({
         from: SMTP_FROM,
         to: ADMIN_ACTIVITY_SUMMARY_TO,
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `WMS365 daily activity summary - ${digest.dateLabel}`,
         text: buildAdminActivityDigestText(digest)
-    });
+    }, "Admin activity email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 }
 
 function normalizeStripeResourceId(value, prefix = "") {
@@ -9631,9 +9865,8 @@ async function sendStripeSubscriptionNotification(notification) {
         return [];
     }
 
-    const transporter = getSystemMailer();
     const subjectPrefix = notification.kind === "PAYMENT_FAILED" ? "WMS365 Stripe payment failed" : "New WMS365 Stripe signup";
-    await transporter.sendMail({
+    await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         replyTo: notification.subscription.workEmail || SMTP_REPLY_TO || undefined,
@@ -10061,7 +10294,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [] } = {}) {
 
 async function sendPortalOrderReleaseEmail(order, { ccRecipients = [] } = {}) {
     if (!hasSystemEmailConfig()) {
-        throw httpError(500, "Warehouse email is not configured yet. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
+        throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     }
 
     const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName);
@@ -10070,8 +10303,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [] } = {}) {
     }
 
     const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
-    const transporter = getSystemMailer("Warehouse email is not configured yet. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM first.");
-    await transporter.sendMail({
+    await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
@@ -10079,7 +10311,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [] } = {}) {
         subject: `Portal Order Released - ${order.orderCode}`,
         text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients }),
         html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients })
-    });
+    }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
     return {
         recipients,
@@ -10134,8 +10366,7 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
         throw httpError(400, "No active portal user or company email is available for shipment confirmation.");
     }
 
-    const transporter = getShipmentMailer();
-    await transporter.sendMail({
+    await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         replyTo: SMTP_REPLY_TO || undefined,
@@ -10147,7 +10378,7 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
             content: document.fileBuffer,
             contentType: document.fileType
         }))
-    });
+    }, "Shipment email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings before marking an order shipped.");
 
     return recipients;
 }
