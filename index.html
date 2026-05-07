@@ -6746,6 +6746,35 @@
                                     <button class="btn ghost hidden" id="cancelMasterItemEditBtn" type="button">Cancel Edit</button>
                                 </div>
                             </form>
+                            <div class="helper item-sku-mapping-card" id="masterItemSkuMappingCard" style="margin-top: 1rem;">
+                                <div class="card-head">
+                                    <div>
+                                        <h3>Store SKU Mapping</h3>
+                                        <p class="meta">Map Shopify, SFTP, or marketplace SKUs to this local WMS item so imported orders use the correct warehouse SKU.</p>
+                                    </div>
+                                </div>
+                                <form id="masterItemSkuMappingForm" class="form-grid" autocomplete="off">
+                                    <label class="field">
+                                        <span>Connected Store</span>
+                                        <select id="masterItemSkuMappingIntegration"></select>
+                                    </label>
+                                    <label class="field">
+                                        <span>Store / Online SKU</span>
+                                        <input id="masterItemExternalSku" type="text" placeholder="Example: SHOPIFY-SKU-123" enterkeyhint="next">
+                                    </label>
+                                    <label class="field span-2">
+                                        <span>Note</span>
+                                        <input id="masterItemSkuMappingNote" type="text" placeholder="Optional note for this mapping" enterkeyhint="done">
+                                    </label>
+                                    <div class="button-row span-2">
+                                        <button class="btn ghost" id="masterItemSkuMappingSubmitBtn" type="submit">Add Mapping</button>
+                                    </div>
+                                </form>
+                                <div class="status" id="masterItemSkuMappingMessage"></div>
+                                <div id="masterItemSkuMappingList" class="stack-list" style="margin-top: 1rem;">
+                                    <p class="empty">Open a saved item to manage store SKU mappings.</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -8550,6 +8579,7 @@
         let editingMasterItem = null;
         let portalAccessRecords = [];
         let integrationRecords = [];
+        let skuMappingRecords = [];
         let portalOrderRecords = [];
         let portalInboundRecords = [];
         let shipToAddressRecords = [];
@@ -8947,6 +8977,14 @@
             masterItemCaseLength: document.getElementById("masterItemCaseLength"),
             masterItemCaseWidth: document.getElementById("masterItemCaseWidth"),
             masterItemCaseHeight: document.getElementById("masterItemCaseHeight"),
+            masterItemSkuMappingCard: document.getElementById("masterItemSkuMappingCard"),
+            masterItemSkuMappingForm: document.getElementById("masterItemSkuMappingForm"),
+            masterItemSkuMappingIntegration: document.getElementById("masterItemSkuMappingIntegration"),
+            masterItemExternalSku: document.getElementById("masterItemExternalSku"),
+            masterItemSkuMappingNote: document.getElementById("masterItemSkuMappingNote"),
+            masterItemSkuMappingSubmitBtn: document.getElementById("masterItemSkuMappingSubmitBtn"),
+            masterItemSkuMappingMessage: document.getElementById("masterItemSkuMappingMessage"),
+            masterItemSkuMappingList: document.getElementById("masterItemSkuMappingList"),
             masterFilter: document.getElementById("masterFilter"),
             masterOwnerCount: document.getElementById("masterOwnerCount"),
             fulfillmentLocationCount: document.getElementById("fulfillmentLocationCount"),
@@ -9558,6 +9596,8 @@
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
             ui.openMasterItemNewBtn?.addEventListener("click", () => showMasterItemCard(null, { scroll: true }));
             ui.closeMasterItemCardBtn?.addEventListener("click", () => closeMasterItemCard({ reset: true }));
+            ui.masterItemSkuMappingForm?.addEventListener("submit", saveMasterItemSkuMapping);
+            ui.masterItemSkuMappingList?.addEventListener("click", onMasterItemSkuMappingListClick);
             [
                 ui.masterItemAccount,
                 ui.masterItemSku,
@@ -9570,6 +9610,10 @@
             ].filter(Boolean).forEach((field) => {
                 field.addEventListener("input", updateMasterItemFocusPanel);
                 field.addEventListener("change", updateMasterItemFocusPanel);
+                if (field === ui.masterItemAccount || field === ui.masterItemSku) {
+                    field.addEventListener("input", () => renderMasterItemSkuMappings());
+                    field.addEventListener("change", () => renderMasterItemSkuMappings());
+                }
             });
             ui.openPortalBtn.addEventListener("click", () => window.open("/portal", "_blank", "noopener"));
             ui.masterFilter.addEventListener("input", debouncedRenderMasterLibrary);
@@ -9822,6 +9866,7 @@
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
             refreshIntegrationsList().catch(() => {});
+            refreshSkuMappingsList(true).catch(() => {});
             refreshPortalOrdersList().catch(() => {});
             refreshPortalInboundsList().catch(() => {});
             refreshFeedbackQueue(true).catch(() => {});
@@ -9829,6 +9874,7 @@
                 if (document.visibilityState === "visible") {
                     syncServerState(true).catch(() => {});
                     refreshIntegrationsList().catch(() => {});
+                    refreshSkuMappingsList(true).catch(() => {});
                     refreshPortalOrdersList(true).catch(() => {});
                     refreshPortalInboundsList(true).catch(() => {});
                     refreshFeedbackQueue(true).catch(() => {});
@@ -9837,6 +9883,7 @@
             window.addEventListener("focus", () => {
                 syncServerState(true).catch(() => {});
                 refreshIntegrationsList().catch(() => {});
+                refreshSkuMappingsList(true).catch(() => {});
                 refreshPortalOrdersList(true).catch(() => {});
                 refreshPortalInboundsList(true).catch(() => {});
                 refreshFeedbackQueue(true).catch(() => {});
@@ -11224,6 +11271,7 @@
             if (rerender) refreshCompanyScopedUi();
             refreshPortalOrdersList(true).catch(() => {});
             refreshPortalInboundsList(true).catch(() => {});
+            refreshSkuMappingsList(true).catch(() => {});
         }
 
         function clearActiveCompany() {
@@ -12639,6 +12687,7 @@
             renderReports(ui.reportFilter.value);
             renderSummary();
             renderWarehouseDashboard();
+            renderMasterItemSkuMappings();
             syncScanItemSelectors();
             syncPalletLabelSkuOptions();
             renderWarehouseSalesOrderContext();
@@ -15471,9 +15520,11 @@
                     ? payload.integrations.map(sanitizeIntegrationRecord).filter(Boolean)
                     : [];
                 renderIntegrationList();
+                renderMasterItemSkuMappings();
             } catch (error) {
                 integrationRecords = [];
                 renderIntegrationList(error.message);
+                renderMasterItemSkuMappings(error.message);
                 throw error;
             }
         }
@@ -15545,6 +15596,171 @@
                     </div>
                 `;
             }).join("");
+        }
+
+        function getMasterItemSkuMappingContext() {
+            const accountName = getScopedCompanyValue(ui.masterItemAccount?.value || "");
+            const localSku = norm(ui.masterItemSku?.value || "");
+            const savedItem = accountName && localSku
+                ? state.masters.items.find((item) => item.accountName === accountName && item.sku === localSku)
+                : null;
+            return { accountName, localSku, savedItem };
+        }
+
+        async function refreshSkuMappingsList(silent = false) {
+            try {
+                const params = new URLSearchParams();
+                const company = getActiveCompany();
+                if (company) params.set("accountName", company);
+                const payload = await requestJson(`/api/admin/sku-mappings${params.toString() ? `?${params.toString()}` : ""}`);
+                skuMappingRecords = Array.isArray(payload?.mappings)
+                    ? payload.mappings.map(sanitizeSkuMappingRecord).filter(Boolean)
+                    : [];
+                renderMasterItemSkuMappings();
+            } catch (error) {
+                skuMappingRecords = [];
+                renderMasterItemSkuMappings(silent ? "" : error.message);
+                if (!silent) throw error;
+            }
+        }
+
+        function getVisibleStoreIntegrationsForItem(accountName) {
+            return integrationRecords
+                .filter((entry) => entry.accountName === accountName)
+                .sort((a, b) => {
+                    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+                    return (a.integrationName || a.storeIdentifier || "").localeCompare(b.integrationName || b.storeIdentifier || "");
+                });
+        }
+
+        function renderMasterItemSkuMappings(errorText = "") {
+            if (!ui.masterItemSkuMappingList || !ui.masterItemSkuMappingIntegration) return;
+            const { accountName, localSku, savedItem } = getMasterItemSkuMappingContext();
+            const featureEnabled = accountName && companyHasFeature(accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            const stores = accountName && featureEnabled ? getVisibleStoreIntegrationsForItem(accountName) : [];
+            const selectedId = ui.masterItemSkuMappingIntegration.value;
+            ui.masterItemSkuMappingIntegration.innerHTML = stores.length
+                ? stores.map((entry) => {
+                    const label = `${entry.integrationName || integrationProviderLabel(entry.provider)} - ${entry.storeIdentifier}`;
+                    return `<option value="${attr(entry.id)}"${entry.id === selectedId ? " selected" : ""}>${esc(label)}${entry.isActive ? "" : " (disabled)"}</option>`;
+                }).join("")
+                : `<option value="">No connected stores</option>`;
+
+            const canAdd = !!(accountName && localSku && savedItem && featureEnabled && stores.length);
+            if (ui.masterItemSkuMappingSubmitBtn) ui.masterItemSkuMappingSubmitBtn.disabled = !canAdd;
+            if (ui.masterItemExternalSku) ui.masterItemExternalSku.disabled = !canAdd;
+            if (ui.masterItemSkuMappingNote) ui.masterItemSkuMappingNote.disabled = !canAdd;
+            if (ui.masterItemSkuMappingIntegration) ui.masterItemSkuMappingIntegration.disabled = !canAdd;
+
+            const itemMappings = skuMappingRecords
+                .filter((entry) => entry.accountName === accountName && entry.localSku === localSku)
+                .sort((a, b) => (a.provider + a.storeIdentifier + a.externalSku).localeCompare(b.provider + b.storeIdentifier + b.externalSku));
+
+            if (errorText) {
+                ui.masterItemSkuMappingList.innerHTML = `<p class="empty">${esc(errorText)}</p>`;
+                return;
+            }
+            if (!accountName || !localSku) {
+                ui.masterItemSkuMappingList.innerHTML = `<p class="empty">Choose a company and SKU before adding store SKU mappings.</p>`;
+                return;
+            }
+            if (!savedItem) {
+                ui.masterItemSkuMappingList.innerHTML = `<p class="empty">Save this item first, then map online store SKUs to it.</p>`;
+                return;
+            }
+            if (!featureEnabled) {
+                ui.masterItemSkuMappingList.innerHTML = `<p class="empty">${esc(companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, accountName))}</p>`;
+                return;
+            }
+            if (!stores.length) {
+                ui.masterItemSkuMappingList.innerHTML = `<p class="empty">No marketplace or SFTP connections are saved for ${esc(accountName)} yet.</p>`;
+                return;
+            }
+            if (!itemMappings.length) {
+                ui.masterItemSkuMappingList.innerHTML = `<p class="empty">No store SKU mappings saved for ${esc(localSku)} yet.</p>`;
+                return;
+            }
+
+            ui.masterItemSkuMappingList.innerHTML = itemMappings.map((entry) => `
+                <div class="quick-row">
+                    <div class="quick-main">
+                        <strong>${esc(entry.externalSku)} -> ${esc(entry.localSku)}</strong>
+                        <div class="quick-meta">${esc(integrationProviderLabel(entry.provider))} | ${esc(entry.integrationName || entry.storeIdentifier)} | ${esc(entry.storeIdentifier)}</div>
+                        ${entry.note ? `<div class="quick-meta">${esc(entry.note)}</div>` : ""}
+                    </div>
+                    <div class="quick-row-actions">
+                        <button class="btn ghost mini" type="button" data-delete-sku-mapping="${attr(entry.id)}">Remove</button>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        async function saveMasterItemSkuMapping(event) {
+            event.preventDefault();
+            const { accountName, localSku, savedItem } = getMasterItemSkuMappingContext();
+            const integrationId = String(ui.masterItemSkuMappingIntegration?.value || "");
+            const externalSku = norm(ui.masterItemExternalSku?.value || "");
+            const note = String(ui.masterItemSkuMappingNote?.value || "").trim();
+            if (!accountName || !localSku || !savedItem) {
+                return showMessage(ui.masterItemSkuMappingMessage, "Save the item before adding store SKU mappings.", "error");
+            }
+            if (!integrationId) {
+                return showMessage(ui.masterItemSkuMappingMessage, "Choose a connected store for this company.", "error");
+            }
+            if (!externalSku) {
+                ui.masterItemExternalSku?.focus();
+                return showMessage(ui.masterItemSkuMappingMessage, "Enter the online store SKU to map.", "error");
+            }
+            const store = integrationRecords.find((entry) => entry.id === integrationId && entry.accountName === accountName);
+            if (!store) {
+                return showMessage(ui.masterItemSkuMappingMessage, "That store is not connected to this company.", "error");
+            }
+
+            const submitButton = resolveActionButton(event);
+            try {
+                await runActionWithFeedback({
+                    button: submitButton,
+                    busyLabel: "Saving mapping...",
+                    messageElement: ui.masterItemSkuMappingMessage,
+                    progressMessage: `Saving ${externalSku} -> ${localSku} for ${accountName}...`
+                }, async () => {
+                    await requestJson("/api/admin/sku-mappings", {
+                        method: "POST",
+                        body: JSON.stringify({ accountName, localSku, integrationId, externalSku, note })
+                    });
+                    if (ui.masterItemExternalSku) ui.masterItemExternalSku.value = "";
+                    if (ui.masterItemSkuMappingNote) ui.masterItemSkuMappingNote.value = "";
+                    await refreshSkuMappingsList(true);
+                    showMessage(ui.masterItemSkuMappingMessage, `Mapped ${externalSku} to local SKU ${localSku}.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.masterItemSkuMappingMessage, error.message, "error");
+            }
+        }
+
+        async function onMasterItemSkuMappingListClick(event) {
+            const deleteButton = event.target.closest("[data-delete-sku-mapping]");
+            if (!deleteButton) return;
+            const mappingId = deleteButton.dataset.deleteSkuMapping;
+            const mapping = skuMappingRecords.find((entry) => entry.id === String(mappingId));
+            if (!mapping) return;
+            if (!window.confirm(`Remove mapping ${mapping.externalSku} -> ${mapping.localSku}?`)) return;
+
+            try {
+                await runActionWithFeedback({
+                    button: deleteButton,
+                    busyLabel: "Removing...",
+                    messageElement: ui.masterItemSkuMappingMessage,
+                    progressMessage: `Removing mapping ${mapping.externalSku}...`
+                }, async () => {
+                    await requestJson(`/api/admin/sku-mappings/${encodeURIComponent(mapping.id)}`, { method: "DELETE" });
+                    skuMappingRecords = skuMappingRecords.filter((entry) => entry.id !== String(mapping.id));
+                    renderMasterItemSkuMappings();
+                    showMessage(ui.masterItemSkuMappingMessage, `Removed mapping ${mapping.externalSku}.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.masterItemSkuMappingMessage, error.message, "error");
+            }
         }
 
         function onIntegrationMarketplaceClick(event) {
@@ -17186,6 +17402,8 @@
                 ui.partnerCard?.classList.add("hidden");
                 document.body.classList.add("item-card-popout-open");
             }
+            renderMasterItemSkuMappings();
+            refreshSkuMappingsList(true).catch(() => {});
             if (scroll && isMobileView()) ui.masterItemCard?.scrollIntoView({ behavior: "smooth", block: "start" });
             window.setTimeout(() => ui.masterItemSku?.focus(), scroll ? 180 : 40);
         }
@@ -17649,6 +17867,7 @@
                         } : payload)
                     });
                     await syncServerState(true);
+                    await refreshSkuMappingsList(true);
                     setActiveCompany(accountName, { force: true, rerender: false });
                     showMessage(ui.catalogMessage, `${editingMasterItem ? "Updated" : "Saved"} item ${accountName} / ${sku} in the shared library.`, "success");
                     resetMasterItemForm(accountName);
@@ -17720,6 +17939,9 @@
                 defaultMeta: "Compressed item photo preview"
             });
             updateMasterItemFocusPanel();
+            if (ui.masterItemSkuMappingForm) ui.masterItemSkuMappingForm.reset();
+            showMessage(ui.masterItemSkuMappingMessage, "", "info");
+            renderMasterItemSkuMappings();
         }
 
         function beginMasterItemEdit(item) {
@@ -17757,6 +17979,9 @@
                 defaultMeta: "Compressed item photo preview"
             });
             updateMasterItemFocusPanel();
+            if (ui.masterItemSkuMappingForm) ui.masterItemSkuMappingForm.reset();
+            showMessage(ui.masterItemSkuMappingMessage, "", "info");
+            renderMasterItemSkuMappings();
             ui.masterItemSku.focus();
         }
 
@@ -20821,6 +21046,29 @@
                 lastSyncMessage: String(item?.lastSyncMessage || item?.last_sync_message || "").trim(),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeSkuMappingRecord(item) {
+            const id = item?.id != null ? String(item.id) : "";
+            const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
+            const integrationId = item?.integrationId != null ? String(item.integrationId) : (item?.integration_id != null ? String(item.integration_id) : "");
+            const localSku = norm(item?.localSku || item?.local_sku || item?.sku);
+            const externalSku = norm(item?.externalSku || item?.external_sku || item?.storeSku || item?.store_sku || item?.onlineSku || item?.online_sku);
+            if (!id || !accountName || !integrationId || !localSku || !externalSku) return null;
+            return {
+                id,
+                accountName,
+                integrationId,
+                provider: norm(item?.provider || item?.platform || ""),
+                integrationName: String(item?.integrationName || item?.integration_name || "").trim(),
+                storeIdentifier: String(item?.storeIdentifier || item?.store_identifier || "").trim().toLowerCase(),
+                isActive: item?.isActive !== false,
+                localSku,
+                externalSku,
+                note: String(item?.note || item?.notes || "").trim(),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : (typeof item?.created_at === "string" ? item.created_at : null),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : (typeof item?.updated_at === "string" ? item.updated_at : null)
             };
         }
 

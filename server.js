@@ -2299,6 +2299,85 @@ app.post("/api/admin/integrations/:id/sync", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/sku-mappings", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const localSku = normalizeText(req.query?.localSku || req.query?.local_sku || req.query?.sku || "");
+        const integrationId = toPositiveInt(req.query?.integrationId || req.query?.integration_id);
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+            await assertCompanyFeatureEnabled(pool, requestedAccount, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+        }
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        const mappings = await getStoreSkuMappings(pool, { accountName: requestedAccount, localSku, integrationId });
+        res.json({
+            mappings: isSuperAdminUser(req.appUser)
+                ? mappings
+                : mappings.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/sku-mappings", async (req, res, next) => {
+    try {
+        const mapping = await withTransaction(async (client) => {
+            const requestedAccount = normalizeText(req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.vendor || req.body?.customer);
+            if (!requestedAccount) {
+                throw httpError(400, "Company is required for SKU mapping.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, requestedAccount);
+            await assertCompanyFeatureEnabled(client, requestedAccount, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            const saved = await saveStoreSkuMapping(client, req.body);
+            await assertAppUserCompanyAccess(client, req.appUser, saved.accountName);
+            await assertCompanyFeatureEnabled(client, saved.accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            await insertActivity(
+                client,
+                "setup",
+                `Mapped store SKU ${saved.externalSku} to ${saved.localSku}`,
+                [
+                    saved.accountName,
+                    saved.integrationName || saved.storeIdentifier || saved.provider,
+                    saved.note || ""
+                ].filter(Boolean).join(" | ")
+            );
+            return saved;
+        });
+        res.json({ success: true, mapping });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.delete("/api/admin/sku-mappings/:id", async (req, res, next) => {
+    try {
+        const mappingId = toPositiveInt(req.params.id);
+        if (!mappingId) {
+            throw httpError(400, "A valid SKU mapping id is required.");
+        }
+        const deleted = await withTransaction(async (client) => {
+            const mapping = await getStoreSkuMappingById(client, mappingId);
+            if (!mapping) {
+                throw httpError(404, "That SKU mapping could not be found.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, mapping.accountName);
+            await assertCompanyFeatureEnabled(client, mapping.accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            await client.query("delete from store_sku_mappings where id = $1", [mappingId]);
+            await insertActivity(
+                client,
+                "setup",
+                `Removed store SKU mapping ${mapping.externalSku}`,
+                [mapping.accountName, `Local SKU ${mapping.localSku}`].join(" | ")
+            );
+            return mapping;
+        });
+        res.json({ success: true, mapping: deleted });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/portal/login", async (req, res, next) => {
     try {
         const email = normalizeEmail(req.body?.email);
@@ -3916,6 +3995,26 @@ async function initializeDatabase() {
     await pool.query("update store_integrations set next_scheduled_sync_at = null where is_active = false or sync_schedule = 'MANUAL'");
     await pool.query("update store_integrations set next_scheduled_sync_at = now() where is_active = true and sync_schedule <> 'MANUAL' and next_scheduled_sync_at is null");
     await pool.query(`
+        create table if not exists store_sku_mappings (
+            id bigserial primary key,
+            account_name text not null,
+            integration_id bigint not null references store_integrations(id) on delete cascade,
+            local_sku text not null,
+            external_sku text not null,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (integration_id, external_sku)
+        );
+    `);
+    await pool.query("alter table store_sku_mappings add column if not exists account_name text not null default ''");
+    await pool.query("alter table store_sku_mappings add column if not exists local_sku text not null default ''");
+    await pool.query("alter table store_sku_mappings add column if not exists external_sku text not null default ''");
+    await pool.query("alter table store_sku_mappings add column if not exists note text not null default ''");
+    await pool.query("update store_sku_mappings m set account_name = i.account_name from store_integrations i where m.integration_id = i.id and (m.account_name is null or m.account_name = '')");
+    await pool.query("create unique index if not exists idx_store_sku_mappings_integration_external on store_sku_mappings (integration_id, external_sku)");
+    await pool.query("create index if not exists idx_store_sku_mappings_account_local on store_sku_mappings (account_name, local_sku)");
+    await pool.query(`
         create table if not exists store_order_imports (
             id bigserial primary key,
             integration_id bigint not null references store_integrations(id) on delete cascade,
@@ -5373,6 +5472,146 @@ async function getStoreIntegrationRowById(client, integrationId) {
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
+async function getStoreSkuMappings(client = pool, { accountName = "", localSku = "", integrationId = null } = {}) {
+    const where = [];
+    const params = [];
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedLocalSku = normalizeText(localSku);
+    const normalizedIntegrationId = toPositiveInt(integrationId);
+
+    if (normalizedAccount) {
+        params.push(normalizedAccount);
+        where.push(`m.account_name = $${params.length}`);
+    }
+    if (normalizedLocalSku) {
+        params.push(normalizedLocalSku);
+        where.push(`m.local_sku = $${params.length}`);
+    }
+    if (normalizedIntegrationId) {
+        params.push(normalizedIntegrationId);
+        where.push(`m.integration_id = $${params.length}`);
+    }
+
+    const result = await client.query(
+        `
+            select
+                m.*,
+                i.provider,
+                i.integration_name,
+                i.store_identifier,
+                i.is_active
+            from store_sku_mappings m
+            join store_integrations i on i.id = m.integration_id
+            ${where.length ? `where ${where.join(" and ")}` : ""}
+            order by m.account_name asc, i.provider asc, i.integration_name asc, m.local_sku asc, m.external_sku asc, m.id asc
+        `,
+        params
+    );
+    return result.rows.map(mapStoreSkuMappingRow);
+}
+
+async function getStoreSkuMappingById(client, mappingId) {
+    const normalizedId = toPositiveInt(mappingId);
+    if (!normalizedId) return null;
+    const result = await client.query(
+        `
+            select
+                m.*,
+                i.provider,
+                i.integration_name,
+                i.store_identifier,
+                i.is_active
+            from store_sku_mappings m
+            join store_integrations i on i.id = m.integration_id
+            where m.id = $1
+            limit 1
+        `,
+        [normalizedId]
+    );
+    return result.rowCount === 1 ? mapStoreSkuMappingRow(result.rows[0]) : null;
+}
+
+async function saveStoreSkuMapping(client, rawInput = {}) {
+    const accountName = normalizeText(rawInput?.accountName || rawInput?.account_name || rawInput?.owner || rawInput?.vendor || rawInput?.customer);
+    const integrationId = toPositiveInt(rawInput?.integrationId || rawInput?.integration_id);
+    const localSku = normalizeText(rawInput?.localSku || rawInput?.local_sku || rawInput?.sku);
+    const externalSku = normalizeText(rawInput?.externalSku || rawInput?.external_sku || rawInput?.storeSku || rawInput?.store_sku || rawInput?.onlineSku || rawInput?.online_sku);
+    const note = normalizeFreeText(rawInput?.note || rawInput?.notes || "");
+
+    if (!accountName) {
+        throw httpError(400, "Company is required for SKU mapping.");
+    }
+    if (!integrationId) {
+        throw httpError(400, "Choose the connected store for this SKU mapping.");
+    }
+    if (!localSku || !externalSku) {
+        throw httpError(400, "Local SKU and store SKU are required.");
+    }
+
+    const integrationRow = await getStoreIntegrationRowById(client, integrationId);
+    if (!integrationRow) {
+        throw httpError(404, "That store integration could not be found.");
+    }
+    if (normalizeText(integrationRow.account_name) !== accountName) {
+        throw httpError(400, "That store connection belongs to a different company.");
+    }
+
+    const item = await findCatalogItem(client, accountName, localSku);
+    if (!item) {
+        throw httpError(404, `Local SKU ${localSku} is not saved for ${accountName}. Save the item card first.`);
+    }
+
+    const result = await client.query(
+        `
+            insert into store_sku_mappings (account_name, integration_id, local_sku, external_sku, note)
+            values ($1, $2, $3, $4, $5)
+            on conflict (integration_id, external_sku)
+            do update set
+                account_name = excluded.account_name,
+                local_sku = excluded.local_sku,
+                note = excluded.note,
+                updated_at = now()
+            returning *
+        `,
+        [accountName, integrationId, localSku, externalSku, note]
+    );
+    return (await getStoreSkuMappingById(client, result.rows[0].id)) || mapStoreSkuMappingRow({
+        ...result.rows[0],
+        provider: integrationRow.provider,
+        integration_name: integrationRow.integration_name,
+        store_identifier: integrationRow.store_identifier,
+        is_active: integrationRow.is_active
+    });
+}
+
+async function getStoreSkuMappingLookup(client, integrationId) {
+    const normalizedIntegrationId = toPositiveInt(integrationId);
+    if (!normalizedIntegrationId) return new Map();
+    const result = await client.query(
+        `
+            select external_sku, local_sku
+            from store_sku_mappings
+            where integration_id = $1
+        `,
+        [normalizedIntegrationId]
+    );
+    return new Map(result.rows.map((row) => [normalizeText(row.external_sku), normalizeText(row.local_sku)]));
+}
+
+function applyStoreSkuMappingsToPortalOrderPayload(payload, skuMappingLookup) {
+    if (!payload || !skuMappingLookup || typeof skuMappingLookup.get !== "function" || !Array.isArray(payload.lines)) {
+        return payload;
+    }
+    return {
+        ...payload,
+        lines: payload.lines.map((line) => {
+            const externalSku = normalizeText(line?.sku || "");
+            const mappedSku = skuMappingLookup.get(externalSku);
+            return mappedSku ? { ...line, sku: mappedSku } : line;
+        })
+    };
+}
+
 async function saveStoreIntegration(client, rawInput) {
     const entry = sanitizeStoreIntegrationInput(rawInput);
     if (!entry.accountName) {
@@ -5611,6 +5850,7 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
     let skippedCount = 0;
     let failedCount = 0;
     const detailMessages = [];
+    const skuMappingLookup = await getStoreSkuMappingLookup(client, integrationRow.id);
 
     for (const order of orders) {
         const externalOrderId = String(order?.id || "").trim();
@@ -5628,7 +5868,10 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
         try {
             let importedOrder = null;
             if (normalizedProvider === SHOPIFY_SYNC_PROVIDER) {
-                const payload = mapShopifyOrderToPortalDraft(integrationRow.account_name, order, integrationRow);
+                const payload = applyStoreSkuMappingsToPortalOrderPayload(
+                    mapShopifyOrderToPortalDraft(integrationRow.account_name, order, integrationRow),
+                    skuMappingLookup
+                );
                 importedOrder = await savePortalOrderDraftForAccount(
                     client,
                     integrationRow.account_name,
@@ -6451,6 +6694,7 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
     let skippedCount = 0;
     let failedCount = 0;
     const detailMessages = [];
+    const skuMappingLookup = await getStoreSkuMappingLookup(client, integrationRow.id);
 
     for (const entry of mappedOrders) {
         if (!entry.externalOrderId) {
@@ -6464,10 +6708,11 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
         }
 
         try {
+            const mappedPayload = applyStoreSkuMappingsToPortalOrderPayload(entry.payload, skuMappingLookup);
             let importedOrder = await savePortalOrderDraftForAccount(
                 client,
                 integrationRow.account_name,
-                entry.payload,
+                mappedPayload,
                 null,
                 {
                     portalAccessId: null,
@@ -12100,6 +12345,15 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
 
     if (normalizedOriginalSku !== finalEntry.sku) {
         await client.query(
+            `
+                update store_sku_mappings
+                set local_sku = $3,
+                    updated_at = now()
+                where account_name = $1 and local_sku = $2
+            `,
+            [normalizedAccountName, normalizedOriginalSku, finalEntry.sku]
+        );
+        await client.query(
             "delete from item_catalog where account_name = $1 and sku = $2",
             [normalizedAccountName, normalizedOriginalSku]
         );
@@ -13194,6 +13448,23 @@ function mapStoreIntegrationRow(row) {
             ? normalizeText(row.last_sync_status || "IDLE")
             : "IDLE",
         lastSyncMessage: row.last_sync_message || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+function mapStoreSkuMappingRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name || "",
+        integrationId: String(row.integration_id || ""),
+        provider: normalizeStoreIntegrationProvider(row.provider || ""),
+        integrationName: row.integration_name || "",
+        storeIdentifier: row.store_identifier || "",
+        isActive: row.is_active === true,
+        localSku: normalizeText(row.local_sku || ""),
+        externalSku: normalizeText(row.external_sku || ""),
+        note: row.note || "",
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
