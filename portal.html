@@ -286,6 +286,30 @@
             border: 1px solid var(--line);
             background: var(--panel-2);
         }
+        .stat-button {
+            width: 100%;
+            text-align: left;
+            color: inherit;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+        .stat-button:hover,
+        .stat-button:focus-visible {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 4px rgba(92, 123, 146, 0.14);
+            transform: translateY(-1px);
+        }
+        .stat-button.active {
+            border-color: var(--brand);
+            background: #edf3f6;
+        }
+        .shipped-order-card {
+            transition: border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .shipped-order-card.is-selected {
+            border-color: var(--brand);
+            background: #edf3f6;
+            box-shadow: 0 0 0 4px rgba(92, 123, 146, 0.12);
+        }
         .stat span, .detail span {
             display: block;
             color: var(--muted);
@@ -601,6 +625,7 @@
                         <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
                         <button class="btn ghost" type="button" data-view="items">Items</button>
                         <button class="btn ghost" type="button" data-view="orders">My Sales Orders</button>
+                        <button class="btn ghost" type="button" data-view="shipped">Shipped Orders</button>
                         <button class="btn ghost" type="button" data-view="inbounds">My Purchase Orders</button>
                     </div>
                     <div class="portal-nav-group">
@@ -618,7 +643,9 @@
                     <div class="stat"><span>Released</span><strong id="statReleased">0</strong></div>
                     <div class="stat"><span>Picked</span><strong id="statPicked">0</strong></div>
                     <div class="stat"><span>Staged</span><strong id="statStaged">0</strong></div>
-                    <div class="stat"><span>Shipped</span><strong id="statShipped">0</strong></div>
+                    <button class="stat stat-button" id="shippedStatButton" type="button">
+                        <span>Shipped</span><strong id="statShipped">0</strong>
+                    </button>
                 </div>
             </section>
 
@@ -791,10 +818,28 @@
             <section id="ordersPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
                     <h2>My Sales Orders</h2>
-                    <p class="lead">Draft orders can be edited, released, or archived. Upload shipping labels or documents to any active order so the warehouse can retrieve them.</p>
+                    <p class="lead">Draft and active orders stay here until they ship. Use Shipped Orders for tracking, carrier, and final shipment details.</p>
                 </div>
                 <div id="ordersList" class="orders-list">
                     <div class="empty">No orders created yet.</div>
+                </div>
+            </section>
+
+            <section id="shippedPanel" class="card hidden">
+                <div class="order-form-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>Shipped Orders</h2>
+                        <p class="lead">Review completed shipments separately from open work. Select an order to see carrier, tracking, ship-to, lines, notes, and downloadable documents.</p>
+                    </div>
+                    <button class="btn ghost" id="refreshShippedOrdersBtn" type="button">Refresh Shipments</button>
+                </div>
+                <div class="two-up">
+                    <div id="shippedOrdersList" class="orders-list">
+                        <div class="empty">No shipped orders yet.</div>
+                    </div>
+                    <aside id="shippedOrderDetails" class="order-card">
+                        <div class="empty">Select a shipped order to view shipment details.</div>
+                    </aside>
                 </div>
             </section>
 
@@ -902,6 +947,7 @@
             activeView: "inventory",
             editingOrderId: null,
             editingItemSku: null,
+            selectedShippedOrderId: null,
             pendingReleaseHandler: null
         };
 
@@ -930,7 +976,9 @@
             orderPanel: document.getElementById("orderPanel"),
             inboundPanel: document.getElementById("inboundPanel"),
             ordersPanel: document.getElementById("ordersPanel"),
+            shippedPanel: document.getElementById("shippedPanel"),
             inboundsPanel: document.getElementById("inboundsPanel"),
+            shippedStatButton: document.getElementById("shippedStatButton"),
             inventoryFilter: document.getElementById("inventoryFilter"),
             inventoryList: document.getElementById("inventoryList"),
             exportInventoryBtn: document.getElementById("exportInventoryBtn"),
@@ -972,6 +1020,9 @@
             saveDraftBtn: document.getElementById("saveDraftBtn"),
             releaseOrderBtn: document.getElementById("releaseOrderBtn"),
             ordersList: document.getElementById("ordersList"),
+            shippedOrdersList: document.getElementById("shippedOrdersList"),
+            shippedOrderDetails: document.getElementById("shippedOrderDetails"),
+            refreshShippedOrdersBtn: document.getElementById("refreshShippedOrdersBtn"),
             portalReleaseModal: document.getElementById("portalReleaseModal"),
             portalReleaseCloseButtons: [...document.querySelectorAll("[data-portal-release-close], #cancelPortalReleaseBtn")],
             portalReleaseForm: document.getElementById("portalReleaseForm"),
@@ -1014,7 +1065,7 @@
         }
 
         function isPortalViewAllowed(view) {
-            if (["order", "orders"].includes(view)) {
+            if (["order", "orders", "shipped"].includes(view)) {
                 return portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY);
             }
             if (["inbound", "inbounds"].includes(view)) {
@@ -1025,7 +1076,7 @@
 
         function getFirstAllowedPortalView(preferredView = "inventory") {
             if (isPortalViewAllowed(preferredView)) return preferredView;
-            const orderedViews = ["inventory", "items", "order", "orders", "inbound", "inbounds"];
+            const orderedViews = ["inventory", "items", "order", "orders", "shipped", "inbound", "inbounds"];
             return orderedViews.find((view) => isPortalViewAllowed(view)) || "inventory";
         }
 
@@ -1064,6 +1115,9 @@
             ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
             ui.logoutBtn.addEventListener("click", logout);
             ui.ordersList.addEventListener("click", onOrdersListClick);
+            ui.shippedOrdersList.addEventListener("click", onShippedOrdersListClick);
+            ui.shippedStatButton.addEventListener("click", () => setView("shipped"));
+            ui.refreshShippedOrdersBtn.addEventListener("click", refreshShippedOrders);
             ui.inboundsList.addEventListener("click", onInboundsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
             ui.inboundLines.addEventListener("click", onOrderLinesClick);
@@ -1172,6 +1226,7 @@
             portalState.inbounds = [];
             portalState.editingOrderId = null;
             portalState.editingItemSku = null;
+            portalState.selectedShippedOrderId = null;
             resetOrderForm();
             resetInboundForm();
             resetItemForm();
@@ -1221,6 +1276,7 @@
             renderInventory();
             renderItems();
             renderOrders();
+            renderShippedOrders();
             renderInbounds();
             if (!portalState.editingOrderId) {
                 resetOrderForm();
@@ -1243,7 +1299,9 @@
             ui.orderPanel.classList.toggle("hidden", activeView !== "order");
             ui.inboundPanel.classList.toggle("hidden", activeView !== "inbound");
             ui.ordersPanel.classList.toggle("hidden", activeView !== "orders");
+            ui.shippedPanel.classList.toggle("hidden", activeView !== "shipped");
             ui.inboundsPanel.classList.toggle("hidden", activeView !== "inbounds");
+            ui.shippedStatButton.classList.toggle("active", activeView === "shipped");
             syncPortalFeedbackContext();
         }
 
@@ -1510,12 +1568,13 @@
         }
 
         function renderOrders() {
-            if (!portalState.orders.length) {
-                ui.ordersList.innerHTML = `<div class="empty">No orders created yet.</div>`;
+            const activeOrders = portalState.orders.filter((order) => order.status !== "SHIPPED");
+            if (!activeOrders.length) {
+                ui.ordersList.innerHTML = `<div class="empty">${portalState.orders.some((order) => order.status === "SHIPPED") ? "No open sales orders. Shipped orders are available in the Shipped Orders screen." : "No orders created yet."}</div>`;
                 return;
             }
 
-            ui.ordersList.innerHTML = portalState.orders.map((order) => `
+            ui.ordersList.innerHTML = activeOrders.map((order) => `
                 <article class="order-card">
                     <div class="order-head">
                         <div>
@@ -1579,6 +1638,132 @@
                     </div>
                 </article>
             `).join("");
+        }
+
+        function getShippedOrders() {
+            return portalState.orders
+                .filter((order) => order.status === "SHIPPED")
+                .sort((a, b) => new Date(b.shippedAt || b.updatedAt || b.createdAt || 0) - new Date(a.shippedAt || a.updatedAt || a.createdAt || 0));
+        }
+
+        function renderShippedOrders() {
+            const shippedOrders = getShippedOrders();
+            if (!shippedOrders.length) {
+                portalState.selectedShippedOrderId = null;
+                ui.shippedOrdersList.innerHTML = `<div class="empty">No shipped orders yet.</div>`;
+                ui.shippedOrderDetails.innerHTML = `<div class="empty">Shipment details will appear here after an order is shipped.</div>`;
+                return;
+            }
+
+            if (!shippedOrders.some((order) => order.id === portalState.selectedShippedOrderId)) {
+                portalState.selectedShippedOrderId = shippedOrders[0].id;
+            }
+
+            ui.shippedOrdersList.innerHTML = shippedOrders.map((order) => {
+                const selected = order.id === portalState.selectedShippedOrderId;
+                return `
+                    <article class="order-card shipped-order-card ${selected ? "is-selected" : ""}">
+                        <div class="order-head">
+                            <div>
+                                <strong>${esc(order.orderCode)}</strong>
+                                <div class="meta">${esc(order.shippedAt ? `Shipped ${formatDate(order.shippedAt)}` : orderStatusTimeline(order) || "Shipped")}</div>
+                            </div>
+                            <span class="pill success">SHIPPED</span>
+                        </div>
+                        <div class="order-meta">
+                            <div>PO: ${esc(order.poNumber || "None")}</div>
+                            <div>Ship To: ${esc(order.shipToName || order.contactName || "Not provided")}</div>
+                            <div>Carrier: ${esc(order.shippedCarrierName || "Not provided")}</div>
+                            <div>Tracking / PRO / BOL: ${esc(order.shippedTrackingReference || "Not provided")}</div>
+                            <div>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} | ${esc(num(orderTotalQuantity(order)))} total qty</div>
+                        </div>
+                        <div class="button-row" style="margin-top: 0.85rem;">
+                            <button class="btn ghost" type="button" data-shipped-order="${attr(order.id)}">${selected ? "Viewing Details" : "View Details"}</button>
+                        </div>
+                    </article>
+                `;
+            }).join("");
+
+            renderShippedOrderDetails();
+        }
+
+        function renderShippedOrderDetails() {
+            const order = getShippedOrders().find((entry) => entry.id === portalState.selectedShippedOrderId);
+            if (!order) {
+                ui.shippedOrderDetails.innerHTML = `<div class="empty">Select a shipped order to view shipment details.</div>`;
+                return;
+            }
+
+            ui.shippedOrderDetails.innerHTML = `
+                <div class="order-head">
+                    <div>
+                        <div class="eyebrow">Shipment Details</div>
+                        <h3>${esc(order.orderCode)}</h3>
+                        <p class="meta">${esc(order.shippedAt ? `Shipped ${formatDate(order.shippedAt)}` : "Shipped date not provided")}</p>
+                    </div>
+                    <span class="pill success">SHIPPED</span>
+                </div>
+                <div class="detail-grid" style="margin-top: 1rem;">
+                    <div class="detail"><span>PO #</span><strong>${esc(order.poNumber || "None")}</strong></div>
+                    <div class="detail"><span>Reference</span><strong>${esc(order.shippingReference || "None")}</strong></div>
+                    <div class="detail"><span>Requested Ship</span><strong>${esc(order.requestedShipDate || "Not set")}</strong></div>
+                    <div class="detail"><span>Confirmed Ship</span><strong>${esc(order.confirmedShipDate || "Not set")}</strong></div>
+                    <div class="detail"><span>Carrier</span><strong>${esc(order.shippedCarrierName || "Not provided")}</strong></div>
+                    <div class="detail"><span>Tracking / PRO / BOL</span><strong>${esc(order.shippedTrackingReference || "Not provided")}</strong></div>
+                    <div class="detail"><span>Contact</span><strong>${esc(order.contactName || "Not provided")}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</strong></div>
+                    <div class="detail"><span>Ship To Phone</span><strong>${esc(order.shipToPhone || "Not provided")}</strong></div>
+                    <div class="detail span-2"><span>Ship To Address</span><strong>${esc(formatAddress(order) || "Not provided")}</strong></div>
+                    ${order.shippedConfirmationNote ? `<div class="detail span-2"><span>Shipping Note</span><strong>${esc(order.shippedConfirmationNote)}</strong></div>` : ""}
+                </div>
+                <div style="margin-top: 1rem;">
+                    <h3>Lines</h3>
+                    <div class="line-items" style="margin-top: 0.7rem;">
+                        ${order.lines.length ? order.lines.map((line) => `
+                            <div class="line-card">
+                                <div class="line-head">
+                                    <strong>${esc(line.sku)}</strong>
+                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                                </div>
+                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                            </div>
+                        `).join("") : `<div class="empty">No lines saved on this shipment.</div>`}
+                    </div>
+                </div>
+                ${order.documents?.length ? `
+                    <div class="order-documents">
+                        <strong>Shipment Documents</strong>
+                        ${order.documents.map((document) => `
+                            <a href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
+                                ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
+                            </a>
+                        `).join("")}
+                    </div>
+                ` : `<div class="order-documents"><strong>Shipment Documents</strong><span class="meta">No shipment documents or labels saved yet.</span></div>`}
+            `;
+        }
+
+        async function onShippedOrdersListClick(event) {
+            const detailButton = event.target.closest("[data-shipped-order]");
+            if (!detailButton) return;
+            portalState.selectedShippedOrderId = detailButton.dataset.shippedOrder;
+            renderShippedOrders();
+        }
+
+        async function refreshShippedOrders(event) {
+            const actionButton = resolveActionButton(event, ui.refreshShippedOrdersBtn);
+            try {
+                await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Refreshing...",
+                    progressMessage: "Refreshing shipped orders..."
+                }, async () => {
+                    await loadPortalData();
+                    setView("shipped");
+                    setMessage("Shipped orders refreshed.", "success");
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
         }
 
         function renderInbounds() {
@@ -2585,6 +2770,10 @@
             if (order.pickedAt) return `Picked ${formatDate(order.pickedAt)}`;
             if (order.releasedAt) return `Released ${formatDate(order.releasedAt)}`;
             return "";
+        }
+
+        function orderTotalQuantity(order) {
+            return (order?.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
         }
 
         function formatTrackedQuantity(value, trackingLevel) {
