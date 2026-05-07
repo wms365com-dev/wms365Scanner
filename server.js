@@ -54,6 +54,13 @@ function stripEnvWrappingQuotes(value) {
     return text;
 }
 
+function normalizeSmtpPassword(host, password) {
+    const text = String(password || "");
+    return /(^|\.)gmail\.com$/i.test(String(host || "").trim())
+        ? text.replace(/\s+/g, "")
+        : text;
+}
+
 function readEnv(name, fallback = "") {
     const value = Object.prototype.hasOwnProperty.call(process.env, name)
         ? process.env[name]
@@ -137,7 +144,7 @@ const SMTP_HOST = readEnv("SMTP_HOST", "");
 const SMTP_PORT = Number.parseInt(readEnv("SMTP_PORT", "0") || "0", 10) || 0;
 const SMTP_SECURE = /^(1|true|yes|on)$/i.test(readEnv("SMTP_SECURE", ""));
 const SMTP_USER = readEnv("SMTP_USER", "");
-const SMTP_PASS = readEnv("SMTP_PASS", "");
+const SMTP_PASS = normalizeSmtpPassword(SMTP_HOST, readEnv("SMTP_PASS", ""));
 const SMTP_FROM = readEnv("SMTP_FROM", "");
 const SMTP_REPLY_TO = readEnv("SMTP_REPLY_TO", "");
 const ORDER_RELEASE_TO = readEnv("ORDER_RELEASE_TO", "");
@@ -2614,6 +2621,20 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
                 });
             } catch (error) {
                 releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be sent.";
+                try {
+                    await withTransaction((client) => insertActivity(
+                        client,
+                        "order",
+                        `Warehouse release email failed for portal order ${order.orderCode}`,
+                        [
+                            order.accountName,
+                            releaseActions.warehouseEmailError,
+                            session.access.email || "Company portal"
+                        ].filter(Boolean).join(" | ")
+                    ));
+                } catch (logError) {
+                    console.error(`Unable to record warehouse release email failure for portal order ${order.orderCode}:`, logError);
+                }
             }
         }
 
@@ -5598,6 +5619,10 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
                 try {
                     finalOrder = await releaseWarehousePortalOrder(client, importedOrder.id, appUser);
                     releasedCount += 1;
+                    queuePortalOrderReleaseEmail(finalOrder, {
+                        actorLabel: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        reason: "Auto-released from store integration"
+                    });
                 } catch (error) {
                     draftCount += 1;
                     detailMessages.push(`${orderLabel} imported as draft: ${error.message}`);
@@ -6425,6 +6450,10 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
                 try {
                     importedOrder = await releaseWarehousePortalOrder(client, importedOrder.id, appUser);
                     releasedCount += 1;
+                    queuePortalOrderReleaseEmail(importedOrder, {
+                        actorLabel: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        reason: "Auto-released from SFTP integration"
+                    });
                 } catch (error) {
                     draftCount += 1;
                     detailMessages.push(`${entry.label || entry.externalOrderId} imported as draft: ${error.message}`);
@@ -8436,6 +8465,9 @@ function getSystemMailer(configErrorMessage = "System email is not configured. S
     if (!hasSystemEmailConfig()) {
         throw httpError(500, configErrorMessage);
     }
+    if (/(^|\.)gmail\.com$/i.test(SMTP_HOST) && (!SMTP_USER || !SMTP_PASS)) {
+        throw httpError(500, "Gmail SMTP requires SMTP_USER and SMTP_PASS. Set SMTP_USER to the sending mailbox and SMTP_PASS to its app password.");
+    }
     if ((SMTP_USER && !SMTP_PASS) || (!SMTP_USER && SMTP_PASS)) {
         throw httpError(500, "SMTP is partially configured. Set both SMTP_USER and SMTP_PASS, or leave both blank.");
     }
@@ -10053,6 +10085,47 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [] } = {}) {
         recipients,
         ccRecipients: normalizedCcRecipients
     };
+}
+
+function queuePortalOrderReleaseEmail(order, { ccRecipients = [], actorLabel = "System", reason = "" } = {}) {
+    if (!order?.id || !order?.accountName) return;
+    const orderLabel = order.orderCode || String(order.id);
+    const normalizedCcRecipients = Array.isArray(ccRecipients) ? ccRecipients : [];
+
+    setTimeout(async () => {
+        try {
+            const emailResult = await sendPortalOrderReleaseEmail(order, { ccRecipients: normalizedCcRecipients });
+            await withTransaction((client) => insertActivity(
+                client,
+                "order",
+                `Warehouse release email sent for portal order ${orderLabel}`,
+                [
+                    order.accountName,
+                    `Sent to ${formatCount(emailResult.recipients.length, "recipient")}`,
+                    emailResult.ccRecipients.length ? `CC ${emailResult.ccRecipients.join(", ")}` : "",
+                    reason || "",
+                    actorLabel || ""
+                ].filter(Boolean).join(" | ")
+            ));
+        } catch (error) {
+            console.error(`Warehouse release email failed for portal order ${orderLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "order",
+                    `Warehouse release email failed for portal order ${orderLabel}`,
+                    [
+                        order.accountName,
+                        reason || "",
+                        actorLabel || "",
+                        error.message || "Unknown email error"
+                    ].filter(Boolean).join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record warehouse release email failure for portal order ${orderLabel}:`, logError);
+            }
+        }
+    }, 0);
 }
 
 async function sendPortalShipmentConfirmationEmail(client, order, confirmation, { isUpdate = false } = {}) {
