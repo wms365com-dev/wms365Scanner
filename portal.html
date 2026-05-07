@@ -637,13 +637,25 @@
 
             <section class="card">
                 <div class="stats">
-                    <div class="stat"><span>Items</span><strong id="statSkus">0</strong></div>
-                    <div class="stat"><span>Available Qty</span><strong id="statQty">0</strong></div>
-                    <div class="stat"><span>Draft Orders</span><strong id="statDrafts">0</strong></div>
-                    <div class="stat"><span>Released</span><strong id="statReleased">0</strong></div>
-                    <div class="stat"><span>Picked</span><strong id="statPicked">0</strong></div>
-                    <div class="stat"><span>Staged</span><strong id="statStaged">0</strong></div>
-                    <button class="stat stat-button" id="shippedStatButton" type="button">
+                    <button class="stat stat-button" id="itemsStatButton" type="button">
+                        <span>Items</span><strong id="statSkus">0</strong>
+                    </button>
+                    <button class="stat stat-button" id="inventoryStatButton" type="button">
+                        <span>Available Qty</span><strong id="statQty">0</strong>
+                    </button>
+                    <button class="stat stat-button" type="button" data-order-status-filter="DRAFT">
+                        <span>Draft Orders</span><strong id="statDrafts">0</strong>
+                    </button>
+                    <button class="stat stat-button" type="button" data-order-status-filter="RELEASED">
+                        <span>Released</span><strong id="statReleased">0</strong>
+                    </button>
+                    <button class="stat stat-button" type="button" data-order-status-filter="PICKED">
+                        <span>Picked</span><strong id="statPicked">0</strong>
+                    </button>
+                    <button class="stat stat-button" type="button" data-order-status-filter="STAGED">
+                        <span>Staged</span><strong id="statStaged">0</strong>
+                    </button>
+                    <button class="stat stat-button" id="shippedStatButton" type="button" data-order-status-filter="SHIPPED">
                         <span>Shipped</span><strong id="statShipped">0</strong>
                     </button>
                 </div>
@@ -816,9 +828,12 @@
             </section>
 
             <section id="ordersPanel" class="card hidden">
-                <div class="header-copy" style="margin-bottom: 1rem;">
-                    <h2>My Sales Orders</h2>
-                    <p class="lead">Draft and active orders stay here until they ship. Use Shipped Orders for tracking, carrier, and final shipment details.</p>
+                <div class="order-form-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>My Sales Orders</h2>
+                        <p class="lead" id="ordersPanelLead">Draft and active orders stay here until they ship. Click a summary card above to filter by status.</p>
+                    </div>
+                    <button class="btn ghost hidden" id="clearOrderStatusFilterBtn" type="button">Show All Orders</button>
                 </div>
                 <div id="ordersList" class="orders-list">
                     <div class="empty">No orders created yet.</div>
@@ -948,6 +963,7 @@
             editingOrderId: null,
             editingItemSku: null,
             selectedShippedOrderId: null,
+            orderStatusFilter: "",
             pendingReleaseHandler: null
         };
 
@@ -971,11 +987,16 @@
             statPicked: document.getElementById("statPicked"),
             statStaged: document.getElementById("statStaged"),
             statShipped: document.getElementById("statShipped"),
+            orderStatusFilterButtons: [...document.querySelectorAll("[data-order-status-filter]")],
+            itemsStatButton: document.getElementById("itemsStatButton"),
+            inventoryStatButton: document.getElementById("inventoryStatButton"),
             inventoryPanel: document.getElementById("inventoryPanel"),
             itemsPanel: document.getElementById("itemsPanel"),
             orderPanel: document.getElementById("orderPanel"),
             inboundPanel: document.getElementById("inboundPanel"),
             ordersPanel: document.getElementById("ordersPanel"),
+            ordersPanelLead: document.getElementById("ordersPanelLead"),
+            clearOrderStatusFilterBtn: document.getElementById("clearOrderStatusFilterBtn"),
             shippedPanel: document.getElementById("shippedPanel"),
             inboundsPanel: document.getElementById("inboundsPanel"),
             shippedStatButton: document.getElementById("shippedStatButton"),
@@ -1116,13 +1137,19 @@
             ui.logoutBtn.addEventListener("click", logout);
             ui.ordersList.addEventListener("click", onOrdersListClick);
             ui.shippedOrdersList.addEventListener("click", onShippedOrdersListClick);
-            ui.shippedStatButton.addEventListener("click", () => setView("shipped"));
+            ui.orderStatusFilterButtons.forEach((button) => button.addEventListener("click", () => applyOrderStatusFilter(button.dataset.orderStatusFilter)));
+            ui.itemsStatButton.addEventListener("click", () => setView("items"));
+            ui.inventoryStatButton.addEventListener("click", () => setView("inventory"));
+            ui.clearOrderStatusFilterBtn.addEventListener("click", clearOrderStatusFilter);
             ui.refreshShippedOrdersBtn.addEventListener("click", refreshShippedOrders);
             ui.inboundsList.addEventListener("click", onInboundsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
             ui.inboundLines.addEventListener("click", onOrderLinesClick);
             ui.orderLines.addEventListener("change", onOrderLinesChange);
-            ui.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+            ui.navButtons.forEach((button) => button.addEventListener("click", () => {
+                if (button.dataset.view === "orders") portalState.orderStatusFilter = "";
+                setView(button.dataset.view);
+            }));
             window.addEventListener("keydown", (event) => {
                 if (event.key === "Escape" && !ui.portalReleaseModal.classList.contains("hidden")) {
                     closePortalReleaseModal();
@@ -1227,6 +1254,7 @@
             portalState.editingOrderId = null;
             portalState.editingItemSku = null;
             portalState.selectedShippedOrderId = null;
+            portalState.orderStatusFilter = "";
             resetOrderForm();
             resetInboundForm();
             resetItemForm();
@@ -1290,6 +1318,20 @@
             setView(portalState.activeView);
         }
 
+        function applyOrderStatusFilter(status) {
+            const normalizedStatus = String(status || "").trim().toUpperCase();
+            if (!["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(normalizedStatus)) return;
+            portalState.orderStatusFilter = normalizedStatus;
+            setView("orders");
+            setMessage(`Showing ${normalizedStatus.toLowerCase()} sales orders.`, "info");
+        }
+
+        function clearOrderStatusFilter() {
+            portalState.orderStatusFilter = "";
+            renderOrders();
+            setMessage("Showing open sales orders.", "info");
+        }
+
         function setView(view) {
             portalState.activeView = getFirstAllowedPortalView(view);
             const activeView = portalState.activeView;
@@ -1301,7 +1343,12 @@
             ui.ordersPanel.classList.toggle("hidden", activeView !== "orders");
             ui.shippedPanel.classList.toggle("hidden", activeView !== "shipped");
             ui.inboundsPanel.classList.toggle("hidden", activeView !== "inbounds");
-            ui.shippedStatButton.classList.toggle("active", activeView === "shipped");
+            ui.orderStatusFilterButtons.forEach((button) => {
+                button.classList.toggle("active", activeView === "orders" && String(button.dataset.orderStatusFilter || "").toUpperCase() === portalState.orderStatusFilter);
+            });
+            ui.itemsStatButton.classList.toggle("active", activeView === "items");
+            ui.inventoryStatButton.classList.toggle("active", activeView === "inventory");
+            if (activeView === "orders") renderOrders();
             syncPortalFeedbackContext();
         }
 
@@ -1568,9 +1615,21 @@
         }
 
         function renderOrders() {
-            const activeOrders = portalState.orders.filter((order) => order.status !== "SHIPPED");
+            const statusFilter = String(portalState.orderStatusFilter || "").trim().toUpperCase();
+            const activeOrders = portalState.orders.filter((order) => statusFilter
+                ? order.status === statusFilter
+                : order.status !== "SHIPPED"
+            );
+            if (ui.ordersPanelLead) {
+                ui.ordersPanelLead.textContent = statusFilter
+                    ? `Showing only ${statusFilter.toLowerCase()} sales orders. Clear the filter to return to open orders.`
+                    : "Draft and active orders stay here until they ship. Click a summary card above to filter by status.";
+            }
+            if (ui.clearOrderStatusFilterBtn) {
+                ui.clearOrderStatusFilterBtn.classList.toggle("hidden", !statusFilter);
+            }
             if (!activeOrders.length) {
-                ui.ordersList.innerHTML = `<div class="empty">${portalState.orders.some((order) => order.status === "SHIPPED") ? "No open sales orders. Shipped orders are available in the Shipped Orders screen." : "No orders created yet."}</div>`;
+                ui.ordersList.innerHTML = `<div class="empty">${statusFilter ? `No ${esc(statusFilter.toLowerCase())} sales orders found.` : (portalState.orders.some((order) => order.status === "SHIPPED") ? "No open sales orders. Shipped orders are available in the Shipped Orders screen." : "No orders created yet.")}</div>`;
                 return;
             }
 
