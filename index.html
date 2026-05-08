@@ -8157,7 +8157,7 @@
                     <div class="card-head">
                         <div>
                             <h2>Warehouse Users</h2>
-                            <p class="lead">Create warehouse logins, assign the companies each worker can operate in, and keep super users separate from company-scoped users.</p>
+                            <p class="lead">Create warehouse logins, assign the warehouses each worker can manage, and keep super users separate from scoped users.</p>
                         </div>
                         <span class="meta" id="warehouseUserSummaryCount">0 users</span>
                     </div>
@@ -8204,12 +8204,23 @@
                                     <div class="helper span-2">
                                         <div class="list-head" style="margin-bottom: 0.5rem;">
                                             <div>
-                                                <h3 style="margin: 0;">Assigned Companies</h3>
-                                                <p class="meta" id="warehouseUserAssignedMeta">Workers only see and operate in the companies checked here. Super users keep full access.</p>
+                                                <h3 style="margin: 0;">Assigned Warehouses / 3PL Locations</h3>
+                                                <p class="meta" id="warehouseUserAssignedWarehouseMeta">Workers can manage every company assigned to the warehouses checked here.</p>
+                                            </div>
+                                        </div>
+                                        <div id="warehouseUserAssignedWarehouses" class="feature-flag-grid">
+                                            <p class="empty">Save a warehouse or 3PL location first, then assign it to warehouse workers here.</p>
+                                        </div>
+                                    </div>
+                                    <div class="helper span-2">
+                                        <div class="list-head" style="margin-bottom: 0.5rem;">
+                                            <div>
+                                                <h3 style="margin: 0;">Direct Company Overrides</h3>
+                                                <p class="meta" id="warehouseUserAssignedMeta">Optional. Use this only when a worker needs access to a company outside their assigned warehouse.</p>
                                             </div>
                                         </div>
                                         <div id="warehouseUserAssignedCompanies" class="feature-flag-grid">
-                                            <p class="empty">Save a few companies first, then assign them to warehouse workers here.</p>
+                                            <p class="empty">Save a few companies first, then add direct overrides here if needed.</p>
                                         </div>
                                     </div>
                                     <div class="button-row span-2">
@@ -8223,7 +8234,7 @@
                                 <div class="list-head">
                                     <div>
                                         <h3>Saved Warehouse Users</h3>
-                                        <p class="meta">Use Manage to reload a user, update their password, or change their assigned companies.</p>
+                                        <p class="meta">Use Manage to reload a user, update their password, or change their assigned warehouses.</p>
                                     </div>
                                 </div>
                                 <div id="warehouseUserList" class="stack-list" style="margin-top: 1rem;">
@@ -8622,6 +8633,7 @@
         let companyFeatureDraft = { ...DEFAULT_COMPANY_FEATURE_FLAGS };
         let editingWarehouseUserId = "";
         let warehouseUserAssignedCompaniesDraft = [];
+        let warehouseUserAssignedFulfillmentLocationsDraft = [];
         const billingRateDrafts = new Map();
         let syncTimer = null;
         // Maintain the human-readable copies alongside this runtime map:
@@ -9322,6 +9334,8 @@
             warehouseUserRole: document.getElementById("warehouseUserRole"),
             warehouseUserActive: document.getElementById("warehouseUserActive"),
             warehouseUserAssignedMeta: document.getElementById("warehouseUserAssignedMeta"),
+            warehouseUserAssignedWarehouseMeta: document.getElementById("warehouseUserAssignedWarehouseMeta"),
+            warehouseUserAssignedWarehouses: document.getElementById("warehouseUserAssignedWarehouses"),
             warehouseUserAssignedCompanies: document.getElementById("warehouseUserAssignedCompanies"),
             saveWarehouseUserBtn: document.getElementById("saveWarehouseUserBtn"),
             resetWarehouseUserBtn: document.getElementById("resetWarehouseUserBtn"),
@@ -9822,6 +9836,7 @@
             ui.resetWarehouseUserBtn?.addEventListener("click", resetWarehouseUserForm);
             ui.warehouseUserRole?.addEventListener("change", renderWarehouseUserDashboard);
             ui.warehouseUserAssignedCompanies?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
+            ui.warehouseUserAssignedWarehouses?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
             ui.warehouseUserList?.addEventListener("click", onWarehouseUserListClick);
             ui.companyFeatureForm?.addEventListener("submit", saveCompanyFeatures);
             ui.resetCompanyFeaturesBtn?.addEventListener("click", resetCompanyFeatureDraft);
@@ -10690,11 +10705,15 @@
             warehouseUserAssignedCompaniesDraft = [...(ui.warehouseUserAssignedCompanies?.querySelectorAll("[data-warehouse-user-company-input]:checked") || [])]
                 .map((input) => norm(input.value))
                 .filter(Boolean);
+            warehouseUserAssignedFulfillmentLocationsDraft = [...(ui.warehouseUserAssignedWarehouses?.querySelectorAll("[data-warehouse-user-warehouse-input]:checked") || [])]
+                .map((input) => norm(input.value))
+                .filter(Boolean);
         }
 
         function resetWarehouseUserForm() {
             editingWarehouseUserId = "";
             warehouseUserAssignedCompaniesDraft = [];
+            warehouseUserAssignedFulfillmentLocationsDraft = [];
             if (ui.warehouseUserId) ui.warehouseUserId.value = "";
             if (ui.warehouseUserFullName) ui.warehouseUserFullName.value = "";
             if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = "";
@@ -10712,6 +10731,7 @@
             if (!user) return;
             editingWarehouseUserId = String(user.id || "");
             warehouseUserAssignedCompaniesDraft = [...(user.assignedCompanies || [])];
+            warehouseUserAssignedFulfillmentLocationsDraft = [...(user.assignedFulfillmentLocations || []).map((location) => norm(location.code || location)).filter(Boolean)];
             if (ui.warehouseUserId) ui.warehouseUserId.value = editingWarehouseUserId;
             if (ui.warehouseUserFullName) ui.warehouseUserFullName.value = user.fullName || "";
             if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = user.email || "";
@@ -10747,7 +10767,11 @@
 
             const role = norm(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER") === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
             const availableCompanies = [...(state.masters.ownerRecords || [])].sort((a, b) => a.name.localeCompare(b.name));
+            const availableWarehouses = [...(state.masters.fulfillmentLocations || [])]
+                .filter((location) => location?.isActive !== false)
+                .sort((a, b) => a.code.localeCompare(b.code));
             const selectedCompanies = new Set(warehouseUserAssignedCompaniesDraft.map((value) => norm(value)).filter(Boolean));
+            const selectedWarehouses = new Set(warehouseUserAssignedFulfillmentLocationsDraft.map((value) => norm(value)).filter(Boolean));
             const editingUser = users.find((user) => user.id === editingWarehouseUserId) || null;
 
             if (ui.warehouseUserTitle) {
@@ -10757,15 +10781,41 @@
             }
             if (ui.warehouseUserMeta) {
                 ui.warehouseUserMeta.textContent = editingUser
-                    ? `Update role, password, active status, and company access for ${editingUser.email}.`
-                    : "Create the login first, then assign the companies that worker should be able to open.";
+                    ? `Update role, password, active status, and warehouse access for ${editingUser.email}.`
+                    : "Create the login first, then assign the warehouses that worker should be able to manage.";
+            }
+            if (ui.warehouseUserAssignedWarehouseMeta) {
+                ui.warehouseUserAssignedWarehouseMeta.textContent = role === "SUPER_ADMIN"
+                    ? "Super users keep full warehouse and company access, so warehouse assignments are not required."
+                    : (availableWarehouses.length
+                        ? "Workers inherit access to companies assigned to the warehouses checked here."
+                        : "Save a warehouse or 3PL location first, then assign it to warehouse workers here.");
             }
             if (ui.warehouseUserAssignedMeta) {
                 ui.warehouseUserAssignedMeta.textContent = role === "SUPER_ADMIN"
-                    ? "Super users keep full cross-company access, so company assignments are not required."
+                    ? "Super users keep full cross-company access, so direct company overrides are not required."
                     : (availableCompanies.length
-                        ? "Workers only see and operate in the companies checked here."
-                        : "Save a few companies first, then assign them to warehouse workers here.");
+                        ? "Optional direct company access for exceptions outside the worker's assigned warehouse."
+                        : "Save a few companies first, then add direct overrides here if needed.");
+            }
+            if (ui.warehouseUserAssignedWarehouses) {
+                ui.warehouseUserAssignedWarehouses.innerHTML = availableWarehouses.length
+                    ? availableWarehouses.map((warehouse) => `
+                        <label class="toggle-card">
+                            <input
+                                type="checkbox"
+                                value="${attr(warehouse.code)}"
+                                data-warehouse-user-warehouse-input
+                                ${selectedWarehouses.has(warehouse.code) ? "checked" : ""}
+                                ${role === "SUPER_ADMIN" ? "disabled" : ""}
+                            >
+                            <span>
+                                <strong>${esc(warehouse.code)}</strong>
+                                <small>${esc([warehouse.name, warehouse.partnerName, warehouse.contactEmail].filter(Boolean).join(" | ") || "Warehouse / 3PL location")}</small>
+                            </span>
+                        </label>
+                    `).join("")
+                    : `<p class="empty">No warehouse or 3PL locations saved yet.</p>`;
             }
             if (ui.warehouseUserAssignedCompanies) {
                 ui.warehouseUserAssignedCompanies.innerHTML = availableCompanies.length
@@ -10795,10 +10845,18 @@
                                 <div class="quick-meta">${esc(user.email)} | ${esc(warehouseUserRoleLabel(user.role))}${user.isActive === false ? " | Disabled" : ""}</div>
                                 <div class="quick-meta">${esc(
                                     norm(user.role) === "SUPER_ADMIN"
+                                        ? "All warehouses"
+                                        : ((user.assignedFulfillmentLocations || []).length
+                                            ? `Warehouses: ${(user.assignedFulfillmentLocations || []).map((location) => location.code || location).join(", ")}`
+                                            : "No warehouses assigned")
+                                )}</div>
+                                <div class="quick-meta">${esc(
+                                    norm(user.role) === "SUPER_ADMIN"
                                         ? "Full company access"
-                                        : ((user.assignedCompanies || []).length
-                                            ? user.assignedCompanies.join(", ")
-                                            : "No companies assigned")
+                                        : [
+                                            (user.inheritedCompanies || []).length ? `Inherited companies: ${(user.inheritedCompanies || []).join(", ")}` : "",
+                                            (user.assignedCompanies || []).length ? `Direct companies: ${(user.assignedCompanies || []).join(", ")}` : ""
+                                        ].filter(Boolean).join(" | ") || "No companies assigned"
                                 )}</div>
                             </div>
                             <button class="btn ghost mini" type="button" data-edit-warehouse-user="${attr(user.id)}">Manage</button>
@@ -10815,6 +10873,7 @@
             }
             const role = norm(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER") === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
             const assignedCompanies = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedCompaniesDraft.map((value) => norm(value)).filter(Boolean))];
+            const assignedFulfillmentLocations = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedFulfillmentLocationsDraft.map((value) => norm(value)).filter(Boolean))];
             if (!String(ui.warehouseUserFullName?.value || "").trim()) {
                 return fail(ui.warehouseUserMessage, "Enter the full name first.", ui.warehouseUserFullName);
             }
@@ -10827,8 +10886,8 @@
             if (String(ui.warehouseUserPassword?.value || "").trim() && String(ui.warehouseUserPassword?.value || "").trim().length < 8) {
                 return fail(ui.warehouseUserMessage, "Warehouse passwords must be at least 8 characters.", ui.warehouseUserPassword);
             }
-            if (role !== "SUPER_ADMIN" && !assignedCompanies.length) {
-                return fail(ui.warehouseUserMessage, "Choose at least one company for warehouse workers.", ui.warehouseUserAssignedCompanies);
+            if (role !== "SUPER_ADMIN" && !assignedFulfillmentLocations.length && !assignedCompanies.length) {
+                return fail(ui.warehouseUserMessage, "Choose at least one warehouse/location for warehouse workers, or add a direct company override.", ui.warehouseUserAssignedWarehouses || ui.warehouseUserAssignedCompanies);
             }
 
             const submitButton = resolveActionButton(event, ui.saveWarehouseUserBtn);
@@ -10848,7 +10907,8 @@
                             password: ui.warehouseUserPassword?.value || "",
                             role,
                             isActive: ui.warehouseUserActive?.value !== "false",
-                            assignedCompanies
+                            assignedCompanies,
+                            assignedFulfillmentLocations
                         })
                     });
                     await syncServerState(true);
@@ -20198,6 +20258,10 @@
                     <div class="helper">
                         <strong>${esc(user.fullName || user.email)}</strong>
                         <p class="meta">${esc(user.email)}${user.role ? ` | ${esc(user.role)}` : ""}</p>
+                        <p class="meta">${esc([
+                            user.warehouseLocationAccess ? "Warehouse/location assignment" : "",
+                            user.directCompanyAccess ? "Direct company override" : ""
+                        ].filter(Boolean).join(" | ") || "Assigned user")}</p>
                     </div>
                 `).join("")
                 : `<p class="empty">No active warehouse workers are assigned to this company.</p>`;
@@ -20632,6 +20696,15 @@
                         isActive: payload.session.appUser.isActive !== false,
                         assignedCompanies: Array.isArray(payload.session.appUser.assignedCompanies)
                             ? payload.session.appUser.assignedCompanies.map((value) => norm(value)).filter(Boolean)
+                            : [],
+                        inheritedCompanies: Array.isArray(payload.session.appUser.inheritedCompanies)
+                            ? payload.session.appUser.inheritedCompanies.map((value) => norm(value)).filter(Boolean)
+                            : [],
+                        assignedFulfillmentLocations: Array.isArray(payload.session.appUser.assignedFulfillmentLocations)
+                            ? payload.session.appUser.assignedFulfillmentLocations.map((location) => ({
+                                code: norm(location?.code || location),
+                                name: String(location?.name || "").trim()
+                            })).filter((location) => location.code)
                             : []
                     }
                     : null
@@ -21263,6 +21336,11 @@
         function sanitizeWarehouseAppUser(item) {
             const email = norm(String(item?.email || "").toLowerCase());
             if (!email) return null;
+            const assignedFulfillmentLocationsSource = Array.isArray(item?.assignedFulfillmentLocations)
+                ? item.assignedFulfillmentLocations
+                : Array.isArray(item?.assigned_fulfillment_locations)
+                    ? item.assigned_fulfillment_locations
+                    : [];
             return {
                 id: String(item?.id || ""),
                 email,
@@ -21274,6 +21352,20 @@
                     : Array.isArray(item?.assigned_companies)
                         ? item.assigned_companies.map((value) => norm(value)).filter(Boolean)
                         : [],
+                inheritedCompanies: Array.isArray(item?.inheritedCompanies)
+                    ? item.inheritedCompanies.map((value) => norm(value)).filter(Boolean)
+                    : Array.isArray(item?.inherited_companies)
+                        ? item.inherited_companies.map((value) => norm(value)).filter(Boolean)
+                        : [],
+                assignedFulfillmentLocations: assignedFulfillmentLocationsSource.map((location) => ({
+                    id: String(location?.id || ""),
+                    code: norm(location?.code || location?.locationCode || location),
+                    name: String(location?.name || location?.locationName || "").trim(),
+                    partnerName: String(location?.partnerName || location?.partner_name || "").trim(),
+                    locationType: norm(location?.locationType || location?.location_type || ""),
+                    contactEmail: norm(String(location?.contactEmail || location?.contact_email || "").toLowerCase()),
+                    isActive: location?.isActive !== false
+                })).filter((location) => location.code),
                 lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : (typeof item?.last_login_at === "string" ? item.last_login_at : null),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : (typeof item?.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : (typeof item?.updated_at === "string" ? item.updated_at : new Date().toISOString())

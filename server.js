@@ -1280,11 +1280,11 @@ app.post("/api/admin/company-features", async (req, res, next) => {
 app.post("/api/admin/app-users", async (req, res, next) => {
     try {
         assertSuperAdminAccess(req.appUser);
-        const user = await withTransaction(async (client) => {
-            const entry = sanitizeAppUserInput(req.body);
-            for (const accountName of entry.assignedCompanies) {
-                await upsertOwnerMaster(client, { name: accountName });
-            }
+            const user = await withTransaction(async (client) => {
+                const entry = sanitizeAppUserInput(req.body);
+                for (const accountName of entry.assignedCompanies) {
+                    await upsertOwnerMaster(client, { name: accountName });
+                }
             const savedUser = await saveAppUser(client, entry);
             await insertActivity(
                 client,
@@ -1294,7 +1294,10 @@ app.post("/api/admin/app-users", async (req, res, next) => {
                         savedUser.email,
                         normalizeText(savedUser.role) === "SUPER_ADMIN"
                             ? "Super user"
-                            : `${formatCount((savedUser.assigned_companies || []).length, "company")} assigned`,
+                            : [
+                                `${formatCount((savedUser.assigned_fulfillment_locations || []).length, "warehouse")} assigned`,
+                                `${formatCount((savedUser.assigned_companies || []).length, "direct company")} assigned`
+                            ].join(" | "),
                         entry.password ? `Password ${savedUser.was_created ? "created" : "updated"}` : "Profile updated",
                         req.appUser?.email || req.appUser?.full_name || "super_admin"
                     ].filter(Boolean).join(" | ")
@@ -1758,7 +1761,7 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
+            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, app_user_fulfillment_location_access, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
 
             if (importedBillingFees.length) {
                 await client.query("truncate table billing_fee_catalog");
@@ -3624,9 +3627,22 @@ async function initializeDatabase() {
         );
     `);
 
+    await pool.query(`
+        create table if not exists app_user_fulfillment_location_access (
+            id bigserial primary key,
+            app_user_id bigint not null references app_users(id) on delete cascade,
+            fulfillment_location_id bigint not null references fulfillment_locations(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (app_user_id, fulfillment_location_id)
+        );
+    `);
+
     await pool.query("update app_users set email = lower(email) where email is not null and email <> lower(email)");
     await pool.query("create index if not exists idx_app_user_company_access_user on app_user_company_access (app_user_id)");
     await pool.query("create index if not exists idx_app_user_company_access_account on app_user_company_access (account_name)");
+    await pool.query("create index if not exists idx_app_user_fulfillment_location_access_user on app_user_fulfillment_location_access (app_user_id)");
+    await pool.query("create index if not exists idx_app_user_fulfillment_location_access_location on app_user_fulfillment_location_access (fulfillment_location_id)");
     await ensureDefaultAppAdmin();
 
     await pool.query(`
@@ -5038,19 +5054,88 @@ async function getAppUserCompanyAssignments(client, userId) {
     return result.rows.map((row) => normalizeText(row.account_name)).filter(Boolean);
 }
 
+async function getAppUserFulfillmentLocationAssignments(client, userId) {
+    const normalizedUserId = Number(userId) || 0;
+    if (normalizedUserId <= 0) return [];
+    const result = await client.query(
+        `
+            select
+                fl.id,
+                fl.code,
+                fl.name,
+                fl.partner_name,
+                fl.location_type,
+                fl.contact_email,
+                fl.is_active
+            from app_user_fulfillment_location_access access
+            join fulfillment_locations fl on fl.id = access.fulfillment_location_id
+            where access.app_user_id = $1
+            order by fl.code asc
+        `,
+        [normalizedUserId]
+    );
+    return result.rows.map((row) => ({
+        id: String(row.id),
+        code: row.code || "",
+        name: row.name || "",
+        partnerName: row.partner_name || "",
+        locationType: row.location_type || "",
+        contactEmail: row.contact_email || "",
+        isActive: row.is_active !== false
+    })).filter((row) => row.code);
+}
+
+async function getAppUserCompaniesFromFulfillmentLocations(client, userId) {
+    const normalizedUserId = Number(userId) || 0;
+    if (normalizedUserId <= 0) return [];
+    const result = await client.query(
+        `
+            select distinct cfl.account_name
+            from app_user_fulfillment_location_access access
+            join company_fulfillment_locations cfl on cfl.fulfillment_location_id = access.fulfillment_location_id
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            where access.app_user_id = $1
+              and fl.is_active = true
+            order by cfl.account_name asc
+        `,
+        [normalizedUserId]
+    );
+    return result.rows.map((row) => normalizeText(row.account_name)).filter(Boolean);
+}
+
 async function attachAppUserCompanyAssignments(client, userRow) {
     if (!userRow) return null;
-    const assignedCompanies = await getAppUserCompanyAssignments(client, userRow.id || userRow.app_user_id);
+    const [assignedCompanies, assignedFulfillmentLocations, inheritedCompanies] = await Promise.all([
+        getAppUserCompanyAssignments(client, userRow.id || userRow.app_user_id),
+        getAppUserFulfillmentLocationAssignments(client, userRow.id || userRow.app_user_id),
+        getAppUserCompaniesFromFulfillmentLocations(client, userRow.id || userRow.app_user_id)
+    ]);
     return {
         ...userRow,
-        assigned_companies: assignedCompanies
+        assigned_companies: assignedCompanies,
+        assigned_fulfillment_locations: assignedFulfillmentLocations,
+        inherited_companies: inheritedCompanies
     };
 }
 
 async function getAppUsersWithAssignments(client = pool) {
-    const [userResult, accessResult] = await Promise.all([
+    const [userResult, accessResult, locationAccessResult, inheritedCompanyResult] = await Promise.all([
         client.query("select * from app_users order by role asc, full_name asc, email asc, id asc"),
-        client.query("select * from app_user_company_access order by account_name asc, id asc")
+        client.query("select * from app_user_company_access order by account_name asc, id asc"),
+        client.query(`
+            select access.app_user_id, fl.id, fl.code, fl.name, fl.partner_name, fl.location_type, fl.contact_email, fl.is_active
+            from app_user_fulfillment_location_access access
+            join fulfillment_locations fl on fl.id = access.fulfillment_location_id
+            order by fl.code asc, access.id asc
+        `),
+        client.query(`
+            select distinct access.app_user_id, cfl.account_name
+            from app_user_fulfillment_location_access access
+            join company_fulfillment_locations cfl on cfl.fulfillment_location_id = access.fulfillment_location_id
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            where fl.is_active = true
+            order by access.app_user_id asc, cfl.account_name asc
+        `)
     ]);
 
     const assignmentsByUserId = new Map();
@@ -5061,9 +5146,36 @@ async function getAppUsersWithAssignments(client = pool) {
         if (normalizedAccount) assignmentsByUserId.get(key).push(normalizedAccount);
     });
 
+    const locationAssignmentsByUserId = new Map();
+    locationAccessResult.rows.forEach((row) => {
+        const key = String(row.app_user_id);
+        if (!locationAssignmentsByUserId.has(key)) locationAssignmentsByUserId.set(key, []);
+        if (row.code) {
+            locationAssignmentsByUserId.get(key).push({
+                id: String(row.id),
+                code: row.code || "",
+                name: row.name || "",
+                partnerName: row.partner_name || "",
+                locationType: row.location_type || "",
+                contactEmail: row.contact_email || "",
+                isActive: row.is_active !== false
+            });
+        }
+    });
+
+    const inheritedCompaniesByUserId = new Map();
+    inheritedCompanyResult.rows.forEach((row) => {
+        const key = String(row.app_user_id);
+        if (!inheritedCompaniesByUserId.has(key)) inheritedCompaniesByUserId.set(key, []);
+        const normalizedAccount = normalizeText(row.account_name);
+        if (normalizedAccount) inheritedCompaniesByUserId.get(key).push(normalizedAccount);
+    });
+
     return userResult.rows.map((row) => ({
         ...row,
-        assigned_companies: [...new Set(assignmentsByUserId.get(String(row.id)) || [])]
+        assigned_companies: [...new Set(assignmentsByUserId.get(String(row.id)) || [])],
+        assigned_fulfillment_locations: locationAssignmentsByUserId.get(String(row.id)) || [],
+        inherited_companies: [...new Set(inheritedCompaniesByUserId.get(String(row.id)) || [])]
     }));
 }
 
@@ -5077,6 +5189,15 @@ function sanitizeAppUserInput(input) {
         : Array.isArray(input?.assigned_companies)
             ? input.assigned_companies
             : [];
+    const assignedFulfillmentLocationsSource = Array.isArray(input?.assignedFulfillmentLocations)
+        ? input.assignedFulfillmentLocations
+        : Array.isArray(input?.assigned_fulfillment_locations)
+            ? input.assigned_fulfillment_locations
+            : Array.isArray(input?.assignedWarehouses)
+                ? input.assignedWarehouses
+                : Array.isArray(input?.assigned_warehouses)
+                    ? input.assigned_warehouses
+                    : [];
 
     return {
         id: input?.id == null ? "" : String(input.id).trim(),
@@ -5087,6 +5208,9 @@ function sanitizeAppUserInput(input) {
         isActive: input?.isActive !== false,
         assignedCompanies: [...new Set(
             assignedCompaniesSource.map((value) => normalizeText(value)).filter(Boolean)
+        )],
+        assignedFulfillmentLocations: [...new Set(
+            assignedFulfillmentLocationsSource.map((value) => normalizeText(value?.code || value?.locationCode || value)).filter(Boolean)
         )]
     };
 }
@@ -5110,14 +5234,15 @@ async function saveAppUser(client, rawInput) {
     if (passwordText && passwordText.length < 8) {
         throw httpError(400, "Warehouse passwords must be at least 8 characters.");
     }
-    if (entry.role !== "super_admin" && !entry.assignedCompanies.length) {
-        throw httpError(400, "Assign at least one company to warehouse workers.");
+    if (entry.role !== "super_admin" && !entry.assignedCompanies.length && !entry.assignedFulfillmentLocations.length) {
+        throw httpError(400, "Assign at least one warehouse/location or company to warehouse workers.");
     }
     if (existingByEmail && (!existing || String(existingByEmail.id) !== String(existing.id))) {
         throw httpError(400, "That email address is already linked to another warehouse user.");
     }
 
     const assignedCompanies = entry.role === "super_admin" ? [] : entry.assignedCompanies;
+    const assignedFulfillmentLocations = entry.role === "super_admin" ? [] : entry.assignedFulfillmentLocations;
     let savedRow;
     if (existing) {
         const passwordHash = passwordText ? hashPortalPassword(passwordText) : existing.password_hash;
@@ -5159,6 +5284,23 @@ async function saveAppUser(client, rawInput) {
                 set updated_at = now()
             `,
             [savedRow.id, accountName]
+        );
+    }
+
+    await client.query("delete from app_user_fulfillment_location_access where app_user_id = $1", [savedRow.id]);
+    for (const locationCode of assignedFulfillmentLocations) {
+        const locationResult = await client.query("select id from fulfillment_locations where code = $1 limit 1", [locationCode]);
+        if (locationResult.rowCount !== 1) {
+            throw httpError(400, `Warehouse/location ${locationCode} could not be found.`);
+        }
+        await client.query(
+            `
+                insert into app_user_fulfillment_location_access (app_user_id, fulfillment_location_id)
+                values ($1, $2)
+                on conflict (app_user_id, fulfillment_location_id) do update
+                set updated_at = now()
+            `,
+            [savedRow.id, locationResult.rows[0].id]
         );
     }
 
@@ -5248,6 +5390,16 @@ function mapAppUserRow(row) {
         : Array.isArray(row?.assigned_companies)
             ? row.assigned_companies
             : [];
+    const assignedFulfillmentLocations = Array.isArray(row?.assignedFulfillmentLocations)
+        ? row.assignedFulfillmentLocations
+        : Array.isArray(row?.assigned_fulfillment_locations)
+            ? row.assigned_fulfillment_locations
+            : [];
+    const inheritedCompanies = Array.isArray(row?.inheritedCompanies)
+        ? row.inheritedCompanies
+        : Array.isArray(row?.inherited_companies)
+            ? row.inherited_companies
+            : [];
     return {
         id: String(row.id),
         email: row.email,
@@ -5255,6 +5407,16 @@ function mapAppUserRow(row) {
         role: row.role || "",
         isActive: row.is_active !== false,
         assignedCompanies: [...new Set(assignedCompanies.map((value) => normalizeText(value)).filter(Boolean))],
+        inheritedCompanies: [...new Set(inheritedCompanies.map((value) => normalizeText(value)).filter(Boolean))],
+        assignedFulfillmentLocations: assignedFulfillmentLocations.map((location) => ({
+            id: String(location?.id || ""),
+            code: normalizeText(location?.code || location?.locationCode || location),
+            name: normalizeFreeText(location?.name || location?.locationName || ""),
+            partnerName: normalizeFreeText(location?.partnerName || location?.partner_name || ""),
+            locationType: normalizeText(location?.locationType || location?.location_type || ""),
+            contactEmail: normalizeEmail(location?.contactEmail || location?.contact_email || ""),
+            isActive: location?.isActive !== false
+        })).filter((location) => location.code),
         lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
@@ -5263,7 +5425,11 @@ function mapAppUserRow(row) {
 
 async function getAccessibleCompanyNamesForAppUser(client, user) {
     if (!user || isSuperAdminUser(user)) return [];
-    return getAppUserCompanyAssignments(client, user.id || user.app_user_id);
+    const [directCompanies, warehouseCompanies] = await Promise.all([
+        getAppUserCompanyAssignments(client, user.id || user.app_user_id),
+        getAppUserCompaniesFromFulfillmentLocations(client, user.id || user.app_user_id)
+    ]);
+    return [...new Set(directCompanies.concat(warehouseCompanies).map((value) => normalizeText(value)).filter(Boolean))];
 }
 
 async function assertAppUserCompanyAccess(client, user, accountName, message = "") {
@@ -10580,14 +10746,51 @@ async function getPortalOrderReleaseAssignedUsers(client = pool, accountName = "
 
     const assignedUsers = await client.query(
         `
-            select u.id, u.full_name, u.email, u.role, u.is_active
+            select distinct
+                u.id,
+                u.full_name,
+                u.email,
+                u.role,
+                u.is_active,
+                exists (
+                    select 1
+                    from app_user_company_access direct_access
+                    where direct_access.app_user_id = u.id
+                      and direct_access.account_name = $1
+                ) as direct_company_access,
+                exists (
+                    select 1
+                    from app_user_fulfillment_location_access location_access
+                    join company_fulfillment_locations cfl on cfl.fulfillment_location_id = location_access.fulfillment_location_id
+                    join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+                    where location_access.app_user_id = u.id
+                      and cfl.account_name = $1
+                      and cfl.allow_outbound = true
+                      and fl.is_active = true
+                ) as warehouse_location_access
             from app_users u
-            join app_user_company_access a on a.app_user_id = u.id
-            where a.account_name = $1
-              and u.is_active = true
+            where u.is_active = true
               and u.email is not null
               and btrim(u.email) <> ''
               and lower(coalesce(u.role, '')) <> 'super_admin'
+              and (
+                exists (
+                    select 1
+                    from app_user_company_access direct_access
+                    where direct_access.app_user_id = u.id
+                      and direct_access.account_name = $1
+                )
+                or exists (
+                    select 1
+                    from app_user_fulfillment_location_access location_access
+                    join company_fulfillment_locations cfl on cfl.fulfillment_location_id = location_access.fulfillment_location_id
+                    join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+                    where location_access.app_user_id = u.id
+                      and cfl.account_name = $1
+                      and cfl.allow_outbound = true
+                      and fl.is_active = true
+                )
+              )
             order by u.full_name asc, u.email asc
         `,
         [normalizedAccount]
@@ -10787,7 +10990,9 @@ async function getCompanyEmailFlowCheck(client = pool, accountName = "") {
             fullName: row.full_name || "",
             email: row.email || "",
             role: row.role || "",
-            isActive: row.is_active !== false
+            isActive: row.is_active !== false,
+            directCompanyAccess: row.direct_company_access === true,
+            warehouseLocationAccess: row.warehouse_location_access === true
         })),
         fulfillmentLocations: fulfillmentLocations.map((row) => ({
             assignmentId: String(row.assignment_id),
