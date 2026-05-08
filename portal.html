@@ -833,7 +833,10 @@
                         <h2>My Sales Orders</h2>
                         <p class="lead" id="ordersPanelLead">Draft and active orders stay here until they ship. Click a summary card above to filter by status.</p>
                     </div>
-                    <button class="btn ghost hidden" id="clearOrderStatusFilterBtn" type="button">Show All Orders</button>
+                    <div class="button-row" style="justify-content: flex-end;">
+                        <button class="btn ghost hidden" id="clearOrderStatusFilterBtn" type="button">Show Open Orders</button>
+                        <button class="btn ghost" id="exportOrdersBtn" type="button">Export Orders</button>
+                    </div>
                 </div>
                 <div id="ordersList" class="orders-list">
                     <div class="empty">No orders created yet.</div>
@@ -846,7 +849,10 @@
                         <h2>Shipped Orders</h2>
                         <p class="lead">Review completed shipments separately from open work. Select an order to see carrier, tracking, ship-to, lines, notes, and downloadable documents.</p>
                     </div>
-                    <button class="btn ghost" id="refreshShippedOrdersBtn" type="button">Refresh Shipments</button>
+                    <div class="button-row" style="justify-content: flex-end;">
+                        <button class="btn ghost" id="exportShippedOrdersBtn" type="button">Export Shipments</button>
+                        <button class="btn ghost" id="refreshShippedOrdersBtn" type="button">Refresh Shipments</button>
+                    </div>
                 </div>
                 <div class="two-up">
                     <div id="shippedOrdersList" class="orders-list">
@@ -997,6 +1003,7 @@
             ordersPanel: document.getElementById("ordersPanel"),
             ordersPanelLead: document.getElementById("ordersPanelLead"),
             clearOrderStatusFilterBtn: document.getElementById("clearOrderStatusFilterBtn"),
+            exportOrdersBtn: document.getElementById("exportOrdersBtn"),
             shippedPanel: document.getElementById("shippedPanel"),
             inboundsPanel: document.getElementById("inboundsPanel"),
             shippedStatButton: document.getElementById("shippedStatButton"),
@@ -1044,6 +1051,7 @@
             shippedOrdersList: document.getElementById("shippedOrdersList"),
             shippedOrderDetails: document.getElementById("shippedOrderDetails"),
             refreshShippedOrdersBtn: document.getElementById("refreshShippedOrdersBtn"),
+            exportShippedOrdersBtn: document.getElementById("exportShippedOrdersBtn"),
             portalReleaseModal: document.getElementById("portalReleaseModal"),
             portalReleaseCloseButtons: [...document.querySelectorAll("[data-portal-release-close], #cancelPortalReleaseBtn")],
             portalReleaseForm: document.getElementById("portalReleaseForm"),
@@ -1141,6 +1149,8 @@
             ui.itemsStatButton.addEventListener("click", () => setView("items"));
             ui.inventoryStatButton.addEventListener("click", () => setView("inventory"));
             ui.clearOrderStatusFilterBtn.addEventListener("click", clearOrderStatusFilter);
+            ui.exportOrdersBtn.addEventListener("click", exportVisibleOrders);
+            ui.exportShippedOrdersBtn.addEventListener("click", exportShippedOrders);
             ui.refreshShippedOrdersBtn.addEventListener("click", refreshShippedOrders);
             ui.inboundsList.addEventListener("click", onInboundsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
@@ -1278,6 +1288,41 @@
             }
         }
 
+        async function exportVisibleOrders(event) {
+            const actionButton = resolveActionButton(event, ui.exportOrdersBtn);
+            const orders = getVisibleOrdersForExport();
+            const statusFilter = String(portalState.orderStatusFilter || "").trim().toUpperCase();
+            try {
+                await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Exporting...",
+                    progressMessage: `Preparing ${statusFilter ? statusFilter.toLowerCase() : "open"} sales order export...`
+                }, async () => {
+                    downloadOrderExport(orders, statusFilter || "open");
+                    setMessage(`${num(orders.length)} sales order${orders.length === 1 ? "" : "s"} exported.`, "success");
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        async function exportShippedOrders(event) {
+            const actionButton = resolveActionButton(event, ui.exportShippedOrdersBtn);
+            const orders = getShippedOrders();
+            try {
+                await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Exporting...",
+                    progressMessage: "Preparing shipped order export..."
+                }, async () => {
+                    downloadOrderExport(orders, "shipped");
+                    setMessage(`${num(orders.length)} shipped order${orders.length === 1 ? "" : "s"} exported.`, "success");
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
         async function loadPortalData() {
             const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload, shipToPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
@@ -1328,7 +1373,7 @@
 
         function clearOrderStatusFilter() {
             portalState.orderStatusFilter = "";
-            renderOrders();
+            setView("orders");
             setMessage("Showing open sales orders.", "info");
         }
 
@@ -1616,10 +1661,7 @@
 
         function renderOrders() {
             const statusFilter = String(portalState.orderStatusFilter || "").trim().toUpperCase();
-            const activeOrders = portalState.orders.filter((order) => statusFilter
-                ? order.status === statusFilter
-                : order.status !== "SHIPPED"
-            );
+            const activeOrders = getVisibleOrdersForExport();
             if (ui.ordersPanelLead) {
                 ui.ordersPanelLead.textContent = statusFilter
                     ? `Showing only ${statusFilter.toLowerCase()} sales orders. Clear the filter to return to open orders.`
@@ -1627,6 +1669,9 @@
             }
             if (ui.clearOrderStatusFilterBtn) {
                 ui.clearOrderStatusFilterBtn.classList.toggle("hidden", !statusFilter);
+            }
+            if (ui.exportOrdersBtn) {
+                ui.exportOrdersBtn.disabled = !activeOrders.length;
             }
             if (!activeOrders.length) {
                 ui.ordersList.innerHTML = `<div class="empty">${statusFilter ? `No ${esc(statusFilter.toLowerCase())} sales orders found.` : (portalState.orders.some((order) => order.status === "SHIPPED") ? "No open sales orders. Shipped orders are available in the Shipped Orders screen." : "No orders created yet.")}</div>`;
@@ -1699,6 +1744,13 @@
             `).join("");
         }
 
+        function getVisibleOrdersForExport() {
+            const statusFilter = String(portalState.orderStatusFilter || "").trim().toUpperCase();
+            return portalState.orders
+                .filter((order) => statusFilter ? order.status === statusFilter : order.status !== "SHIPPED")
+                .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+        }
+
         function getShippedOrders() {
             return portalState.orders
                 .filter((order) => order.status === "SHIPPED")
@@ -1707,6 +1759,9 @@
 
         function renderShippedOrders() {
             const shippedOrders = getShippedOrders();
+            if (ui.exportShippedOrdersBtn) {
+                ui.exportShippedOrdersBtn.disabled = !shippedOrders.length;
+            }
             if (!shippedOrders.length) {
                 portalState.selectedShippedOrderId = null;
                 ui.shippedOrdersList.innerHTML = `<div class="empty">No shipped orders yet.</div>`;
@@ -2651,6 +2706,108 @@
             link.click();
             link.remove();
             window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        }
+
+        function downloadOrderExport(orders, label = "orders") {
+            if (!orders.length) {
+                throw new Error("No orders match this export.");
+            }
+            const rows = [
+                [
+                    "Order Code",
+                    "Status",
+                    "PO Number",
+                    "Shipping Reference",
+                    "Requested Ship Date",
+                    "Created At",
+                    "Released At",
+                    "Picked At",
+                    "Staged At",
+                    "Shipped At",
+                    "Confirmed Ship Date",
+                    "Carrier",
+                    "Tracking / PRO / BOL",
+                    "Contact Name",
+                    "Contact Phone",
+                    "Ship To Name",
+                    "Ship To Phone",
+                    "Ship To Address 1",
+                    "Ship To Address 2",
+                    "Ship To City",
+                    "Ship To State",
+                    "Ship To Postal Code",
+                    "Ship To Country",
+                    "Order Notes",
+                    "Shipping Note",
+                    "Document Count",
+                    "Line #",
+                    "SKU",
+                    "UPC",
+                    "Description",
+                    "Quantity",
+                    "UOM"
+                ]
+            ];
+
+            orders.forEach((order) => {
+                const lines = order.lines?.length ? order.lines : [{ lineNumber: "", sku: "", upc: "", description: "", quantity: "", trackingLevel: "" }];
+                lines.forEach((line, index) => {
+                    rows.push([
+                        order.orderCode,
+                        order.status,
+                        order.poNumber,
+                        order.shippingReference,
+                        order.requestedShipDate,
+                        order.createdAt ? formatDate(order.createdAt) : "",
+                        order.releasedAt ? formatDate(order.releasedAt) : "",
+                        order.pickedAt ? formatDate(order.pickedAt) : "",
+                        order.stagedAt ? formatDate(order.stagedAt) : "",
+                        order.shippedAt ? formatDate(order.shippedAt) : "",
+                        order.confirmedShipDate,
+                        order.shippedCarrierName,
+                        order.shippedTrackingReference,
+                        order.contactName,
+                        order.contactPhone,
+                        order.shipToName,
+                        order.shipToPhone,
+                        order.shipToAddress1,
+                        order.shipToAddress2,
+                        order.shipToCity,
+                        order.shipToState,
+                        order.shipToPostalCode,
+                        order.shipToCountry,
+                        order.orderNotes,
+                        order.shippedConfirmationNote,
+                        order.documents?.length || 0,
+                        line.lineNumber || index + 1,
+                        line.sku,
+                        line.upc,
+                        line.description,
+                        line.quantity,
+                        trackingLabel(line.trackingLevel)
+                    ]);
+                });
+            });
+
+            const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+            const account = portalState.account?.accountName || "customer";
+            const filename = `wms365-${slugForFilename(account)}-${slugForFilename(label)}-orders-${fileStamp()}.csv`;
+            downloadBlob(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }), filename);
+        }
+
+        function csvCell(value) {
+            const text = String(value ?? "");
+            return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+        }
+
+        function slugForFilename(value) {
+            return String(value || "export").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "export";
+        }
+
+        function fileStamp() {
+            const date = new Date();
+            const pad = (value) => String(value).padStart(2, "0");
+            return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
         }
 
         function sanitizeInventoryItem(item) {
