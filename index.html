@@ -8064,6 +8064,31 @@
                     <p class="lead">Import replaces the shared server inventory, recent activity, saved BINs, and item masters for everyone using this app.</p>
                 </article>
 
+                <article class="card span-2" id="companyEmailFlowCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Company Email Flow Check</h2>
+                            <p class="lead">See exactly where portal order release emails will go for one company, then send a routing test to those recipients.</p>
+                        </div>
+                        <span class="meta" id="companyEmailFlowMeta">Super users only</span>
+                    </div>
+                    <div class="helper" id="companyEmailFlowAccessGate">
+                        Super user access is required to check company email routing.
+                    </div>
+                    <form id="companyEmailFlowForm" class="form-grid hidden" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Company</span>
+                            <input id="companyEmailFlowAccount" type="text" list="ownerList" placeholder="Example: HEALTEA">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn" id="checkCompanyEmailFlowBtn" type="submit">Check Email Flow</button>
+                            <button class="btn secondary" id="sendCompanyEmailFlowTestBtn" type="button">Send Routing Test</button>
+                        </div>
+                    </form>
+                    <div class="stack-list" id="companyEmailFlowResults" style="margin-top: 1rem;"></div>
+                    <div class="status" id="companyEmailFlowMessage"></div>
+                </article>
+
                 <article class="card span-2" id="systemEmailTestCard">
                     <div class="card-head">
                         <div>
@@ -8824,6 +8849,15 @@
             systemEmailTestAccessGate: document.getElementById("systemEmailTestAccessGate"),
             systemEmailTestMessage: document.getElementById("systemEmailTestMessage"),
             sendSystemEmailTestBtn: document.getElementById("sendSystemEmailTestBtn"),
+            companyEmailFlowCard: document.getElementById("companyEmailFlowCard"),
+            companyEmailFlowForm: document.getElementById("companyEmailFlowForm"),
+            companyEmailFlowAccount: document.getElementById("companyEmailFlowAccount"),
+            companyEmailFlowMeta: document.getElementById("companyEmailFlowMeta"),
+            companyEmailFlowAccessGate: document.getElementById("companyEmailFlowAccessGate"),
+            companyEmailFlowResults: document.getElementById("companyEmailFlowResults"),
+            companyEmailFlowMessage: document.getElementById("companyEmailFlowMessage"),
+            checkCompanyEmailFlowBtn: document.getElementById("checkCompanyEmailFlowBtn"),
+            sendCompanyEmailFlowTestBtn: document.getElementById("sendCompanyEmailFlowTestBtn"),
             masterDataWorkspaceCard: document.getElementById("masterDataWorkspaceCard"),
             inventoryWorkspaceGrid: document.getElementById("inventoryWorkspaceGrid"),
             storeIntegrationsBlock: document.getElementById("storeIntegrationsBlock"),
@@ -9779,6 +9813,8 @@
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
             ui.systemEmailTestForm?.addEventListener("submit", sendSystemEmailTest);
+            ui.companyEmailFlowForm?.addEventListener("submit", checkCompanyEmailFlow);
+            ui.sendCompanyEmailFlowTestBtn?.addEventListener("click", sendCompanyEmailFlowTest);
             ui.warehouseUserForm?.addEventListener("submit", saveWarehouseUser);
             ui.resetWarehouseUserBtn?.addEventListener("click", resetWarehouseUserForm);
             ui.warehouseUserRole?.addEventListener("change", renderWarehouseUserDashboard);
@@ -12698,6 +12734,7 @@
             renderWarehouseInboundContext();
             syncFeedbackContext();
             syncSystemEmailTestUi();
+            syncCompanyEmailFlowUi();
         }
 
         function renderBatch() {
@@ -20108,6 +20145,161 @@
                 });
             } catch (error) {
                 showMessage(ui.systemEmailTestMessage, error.message, "error");
+            }
+        }
+
+        function getDefaultCompanyEmailFlowAccount() {
+            return getActiveCompany()
+                || (state.masters.ownerRecords || []).find((owner) => owner?.name)?.name
+                || getOwnerOptions().find(Boolean)
+                || "";
+        }
+
+        function syncCompanyEmailFlowUi() {
+            const isSuperUser = currentUserIsSuperAdmin();
+            ui.companyEmailFlowAccessGate?.classList.toggle("hidden", isSuperUser);
+            ui.companyEmailFlowForm?.classList.toggle("hidden", !isSuperUser);
+            if (ui.companyEmailFlowMeta) {
+                const activeCompany = getActiveCompany();
+                ui.companyEmailFlowMeta.textContent = isSuperUser
+                    ? (activeCompany ? `Active: ${activeCompany}` : "Choose company")
+                    : "Super users only";
+            }
+            if (!isSuperUser) {
+                if (ui.companyEmailFlowResults) ui.companyEmailFlowResults.innerHTML = "";
+                return;
+            }
+            if (ui.companyEmailFlowAccount && !ui.companyEmailFlowAccount.value.trim()) {
+                ui.companyEmailFlowAccount.value = getDefaultCompanyEmailFlowAccount();
+            }
+        }
+
+        function renderCompanyEmailFlowResults(flow) {
+            if (!ui.companyEmailFlowResults) return;
+            if (!flow) {
+                ui.companyEmailFlowResults.innerHTML = `<p class="empty">Choose a company and run the flow check.</p>`;
+                return;
+            }
+
+            const recipientRows = (flow.releaseRecipients || []).length
+                ? flow.releaseRecipients.map((email) => `<span class="pill">${esc(email)}</span>`).join("")
+                : `<span class="muted">No recipients resolved</span>`;
+            const shipmentRecipientRows = (flow.shipmentRecipients || []).length
+                ? flow.shipmentRecipients.map((email) => `<span class="pill">${esc(email)}</span>`).join("")
+                : `<span class="muted">No customer shipment recipients resolved</span>`;
+            const warningRows = (flow.warnings || []).length
+                ? flow.warnings.map((warning) => `<div class="helper" style="border-color:#f4c7c3;background:#fff7f7;color:#7f1d1d;">${esc(warning)}</div>`).join("")
+                : `<div class="helper" style="border-color:#b7e4c7;background:#f0fdf4;color:#14532d;">No routing warnings found.</div>`;
+            const userRows = (flow.assignedWarehouseUsers || []).length
+                ? flow.assignedWarehouseUsers.map((user) => `
+                    <div class="helper">
+                        <strong>${esc(user.fullName || user.email)}</strong>
+                        <p class="meta">${esc(user.email)}${user.role ? ` | ${esc(user.role)}` : ""}</p>
+                    </div>
+                `).join("")
+                : `<p class="empty">No active warehouse workers are assigned to this company.</p>`;
+            const locationRows = (flow.fulfillmentLocations || []).length
+                ? flow.fulfillmentLocations.map((location) => `
+                    <div class="helper">
+                        <div class="list-head">
+                            <div>
+                                <strong>${esc(location.code || location.name)}${location.isPrimary ? " | Primary" : ""}</strong>
+                                <p class="meta">${esc([location.name, location.partnerName].filter(Boolean).join(" | ") || "Fulfillment location")}</p>
+                            </div>
+                            <span class="pill ${location.willReceiveReleaseEmail ? "success" : ""}">${location.willReceiveReleaseEmail ? "Release recipient" : "Not selected"}</span>
+                        </div>
+                        <p class="meta">${esc(location.contactEmail || "No contact email saved")}${location.contactName ? ` | ${esc(location.contactName)}` : ""}${location.contactPhone ? ` | ${esc(location.contactPhone)}` : ""}</p>
+                        <p class="meta">${esc([location.address1, location.city, location.state, location.postalCode].filter(Boolean).join(", "))}</p>
+                    </div>
+                `).join("")
+                : `<p class="empty">No outbound fulfillment location is assigned to this company.</p>`;
+
+            ui.companyEmailFlowResults.innerHTML = `
+                <div class="helper">
+                    <div class="list-head">
+                        <div>
+                            <h3>${esc(flow.accountName)} Email Routing</h3>
+                            <p class="meta">Release source: ${esc(flow.releaseRecipientSource || "Not configured")} | Provider: ${esc(flow.emailProvider || "Not configured")}</p>
+                        </div>
+                    </div>
+                    <div class="button-row" style="margin-top:0.65rem;">${recipientRows}</div>
+                    <p class="meta" style="margin-top:0.65rem;">From ${esc(flow.from || "not configured")}${flow.replyTo ? ` | Reply-to ${esc(flow.replyTo)}` : ""}</p>
+                    <p class="meta" style="margin-top:0.85rem;"><strong>Shipment confirmation recipients</strong></p>
+                    <div class="button-row" style="margin-top:0.45rem;">${shipmentRecipientRows}</div>
+                </div>
+                <div class="action-grid" style="grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);">
+                    <div>
+                        <h3>Assigned Warehouse Users</h3>
+                        <div class="stack-list">${userRows}</div>
+                    </div>
+                    <div>
+                        <h3>Fulfillment / 3PL Location</h3>
+                        <div class="stack-list">${locationRows}</div>
+                    </div>
+                </div>
+                <div>
+                    <h3>Warnings</h3>
+                    <div class="stack-list">${warningRows}</div>
+                </div>
+            `;
+        }
+
+        async function checkCompanyEmailFlow(event) {
+            event?.preventDefault?.();
+            if (!currentUserIsSuperAdmin()) {
+                return showMessage(ui.companyEmailFlowMessage, "Super user access is required to check company email routing.", "error");
+            }
+            const accountName = norm(ui.companyEmailFlowAccount?.value || getDefaultCompanyEmailFlowAccount());
+            if (!accountName) {
+                ui.companyEmailFlowAccount?.focus();
+                return showMessage(ui.companyEmailFlowMessage, "Choose the company you want to check.", "error");
+            }
+            if (ui.companyEmailFlowAccount) ui.companyEmailFlowAccount.value = accountName;
+            try {
+                await runActionWithFeedback({
+                    button: ui.checkCompanyEmailFlowBtn,
+                    busyLabel: "Checking...",
+                    messageElement: ui.companyEmailFlowMessage,
+                    progressMessage: `Checking email routing for ${accountName}...`
+                }, async () => {
+                    const response = await requestJson(`/api/admin/company-email-flow?accountName=${encodeURIComponent(accountName)}`);
+                    renderCompanyEmailFlowResults(response.flow);
+                    showMessage(ui.companyEmailFlowMessage, `Email flow checked for ${response.flow?.accountName || accountName}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.companyEmailFlowMessage, error.message, "error");
+            }
+        }
+
+        async function sendCompanyEmailFlowTest(event) {
+            event?.preventDefault?.();
+            if (!currentUserIsSuperAdmin()) {
+                return showMessage(ui.companyEmailFlowMessage, "Super user access is required to send a routing test.", "error");
+            }
+            const accountName = norm(ui.companyEmailFlowAccount?.value || getDefaultCompanyEmailFlowAccount());
+            if (!accountName) {
+                ui.companyEmailFlowAccount?.focus();
+                return showMessage(ui.companyEmailFlowMessage, "Choose the company before sending a routing test.", "error");
+            }
+            if (ui.companyEmailFlowAccount) ui.companyEmailFlowAccount.value = accountName;
+            try {
+                await runActionWithFeedback({
+                    button: ui.sendCompanyEmailFlowTestBtn,
+                    busyLabel: "Sending...",
+                    messageElement: ui.companyEmailFlowMessage,
+                    progressMessage: `Sending routing test for ${accountName}...`
+                }, async () => {
+                    const response = await requestJson("/api/admin/company-email-flow/test", {
+                        method: "POST",
+                        body: JSON.stringify({ accountName })
+                    });
+                    renderCompanyEmailFlowResults(response.flow);
+                    showMessage(ui.companyEmailFlowMessage, `Routing test sent to ${(response.recipients || []).join(", ")}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.companyEmailFlowMessage, error.message, "error");
             }
         }
 

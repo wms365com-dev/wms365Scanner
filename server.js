@@ -629,6 +629,61 @@ app.post("/api/admin/system-email/test", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/company-email-flow", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        const flow = await getCompanyEmailFlowCheck(pool, req.query?.accountName || req.query?.company || "");
+        res.json({ success: true, flow });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/company-email-flow/test", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        const flow = await getCompanyEmailFlowCheck(pool, req.body?.accountName || req.body?.company || "");
+        if (!flow.releaseRecipients.length) {
+            throw httpError(400, "No release recipients are configured for this company.");
+        }
+
+        const now = new Date();
+        const emailResult = await sendSystemEmail({
+            from: SMTP_FROM,
+            to: flow.releaseRecipients.join(", "),
+            replyTo: SMTP_REPLY_TO || undefined,
+            subject: `WMS365 Email Flow Test - ${flow.accountName}`,
+            text: buildCompanyEmailFlowTestText(flow, req.appUser?.email || ""),
+            html: buildCompanyEmailFlowTestHtml(flow, req.appUser?.email || "")
+        }, "Company email flow test cannot send because system email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+
+        await withTransaction((client) => insertActivity(
+            client,
+            "email",
+            `Company email flow test sent for ${flow.accountName}`,
+            [
+                `Recipients: ${flow.releaseRecipients.join(", ")}`,
+                `Source: ${flow.releaseRecipientSource}`,
+                `Requested by: ${req.appUser?.email || "Unknown admin"}`,
+                `Provider: ${emailResult.provider || flow.emailProvider}`
+            ].filter(Boolean).join(" | ")
+        ));
+
+        res.json({
+            success: true,
+            flow,
+            recipients: flow.releaseRecipients,
+            sentAt: now.toISOString(),
+            emailProvider: emailResult.provider || flow.emailProvider,
+            messageId: emailResult.messageId || ""
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/site/demo-request", async (req, res, next) => {
     try {
         assertDatabaseAvailable();
@@ -10466,44 +10521,277 @@ async function getPortalShipmentRecipients(client, accountName) {
     return [...recipients];
 }
 
+async function getPortalOrderReleaseAssignedUsers(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+
+    const assignedUsers = await client.query(
+        `
+            select u.id, u.full_name, u.email, u.role, u.is_active
+            from app_users u
+            join app_user_company_access a on a.app_user_id = u.id
+            where a.account_name = $1
+              and u.is_active = true
+              and u.email is not null
+              and btrim(u.email) <> ''
+              and lower(coalesce(u.role, '')) <> 'super_admin'
+            order by u.full_name asc, u.email asc
+        `,
+        [normalizedAccount]
+    );
+    return assignedUsers.rows;
+}
+
+async function getPortalOrderReleaseFulfillmentLocations(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+
+    const fulfillmentLocations = await client.query(
+        `
+            select
+                cfl.id as assignment_id,
+                cfl.account_name,
+                cfl.is_primary,
+                cfl.allow_inbound,
+                cfl.allow_outbound,
+                cfl.allow_storage,
+                cfl.allow_returns,
+                fl.id as fulfillment_location_id,
+                fl.code,
+                fl.name,
+                fl.partner_name,
+                fl.location_type,
+                fl.contact_name,
+                fl.contact_email,
+                fl.contact_phone,
+                fl.address1,
+                fl.address2,
+                fl.city,
+                fl.state,
+                fl.postal_code,
+                fl.country,
+                fl.is_active
+            from company_fulfillment_locations cfl
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            where cfl.account_name = $1
+              and cfl.allow_outbound = true
+              and fl.is_active = true
+            order by cfl.is_primary desc, fl.is_default desc, fl.code asc
+        `,
+        [normalizedAccount]
+    );
+    return fulfillmentLocations.rows;
+}
+
+function addValidEmailRecipient(recipients, value) {
+    const email = normalizeEmail(value);
+    if (email && isValidEmailAddress(email) && !email.endsWith(".local")) {
+        recipients.add(email);
+    }
+}
+
+function choosePortalReleaseFulfillmentRecipients(rows = []) {
+    const withEmail = rows.filter((row) => {
+        const email = normalizeEmail(row.contact_email || "");
+        return email && isValidEmailAddress(email) && !email.endsWith(".local");
+    });
+    const primaryRows = withEmail.filter((row) => row.is_primary === true);
+    return primaryRows.length ? primaryRows : withEmail;
+}
+
+function normalizeRecipientRows(rows = [], emailField = "email") {
+    const recipients = [];
+    const seen = new Set();
+    rows.forEach((row) => {
+        const email = normalizeEmail(row?.[emailField] || "");
+        if (!email || !isValidEmailAddress(email) || email.endsWith(".local") || seen.has(email)) return;
+        seen.add(email);
+        recipients.push(email);
+    });
+    return recipients;
+}
+
 async function getPortalOrderReleaseRecipients(client = pool, accountName = "") {
     const normalizedAccount = normalizeText(accountName);
     const recipients = new Set();
-    const addRecipient = (value) => {
-        const email = normalizeEmail(value);
-        if (email && isValidEmailAddress(email) && !email.endsWith(".local")) {
-            recipients.add(email);
-        }
-    };
 
     if (normalizedAccount) {
-        const assignedUsers = await client.query(
-            `
-                select u.email
-                from app_users u
-                join app_user_company_access a on a.app_user_id = u.id
-                where a.account_name = $1
-                  and u.is_active = true
-                  and u.email is not null
-                  and btrim(u.email) <> ''
-                  and lower(coalesce(u.role, '')) <> 'super_admin'
-                order by u.full_name asc, u.email asc
-            `,
-            [normalizedAccount]
-        );
-        assignedUsers.rows.forEach((row) => addRecipient(row.email));
+        const assignedUsers = await getPortalOrderReleaseAssignedUsers(client, normalizedAccount);
+        assignedUsers.forEach((row) => addValidEmailRecipient(recipients, row.email));
+
+        const fulfillmentLocations = await getPortalOrderReleaseFulfillmentLocations(client, normalizedAccount);
+        choosePortalReleaseFulfillmentRecipients(fulfillmentLocations)
+            .forEach((row) => addValidEmailRecipient(recipients, row.contact_email));
     }
 
     if (!recipients.size) {
-        normalizeEmailList(ORDER_RELEASE_TO).forEach(addRecipient);
+        normalizeEmailList(ORDER_RELEASE_TO).forEach((email) => addValidEmailRecipient(recipients, email));
     }
     if (!recipients.size) {
-        addRecipient(SMTP_REPLY_TO);
-        addRecipient(DEMO_REQUEST_TO);
-        addRecipient(DEFAULT_ADMIN_EMAIL);
+        addValidEmailRecipient(recipients, SMTP_REPLY_TO);
+        addValidEmailRecipient(recipients, DEMO_REQUEST_TO);
+        addValidEmailRecipient(recipients, DEFAULT_ADMIN_EMAIL);
     }
 
     return [...recipients];
+}
+
+async function getCompanyEmailFlowCheck(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) {
+        throw httpError(400, "Choose a company to check its email flow.");
+    }
+
+    const [ownerResult, assignedUsers, fulfillmentLocations, shipmentRecipients] = await Promise.all([
+        client.query(
+            `
+                select name, email, billing_email, ap_email, portal_login_email, is_active
+                from owner_accounts
+                where name = $1
+                limit 1
+            `,
+            [normalizedAccount]
+        ),
+        getPortalOrderReleaseAssignedUsers(client, normalizedAccount),
+        getPortalOrderReleaseFulfillmentLocations(client, normalizedAccount),
+        getPortalShipmentRecipients(client, normalizedAccount)
+    ]);
+
+    const selectedFulfillmentRecipients = choosePortalReleaseFulfillmentRecipients(fulfillmentLocations);
+    const assignedUserRecipients = normalizeRecipientRows(assignedUsers, "email");
+    const fulfillmentRecipients = normalizeRecipientRows(selectedFulfillmentRecipients, "contact_email");
+    const orderReleaseFallbackRecipients = normalizeEmailList(ORDER_RELEASE_TO);
+    const systemFallbackRecipients = normalizeEmailList([SMTP_REPLY_TO, DEMO_REQUEST_TO, DEFAULT_ADMIN_EMAIL].filter(Boolean).join(","));
+    const releaseRecipients = await getPortalOrderReleaseRecipients(client, normalizedAccount);
+    const warnings = [];
+
+    if (!ownerResult.rowCount) {
+        warnings.push("This company is not saved in Company Setup yet.");
+    }
+    if (!hasSystemEmailConfig()) {
+        warnings.push("System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings before live notifications can send.");
+    }
+    if (!assignedUserRecipients.length) {
+        warnings.push("No active warehouse worker is assigned to this company.");
+    }
+    if (!fulfillmentRecipients.length) {
+        warnings.push("No outbound fulfillment location contact email is configured for this company.");
+    }
+    if (!releaseRecipients.length) {
+        warnings.push("No release recipients could be resolved.");
+    }
+
+    let releaseRecipientSource = "Not configured";
+    if (assignedUserRecipients.length && fulfillmentRecipients.length) {
+        releaseRecipientSource = "Assigned warehouse users + fulfillment location contact";
+    } else if (assignedUserRecipients.length) {
+        releaseRecipientSource = "Assigned warehouse users";
+    } else if (fulfillmentRecipients.length) {
+        releaseRecipientSource = "Fulfillment location contact";
+    } else if (orderReleaseFallbackRecipients.length) {
+        releaseRecipientSource = "ORDER_RELEASE_TO fallback";
+        warnings.push("Release email is using ORDER_RELEASE_TO because no company-specific warehouse route is configured.");
+    } else if (systemFallbackRecipients.length) {
+        releaseRecipientSource = "System/admin fallback";
+        warnings.push("Release email is falling back to support/admin because no warehouse route is configured for this company.");
+    }
+
+    const selectedFulfillmentIds = new Set(selectedFulfillmentRecipients.map((row) => String(row.assignment_id)));
+
+    return {
+        accountName: normalizedAccount,
+        checkedAt: new Date().toISOString(),
+        build: APP_BUILD_INFO.label,
+        emailProvider: getConfiguredEmailProvider() || "Not configured",
+        systemEmailConfigured: hasSystemEmailConfig(),
+        from: SMTP_FROM,
+        replyTo: SMTP_REPLY_TO,
+        releaseRecipientSource,
+        releaseRecipients,
+        shipmentRecipients,
+        assignedWarehouseUsers: assignedUsers.map((row) => ({
+            id: String(row.id),
+            fullName: row.full_name || "",
+            email: row.email || "",
+            role: row.role || "",
+            isActive: row.is_active !== false
+        })),
+        fulfillmentLocations: fulfillmentLocations.map((row) => ({
+            assignmentId: String(row.assignment_id),
+            fulfillmentLocationId: String(row.fulfillment_location_id),
+            code: row.code || "",
+            name: row.name || "",
+            partnerName: row.partner_name || "",
+            locationType: row.location_type || "",
+            contactName: row.contact_name || "",
+            contactEmail: row.contact_email || "",
+            contactPhone: row.contact_phone || "",
+            address1: row.address1 || "",
+            address2: row.address2 || "",
+            city: row.city || "",
+            state: row.state || "",
+            postalCode: row.postal_code || "",
+            country: row.country || "",
+            isPrimary: row.is_primary === true,
+            allowOutbound: row.allow_outbound !== false,
+            willReceiveReleaseEmail: selectedFulfillmentIds.has(String(row.assignment_id))
+        })),
+        ownerAccount: ownerResult.rowCount ? {
+            name: ownerResult.rows[0].name || "",
+            email: ownerResult.rows[0].email || "",
+            billingEmail: ownerResult.rows[0].billing_email || "",
+            apEmail: ownerResult.rows[0].ap_email || "",
+            portalLoginEmail: ownerResult.rows[0].portal_login_email || "",
+            isActive: ownerResult.rows[0].is_active !== false
+        } : null,
+        fallbackRecipients: {
+            orderReleaseTo: orderReleaseFallbackRecipients,
+            systemFallback: systemFallbackRecipients
+        },
+        warnings
+    };
+}
+
+function buildCompanyEmailFlowTestText(flow, actorEmail = "") {
+    return [
+        `WMS365 company email flow test for ${flow.accountName}`,
+        "",
+        "This test uses the same recipient routing used when a customer releases an order from the portal.",
+        `Recipient source: ${flow.releaseRecipientSource}`,
+        `Release recipients: ${flow.releaseRecipients.join(", ") || "None"}`,
+        `Email provider: ${flow.emailProvider}`,
+        `From: ${flow.from || "Not configured"}`,
+        flow.replyTo ? `Reply-To: ${flow.replyTo}` : "",
+        `Requested by: ${actorEmail || "Unknown admin"}`,
+        `Build: ${flow.build}`,
+        "",
+        "Warnings:",
+        ...(flow.warnings.length ? flow.warnings.map((warning) => `- ${warning}`) : ["- None"])
+    ].filter(Boolean).join("\n");
+}
+
+function buildCompanyEmailFlowTestHtml(flow, actorEmail = "") {
+    const warningsHtml = flow.warnings.length
+        ? flow.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")
+        : "<li>None</li>";
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
+            <h2 style="margin:0 0 12px;">WMS365 company email flow test</h2>
+            <p>This test uses the same recipient routing used when a customer releases an order from the portal.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;">
+                <tr><td style="padding:6px 0;font-weight:600;">Company</td><td style="padding:6px 0;">${escapeHtml(flow.accountName)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Recipient source</td><td style="padding:6px 0;">${escapeHtml(flow.releaseRecipientSource)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Release recipients</td><td style="padding:6px 0;">${escapeHtml(flow.releaseRecipients.join(", ") || "None")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Email provider</td><td style="padding:6px 0;">${escapeHtml(flow.emailProvider)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">From</td><td style="padding:6px 0;">${escapeHtml(flow.from || "Not configured")}</td></tr>
+                ${flow.replyTo ? `<tr><td style="padding:6px 0;font-weight:600;">Reply-To</td><td style="padding:6px 0;">${escapeHtml(flow.replyTo)}</td></tr>` : ""}
+                <tr><td style="padding:6px 0;font-weight:600;">Requested by</td><td style="padding:6px 0;">${escapeHtml(actorEmail || "Unknown admin")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Build</td><td style="padding:6px 0;">${escapeHtml(flow.build)}</td></tr>
+            </table>
+            <p style="margin:18px 0 8px;font-weight:600;">Warnings</p>
+            <ul style="margin:0 0 0 18px;padding:0;">${warningsHtml}</ul>
+        </div>
+    `;
 }
 
 function formatPortalOrderShipToAddress(order) {
