@@ -684,6 +684,59 @@ app.post("/api/admin/company-email-flow/test", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/company-email-flow/latest-order-test", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        const accountName = normalizeText(req.body?.accountName || req.body?.company || "");
+        if (!accountName) {
+            throw httpError(400, "Choose a company before sending a latest order test.");
+        }
+        const orderId = toPositiveInt(req.body?.orderId || req.body?.order_id);
+        const order = orderId
+            ? await getPortalOrderById(pool, orderId, accountName)
+            : await getLatestPortalOrderForReleaseEmailTest(pool, accountName);
+        if (!order) {
+            throw httpError(404, `No portal order was found for ${accountName}.`);
+        }
+
+        const emailResult = await sendPortalOrderReleaseEmail(order, {
+            subjectPrefix: "[TEST] ",
+            testMode: true,
+            testRequestedBy: req.appUser?.email || "Unknown admin"
+        });
+        const flow = await getCompanyEmailFlowCheck(pool, accountName);
+
+        await withTransaction((client) => insertActivity(
+            client,
+            "email",
+            `Sent test warehouse release email for ${order.orderCode}`,
+            [
+                order.accountName,
+                `Recipients: ${emailResult.recipients.join(", ")}`,
+                `Requested by: ${req.appUser?.email || "Unknown admin"}`
+            ].filter(Boolean).join(" | ")
+        ));
+
+        res.json({
+            success: true,
+            order: {
+                id: order.id,
+                orderCode: order.orderCode,
+                accountName: order.accountName,
+                status: order.status,
+                poNumber: order.poNumber,
+                shippingReference: order.shippingReference
+            },
+            recipients: emailResult.recipients,
+            ccRecipients: emailResult.ccRecipients,
+            flow
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/site/demo-request", async (req, res, next) => {
     try {
         assertDatabaseAvailable();
@@ -10636,6 +10689,26 @@ async function getPortalOrderReleaseRecipients(client = pool, accountName = "") 
     return [...recipients];
 }
 
+async function getLatestPortalOrderForReleaseEmailTest(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query(
+        `
+            select id
+            from portal_orders
+            where account_name = $1
+              and status <> 'ARCHIVED'
+            order by
+              coalesce(released_at, shipped_at, staged_at, picked_at, updated_at, created_at) desc,
+              id desc
+            limit 1
+        `,
+        [normalizedAccount]
+    );
+    if (result.rowCount !== 1) return null;
+    return getPortalOrderById(client, result.rows[0].id, normalizedAccount);
+}
+
 async function getCompanyEmailFlowCheck(client = pool, accountName = "") {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) {
@@ -10891,8 +10964,10 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
     `;
 }
 
-function buildPortalReleaseEmailText(order, { ccRecipients = [] } = {}) {
+function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
     const lines = [
+        testMode ? "TEST EMAIL ONLY - no order status was changed." : "",
+        testMode && testRequestedBy ? `Requested by: ${testRequestedBy}` : "",
         `Portal order released: ${order.orderCode}`,
         `Company: ${order.accountName}`,
         `Status: ${order.status}`,
@@ -10915,7 +10990,7 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [] } = {}) {
     return lines.filter((line, index, array) => line || (index > 0 && array[index - 1] !== "")).join("\n");
 }
 
-function buildPortalReleaseEmailHtml(order, { ccRecipients = [] } = {}) {
+function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
     const linesHtml = order.lines.map((line) => `
         <tr>
             <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
@@ -10927,6 +11002,11 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [] } = {}) {
 
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
+            ${testMode ? `
+                <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;">
+                    <strong>TEST EMAIL ONLY.</strong> No order status was changed.${testRequestedBy ? ` Requested by ${escapeHtml(testRequestedBy)}.` : ""}
+                </div>
+            ` : ""}
             <h2 style="margin:0 0 12px;">Portal Order Released</h2>
             <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> was released from the customer portal and is ready for warehouse review.</p>
             <table style="border-collapse:collapse;width:100%;max-width:720px;">
@@ -10953,7 +11033,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [] } = {}) {
     `;
 }
 
-async function sendPortalOrderReleaseEmail(order, { ccRecipients = [] } = {}) {
+async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPrefix = "", testMode = false, testRequestedBy = "" } = {}) {
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     }
@@ -10969,9 +11049,9 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [] } = {}) {
         to: recipients.join(", "),
         cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
         replyTo: SMTP_REPLY_TO || undefined,
-        subject: `Portal Order Released - ${order.orderCode}`,
-        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients }),
-        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients })
+        subject: `${subjectPrefix || ""}Portal Order Released - ${order.orderCode}`,
+        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
+        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy })
     }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
     return {

@@ -8083,6 +8083,7 @@
                         <div class="button-row span-2">
                             <button class="btn" id="checkCompanyEmailFlowBtn" type="submit">Check Email Flow</button>
                             <button class="btn secondary" id="sendCompanyEmailFlowTestBtn" type="button">Send Routing Test</button>
+                            <button class="btn ghost" id="sendLatestOrderEmailFlowTestBtn" type="button">Send Latest Order Test</button>
                         </div>
                     </form>
                     <div class="stack-list" id="companyEmailFlowResults" style="margin-top: 1rem;"></div>
@@ -8858,6 +8859,7 @@
             companyEmailFlowMessage: document.getElementById("companyEmailFlowMessage"),
             checkCompanyEmailFlowBtn: document.getElementById("checkCompanyEmailFlowBtn"),
             sendCompanyEmailFlowTestBtn: document.getElementById("sendCompanyEmailFlowTestBtn"),
+            sendLatestOrderEmailFlowTestBtn: document.getElementById("sendLatestOrderEmailFlowTestBtn"),
             masterDataWorkspaceCard: document.getElementById("masterDataWorkspaceCard"),
             inventoryWorkspaceGrid: document.getElementById("inventoryWorkspaceGrid"),
             storeIntegrationsBlock: document.getElementById("storeIntegrationsBlock"),
@@ -9815,6 +9817,7 @@
             ui.systemEmailTestForm?.addEventListener("submit", sendSystemEmailTest);
             ui.companyEmailFlowForm?.addEventListener("submit", checkCompanyEmailFlow);
             ui.sendCompanyEmailFlowTestBtn?.addEventListener("click", sendCompanyEmailFlowTest);
+            ui.sendLatestOrderEmailFlowTestBtn?.addEventListener("click", sendLatestOrderEmailFlowTest);
             ui.warehouseUserForm?.addEventListener("submit", saveWarehouseUser);
             ui.resetWarehouseUserBtn?.addEventListener("click", resetWarehouseUserForm);
             ui.warehouseUserRole?.addEventListener("change", renderWarehouseUserDashboard);
@@ -20296,6 +20299,38 @@
                     });
                     renderCompanyEmailFlowResults(response.flow);
                     showMessage(ui.companyEmailFlowMessage, `Routing test sent to ${(response.recipients || []).join(", ")}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.companyEmailFlowMessage, error.message, "error");
+            }
+        }
+
+        async function sendLatestOrderEmailFlowTest(event) {
+            event?.preventDefault?.();
+            if (!currentUserIsSuperAdmin()) {
+                return showMessage(ui.companyEmailFlowMessage, "Super user access is required to send a latest order email test.", "error");
+            }
+            const accountName = norm(ui.companyEmailFlowAccount?.value || getDefaultCompanyEmailFlowAccount());
+            if (!accountName) {
+                ui.companyEmailFlowAccount?.focus();
+                return showMessage(ui.companyEmailFlowMessage, "Choose the company before sending the latest order test.", "error");
+            }
+            if (ui.companyEmailFlowAccount) ui.companyEmailFlowAccount.value = accountName;
+            try {
+                await runActionWithFeedback({
+                    button: ui.sendLatestOrderEmailFlowTestBtn,
+                    busyLabel: "Sending...",
+                    messageElement: ui.companyEmailFlowMessage,
+                    progressMessage: `Sending latest order test for ${accountName}...`
+                }, async () => {
+                    const response = await requestJson("/api/admin/company-email-flow/latest-order-test", {
+                        method: "POST",
+                        body: JSON.stringify({ accountName })
+                    });
+                    renderCompanyEmailFlowResults(response.flow);
+                    const orderCode = response.order?.orderCode || "latest order";
+                    showMessage(ui.companyEmailFlowMessage, `Test release email for ${orderCode} sent to ${(response.recipients || []).join(", ")}.`, "success");
                     return response;
                 });
             } catch (error) {
