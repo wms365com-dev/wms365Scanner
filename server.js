@@ -115,6 +115,7 @@ const APP_BUILD_FILES = [
     "sftp-warehouse-integration-software.html",
     "robots.txt",
     "sitemap.xml",
+    "access.html",
     "index.html",
     "portal.html",
     "login.html",
@@ -134,6 +135,7 @@ const DEFAULT_ADMIN_PASSWORD = readEnv("APP_ADMIN_PASSWORD", "ChangeMeNow123!");
 const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(readEnv("APP_ADMIN_NAME", "Platform Owner"));
 const DEMO_REQUEST_TO = bootstrapNormalizeEmail(readEnv("DEMO_REQUEST_TO", DEFAULT_ADMIN_EMAIL || ""));
 const ADMIN_ACTIVITY_SUMMARY_TO = bootstrapNormalizeEmail(readEnv("ADMIN_ACTIVITY_SUMMARY_TO", DEFAULT_ADMIN_EMAIL || ""));
+const DEFAULT_PUBLIC_SITE_URL = "https://wms365.co";
 const PUBLIC_SITE_URL = readEnv("PUBLIC_SITE_URL", "").replace(/\/+$/, "");
 const PUBLIC_SITE_ALLOWED_ORIGINS = readEnv("PUBLIC_SITE_ALLOWED_ORIGINS", "");
 const STRIPE_SECRET_KEY = readEnv("STRIPE_SECRET_KEY", "");
@@ -169,6 +171,12 @@ const SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE = "SHOPIFY_FULFILLMENT";
 const FEEDBACK_REQUEST_TYPES = ["BUG", "FEATURE", "OTHER"];
 const FEEDBACK_SOURCES = ["WAREHOUSE", "PORTAL"];
 const FEEDBACK_STATUSES = ["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"];
+const APP_USER_ROLES = Object.freeze({
+    SUPER_ADMIN: "super_admin",
+    WAREHOUSE_ADMIN: "warehouse_admin",
+    WAREHOUSE_CUSTOMER_SERVICE: "warehouse_customer_service",
+    WAREHOUSE_WORKER: "warehouse_worker"
+});
 const SITE_SUBSCRIPTION_STATUSES = ["PENDING", "TRIALING", "ACTIVE", "PAST_DUE", "UNPAID", "INCOMPLETE", "INCOMPLETE_EXPIRED", "CANCELED", "PAUSED"];
 const SITE_SUBSCRIPTION_BILLING_STATUSES = ["PENDING", "PAID", "PAYMENT_FAILED", "PAST_DUE", "CANCELED"];
 const SITE_SUBSCRIPTION_PROVISIONING_STATUSES = ["PENDING_REVIEW", "OWNER_CREATED"];
@@ -1939,9 +1947,13 @@ app.post("/api/import", async (req, res, next) => {
                             each_length, each_width, each_height, image_url,
                             case_length, case_width, case_height,
                             lot_tracked, expiration_tracked,
+                            item_type, item_category, blocked, costing_method, unit_cost, unit_price,
+                            replenishment_system, vendor_no, vendor_item_no, lead_time_days,
                             created_at, updated_at
                         )
-                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                                $21, $22, $23, $24, $25, $26, $27)
                     `,
                     [
                         item.accountName,
@@ -1959,6 +1971,16 @@ app.post("/api/import", async (req, res, next) => {
                         item.caseHeight,
                         item.lotTracked === true,
                         item.expirationTracked === true,
+                        item.itemType || "INVENTORY",
+                        item.itemCategory || "",
+                        item.blocked === true,
+                        item.costingMethod || "FIFO",
+                        item.unitCost,
+                        item.unitPrice,
+                        item.replenishmentSystem || "PURCHASE",
+                        item.vendorNo || "",
+                        item.vendorItemNo || "",
+                        item.leadTimeDays,
                         item.createdAt,
                         item.updatedAt
                     ]
@@ -2319,6 +2341,7 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
         const email = normalizeEmail(req.body?.email);
         const password = typeof req.body?.password === "string" ? req.body.password : "";
         const isActive = req.body?.isActive !== false;
+        const sendWelcomeEmail = req.body?.sendWelcomeEmail !== false;
 
         if (!accountName) {
             throw httpError(400, "Company is required.");
@@ -2345,10 +2368,55 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
             return access;
         });
 
+        const welcomeEmail = {
+            attempted: false,
+            sent: false,
+            recipients: [],
+            provider: "",
+            error: ""
+        };
+        if (sendWelcomeEmail && isActive && password.trim()) {
+            welcomeEmail.attempted = true;
+            try {
+                const emailResult = await sendPortalAccessWelcomeEmail({
+                    accountName,
+                    email,
+                    password,
+                    portalUrl: buildPortalLoginUrl(req),
+                    wasCreated: savedAccess.wasCreated === true
+                });
+                welcomeEmail.sent = true;
+                welcomeEmail.recipients = [email];
+                welcomeEmail.provider = emailResult.provider || getConfiguredEmailProvider() || "";
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "email",
+                    `Sent portal welcome email to ${email}`,
+                    [
+                        `Company ${accountName}.`,
+                        savedAccess.wasCreated === true ? "New portal user." : "Portal password reset."
+                    ].join(" ")
+                ));
+            } catch (emailError) {
+                welcomeEmail.error = emailError?.message || "Welcome email could not be sent.";
+                console.error(`Portal welcome email failed for ${email}:`, emailError);
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "email",
+                    `Portal welcome email failed for ${email}`,
+                    [
+                        `Company ${accountName}.`,
+                        welcomeEmail.error
+                    ].join(" ")
+                ));
+            }
+        }
+
         res.json({
             success: true,
             access: mapPortalAccessRow(savedAccess),
-            wasCreated: savedAccess.wasCreated === true
+            wasCreated: savedAccess.wasCreated === true,
+            welcomeEmail
         });
     } catch (error) {
         next(error);
@@ -3090,6 +3158,16 @@ app.get("/login.html", (_req, res) => {
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
 
+app.get("/access", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.sendFile(path.join(ROOT_DIR, "access.html"));
+});
+
+app.get("/access.html", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.sendFile(path.join(ROOT_DIR, "access.html"));
+});
+
 function detectWarehouseRouteMode(req) {
     const requestedMode = String(req.query?.experience || req.query?.mode || "").trim().toLowerCase();
     if (requestedMode === "mobile" || requestedMode === "desktop") {
@@ -3130,7 +3208,7 @@ async function getAppDomainHomePath(req, res) {
     } catch (_error) {
         clearPortalSessionCookie(res, req);
     }
-    return "/login";
+    return "/access";
 }
 
 function sendWarehouseApp(res) {
@@ -3139,14 +3217,15 @@ function sendWarehouseApp(res) {
 }
 
 function isPublicSiteRequest(req) {
-    const publicOrigin = normalizeOriginUrl(PUBLIC_SITE_URL);
-    if (!publicOrigin) return true;
-    return normalizeOriginUrl(getRequestOrigin(req)) === publicOrigin;
+    const hostName = getRequestHostName(req);
+    if (!hostName) return true;
+    if (!PUBLIC_SITE_URL && isLocalDevelopmentHost(hostName)) return true;
+    return buildPublicSiteHostNames().has(hostName);
 }
 
 function sendMarketingPage(req, res, fileName) {
     if (!isPublicSiteRequest(req)) {
-        const publicOrigin = normalizeOriginUrl(PUBLIC_SITE_URL);
+        const publicOrigin = normalizeOriginUrl(PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL);
         if (publicOrigin) {
             return res.redirect(`${publicOrigin}${req.path === "/" ? "" : req.path}`);
         }
@@ -3782,8 +3861,21 @@ async function initializeDatabase() {
     await pool.query("alter table item_catalog add column if not exists image_url text not null default '';");
     await pool.query("alter table item_catalog add column if not exists lot_tracked boolean not null default false;");
     await pool.query("alter table item_catalog add column if not exists expiration_tracked boolean not null default false;");
+    await pool.query("alter table item_catalog add column if not exists item_type text not null default 'INVENTORY';");
+    await pool.query("alter table item_catalog add column if not exists item_category text not null default '';");
+    await pool.query("alter table item_catalog add column if not exists blocked boolean not null default false;");
+    await pool.query("alter table item_catalog add column if not exists costing_method text not null default 'FIFO';");
+    await pool.query("alter table item_catalog add column if not exists unit_cost double precision;");
+    await pool.query("alter table item_catalog add column if not exists unit_price double precision;");
+    await pool.query("alter table item_catalog add column if not exists replenishment_system text not null default 'PURCHASE';");
+    await pool.query("alter table item_catalog add column if not exists vendor_no text not null default '';");
+    await pool.query("alter table item_catalog add column if not exists vendor_item_no text not null default '';");
+    await pool.query("alter table item_catalog add column if not exists lead_time_days integer;");
     await pool.query("update item_catalog set account_name = $1 where account_name is null or account_name = ''", [LEGACY_ACCOUNT]);
     await pool.query("update item_catalog set tracking_level = 'UNIT' where tracking_level is null or tracking_level = ''");
+    await pool.query("update item_catalog set item_type = 'INVENTORY' where item_type is null or item_type = ''");
+    await pool.query("update item_catalog set costing_method = 'FIFO' where costing_method is null or costing_method = ''");
+    await pool.query("update item_catalog set replenishment_system = 'PURCHASE' where replenishment_system is null or replenishment_system = ''");
     await pool.query("alter table item_catalog drop constraint if exists item_catalog_sku_key");
 
     await pool.query(`
@@ -5180,7 +5272,21 @@ async function getAppUsersWithAssignments(client = pool) {
 }
 
 function normalizeAppUserRole(value) {
-    return normalizeText(value) === "SUPER_ADMIN" ? "super_admin" : "warehouse_worker";
+    const normalized = normalizeText(value);
+    if (normalized === "SUPER_ADMIN" || normalized === "SUPERUSER" || normalized === "PLATFORM_ADMIN") {
+        return APP_USER_ROLES.SUPER_ADMIN;
+    }
+    if (normalized === "WAREHOUSE_ADMIN" || normalized === "WAREHOUSEADMIN") {
+        return APP_USER_ROLES.WAREHOUSE_ADMIN;
+    }
+    if (normalized === "WAREHOUSE_CUSTOMER_SERVICE"
+        || normalized === "WAREHOUSECUSTOMERSERVICE"
+        || normalized === "CUSTOMER_SERVICE"
+        || normalized === "CUSTOMERSERVICE"
+        || normalized === "CSR") {
+        return APP_USER_ROLES.WAREHOUSE_CUSTOMER_SERVICE;
+    }
+    return APP_USER_ROLES.WAREHOUSE_WORKER;
 }
 
 function sanitizeAppUserInput(input) {
@@ -5234,15 +5340,15 @@ async function saveAppUser(client, rawInput) {
     if (passwordText && passwordText.length < 8) {
         throw httpError(400, "Warehouse passwords must be at least 8 characters.");
     }
-    if (entry.role !== "super_admin" && !entry.assignedCompanies.length && !entry.assignedFulfillmentLocations.length) {
-        throw httpError(400, "Assign at least one warehouse/location or company to warehouse workers.");
+    if (entry.role !== APP_USER_ROLES.SUPER_ADMIN && !entry.assignedCompanies.length && !entry.assignedFulfillmentLocations.length) {
+        throw httpError(400, "Assign at least one warehouse/location or company to this warehouse user.");
     }
     if (existingByEmail && (!existing || String(existingByEmail.id) !== String(existing.id))) {
         throw httpError(400, "That email address is already linked to another warehouse user.");
     }
 
-    const assignedCompanies = entry.role === "super_admin" ? [] : entry.assignedCompanies;
-    const assignedFulfillmentLocations = entry.role === "super_admin" ? [] : entry.assignedFulfillmentLocations;
+    const assignedCompanies = entry.role === APP_USER_ROLES.SUPER_ADMIN ? [] : entry.assignedCompanies;
+    const assignedFulfillmentLocations = entry.role === APP_USER_ROLES.SUPER_ADMIN ? [] : entry.assignedFulfillmentLocations;
     let savedRow;
     if (existing) {
         const passwordHash = passwordText ? hashPortalPassword(passwordText) : existing.password_hash;
@@ -9365,6 +9471,90 @@ async function sendSystemEmail(mailOptions, configErrorMessage = "System email i
     };
 }
 
+function buildPortalLoginUrl(req) {
+    const requestOrigin = getRequestOrigin(req);
+    const origin = requestOrigin || PUBLIC_SITE_URL || "https://app.wms365.co";
+    return `${String(origin).replace(/\/+$/, "")}/portal`;
+}
+
+function buildPortalAccessWelcomeEmailText({ accountName, email, password, portalUrl, wasCreated }) {
+    const lines = [
+        wasCreated ? "Welcome to WMS365." : "Your WMS365 portal access has been updated.",
+        "",
+        `Company: ${accountName}`,
+        `Portal login: ${portalUrl}`,
+        `Username: ${email}`,
+        `Password: ${password}`,
+        "",
+        "What you can do in WMS365:",
+        "- Review your live inventory and available stock by SKU.",
+        "- Create sales orders for the warehouse to process.",
+        "- Submit purchase orders / inbound notices so receiving can plan ahead.",
+        "- Track each order through draft, released, picked, staged, and shipped status.",
+        "- Upload order documents or shipping labels for the warehouse team.",
+        "- Review shipment confirmations, carrier details, tracking, and shipped orders.",
+        "",
+        "Please keep this email private. If you need help, reply to this message or contact support@wms365.co.",
+        "",
+        "WMS365 Support"
+    ];
+    return lines.join("\n");
+}
+
+function buildPortalAccessWelcomeEmailHtml({ accountName, email, password, portalUrl, wasCreated }) {
+    const title = wasCreated ? "Welcome to WMS365" : "Your WMS365 portal access was updated";
+    const safePortalUrl = escapeHtml(portalUrl);
+    const featureRows = [
+        "Review live inventory and available stock by SKU.",
+        "Create sales orders for warehouse processing.",
+        "Submit purchase orders / inbound notices before inventory arrives.",
+        "Track orders through draft, released, picked, staged, and shipped status.",
+        "Upload order documents or shipping labels for the warehouse team.",
+        "Review shipment confirmations, carrier details, tracking, and shipped orders."
+    ].map((feature) => `<li style="margin:0 0 8px;">${escapeHtml(feature)}</li>`).join("");
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.55;max-width:680px;">
+            <h2 style="margin:0 0 12px;">${escapeHtml(title)}</h2>
+            <p style="margin:0 0 16px;">Your customer portal access for <strong>${escapeHtml(accountName)}</strong> is ready.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:640px;margin:0 0 18px;border:1px solid #dbe4ee;">
+                <tr>
+                    <td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Portal login</td>
+                    <td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;"><a href="${safePortalUrl}">${safePortalUrl}</a></td>
+                </tr>
+                <tr>
+                    <td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Username</td>
+                    <td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;">${escapeHtml(email)}</td>
+                </tr>
+                <tr>
+                    <td style="padding:10px 12px;font-weight:700;background:#f8fafc;">Password</td>
+                    <td style="padding:10px 12px;">${escapeHtml(password)}</td>
+                </tr>
+            </table>
+            <p style="margin:0 0 8px;font-weight:700;">How WMS365 helps your team</p>
+            <ul style="margin:0 0 18px;padding-left:22px;">${featureRows}</ul>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Please keep this email private. If you need help, reply to this message or contact support@wms365.co.</p>
+            <p style="margin:0;">WMS365 Support</p>
+        </div>
+    `;
+}
+
+async function sendPortalAccessWelcomeEmail({ accountName, email, password, portalUrl, wasCreated }) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Portal welcome email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    }
+    return sendSystemEmail({
+        from: SMTP_FROM,
+        to: email,
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: wasCreated
+            ? `Welcome to WMS365 - ${accountName} portal access`
+            : `WMS365 portal access updated - ${accountName}`,
+        text: buildPortalAccessWelcomeEmailText({ accountName, email, password, portalUrl, wasCreated }),
+        html: buildPortalAccessWelcomeEmailHtml({ accountName, email, password, portalUrl, wasCreated })
+    }, "Portal welcome email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+}
+
 function hasShipmentEmailConfig() {
     return hasSystemEmailConfig();
 }
@@ -10582,6 +10772,41 @@ function getRequestOrigin(req) {
     return host ? `${protocol}://${host}` : "";
 }
 
+function normalizeHostName(value) {
+    const text = String(value || "").trim().toLowerCase();
+    if (!text) return "";
+    try {
+        return new URL(text.includes("://") ? text : `https://${text}`).hostname.replace(/\.$/, "");
+    } catch {
+        return text.split(":")[0].replace(/\.$/, "");
+    }
+}
+
+function getRequestHostName(req) {
+    return normalizeHostName(String(req.get("x-forwarded-host") || req.get("host") || "").split(",")[0]);
+}
+
+function addHostNameVariant(hosts, value) {
+    const hostName = normalizeHostName(value);
+    if (!hostName) return;
+    hosts.add(hostName);
+    if (hostName.startsWith("www.")) {
+        hosts.add(hostName.slice(4));
+    } else if (hostName.includes(".")) {
+        hosts.add(`www.${hostName}`);
+    }
+}
+
+function buildPublicSiteHostNames() {
+    const hosts = new Set();
+    addHostNameVariant(hosts, PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL);
+    return hosts;
+}
+
+function isLocalDevelopmentHost(hostName) {
+    return hostName === "localhost" || hostName === "127.0.0.1" || hostName === "::1";
+}
+
 function appendVaryHeader(res, value) {
     const current = String(res.getHeader("Vary") || "").split(",").map((entry) => entry.trim()).filter(Boolean);
     const normalized = value.toLowerCase();
@@ -10767,7 +10992,17 @@ async function getPortalOrderReleaseAssignedUsers(client = pool, accountName = "
                       and cfl.account_name = $1
                       and cfl.allow_outbound = true
                       and fl.is_active = true
-                ) as warehouse_location_access
+                ) as warehouse_location_access,
+                exists (
+                    select 1
+                    from company_fulfillment_locations cfl
+                    join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+                    where cfl.account_name = $1
+                      and cfl.allow_outbound = true
+                      and fl.is_active = true
+                      and lower(btrim(coalesce(fl.contact_email, ''))) = lower(btrim(u.email))
+                      and btrim(coalesce(fl.contact_email, '')) <> ''
+                ) as fulfillment_contact_access
             from app_users u
             where u.is_active = true
               and u.email is not null
@@ -10789,6 +11024,16 @@ async function getPortalOrderReleaseAssignedUsers(client = pool, accountName = "
                       and cfl.account_name = $1
                       and cfl.allow_outbound = true
                       and fl.is_active = true
+                )
+                or exists (
+                    select 1
+                    from company_fulfillment_locations cfl
+                    join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+                    where cfl.account_name = $1
+                      and cfl.allow_outbound = true
+                      and fl.is_active = true
+                      and lower(btrim(coalesce(fl.contact_email, ''))) = lower(btrim(u.email))
+                      and btrim(coalesce(fl.contact_email, '')) <> ''
                 )
               )
             order by u.full_name asc, u.email asc
@@ -10948,7 +11193,7 @@ async function getCompanyEmailFlowCheck(client = pool, accountName = "") {
         warnings.push("System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings before live notifications can send.");
     }
     if (!assignedUserRecipients.length) {
-        warnings.push("No active warehouse worker is assigned to this company.");
+        warnings.push("No active warehouse user is assigned to this company.");
     }
     if (!fulfillmentRecipients.length) {
         warnings.push("No outbound fulfillment location contact email is configured for this company.");
@@ -10992,7 +11237,8 @@ async function getCompanyEmailFlowCheck(client = pool, accountName = "") {
             role: row.role || "",
             isActive: row.is_active !== false,
             directCompanyAccess: row.direct_company_access === true,
-            warehouseLocationAccess: row.warehouse_location_access === true
+            warehouseLocationAccess: row.warehouse_location_access === true,
+            fulfillmentContactAccess: row.fulfillment_contact_access === true
         })),
         fulfillmentLocations: fulfillmentLocations.map((row) => ({
             assignmentId: String(row.assignment_id),
@@ -11182,6 +11428,7 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
         order.contactName ? `Customer Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
+        "Pick Ticket: attached as PDF",
         "",
         "Order Lines:"
     ];
@@ -11214,6 +11461,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
             ` : ""}
             <h2 style="margin:0 0 12px;">Portal Order Released</h2>
             <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> was released from the customer portal and is ready for warehouse review.</p>
+            <p style="margin:0 0 16px;padding:10px 12px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;">Pick ticket PDF is attached for warehouse picking.</p>
             <table style="border-collapse:collapse;width:100%;max-width:720px;">
                 <tr><td style="padding:6px 0;font-weight:600;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
@@ -11238,6 +11486,157 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
     `;
 }
 
+function pdfSafeText(value) {
+    return String(value || "")
+        .replace(/[^\x20-\x7E]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function pdfEscapeText(value) {
+    return pdfSafeText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function wrapPdfText(value, width = 92) {
+    const words = pdfSafeText(value).split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = "";
+    words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        if (next.length > width && current) {
+            lines.push(current);
+            current = word;
+        } else if (word.length > width) {
+            if (current) lines.push(current);
+            for (let index = 0; index < word.length; index += width) {
+                lines.push(word.slice(index, index + width));
+            }
+            current = "";
+        } else {
+            current = next;
+        }
+    });
+    if (current) lines.push(current);
+    return lines.length ? lines : [""];
+}
+
+function buildSimpleTextPdfBuffer(lines = []) {
+    const pageWidth = 612;
+    const pageHeight = 792;
+    const marginX = 42;
+    const marginTop = 42;
+    const lineHeight = 14;
+    const maxLinesPerPage = Math.floor((pageHeight - (marginTop * 2)) / lineHeight);
+    const sourceLines = Array.isArray(lines) && lines.length ? lines : ["WMS365 Document"];
+    const pages = [];
+
+    for (let index = 0; index < sourceLines.length; index += maxLinesPerPage) {
+        pages.push(sourceLines.slice(index, index + maxLinesPerPage));
+    }
+
+    const objects = [
+        { body: "<< /Type /Catalog /Pages 2 0 R >>" },
+        { body: "" },
+        { body: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>" }
+    ];
+    const pageObjectIds = [];
+
+    pages.forEach((pageLines) => {
+        const operations = ["BT", "/F1 10 Tf", "12 TL"];
+        pageLines.forEach((line, lineIndex) => {
+            const y = pageHeight - marginTop - (lineIndex * lineHeight);
+            operations.push(`1 0 0 1 ${marginX} ${y} Tm`);
+            operations.push(`(${pdfEscapeText(line)}) Tj`);
+        });
+        operations.push("ET");
+        const stream = operations.join("\n");
+        const contentObjectId = objects.length + 1;
+        const pageObjectId = contentObjectId + 1;
+        objects.push({
+            body: `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`
+        });
+        objects.push({
+            body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId} 0 R >>`
+        });
+        pageObjectIds.push(pageObjectId);
+    });
+
+    objects[1].body = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageObjectIds.length} >>`;
+
+    let output = "%PDF-1.4\n";
+    const offsets = [0];
+    objects.forEach((object, index) => {
+        offsets.push(Buffer.byteLength(output, "utf8"));
+        output += `${index + 1} 0 obj\n${object.body}\nendobj\n`;
+    });
+    const xrefOffset = Buffer.byteLength(output, "utf8");
+    output += `xref\n0 ${objects.length + 1}\n`;
+    output += "0000000000 65535 f \n";
+    for (let index = 1; index < offsets.length; index += 1) {
+        output += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+    }
+    output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+    return Buffer.from(output, "utf8");
+}
+
+function formatPickTicketLocationText(line) {
+    const locations = Array.isArray(line?.pickLocations) ? line.pickLocations : [];
+    if (!locations.length) return "No location found";
+    return locations.map((entry) => [
+        entry.location || "",
+        formatTrackedQuantity(entry.quantity || line.quantity || 0, entry.trackingLevel || line.trackingLevel),
+        entry.lotNumber ? `Lot ${entry.lotNumber}` : "",
+        entry.expirationDate ? `Exp ${entry.expirationDate}` : ""
+    ].filter(Boolean).join(" | ")).join("; ");
+}
+
+function buildPortalOrderPickTicketPdfAttachment(order) {
+    const lines = [
+        "WMS365 PICK TICKET",
+        "",
+        `Order: ${order.orderCode || ""}`,
+        `Company: ${order.accountName || ""}`,
+        `Status: ${order.status || ""}`,
+        `PO Number: ${order.poNumber || "-"}`,
+        `Shipping Reference: ${order.shippingReference || "-"}`,
+        `Requested Ship Date: ${order.requestedShipDate || "-"}`,
+        "",
+        `Customer Contact: ${[order.contactName, order.contactPhone].filter(Boolean).join(" | ") || "-"}`,
+        "Ship To:"
+    ];
+
+    formatPortalOrderShipToAddress(order)
+        .split("|")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach((line) => lines.push(`  ${line}`));
+
+    if (order.orderNotes) {
+        lines.push("", "Order Notes:");
+        wrapPdfText(order.orderNotes, 88).forEach((line) => lines.push(`  ${line}`));
+    }
+
+    lines.push("", "Order Lines:", "LN  SKU                 QTY            PICK LOCATION / LOT / EXPIRATION", "--- ------------------- -------------- -----------------------------------------------");
+    (order.lines || []).forEach((line, index) => {
+        const linePrefix = `${String(index + 1).padEnd(3)} ${pdfSafeText(line.sku).slice(0, 19).padEnd(19)} ${pdfSafeText(formatTrackedQuantity(line.quantity, line.trackingLevel)).slice(0, 14).padEnd(14)} `;
+        const locationLines = wrapPdfText(formatPickTicketLocationText(line), 47);
+        lines.push(`${linePrefix}${locationLines[0] || ""}`);
+        locationLines.slice(1).forEach((locationLine) => lines.push(`${"".padEnd(41)}${locationLine}`));
+        const detailText = [line.description, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ");
+        if (detailText) {
+            wrapPdfText(detailText, 88).forEach((detailLine) => lines.push(`    ${detailLine}`));
+        }
+    });
+
+    lines.push("", `Generated: ${new Date().toISOString()}`);
+
+    return {
+        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket.pdf`),
+        content: buildSimpleTextPdfBuffer(lines),
+        contentType: "application/pdf"
+    };
+}
+
 async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPrefix = "", testMode = false, testRequestedBy = "" } = {}) {
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
@@ -11256,12 +11655,14 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `${subjectPrefix || ""}Portal Order Released - ${order.orderCode}`,
         text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
-        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy })
+        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
+        attachments: [buildPortalOrderPickTicketPdfAttachment(order)]
     }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
     return {
         recipients,
-        ccRecipients: normalizedCcRecipients
+        ccRecipients: normalizedCcRecipients,
+        attachments: ["pick-ticket"]
     };
 }
 
@@ -12753,9 +13154,13 @@ async function upsertItemMaster(client, item) {
             insert into item_catalog (
                 account_name, sku, upc, description, tracking_level, units_per_case,
                 each_length, each_width, each_height, image_url,
-                case_length, case_width, case_height, lot_tracked, expiration_tracked
+                case_length, case_width, case_height, lot_tracked, expiration_tracked,
+                item_type, item_category, blocked, costing_method, unit_cost, unit_price,
+                replenishment_system, vendor_no, vendor_item_no, lead_time_days
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                    $21, $22, $23, $24, $25)
             on conflict (account_name, sku)
             do update set
                 upc = case
@@ -12783,6 +13188,34 @@ async function upsertItemMaster(client, item) {
                 case_height = coalesce(excluded.case_height, item_catalog.case_height),
                 lot_tracked = excluded.lot_tracked,
                 expiration_tracked = excluded.expiration_tracked,
+                item_type = case
+                    when excluded.item_type <> '' then excluded.item_type
+                    else item_catalog.item_type
+                end,
+                item_category = case
+                    when excluded.item_category <> '' then excluded.item_category
+                    else item_catalog.item_category
+                end,
+                blocked = item_catalog.blocked or excluded.blocked,
+                costing_method = case
+                    when excluded.costing_method <> '' then excluded.costing_method
+                    else item_catalog.costing_method
+                end,
+                unit_cost = coalesce(excluded.unit_cost, item_catalog.unit_cost),
+                unit_price = coalesce(excluded.unit_price, item_catalog.unit_price),
+                replenishment_system = case
+                    when excluded.replenishment_system <> '' then excluded.replenishment_system
+                    else item_catalog.replenishment_system
+                end,
+                vendor_no = case
+                    when excluded.vendor_no <> '' then excluded.vendor_no
+                    else item_catalog.vendor_no
+                end,
+                vendor_item_no = case
+                    when excluded.vendor_item_no <> '' then excluded.vendor_item_no
+                    else item_catalog.vendor_item_no
+                end,
+                lead_time_days = coalesce(excluded.lead_time_days, item_catalog.lead_time_days),
                 updated_at = now()
         `,
         [
@@ -12800,7 +13233,17 @@ async function upsertItemMaster(client, item) {
             entry.caseWidth,
             entry.caseHeight,
             entry.lotTracked,
-            entry.expirationTracked
+            entry.expirationTracked,
+            entry.itemType,
+            entry.itemCategory,
+            entry.blocked,
+            entry.costingMethod,
+            entry.unitCost,
+            entry.unitPrice,
+            entry.replenishmentSystem,
+            entry.vendorNo,
+            entry.vendorItemNo,
+            entry.leadTimeDays
         ]
     );
 }
@@ -12814,9 +13257,13 @@ async function replaceItemMaster(client, item) {
             insert into item_catalog (
                 account_name, sku, upc, description, tracking_level, units_per_case,
                 each_length, each_width, each_height, image_url,
-                case_length, case_width, case_height, lot_tracked, expiration_tracked
+                case_length, case_width, case_height, lot_tracked, expiration_tracked,
+                item_type, item_category, blocked, costing_method, unit_cost, unit_price,
+                replenishment_system, vendor_no, vendor_item_no, lead_time_days
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                    $21, $22, $23, $24, $25)
             on conflict (account_name, sku)
             do update set
                 upc = excluded.upc,
@@ -12832,6 +13279,16 @@ async function replaceItemMaster(client, item) {
                 case_height = excluded.case_height,
                 lot_tracked = excluded.lot_tracked,
                 expiration_tracked = excluded.expiration_tracked,
+                item_type = excluded.item_type,
+                item_category = excluded.item_category,
+                blocked = excluded.blocked,
+                costing_method = excluded.costing_method,
+                unit_cost = excluded.unit_cost,
+                unit_price = excluded.unit_price,
+                replenishment_system = excluded.replenishment_system,
+                vendor_no = excluded.vendor_no,
+                vendor_item_no = excluded.vendor_item_no,
+                lead_time_days = excluded.lead_time_days,
                 updated_at = now()
         `,
         [
@@ -12849,7 +13306,17 @@ async function replaceItemMaster(client, item) {
             entry.caseWidth,
             entry.caseHeight,
             entry.lotTracked,
-            entry.expirationTracked
+            entry.expirationTracked,
+            entry.itemType,
+            entry.itemCategory,
+            entry.blocked,
+            entry.costingMethod,
+            entry.unitCost,
+            entry.unitPrice,
+            entry.replenishmentSystem,
+            entry.vendorNo,
+            entry.vendorItemNo,
+            entry.leadTimeDays
         ]
     );
 }
@@ -12882,7 +13349,17 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
         caseWidth: item.caseWidth,
         caseHeight: item.caseHeight,
         lotTracked: item.lotTracked,
-        expirationTracked: item.expirationTracked
+        expirationTracked: item.expirationTracked,
+        itemType: item.itemType,
+        itemCategory: item.itemCategory,
+        blocked: item.blocked,
+        costingMethod: item.costingMethod,
+        unitCost: item.unitCost,
+        unitPrice: item.unitPrice,
+        replenishmentSystem: item.replenishmentSystem,
+        vendorNo: item.vendorNo,
+        vendorItemNo: item.vendorItemNo,
+        leadTimeDays: item.leadTimeDays
     });
 
     if (!mergedEntry || !mergedEntry.accountName || !mergedEntry.sku) {
@@ -12908,7 +13385,17 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
             caseWidth: mergedEntry.caseWidth ?? targetMaster.caseWidth ?? null,
             caseHeight: mergedEntry.caseHeight ?? targetMaster.caseHeight ?? null,
             lotTracked: mergedEntry.lotTracked ?? targetMaster.lotTracked ?? false,
-            expirationTracked: mergedEntry.expirationTracked ?? targetMaster.expirationTracked ?? false
+            expirationTracked: mergedEntry.expirationTracked ?? targetMaster.expirationTracked ?? false,
+            itemType: mergedEntry.itemType || targetMaster.itemType || "INVENTORY",
+            itemCategory: mergedEntry.itemCategory || targetMaster.itemCategory || "",
+            blocked: mergedEntry.blocked ?? targetMaster.blocked ?? false,
+            costingMethod: mergedEntry.costingMethod || targetMaster.costingMethod || "FIFO",
+            unitCost: mergedEntry.unitCost ?? targetMaster.unitCost ?? null,
+            unitPrice: mergedEntry.unitPrice ?? targetMaster.unitPrice ?? null,
+            replenishmentSystem: mergedEntry.replenishmentSystem || targetMaster.replenishmentSystem || "PURCHASE",
+            vendorNo: mergedEntry.vendorNo || targetMaster.vendorNo || "",
+            vendorItemNo: mergedEntry.vendorItemNo || targetMaster.vendorItemNo || "",
+            leadTimeDays: mergedEntry.leadTimeDays ?? targetMaster.leadTimeDays ?? null
         })
         : mergedEntry;
 
@@ -13625,6 +14112,16 @@ function groupItemMasterInputs(items) {
             sku: item.sku,
             upc: "",
             description: "",
+            itemType: "INVENTORY",
+            itemCategory: "",
+            blocked: false,
+            costingMethod: "FIFO",
+            unitCost: null,
+            unitPrice: null,
+            replenishmentSystem: "PURCHASE",
+            vendorNo: "",
+            vendorItemNo: "",
+            leadTimeDays: null,
             trackingLevel: "UNIT",
             unitsPerCase: null,
             eachLength: null,
@@ -13640,6 +14137,16 @@ function groupItemMasterInputs(items) {
 
         if (!current.upc && item.upc) current.upc = item.upc;
         if (!current.description && item.description) current.description = item.description;
+        if ((current.itemType === "INVENTORY" || !current.itemType) && item.itemType) current.itemType = item.itemType;
+        if (!current.itemCategory && item.itemCategory) current.itemCategory = item.itemCategory;
+        current.blocked = current.blocked || item.blocked === true;
+        if ((current.costingMethod === "FIFO" || !current.costingMethod) && item.costingMethod) current.costingMethod = item.costingMethod;
+        if (!current.unitCost && item.unitCost) current.unitCost = item.unitCost;
+        if (!current.unitPrice && item.unitPrice) current.unitPrice = item.unitPrice;
+        if ((current.replenishmentSystem === "PURCHASE" || !current.replenishmentSystem) && item.replenishmentSystem) current.replenishmentSystem = item.replenishmentSystem;
+        if (!current.vendorNo && item.vendorNo) current.vendorNo = item.vendorNo;
+        if (!current.vendorItemNo && item.vendorItemNo) current.vendorItemNo = item.vendorItemNo;
+        if (!current.leadTimeDays && item.leadTimeDays) current.leadTimeDays = item.leadTimeDays;
         if ((current.trackingLevel === "UNIT" || !current.trackingLevel) && item.trackingLevel) current.trackingLevel = item.trackingLevel;
         if (!current.unitsPerCase && item.unitsPerCase) current.unitsPerCase = item.unitsPerCase;
         if (!current.eachLength && item.eachLength) current.eachLength = item.eachLength;
@@ -13861,6 +14368,16 @@ function sanitizeItemMasterInput(item) {
         sku,
         upc: normalizeText(item?.upc || ""),
         description: normalizeFreeText(item?.description),
+        itemType: normalizeItemType(item?.itemType || item?.item_type || item?.type),
+        itemCategory: normalizeText(item?.itemCategory || item?.item_category || item?.category || ""),
+        blocked: toBooleanFlag(item?.blocked ?? item?.isBlocked ?? item?.is_blocked, false),
+        costingMethod: normalizeCostingMethod(item?.costingMethod || item?.costing_method),
+        unitCost: toPositiveNumber(item?.unitCost ?? item?.unit_cost),
+        unitPrice: toPositiveNumber(item?.unitPrice ?? item?.unit_price),
+        replenishmentSystem: normalizeReplenishmentSystem(item?.replenishmentSystem || item?.replenishment_system),
+        vendorNo: normalizeText(item?.vendorNo || item?.vendor_no || item?.vendorCode || item?.vendor_code || ""),
+        vendorItemNo: normalizeText(item?.vendorItemNo || item?.vendor_item_no || item?.supplierSku || item?.supplier_sku || ""),
+        leadTimeDays: toPositiveInt(item?.leadTimeDays ?? item?.lead_time_days),
         trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
         unitsPerCase: toPositiveInt(item?.unitsPerCase),
         eachLength: toPositiveNumber(item?.eachLength),
@@ -14078,6 +14595,16 @@ function mapItemMasterRow(row) {
         sku: row.sku,
         upc: row.upc || "",
         description: row.description || "",
+        itemType: normalizeItemType(row.item_type),
+        itemCategory: row.item_category || "",
+        blocked: row.blocked === true,
+        costingMethod: normalizeCostingMethod(row.costing_method),
+        unitCost: toNullableNumber(row.unit_cost),
+        unitPrice: toNullableNumber(row.unit_price),
+        replenishmentSystem: normalizeReplenishmentSystem(row.replenishment_system),
+        vendorNo: row.vendor_no || "",
+        vendorItemNo: row.vendor_item_no || "",
+        leadTimeDays: row.lead_time_days == null ? null : Number(row.lead_time_days),
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
         unitsPerCase: row.units_per_case == null ? null : Number(row.units_per_case),
         eachLength: toNullableNumber(row.each_length),
@@ -14602,6 +15129,28 @@ function normalizeTrackingLevel(value) {
     if (normalized === "PALLET" || normalized === "PALLETS") return "PALLET";
     if (normalized === "CASE" || normalized === "CASES") return "CASE";
     return "UNIT";
+}
+
+function normalizeItemType(value) {
+    const normalized = normalizeText(value || "INVENTORY").replace(/[\s-]+/g, "_");
+    if (normalized === "NONINVENTORY" || normalized === "NON_INVENTORY" || normalized === "NON_INVENTORY_ITEM") return "NON_INVENTORY";
+    if (normalized === "SERVICE" || normalized === "SERVICES") return "SERVICE";
+    return "INVENTORY";
+}
+
+function normalizeCostingMethod(value) {
+    const normalized = normalizeText(value || "FIFO").replace(/[\s-]+/g, "_");
+    if (normalized === "AVERAGE" || normalized === "AVG") return "AVERAGE";
+    if (normalized === "STANDARD" || normalized === "STD") return "STANDARD";
+    if (normalized === "SPECIFIC" || normalized === "SERIAL") return "SPECIFIC";
+    return "FIFO";
+}
+
+function normalizeReplenishmentSystem(value) {
+    const normalized = normalizeText(value || "PURCHASE").replace(/[\s-]+/g, "_");
+    if (normalized === "TRANSFER") return "TRANSFER";
+    if (normalized === "MANUAL" || normalized === "NONE") return "MANUAL";
+    return "PURCHASE";
 }
 
 function toPositiveInt(value) {
@@ -15190,6 +15739,7 @@ function isPublicRequest(req) {
     if (pathName === "/api/site/stripe-checkout") return true;
     if (pathName === "/api/site/stripe-webhook") return true;
     if (pathName === "/" || pathName === "/index.html") return true;
+    if (pathName === "/access" || pathName === "/access.html") return true;
     if (pathName === "/marketing" || pathName === "/marketing.html") return true;
     if (pathName === "/pricing" || pathName === "/pricing.html") return true;
     if (pathName === "/industries" || pathName === "/industries.html") return true;

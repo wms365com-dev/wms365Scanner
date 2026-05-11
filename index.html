@@ -459,6 +459,45 @@
             margin-top: 1rem;
         }
 
+        .company-switcher-popout .status.success {
+            background: #ecfdf5;
+            border-color: #86efac;
+            color: #14532d;
+        }
+
+        .company-switcher-popout .status.error {
+            background: #fff1f2;
+            border-color: #fecdd3;
+            color: #7f1d1d;
+        }
+
+        .company-setup-result-card {
+            display: grid;
+            gap: 0.85rem;
+            padding: 1rem;
+            border: 1px solid #86efac;
+            border-radius: 16px;
+            background: #ecfdf5;
+            color: #12352a;
+            box-shadow: 0 18px 38px rgba(15, 43, 68, 0.12);
+        }
+
+        .company-setup-result-card.hidden {
+            display: none;
+        }
+
+        .company-setup-result-card h4 {
+            margin: 0;
+            color: #064e3b;
+            font-size: 1.15rem;
+        }
+
+        .company-setup-result-card p {
+            margin: 0;
+            color: #245448;
+            line-height: 1.45;
+        }
+
         @media (max-width: 860px) {
             .company-switcher-popout {
                 padding: 1rem;
@@ -994,6 +1033,27 @@
             gap: 0.45rem;
         }
 
+        .master-record-list-card {
+            align-self: start;
+        }
+
+        .erp-list-filterbar {
+            display: grid;
+            grid-template-columns: minmax(10rem, 12rem) minmax(16rem, 1fr);
+            gap: 0.5rem;
+            align-items: end;
+        }
+
+        .erp-list-filterbar .field {
+            margin: 0;
+        }
+
+        .erp-list-filterbar input,
+        .erp-list-filterbar select {
+            min-height: 2.15rem;
+            border-radius: 0;
+        }
+
         .erp-list-table-wrap {
             min-height: 18rem;
             overflow: auto;
@@ -1140,10 +1200,205 @@
             color: #865b05;
         }
 
+        .item-card-rule.danger {
+            border-color: #f1a7a7;
+            background: #fff1f1;
+            color: #8a1212;
+        }
+
         .item-card-photo-panel {
             padding: 0.7rem;
             border: 1px solid #d7e0e8;
             background: #fbfcfd;
+        }
+
+        .item-card-command-panel {
+            margin: 0.35rem 0 0.8rem;
+            border-bottom: 1px solid #cfd8e2;
+        }
+
+        .item-card-inventory-facts {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .item-card-inventory-fact {
+            min-height: 3.2rem;
+            padding: 0.55rem 0.65rem;
+            border: 1px solid #d7e0e8;
+            background: #ffffff;
+        }
+
+        .item-card-inventory-fact span {
+            display: block;
+            color: #65798c;
+            font-size: 0.66rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .item-card-inventory-fact strong {
+            display: block;
+            margin-top: 0.18rem;
+            color: #102235;
+            font-size: 0.95rem;
+            font-weight: 650;
+        }
+
+        .item-related-inventory-card {
+            margin-top: 1rem;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        .item-related-inventory-card .erp-list-table-wrap {
+            min-height: 0;
+            max-height: 16rem;
+        }
+
+        .item-related-inventory-card .erp-list-table {
+            min-width: 48rem;
+        }
+
+        #masterItemCard .item-company-scope-field {
+            display: none !important;
+        }
+
+        @media (min-width: 900px) {
+            #masterItemCard {
+                --item-label-width: minmax(8.5rem, 13rem);
+            }
+
+            #masterItemCard .item-card-focus {
+                gap: 0.35rem;
+                margin: 0.35rem 0 0.55rem;
+                padding: 0.42rem 0.55rem;
+                border-color: #d5dde5;
+                background: #fbfcfd;
+            }
+
+            #masterItemCard .item-card-focus-title {
+                display: none;
+            }
+
+            #masterItemCard .item-card-focus-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 0.25rem;
+            }
+
+            #masterItemCard .item-card-focus-cell,
+            #masterItemCard .item-card-inventory-fact {
+                min-height: 2.35rem;
+                padding: 0.32rem 0.45rem;
+                border-radius: 0;
+            }
+
+            #masterItemCard .item-card-rule-list {
+                gap: 0.25rem;
+            }
+
+            #masterItemCard .item-card-rule {
+                border-radius: 0;
+                min-height: 1.35rem;
+                padding: 0.14rem 0.38rem;
+                font-size: 0.66rem;
+            }
+
+            #masterItemCard .item-card-inventory-facts {
+                gap: 0.25rem;
+                margin-top: 0.32rem;
+            }
+
+            #masterItemCard #masterItemForm.form-grid,
+            #masterItemCard #masterItemSkuMappingForm.form-grid {
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                gap: 0.36rem 1.15rem;
+                align-items: start;
+            }
+
+            #masterItemCard #masterItemForm .field,
+            #masterItemCard #masterItemSkuMappingForm .field {
+                display: grid;
+                grid-template-columns: var(--item-label-width) minmax(12rem, 1fr);
+                gap: 0.55rem;
+                align-items: center;
+                margin: 0;
+            }
+
+            #masterItemCard #masterItemForm .field.span-2,
+            #masterItemCard #masterItemSkuMappingForm .field.span-2 {
+                grid-column: 1 / -1;
+                grid-template-columns: var(--item-label-width) minmax(18rem, 1fr);
+            }
+
+            #masterItemCard #masterItemForm .field > span,
+            #masterItemCard #masterItemSkuMappingForm .field > span {
+                display: flex;
+                gap: 0.4rem;
+                align-items: center;
+                color: #26394a;
+                font-size: 0.72rem;
+                font-weight: 600;
+                letter-spacing: 0;
+                text-transform: none;
+                white-space: nowrap;
+            }
+
+            #masterItemCard #masterItemForm .field > span::after,
+            #masterItemCard #masterItemSkuMappingForm .field > span::after {
+                content: "";
+                flex: 1 1 auto;
+                border-bottom: 1px dotted #aebbc7;
+                transform: translateY(0.08rem);
+            }
+
+            #masterItemCard #masterItemForm input,
+            #masterItemCard #masterItemForm select,
+            #masterItemCard #masterItemSkuMappingForm input,
+            #masterItemCard #masterItemSkuMappingForm select {
+                min-height: 2.05rem;
+                border-radius: 0;
+                padding: 0.32rem 0.5rem;
+                font-size: 0.84rem;
+            }
+
+            #masterItemCard .erp-fasttab-heading {
+                margin: 0.85rem 0 0.18rem;
+                padding: 0.24rem 0 0.28rem;
+                border-bottom: 1px solid #9aa8b5;
+                color: #102235;
+                font-size: 0.85rem;
+                font-weight: 650;
+                letter-spacing: 0;
+                text-transform: none;
+            }
+
+            #masterItemCard .button-row.span-2 {
+                justify-content: flex-start;
+                padding-left: 13.55rem;
+            }
+
+            #masterItemCard .item-card-photo-panel {
+                display: grid;
+                grid-template-columns: var(--item-label-width) 1fr;
+                gap: 0.55rem;
+                align-items: start;
+                margin-top: 0.35rem;
+                border-radius: 0;
+            }
+
+            #masterItemCard .item-card-photo-panel h3,
+            #masterItemCard .item-card-photo-panel p {
+                grid-column: 1 / -1;
+            }
+
+            #masterItemCard .item-card-photo-panel .button-row,
+            #masterItemCard .item-card-photo-panel .image-preview {
+                grid-column: 2;
+            }
         }
 
         .erp-list-link {
@@ -1531,6 +1786,78 @@
             gap: 0.55rem;
         }
 
+        @media (min-width: 900px) {
+            .entry-secondary-toolbar {
+                grid-template-columns: 1fr;
+                gap: 0.35rem;
+                margin-bottom: 0.45rem;
+                padding: 0.45rem 0.55rem;
+                border-radius: 0;
+                background: #ffffff;
+            }
+
+            .entry-secondary-toolbar > div:first-child {
+                display: none;
+            }
+
+            .entry-secondary-toolbar .button-row {
+                display: grid;
+                grid-template-columns: minmax(11rem, 16rem) minmax(18rem, 1fr) auto;
+                gap: 0.45rem;
+                align-items: end;
+            }
+
+            .entry-secondary-toolbar .field {
+                margin: 0;
+            }
+
+            .entry-secondary-toolbar .field span {
+                font-size: 0.62rem;
+            }
+
+            .entry-secondary-toolbar input,
+            .entry-secondary-toolbar select {
+                min-height: 2rem;
+                border-radius: 0;
+            }
+
+            .entry-secondary-toolbar .btn {
+                min-height: 2rem;
+                border-radius: 0;
+            }
+
+            .entry-secondary-snapshot {
+                gap: 0;
+                margin-bottom: 0.45rem;
+                padding: 0.25rem 0.35rem;
+                border-radius: 0;
+                background: #fbfcfd;
+            }
+
+            .entry-secondary-snapshot > div:first-child {
+                display: none;
+            }
+
+            .entry-secondary-snapshot .summary-grid {
+                grid-template-columns: repeat(5, minmax(7rem, 1fr));
+                gap: 0.35rem;
+            }
+
+            .entry-secondary-snapshot .summary {
+                min-height: 2.25rem;
+                padding: 0.25rem 0.42rem;
+                border-radius: 0;
+            }
+
+            .entry-secondary-snapshot .summary span {
+                font-size: 0.62rem;
+            }
+
+            .entry-secondary-snapshot .summary strong {
+                font-size: 1rem;
+            }
+        }
+
         .workspace-commandbar {
             display: grid;
             gap: 0.4rem;
@@ -1675,6 +2002,30 @@
             border-radius: 10px;
             border: 1px solid #d7dfe5;
             background: #f7f9fa;
+        }
+
+        #inventoryPanel.master-record-focus .workspace-index-card,
+        body:not(.item-card-popout-open):not(.partner-card-popout-open) #inventoryPanel.master-record-focus #inventoryWorkspaceGrid {
+            display: none !important;
+        }
+
+        body.item-card-popout-open #inventoryPanel.master-record-focus #inventoryWorkspaceGrid,
+        body.partner-card-popout-open #inventoryPanel.master-record-focus #inventoryWorkspaceGrid {
+            display: grid !important;
+        }
+
+        body.item-card-popout-open #masterDataWorkspaceCard,
+        body.partner-card-popout-open #masterDataWorkspaceCard {
+            display: block !important;
+        }
+
+        body.item-card-popout-open #inventoryPanel.master-record-focus #inventoryWorkspaceGrid > :not(#masterDataWorkspaceCard),
+        body.partner-card-popout-open #inventoryPanel.master-record-focus #inventoryWorkspaceGrid > :not(#masterDataWorkspaceCard) {
+            display: none !important;
+        }
+
+        #inventoryPanel.master-record-focus #masterRecordListCard {
+            margin-bottom: 0;
         }
 
         .workspace-index-head {
@@ -1858,6 +2209,27 @@
             letter-spacing: 0.08em;
             text-transform: uppercase;
             color: #5f7386;
+        }
+
+        .checkbox-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            color: #24384a;
+            font-size: 0.92rem;
+            line-height: 1.35;
+        }
+
+        .checkbox-line input {
+            flex: 0 0 auto;
+            margin-top: 0.16rem;
+        }
+
+        .form-grid .checkbox-line {
+            padding: 0.56rem 0.65rem;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
         }
 
         .span-2 { grid-column: 1 / -1; }
@@ -3258,6 +3630,7 @@
             flex-wrap: wrap;
         }
 
+        [hidden] { display: none !important; }
         .mobile-only { display: none !important; }
         .hidden { display: none !important; }
         .mobile-subview.active { display: block; }
@@ -3959,6 +4332,38 @@
                 border: 1px solid #cfd9e2;
                 background: #ffffff;
                 box-shadow: none;
+            }
+
+            .home-directory-details {
+                margin-top: 8px;
+            }
+
+            .home-directory-details summary {
+                cursor: pointer;
+                list-style: none;
+            }
+
+            .home-directory-details summary::-webkit-details-marker {
+                display: none;
+            }
+
+            .home-directory-details .home-callout {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+            }
+
+            .home-directory-details .home-callout strong {
+                flex: 0 0 auto;
+                color: #006d7f;
+                font-size: 0.78rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .home-directory-details[open] .home-callout strong {
+                color: #5d6f7d;
             }
 
             .home-callout h2 {
@@ -5320,6 +5725,16 @@
                         <button class="btn ghost mini" id="companySwitcherAddCloseBtn" type="button">Close</button>
                     </div>
                     <div class="company-switcher-popout-body">
+                        <div class="company-setup-result-card hidden" id="companySwitcherSetupComplete" role="status" aria-live="polite">
+                            <div>
+                                <span class="dashboard-kicker">Company Setup</span>
+                                <h4>Company setup complete</h4>
+                            </div>
+                            <p id="companySwitcherSetupCompleteMessage">The company was added and selected.</p>
+                            <div class="button-row">
+                                <button class="btn" id="companySwitcherSetupCompleteCloseBtn" type="button">Close</button>
+                            </div>
+                        </div>
                         <form class="company-switcher-company-form" id="companySwitcherAddForm" autocomplete="off">
                             <div class="company-switcher-popout-grid">
                                 <label class="field">
@@ -5440,7 +5855,7 @@
                     <details class="module-menu">
                         <summary>Sales</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="CUSTOMER">Customers</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="CUSTOMER">Customers</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="orders">Sales Orders</button>
                             <button class="module-menu-item" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
                             <button class="module-menu-item" type="button" data-jump-section="shipped">Shipped Orders</button>
@@ -5450,7 +5865,7 @@
                     <details class="module-menu">
                         <summary>Purchasing</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="VENDOR">Vendors</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="VENDOR">Vendors</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="inbounds">Purchase Orders</button>
                             <button class="module-menu-item" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
                             <button class="module-menu-item" type="button" data-jump-section="scan">Receiving</button>
@@ -5459,7 +5874,7 @@
                     <details class="module-menu">
                         <summary>Inventory</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterItemsListCard" data-master-list="ITEM">Items</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="ITEM">Items</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="search">Inventory Lookup</button>
                             <button class="module-menu-item" type="button" data-jump-section="actions">Adjust & Move</button>
                             <button class="module-menu-item" type="button" data-jump-section="labels">Labels</button>
@@ -5502,9 +5917,9 @@
                 </div>
             </div>
             <div class="desktop-embeddingbar desktop-only" aria-label="Quick links">
-                <button type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="CUSTOMER">Customers</button>
-                <button type="button" data-jump-section="inventory" data-workspace-anchor="partnerListCard" data-master-list="VENDOR">Vendors</button>
-                <button type="button" data-jump-section="inventory" data-workspace-anchor="masterItemsListCard" data-master-list="ITEM">Items</button>
+                <button type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="CUSTOMER">Customers</button>
+                <button type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="VENDOR">Vendors</button>
+                <button type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="ITEM">Items</button>
                 <button type="button" data-jump-section="search">Inventory</button>
                 <button type="button" data-jump-section="orders">Sales Orders</button>
                 <button type="button" data-jump-section="inbounds">Purchase Orders</button>
@@ -5523,15 +5938,15 @@
                     <button class="desktop-ribbon-icon" type="button" title="Search">Find</button>
                     <button class="desktop-ribbon-icon" type="button" title="Open in Excel">Excel</button>
                     <span class="desktop-ribbon-divider"></span>
-                    <button class="utility-action-link primary" type="button" data-jump-section="orders" data-start-new="sales-order">+ New</button>
+                    <button class="utility-action-link primary" type="button" id="desktopCommandNewBtn" data-jump-section="orders" data-start-new="sales-order">+ New</button>
                     <button class="utility-action-link" type="button" id="desktopCommandDeleteBtn">Delete</button>
-                    <button class="utility-action-link has-caret" type="button" data-jump-section="home">Home</button>
-                    <button class="utility-action-link has-caret" type="button" data-jump-section="orders">Release</button>
-                    <button class="utility-action-link" type="button" data-jump-section="scan">Post...</button>
+                    <button class="utility-action-link has-caret" type="button" id="desktopCommandHomeBtn" data-jump-section="home">Home</button>
+                    <button class="utility-action-link has-caret" type="button" id="desktopCommandReleaseBtn" data-jump-section="orders">Release</button>
+                    <button class="utility-action-link" type="button" id="desktopCommandPostBtn" data-jump-section="scan">Post...</button>
                     <button class="utility-action-link" type="button" id="desktopCommandRefreshBtn">Refresh</button>
-                    <button class="utility-action-link has-caret" type="button" data-jump-section="reports">Print/Send</button>
-                    <button class="utility-action-link has-caret" type="button" data-jump-section="orders">Order</button>
-                    <button class="utility-action-link" type="button" data-jump-section="backup">More options</button>
+                    <button class="utility-action-link has-caret" type="button" id="desktopCommandPrintSendBtn" data-jump-section="reports">Print/Send</button>
+                    <button class="utility-action-link has-caret" type="button" id="desktopCommandOrderBtn" data-jump-section="orders">Order</button>
+                    <button class="utility-action-link" type="button" id="desktopCommandMoreBtn" data-jump-section="backup">More options</button>
                     <span class="desktop-ribbon-divider"></span>
                     <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
                     <span class="desktop-alert-pill">Picked <strong id="desktopAlertPicked">0</strong></span>
@@ -5667,6 +6082,12 @@
                 <div class="factbox-line"><span>Picked</span><strong id="desktopFactboxPicked">0</strong></div>
                 <div class="factbox-line"><span>Staged</span><strong id="desktopFactboxStaged">0</strong></div>
                 <div class="factbox-line"><span>Open POs</span><strong id="desktopFactboxInbounds">0</strong></div>
+            </section>
+            <section class="factbox-part">
+                <h3 id="desktopFactboxContextTitle">Current View</h3>
+                <div id="desktopFactboxContextBody">
+                    <div class="factbox-line"><span>Selection</span><strong>None</strong></div>
+                </div>
             </section>
             <section class="factbox-part">
                 <h3>Related Actions</h3>
@@ -5810,10 +6231,14 @@
                     </div>
                 </div>
             </div>
-            <div class="home-callout">
-                <h2>Warehouse Directory</h2>
-                <p>Choose the workflow lane you need, drill into the section, then back out from the left navigation when you are done.</p>
-            </div>
+            <details class="home-directory-details">
+                <summary class="home-callout">
+                    <span>
+                        <h2>Warehouse Directory</h2>
+                        <p>Open only when you need the full workflow map. Daily work should start from the dashboard plan above.</p>
+                    </span>
+                    <strong>Explore menu</strong>
+                </summary>
             <div class="home-grid">
                 <article class="home-card">
                     <div class="card-head">
@@ -5898,6 +6323,7 @@
                     </div>
                 </article>
             </div>
+            </details>
         </section>
 
 <section class="panel" id="scanPanel" data-panel="scan">
@@ -6625,6 +7051,23 @@
                                 <strong id="masterItemEditorTitle">Editing Saved Item</strong>
                                 <div class="quick-meta" id="masterItemEditorMeta">SKU changes update matching inventory lines for this company.</div>
                             </div>
+                            <div class="erp-page-actions item-card-command-panel">
+                                <div class="erp-action-tabs" aria-label="Item card sections">
+                                    <button class="erp-action-tab active" type="button" data-item-card-focus="masterItemGeneralTab">Home</button>
+                                    <button class="erp-action-tab" type="button" data-item-card-focus="masterItemCostsTab">Costs & Pricing</button>
+                                    <button class="erp-action-tab" type="button" data-item-card-focus="masterItemReplenishmentTab">Replenishment</button>
+                                    <button class="erp-action-tab" type="button" data-item-card-focus="masterItemControlsTab">Inventory Controls</button>
+                                    <button class="erp-action-tab" type="button" data-item-card-focus="masterItemDimensionsTab">Dimensions</button>
+                                    <button class="erp-action-tab" type="button" data-item-card-focus="masterItemMappingTab">Marketplace</button>
+                                    <button class="erp-action-tab" type="button" data-item-card-focus="masterItemRelatedInventoryCard">Related Inventory</button>
+                                </div>
+                                <div class="erp-command-strip">
+                                    <button class="erp-command-link" id="itemCardCommandNewBtn" type="button">+ New</button>
+                                    <button class="erp-command-link" id="itemCardCommandSaveBtn" type="button">Save</button>
+                                    <button class="erp-command-link" id="itemCardCommandUseScanBtn" type="button">Use In Scan</button>
+                                    <button class="erp-command-link" id="itemCardCommandExportBtn" type="button">Excel</button>
+                                </div>
+                            </div>
                             <div class="item-card-focus" aria-live="polite">
                                 <div class="item-card-focus-title">
                                     <strong id="masterItemHandlingSummary">New item setup</strong>
@@ -6652,28 +7095,104 @@
                                     <span class="item-card-rule">No lot capture</span>
                                     <span class="item-card-rule">No expiration capture</span>
                                 </div>
+                                <div class="item-card-inventory-facts" id="masterItemInventoryFacts">
+                                    <div class="item-card-inventory-fact">
+                                        <span>On Hand</span>
+                                        <strong>0 units</strong>
+                                    </div>
+                                    <div class="item-card-inventory-fact">
+                                        <span>Available</span>
+                                        <strong>0 units</strong>
+                                    </div>
+                                    <div class="item-card-inventory-fact">
+                                        <span>Committed</span>
+                                        <strong>0 units</strong>
+                                    </div>
+                                    <div class="item-card-inventory-fact">
+                                        <span>Locations</span>
+                                        <strong>0</strong>
+                                    </div>
+                                </div>
                             </div>
                             <form id="masterItemForm" class="form-grid" autocomplete="off">
-                                <div class="erp-fasttab-heading desktop-only span-2">General</div>
-                                <label class="field span-2">
+                                <div class="erp-fasttab-heading desktop-only span-2" id="masterItemGeneralTab">General</div>
+                                <label class="field span-2 item-company-scope-field">
                                     <span>Company</span>
                                     <input id="masterItemAccount" list="ownerList" type="text" placeholder="Required company" enterkeyhint="next">
                                 </label>
                                 <label class="field">
-                                    <span>SKU</span>
-                                    <input id="masterItemSku" list="skuList" type="text" placeholder="Required SKU" enterkeyhint="next">
+                                    <span>No.</span>
+                                    <input id="masterItemSku" list="skuList" type="text" placeholder="Required item number / SKU" enterkeyhint="next">
                                 </label>
                                 <label class="field">
-                                    <span>UPC</span>
-                                    <input id="masterItemUpc" list="skuList" type="text" placeholder="Optional UPC" enterkeyhint="next">
+                                    <span>GTIN / UPC</span>
+                                    <input id="masterItemUpc" list="skuList" type="text" placeholder="Optional barcode / UPC" enterkeyhint="next">
                                 </label>
                                 <label class="field span-2">
                                     <span>Description</span>
                                     <input id="masterItemDescription" type="text" placeholder="Optional item description" enterkeyhint="done">
                                 </label>
-                                <div class="erp-fasttab-heading desktop-only span-2">Warehouse Controls</div>
                                 <label class="field">
-                                    <span>Stock Unit</span>
+                                    <span>Type</span>
+                                    <select id="masterItemType">
+                                        <option value="INVENTORY">Inventory</option>
+                                        <option value="NON_INVENTORY">Non-Inventory</option>
+                                        <option value="SERVICE">Service</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Item Category Code</span>
+                                    <input id="masterItemCategory" type="text" placeholder="Optional category" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Blocked</span>
+                                    <select id="masterItemBlocked">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </label>
+                                <div class="erp-fasttab-heading desktop-only span-2" id="masterItemCostsTab">Costs & Pricing</div>
+                                <label class="field">
+                                    <span>Costing Method</span>
+                                    <select id="masterItemCostingMethod">
+                                        <option value="FIFO">FIFO</option>
+                                        <option value="AVERAGE">Average</option>
+                                        <option value="STANDARD">Standard</option>
+                                        <option value="SPECIFIC">Specific</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Unit Cost</span>
+                                    <input id="masterItemUnitCost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <label class="field">
+                                    <span>Unit Price</span>
+                                    <input id="masterItemUnitPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+                                </label>
+                                <div class="erp-fasttab-heading desktop-only span-2" id="masterItemReplenishmentTab">Replenishment & Planning</div>
+                                <label class="field">
+                                    <span>Replenishment System</span>
+                                    <select id="masterItemReplenishmentSystem">
+                                        <option value="PURCHASE">Purchase</option>
+                                        <option value="TRANSFER">Transfer</option>
+                                        <option value="MANUAL">Manual</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Vendor No.</span>
+                                    <input id="masterItemVendorNo" type="text" placeholder="Optional vendor code" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Vendor Item No.</span>
+                                    <input id="masterItemVendorItemNo" type="text" placeholder="Optional supplier SKU" enterkeyhint="next">
+                                </label>
+                                <label class="field">
+                                    <span>Lead Time Days</span>
+                                    <input id="masterItemLeadTimeDays" type="number" min="0" inputmode="numeric" placeholder="Optional">
+                                </label>
+                                <div class="erp-fasttab-heading desktop-only span-2" id="masterItemControlsTab">Warehouse Controls</div>
+                                <label class="field">
+                                    <span>Base Unit of Measure</span>
                                     <select id="masterItemTrackingLevel">
                                         <option value="UNIT">Units</option>
                                         <option value="CASE">Cases</option>
@@ -6681,7 +7200,7 @@
                                     </select>
                                 </label>
                                 <label class="field">
-                                    <span>Units Per Case</span>
+                                    <span>Qty. per Case</span>
                                     <input id="masterItemUnitsPerCase" type="number" min="1" inputmode="numeric" placeholder="Optional">
                                 </label>
                                 <label class="field">
@@ -6698,7 +7217,7 @@
                                         <option value="true">Yes</option>
                                     </select>
                                 </label>
-                                <div class="erp-fasttab-heading desktop-only span-2">Dimensions / Packaging</div>
+                                <div class="erp-fasttab-heading desktop-only span-2" id="masterItemDimensionsTab">Dimensions / Packaging</div>
                                 <label class="field">
                                     <span>Each Length</span>
                                     <input id="masterItemEachLength" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
@@ -6723,7 +7242,7 @@
                                     <span>Case Height</span>
                                     <input id="masterItemCaseHeight" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
                                 </label>
-                                <div class="erp-fasttab-heading desktop-only span-2">Photo / Barcode</div>
+                                <div class="erp-fasttab-heading desktop-only span-2" id="masterItemPhotoTab">Photo / Barcode</div>
                                 <label class="field span-2">
                                     <span>Photo URL</span>
                                     <input id="masterItemImageUrl" type="text" placeholder="Optional image URL or Google Drive link" enterkeyhint="done">
@@ -6749,8 +7268,8 @@
                             <div class="helper item-sku-mapping-card" id="masterItemSkuMappingCard" style="margin-top: 1rem;">
                                 <div class="card-head">
                                     <div>
-                                        <h3>Store SKU Mapping</h3>
-                                        <p class="meta">Map Shopify, SFTP, or marketplace SKUs to this local WMS item so imported orders use the correct warehouse SKU.</p>
+                                        <h3 id="masterItemMappingTab">Marketplace SKU Mapping</h3>
+                                        <p class="meta">Map Shopify, SFTP, Best Buy, or marketplace item numbers to this local WMS item so imported orders use the correct warehouse SKU.</p>
                                     </div>
                                 </div>
                                 <form id="masterItemSkuMappingForm" class="form-grid" autocomplete="off">
@@ -6773,6 +7292,17 @@
                                 <div class="status" id="masterItemSkuMappingMessage"></div>
                                 <div id="masterItemSkuMappingList" class="stack-list" style="margin-top: 1rem;">
                                     <p class="empty">Open a saved item to manage store SKU mappings.</p>
+                                </div>
+                            </div>
+                            <div class="helper item-related-inventory-card" id="masterItemRelatedInventoryCard">
+                                <div class="card-head">
+                                    <div>
+                                        <h3>Related Inventory</h3>
+                                        <p class="meta" id="masterItemRelatedInventoryMeta">Open a saved item to see where inventory is stored, committed, and available.</p>
+                                    </div>
+                                </div>
+                                <div id="masterItemRelatedInventoryList">
+                                    <p class="empty">No saved item selected.</p>
                                 </div>
                             </div>
                         </div>
@@ -6824,6 +7354,10 @@
                                         <option value="true">Active</option>
                                         <option value="false">Disabled</option>
                                     </select>
+                                </label>
+                                <label class="checkbox-line span-2">
+                                    <input id="portalAccessSendWelcome" type="checkbox" checked>
+                                    <span>Email welcome/access details to this user when a new password is entered.</span>
                                 </label>
                                 <div class="button-row span-2">
                                     <button class="btn secondary" type="submit">Save Portal User</button>
@@ -7273,21 +7807,52 @@
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
+            <article class="card full-span desktop-complex erp-list-page master-record-list-card hidden" id="masterRecordListCard">
+                <div class="erp-list-titlebar">
+                    <div>
+                        <h2 id="masterRecordListTitle">Records: All</h2>
+                        <p class="meta" id="masterRecordListMeta">Open a record number to drill into the card page.</p>
+                    </div>
+                    <div class="erp-list-actions">
+                        <span class="meta" id="masterRecordListCount">0 saved</span>
+                        <button class="btn ghost mini hidden" id="masterRecordNewCustomerBtn" type="button">+ New Customer</button>
+                        <button class="btn ghost mini hidden" id="masterRecordNewVendorBtn" type="button">+ New Vendor</button>
+                        <button class="btn ghost mini hidden" id="masterRecordNewItemBtn" type="button">+ New Item</button>
+                    </div>
+                </div>
+                <div class="erp-list-filterbar">
+                    <label class="field">
+                        <span>View</span>
+                        <select id="masterRecordViewFilter">
+                            <option value="ALL">All</option>
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Search</span>
+                        <input id="masterRecordSearch" type="search" placeholder="Find by name, code, SKU, UPC, contact, or location">
+                    </label>
+                </div>
+                <div id="masterRecordListContent">
+                    <p class="empty">Choose Customers, Vendors, or Items from the top menu to open a focused list.</p>
+                </div>
+            </article>
             <article class="card desktop-only workspace-index-card">
                 <div class="workspace-index-head">
                     <span>Inventory Index</span>
                     <strong>Drill into the exact inventory, setup, action, or admin workspace</strong>
                 </div>
                 <div class="workspace-index-grid">
-                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="partnerListCard" data-master-list="CUSTOMER">
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="CUSTOMER">
                         <strong>Customers</strong>
                         <span>Open customer cards saved under the active company.</span>
                     </button>
-                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="partnerListCard" data-master-list="VENDOR">
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="VENDOR">
                         <strong>Vendors</strong>
                         <span>Open vendor cards saved under the active company.</span>
                     </button>
-                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterItemsListCard" data-master-list="ITEM">
+                    <button class="workspace-index-btn" type="button" data-workspace-section="inventory" data-workspace-group="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="ITEM">
                         <strong>Items</strong>
                         <span>Open the item master list and drill into item cards.</span>
                     </button>
@@ -8191,6 +8756,8 @@
                                         <span>Role</span>
                                         <select id="warehouseUserRole">
                                             <option value="WAREHOUSE_WORKER">Warehouse Worker</option>
+                                            <option value="WAREHOUSE_CUSTOMER_SERVICE">Warehouse Customer Service</option>
+                                            <option value="WAREHOUSE_ADMIN">Warehouse Admin</option>
                                             <option value="SUPER_ADMIN">Super User</option>
                                         </select>
                                     </label>
@@ -8205,11 +8772,11 @@
                                         <div class="list-head" style="margin-bottom: 0.5rem;">
                                             <div>
                                                 <h3 style="margin: 0;">Assigned Warehouses / 3PL Locations</h3>
-                                                <p class="meta" id="warehouseUserAssignedWarehouseMeta">Workers can manage every company assigned to the warehouses checked here.</p>
+                                                <p class="meta" id="warehouseUserAssignedWarehouseMeta">Warehouse users inherit every company assigned to the warehouses checked here.</p>
                                             </div>
                                         </div>
                                         <div id="warehouseUserAssignedWarehouses" class="feature-flag-grid">
-                                            <p class="empty">Save a warehouse or 3PL location first, then assign it to warehouse workers here.</p>
+                                            <p class="empty">Save a warehouse or 3PL location first, then assign it to warehouse users here.</p>
                                         </div>
                                     </div>
                                     <div class="helper span-2">
@@ -8616,6 +9183,7 @@
         let lastMultiSearch = null;
         let currentSearchView = null;
         let activePartnerListType = "CUSTOMER";
+        let activeMasterRecordListType = "";
         let editingPartner = null;
         let editingMasterItem = null;
         let portalAccessRecords = [];
@@ -8814,6 +9382,9 @@
             companySwitcherAddPopout: document.getElementById("companySwitcherAddPopout"),
             companySwitcherAddCloseBtn: document.getElementById("companySwitcherAddCloseBtn"),
             companySwitcherAddForm: document.getElementById("companySwitcherAddForm"),
+            companySwitcherSetupComplete: document.getElementById("companySwitcherSetupComplete"),
+            companySwitcherSetupCompleteMessage: document.getElementById("companySwitcherSetupCompleteMessage"),
+            companySwitcherSetupCompleteCloseBtn: document.getElementById("companySwitcherSetupCompleteCloseBtn"),
             companySwitcherNewCompanyName: document.getElementById("companySwitcherNewCompanyName"),
             companySwitcherNewCompanyCode: document.getElementById("companySwitcherNewCompanyCode"),
             companySwitcherNewCompanyLegalName: document.getElementById("companySwitcherNewCompanyLegalName"),
@@ -8839,8 +9410,15 @@
             companySwitcherList: document.getElementById("companySwitcherList"),
             companySwitcherCloseBtn: document.getElementById("companySwitcherCloseBtn"),
             desktopCommandContext: document.getElementById("desktopCommandContext"),
+            desktopCommandNewBtn: document.getElementById("desktopCommandNewBtn"),
             desktopCommandDeleteBtn: document.getElementById("desktopCommandDeleteBtn"),
+            desktopCommandHomeBtn: document.getElementById("desktopCommandHomeBtn"),
+            desktopCommandReleaseBtn: document.getElementById("desktopCommandReleaseBtn"),
+            desktopCommandPostBtn: document.getElementById("desktopCommandPostBtn"),
             desktopCommandRefreshBtn: document.getElementById("desktopCommandRefreshBtn"),
+            desktopCommandPrintSendBtn: document.getElementById("desktopCommandPrintSendBtn"),
+            desktopCommandOrderBtn: document.getElementById("desktopCommandOrderBtn"),
+            desktopCommandMoreBtn: document.getElementById("desktopCommandMoreBtn"),
             desktopAlertReleased: document.getElementById("desktopAlertReleased"),
             desktopAlertPicked: document.getElementById("desktopAlertPicked"),
             desktopAlertStaged: document.getElementById("desktopAlertStaged"),
@@ -8852,6 +9430,8 @@
             desktopFactboxPicked: document.getElementById("desktopFactboxPicked"),
             desktopFactboxStaged: document.getElementById("desktopFactboxStaged"),
             desktopFactboxInbounds: document.getElementById("desktopFactboxInbounds"),
+            desktopFactboxContextTitle: document.getElementById("desktopFactboxContextTitle"),
+            desktopFactboxContextBody: document.getElementById("desktopFactboxContextBody"),
             appBuildBadge: document.getElementById("appBuildBadge"),
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
@@ -8954,6 +9534,16 @@
             companyFulfillmentList: document.getElementById("companyFulfillmentList"),
             masterLocationCode: document.getElementById("masterLocationCode"),
             masterLocationNote: document.getElementById("masterLocationNote"),
+            masterRecordListCard: document.getElementById("masterRecordListCard"),
+            masterRecordListTitle: document.getElementById("masterRecordListTitle"),
+            masterRecordListMeta: document.getElementById("masterRecordListMeta"),
+            masterRecordListCount: document.getElementById("masterRecordListCount"),
+            masterRecordViewFilter: document.getElementById("masterRecordViewFilter"),
+            masterRecordSearch: document.getElementById("masterRecordSearch"),
+            masterRecordListContent: document.getElementById("masterRecordListContent"),
+            masterRecordNewCustomerBtn: document.getElementById("masterRecordNewCustomerBtn"),
+            masterRecordNewVendorBtn: document.getElementById("masterRecordNewVendorBtn"),
+            masterRecordNewItemBtn: document.getElementById("masterRecordNewItemBtn"),
             partnerListCard: document.getElementById("partnerListCard"),
             partnerListTitle: document.getElementById("partnerListTitle"),
             partnerListMeta: document.getElementById("partnerListMeta"),
@@ -9006,6 +9596,16 @@
             masterItemSku: document.getElementById("masterItemSku"),
             masterItemUpc: document.getElementById("masterItemUpc"),
             masterItemDescription: document.getElementById("masterItemDescription"),
+            masterItemType: document.getElementById("masterItemType"),
+            masterItemCategory: document.getElementById("masterItemCategory"),
+            masterItemBlocked: document.getElementById("masterItemBlocked"),
+            masterItemCostingMethod: document.getElementById("masterItemCostingMethod"),
+            masterItemUnitCost: document.getElementById("masterItemUnitCost"),
+            masterItemUnitPrice: document.getElementById("masterItemUnitPrice"),
+            masterItemReplenishmentSystem: document.getElementById("masterItemReplenishmentSystem"),
+            masterItemVendorNo: document.getElementById("masterItemVendorNo"),
+            masterItemVendorItemNo: document.getElementById("masterItemVendorItemNo"),
+            masterItemLeadTimeDays: document.getElementById("masterItemLeadTimeDays"),
             masterItemImageUrl: document.getElementById("masterItemImageUrl"),
             masterItemImageInput: document.getElementById("masterItemImageInput"),
             masterItemImagePickBtn: document.getElementById("masterItemImagePickBtn"),
@@ -9037,6 +9637,13 @@
             masterItemSkuMappingSubmitBtn: document.getElementById("masterItemSkuMappingSubmitBtn"),
             masterItemSkuMappingMessage: document.getElementById("masterItemSkuMappingMessage"),
             masterItemSkuMappingList: document.getElementById("masterItemSkuMappingList"),
+            masterItemInventoryFacts: document.getElementById("masterItemInventoryFacts"),
+            masterItemRelatedInventoryMeta: document.getElementById("masterItemRelatedInventoryMeta"),
+            masterItemRelatedInventoryList: document.getElementById("masterItemRelatedInventoryList"),
+            itemCardCommandNewBtn: document.getElementById("itemCardCommandNewBtn"),
+            itemCardCommandSaveBtn: document.getElementById("itemCardCommandSaveBtn"),
+            itemCardCommandUseScanBtn: document.getElementById("itemCardCommandUseScanBtn"),
+            itemCardCommandExportBtn: document.getElementById("itemCardCommandExportBtn"),
             masterFilter: document.getElementById("masterFilter"),
             masterOwnerCount: document.getElementById("masterOwnerCount"),
             fulfillmentLocationCount: document.getElementById("fulfillmentLocationCount"),
@@ -9072,6 +9679,7 @@
             portalAccessEmail: document.getElementById("portalAccessEmail"),
             portalAccessPassword: document.getElementById("portalAccessPassword"),
             portalAccessActive: document.getElementById("portalAccessActive"),
+            portalAccessSendWelcome: document.getElementById("portalAccessSendWelcome"),
             portalAccessResetBtn: document.getElementById("portalAccessResetBtn"),
             portalAccessMessage: document.getElementById("portalAccessMessage"),
             portalAccessList: document.getElementById("portalAccessList"),
@@ -9486,9 +10094,7 @@
             ui.companySwitcherAddToggleBtn?.addEventListener("click", openCompanySwitcherAddPopout);
             ui.companySwitcherAddCloseBtn?.addEventListener("click", closeCompanySwitcherAddPopout);
             ui.companySwitcherAddCancelBtn?.addEventListener("click", closeCompanySwitcherAddPopout);
-            ui.companySwitcherAddPopout?.addEventListener("click", (event) => {
-                if (event.target === ui.companySwitcherAddPopout) closeCompanySwitcherAddPopout();
-            });
+            ui.companySwitcherSetupCompleteCloseBtn?.addEventListener("click", closeCompanySwitcherAddPopout);
             ui.companySwitcherAddForm?.addEventListener("submit", saveCompanyFromSwitcher);
             ui.companySwitcherList?.addEventListener("click", onCompanySwitcherListClick);
             ui.companySwitcherCloseBtn?.addEventListener("click", () => {
@@ -9534,8 +10140,10 @@
                 document.querySelectorAll(".module-menu[open]").forEach((menu) => menu.removeAttribute("open"));
             });
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => {
+                if (button === ui.desktopCommandNewBtn && handleDesktopNewCommand()) return;
                 const masterListTarget = String(button.dataset.masterList || "").trim().toUpperCase();
                 if (masterListTarget) openMasterListTarget(masterListTarget, { scroll: false });
+                else if (String(button.dataset.jumpSection || "").trim().toLowerCase() === "inventory") clearFocusedMasterRecordList();
                 setSection(button.dataset.jumpSection, { focusAnchorId: button.dataset.workspaceAnchor || "" });
                 button.closest("details.module-menu")?.removeAttribute("open");
                 const startNew = String(button.dataset.startNew || "").trim();
@@ -9578,6 +10186,12 @@
             ui.workspaceAnchorButtons.forEach((button) => button.addEventListener("click", () => handleWorkspaceAnchorButtonClick(button)));
             document.getElementById("masterOwnerForm").addEventListener("submit", saveMasterOwner);
             document.getElementById("partnerForm")?.addEventListener("submit", saveCompanyPartner);
+            ui.masterRecordViewFilter?.addEventListener("change", renderFocusedMasterRecordList);
+            ui.masterRecordSearch?.addEventListener("input", debounce(() => renderFocusedMasterRecordList(), 120));
+            ui.masterRecordListContent?.addEventListener("click", onFocusedMasterRecordListClick);
+            ui.masterRecordNewCustomerBtn?.addEventListener("click", () => showPartnerCard(null, "CUSTOMER", { scroll: true }));
+            ui.masterRecordNewVendorBtn?.addEventListener("click", () => showPartnerCard(null, "VENDOR", { scroll: true }));
+            ui.masterRecordNewItemBtn?.addEventListener("click", () => showMasterItemCard(null, { scroll: true }));
             ui.partnerList?.addEventListener("click", onPartnerListClick);
             ui.openCustomerNewBtn?.addEventListener("click", () => showPartnerCard(null, "CUSTOMER", { scroll: true }));
             ui.openVendorNewBtn?.addEventListener("click", () => showPartnerCard(null, "VENDOR", { scroll: true }));
@@ -9650,6 +10264,23 @@
             ui.cancelMasterItemEditBtn.addEventListener("click", cancelMasterItemEdit);
             ui.openMasterItemNewBtn?.addEventListener("click", () => showMasterItemCard(null, { scroll: true }));
             ui.closeMasterItemCardBtn?.addEventListener("click", () => closeMasterItemCard({ reset: true }));
+            ui.itemCardCommandNewBtn?.addEventListener("click", () => showMasterItemCard(null, { scroll: true }));
+            ui.itemCardCommandSaveBtn?.addEventListener("click", () => saveMasterItem({
+                preventDefault: () => {},
+                submitter: ui.itemCardCommandSaveBtn
+            }));
+            ui.itemCardCommandUseScanBtn?.addEventListener("click", () => {
+                const { savedItem } = getMasterItemSkuMappingContext();
+                if (!savedItem) {
+                    showMessage(ui.catalogMessage, "Open or save an item before using it in the scan form.", "error");
+                    return;
+                }
+                fillScanFromMasterItem(savedItem.id);
+            });
+            ui.itemCardCommandExportBtn?.addEventListener("click", exportItemCsv);
+            document.querySelectorAll("[data-item-card-focus]").forEach((button) => {
+                button.addEventListener("click", () => focusItemCardPart(button.dataset.itemCardFocus || "", button));
+            });
             ui.masterItemSkuMappingForm?.addEventListener("submit", saveMasterItemSkuMapping);
             ui.masterItemSkuMappingList?.addEventListener("click", onMasterItemSkuMappingListClick);
             [
@@ -9657,6 +10288,16 @@
                 ui.masterItemSku,
                 ui.masterItemUpc,
                 ui.masterItemDescription,
+                ui.masterItemType,
+                ui.masterItemCategory,
+                ui.masterItemBlocked,
+                ui.masterItemCostingMethod,
+                ui.masterItemUnitCost,
+                ui.masterItemUnitPrice,
+                ui.masterItemReplenishmentSystem,
+                ui.masterItemVendorNo,
+                ui.masterItemVendorItemNo,
+                ui.masterItemLeadTimeDays,
                 ui.masterItemTrackingLevel,
                 ui.masterItemUnitsPerCase,
                 ui.masterItemLotTracked,
@@ -10202,7 +10843,11 @@
             ui.workspaceAnchorButtons.forEach((button) => {
                 const matchesGroup = String(button.dataset.workspaceGroup || "").trim() === group;
                 const matchesAnchor = String(button.dataset.workspaceAnchor || "").trim() === String(anchorId || "").trim();
-                button.classList.toggle("active", matchesGroup && matchesAnchor);
+                const buttonMasterList = String(button.dataset.masterList || "").trim().toUpperCase();
+                const matchesMasterList = anchorId === "masterRecordListCard" && buttonMasterList
+                    ? buttonMasterList === activeMasterRecordListType
+                    : true;
+                button.classList.toggle("active", matchesGroup && matchesAnchor && matchesMasterList);
             });
         }
 
@@ -10215,6 +10860,7 @@
                 masterDataWorkspaceCard: ui.masterFilter,
                 masterOwnerProfileCard: ui.masterOwnerName,
                 masterBinLocationCard: ui.masterLocationCode,
+                masterRecordListCard: ui.masterRecordSearch || ui.masterRecordNewItemBtn || ui.activeCompany,
                 masterItemsListCard: ui.openMasterItemNewBtn || ui.masterFilter,
                 partnerListCard: getActiveCompany()
                     ? (activePartnerListType === "VENDOR" ? ui.openVendorNewBtn : ui.openCustomerNewBtn)
@@ -10266,6 +10912,7 @@
             const section = String(button?.dataset?.workspaceSection || activeSection).trim().toLowerCase() || activeSection;
             const masterListTarget = String(button?.dataset?.masterList || "").trim().toUpperCase();
             if (masterListTarget) openMasterListTarget(masterListTarget, { scroll: false });
+            else if (section === "inventory") clearFocusedMasterRecordList();
             if (section !== activeSection) {
                 setSection(section, { focusAnchorId: anchorId });
                 return;
@@ -10414,6 +11061,7 @@
                 document.body.classList.remove("item-card-popout-open", "partner-card-popout-open");
                 ui.masterItemCard?.classList.add("hidden");
                 ui.partnerCard?.classList.add("hidden");
+                clearFocusedMasterRecordList();
             }
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             syncScanSectionUi();
@@ -10533,13 +11181,14 @@
                 "all company",
                 "all accounts",
                 "all account",
+                "all",
                 "select company",
                 "select company…",
                 "choose a company",
                 "choose company",
                 "choose a 3pl company",
                 "choose 3pl company"
-            ]);
+            ].map(norm));
             return blocked.has(normalized) ? "" : normalized;
         }
 
@@ -10692,13 +11341,39 @@
 
         function getWarehouseUserRecords() {
             return [...(state.admin?.appUsers || [])].sort((a, b) => {
-                if (a.role !== b.role) return a.role.localeCompare(b.role);
+                const aOrder = warehouseUserRoleOrder(a.role);
+                const bOrder = warehouseUserRoleOrder(b.role);
+                if (aOrder !== bOrder) return aOrder - bOrder;
                 return (a.fullName || a.email).localeCompare(b.fullName || b.email);
             });
         }
 
+        function normalizeWarehouseUserRole(role) {
+            const normalized = norm(role);
+            if (normalized === "SUPER_ADMIN" || normalized === "SUPERUSER" || normalized === "PLATFORM_ADMIN") return "SUPER_ADMIN";
+            if (normalized === "WAREHOUSE_ADMIN" || normalized === "WAREHOUSEADMIN") return "WAREHOUSE_ADMIN";
+            if (normalized === "WAREHOUSE_CUSTOMER_SERVICE"
+                || normalized === "WAREHOUSECUSTOMERSERVICE"
+                || normalized === "CUSTOMER_SERVICE"
+                || normalized === "CUSTOMERSERVICE"
+                || normalized === "CSR") return "WAREHOUSE_CUSTOMER_SERVICE";
+            return "WAREHOUSE_WORKER";
+        }
+
+        function warehouseUserRoleOrder(role) {
+            const normalized = normalizeWarehouseUserRole(role);
+            if (normalized === "SUPER_ADMIN") return 0;
+            if (normalized === "WAREHOUSE_ADMIN") return 1;
+            if (normalized === "WAREHOUSE_CUSTOMER_SERVICE") return 2;
+            return 3;
+        }
+
         function warehouseUserRoleLabel(role) {
-            return norm(role) === "SUPER_ADMIN" ? "Super User" : "Warehouse Worker";
+            const normalized = normalizeWarehouseUserRole(role);
+            if (normalized === "SUPER_ADMIN") return "Super User";
+            if (normalized === "WAREHOUSE_ADMIN") return "Warehouse Admin";
+            if (normalized === "WAREHOUSE_CUSTOMER_SERVICE") return "Warehouse Customer Service";
+            return "Warehouse Worker";
         }
 
         function syncWarehouseUserAssignedDraftFromUi() {
@@ -10736,7 +11411,7 @@
             if (ui.warehouseUserFullName) ui.warehouseUserFullName.value = user.fullName || "";
             if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = user.email || "";
             if (ui.warehouseUserPassword) ui.warehouseUserPassword.value = "";
-            if (ui.warehouseUserRole) ui.warehouseUserRole.value = norm(user.role) === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
+            if (ui.warehouseUserRole) ui.warehouseUserRole.value = normalizeWarehouseUserRole(user.role);
             if (ui.warehouseUserActive) ui.warehouseUserActive.value = user.isActive !== false ? "true" : "false";
             renderWarehouseUserDashboard();
         }
@@ -10765,7 +11440,7 @@
             ui.warehouseUserAccessGate?.classList.add("hidden");
             ui.warehouseUserDashboard?.classList.remove("hidden");
 
-            const role = norm(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER") === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
+            const role = normalizeWarehouseUserRole(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER");
             const availableCompanies = [...(state.masters.ownerRecords || [])].sort((a, b) => a.name.localeCompare(b.name));
             const availableWarehouses = [...(state.masters.fulfillmentLocations || [])]
                 .filter((location) => location?.isActive !== false)
@@ -10788,8 +11463,8 @@
                 ui.warehouseUserAssignedWarehouseMeta.textContent = role === "SUPER_ADMIN"
                     ? "Super users keep full warehouse and company access, so warehouse assignments are not required."
                     : (availableWarehouses.length
-                        ? "Workers inherit access to companies assigned to the warehouses checked here."
-                        : "Save a warehouse or 3PL location first, then assign it to warehouse workers here.");
+                        ? "Warehouse users inherit access to companies assigned to the warehouses checked here."
+                        : "Save a warehouse or 3PL location first, then assign it to warehouse users here.");
             }
             if (ui.warehouseUserAssignedMeta) {
                 ui.warehouseUserAssignedMeta.textContent = role === "SUPER_ADMIN"
@@ -10871,7 +11546,7 @@
             if (!currentUserIsSuperAdmin()) {
                 return fail(ui.warehouseUserMessage, "Super user access is required to manage warehouse users.");
             }
-            const role = norm(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER") === "SUPER_ADMIN" ? "SUPER_ADMIN" : "WAREHOUSE_WORKER";
+            const role = normalizeWarehouseUserRole(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER");
             const assignedCompanies = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedCompaniesDraft.map((value) => norm(value)).filter(Boolean))];
             const assignedFulfillmentLocations = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedFulfillmentLocationsDraft.map((value) => norm(value)).filter(Boolean))];
             if (!String(ui.warehouseUserFullName?.value || "").trim()) {
@@ -10887,7 +11562,7 @@
                 return fail(ui.warehouseUserMessage, "Warehouse passwords must be at least 8 characters.", ui.warehouseUserPassword);
             }
             if (role !== "SUPER_ADMIN" && !assignedFulfillmentLocations.length && !assignedCompanies.length) {
-                return fail(ui.warehouseUserMessage, "Choose at least one warehouse/location for warehouse workers, or add a direct company override.", ui.warehouseUserAssignedWarehouses || ui.warehouseUserAssignedCompanies);
+                return fail(ui.warehouseUserMessage, "Choose at least one warehouse/location for this user, or add a direct company override.", ui.warehouseUserAssignedWarehouses || ui.warehouseUserAssignedCompanies);
             }
 
             const submitButton = resolveActionButton(event, ui.saveWarehouseUserBtn);
@@ -11394,6 +12069,74 @@
             return WAREHOUSE_WORKSPACE_TOC.sections[section]?.drillPath || "Operations / Workspace";
         }
 
+        function getDesktopCommandContextCaption(section = activeSection) {
+            if (section === "inventory" && activeMasterRecordListType) {
+                return `${masterRecordListLabel(activeMasterRecordListType, true)}: All`;
+            }
+            return DESKTOP_LIST_CAPTIONS[section] || getSectionTitle(section);
+        }
+
+        function setCommandButtonState(button, { hidden = false, disabled = false, text = "", jumpSection = "", startNew = "" } = {}) {
+            if (!button) return;
+            button.hidden = hidden;
+            button.disabled = disabled;
+            if (text) button.textContent = text;
+            if (jumpSection) button.dataset.jumpSection = jumpSection;
+            else if (button.dataset.jumpSection && hidden) delete button.dataset.jumpSection;
+            if (startNew) button.dataset.startNew = startNew;
+            else delete button.dataset.startNew;
+        }
+
+        function handleDesktopNewCommand() {
+            if (activeSection !== "inventory" || !activeMasterRecordListType) return false;
+            if (activeMasterRecordListType === "CUSTOMER") {
+                showPartnerCard(null, "CUSTOMER", { scroll: true });
+                return true;
+            }
+            if (activeMasterRecordListType === "VENDOR") {
+                showPartnerCard(null, "VENDOR", { scroll: true });
+                return true;
+            }
+            if (activeMasterRecordListType === "ITEM") {
+                showMasterItemCard(null, { scroll: true });
+                return true;
+            }
+            return false;
+        }
+
+        function updateDesktopCommandActions() {
+            const isOrderList = activeSection === "orders" || activeSection === "shipped";
+            const isPurchaseList = activeSection === "inbounds";
+            const isReceiving = activeSection === "scan";
+            const isReportLike = activeSection === "reports" || activeSection === "shipped";
+            const isFocusedMasterRecord = activeSection === "inventory" && !!activeMasterRecordListType;
+            const masterNewLabel = activeMasterRecordListType
+                ? `+ New ${masterRecordListLabel(activeMasterRecordListType, false)}`
+                : "+ New";
+
+            setCommandButtonState(ui.desktopCommandNewBtn, {
+                hidden: !(isOrderList || isPurchaseList || isFocusedMasterRecord),
+                text: isPurchaseList ? "+ New Purchase Order" : (isFocusedMasterRecord ? masterNewLabel : "+ New Sales Order"),
+                jumpSection: isPurchaseList ? "inbounds" : (isFocusedMasterRecord ? "inventory" : "orders"),
+                startNew: isPurchaseList ? "purchase-order" : (isFocusedMasterRecord ? "" : "sales-order")
+            });
+            setCommandButtonState(ui.desktopCommandDeleteBtn, {
+                hidden: !isOrderList,
+                disabled: false
+            });
+            setCommandButtonState(ui.desktopCommandHomeBtn, { hidden: activeSection === "home", text: "Home", jumpSection: "home" });
+            setCommandButtonState(ui.desktopCommandReleaseBtn, { hidden: !isOrderList, text: "Release", jumpSection: "orders" });
+            setCommandButtonState(ui.desktopCommandPostBtn, {
+                hidden: !(isPurchaseList || isReceiving),
+                text: isPurchaseList ? "Receive/Post..." : "Post...",
+                jumpSection: isPurchaseList ? "inbounds" : "scan"
+            });
+            setCommandButtonState(ui.desktopCommandRefreshBtn, { hidden: false, text: "Refresh" });
+            setCommandButtonState(ui.desktopCommandPrintSendBtn, { hidden: !isReportLike && !isOrderList && !isPurchaseList, text: "Print/Send", jumpSection: isPurchaseList ? "inbounds" : "reports" });
+            setCommandButtonState(ui.desktopCommandOrderBtn, { hidden: !isOrderList && !isPurchaseList, text: isPurchaseList ? "Purchase Order" : "Order", jumpSection: isPurchaseList ? "inbounds" : "orders" });
+            setCommandButtonState(ui.desktopCommandMoreBtn, { hidden: false, text: "More options", jumpSection: "backup" });
+        }
+
         function updateWorkspaceCommandBar() {
             const definition = DESKTOP_SECTION_META[activeSection] || DESKTOP_SECTION_META.scan;
             const company = getActiveCompany();
@@ -11409,7 +12152,7 @@
                 ui.workspaceSectionMeta.textContent = definition.meta;
             }
             if (ui.desktopCommandContext) {
-                ui.desktopCommandContext.textContent = DESKTOP_LIST_CAPTIONS[activeSection] || definition.title;
+                ui.desktopCommandContext.textContent = getDesktopCommandContextCaption(activeSection);
             }
             if (ui.desktopFactboxSection) {
                 ui.desktopFactboxSection.textContent = definition.title;
@@ -11435,7 +12178,9 @@
             if (ui.desktopFactboxSync) {
                 ui.desktopFactboxSync.textContent = refreshStamp ? formatPreciseDate(refreshStamp) : "waiting";
             }
+            updateDesktopCommandActions();
             updateDesktopOperationsAlerts();
+            updateDesktopFactboxContext();
         }
 
         function detectDeviceExperienceMode() {
@@ -12891,6 +13636,108 @@
             }
         }
 
+        function renderDesktopFactboxLines(lines = []) {
+            return lines.map((line) => `
+                <div class="factbox-line">
+                    <span>${esc(line.label)}</span>
+                    <strong>${esc(line.value)}</strong>
+                </div>
+            `).join("");
+        }
+
+        function updateDesktopFactboxContext() {
+            if (!ui.desktopFactboxContextTitle || !ui.desktopFactboxContextBody) return;
+            const company = getActiveCompany();
+            const orders = getCompanyScopedPortalOrders();
+            const inbounds = getCompanyScopedPortalInbounds();
+            const openOrders = getDashboardOpenOrders();
+            const openInbounds = getDashboardOpenInbounds();
+            let title = "Current View";
+            let lines = [
+                { label: "Scope", value: company || "All assigned" },
+                { label: "Open Orders", value: num(openOrders.length) },
+                { label: "Open POs", value: num(openInbounds.length) }
+            ];
+
+            if (activeSection === "orders" || activeSection === "shipped") {
+                const visibleOrders = typeof getFilteredPortalOrders === "function" ? getFilteredPortalOrders() : orders;
+                const docs = visibleOrders.reduce((sum, order) => sum + (Array.isArray(order.documents) ? order.documents.length : 0), 0);
+                title = activeSection === "shipped" ? "Shipped Orders" : "Sales Orders";
+                lines = [
+                    { label: "Visible Rows", value: num(visibleOrders.length) },
+                    { label: "Released", value: num(orders.filter((order) => norm(order.status) === "RELEASED").length) },
+                    { label: "Picked", value: num(orders.filter((order) => norm(order.status) === "PICKED").length) },
+                    { label: "Staged", value: num(orders.filter((order) => norm(order.status) === "STAGED").length) },
+                    { label: "Shipped", value: num(orders.filter((order) => norm(order.status) === "SHIPPED").length) },
+                    { label: "Documents", value: num(docs) }
+                ];
+            } else if (activeSection === "inbounds") {
+                const received = inbounds.filter((inbound) => norm(inbound.status) === "RECEIVED").length;
+                const docs = inbounds.reduce((sum, inbound) => sum + (Array.isArray(inbound.documents) ? inbound.documents.length : 0), 0);
+                const expectedToday = inbounds.filter((inbound) => dashboardDateKey(inbound.expectedDate) === todayInputValue()).length;
+                title = "Purchase Orders";
+                lines = [
+                    { label: "Visible Rows", value: num(inbounds.length) },
+                    { label: "Open", value: num(openInbounds.length) },
+                    { label: "Received", value: num(received) },
+                    { label: "Expected Today", value: num(expectedToday) },
+                    { label: "Documents", value: num(docs) }
+                ];
+            } else if (activeSection === "inventory" && activeMasterRecordListType) {
+                title = `${masterRecordListLabel(activeMasterRecordListType, true)} List`;
+                if (activeMasterRecordListType === "ITEM") {
+                    const items = state.masters.items.filter((item) => !company || item.accountName === company);
+                    const inventoryLines = (state.inventory || []).filter((line) => !company || line.accountName === company);
+                    const availableTotals = summarizeTrackedTotals(inventoryLines, lineAvailableQuantity);
+                    const selectedItem = editingMasterItem?.id
+                        ? state.masters.items.find((item) => item.id === editingMasterItem.id)
+                        : null;
+                    const selectedSummary = selectedItem ? getItemInventorySummary(selectedItem) : null;
+                    lines = [
+                        { label: "Company", value: company || "Choose company" },
+                        { label: "Saved Items", value: num(items.length) },
+                        { label: "Available Stock", value: formatTrackedSummary(availableTotals) },
+                        { label: "Selected", value: selectedItem ? selectedItem.sku : "Open an item" },
+                        { label: "Selected Available", value: selectedSummary ? formatTrackedQuantity(selectedSummary.available, selectedSummary.trackingLevel) : "-" }
+                    ];
+                } else {
+                    const activeCount = (state.masters.partners || [])
+                        .filter((entry) => (!company || entry.accountName === company) && entry.partnerType === activeMasterRecordListType && entry.isActive !== false)
+                        .length;
+                    lines = [
+                        { label: "Company", value: company || "Choose company" },
+                        { label: "Saved", value: num(activeCount) },
+                        { label: "Action", value: "Select row" }
+                    ];
+                }
+            } else if (activeSection === "home") {
+                title = "Dashboard Planning";
+                lines = [
+                    { label: "Scope", value: company || "All assigned" },
+                    { label: "Open Inbound", value: num(openInbounds.length) },
+                    { label: "Open Outbound", value: num(openOrders.length) },
+                    { label: "Ready To Ship", value: num(openOrders.filter((order) => norm(order.status) === "STAGED").length) }
+                ];
+            } else if (activeSection === "integrations") {
+                title = "Marketplace Connections";
+                lines = [
+                    { label: "Company", value: company || "Choose company" },
+                    { label: "Shopify", value: "Store sync" },
+                    { label: "SFTP", value: "File lanes" }
+                ];
+            } else if (activeSection === "billing") {
+                title = "Billing Work";
+                lines = [
+                    { label: "Company", value: company || "All assigned" },
+                    { label: "Orders", value: "Processing fees" },
+                    { label: "Storage", value: "Month-end" }
+                ];
+            }
+
+            ui.desktopFactboxContextTitle.textContent = title;
+            ui.desktopFactboxContextBody.innerHTML = renderDesktopFactboxLines(lines);
+        }
+
         function dashboardDateKey(value = "") {
             const text = String(value || "").trim();
             if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -13102,6 +13949,7 @@
                     </div>
                 `).join("");
             }
+            updateDesktopFactboxContext();
         }
 
         function renderDatalists() {
@@ -13220,6 +14068,11 @@
 
         function resetCompanySwitcherAddForm() {
             ui.companySwitcherAddForm?.reset?.();
+            ui.companySwitcherAddForm?.classList.remove("hidden");
+            ui.companySwitcherSetupComplete?.classList.add("hidden");
+            if (ui.companySwitcherSetupCompleteMessage) {
+                ui.companySwitcherSetupCompleteMessage.textContent = "The company was added and selected.";
+            }
             if (ui.companySwitcherNewCompanyActive) ui.companySwitcherNewCompanyActive.value = "true";
             if (ui.companySwitcherNewCompanyFulfillmentLocation) {
                 ui.companySwitcherNewCompanyFulfillmentLocation.innerHTML = renderFulfillmentLocationSelectOptions(getDefaultFulfillmentLocationCode());
@@ -13302,7 +14155,14 @@
                     loadCompanyFulfillmentAssignment(entry.name);
                     renderCompanySwitcherList();
                     const location = getFulfillmentLocationByCode(fulfillmentLocationCode);
-                    showMessage(ui.companySwitcherAddMessage, `Company ${entry.name} was added and selected${location ? ` with ${location.name} as the primary fulfillment location` : ""}.`, "success");
+                    const successMessage = `Company ${entry.name} was added and selected${location ? ` with ${location.name} as the primary fulfillment location` : ""}.`;
+                    if (ui.companySwitcherSetupCompleteMessage) {
+                        ui.companySwitcherSetupCompleteMessage.textContent = successMessage;
+                    }
+                    ui.companySwitcherAddForm?.classList.add("hidden");
+                    ui.companySwitcherSetupComplete?.classList.remove("hidden");
+                    ui.companySwitcherSetupComplete?.scrollIntoView({ block: "start" });
+                    ui.companySwitcherSetupCompleteCloseBtn?.focus();
                 });
             } catch (error) {
                 showMessage(ui.companySwitcherAddMessage, error.message, "error");
@@ -14944,6 +15804,7 @@
             setActiveCompany(entry.name, { force: true, rerender: false });
             ui.portalAccessEmail.value = entry.portalLoginEmail || entry.email || "";
             ui.portalAccessActive.value = entry.isActive === false ? "false" : "true";
+            if (ui.portalAccessSendWelcome) ui.portalAccessSendWelcome.checked = true;
             ui.portalAccessPassword.focus();
             showMessage(ui.portalAccessMessage, `Loaded ${entry.name} into portal access.${ui.portalAccessEmail.value ? ` Linked email ${ui.portalAccessEmail.value}.` : " Add the login email and password."}`, "info");
         }
@@ -14954,6 +15815,7 @@
             ui.portalAccessPassword.value = "";
             ui.portalAccessEmail.value = "";
             ui.portalAccessActive.value = "true";
+            if (ui.portalAccessSendWelcome) ui.portalAccessSendWelcome.checked = true;
             if (keepCompany) {
                 ui.portalAccessAccount.value = company;
                 ui.portalAccessEmail.focus();
@@ -15402,6 +16264,7 @@
             const email = norm(String(ui.portalAccessEmail.value || linkedOwner?.portalLoginEmail || linkedOwner?.email || "").toLowerCase());
             const password = String(ui.portalAccessPassword.value || "");
             const isActive = ui.portalAccessActive.value !== "false";
+            const sendWelcomeEmail = ui.portalAccessSendWelcome?.checked !== false;
 
             if (!accountName) {
                 return fail(ui.portalAccessMessage, "Choose the company for this portal login.", ui.portalAccessAccount);
@@ -15427,7 +16290,7 @@
                 }, async () => {
                     const response = await requestJson("/api/admin/portal-access", {
                         method: "POST",
-                        body: JSON.stringify({ accessId, accountName, email, password, isActive })
+                        body: JSON.stringify({ accessId, accountName, email, password, isActive, sendWelcomeEmail })
                     });
                     setActiveCompany(accountName, { force: true, rerender: false });
                     ui.scanAccount.value = accountName;
@@ -15436,7 +16299,11 @@
                     ui.portalAccessEmail.value = email;
                     ui.portalAccessPassword.value = "";
                     await refreshPortalAccessList();
-                    showMessage(ui.portalAccessMessage, `${response?.wasCreated ? "Added" : "Updated"} portal user ${email} for ${accountName}${password ? " with a new password" : ""}.`, "success");
+                    const welcome = response?.welcomeEmail || {};
+                    const welcomeStatus = welcome.attempted
+                        ? (welcome.sent ? " Welcome email sent." : ` Portal user saved, but welcome email did not send: ${welcome.error || "check email settings"}.`)
+                        : (password && !sendWelcomeEmail ? " Welcome email was not sent." : "");
+                    showMessage(ui.portalAccessMessage, `${response?.wasCreated ? "Added" : "Updated"} portal user ${email} for ${accountName}${password ? " with a new password" : ""}.${welcomeStatus}`, welcome.attempted && !welcome.sent ? "error" : "success");
                 });
             } catch (error) {
                 showMessage(ui.portalAccessMessage, error.message, "error");
@@ -15507,6 +16374,7 @@
             ui.portalAccessEmail.value = match?.email || owner?.portalLoginEmail || owner?.email || "";
             ui.portalAccessActive.value = match?.isActive === false ? "false" : (owner?.isActive === false ? "false" : "true");
             ui.portalAccessPassword.value = "";
+            if (ui.portalAccessSendWelcome) ui.portalAccessSendWelcome.checked = true;
             if (owner) loadOwnerProfile(owner);
             ui.portalAccessPassword.focus();
         }
@@ -15755,6 +16623,7 @@
             if (ui.masterItemExternalSku) ui.masterItemExternalSku.disabled = !canAdd;
             if (ui.masterItemSkuMappingNote) ui.masterItemSkuMappingNote.disabled = !canAdd;
             if (ui.masterItemSkuMappingIntegration) ui.masterItemSkuMappingIntegration.disabled = !canAdd;
+            syncItemCardCommandState();
 
             const itemMappings = skuMappingRecords
                 .filter((entry) => entry.accountName === accountName && entry.localSku === localSku)
@@ -17133,6 +18002,7 @@
             if (ui.portalInboundsMeta) {
                 ui.portalInboundsMeta.textContent = `${num(visibleInbounds.length)} purchase order${visibleInbounds.length === 1 ? "" : "s"}`;
             }
+            updateDesktopFactboxContext();
 
             if (!visibleInbounds.length) {
                 const fallback = errorText || (company
@@ -17142,31 +18012,49 @@
                 return;
             }
 
+            const inboundRows = visibleInbounds.map((inbound) => {
+                const lineTotals = summarizeTrackedTotals(inbound.lines || []);
+                const contactCarrier = [
+                    inbound.contactName || "",
+                    inbound.carrierName ? `Carrier ${inbound.carrierName}` : ""
+                ].filter(Boolean).join(" | ") || "-";
+                const receivingState = inbound.status === "RECEIVED"
+                    ? (inbound.receivedAt ? `Received ${formatDate(inbound.receivedAt)}` : "Received")
+                    : "Open receipt";
+                return `
+                    <tr data-open-warehouse-inbound="${attr(inbound.id)}">
+                        <td><button class="erp-list-link" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">${esc(inbound.inboundCode)}</button></td>
+                        <td>${esc(inbound.accountName || "")}</td>
+                        <td>${esc(inbound.referenceNumber || "None")}</td>
+                        <td>${esc(contactCarrier)}</td>
+                        <td>${esc(inbound.expectedDate || "Not set")}</td>
+                        <td>${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"}</td>
+                        <td>${esc(formatTrackedSummary(lineTotals))}</td>
+                        <td>${inbound.documents?.length ? `${num(inbound.documents.length)} doc${inbound.documents.length === 1 ? "" : "s"}` : "-"}</td>
+                        <td><span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span></td>
+                        <td>${esc(receivingState)}</td>
+                    </tr>
+                `;
+            }).join("");
+
             ui.portalInboundsList.innerHTML = `
                 <div class="erp-list-table-wrap">
                     <table class="erp-list-table">
                         <thead>
                             <tr>
                                 <th>No.</th>
+                                <th>Company</th>
                                 <th>Reference No.</th>
+                                <th>Contact / Carrier</th>
                                 <th>Expected Date</th>
                                 <th>Lines</th>
+                                <th>Expected Qty</th>
                                 <th>Docs</th>
                                 <th>Status</th>
+                                <th>Receiving</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            ${visibleInbounds.map((inbound) => `
-                                <tr data-open-warehouse-inbound="${attr(inbound.id)}">
-                                    <td><button class="erp-list-link" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">${esc(inbound.inboundCode)}</button></td>
-                                    <td>${esc(inbound.referenceNumber || "None")}</td>
-                                    <td>${esc(inbound.expectedDate || "Not set")}</td>
-                                    <td>${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"}</td>
-                                    <td>${inbound.documents?.length ? `${num(inbound.documents.length)} doc${inbound.documents.length === 1 ? "" : "s"}` : "-"}</td>
-                                    <td><span class="pill ${inbound.status === "RECEIVED" ? "success" : "warn"}">${esc(inbound.status)}</span></td>
-                                </tr>
-                            `).join("")}
-                        </tbody>
+                        <tbody>${inboundRows}</tbody>
                     </table>
                 </div>
             `;
@@ -17355,6 +18243,7 @@
                 ui.portalOrdersMeta.textContent = `${num(visibleOrders.length)} ${shippedOnly ? "shipped " : ""}order${visibleOrders.length === 1 ? "" : "s"}`;
             }
             renderPortalOrderSummary(visibleOrders);
+            updateDesktopFactboxContext();
 
             if (!visibleOrders.length) {
                 const company = getActiveCompany();
@@ -17499,6 +18388,10 @@
 
         function showMasterItemCard(item = null, { scroll = false } = {}) {
             ui.masterItemCard?.classList.remove("hidden");
+            if (ui.masterItemCard) ui.masterItemCard.scrollTop = 0;
+            document.querySelectorAll("[data-item-card-focus]").forEach((button) => {
+                button.classList.toggle("active", button.dataset.itemCardFocus === "masterItemGeneralTab");
+            });
             if (item) beginMasterItemEdit(item);
             else resetMasterItemForm(getActiveCompany() || state.preferences.lastAccount || "");
             if (!isMobileView()) {
@@ -17507,6 +18400,11 @@
                 document.body.classList.add("item-card-popout-open");
             }
             renderMasterItemSkuMappings();
+            renderMasterItemRelatedInventory();
+            syncItemCardCommandState();
+            if (activeSection === "inventory" && activeMasterRecordListType === "ITEM") {
+                renderFocusedMasterRecordList();
+            }
             refreshSkuMappingsList(true).catch(() => {});
             if (scroll && isMobileView()) ui.masterItemCard?.scrollIntoView({ behavior: "smooth", block: "start" });
             window.setTimeout(() => ui.masterItemSku?.focus(), scroll ? 180 : 40);
@@ -17517,6 +18415,23 @@
             ui.masterItemCard?.classList.add("hidden");
             if (reset) resetMasterItemForm(getActiveCompany() || state.preferences.lastAccount || "");
             if (!isMobileView()) ui.masterFilter?.focus();
+        }
+
+        function focusItemCardPart(anchorId = "", trigger = null) {
+            const anchor = document.getElementById(anchorId);
+            if (!anchor) return;
+            document.querySelectorAll("[data-item-card-focus]").forEach((button) => {
+                button.classList.toggle("active", button === trigger || button.dataset.itemCardFocus === anchorId);
+            });
+            anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function syncItemCardCommandState() {
+            const { savedItem } = getMasterItemSkuMappingContext();
+            if (ui.itemCardCommandUseScanBtn) {
+                ui.itemCardCommandUseScanBtn.disabled = !savedItem;
+                ui.itemCardCommandUseScanBtn.title = savedItem ? "Load this item into the receiving scan form" : "Save this item before using it in scan";
+            }
         }
 
         function mergePortalOrderRecord(updatedOrder) {
@@ -17916,6 +18831,16 @@
             const sku = norm(ui.masterItemSku.value);
             const upc = norm(ui.masterItemUpc.value);
             const description = String(ui.masterItemDescription.value || "").trim().replace(/\s+/g, " ");
+            const itemType = normalizeItemType(ui.masterItemType?.value || "INVENTORY");
+            const itemCategory = norm(ui.masterItemCategory?.value || "");
+            const blocked = ui.masterItemBlocked?.value === "true";
+            const costingMethod = normalizeCostingMethod(ui.masterItemCostingMethod?.value || "FIFO");
+            const unitCost = toPositiveNumber(ui.masterItemUnitCost?.value);
+            const unitPrice = toPositiveNumber(ui.masterItemUnitPrice?.value);
+            const replenishmentSystem = normalizeReplenishmentSystem(ui.masterItemReplenishmentSystem?.value || "PURCHASE");
+            const vendorNo = norm(ui.masterItemVendorNo?.value || "");
+            const vendorItemNo = norm(ui.masterItemVendorItemNo?.value || "");
+            const leadTimeDays = toPositiveInt(ui.masterItemLeadTimeDays?.value);
             const imageUrl = normalizeImageReference(ui.masterItemImageUrl.value);
             const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel.value);
             const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase.value);
@@ -17937,6 +18862,16 @@
                     sku,
                     upc,
                     description,
+                    itemType,
+                    itemCategory,
+                    blocked,
+                    costingMethod,
+                    unitCost,
+                    unitPrice,
+                    replenishmentSystem,
+                    vendorNo,
+                    vendorItemNo,
+                    leadTimeDays,
                     imageUrl,
                     trackingLevel,
                     unitsPerCase,
@@ -17956,15 +18891,16 @@
                     }
                 }
 
+                const wasEditing = !!editingMasterItem;
                 await runActionWithFeedback({
                     button: submitButton,
-                    busyLabel: editingMasterItem ? "Updating item..." : "Saving item...",
+                    busyLabel: wasEditing ? "Updating item..." : "Saving item...",
                     messageElement: ui.catalogMessage,
-                    progressMessage: `${editingMasterItem ? "Updating" : "Saving"} item ${accountName} / ${sku}...`
+                    progressMessage: `${wasEditing ? "Updating" : "Saving"} item ${accountName} / ${sku}...`
                 }, async () => {
-                    await requestJson(editingMasterItem ? "/api/master-item/update" : "/api/master-item", {
+                    await requestJson(wasEditing ? "/api/master-item/update" : "/api/master-item", {
                         method: "POST",
-                        body: JSON.stringify(editingMasterItem ? {
+                        body: JSON.stringify(wasEditing ? {
                             ...payload,
                             originalAccountName: editingMasterItem.accountName,
                             originalSku: editingMasterItem.sku
@@ -17973,13 +18909,105 @@
                     await syncServerState(true);
                     await refreshSkuMappingsList(true);
                     setActiveCompany(accountName, { force: true, rerender: false });
-                    showMessage(ui.catalogMessage, `${editingMasterItem ? "Updated" : "Saved"} item ${accountName} / ${sku} in the shared library.`, "success");
-                    resetMasterItemForm(accountName);
+                    const savedItem = state.masters.items.find((item) => item.accountName === accountName && item.sku === sku);
+                    if (savedItem) beginMasterItemEdit(savedItem);
+                    else resetMasterItemForm(accountName);
+                    renderFocusedMasterRecordList();
+                    renderMasterLibrary();
+                    updateDesktopFactboxContext();
+                    showMessage(ui.catalogMessage, `${wasEditing ? "Updated" : "Saved"} item ${accountName} / ${sku} in the shared library.`, "success");
                     ui.masterItemSku.focus();
                 });
             } catch (error) {
                 showMessage(ui.catalogMessage, error.message, "error");
             }
+        }
+
+        function getItemInventorySummary(item = {}) {
+            const accountName = norm(item.accountName || "");
+            const sku = norm(item.sku || "");
+            const trackingLevel = normalizeTrackingLevel(item.trackingLevel || "UNIT");
+            if (!accountName || !sku) {
+                return { lines: [], onHand: 0, available: 0, reserved: 0, locationCount: 0, trackingLevel };
+            }
+            const lines = (state.inventory || [])
+                .filter((line) => norm(line.accountName) === accountName && norm(line.sku) === sku)
+                .sort((a, b) => {
+                    const expA = a.expirationDate || "9999-12-31";
+                    const expB = b.expirationDate || "9999-12-31";
+                    return (a.location || "").localeCompare(b.location || "")
+                        || expA.localeCompare(expB)
+                        || (a.lotNumber || "").localeCompare(b.lotNumber || "");
+                });
+            const onHand = lines.reduce((sum, line) => sum + lineOnHandQuantity(line), 0);
+            const reserved = lines.reduce((sum, line) => sum + lineReservedQuantity(line), 0);
+            const available = lines.reduce((sum, line) => sum + lineAvailableQuantity(line), 0);
+            const locationCount = new Set(lines.map((line) => norm(line.location)).filter(Boolean)).size;
+            return { lines, onHand, available, reserved, locationCount, trackingLevel };
+        }
+
+        function renderItemInventoryFacts(summary) {
+            if (!ui.masterItemInventoryFacts) return;
+            ui.masterItemInventoryFacts.innerHTML = [
+                ["On Hand", formatTrackedQuantity(summary.onHand, summary.trackingLevel)],
+                ["Available", formatTrackedQuantity(summary.available, summary.trackingLevel)],
+                ["Reserved", formatTrackedQuantity(summary.reserved, summary.trackingLevel)],
+                ["Locations", num(summary.locationCount)]
+            ].map(([label, value]) => `
+                <div class="item-card-inventory-fact">
+                    <span>${esc(label)}</span>
+                    <strong>${esc(value)}</strong>
+                </div>
+            `).join("");
+        }
+
+        function renderMasterItemRelatedInventory() {
+            if (!ui.masterItemRelatedInventoryList) return;
+            const { accountName, localSku, savedItem } = getMasterItemSkuMappingContext();
+            const item = savedItem || { accountName, sku: localSku, trackingLevel: ui.masterItemTrackingLevel?.value || "UNIT" };
+            const summary = getItemInventorySummary(item);
+            if (ui.masterItemRelatedInventoryMeta) {
+                ui.masterItemRelatedInventoryMeta.textContent = savedItem
+                    ? `${formatTrackedQuantity(summary.onHand, summary.trackingLevel)} on hand | ${formatTrackedQuantity(summary.available, summary.trackingLevel)} available | ${num(summary.locationCount)} location${summary.locationCount === 1 ? "" : "s"}`
+                    : "Save this item to see related inventory by location, lot, and expiration date.";
+            }
+            if (!savedItem) {
+                ui.masterItemRelatedInventoryList.innerHTML = `<p class="empty">Save this item before reviewing related inventory.</p>`;
+                return;
+            }
+            if (!summary.lines.length) {
+                ui.masterItemRelatedInventoryList.innerHTML = `<p class="empty">No inventory is currently stored for ${esc(savedItem.sku)} under ${esc(savedItem.accountName)}.</p>`;
+                return;
+            }
+            const rows = summary.lines.map((line) => `
+                <tr>
+                    <td>${esc(line.location)}</td>
+                    <td>${esc(formatTrackedQuantity(lineOnHandQuantity(line), line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(lineReservedQuantity(line), line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(lineAvailableQuantity(line), line.trackingLevel))}</td>
+                    <td>${esc(line.lotNumber || "-")}</td>
+                    <td>${esc(line.expirationDate ? formatLabelDate(line.expirationDate) : "-")}</td>
+                    <td>${esc(formatInventoryCommitmentSummary(line))}</td>
+                </tr>
+            `).join("");
+            ui.masterItemRelatedInventoryList.innerHTML = `
+                <div class="erp-list-table-wrap">
+                    <table class="erp-list-table">
+                        <thead>
+                            <tr>
+                                <th>Location</th>
+                                <th>On Hand</th>
+                                <th>Reserved</th>
+                                <th>Available</th>
+                                <th>Lot</th>
+                                <th>Expiration</th>
+                                <th>Commitments</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
         }
 
         function updateMasterItemFocusPanel() {
@@ -17988,6 +19016,11 @@
             const sku = norm(ui.masterItemSku?.value || "");
             const upc = norm(ui.masterItemUpc?.value || "");
             const description = String(ui.masterItemDescription?.value || "").trim().replace(/\s+/g, " ");
+            const itemType = normalizeItemType(ui.masterItemType?.value || "INVENTORY");
+            const itemCategory = norm(ui.masterItemCategory?.value || "");
+            const blocked = ui.masterItemBlocked?.value === "true";
+            const costingMethod = normalizeCostingMethod(ui.masterItemCostingMethod?.value || "FIFO");
+            const replenishmentSystem = normalizeReplenishmentSystem(ui.masterItemReplenishmentSystem?.value || "PURCHASE");
             const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel?.value || "UNIT");
             const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase?.value);
             const lotTracked = ui.masterItemLotTracked?.value === "true";
@@ -17998,20 +19031,27 @@
             const metaParts = [
                 accountName ? `Company ${accountName}` : "Choose a company",
                 upc ? `UPC ${upc}` : "UPC optional",
+                `${itemTypeLabel(itemType)} item`,
+                itemCategory ? `Category ${itemCategory}` : "",
                 `${trackingText} stock`
             ];
             const ruleBadges = [
                 `<span class="item-card-rule strong">${esc(trackingText)} stock unit</span>`,
+                `<span class="item-card-rule">${esc(costingMethod)} costing</span>`,
+                `<span class="item-card-rule">${esc(replenishmentSystem)} replenishment</span>`,
                 unitsPerCase ? `<span class="item-card-rule">${num(unitsPerCase)} units per case</span>` : `<span class="item-card-rule">Case pack optional</span>`,
                 lotTracked ? `<span class="item-card-rule warning">Lot capture required</span>` : `<span class="item-card-rule">No lot capture</span>`,
-                expirationTracked ? `<span class="item-card-rule warning">Expiration required - FEFO picking</span>` : `<span class="item-card-rule">No expiration capture</span>`
-            ];
+                expirationTracked ? `<span class="item-card-rule warning">Expiration required - FEFO picking</span>` : `<span class="item-card-rule">No expiration capture</span>`,
+                blocked ? `<span class="item-card-rule danger">Blocked</span>` : ""
+            ].filter(Boolean);
 
             if (ui.masterItemCardTitle) {
-                ui.masterItemCardTitle.textContent = sku ? `${sku} - Item Card` : "New Item Card";
+                ui.masterItemCardTitle.textContent = sku ? `${sku}${description ? ` - ${description}` : ""}` : "New Item Card";
             }
             if (ui.masterItemCardMeta) {
-                ui.masterItemCardMeta.textContent = "Define how this SKU is received, stored, picked, and shown to warehouse users.";
+                ui.masterItemCardMeta.textContent = accountName
+                    ? `Item card for ${accountName}. Define how this SKU is received, stored, picked, and imported from marketplaces.`
+                    : "Choose an active company before creating an item card.";
             }
             ui.masterItemHandlingSummary.textContent = summaryText;
             if (ui.masterItemHandlingMeta) ui.masterItemHandlingMeta.textContent = metaParts.filter(Boolean).join(" | ");
@@ -18020,6 +19060,9 @@
             if (ui.masterItemFocusTracking) ui.masterItemFocusTracking.textContent = trackingText;
             if (ui.masterItemFocusPickRule) ui.masterItemFocusPickRule.textContent = pickRule;
             if (ui.masterItemRuleSummary) ui.masterItemRuleSummary.innerHTML = ruleBadges.join("");
+            renderItemInventoryFacts(getItemInventorySummary({ accountName, sku, trackingLevel }));
+            renderMasterItemRelatedInventory();
+            syncItemCardCommandState();
         }
 
         function resetMasterItemForm(accountName = "") {
@@ -18031,6 +19074,10 @@
             ui.cancelMasterItemEditBtn.classList.add("hidden");
             ui.masterItemEditorBanner.classList.add("hidden");
             ui.masterItemAccount.value = accountName || "";
+            if (ui.masterItemType) ui.masterItemType.value = "INVENTORY";
+            if (ui.masterItemBlocked) ui.masterItemBlocked.value = "false";
+            if (ui.masterItemCostingMethod) ui.masterItemCostingMethod.value = "FIFO";
+            if (ui.masterItemReplenishmentSystem) ui.masterItemReplenishmentSystem.value = "PURCHASE";
             ui.masterItemTrackingLevel.value = "UNIT";
             ui.masterItemLotTracked.value = "false";
             ui.masterItemExpirationTracked.value = "false";
@@ -18057,6 +19104,16 @@
             ui.masterItemSku.value = item.sku;
             ui.masterItemUpc.value = item.upc || "";
             ui.masterItemDescription.value = item.description || "";
+            if (ui.masterItemType) ui.masterItemType.value = normalizeItemType(item.itemType);
+            if (ui.masterItemCategory) ui.masterItemCategory.value = item.itemCategory || "";
+            if (ui.masterItemBlocked) ui.masterItemBlocked.value = item.blocked === true ? "true" : "false";
+            if (ui.masterItemCostingMethod) ui.masterItemCostingMethod.value = normalizeCostingMethod(item.costingMethod);
+            if (ui.masterItemUnitCost) ui.masterItemUnitCost.value = item.unitCost ?? "";
+            if (ui.masterItemUnitPrice) ui.masterItemUnitPrice.value = item.unitPrice ?? "";
+            if (ui.masterItemReplenishmentSystem) ui.masterItemReplenishmentSystem.value = normalizeReplenishmentSystem(item.replenishmentSystem);
+            if (ui.masterItemVendorNo) ui.masterItemVendorNo.value = item.vendorNo || "";
+            if (ui.masterItemVendorItemNo) ui.masterItemVendorItemNo.value = item.vendorItemNo || "";
+            if (ui.masterItemLeadTimeDays) ui.masterItemLeadTimeDays.value = item.leadTimeDays ?? "";
             ui.masterItemImageUrl.value = item.imageUrl || "";
             ui.masterItemTrackingLevel.value = normalizeTrackingLevel(item.trackingLevel);
             ui.masterItemUnitsPerCase.value = item.unitsPerCase ?? "";
@@ -18068,12 +19125,12 @@
             ui.masterItemCaseLength.value = item.caseLength ?? "";
             ui.masterItemCaseWidth.value = item.caseWidth ?? "";
             ui.masterItemCaseHeight.value = item.caseHeight ?? "";
-            ui.masterItemSubmitBtn.textContent = "Update Item";
-            if (ui.masterItemStatusChip) ui.masterItemStatusChip.textContent = "Editing";
+            ui.masterItemSubmitBtn.textContent = "Save Item";
+            if (ui.masterItemStatusChip) ui.masterItemStatusChip.textContent = "Saved";
             ui.cancelMasterItemEditBtn.classList.remove("hidden");
-            ui.masterItemEditorBanner.classList.remove("hidden");
-            ui.masterItemEditorTitle.textContent = `Editing ${item.accountName} / ${item.sku}`;
-            ui.masterItemEditorMeta.textContent = "SKU changes update matching inventory lines for this company. Company stays locked during edit.";
+            ui.masterItemEditorBanner.classList.add("hidden");
+            ui.masterItemEditorTitle.textContent = `${item.accountName} / ${item.sku}`;
+            ui.masterItemEditorMeta.textContent = "Item changes stay scoped to this company.";
             refreshImagePreview({
                 urlInput: ui.masterItemImageUrl,
                 previewWrap: ui.masterItemImagePreviewWrap,
@@ -18095,8 +19152,124 @@
             showMessage(ui.catalogMessage, "Item edit canceled.", "info");
         }
 
+        function normalizeMasterRecordListType(type) {
+            const normalized = String(type || "").trim().toUpperCase();
+            if (normalized === "CUSTOMER" || normalized === "VENDOR" || normalized === "ITEM") return normalized;
+            return "";
+        }
+
+        function masterRecordListLabel(type = activeMasterRecordListType, plural = true) {
+            const normalized = normalizeMasterRecordListType(type);
+            if (normalized === "ITEM") return plural ? "Items" : "Item";
+            if (normalized === "VENDOR") return partnerTypeLabel("VENDOR", plural);
+            return partnerTypeLabel("CUSTOMER", plural);
+        }
+
+        function clearFocusedMasterRecordList() {
+            activeMasterRecordListType = "";
+            document.getElementById("inventoryPanel")?.classList.remove("master-record-focus");
+            ui.masterRecordListCard?.classList.add("hidden");
+            if (ui.masterRecordSearch) ui.masterRecordSearch.value = "";
+            if (ui.masterRecordViewFilter) ui.masterRecordViewFilter.value = "ALL";
+        }
+
+        function showFocusedMasterRecordList(type, { resetSearch = false, scroll = false } = {}) {
+            const normalized = normalizeMasterRecordListType(type);
+            if (!normalized) {
+                clearFocusedMasterRecordList();
+                return;
+            }
+            activeMasterRecordListType = normalized;
+            document.getElementById("inventoryPanel")?.classList.add("master-record-focus");
+            ui.masterRecordListCard?.classList.remove("hidden");
+            if (resetSearch && ui.masterRecordSearch) ui.masterRecordSearch.value = "";
+            renderFocusedMasterRecordList();
+            markWorkspaceAnchor("inventory", "masterRecordListCard");
+            if (scroll) {
+                ui.masterRecordListCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        }
+
+        function recordMatchesFocusedSearch(entry, fields, query) {
+            if (!query) return true;
+            return fields.some((field) => norm(entry?.[field] || "").includes(query));
+        }
+
+        function renderFocusedMasterRecordList() {
+            if (!ui.masterRecordListCard || !ui.masterRecordListContent) return;
+            const type = normalizeMasterRecordListType(activeMasterRecordListType);
+            if (!type) {
+                ui.masterRecordListCard.classList.add("hidden");
+                document.getElementById("inventoryPanel")?.classList.remove("master-record-focus");
+                return;
+            }
+            const accountName = getActiveCompany();
+            const plural = masterRecordListLabel(type, true);
+            const singular = masterRecordListLabel(type, false);
+            const query = norm(ui.masterRecordSearch?.value || "");
+            const view = String(ui.masterRecordViewFilter?.value || "ALL").trim().toUpperCase();
+            ui.masterRecordListCard.classList.remove("hidden");
+            if (ui.masterRecordListTitle) ui.masterRecordListTitle.textContent = `${plural}: All`;
+            if (ui.masterRecordListMeta) {
+                ui.masterRecordListMeta.textContent = accountName
+                    ? `${plural} saved under ${accountName}. Select a row to drill into the ${singular.toLowerCase()} card.`
+                    : `Choose an active company before opening ${plural.toLowerCase()}.`;
+            }
+            if (ui.masterRecordNewCustomerBtn) ui.masterRecordNewCustomerBtn.classList.toggle("hidden", type !== "CUSTOMER");
+            if (ui.masterRecordNewVendorBtn) ui.masterRecordNewVendorBtn.classList.toggle("hidden", type !== "VENDOR");
+            if (ui.masterRecordNewItemBtn) ui.masterRecordNewItemBtn.classList.toggle("hidden", type !== "ITEM");
+            [ui.masterRecordNewCustomerBtn, ui.masterRecordNewVendorBtn, ui.masterRecordNewItemBtn].forEach((button) => {
+                if (button) button.disabled = !accountName;
+            });
+            if (!accountName) {
+                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = "0 saved";
+                ui.masterRecordListContent.innerHTML = `<p class="empty">Choose a company from the building icon first. ${plural} are stored inside the selected company.</p>`;
+                return;
+            }
+            if (type === "ITEM") {
+                const items = [...state.masters.items]
+                    .filter((item) => item.accountName === accountName)
+                    .filter((item) => view !== "INACTIVE")
+                    .filter((item) => recordMatchesFocusedSearch(item, ["sku", "upc", "description", "trackingLevel"], query))
+                    .sort((a, b) => a.sku.localeCompare(b.sku));
+                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = `${num(items.length)} saved`;
+                ui.masterRecordListContent.innerHTML = renderMasterItemRows(items, items.length, query);
+                return;
+            }
+            const partners = (state.masters.partners || [])
+                .filter((entry) => entry.accountName === accountName && entry.partnerType === type)
+                .filter((entry) => view === "ALL" || (view === "ACTIVE" ? entry.isActive !== false : entry.isActive === false))
+                .filter((entry) => recordMatchesFocusedSearch(entry, ["name", "accountCode", "contactName", "email", "phone", "mobile", "city", "state", "country", "note"], query))
+                .sort((a, b) => a.name.localeCompare(b.name));
+            if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = `${num(partners.length)} saved`;
+            ui.masterRecordListContent.innerHTML = renderPartnerRows(partners, type, accountName);
+        }
+
+        function onFocusedMasterRecordListClick(event) {
+            const useItemButton = event.target.closest("[data-use-item]");
+            if (useItemButton) {
+                fillScanFromMasterItem(useItemButton.dataset.useItem || "");
+                return;
+            }
+            const openPartnerButton = event.target.closest("[data-open-partner]");
+            if (openPartnerButton) {
+                const partnerId = openPartnerButton.dataset.openPartner || "";
+                const partner = (state.masters.partners || []).find((entry) => entry.id === partnerId);
+                if (partner) showPartnerCard(partner, partner.partnerType, { scroll: true });
+                return;
+            }
+            const openItemButton = event.target.closest("[data-open-master-item]");
+            if (openItemButton) {
+                const itemId = openItemButton.dataset.openMasterItem || "";
+                const item = (state.masters.items || []).find((entry) => entry.id === itemId);
+                if (item) showMasterItemCard(item, { scroll: true });
+                return;
+            }
+        }
+
         function openMasterListTarget(targetType, { scroll = false } = {}) {
             const target = String(targetType || "").trim().toUpperCase();
+            showFocusedMasterRecordList(target, { resetSearch: true, scroll });
             if (target === "CUSTOMER" || target === "VENDOR") {
                 showPartnerList(target, { scroll });
                 return;
@@ -18107,8 +19280,7 @@
                 ui.masterItemCard?.classList.add("hidden");
                 if (ui.masterFilter) ui.masterFilter.value = "";
                 renderMasterLibrary();
-                markWorkspaceAnchor("inventory", "masterItemsListCard");
-                if (scroll) ui.masterItemsListCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+                markWorkspaceAnchor("inventory", "masterRecordListCard");
             }
         }
 
@@ -18374,6 +19546,7 @@
             renderCompanyFulfillmentAssignments();
             refreshFulfillmentLocationSelectors();
             renderPartnerList();
+            renderFocusedMasterRecordList();
         }
 
         function renderMasterOwnerRows(owners, totalMatches, query) {
@@ -18543,6 +19716,7 @@
             }
 
             const rows = items.map((item) => {
+                const summary = getItemInventorySummary(item);
                 const pickRule = item.expirationTracked ? "FEFO" : (item.lotTracked ? "Lot FIFO" : "Standard");
                 const traceability = [
                     item.lotTracked ? "Lot" : "",
@@ -18553,23 +19727,31 @@
                     formatDimensions(item.eachLength, item.eachWidth, item.eachHeight, "Each"),
                     formatDimensions(item.caseLength, item.caseWidth, item.caseHeight, "Case")
                 ].filter(Boolean).join(" | ") || "&mdash;";
+                const mappingCount = (Array.isArray(skuMappingRecords) ? skuMappingRecords : [])
+                    .filter((entry) => entry.accountName === item.accountName && entry.localSku === item.sku)
+                    .length;
+                const isActive = editingMasterItem?.id === item.id;
                 return `
-                    <tr data-open-master-item="${attr(item.id)}">
+                    <tr class="${isActive ? "active" : ""}" data-open-master-item="${attr(item.id)}" aria-selected="${isActive ? "true" : "false"}">
                         <td>
                             <button class="erp-list-link" type="button" data-open-master-item="${attr(item.id)}">${esc(item.sku)}</button>
-                            <div class="quick-meta">${esc(item.description || "No description saved")}</div>
                         </td>
-                        <td>${esc(item.accountName)}</td>
-                        <td>${esc(item.upc || "") || "&mdash;"}</td>
+                        <td>
+                            <strong>${esc(item.description || "No description saved")}</strong>
+                            <div class="quick-meta">${esc(itemTypeLabel(item.itemType))}${item.itemCategory ? ` | ${esc(item.itemCategory)}` : ""}${item.blocked ? " | Blocked" : ""}</div>
+                            <div class="quick-meta">${packageText === "&mdash;" ? "No dimensions saved" : packageText}</div>
+                        </td>
                         <td>${esc(trackingLabel(item.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(summary.onHand, summary.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(summary.available, summary.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(summary.reserved, summary.trackingLevel))}</td>
+                        <td>${num(summary.locationCount)}</td>
+                        <td>${esc(item.upc || "") || "&mdash;"}</td>
                         <td>${esc(traceability)}</td>
                         <td>${esc(pickRule)}</td>
-                        <td>${packageText}</td>
-                        <td>${item.imageUrl ? "Attached" : "&mdash;"}</td>
                         <td>
-                            <div class="erp-list-row-actions">
-                                <button class="btn ghost mini" type="button" data-use-item="${attr(item.id)}">Use In Scan</button>
-                            </div>
+                            ${mappingCount ? `<span class="pill success">${num(mappingCount)} mapped</span>` : `<span class="pill">No mapping</span>`}
+                            ${item.imageUrl ? `<div class="quick-meta">Photo attached</div>` : ""}
                         </td>
                     </tr>
                 `;
@@ -18579,15 +19761,17 @@
                     <table class="erp-list-table">
                         <thead>
                             <tr>
-                                <th>SKU</th>
-                                <th>Company</th>
+                                <th>No.</th>
+                                <th>Description</th>
+                                <th>Base Unit</th>
+                                <th>Inventory</th>
+                                <th>Available</th>
+                                <th>Reserved</th>
+                                <th>Locations</th>
                                 <th>UPC</th>
-                                <th>Stock UOM</th>
                                 <th>Traceability</th>
                                 <th>Pick Rule</th>
-                                <th>Pack / Dimensions</th>
-                                <th>Photo</th>
-                                <th>Action</th>
+                                <th>Marketplace</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
@@ -18620,13 +19804,30 @@
         async function exportItemCsv() {
             try {
                 await syncServerState(true);
+                const accountName = getActiveCompany();
+                const query = activeMasterRecordListType === "ITEM" ? norm(ui.masterRecordSearch?.value || "") : "";
+                const visibleItems = [...state.masters.items]
+                    .filter((entry) => !accountName || entry.accountName === accountName)
+                    .filter((entry) => recordMatchesFocusedSearch(entry, ["sku", "upc", "description", "trackingLevel"], query));
                 const rows = [[
                     "VENDOR_CUSTOMER",
                     "SKU",
                     "UPC",
                     "DESCRIPTION",
+                    "ITEM_TYPE",
+                    "ITEM_CATEGORY",
+                    "BLOCKED",
+                    "COSTING_METHOD",
+                    "UNIT_COST",
+                    "UNIT_PRICE",
+                    "REPLENISHMENT_SYSTEM",
+                    "VENDOR_NO",
+                    "VENDOR_ITEM_NO",
+                    "LEAD_TIME_DAYS",
                     "IMAGE_URL",
                     "TRACKING",
+                    "LOT_TRACKED",
+                    "EXPIRATION_TRACKED",
                     "UNITS_PER_CASE",
                     "EACH_LENGTH",
                     "EACH_WIDTH",
@@ -18635,7 +19836,7 @@
                     "CASE_WIDTH",
                     "CASE_HEIGHT"
                 ]].concat(
-                    [...state.masters.items]
+                    visibleItems
                         .sort((a, b) => {
                             const accountSort = a.accountName.localeCompare(b.accountName);
                             return accountSort || a.sku.localeCompare(b.sku);
@@ -18645,8 +19846,20 @@
                             entry.sku,
                             entry.upc || "",
                             entry.description || "",
+                            normalizeItemType(entry.itemType),
+                            entry.itemCategory || "",
+                            entry.blocked ? "YES" : "NO",
+                            normalizeCostingMethod(entry.costingMethod),
+                            entry.unitCost ?? "",
+                            entry.unitPrice ?? "",
+                            normalizeReplenishmentSystem(entry.replenishmentSystem),
+                            entry.vendorNo || "",
+                            entry.vendorItemNo || "",
+                            entry.leadTimeDays ?? "",
                             entry.imageUrl || "",
                             normalizeTrackingLevel(entry.trackingLevel),
+                            entry.lotTracked ? "YES" : "NO",
+                            entry.expirationTracked ? "YES" : "NO",
                             entry.unitsPerCase ?? "",
                             entry.eachLength ?? "",
                             entry.eachWidth ?? "",
@@ -18657,7 +19870,7 @@
                         ])
                 );
                 downloadBlob(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), `wms365-scanner-items-${fileStamp()}.csv`, "text/csv;charset=utf-8");
-                showMessage(ui.catalogMessage, "Item master library exported as CSV.", "success");
+                showMessage(ui.catalogMessage, `${num(visibleItems.length)} item master${visibleItems.length === 1 ? "" : "s"} exported as CSV.`, "success");
             } catch (error) {
                 showMessage(ui.catalogMessage, error.message, "error");
             }
@@ -20260,11 +21473,12 @@
                         <p class="meta">${esc(user.email)}${user.role ? ` | ${esc(user.role)}` : ""}</p>
                         <p class="meta">${esc([
                             user.warehouseLocationAccess ? "Warehouse/location assignment" : "",
-                            user.directCompanyAccess ? "Direct company override" : ""
+                            user.directCompanyAccess ? "Direct company override" : "",
+                            user.fulfillmentContactAccess ? "Fulfillment location contact email" : ""
                         ].filter(Boolean).join(" | ") || "Assigned user")}</p>
                     </div>
                 `).join("")
-                : `<p class="empty">No active warehouse workers are assigned to this company.</p>`;
+                : `<p class="empty">No active warehouse user logins are assigned to this company or matching the fulfillment contact email.</p>`;
             const locationRows = (flow.fulfillmentLocations || []).length
                 ? flow.fulfillmentLocations.map((location) => `
                     <div class="helper">
@@ -21601,6 +22815,16 @@
                 sku,
                 upc: norm(item?.upc || ""),
                 description: String(item?.description || "").trim().replace(/\s+/g, " "),
+                itemType: normalizeItemType(item?.itemType || item?.item_type),
+                itemCategory: norm(item?.itemCategory || item?.item_category || item?.category || ""),
+                blocked: item?.blocked === true || item?.isBlocked === true || String(item?.blocked || item?.is_blocked || "").trim().toLowerCase() === "true",
+                costingMethod: normalizeCostingMethod(item?.costingMethod || item?.costing_method),
+                unitCost: toPositiveNumber(item?.unitCost ?? item?.unit_cost),
+                unitPrice: toPositiveNumber(item?.unitPrice ?? item?.unit_price),
+                replenishmentSystem: normalizeReplenishmentSystem(item?.replenishmentSystem || item?.replenishment_system),
+                vendorNo: norm(item?.vendorNo || item?.vendor_no || item?.vendorCode || ""),
+                vendorItemNo: norm(item?.vendorItemNo || item?.vendor_item_no || item?.supplierSku || ""),
+                leadTimeDays: toPositiveInt(item?.leadTimeDays ?? item?.lead_time_days),
                 trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
                 unitsPerCase: toPositiveInt(item?.unitsPerCase),
                 eachLength: toPositiveNumber(item?.eachLength),
@@ -22017,6 +23241,35 @@
             return "UNIT";
         }
 
+        function normalizeItemType(value) {
+            const normalized = norm(value || "INVENTORY").replace(/[\s-]+/g, "_");
+            if (normalized === "SERVICE") return "SERVICE";
+            if (normalized === "NON_INVENTORY" || normalized === "NONINVENTORY") return "NON_INVENTORY";
+            return "INVENTORY";
+        }
+
+        function itemTypeLabel(value) {
+            const normalized = normalizeItemType(value);
+            if (normalized === "SERVICE") return "Service";
+            if (normalized === "NON_INVENTORY") return "Non-Inventory";
+            return "Inventory";
+        }
+
+        function normalizeCostingMethod(value) {
+            const normalized = norm(value || "FIFO").replace(/[\s-]+/g, "_");
+            if (normalized === "AVERAGE") return "AVERAGE";
+            if (normalized === "STANDARD") return "STANDARD";
+            if (normalized === "SPECIFIC") return "SPECIFIC";
+            return "FIFO";
+        }
+
+        function normalizeReplenishmentSystem(value) {
+            const normalized = norm(value || "PURCHASE").replace(/[\s-]+/g, "_");
+            if (normalized === "TRANSFER") return "TRANSFER";
+            if (normalized === "MANUAL") return "MANUAL";
+            return "PURCHASE";
+        }
+
         function trackingLabel(value) {
             const normalized = normalizeTrackingLevel(value);
             if (normalized === "PALLET") return "Pallets";
@@ -22330,6 +23583,16 @@
                 "SKU",
                 "UPC",
                 "DESCRIPTION",
+                "ITEMTYPE",
+                "ITEMCATEGORY",
+                "BLOCKED",
+                "COSTINGMETHOD",
+                "UNITCOST",
+                "UNITPRICE",
+                "REPLENISHMENTSYSTEM",
+                "VENDORNO",
+                "VENDORITEMNO",
+                "LEADTIMEDAYS",
                 "TRACKING",
                 "TRACKINGLEVEL",
                 "UNITSPERCASE",
@@ -22348,6 +23611,16 @@
                 let sku = "";
                 let upc = "";
                 let description = "";
+                let itemType = "INVENTORY";
+                let itemCategory = "";
+                let blocked = false;
+                let costingMethod = "FIFO";
+                let unitCost = null;
+                let unitPrice = null;
+                let replenishmentSystem = "PURCHASE";
+                let vendorNo = "";
+                let vendorItemNo = "";
+                let leadTimeDays = null;
                 let imageUrl = "";
                 let trackingLevel = "UNIT";
                 let unitsPerCase = null;
@@ -22382,6 +23655,16 @@
                     sku = csvRecordValue(record, ["SKU", "ITEMSKU", "PRODUCTSKU"]);
                     upc = csvRecordValue(record, ["UPC", "UPCCODE", "UPCNUMBER", "BARCODE"]);
                     description = csvRecordValue(record, ["DESCRIPTION", "DESC", "ITEMDESCRIPTION", "ITEMNAME", "NAME"]);
+                    itemType = csvRecordValue(record, ["ITEMTYPE", "ITEM_TYPE", "TYPE"]) || "INVENTORY";
+                    itemCategory = csvRecordValue(record, ["ITEMCATEGORY", "ITEM_CATEGORY", "CATEGORY", "CATEGORYCODE", "ITEMCATEGORYCODE"]);
+                    blocked = /^(1|true|yes|y)$/i.test(csvRecordValue(record, ["BLOCKED", "ISBLOCKED", "IS_BLOCKED"]) || "");
+                    costingMethod = csvRecordValue(record, ["COSTINGMETHOD", "COSTING_METHOD", "COSTMETHOD"]) || "FIFO";
+                    unitCost = toPositiveNumber(csvRecordValue(record, ["UNITCOST", "UNIT_COST", "COST"]));
+                    unitPrice = toPositiveNumber(csvRecordValue(record, ["UNITPRICE", "UNIT_PRICE", "PRICE"]));
+                    replenishmentSystem = csvRecordValue(record, ["REPLENISHMENTSYSTEM", "REPLENISHMENT_SYSTEM", "REPLENISHMENT"]) || "PURCHASE";
+                    vendorNo = csvRecordValue(record, ["VENDORNO", "VENDOR_NO", "VENDORCODE", "VENDOR_CODE", "SUPPLIERNO", "SUPPLIER_NO"]);
+                    vendorItemNo = csvRecordValue(record, ["VENDORITEMNO", "VENDOR_ITEM_NO", "SUPPLIERSKU", "SUPPLIER_SKU", "VENDORSKU", "VENDOR_SKU"]);
+                    leadTimeDays = toPositiveInt(csvRecordValue(record, ["LEADTIMEDAYS", "LEAD_TIME_DAYS", "LEADTIME"]));
                     imageUrl = csvRecordValue(record, ["IMAGEURL", "IMAGE", "PHOTOURL", "PHOTO", "GOOGLEDRIVEURL", "DRIVEURL"]);
                     trackingLevel = csvRecordValue(record, ["TRACKING", "TRACKINGLEVEL", "LEVEL", "UOM"]) || "UNIT";
                     unitsPerCase = toPositiveInt(csvRecordValue(record, ["UNITSPERCASE", "CASEPACK", "PACK", "QTYPERCASE"]));
@@ -22406,6 +23689,16 @@
                     sku: normalizedSku,
                     upc: norm(upc),
                     description: String(description || "").trim().replace(/\s+/g, " "),
+                    itemType: normalizeItemType(itemType),
+                    itemCategory: norm(itemCategory),
+                    blocked,
+                    costingMethod: normalizeCostingMethod(costingMethod),
+                    unitCost,
+                    unitPrice,
+                    replenishmentSystem: normalizeReplenishmentSystem(replenishmentSystem),
+                    vendorNo: norm(vendorNo),
+                    vendorItemNo: norm(vendorItemNo),
+                    leadTimeDays,
                     imageUrl: normalizeImageReference(imageUrl),
                     trackingLevel: normalizeTrackingLevel(trackingLevel),
                     unitsPerCase,
