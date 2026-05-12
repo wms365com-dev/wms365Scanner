@@ -1,6 +1,6 @@
 # WMS365 Warehouse Feature Registry
 
-Last reviewed: 2026-04-30
+Last reviewed: 2026-05-11
 
 Purpose:
 - Internal feature inventory so changes do not break related workflow pieces.
@@ -12,12 +12,14 @@ How to use:
 - Check its primary UI location.
 - Walk every related touchpoint before shipping.
 - Update this file when new features are added.
+- Check `C:\WMS365Scanner\docs\WAREHOUSE_SCREEN_FEATURE_MAP.md` before moving a feature visually.
 
 ## Desktop Warehouse Features
 
 | Area | Desktop section | Primary file | Feature owner |
 | --- | --- | --- | --- |
 | Warehouse Dashboard | `home` | `C:\WMS365Scanner\index.html` | Daily inbound/outbound planning and launch pad |
+| Warehouse Task Layer | `home` | `C:\WMS365Scanner\index.html`, `C:\WMS365Scanner\server.js` | System-generated work queue for receiving, put-away, picking, packing, and shipping |
 | Purchase Orders | `inbounds` | `C:\WMS365Scanner\index.html` | Expected receipts |
 | Receiving | `scan` | `C:\WMS365Scanner\index.html` | Physical stock receipt |
 | Inventory Lookup | `search` | `C:\WMS365Scanner\index.html` | Live inventory visibility |
@@ -27,7 +29,7 @@ How to use:
 | Quote & Ship | planned `shipping` | `C:\WMS365Scanner\index.html` | Shipment quotes, packages, labels |
 | Shipped Orders | `shipped` | `C:\WMS365Scanner\index.html` | Completed shipment history |
 | Master Data | `inventory` | `C:\WMS365Scanner\index.html` | Companies, items, BINs, controls |
-| Integrations | `integrations` | `C:\WMS365Scanner\index.html` | Shopify, SFTP, sync |
+| Marketplace Connections | `integrations` | `C:\WMS365Scanner\index.html` | Shopify, SFTP, marketplace, carrier sync |
 | Reports & Counts | `reports` | `C:\WMS365Scanner\index.html` | Reporting and exports |
 | Billing | `billing` | `C:\WMS365Scanner\index.html` | Customer charges |
 | Admin & System | `backup` | `C:\WMS365Scanner\index.html` | Super-user controls |
@@ -38,6 +40,7 @@ How to use:
 - Desktop section: `home`
 - Related touchpoints:
   - active company scoping
+  - warehouse task queue
   - open purchase order queue
   - open sales order queue
   - released/picked/staged outbound counts
@@ -45,6 +48,27 @@ How to use:
   - dashboard drill-in to sales order and purchase order document pages
   - top/factbox operational alert counts
   - server refresh and 30-second sync timer
+
+### Warehouse Task Layer
+- Desktop section: `home`
+- Server table: `warehouse_tasks`
+- Related touchpoints:
+  - sales order release creates pick task
+  - sales order picked creates pack task
+  - sales order staged creates ship task
+  - shipped or archived orders close active order tasks
+  - submitted purchase order creates inbound arrival task
+  - arrived purchase order creates receiving task
+  - received purchase order creates put-away task
+  - company scoping through `account_name`
+  - warehouse user access through assigned companies / fulfillment locations
+  - fulfillment / 3PL location carried onto each task for warehouse planning
+  - assigned worker and assigned warehouse surfaced in the dashboard queue
+  - SLA aging labels for overdue / due-soon / on-track tasks
+  - mobile task queue routes floor users to receiving, put-away, or mobile picking
+  - inbound receipt billing capture when purchase orders are marked received
+  - outbound billing capture when sales orders are marked shipped
+  - dashboard drill-in back to the source document
 
 ## Inbound
 
@@ -81,6 +105,7 @@ How to use:
 ### Inventory Lookup
 - Desktop section: `search`
 - Mobile section: `search`
+- Placement rule: search/results only; no setup, admin, billing, reports, or integration workspaces.
 - Related touchpoints:
   - live inventory server state
   - company scope
@@ -98,6 +123,7 @@ How to use:
   - quantity removal
   - line deletion
   - stock transfer
+  - put-away from receiving/staging into storage BINs
   - item conversion
   - BIN move
   - company permissions
@@ -172,22 +198,27 @@ How to use:
 
 ### Master Data
 - Desktop section: `inventory`
+- Placement rule: setup records only; do not make this an all-purpose workflow launcher.
 - Related touchpoints:
   - super user company setup fast path
   - company profile
+  - customer cards
+  - vendor cards
   - fulfillment locations / 3PL partner sites
   - company-to-fulfillment-location assignment
   - BIN locations
   - item master
+  - store SKU mapping
   - lot required flag
   - expiration required flag
   - FEFO picking eligibility
   - customer portal login access
+  - portal welcome/access email when a new password is issued
   - company feature access handoff
   - bulk inventory worksheet
   - company-scoped item lists
 
-### Integrations
+### Marketplace Connections
 - Desktop section: `integrations`
 - Related server file: `C:\WMS365Scanner\server.js`
 - Feature flag keys:
@@ -230,7 +261,14 @@ How to use:
 ### Billing
 - Desktop section: `billing`
 - Related server file: `C:\WMS365Scanner\server.js`
+- Internal spec: `C:\WMS365Scanner\docs\ZOHO_BOOKS_BILLING_SCOPE.md`
 - Related touchpoints:
+  - Zoho Books customer/contact mapping
+  - Zoho Books service/item mapping
+  - invoice batches
+  - billing cadence by company
+  - progress billing by warehouse / 3PL location
+  - assigned-account billing rollups
   - company fee setup
   - receiving charges
   - picking charges
@@ -246,19 +284,25 @@ How to use:
   - billing ledger
   - month-end export
   - shipped-order billing completeness
+  - Zoho sync status and retry log
 
 ## System
 
 ### Admin & System
 - Desktop section: `backup`
 - Related touchpoints:
-  - import/export
-  - backup/restore
+  - company email flow check
+  - latest order email routing test
+  - system email test
   - company feature access
   - warehouse users
-  - assigned-company access
+  - warehouse roles: worker, customer service, warehouse admin, super user
+  - warehouse / 3PL location access
+  - inherited customer company access through warehouse assignment
   - feedback/bug queue
   - daily admin summary email
+  - import/export
+  - backup/restore
   - deployment/build visibility
   - version endpoint
 
@@ -286,6 +330,7 @@ Portal safety checks:
 - customer can only export its own inventory
 - customer can only submit orders for its own company
 - customer company is derived from login/session, not a visible selector
+- ship-to address suggestions are company scoped
 
 ## Mobile Worker Features
 
@@ -306,12 +351,13 @@ Mobile features:
 ## Public Website / Signup Features
 
 Primary folder:
-- `C:\WMS365Scanner\public-site`
+- `C:\WMS365Scanner\bluehost-site`
 
 Related server file:
 - `C:\WMS365Scanner\server.js`
 
 Public features:
+- WMS365 Access Center gateway before warehouse/customer login
 - marketing home
 - platform page
 - integrations page
@@ -323,12 +369,14 @@ Public features:
 - Stripe checkout/signup
 - public API CORS allowlist
 - domain routing for `wms365.co` and `app.wms365.co`
+- app subdomain root routes to `/access` for unauthenticated users
 
 ## Cross-Cutting Checks
 
 Always check these when changing related workflows:
 - company scoping and permissions
-- warehouse user assigned-company access
+- warehouse user assigned-warehouse access
+- inherited company access from fulfillment location assignment
 - company feature flags
 - lot tracking
 - expiration tracking

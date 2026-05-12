@@ -137,6 +137,7 @@ const DEMO_REQUEST_TO = bootstrapNormalizeEmail(readEnv("DEMO_REQUEST_TO", DEFAU
 const ADMIN_ACTIVITY_SUMMARY_TO = bootstrapNormalizeEmail(readEnv("ADMIN_ACTIVITY_SUMMARY_TO", DEFAULT_ADMIN_EMAIL || ""));
 const DEFAULT_PUBLIC_SITE_URL = "https://wms365.co";
 const PUBLIC_SITE_URL = readEnv("PUBLIC_SITE_URL", "").replace(/\/+$/, "");
+const APP_BASE_URL = (readEnv("APP_BASE_URL", "") || readEnv("PUBLIC_APP_URL", "")).replace(/\/+$/, "");
 const PUBLIC_SITE_ALLOWED_ORIGINS = readEnv("PUBLIC_SITE_ALLOWED_ORIGINS", "");
 const STRIPE_SECRET_KEY = readEnv("STRIPE_SECRET_KEY", "");
 const STRIPE_WEBHOOK_SECRET = readEnv("STRIPE_WEBHOOK_SECRET", "");
@@ -161,6 +162,11 @@ const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT"];
+const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL", "INVENTORY"];
+const WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
+const WAREHOUSE_TASK_PRIORITIES = ["LOW", "NORMAL", "HIGH", "RUSH"];
+const ACTIVE_WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED"];
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
@@ -173,10 +179,78 @@ const FEEDBACK_SOURCES = ["WAREHOUSE", "PORTAL"];
 const FEEDBACK_STATUSES = ["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"];
 const APP_USER_ROLES = Object.freeze({
     SUPER_ADMIN: "super_admin",
+    ADMIN: "admin",
+    ACCOUNTING: "accounting",
+    FINANCE_MANAGER: "finance_manager",
     WAREHOUSE_ADMIN: "warehouse_admin",
     WAREHOUSE_CUSTOMER_SERVICE: "warehouse_customer_service",
     WAREHOUSE_WORKER: "warehouse_worker"
 });
+const BILLING_FINANCE_ROLE_SET = new Set([
+    APP_USER_ROLES.SUPER_ADMIN,
+    APP_USER_ROLES.ADMIN,
+    APP_USER_ROLES.ACCOUNTING,
+    APP_USER_ROLES.FINANCE_MANAGER
+]);
+const BILLING_FINANCE_CHARGE_TYPES = Object.freeze([
+    ["PALLET_STORAGE_MONTHLY", "Storage", "Pallet storage monthly", "Per pallet"],
+    ["OVERSIZED_PALLET_STORAGE", "Storage", "Oversized pallet storage", "Per pallet"],
+    ["CLIMATE_STORAGE", "Storage", "Climate storage", "Per pallet"],
+    ["CARTON_STORAGE", "Storage", "Carton storage", "Per carton"],
+    ["BIN_STORAGE", "Storage", "Bin storage", "Flat fee"],
+    ["RECEIVING_PALLET", "Receiving", "Receiving pallet", "Per pallet"],
+    ["RECEIVING_CARTON", "Receiving", "Receiving carton", "Per carton"],
+    ["PICK_PACK_FIRST_ITEM", "Pick Pack", "Pick and pack first item", "Per order"],
+    ["ADDITIONAL_ITEM_FEE", "Pick Pack", "Additional item fee", "Per unit"],
+    ["FULL_PALLET_PICK", "Pick Pack", "Full pallet pick", "Per pallet"],
+    ["B2B_CARTON_HANDLING", "Pick Pack", "B2B carton handling", "Per carton"],
+    ["LABEL_FEE", "Value Added", "Label fee", "Per unit"],
+    ["RELABELING", "Value Added", "Relabeling", "Per unit"],
+    ["POLYBAGGING", "Value Added", "Polybagging", "Per unit"],
+    ["FNSKU_LABELING", "Value Added", "FNSKU labeling", "Per unit"],
+    ["AMAZON_PREP", "Value Added", "Amazon prep", "Per unit"],
+    ["FREIGHT_MARKUP_PERCENTAGE", "Freight", "Freight markup percentage", "Percentage"],
+    ["LABOUR_HOURLY", "Labour", "Labour hourly", "Per hour"],
+    ["FORKLIFT_HOURLY", "Labour", "Forklift hourly", "Per hour"],
+    ["SUPERVISOR_HOURLY", "Labour", "Supervisor hourly", "Per hour"],
+    ["RUSH_FEE_PERCENTAGE", "Surcharges", "Rush fee percentage", "Percentage"],
+    ["CONTAINER_UNLOAD_20FT", "Receiving", "Container unload 20ft", "Flat fee"],
+    ["CONTAINER_UNLOAD_40FT", "Receiving", "Container unload 40ft", "Flat fee"],
+    ["CONTAINER_UNLOAD_40HQ", "Receiving", "Container unload 40HQ", "Flat fee"],
+    ["WMS_ACCESS_FEE", "Administrative", "WMS access fee", "Flat fee"],
+    ["MONTHLY_MINIMUM", "Administrative", "Monthly minimum", "Flat fee"],
+    ["CUSTOM_CHARGE", "Custom", "Custom charge", "Flat fee"]
+]);
+const BILLING_FINANCE_UNITS = Object.freeze(["Per pallet", "Per carton", "Per unit", "Per hour", "Per order", "Per shipment", "Flat fee", "Percentage"]);
+const BILLING_FINANCE_ACTIVITY_TYPES = Object.freeze(["Receiving", "Putaway", "Storage", "Picking", "Packing", "Shipping", "Relabeling", "Labour", "Container unload", "Freight shipment", "Returns", "Cycle count", "Disposal", "Rework"]);
+const BILLING_FINANCE_EXPENSE_CATEGORIES = Object.freeze(["Rent", "Utilities", "Labour", "Agency labour", "Freight", "Supplies", "Software", "Insurance", "Equipment", "Repairs", "Fuel", "Office expenses", "Marketing", "Professional fees", "Taxes", "Miscellaneous"]);
+const BILLING_FINANCE_PAYMENT_METHODS = Object.freeze(["EFT", "Cheque", "Cash", "Credit card", "Wire", "PayPal"]);
+const BILLING_FINANCE_TAX_CODES = Object.freeze([
+    { code: "HST_ON", name: "HST Ontario", rate: 13, province: "ON", recoverable: true },
+    { code: "GST", name: "GST", rate: 5, province: "", recoverable: true },
+    { code: "PST_BC", name: "PST British Columbia", rate: 7, province: "BC", recoverable: true },
+    { code: "PST_SK", name: "PST Saskatchewan", rate: 6, province: "SK", recoverable: true },
+    { code: "PST_MB", name: "RST Manitoba", rate: 7, province: "MB", recoverable: true },
+    { code: "EXEMPT", name: "Exempt", rate: 0, province: "", recoverable: false }
+]);
+const BILLING_FINANCE_CHART_ACCOUNTS = Object.freeze([
+    ["1000", "Cash", "Assets"],
+    ["1100", "Accounts Receivable", "Assets"],
+    ["1200", "Tax Recoverable", "Assets"],
+    ["2000", "Accounts Payable", "Liabilities"],
+    ["2100", "Tax Payable", "Liabilities"],
+    ["2200", "Customer Credits", "Liabilities"],
+    ["3000", "Owner Equity", "Equity"],
+    ["4000", "Warehouse Revenue", "Revenue"],
+    ["4010", "Storage Revenue", "Revenue"],
+    ["4020", "Pick Pack Revenue", "Revenue"],
+    ["4030", "Freight Revenue", "Revenue"],
+    ["5000", "Warehouse Expenses", "Expenses"],
+    ["5010", "Labour Expense", "Expenses"],
+    ["5020", "Freight Expense", "Expenses"],
+    ["5030", "Rent Expense", "Expenses"],
+    ["5040", "Supplies Expense", "Expenses"]
+]);
 const SITE_SUBSCRIPTION_STATUSES = ["PENDING", "TRIALING", "ACTIVE", "PAST_DUE", "UNPAID", "INCOMPLETE", "INCOMPLETE_EXPIRED", "CANCELED", "PAUSED"];
 const SITE_SUBSCRIPTION_BILLING_STATUSES = ["PENDING", "PAID", "PAYMENT_FAILED", "PAST_DUE", "CANCELED"];
 const SITE_SUBSCRIPTION_PROVISIONING_STATUSES = ["PENDING_REVIEW", "OWNER_CREATED"];
@@ -1110,6 +1184,7 @@ app.post("/api/master-item/update", async (req, res, next) => {
 
 app.post("/api/billing/rates", async (req, res, next) => {
     try {
+        assertBillingFinanceAccess(req.appUser);
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
         const rates = Array.isArray(req.body?.rates) ? req.body.rates : [];
         if (!accountName) {
@@ -1138,6 +1213,7 @@ app.post("/api/billing/rates", async (req, res, next) => {
 
 app.post("/api/billing/events/manual", async (req, res, next) => {
     try {
+        assertBillingFinanceAccess(req.appUser);
         const entry = sanitizeManualBillingEventInput(req.body);
         if (!entry?.accountName || !entry?.feeCode || !entry?.quantity) {
             throw httpError(400, "Company, fee, and quantity are required.");
@@ -1177,6 +1253,7 @@ app.post("/api/billing/events/manual", async (req, res, next) => {
 
 app.post("/api/billing/storage-accrual", async (req, res, next) => {
     try {
+        assertBillingFinanceAccess(req.appUser);
         const accountName = normalizeText(req.body?.accountName || req.body?.owner || req.body?.vendor || req.body?.customer);
         const month = normalizeBillingMonth(req.body?.month);
         if (!accountName || !month) {
@@ -1205,6 +1282,7 @@ app.post("/api/billing/storage-accrual", async (req, res, next) => {
 
 app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
     try {
+        assertBillingFinanceAccess(req.appUser);
         const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((value) => Number.parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value > 0) : [];
         const invoiceNumber = normalizeFreeText(req.body?.invoiceNumber);
         if (!ids.length) {
@@ -1244,6 +1322,342 @@ app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
         });
 
         res.json({ success: true, events: updated });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/billing-finance", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        res.json(await getBillingFinanceState(pool, req.appUser, req.query || {}));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/customer-profiles", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const profile = await withTransaction(async (client) => {
+            const saved = await saveCustomerBillingProfile(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "customer_billing_profiles", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, profile });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/rate-cards", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const rateCard = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceRateCard(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "rate_cards", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, rateCard });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/billing-events", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const event = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceEvent(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "billing_events", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, event });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/billing-events/:id/status", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const eventId = toPositiveInt(req.params.id);
+        const status = normalizeBillingFinanceStatus(req.body?.status);
+        if (!eventId || !status) throw httpError(400, "A billing event and status are required.");
+        const result = await withTransaction(async (client) => {
+            const updated = await client.query(
+                `
+                    update billing_events
+                    set status = $2, updated_at = now()
+                    where id = $1
+                    returning *
+                `,
+                [eventId, status]
+            );
+            if (updated.rowCount !== 1) throw httpError(404, "Billing event was not found.");
+            await insertBillingFinanceAudit(client, "billing_events", eventId, "status", req.appUser, { status });
+            return mapBillingFinanceEventRow(updated.rows[0]);
+        });
+        res.json({ success: true, event: result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/invoices", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const invoice = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceInvoice(client, req.body || {}, req.appUser);
+            await postInvoiceJournalEntry(client, saved.id, req.appUser);
+            await insertBillingFinanceAudit(client, "invoices", saved.id, "upsert", req.appUser, saved);
+            return getBillingFinanceInvoiceById(client, saved.id);
+        });
+        res.status(201).json({ success: true, invoice });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/invoices/from-events", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const invoice = await withTransaction(async (client) => {
+            const saved = await createInvoiceFromBillingEvents(client, req.body || {}, req.appUser);
+            await postInvoiceJournalEntry(client, saved.id, req.appUser);
+            await insertBillingFinanceAudit(client, "invoices", saved.id, "create_from_events", req.appUser, saved);
+            return getBillingFinanceInvoiceById(client, saved.id);
+        });
+        res.status(201).json({ success: true, invoice });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/invoices/:id/status", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const invoiceId = toPositiveInt(req.params.id);
+        const status = normalizeInvoiceStatus(req.body?.status);
+        if (!invoiceId || !status) throw httpError(400, "An invoice and status are required.");
+        const invoice = await withTransaction(async (client) => {
+            const existing = (await client.query("select * from invoices where id = $1 for update", [invoiceId])).rows[0];
+            if (!existing) throw httpError(404, "Invoice was not found.");
+            if (status === "draft" && (existing.locked_at || isInvoiceLockedStatus(existing.status))) {
+                throw httpError(409, "Locked invoices cannot be moved back to draft.");
+            }
+            if (status === "void" && Number(existing.paid_amount || 0) > 0) {
+                throw httpError(409, "Paid or partially paid invoices need a credit note instead of voiding.");
+            }
+            const updated = await client.query(
+                `
+                    update invoices
+                    set
+                        status = $2,
+                        locked_at = case when $2 <> 'draft' then coalesce(locked_at, now()) else locked_at end,
+                        locked_by = case when $2 <> 'draft' and locked_by = '' then $3 else locked_by end,
+                        sent_at = case when $2 = 'sent' and sent_at is null then now() else sent_at end,
+                        voided_at = case when $2 = 'void' then now() else voided_at end,
+                        updated_at = now()
+                    where id = $1
+                    returning *
+                `,
+                [invoiceId, status, req.appUser?.email || ""]
+            );
+            if (updated.rowCount !== 1) throw httpError(404, "Invoice was not found.");
+            if (!["draft", "void"].includes(status)) await postInvoiceJournalEntry(client, invoiceId, req.appUser);
+            if (status === "void" && existing.posted_journal_entry_id) {
+                const reversal = await reverseBillingFinanceJournalEntry(client, existing.posted_journal_entry_id, req.appUser);
+                await client.query(
+                    "update invoices set posting_status = 'reversed', updated_at = now() where id = $1",
+                    [invoiceId]
+                );
+                await insertBillingFinanceAudit(client, "journal_entries", existing.posted_journal_entry_id, "reverse_for_void_invoice", req.appUser, { reversalEntryId: reversal?.id || "", invoiceId });
+            }
+            await insertBillingFinanceAudit(client, "invoices", invoiceId, "status", req.appUser, { status });
+            return getBillingFinanceInvoiceById(client, invoiceId);
+        });
+        res.json({ success: true, invoice });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/invoices/:id/duplicate", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const invoiceId = toPositiveInt(req.params.id);
+        if (!invoiceId) throw httpError(400, "An invoice is required.");
+        const invoice = await withTransaction(async (client) => {
+            const source = await getBillingFinanceInvoiceById(client, invoiceId);
+            if (!source) throw httpError(404, "Invoice was not found.");
+            const copy = await saveBillingFinanceInvoice(client, {
+                customerId: source.customerId,
+                billingAddress: source.billingAddress,
+                invoiceDate: normalizeDateOnly(new Date()),
+                dueDate: normalizeDateOnly(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+                paymentTerms: source.paymentTerms,
+                currency: source.currency,
+                notes: `Duplicated from ${source.invoiceNumber}`,
+                status: "draft",
+                lines: source.lines
+            }, req.appUser);
+            await insertBillingFinanceAudit(client, "invoices", copy.id, "duplicate", req.appUser, { sourceInvoiceId: invoiceId });
+            return getBillingFinanceInvoiceById(client, copy.id);
+        });
+        res.status(201).json({ success: true, invoice });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/invoices/:id/email", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const invoiceId = toPositiveInt(req.params.id);
+        if (!invoiceId) throw httpError(400, "An invoice is required.");
+        const invoice = await withTransaction(async (client) => {
+            const updated = await client.query(
+                `
+                    update invoices
+                    set status = case when status = 'draft' then 'sent' else status end,
+                        sent_at = coalesce(sent_at, now()),
+                        locked_at = coalesce(locked_at, now()),
+                        locked_by = case when locked_by = '' then $2 else locked_by end,
+                        updated_at = now()
+                    where id = $1
+                    returning *
+                `,
+                [invoiceId, req.appUser?.email || ""]
+            );
+            if (updated.rowCount !== 1) throw httpError(404, "Invoice was not found.");
+            await postInvoiceJournalEntry(client, invoiceId, req.appUser);
+            await insertBillingFinanceAudit(client, "invoices", invoiceId, "email_button", req.appUser, { queued: false });
+            return getBillingFinanceInvoiceById(client, invoiceId);
+        });
+        res.json({ success: true, invoice, message: "Invoice email action recorded. Configure system email templates before live sending." });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/payments", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const payment = await withTransaction(async (client) => {
+            const saved = await saveBillingFinancePayment(client, req.body || {}, req.appUser);
+            await postPaymentJournalEntry(client, saved.id, req.appUser);
+            await insertBillingFinanceAudit(client, "payments", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, payment });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/expenses", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const expense = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceExpense(client, req.body || {}, req.appUser);
+            await postExpenseJournalEntry(client, saved.id, req.appUser);
+            await insertBillingFinanceAudit(client, "expenses", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, expense });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/vendors", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const vendor = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceVendor(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "vendors", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, vendor });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/bank-accounts", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const account = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceBankAccount(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "bank_accounts", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, account });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/bank-transactions", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const transaction = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceBankTransaction(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "bank_transactions", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, transaction });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/journal-entries", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const journalEntry = await withTransaction(async (client) => {
+            const saved = await saveBillingFinanceJournalEntry(client, req.body || {}, req.appUser);
+            await insertBillingFinanceAudit(client, "journal_entries", saved.id, "upsert", req.appUser, saved);
+            return saved;
+        });
+        res.status(201).json({ success: true, journalEntry });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing-finance/journal-entries/:id/reverse", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const journalEntryId = toPositiveInt(req.params.id);
+        if (!journalEntryId) throw httpError(400, "A journal entry is required.");
+        const journalEntry = await withTransaction(async (client) => {
+            const reversal = await reverseBillingFinanceJournalEntry(client, journalEntryId, req.appUser);
+            await insertBillingFinanceAudit(client, "journal_entries", journalEntryId, "reverse", req.appUser, { reversalEntryId: reversal?.id || "" });
+            return reversal;
+        });
+        res.status(201).json({ success: true, journalEntry });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/billing-finance/reports/:reportKey", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const report = await buildBillingFinanceReport(pool, req.params.reportKey, req.query || {}, req.appUser);
+        res.json({ success: true, report });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/billing-finance/export", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const exported = await buildBillingFinanceExport(pool, req.query || {}, req.appUser);
+        res.json({ success: true, export: exported });
     } catch (error) {
         next(error);
     }
@@ -1561,6 +1975,8 @@ app.post("/api/transfer", async (req, res, next) => {
                 location: toLocation,
                 sku: line.sku,
                 upc: line.upc,
+                lotNumber: line.lot_number || "",
+                expirationDate: normalizeDateOnly(line.expiration_date || ""),
                 quantity,
                 trackingLevel: line.tracking_level
             });
@@ -1570,13 +1986,82 @@ app.post("/api/transfer", async (req, res, next) => {
                 accountName,
                 sku: line.sku,
                 upc: line.upc,
-                trackingLevel: line.tracking_level
+                trackingLevel: line.tracking_level,
+                lotTracked: !!line.lot_number,
+                expirationTracked: !!normalizeDateOnly(line.expiration_date || "")
             });
             await insertActivity(
                 client,
                 "transfer",
                 `Transferred ${formatTrackedQuantity(quantity, line.tracking_level)} of ${accountName} / ${line.sku}`,
                 `${fromLocation} -> ${toLocation}`
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/put-away", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.owner);
+        const fromLocation = normalizeText(req.body?.fromLocation);
+        const toLocation = normalizeText(req.body?.toLocation);
+        const skuOrUpc = normalizeText(req.body?.skuOrUpc);
+        const quantity = toPositiveInt(req.body?.quantity);
+
+        if (!accountName || !fromLocation || !toLocation || !skuOrUpc || !quantity) {
+            throw httpError(400, "Company, from area/location, destination BIN, SKU/UPC, and quantity are required.");
+        }
+        if (fromLocation === toLocation) {
+            throw httpError(400, "Source and destination locations cannot be the same.");
+        }
+
+        await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc);
+            if (!line) {
+                throw httpError(404, "No exact inventory line matched that company, source location, and SKU/UPC.");
+            }
+            const availableQuantity = Math.max((Number(line.quantity) || 0) - (await getInventoryLineCommitment(client, line.id)).activeQuantity, 0);
+            if (quantity > availableQuantity) {
+                throw httpError(400, `Cannot put away ${formatTrackedQuantity(quantity, line.tracking_level)} because only ${formatTrackedQuantity(availableQuantity, line.tracking_level)} are available.`);
+            }
+            await assertLocationCompatibleForOwner(client, accountName, toLocation);
+
+            const remaining = Number(line.quantity) - quantity;
+            await assertInventoryLineCanChange(client, line, {
+                nextQuantity: remaining,
+                actionLabel: "put away that quantity"
+            });
+            await setInventoryQuantity(client, line.id, remaining);
+            await upsertInventoryLine(client, {
+                accountName,
+                location: toLocation,
+                sku: line.sku,
+                upc: line.upc,
+                lotNumber: line.lot_number || "",
+                expirationDate: normalizeDateOnly(line.expiration_date || ""),
+                quantity,
+                trackingLevel: line.tracking_level
+            });
+            await upsertLocationMaster(client, fromLocation);
+            await upsertLocationMaster(client, toLocation);
+            await upsertItemMaster(client, {
+                accountName,
+                sku: line.sku,
+                upc: line.upc,
+                trackingLevel: line.tracking_level,
+                lotTracked: !!line.lot_number,
+                expirationTracked: !!normalizeDateOnly(line.expiration_date || "")
+            });
+            await insertActivity(
+                client,
+                "put-away",
+                `Put away ${formatTrackedQuantity(quantity, line.tracking_level)} of ${accountName} / ${line.sku}`,
+                `${fromLocation} -> ${toLocation}${line.lot_number ? ` | Lot ${line.lot_number}` : ""}${line.expiration_date ? ` | Exp ${normalizeDateOnly(line.expiration_date)}` : ""}`
             );
         });
 
@@ -1769,7 +2254,7 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
-            await client.query("truncate table activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, app_user_fulfillment_location_access, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
+            await client.query("truncate table warehouse_tasks, activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, app_user_fulfillment_location_access, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
 
             if (importedBillingFees.length) {
                 await client.query("truncate table billing_fee_catalog");
@@ -2160,6 +2645,50 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
                 ? inbounds
                 : inbounds.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
+        const tasks = await withTransaction(async (client) => {
+            await syncWarehouseTasksFromOperationalRecords(client);
+            const result = await getWarehouseTaskRowsForAppUser(client, req.appUser, {
+                accountName: requestedAccount,
+                status: req.query?.status,
+                type: req.query?.type,
+                activeOnly: normalizeText(req.query?.activeOnly || req.query?.active_only || "true") !== "FALSE",
+                limit: 300
+            });
+            return result.rows.map(mapWarehouseTaskRow);
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ tasks });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/warehouse-tasks/:id/status", async (req, res, next) => {
+    try {
+        const taskId = toPositiveInt(req.params.id);
+        if (!taskId) {
+            throw httpError(400, "A valid warehouse task id is required.");
+        }
+        const task = await withTransaction(async (client) => {
+            const current = await getWarehouseTaskById(client, taskId);
+            if (!current) {
+                throw httpError(404, "That warehouse task could not be found.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, current.account_name);
+            return updateWarehouseTaskStatus(client, taskId, req.body || {}, req.appUser);
+        });
+        res.json({ success: true, task });
     } catch (error) {
         next(error);
     }
@@ -2779,6 +3308,36 @@ app.post("/api/portal/inbounds/:id/documents", async (req, res, next) => {
     }
 });
 
+app.get("/api/portal/delivery-appointments", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        const appointments = await getPortalDeliveryAppointmentsForAccount(pool, session.access.accountName);
+        res.json({ appointments });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/delivery-appointments", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        const result = await withTransaction((client) => savePortalDeliveryAppointment(client, session.accessRow, req.body));
+        const requestOrigin = getRequestOrigin(req);
+        res.status(201).json({ success: true, appointment: result.appointment, warehouseEmailQueued: true });
+        queueDeliveryAppointmentRequestEmail(result.appointment, result.approvalToken, { requestOrigin });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.get("/api/portal/items", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -3007,16 +3566,24 @@ app.post("/api/admin/portal-inbounds/:id/status", async (req, res, next) => {
             throw httpError(400, "A valid purchase order status is required.");
         }
 
+        let previousInboundStatus = "";
         const inbound = await withTransaction(async (client) => {
             const currentInbound = await getPortalInboundById(client, inboundId);
             if (!currentInbound) {
                 throw httpError(404, "That purchase order could not be found.");
             }
+            previousInboundStatus = currentInbound.status || "";
             await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
-            return updateAdminPortalInboundStatus(client, inboundId, nextStatus, req.appUser);
+            return updateAdminPortalInboundStatus(client, inboundId, nextStatus, req.appUser, req.body || {});
         });
 
-        res.json({ success: true, inbound });
+        const arrivalEmailQueued = nextStatus === "ARRIVED" && previousInboundStatus !== "ARRIVED";
+        res.json({ success: true, inbound, arrivalEmailQueued });
+        if (arrivalEmailQueued) {
+            queuePortalInboundArrivalEmail(inbound, {
+                actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse"
+            });
+        }
     } catch (error) {
         next(error);
     }
@@ -3388,6 +3955,63 @@ app.get("/industry-lot-control-scene.svg", (_req, res) => {
     sendMarketingAsset(res, "industry-lot-control-scene.svg", "image/svg+xml; charset=utf-8");
 });
 
+app.get("/delivery-appointment-action", async (req, res, next) => {
+    try {
+        const token = String(req.query?.token || "").trim();
+        if (!token) {
+            res.status(400).send(renderDeliveryAppointmentActionPage(null, "", "This delivery appointment link is missing its approval token."));
+            return;
+        }
+        const row = await getPortalDeliveryAppointmentByToken(pool, token);
+        if (!row) {
+            res.status(404).send(renderDeliveryAppointmentActionPage(null, "", "This delivery appointment link is no longer valid."));
+            return;
+        }
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.send(renderDeliveryAppointmentActionPage(mapPortalDeliveryAppointmentRow(row), token));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/delivery-appointment-action", async (req, res, next) => {
+    try {
+        const token = String(req.body?.token || "").trim();
+        if (!token) {
+            throw httpError(400, "Approval token is required.");
+        }
+        const result = await withTransaction((client) => respondToDeliveryAppointment(client, token, req.body));
+        res.json({ success: true, appointment: result.appointment, changed: result.changed });
+        if (result.changed) {
+            setTimeout(async () => {
+                try {
+                    const recipients = await sendDeliveryAppointmentCustomerEmail(pool, result.appointment);
+                    await withTransaction((client) => insertActivity(
+                        client,
+                        "email",
+                        `Delivery appointment customer email sent for ${result.appointment.appointmentCode}`,
+                        [result.appointment.accountName, `Sent to ${formatCount(recipients.length, "recipient")}`].join(" | ")
+                    ));
+                } catch (error) {
+                    console.error(`Delivery appointment customer email failed for ${result.appointment.appointmentCode}:`, error);
+                    try {
+                        await withTransaction((client) => insertActivity(
+                            client,
+                            "email",
+                            `Delivery appointment customer email failed for ${result.appointment.appointmentCode}`,
+                            [result.appointment.accountName, error.message || "Unknown email error"].join(" | ")
+                        ));
+                    } catch (logError) {
+                        console.error(`Unable to record delivery appointment customer email failure for ${result.appointment.appointmentCode}:`, logError);
+                    }
+                }
+            }, 0);
+        }
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/app", async (req, res) => {
     try {
         await requireAppSession(req);
@@ -3481,6 +4105,150 @@ app.use((error, _req, res, _next) => {
         error: error.message || "An unexpected server error occurred."
     });
 });
+
+function renderDeliveryAppointmentActionPage(appointment, token = "", errorMessage = "") {
+    const isRequested = appointment?.status === "REQUESTED";
+    const tokenJson = JSON.stringify(String(token || ""));
+    const appointmentJson = JSON.stringify(appointment || null).replace(/</g, "\\u003c");
+    const detailRows = appointment ? [
+        ["Appointment", appointment.appointmentCode],
+        ["Company", appointment.accountName],
+        ["Reference / PO", appointment.referenceNumber || "-"],
+        ["Requested Date", appointment.requestedDate || "-"],
+        ["Requested Time", appointment.requestedTime || "-"],
+        ["Warehouse", formatDeliveryAppointmentLocation(appointment)],
+        ["Carrier", appointment.carrierName || "-"],
+        ["Trailer / Container", appointment.trailerNumber || "-"],
+        ["Pallets", appointment.palletCount ?? "-"],
+        ["Cartons", appointment.cartonCount ?? "-"],
+        ["Contact", [appointment.contactName, appointment.contactEmail, appointment.contactPhone].filter(Boolean).join(" | ") || "-"],
+        ["Notes", appointment.notes || "-"]
+    ] : [];
+    return `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>WMS365 Delivery Appointment</title>
+    <style>
+        :root { color-scheme: light; --ink:#172536; --muted:#52677a; --line:#cad6e2; --accent:#006d7f; --soft:#f5f8fb; --ok:#047857; --warn:#92400e; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: var(--ink); background: #edf3f8; }
+        .wrap { max-width: 920px; margin: 38px auto; padding: 0 18px; }
+        .card { background: #fff; border: 1px solid var(--line); box-shadow: 0 18px 45px rgba(15, 23, 42, 0.09); }
+        .head { display:flex; justify-content:space-between; gap:18px; padding:22px 26px; border-bottom:1px solid var(--line); }
+        h1 { margin:0; font-size:24px; }
+        .eyebrow { margin:0 0 6px; color:#006d7f; font-size:12px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+        .body { padding:24px 26px; }
+        table { width:100%; border-collapse:collapse; margin:0 0 22px; }
+        td { border-bottom:1px solid #e6edf3; padding:9px 8px; vertical-align:top; }
+        td:first-child { width:190px; color:var(--muted); font-weight:700; }
+        .status { display:inline-block; padding:6px 10px; border:1px solid var(--line); background:var(--soft); font-weight:700; }
+        .status.APPROVED { color:var(--ok); background:#ecfdf5; border-color:#a7f3d0; }
+        .status.DENIED { color:var(--warn); background:#fffbeb; border-color:#fde68a; }
+        .actions { display:grid; gap:14px; border-top:1px solid var(--line); padding-top:18px; }
+        .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+        button { border:1px solid var(--accent); background:var(--accent); color:white; padding:11px 18px; font-weight:700; cursor:pointer; }
+        button.secondary { background:white; color:var(--accent); }
+        input, textarea { border:1px solid var(--line); padding:10px 11px; font:inherit; min-width:180px; }
+        textarea { width:100%; min-height:84px; }
+        .message { margin-top:14px; padding:12px 14px; border:1px solid #bfdbfe; background:#eff6ff; color:#1e3a8a; }
+        .message.error { border-color:#fecaca; background:#fef2f2; color:#991b1b; }
+        .error-box { padding:18px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; }
+        .muted { color:var(--muted); }
+    </style>
+</head>
+<body>
+    <main class="wrap">
+        <section class="card">
+            <div class="head">
+                <div>
+                    <p class="eyebrow">WMS365 Appointment Approval</p>
+                    <h1>${appointment ? escapeHtml(appointment.appointmentCode) : "Delivery Appointment"}</h1>
+                </div>
+                ${appointment ? `<span class="status ${escapeHtml(appointment.status)}">${escapeHtml(appointment.status)}</span>` : ""}
+            </div>
+            <div class="body">
+                ${errorMessage ? `<div class="error-box">${escapeHtml(errorMessage)}</div>` : ""}
+                ${appointment ? `
+                    <table>
+                        <tbody>
+                            ${detailRows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(String(value ?? ""))}</td></tr>`).join("")}
+                        </tbody>
+                    </table>
+                    ${isRequested ? `
+                        <div class="actions">
+                            <div>
+                                <strong>Approve requested delivery time</strong>
+                                <p class="muted">This confirms the requested date/time back to the customer.</p>
+                                <div class="row">
+                                    <button type="button" id="approveBtn">Approve Appointment</button>
+                                </div>
+                            </div>
+                            <div>
+                                <strong>Deny and suggest an alternative</strong>
+                                <p class="muted">Enter the alternate date/time the warehouse can receive this delivery.</p>
+                                <div class="row">
+                                    <input id="alternativeDate" type="date" aria-label="Alternative date">
+                                    <input id="alternativeTime" type="text" placeholder="Example: 10:00 AM - 12:00 PM" aria-label="Alternative time">
+                                </div>
+                                <textarea id="warehouseNote" placeholder="Optional note to customer"></textarea>
+                                <div class="row">
+                                    <button class="secondary" type="button" id="denyBtn">Deny / Send Alternative</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="message" class="message" style="display:none;"></div>
+                    ` : `
+                        <div class="message">This appointment has already been responded to. Current status: <strong>${escapeHtml(appointment.status)}</strong>.</div>
+                    `}
+                ` : ""}
+            </div>
+        </section>
+    </main>
+    <script>
+        const token = ${tokenJson};
+        const appointment = ${appointmentJson};
+        const message = document.getElementById("message");
+        function showMessage(text, isError = false) {
+            if (!message) return;
+            message.style.display = "block";
+            message.className = "message" + (isError ? " error" : "");
+            message.textContent = text;
+        }
+        async function respond(decision) {
+            const payload = { token, decision };
+            if (decision === "DENIED") {
+                payload.alternativeDate = document.getElementById("alternativeDate")?.value || "";
+                payload.alternativeTime = document.getElementById("alternativeTime")?.value || "";
+                payload.warehouseNote = document.getElementById("warehouseNote")?.value || "";
+                if (!payload.alternativeDate || !payload.alternativeTime) {
+                    showMessage("Enter an alternative date and time before denying.", true);
+                    return;
+                }
+            }
+            try {
+                showMessage("Saving appointment response...");
+                const response = await fetch("/api/delivery-appointment-action", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || "Request failed.");
+                showMessage(data.changed ? "Appointment response saved. Customer confirmation email is being sent." : "Appointment was already responded to.");
+                setTimeout(() => window.location.reload(), 1200);
+            } catch (error) {
+                showMessage(error.message || "Unable to save appointment response.", true);
+            }
+        }
+        document.getElementById("approveBtn")?.addEventListener("click", () => respond("APPROVED"));
+        document.getElementById("denyBtn")?.addEventListener("click", () => respond("DENIED"));
+    </script>
+</body>
+</html>`;
+}
 
 start().catch((error) => {
     console.error(error);
@@ -3952,6 +4720,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
     await pool.query("create index if not exists idx_owner_billing_rates_account on owner_billing_rates (account_name)");
     await seedBillingFeeCatalog(pool);
+    await initializeBillingFinanceSchema(pool);
 
     await pool.query(`
         create table if not exists pallet_records (
@@ -4112,11 +4881,16 @@ async function initializeDatabase() {
             notes text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'RECEIVED', 'CANCELLED'))
+            constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED'))
         );
     `);
+    await pool.query("alter table portal_inbounds drop constraint if exists portal_inbounds_status_check");
+    await pool.query("alter table portal_inbounds add constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED'))");
     await pool.query("alter table portal_inbounds alter column inbound_code drop not null");
     await pool.query("alter table portal_inbounds alter column inbound_code drop default");
+    await pool.query("alter table portal_inbounds add column if not exists arrived_at timestamptz");
+    await pool.query("alter table portal_inbounds add column if not exists arrived_by text not null default ''");
+    await pool.query("alter table portal_inbounds add column if not exists arrival_note text not null default ''");
     await pool.query("alter table portal_inbounds add column if not exists received_at timestamptz");
 
     await pool.query(`
@@ -4130,6 +4904,10 @@ async function initializeDatabase() {
             updated_at timestamptz not null default now()
         );
     `);
+    await pool.query("alter table portal_inbound_lines add column if not exists received_quantity integer");
+    await pool.query("alter table portal_inbound_lines add column if not exists received_location text not null default ''");
+    await pool.query("alter table portal_inbound_lines add column if not exists lot_number text not null default ''");
+    await pool.query("alter table portal_inbound_lines add column if not exists expiration_date date");
     await pool.query("update portal_inbounds set inbound_code = null where inbound_code = ''");
     await pool.query("update portal_inbounds set inbound_code = concat('INB-', lpad(id::text, 6, '0')) where inbound_code is null");
 
@@ -4184,6 +4962,100 @@ async function initializeDatabase() {
             created_at timestamptz not null default now()
         );
     `);
+    await pool.query(`
+        create table if not exists portal_delivery_appointments (
+            id bigserial primary key,
+            appointment_code text,
+            account_name text not null,
+            portal_access_id bigint references portal_vendor_access(id) on delete set null,
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
+            status text not null default 'REQUESTED',
+            requested_date date not null,
+            requested_time text not null default '',
+            delivery_type text not null default 'INBOUND',
+            reference_number text not null default '',
+            carrier_name text not null default '',
+            trailer_number text not null default '',
+            pallet_count integer,
+            carton_count integer,
+            contact_name text not null default '',
+            contact_email text not null default '',
+            contact_phone text not null default '',
+            notes text not null default '',
+            approval_token_hash text not null unique,
+            approved_at timestamptz,
+            denied_at timestamptz,
+            responded_by text not null default '',
+            warehouse_note text not null default '',
+            alternative_date date,
+            alternative_time text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint portal_delivery_appointments_status_check check (status in ('REQUESTED', 'APPROVED', 'DENIED', 'CANCELLED'))
+        );
+    `);
+    await pool.query("alter table portal_delivery_appointments drop constraint if exists portal_delivery_appointments_status_check");
+    await pool.query("alter table portal_delivery_appointments add constraint portal_delivery_appointments_status_check check (status in ('REQUESTED', 'APPROVED', 'DENIED', 'CANCELLED'))");
+    await pool.query("alter table portal_delivery_appointments alter column appointment_code drop not null");
+    await pool.query("alter table portal_delivery_appointments alter column appointment_code drop default");
+    await pool.query("update portal_delivery_appointments set appointment_code = null where appointment_code = ''");
+    await pool.query("update portal_delivery_appointments set appointment_code = concat('DEL-', lpad(id::text, 6, '0')) where appointment_code is null");
+
+    await pool.query(`
+        create table if not exists warehouse_tasks (
+            id bigserial primary key,
+            task_code text not null default '',
+            task_type text not null,
+            source_type text not null default 'MANUAL',
+            source_id bigint,
+            source_code text not null default '',
+            account_name text not null,
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
+            status text not null default 'OPEN',
+            priority text not null default 'NORMAL',
+            title text not null default '',
+            details text not null default '',
+            assigned_app_user_id bigint references app_users(id) on delete set null,
+            due_at timestamptz,
+            completed_at timestamptz,
+            completed_by text not null default '',
+            blocked_reason text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table warehouse_tasks add column if not exists task_code text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists task_type text not null default 'EXCEPTION'");
+    await pool.query("alter table warehouse_tasks add column if not exists source_type text not null default 'MANUAL'");
+    await pool.query("alter table warehouse_tasks add column if not exists source_id bigint");
+    await pool.query("alter table warehouse_tasks add column if not exists source_code text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists account_name text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
+    await pool.query("alter table warehouse_tasks add column if not exists status text not null default 'OPEN'");
+    await pool.query("alter table warehouse_tasks add column if not exists priority text not null default 'NORMAL'");
+    await pool.query("alter table warehouse_tasks add column if not exists title text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists details text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists assigned_app_user_id bigint references app_users(id) on delete set null");
+    await pool.query("alter table warehouse_tasks add column if not exists due_at timestamptz");
+    await pool.query("alter table warehouse_tasks add column if not exists completed_at timestamptz");
+    await pool.query("alter table warehouse_tasks add column if not exists completed_by text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists blocked_reason text not null default ''");
+    await pool.query("alter table warehouse_tasks add column if not exists metadata jsonb not null default '{}'::jsonb");
+    await pool.query("update warehouse_tasks set metadata = '{}'::jsonb where metadata is null");
+    await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_type_check");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_type_check check (task_type in ('INBOUND_ARRIVAL', 'RECEIVING', 'PUT_AWAY', 'PICK', 'PACK', 'SHIP', 'EXCEPTION', 'COUNT', 'REPLENISHMENT'))");
+    await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_source_type_check");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_source_type_check check (source_type in ('PORTAL_INBOUND', 'PORTAL_ORDER', 'MANUAL', 'INVENTORY'))");
+    await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_status_check");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_status_check check (status in ('OPEN', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'))");
+    await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_priority_check");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_priority_check check (priority in ('LOW', 'NORMAL', 'HIGH', 'RUSH'))");
+    await pool.query("create unique index if not exists idx_warehouse_tasks_source_unique on warehouse_tasks (source_type, source_id, task_type) where source_id is not null");
+    await pool.query("create index if not exists idx_warehouse_tasks_account_status on warehouse_tasks (account_name, status, due_at asc)");
+    await pool.query("create index if not exists idx_warehouse_tasks_type_status on warehouse_tasks (task_type, status, due_at asc)");
+    await pool.query("create index if not exists idx_warehouse_tasks_assigned_user on warehouse_tasks (assigned_app_user_id, status)");
+    await pool.query("create index if not exists idx_warehouse_tasks_updated_at on warehouse_tasks (updated_at desc)");
     await pool.query(`
         create table if not exists store_integrations (
             id bigserial primary key,
@@ -4347,6 +5219,11 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
     await pool.query("create index if not exists idx_portal_inbound_lines_inbound_id on portal_inbound_lines (inbound_id);");
     await pool.query("create index if not exists idx_portal_inbound_documents_inbound_id on portal_inbound_documents (inbound_id);");
+    await pool.query("create unique index if not exists idx_portal_delivery_appointments_code_unique on portal_delivery_appointments (appointment_code);");
+    await pool.query("create index if not exists idx_portal_delivery_appointments_account_name on portal_delivery_appointments (account_name);");
+    await pool.query("create index if not exists idx_portal_delivery_appointments_status on portal_delivery_appointments (status);");
+    await pool.query("create index if not exists idx_portal_delivery_appointments_requested_date on portal_delivery_appointments (requested_date);");
+    await pool.query("create unique index if not exists idx_portal_delivery_appointments_token_hash on portal_delivery_appointments (approval_token_hash);");
     await pool.query("create unique index if not exists idx_store_integrations_account_provider_store_unique on store_integrations (account_name, provider, store_identifier);");
     await pool.query("create index if not exists idx_store_integrations_account_name on store_integrations (account_name);");
     await pool.query("create index if not exists idx_store_integrations_provider on store_integrations (provider);");
@@ -4462,6 +5339,657 @@ async function initializeDatabase() {
     `);
 }
 
+async function initializeBillingFinanceSchema(client = pool) {
+    await client.query("alter table billing_events add column if not exists customer_id text not null default ''");
+    await client.query("alter table billing_events add column if not exists warehouse_id text not null default ''");
+    await client.query("alter table billing_events add column if not exists activity_date date");
+    await client.query("update billing_events set activity_date = service_date where activity_date is null");
+    await client.query("alter table billing_events add column if not exists source_module text not null default ''");
+    await client.query("alter table billing_events add column if not exists source_reference text not null default ''");
+    await client.query("alter table billing_events add column if not exists activity_type text not null default ''");
+    await client.query("alter table billing_events add column if not exists charge_type text not null default ''");
+    await client.query("alter table billing_events add column if not exists description text not null default ''");
+    await client.query("alter table billing_events add column if not exists unit_rate numeric(12, 4)");
+    await client.query("update billing_events set unit_rate = rate where unit_rate is null");
+    await client.query("alter table billing_events add column if not exists tax_code text not null default 'HST_ON'");
+    await client.query("alter table billing_events add column if not exists invoice_id bigint");
+    await client.query("alter table billing_events add column if not exists created_by text not null default ''");
+    await client.query("alter table billing_events add column if not exists notes text not null default ''");
+    await client.query("update billing_events set customer_id = account_name where customer_id = ''");
+    await client.query("update billing_events set source_module = source_type where source_module = '' and source_type <> ''");
+    await client.query("update billing_events set source_reference = source_ref where source_reference = '' and source_ref <> ''");
+    await client.query("update billing_events set charge_type = fee_code where charge_type = ''");
+    await client.query("update billing_events set description = fee_name where description = ''");
+    await client.query("update billing_events set notes = note where notes = '' and note <> ''");
+    await client.query("alter table billing_events drop constraint if exists billing_events_status_check");
+    await client.query(`
+        alter table billing_events add constraint billing_events_status_check
+        check (status in ('OPEN', 'INVOICED', 'VOID', 'pending', 'approved', 'invoiced', 'voided'))
+    `);
+
+    await client.query(`
+        create table if not exists customer_billing_profiles (
+            id bigserial primary key,
+            account_name text not null unique,
+            customer_name text not null,
+            billing_contact text not null default '',
+            email text not null default '',
+            phone text not null default '',
+            billing_address text not null default '',
+            payment_terms text not null default 'Net 30',
+            currency text not null default 'CAD',
+            tax_settings jsonb not null default '{}'::jsonb,
+            assigned_rate_card_id bigint,
+            billing_cycle text not null default 'Monthly',
+            minimum_monthly_billing numeric(12, 2) not null default 0,
+            credit_limit numeric(12, 2) not null default 0,
+            notes text not null default '',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await client.query(`
+        create table if not exists rate_cards (
+            id bigserial primary key,
+            name text not null unique,
+            description text not null default '',
+            currency text not null default 'CAD',
+            effective_from date,
+            effective_to date,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists rate_card_lines (
+            id bigserial primary key,
+            rate_card_id bigint not null references rate_cards(id) on delete cascade,
+            charge_type text not null,
+            unit text not null,
+            rate numeric(12, 4) not null default 0,
+            tax_code text not null default 'HST_ON',
+            customer_id text not null default '',
+            effective_from date,
+            effective_to date,
+            notes text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (rate_card_id, charge_type, customer_id, effective_from)
+        );
+    `);
+    await client.query(`
+        create table if not exists rate_card_history (
+            id bigserial primary key,
+            rate_card_id bigint,
+            rate_card_line_id bigint,
+            change_type text not null default 'updated',
+            previous_values jsonb not null default '{}'::jsonb,
+            new_values jsonb not null default '{}'::jsonb,
+            changed_by text not null default '',
+            changed_at timestamptz not null default now()
+        );
+    `);
+
+    await client.query(`
+        create table if not exists invoices (
+            id bigserial primary key,
+            invoice_number text not null unique,
+            customer_id text not null,
+            billing_address text not null default '',
+            invoice_date date not null default current_date,
+            due_date date not null default current_date,
+            payment_terms text not null default 'Net 30',
+            currency text not null default 'CAD',
+            subtotal numeric(12, 2) not null default 0,
+            tax numeric(12, 2) not null default 0,
+            total numeric(12, 2) not null default 0,
+            paid_amount numeric(12, 2) not null default 0,
+            balance_due numeric(12, 2) not null default 0,
+            notes text not null default '',
+            status text not null default 'draft',
+            is_recurring boolean not null default false,
+            recurrence_rule text not null default '',
+            posting_status text not null default 'unposted',
+            posted_at timestamptz,
+            posted_journal_entry_id bigint,
+            locked_at timestamptz,
+            locked_by text not null default '',
+            sent_at timestamptz,
+            paid_at timestamptz,
+            voided_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query("alter table invoices add column if not exists posting_status text not null default 'unposted'");
+    await client.query("alter table invoices add column if not exists posted_at timestamptz");
+    await client.query("alter table invoices add column if not exists posted_journal_entry_id bigint");
+    await client.query("alter table invoices add column if not exists locked_at timestamptz");
+    await client.query("alter table invoices add column if not exists locked_by text not null default ''");
+    await client.query("alter table billing_events drop constraint if exists billing_events_invoice_id_fkey");
+    await client.query("alter table billing_events add constraint billing_events_invoice_id_fkey foreign key (invoice_id) references invoices(id) on delete set null");
+    await client.query(`
+        create table if not exists invoice_lines (
+            id bigserial primary key,
+            invoice_id bigint not null references invoices(id) on delete cascade,
+            billing_event_id bigint,
+            line_number integer not null default 1,
+            description text not null,
+            charge_type text not null default '',
+            quantity numeric(12, 4) not null default 1,
+            unit_rate numeric(12, 4) not null default 0,
+            tax_code text not null default 'HST_ON',
+            tax_amount numeric(12, 2) not null default 0,
+            amount numeric(12, 2) not null default 0,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists payments (
+            id bigserial primary key,
+            payment_date date not null default current_date,
+            customer_id text not null,
+            invoice_reference text not null default '',
+            amount numeric(12, 2) not null default 0,
+            payment_method text not null default 'EFT',
+            reference_number text not null default '',
+            notes text not null default '',
+            unapplied_amount numeric(12, 2) not null default 0,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists payment_allocations (
+            id bigserial primary key,
+            payment_id bigint not null references payments(id) on delete cascade,
+            invoice_id bigint references invoices(id) on delete set null,
+            amount numeric(12, 2) not null default 0,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists credit_notes (
+            id bigserial primary key,
+            credit_note_number text not null unique,
+            customer_id text not null,
+            invoice_id bigint references invoices(id) on delete set null,
+            credit_date date not null default current_date,
+            amount numeric(12, 2) not null default 0,
+            tax_amount numeric(12, 2) not null default 0,
+            status text not null default 'open',
+            reason text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await client.query(`
+        create table if not exists vendors (
+            id bigserial primary key,
+            vendor_name text not null unique,
+            contact_name text not null default '',
+            email text not null default '',
+            phone text not null default '',
+            address text not null default '',
+            tax_number text not null default '',
+            notes text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists vendor_bills (
+            id bigserial primary key,
+            vendor_id bigint references vendors(id) on delete set null,
+            bill_number text not null default '',
+            bill_date date not null default current_date,
+            due_date date,
+            amount numeric(12, 2) not null default 0,
+            paid_amount numeric(12, 2) not null default 0,
+            status text not null default 'open',
+            notes text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists vendor_payments (
+            id bigserial primary key,
+            vendor_id bigint references vendors(id) on delete set null,
+            vendor_bill_id bigint references vendor_bills(id) on delete set null,
+            payment_date date not null default current_date,
+            amount numeric(12, 2) not null default 0,
+            payment_method text not null default 'EFT',
+            reference_number text not null default '',
+            notes text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists expense_categories (
+            id bigserial primary key,
+            name text not null unique,
+            account_code text not null default '5000',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists expenses (
+            id bigserial primary key,
+            vendor_id bigint references vendors(id) on delete set null,
+            vendor text not null default '',
+            expense_category text not null default 'Miscellaneous',
+            expense_date date not null default current_date,
+            description text not null default '',
+            amount_before_tax numeric(12, 2) not null default 0,
+            tax_amount numeric(12, 2) not null default 0,
+            total_amount numeric(12, 2) not null default 0,
+            payment_status text not null default 'unpaid',
+            payment_method text not null default '',
+            receipt_upload text not null default '',
+            billable boolean not null default false,
+            customer_reference text not null default '',
+            warehouse_reference text not null default '',
+            notes text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists expense_attachments (
+            id bigserial primary key,
+            expense_id bigint not null references expenses(id) on delete cascade,
+            file_name text not null default '',
+            mime_type text not null default '',
+            file_data text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+
+    await client.query(`
+        create table if not exists bank_accounts (
+            id bigserial primary key,
+            account_name text not null unique,
+            bank_name text not null default '',
+            account_number text not null default '',
+            currency text not null default 'CAD',
+            opening_balance numeric(12, 2) not null default 0,
+            current_balance numeric(12, 2) not null default 0,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists bank_transactions (
+            id bigserial primary key,
+            bank_account_id bigint references bank_accounts(id) on delete cascade,
+            transaction_date date not null default current_date,
+            transaction_type text not null default 'deposit',
+            description text not null default '',
+            amount numeric(12, 2) not null default 0,
+            matched_type text not null default '',
+            matched_id bigint,
+            reconciliation_id bigint,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists bank_reconciliations (
+            id bigserial primary key,
+            bank_account_id bigint references bank_accounts(id) on delete cascade,
+            statement_date date not null default current_date,
+            statement_balance numeric(12, 2) not null default 0,
+            reconciled_balance numeric(12, 2) not null default 0,
+            status text not null default 'draft',
+            notes text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+
+    await client.query(`
+        create table if not exists chart_of_accounts (
+            id bigserial primary key,
+            account_code text not null unique,
+            account_name text not null,
+            account_type text not null,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists journal_entries (
+            id bigserial primary key,
+            entry_number text not null unique,
+            entry_date date not null default current_date,
+            source_type text not null default 'manual',
+            source_id bigint,
+            memo text not null default '',
+            created_by text not null default '',
+            is_posted boolean not null default true,
+            posted_at timestamptz not null default now(),
+            locked_at timestamptz not null default now(),
+            reversed_entry_id bigint,
+            reversal_entry_id bigint,
+            is_reversal boolean not null default false,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query("alter table journal_entries add column if not exists is_posted boolean not null default true");
+    await client.query("alter table journal_entries add column if not exists posted_at timestamptz not null default now()");
+    await client.query("alter table journal_entries add column if not exists locked_at timestamptz not null default now()");
+    await client.query("alter table journal_entries add column if not exists reversed_entry_id bigint");
+    await client.query("alter table journal_entries add column if not exists reversal_entry_id bigint");
+    await client.query("alter table journal_entries add column if not exists is_reversal boolean not null default false");
+    await client.query(`
+        create table if not exists journal_entry_lines (
+            id bigserial primary key,
+            journal_entry_id bigint not null references journal_entries(id) on delete cascade,
+            account_code text not null,
+            description text not null default '',
+            debit numeric(12, 2) not null default 0,
+            credit numeric(12, 2) not null default 0,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists tax_codes (
+            id bigserial primary key,
+            code text not null unique,
+            name text not null,
+            rate numeric(8, 4) not null default 0,
+            province text not null default '',
+            recoverable boolean not null default true,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists audit_logs (
+            id bigserial primary key,
+            module text not null default 'billing_finance',
+            entity_type text not null default '',
+            entity_id text not null default '',
+            action text not null default '',
+            actor_email text not null default '',
+            details jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists billing_finance_document_sequences (
+            document_type text primary key,
+            prefix text not null,
+            next_number integer not null default 1,
+            number_padding integer not null default 6,
+            reset_policy text not null default 'never',
+            updated_by text not null default '',
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query("alter table invoices drop constraint if exists invoices_posted_journal_entry_id_fkey");
+    await client.query("alter table invoices add constraint invoices_posted_journal_entry_id_fkey foreign key (posted_journal_entry_id) references journal_entries(id) on delete set null");
+
+    await client.query("create index if not exists idx_billing_finance_customer_profiles_account on customer_billing_profiles (account_name)");
+    await client.query("create index if not exists idx_rate_card_lines_card on rate_card_lines (rate_card_id)");
+    await client.query("create index if not exists idx_invoices_customer_status on invoices (customer_id, status, due_date)");
+    await client.query("create index if not exists idx_invoice_lines_invoice on invoice_lines (invoice_id)");
+    await client.query("create index if not exists idx_payments_customer on payments (customer_id, payment_date desc)");
+    await client.query("create index if not exists idx_payment_allocations_invoice on payment_allocations (invoice_id)");
+    await client.query("create index if not exists idx_expenses_category_date on expenses (expense_category, expense_date desc)");
+    await client.query("create index if not exists idx_journal_entry_lines_account on journal_entry_lines (account_code)");
+    await seedBillingFinanceReferenceData(client);
+}
+
+async function seedBillingFinanceReferenceData(client = pool) {
+    for (const [code, category, name, unitLabel] of BILLING_FINANCE_CHARGE_TYPES) {
+        await client.query(
+            `
+                insert into billing_fee_catalog (code, category, name, unit_label, default_rate, is_active)
+                values ($1, $2, $3, $4, 0, true)
+                on conflict (code) do update set
+                    category = excluded.category,
+                    name = excluded.name,
+                    unit_label = excluded.unit_label,
+                    is_active = true,
+                    updated_at = now()
+            `,
+            [code, category, name, unitLabel]
+        );
+    }
+
+    for (const category of BILLING_FINANCE_EXPENSE_CATEGORIES) {
+        await client.query(
+            `
+                insert into expense_categories (name, account_code)
+                values ($1, $2)
+                on conflict (name) do nothing
+            `,
+            [category, categoryAccountCode(category)]
+        );
+    }
+
+    for (const account of BILLING_FINANCE_CHART_ACCOUNTS) {
+        await client.query(
+            `
+                insert into chart_of_accounts (account_code, account_name, account_type)
+                values ($1, $2, $3)
+                on conflict (account_code) do update set
+                    account_name = excluded.account_name,
+                    account_type = excluded.account_type,
+                    is_active = true,
+                    updated_at = now()
+            `,
+            account
+        );
+    }
+
+    for (const taxCode of BILLING_FINANCE_TAX_CODES) {
+        await client.query(
+            `
+                insert into tax_codes (code, name, rate, province, recoverable, is_active)
+                values ($1, $2, $3, $4, $5, true)
+                on conflict (code) do update set
+                    name = excluded.name,
+                    rate = excluded.rate,
+                    province = excluded.province,
+                    recoverable = excluded.recoverable,
+                    is_active = true,
+                    updated_at = now()
+            `,
+            [taxCode.code, taxCode.name, taxCode.rate, taxCode.province, taxCode.recoverable]
+        );
+    }
+
+    for (const sequence of [
+        ["invoice", "INV", 1, 6],
+        ["journal_entry", "JE", 1, 6],
+        ["credit_note", "CN", 1, 6]
+    ]) {
+        await client.query(
+            `
+                insert into billing_finance_document_sequences (document_type, prefix, next_number, number_padding)
+                values ($1, $2, $3, $4)
+                on conflict (document_type) do nothing
+            `,
+            sequence
+        );
+    }
+
+    await client.query(`
+        insert into rate_cards (name, description, currency, effective_from, is_active)
+        values ('Standard 3PL Rate Card', 'Default demo-ready warehouse billing rates for 3PL operations.', 'CAD', current_date, true)
+        on conflict (name) do nothing
+    `);
+
+    await client.query(`
+        insert into rate_card_lines (rate_card_id, charge_type, unit, rate, tax_code, effective_from, notes)
+        select rc.id, seed.charge_type, seed.unit, seed.rate, 'HST_ON', current_date, 'Seeded 3PL billing rate'
+        from rate_cards rc
+        cross join (
+            values
+                ('PALLET_STORAGE_MONTHLY', 'Per pallet', 18.00),
+                ('RECEIVING_PALLET', 'Per pallet', 7.50),
+                ('PICK_PACK_FIRST_ITEM', 'Per order', 3.25),
+                ('ADDITIONAL_ITEM_FEE', 'Per unit', 0.55),
+                ('FREIGHT_MARKUP_PERCENTAGE', 'Percentage', 15.00),
+                ('LABOUR_HOURLY', 'Per hour', 48.00),
+                ('CONTAINER_UNLOAD_40FT', 'Flat fee', 450.00),
+                ('WMS_ACCESS_FEE', 'Flat fee', 75.00),
+                ('CUSTOM_CHARGE', 'Flat fee', 0.00)
+        ) as seed(charge_type, unit, rate)
+        where rc.name = 'Standard 3PL Rate Card'
+        on conflict (rate_card_id, charge_type, customer_id, effective_from) do nothing
+    `);
+
+    await client.query(`
+        insert into customer_billing_profiles (
+            account_name, customer_name, billing_contact, email, phone, billing_address,
+            payment_terms, currency, tax_settings, assigned_rate_card_id, billing_cycle,
+            minimum_monthly_billing, credit_limit, notes, is_active
+        )
+        select
+            o.name,
+            coalesce(nullif(o.legal_name, ''), o.name),
+            coalesce(nullif(o.contact_name, ''), 'Billing Contact'),
+            coalesce(nullif(o.billing_email, ''), nullif(o.email, ''), ''),
+            coalesce(o.phone, ''),
+            concat_ws(', ', nullif(o.address1, ''), nullif(o.address2, ''), nullif(o.city, ''), nullif(o.state, ''), nullif(o.postal_code, ''), nullif(o.country, '')),
+            'Net 30',
+            'CAD',
+            '{"defaultTaxCode":"HST_ON"}'::jsonb,
+            (select id from rate_cards where name = 'Standard 3PL Rate Card' limit 1),
+            'Monthly',
+            250,
+            5000,
+            'Seeded from WMS365 company profile.',
+            coalesce(o.is_active, true)
+        from owner_accounts o
+        where trim(coalesce(o.name, '')) <> ''
+        on conflict (account_name) do nothing
+    `);
+
+    await client.query(`
+        insert into bank_accounts (account_name, bank_name, currency, opening_balance, current_balance)
+        values ('Operating Account', 'Demo Bank', 'CAD', 0, 0)
+        on conflict (account_name) do nothing
+    `);
+
+    await client.query(`
+        insert into customer_billing_profiles (
+            account_name, customer_name, billing_contact, email, phone, billing_address,
+            payment_terms, currency, tax_settings, assigned_rate_card_id, billing_cycle,
+            minimum_monthly_billing, credit_limit, notes, is_active
+        )
+        select
+            'DEMO 3PL CUSTOMER',
+            'Demo 3PL Customer',
+            'Accounts Payable',
+            'ap@example.com',
+            '555-0100',
+            '100 Demo Road, Mississauga, ON',
+            'Net 30',
+            'CAD',
+            '{"defaultTaxCode":"HST_ON"}'::jsonb,
+            (select id from rate_cards where name = 'Standard 3PL Rate Card' limit 1),
+            'Monthly',
+            250,
+            7500,
+            'Demo profile for Billing & Finance.',
+            true
+        where not exists (select 1 from customer_billing_profiles)
+    `);
+
+    await client.query(`
+        insert into vendors (vendor_name, contact_name, email, phone, address, tax_number, notes)
+        values ('Demo Labour Agency', 'Dispatch', 'dispatch@example.com', '555-0199', '200 Vendor Ave, Mississauga, ON', '123456789RT0001', 'Seed vendor for finance demos.')
+        on conflict (vendor_name) do nothing
+    `);
+
+    await client.query(`
+        insert into expenses (vendor_id, vendor, expense_category, expense_date, description, amount_before_tax, tax_amount, total_amount, payment_status, payment_method, billable, customer_reference, warehouse_reference, notes)
+        select v.id, v.vendor_name, 'Agency labour', current_date - interval '5 days', 'Temporary warehouse labour', 1200, 156, 1356, 'unpaid', '', true, 'DEMO 3PL CUSTOMER', '${DEFAULT_FULFILLMENT_LOCATION.code}', 'Seed expense'
+        from vendors v
+        where v.vendor_name = 'Demo Labour Agency'
+          and not exists (select 1 from expenses where description = 'Temporary warehouse labour')
+    `);
+
+    await client.query(`
+        insert into billing_events (
+            account_name, customer_id, warehouse_id, activity_date, service_date, source_module, source_reference,
+            source_type, source_ref, activity_type, charge_type, fee_code, description, fee_name, quantity,
+            unit_rate, rate, amount, tax_code, status, created_by, notes, note, reference
+        )
+        select 'DEMO 3PL CUSTOMER', 'DEMO 3PL CUSTOMER', '${DEFAULT_FULFILLMENT_LOCATION.code}', current_date - interval '3 days', current_date - interval '3 days',
+            'Seed', 'DEMO-RCPT-001', 'Seed', 'DEMO-RCPT-001', 'Receiving', 'RECEIVING_PALLET', 'RECEIVING_PALLET',
+            'Receiving pallets', 'Receiving pallets', 24, 7.50, 7.50, 180, 'HST_ON', 'approved', 'system', 'Seed approved billing event', 'Seed approved billing event', 'DEMO-RCPT-001'
+        where not exists (select 1 from billing_events where source_reference = 'DEMO-RCPT-001')
+    `);
+
+    await client.query(`
+        insert into invoices (invoice_number, customer_id, billing_address, invoice_date, due_date, payment_terms, currency, subtotal, tax, total, paid_amount, balance_due, notes, status)
+        values ('INV-000001', 'DEMO 3PL CUSTOMER', '100 Demo Road, Mississauga, ON', current_date - interval '10 days', current_date + interval '20 days', 'Net 30', 'CAD', 850, 110.50, 960.50, 300, 660.50, 'Seed invoice', 'partial')
+        on conflict (invoice_number) do nothing
+    `);
+    await client.query(`
+        insert into invoice_lines (invoice_id, line_number, description, charge_type, quantity, unit_rate, tax_code, tax_amount, amount)
+        select i.id, 1, 'Monthly pallet storage', 'PALLET_STORAGE_MONTHLY', 40, 18, 'HST_ON', 93.60, 720
+        from invoices i
+        where i.invoice_number = 'INV-000001'
+          and not exists (select 1 from invoice_lines where invoice_id = i.id and line_number = 1)
+    `);
+    await client.query(`
+        insert into invoice_lines (invoice_id, line_number, description, charge_type, quantity, unit_rate, tax_code, tax_amount, amount)
+        select i.id, 2, 'Pick and pack orders', 'PICK_PACK_FIRST_ITEM', 40, 3.25, 'HST_ON', 16.90, 130
+        from invoices i
+        where i.invoice_number = 'INV-000001'
+          and not exists (select 1 from invoice_lines where invoice_id = i.id and line_number = 2)
+    `);
+    await client.query(`
+        insert into payments (payment_date, customer_id, invoice_reference, amount, payment_method, reference_number, notes, unapplied_amount)
+        values (current_date - interval '2 days', 'DEMO 3PL CUSTOMER', 'INV-000001', 300, 'EFT', 'DEMO-PAY-001', 'Seed partial payment', 0)
+        on conflict do nothing
+    `);
+    await client.query(`
+        insert into payment_allocations (payment_id, invoice_id, amount)
+        select p.id, i.id, 300
+        from payments p
+        join invoices i on i.invoice_number = p.invoice_reference
+        where p.reference_number = 'DEMO-PAY-001'
+          and not exists (select 1 from payment_allocations where payment_id = p.id and invoice_id = i.id)
+    `);
+    await client.query(`
+        insert into journal_entries (entry_number, entry_date, source_type, source_id, memo, created_by)
+        values ('JE-000001', current_date - interval '10 days', 'seed', null, 'Seed opening Billing & Finance journal entry', 'system')
+        on conflict (entry_number) do nothing
+    `);
+    await client.query(`
+        insert into journal_entry_lines (journal_entry_id, account_code, description, debit, credit)
+        select je.id, line.account_code, line.description, line.debit, line.credit
+        from journal_entries je
+        cross join (
+            values
+                ('1100', 'Seed accounts receivable', 960.50::numeric, 0::numeric),
+                ('4000', 'Seed warehouse revenue', 0::numeric, 850::numeric),
+                ('2100', 'Seed tax payable', 0::numeric, 110.50::numeric)
+        ) as line(account_code, description, debit, credit)
+        where je.entry_number = 'JE-000001'
+          and not exists (select 1 from journal_entry_lines where journal_entry_id = je.id)
+    `);
+}
+
 async function initializeDatabaseWithRetry() {
     databaseInitStartedAt = new Date().toISOString();
 
@@ -4492,11 +6020,14 @@ async function initializeDatabaseWithRetry() {
 }
 
 async function getServerState(client = pool, { billingEventLimit = 1000, appUser = null } = {}) {
+    await syncWarehouseTasksFromOperationalRecords(client);
+
     const billingEventsQuery = Number.isFinite(billingEventLimit) && billingEventLimit > 0
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
+    const warehouseTasksQuery = getWarehouseTaskRowsForAppUser(client, appUser, { activeOnly: true, limit: 240 });
 
-    const [inventoryResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, metaResult] = await Promise.all([
+    const [inventoryResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, warehouseTaskResult, metaResult] = await Promise.all([
         client.query(
             `
                 select
@@ -4551,6 +6082,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         client.query("select * from billing_fee_catalog order by category asc, name asc"),
         client.query("select * from owner_billing_rates order by account_name asc, fee_code asc"),
         billingEventsQuery,
+        warehouseTasksQuery,
         client.query(`
             select nullif(
                 greatest(
@@ -4565,6 +6097,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
                     coalesce((select max(updated_at) from portal_orders), to_timestamp(0)),
                     coalesce((select max(updated_at) from portal_order_allocations), to_timestamp(0)),
+                    coalesce((select max(updated_at) from warehouse_tasks), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_billing_rates), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_events), to_timestamp(0))
@@ -4607,6 +6140,9 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
     const billingEventRows = companyScoped
         ? filterRowsByAllowedCompanies(billingEventResult.rows, accessibleCompanies, (row) => row.account_name)
         : billingEventResult.rows;
+    const warehouseTaskRows = companyScoped
+        ? filterRowsByAllowedCompanies(warehouseTaskResult.rows, accessibleCompanies, (row) => row.account_name)
+        : warehouseTaskResult.rows;
     const activityRows = companyScoped ? [] : activityResult.rows;
     const appUsers = isSuperAdminUser(appUser) ? await getAppUsersWithAssignments(client) : [];
 
@@ -4615,6 +6151,8 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
             .concat(inventoryRows.map((row) => row.account_name))
             .concat(itemRows.map((row) => row.account_name))
     )].filter(Boolean).sort();
+
+    const canViewBilling = isBillingFinanceUser(appUser);
 
     return {
         inventory: inventoryRows.map(mapInventoryRow),
@@ -4630,10 +6168,11 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
             owners
         },
         billing: {
-            feeCatalog: billingFeeResult.rows.map(mapBillingFeeRow),
-            ownerRates: ownerRateRows.map(mapOwnerBillingRateRow),
-            events: billingEventRows.map(mapBillingEventRow)
+            feeCatalog: canViewBilling ? billingFeeResult.rows.map(mapBillingFeeRow) : [],
+            ownerRates: canViewBilling ? ownerRateRows.map(mapOwnerBillingRateRow) : [],
+            events: canViewBilling ? billingEventRows.map(mapBillingEventRow) : []
         },
+        warehouseTasks: warehouseTaskRows.map(mapWarehouseTaskRow),
         session: {
             appUser: appUser ? mapAppUserRow(appUser) : null
         },
@@ -5002,6 +6541,51 @@ async function createBatchBillingEvents(client, items, batchRef) {
     return created;
 }
 
+async function createPortalInboundBillingEvents(client, inbound) {
+    if (!inbound?.id || !inbound?.accountName) return [];
+
+    const grouped = new Map();
+    for (const line of Array.isArray(inbound.lines) ? inbound.lines : []) {
+        const quantity = Number(line?.receivedQuantity || line?.quantity) || 0;
+        if (quantity <= 0) continue;
+
+        const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
+        if (trackingLevel === "PALLET") {
+            addBillingRollup(grouped, inbound.accountName, "PALLET_RECEIVING_FEE", quantity);
+            addBillingRollup(grouped, inbound.accountName, "PUT_AWAY_PALLET", quantity);
+            continue;
+        }
+
+        if (trackingLevel === "CASE") {
+            addBillingRollup(grouped, inbound.accountName, "CARTON_RECEIVING_FEE", quantity);
+            addBillingRollup(grouped, inbound.accountName, "PUT_AWAY_CARTON", quantity);
+            continue;
+        }
+
+        const unitsPerCase = Number(line?.unitsPerCase || line?.units_per_case) || 0;
+        if (trackingLevel === "UNIT" && unitsPerCase > 0 && quantity % unitsPerCase === 0) {
+            const cartonCount = quantity / unitsPerCase;
+            addBillingRollup(grouped, inbound.accountName, "CARTON_RECEIVING_FEE", cartonCount);
+            addBillingRollup(grouped, inbound.accountName, "PUT_AWAY_CARTON", cartonCount);
+        }
+    }
+
+    const created = [];
+    const sourceRef = inbound.inboundCode || `INBOUND-${inbound.id}`;
+    const reference = inbound.referenceNumber || sourceRef;
+    for (const entry of grouped.values()) {
+        const billLine = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
+            sourceType: "INBOUND_RECEIPT",
+            sourceRef,
+            reference,
+            note: `Auto-created when purchase order ${sourceRef} was received.`,
+            eventKey: `INBOUND:${inbound.id}:${entry.accountName}:${entry.feeCode}`
+        });
+        if (billLine) created.push(billLine);
+    }
+    return created;
+}
+
 async function createPortalOrderBillingEvents(client, order) {
     if (!order?.id || !order?.accountName) return [];
 
@@ -5276,6 +6860,15 @@ function normalizeAppUserRole(value) {
     if (normalized === "SUPER_ADMIN" || normalized === "SUPERUSER" || normalized === "PLATFORM_ADMIN") {
         return APP_USER_ROLES.SUPER_ADMIN;
     }
+    if (normalized === "ADMIN" || normalized === "APP_ADMIN" || normalized === "SYSTEM_ADMIN") {
+        return APP_USER_ROLES.ADMIN;
+    }
+    if (normalized === "ACCOUNTING" || normalized === "ACCOUNTANT" || normalized === "BOOKKEEPER") {
+        return APP_USER_ROLES.ACCOUNTING;
+    }
+    if (normalized === "FINANCE_MANAGER" || normalized === "FINANCE" || normalized === "FINANCEMANAGER") {
+        return APP_USER_ROLES.FINANCE_MANAGER;
+    }
     if (normalized === "WAREHOUSE_ADMIN" || normalized === "WAREHOUSEADMIN") {
         return APP_USER_ROLES.WAREHOUSE_ADMIN;
     }
@@ -5483,6 +7076,7 @@ function requiresAppAuth(req) {
         || pathName === "/api/site/stripe-checkout-session"
         || pathName === "/api/site/stripe-checkout"
         || pathName === "/api/site/stripe-webhook"
+        || pathName === "/api/delivery-appointment-action"
         || pathName === "/api/app/login"
         || pathName === "/api/app/logout"
         || pathName === "/api/app/me") return false;
@@ -7447,6 +9041,10 @@ function buildSftpReceiptConfirmationPayload(inbound, externalInboundId = "") {
                 upc: line.upc || "",
                 description: line.description || "",
                 quantity: Number(line.quantity) || 0,
+                receivedQuantity: Number(line.receivedQuantity) || 0,
+                receivedLocation: line.receivedLocation || "",
+                lotNumber: line.lotNumber || "",
+                expirationDate: line.expirationDate || "",
                 trackingLevel: line.trackingLevel || "UNIT"
             }))
             : []
@@ -7466,7 +9064,9 @@ async function getPortalInboundById(client, inboundId, downloadPathPrefix = "/ap
                 i.account_name,
                 c.description as item_description,
                 c.upc as item_upc,
-                c.tracking_level as item_tracking_level
+                c.tracking_level as item_tracking_level,
+                c.lot_tracked as item_lot_tracked,
+                c.expiration_tracked as item_expiration_tracked
             from portal_inbound_lines l
             join portal_inbounds i on i.id = l.inbound_id
             left join item_catalog c
@@ -8067,7 +9667,9 @@ async function getAdminPortalInbounds(client = pool) {
                     i.account_name,
                     c.description as item_description,
                     c.upc as item_upc,
-                    c.tracking_level as item_tracking_level
+                    c.tracking_level as item_tracking_level,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
                 from portal_inbound_lines l
                 join portal_inbounds i on i.id = l.inbound_id
                 left join item_catalog c
@@ -8603,6 +10205,7 @@ async function savePortalOrderDraftForAccount(
             activityActor || ""
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForOrder(client, savedOrder);
     return savedOrder;
 }
 
@@ -8632,6 +10235,7 @@ async function archivePortalOrderForAccount(
         throw httpError(404, "That order could not be found.");
     }
     if (order.status === "ARCHIVED") {
+        await syncWarehouseTasksForOrder(client, order);
         return order;
     }
     if (order.status !== "DRAFT") {
@@ -8663,6 +10267,7 @@ async function archivePortalOrderForAccount(
             activityActor || ""
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForOrder(client, archivedOrder);
     return archivedOrder;
 }
 
@@ -8691,6 +10296,7 @@ async function reopenReleasedPortalOrderForAccount(
         throw httpError(404, "That order could not be found.");
     }
     if (order.status === "DRAFT") {
+        await syncWarehouseTasksForOrder(client, order);
         return order;
     }
     if (order.status !== "RELEASED") {
@@ -8724,6 +10330,7 @@ async function reopenReleasedPortalOrderForAccount(
             activityActor || ""
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForOrder(client, reopenedOrder);
     return reopenedOrder;
 }
 
@@ -9003,6 +10610,7 @@ async function releasePortalOrderForAccount(
         throw httpError(404, "That order could not be found.");
     }
     if (order.status === "RELEASED") {
+        await syncWarehouseTasksForOrder(client, order);
         return order;
     }
     if (order.status !== "DRAFT") {
@@ -9042,6 +10650,7 @@ async function releasePortalOrderForAccount(
             activityActor || ""
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForOrder(client, releasedOrder);
     return releasedOrder;
 }
 
@@ -10965,6 +12574,405 @@ async function getPortalShipmentRecipients(client, accountName) {
     return [...recipients];
 }
 
+async function getPortalInboundArrivalRecipients(client, accountName) {
+    return getPortalShipmentRecipients(client, accountName);
+}
+
+async function getPortalInboundFulfillmentLocation(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query(
+        `
+            select
+                cfl.is_primary,
+                fl.id as fulfillment_location_id,
+                fl.code,
+                fl.name,
+                fl.partner_name,
+                fl.contact_email,
+                fl.address1,
+                fl.address2,
+                fl.city,
+                fl.state,
+                fl.postal_code,
+                fl.country
+            from company_fulfillment_locations cfl
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            where cfl.account_name = $1
+              and cfl.allow_inbound = true
+              and fl.is_active = true
+            order by cfl.is_primary desc, fl.is_default desc, fl.code asc
+            limit 1
+        `,
+        [normalizedAccount]
+    );
+    return result.rowCount ? result.rows[0] : null;
+}
+
+async function getPortalDeliveryAppointmentRecipients(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    const recipients = new Set();
+    if (normalizedAccount) {
+        const assignedUsers = await client.query(
+            `
+                select distinct u.email
+                from app_users u
+                where u.is_active = true
+                  and u.email is not null
+                  and btrim(u.email) <> ''
+                  and lower(coalesce(u.role, '')) <> 'super_admin'
+                  and (
+                    exists (
+                        select 1
+                        from app_user_company_access direct_access
+                        where direct_access.app_user_id = u.id
+                          and direct_access.account_name = $1
+                    )
+                    or exists (
+                        select 1
+                        from app_user_fulfillment_location_access location_access
+                        join company_fulfillment_locations cfl on cfl.fulfillment_location_id = location_access.fulfillment_location_id
+                        join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+                        where location_access.app_user_id = u.id
+                          and cfl.account_name = $1
+                          and cfl.allow_inbound = true
+                          and fl.is_active = true
+                    )
+                  )
+                order by u.email asc
+            `,
+            [normalizedAccount]
+        );
+        assignedUsers.rows.forEach((row) => addValidEmailRecipient(recipients, row.email));
+
+        const location = await getPortalInboundFulfillmentLocation(client, normalizedAccount);
+        addValidEmailRecipient(recipients, location?.contact_email);
+    }
+
+    if (!recipients.size) {
+        normalizeEmailList(ORDER_RELEASE_TO).forEach((email) => addValidEmailRecipient(recipients, email));
+    }
+    if (!recipients.size) {
+        addValidEmailRecipient(recipients, SMTP_REPLY_TO);
+        addValidEmailRecipient(recipients, DEMO_REQUEST_TO);
+        addValidEmailRecipient(recipients, DEFAULT_ADMIN_EMAIL);
+    }
+
+    return [...recipients];
+}
+
+function formatPortalInboundArrivalLocation(location) {
+    if (!location) return "the warehouse / DC";
+    const name = location.partner_name || location.name || location.code || "the warehouse / DC";
+    const cityState = [location.city, location.state].filter(Boolean).join(", ");
+    return cityState ? `${name} - ${cityState}` : name;
+}
+
+function formatPortalInboundArrivalLines(inbound) {
+    return (inbound.lines || [])
+        .map((line) => `- ${line.sku}: ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` - ${line.description}` : ""}`)
+        .join("\n") || "- No lines listed";
+}
+
+function buildPortalInboundArrivalEmailText(inbound, { warehouseLocation = "the warehouse / DC", actorLabel = "" } = {}) {
+    return [
+        `Inbound ${inbound.inboundCode} has arrived at ${warehouseLocation}.`,
+        "",
+        `Company: ${inbound.accountName}`,
+        `Purchase Order / Reference: ${inbound.referenceNumber || "-"}`,
+        `Expected Date: ${inbound.expectedDate || "-"}`,
+        `Carrier: ${inbound.carrierName || "-"}`,
+        `Contact: ${[inbound.contactName, inbound.contactPhone].filter(Boolean).join(" | ") || "-"}`,
+        inbound.arrivedAt ? `Arrived At: ${inbound.arrivedAt}` : "",
+        actorLabel ? `Checked In By: ${actorLabel}` : "",
+        inbound.arrivalNote ? `Arrival Note: ${inbound.arrivalNote}` : "",
+        "",
+        "Status:",
+        "Your inbound shipment has arrived at the distribution center. Our receiving team will process it and send the final receiving report within 48-72 business hours.",
+        "",
+        "Expected Lines:",
+        formatPortalInboundArrivalLines(inbound),
+        "",
+        "WMS365 Support"
+    ].filter(Boolean).join("\n");
+}
+
+function buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation = "the warehouse / DC", actorLabel = "" } = {}) {
+    const lineRows = (inbound.lines || []).map((line) => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "")}</td>
+        </tr>
+    `).join("") || `<tr><td colspan="3" style="padding:8px;">No lines listed.</td></tr>`;
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:760px;">
+            <h2 style="margin:0 0 12px;">Inbound Arrived at DC</h2>
+            <p style="margin:0 0 16px;">Inbound <strong>${escapeHtml(inbound.inboundCode)}</strong> for <strong>${escapeHtml(inbound.accountName)}</strong> has arrived at <strong>${escapeHtml(warehouseLocation)}</strong>.</p>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Our receiving team will process it and send the final receiving report within <strong>48-72 business hours</strong>.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;margin-bottom:18px;">
+                <tr><td style="padding:6px 0;font-weight:600;">Purchase Order / Reference</td><td style="padding:6px 0;">${escapeHtml(inbound.referenceNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Expected Date</td><td style="padding:6px 0;">${escapeHtml(inbound.expectedDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Carrier</td><td style="padding:6px 0;">${escapeHtml(inbound.carrierName || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Contact</td><td style="padding:6px 0;">${escapeHtml([inbound.contactName, inbound.contactPhone].filter(Boolean).join(" | ") || "-")}</td></tr>
+                ${actorLabel ? `<tr><td style="padding:6px 0;font-weight:600;">Checked In By</td><td style="padding:6px 0;">${escapeHtml(actorLabel)}</td></tr>` : ""}
+                ${inbound.arrivalNote ? `<tr><td style="padding:6px 0;font-weight:600;">Arrival Note</td><td style="padding:6px 0;">${escapeHtml(inbound.arrivalNote)}</td></tr>` : ""}
+            </table>
+            <p style="margin:0 0 8px;font-weight:600;">Expected Lines</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Expected Qty</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
+                    </tr>
+                </thead>
+                <tbody>${lineRows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function sendPortalInboundArrivalEmail(client, inbound, { actorLabel = "" } = {}) {
+    const recipients = await getPortalInboundArrivalRecipients(client, inbound.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No active portal user or company email is available for inbound arrival notification.");
+    }
+    const location = await getPortalInboundFulfillmentLocation(client, inbound.accountName);
+    const warehouseLocation = formatPortalInboundArrivalLocation(location);
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `Inbound Arrived at DC - ${inbound.inboundCode}`,
+        text: buildPortalInboundArrivalEmailText(inbound, { warehouseLocation, actorLabel }),
+        html: buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation, actorLabel })
+    }, "Inbound arrival email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    return recipients;
+}
+
+function queuePortalInboundArrivalEmail(inbound, { actorLabel = "" } = {}) {
+    if (!inbound?.id || !inbound?.accountName) return;
+    const inboundLabel = inbound.inboundCode || String(inbound.id);
+    setTimeout(async () => {
+        try {
+            const recipients = await sendPortalInboundArrivalEmail(pool, inbound, { actorLabel });
+            await withTransaction((client) => insertActivity(
+                client,
+                "receipt",
+                `Inbound arrival email sent for ${inboundLabel}`,
+                [
+                    inbound.accountName,
+                    `Sent to ${formatCount(recipients.length, "recipient")}`,
+                    actorLabel || ""
+                ].filter(Boolean).join(" | ")
+            ));
+        } catch (error) {
+            console.error(`Inbound arrival email failed for ${inboundLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "receipt",
+                    `Inbound arrival email failed for ${inboundLabel}`,
+                    [
+                        inbound.accountName,
+                        actorLabel || "",
+                        error.message || "Unknown email error"
+                    ].filter(Boolean).join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record inbound arrival email failure for ${inboundLabel}:`, logError);
+            }
+        }
+    }, 0);
+}
+
+function getAppActionOrigin(requestOrigin = "") {
+    const origin = String(requestOrigin || "").replace(/\/+$/, "");
+    return origin || APP_BASE_URL || "https://app.wms365.co";
+}
+
+function formatDeliveryAppointmentLocation(appointment) {
+    const locationName = appointment.fulfillmentPartnerName || appointment.fulfillmentLocationName || appointment.fulfillmentLocationCode || "Assigned warehouse";
+    const address = [
+        appointment.fulfillmentAddress1,
+        appointment.fulfillmentAddress2,
+        [appointment.fulfillmentCity, appointment.fulfillmentState, appointment.fulfillmentPostalCode].filter(Boolean).join(", "),
+        appointment.fulfillmentCountry
+    ].filter(Boolean).join(" | ");
+    return address ? `${locationName} | ${address}` : locationName;
+}
+
+function buildDeliveryAppointmentActionUrl(appointment, approvalToken, requestOrigin = "") {
+    const origin = getAppActionOrigin(requestOrigin);
+    const params = new URLSearchParams({
+        token: approvalToken,
+        code: appointment.appointmentCode || ""
+    });
+    return `${origin}/delivery-appointment-action?${params.toString()}`;
+}
+
+function buildDeliveryAppointmentWarehouseEmailText(appointment, actionUrl) {
+    return [
+        `Delivery appointment requested: ${appointment.appointmentCode}`,
+        "",
+        `Company: ${appointment.accountName}`,
+        `Reference / PO: ${appointment.referenceNumber || "-"}`,
+        `Requested Date: ${appointment.requestedDate || "-"}`,
+        `Requested Time: ${appointment.requestedTime || "-"}`,
+        `Warehouse: ${formatDeliveryAppointmentLocation(appointment)}`,
+        `Carrier: ${appointment.carrierName || "-"}`,
+        `Trailer / Container: ${appointment.trailerNumber || "-"}`,
+        `Pallets: ${appointment.palletCount ?? "-"}`,
+        `Cartons: ${appointment.cartonCount ?? "-"}`,
+        `Contact: ${[appointment.contactName, appointment.contactEmail, appointment.contactPhone].filter(Boolean).join(" | ") || "-"}`,
+        "",
+        "Notes:",
+        appointment.notes || "-",
+        "",
+        "Approve or deny this appointment:",
+        actionUrl
+    ].join("\n");
+}
+
+function buildDeliveryAppointmentWarehouseEmailHtml(appointment, actionUrl) {
+    const detailRows = [
+        ["Company", appointment.accountName],
+        ["Reference / PO", appointment.referenceNumber || "-"],
+        ["Requested Date", appointment.requestedDate || "-"],
+        ["Requested Time", appointment.requestedTime || "-"],
+        ["Warehouse", formatDeliveryAppointmentLocation(appointment)],
+        ["Carrier", appointment.carrierName || "-"],
+        ["Trailer / Container", appointment.trailerNumber || "-"],
+        ["Pallets", appointment.palletCount ?? "-"],
+        ["Cartons", appointment.cartonCount ?? "-"],
+        ["Contact", [appointment.contactName, appointment.contactEmail, appointment.contactPhone].filter(Boolean).join(" | ") || "-"]
+    ].map(([label, value]) => `
+        <tr>
+            <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #e5e7eb;width:180px;">${escapeHtml(label)}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(String(value || ""))}</td>
+        </tr>
+    `).join("");
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.45;max-width:760px;">
+            <h2 style="margin:0 0 12px;">Delivery Appointment Requested</h2>
+            <p style="margin:0 0 16px;"><strong>${escapeHtml(appointment.accountName)}</strong> requested delivery appointment <strong>${escapeHtml(appointment.appointmentCode)}</strong>.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:740px;border:1px solid #e5e7eb;margin-bottom:16px;">${detailRows}</table>
+            <p style="margin:0 0 8px;font-weight:700;">Notes</p>
+            <p style="margin:0 0 18px;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;">${escapeHtml(appointment.notes || "-")}</p>
+            <p style="margin:0 0 16px;">
+                <a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#006d7f;color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:4px;font-weight:700;">Approve or Deny Appointment</a>
+            </p>
+            <p style="font-size:12px;color:#64748b;">This link opens WMS365 so the warehouse can approve, or deny with an alternative date and time.</p>
+        </div>
+    `;
+}
+
+function buildDeliveryAppointmentCustomerEmailText(appointment) {
+    const approved = appointment.status === "APPROVED";
+    const denied = appointment.status === "DENIED";
+    return [
+        approved ? `Your delivery appointment ${appointment.appointmentCode} was approved.` : "",
+        denied ? `Your delivery appointment ${appointment.appointmentCode} needs a new time.` : "",
+        "",
+        `Company: ${appointment.accountName}`,
+        `Reference / PO: ${appointment.referenceNumber || "-"}`,
+        `Requested Date: ${appointment.requestedDate || "-"}`,
+        `Requested Time: ${appointment.requestedTime || "-"}`,
+        approved ? `Approved Date / Time: ${appointment.requestedDate || "-"} ${appointment.requestedTime || "-"}` : "",
+        denied ? `Suggested Alternative: ${appointment.alternativeDate || "-"} ${appointment.alternativeTime || "-"}` : "",
+        appointment.warehouseNote ? `Warehouse Note: ${appointment.warehouseNote}` : "",
+        "",
+        "WMS365 Support"
+    ].filter(Boolean).join("\n");
+}
+
+function buildDeliveryAppointmentCustomerEmailHtml(appointment) {
+    const statusText = appointment.status === "APPROVED"
+        ? "approved"
+        : "needs a new appointment time";
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:720px;">
+            <h2 style="margin:0 0 12px;">Delivery Appointment ${escapeHtml(statusText)}</h2>
+            <p style="margin:0 0 16px;">Appointment <strong>${escapeHtml(appointment.appointmentCode)}</strong> for <strong>${escapeHtml(appointment.accountName)}</strong> has been updated.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:680px;">
+                <tr><td style="padding:6px 0;font-weight:700;">Reference / PO</td><td style="padding:6px 0;">${escapeHtml(appointment.referenceNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Requested</td><td style="padding:6px 0;">${escapeHtml(`${appointment.requestedDate || "-"} ${appointment.requestedTime || "-"}`)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Status</td><td style="padding:6px 0;">${escapeHtml(appointment.status)}</td></tr>
+                ${appointment.status === "DENIED" ? `<tr><td style="padding:6px 0;font-weight:700;">Suggested Alternative</td><td style="padding:6px 0;">${escapeHtml(`${appointment.alternativeDate || "-"} ${appointment.alternativeTime || "-"}`)}</td></tr>` : ""}
+                ${appointment.warehouseNote ? `<tr><td style="padding:6px 0;font-weight:700;">Warehouse Note</td><td style="padding:6px 0;">${escapeHtml(appointment.warehouseNote)}</td></tr>` : ""}
+            </table>
+        </div>
+    `;
+}
+
+async function sendDeliveryAppointmentRequestEmail(client, appointment, approvalToken, { requestOrigin = "" } = {}) {
+    const recipients = await getPortalDeliveryAppointmentRecipients(client, appointment.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No warehouse appointment recipient is configured for this company.");
+    }
+    const actionUrl = buildDeliveryAppointmentActionUrl(appointment, approvalToken, requestOrigin);
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `Delivery Appointment Requested - ${appointment.appointmentCode}`,
+        text: buildDeliveryAppointmentWarehouseEmailText(appointment, actionUrl),
+        html: buildDeliveryAppointmentWarehouseEmailHtml(appointment, actionUrl)
+    }, "Delivery appointment email cannot send because system email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    return recipients;
+}
+
+async function sendDeliveryAppointmentCustomerEmail(client, appointment) {
+    const recipients = new Set();
+    addValidEmailRecipient(recipients, appointment.contactEmail);
+    (await getPortalShipmentRecipients(client, appointment.accountName)).forEach((email) => addValidEmailRecipient(recipients, email));
+    if (!recipients.size) {
+        throw httpError(400, "No customer email recipient is configured for this appointment.");
+    }
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: [...recipients].join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: appointment.status === "APPROVED"
+            ? `Delivery Appointment Approved - ${appointment.appointmentCode}`
+            : `Delivery Appointment Alternative Needed - ${appointment.appointmentCode}`,
+        text: buildDeliveryAppointmentCustomerEmailText(appointment),
+        html: buildDeliveryAppointmentCustomerEmailHtml(appointment)
+    }, "Delivery appointment customer email cannot send because system email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    return [...recipients];
+}
+
+function queueDeliveryAppointmentRequestEmail(appointment, approvalToken, { requestOrigin = "" } = {}) {
+    if (!appointment?.id || !appointment?.accountName || !approvalToken) return;
+    const appointmentLabel = appointment.appointmentCode || String(appointment.id);
+    setTimeout(async () => {
+        try {
+            const recipients = await sendDeliveryAppointmentRequestEmail(pool, appointment, approvalToken, { requestOrigin });
+            await withTransaction((client) => insertActivity(
+                client,
+                "receipt",
+                `Delivery appointment request email sent for ${appointmentLabel}`,
+                [appointment.accountName, `Sent to ${formatCount(recipients.length, "recipient")}`].join(" | ")
+            ));
+        } catch (error) {
+            console.error(`Delivery appointment request email failed for ${appointmentLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "receipt",
+                    `Delivery appointment request email failed for ${appointmentLabel}`,
+                    [appointment.accountName, error.message || "Unknown email error"].join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record delivery appointment email failure for ${appointmentLabel}:`, logError);
+            }
+        }
+    }, 0);
+}
+
 async function getPortalOrderReleaseAssignedUsers(client = pool, accountName = "") {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) return [];
@@ -11937,6 +13945,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
         && shippedCarrierName === (order.shippedCarrierName || "")
         && shippedTrackingReference === (order.shippedTrackingReference || "")
         && shippedConfirmationNote === (order.shippedConfirmationNote || "")) {
+        await syncWarehouseTasksForOrder(client, order, appUser);
         return order;
     }
 
@@ -11985,6 +13994,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             actor
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
     return updatedOrder;
 }
 
@@ -12078,6 +14088,299 @@ function makePortalInboundCode(id) {
     return `INB-${String(id).padStart(6, "0")}`;
 }
 
+function makePortalDeliveryAppointmentCode(id) {
+    return `DEL-${String(id).padStart(6, "0")}`;
+}
+
+function createDeliveryAppointmentToken() {
+    return crypto.randomBytes(32).toString("hex");
+}
+
+function hashDeliveryAppointmentToken(token) {
+    return crypto.createHash("sha256").update(String(token || "").trim()).digest("hex");
+}
+
+function normalizeDeliveryAppointmentStatus(value) {
+    const normalized = normalizeText(value);
+    return ["REQUESTED", "APPROVED", "DENIED", "CANCELLED"].includes(normalized) ? normalized : "";
+}
+
+function mapPortalDeliveryAppointmentRow(row) {
+    return {
+        id: String(row.id),
+        appointmentCode: row.appointment_code || makePortalDeliveryAppointmentCode(row.id),
+        accountName: row.account_name || "",
+        portalAccessId: row.portal_access_id ? String(row.portal_access_id) : "",
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        fulfillmentPartnerName: row.fulfillment_partner_name || "",
+        fulfillmentAddress1: row.fulfillment_address1 || "",
+        fulfillmentAddress2: row.fulfillment_address2 || "",
+        fulfillmentCity: row.fulfillment_city || "",
+        fulfillmentState: row.fulfillment_state || "",
+        fulfillmentPostalCode: row.fulfillment_postal_code || "",
+        fulfillmentCountry: row.fulfillment_country || "",
+        status: normalizeDeliveryAppointmentStatus(row.status) || "REQUESTED",
+        requestedDate: row.requested_date ? normalizeDateOnly(row.requested_date) : "",
+        requestedTime: row.requested_time || "",
+        deliveryType: row.delivery_type || "INBOUND",
+        referenceNumber: row.reference_number || "",
+        carrierName: row.carrier_name || "",
+        trailerNumber: row.trailer_number || "",
+        palletCount: row.pallet_count == null ? null : Number(row.pallet_count),
+        cartonCount: row.carton_count == null ? null : Number(row.carton_count),
+        contactName: row.contact_name || "",
+        contactEmail: row.contact_email || "",
+        contactPhone: row.contact_phone || "",
+        notes: row.notes || "",
+        approvedAt: row.approved_at ? new Date(row.approved_at).toISOString() : null,
+        deniedAt: row.denied_at ? new Date(row.denied_at).toISOString() : null,
+        respondedBy: row.responded_by || "",
+        warehouseNote: row.warehouse_note || "",
+        alternativeDate: row.alternative_date ? normalizeDateOnly(row.alternative_date) : "",
+        alternativeTime: row.alternative_time || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+function sanitizeDeliveryAppointmentInput(input, accountName, accessRow = null) {
+    const requestedDate = normalizeDateInput(input?.requestedDate || input?.requested_date || input?.deliveryDate || input?.delivery_date);
+    const requestedTime = normalizeFreeText(input?.requestedTime || input?.requested_time || input?.deliveryTime || input?.delivery_time);
+    const referenceNumber = normalizeFreeText(input?.referenceNumber || input?.reference_number || input?.poNumber || input?.po_number || input?.reference);
+    const contactEmail = normalizeEmail(input?.contactEmail || input?.contact_email || accessRow?.email || "");
+    return {
+        accountName: normalizeText(accountName),
+        requestedDate,
+        requestedTime,
+        deliveryType: normalizeText(input?.deliveryType || input?.delivery_type || "INBOUND") || "INBOUND",
+        referenceNumber,
+        carrierName: normalizeFreeText(input?.carrierName || input?.carrier_name || input?.carrier),
+        trailerNumber: normalizeFreeText(input?.trailerNumber || input?.trailer_number || input?.trailer || input?.containerNumber || input?.container_number),
+        palletCount: toPositiveInt(input?.palletCount || input?.pallet_count),
+        cartonCount: toPositiveInt(input?.cartonCount || input?.carton_count),
+        contactName: normalizeFreeText(input?.contactName || input?.contact_name || accessRow?.contact_name || ""),
+        contactEmail,
+        contactPhone: normalizeFreeText(input?.contactPhone || input?.contact_phone || input?.phone),
+        notes: normalizeFreeText(input?.notes || input?.deliveryNotes || input?.delivery_notes)
+    };
+}
+
+async function getPortalDeliveryAppointmentsForAccount(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+    const result = await client.query(
+        `
+            select
+                a.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name,
+                fl.address1 as fulfillment_address1,
+                fl.address2 as fulfillment_address2,
+                fl.city as fulfillment_city,
+                fl.state as fulfillment_state,
+                fl.postal_code as fulfillment_postal_code,
+                fl.country as fulfillment_country
+            from portal_delivery_appointments a
+            left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            where a.account_name = $1
+              and a.status <> 'CANCELLED'
+            order by a.requested_date desc, a.created_at desc, a.id desc
+            limit 100
+        `,
+        [normalizedAccount]
+    );
+    return result.rows.map(mapPortalDeliveryAppointmentRow);
+}
+
+async function getPortalDeliveryAppointmentByToken(client, token) {
+    const tokenHash = hashDeliveryAppointmentToken(token);
+    if (!tokenHash) return null;
+    const result = await client.query(
+        `
+            select
+                a.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name,
+                fl.address1 as fulfillment_address1,
+                fl.address2 as fulfillment_address2,
+                fl.city as fulfillment_city,
+                fl.state as fulfillment_state,
+                fl.postal_code as fulfillment_postal_code,
+                fl.country as fulfillment_country
+            from portal_delivery_appointments a
+            left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            where a.approval_token_hash = $1
+            limit 1
+        `,
+        [tokenHash]
+    );
+    return result.rowCount ? result.rows[0] : null;
+}
+
+async function savePortalDeliveryAppointment(client, accessRow, input) {
+    const access = mapPortalAccessRow(accessRow);
+    const appointment = sanitizeDeliveryAppointmentInput(input, access.accountName, accessRow);
+    if (!appointment.requestedDate || !appointment.requestedTime || !appointment.referenceNumber || !appointment.contactName) {
+        throw httpError(400, "Requested date, requested time, reference number, and contact name are required.");
+    }
+
+    const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, access.accountName);
+    const approvalToken = createDeliveryAppointmentToken();
+    const insertResult = await client.query(
+        `
+            insert into portal_delivery_appointments (
+                account_name, portal_access_id, fulfillment_location_id, requested_date, requested_time,
+                delivery_type, reference_number, carrier_name, trailer_number, pallet_count, carton_count,
+                contact_name, contact_email, contact_phone, notes, approval_token_hash
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            returning id
+        `,
+        [
+            appointment.accountName,
+            accessRow.id,
+            fulfillmentLocation?.fulfillment_location_id || null,
+            appointment.requestedDate,
+            appointment.requestedTime,
+            appointment.deliveryType,
+            appointment.referenceNumber,
+            appointment.carrierName,
+            appointment.trailerNumber,
+            appointment.palletCount,
+            appointment.cartonCount,
+            appointment.contactName,
+            appointment.contactEmail,
+            appointment.contactPhone,
+            appointment.notes,
+            hashDeliveryAppointmentToken(approvalToken)
+        ]
+    );
+    const appointmentId = insertResult.rows[0].id;
+    await client.query(
+        "update portal_delivery_appointments set appointment_code = $2, updated_at = now() where id = $1",
+        [appointmentId, makePortalDeliveryAppointmentCode(appointmentId)]
+    );
+    const savedResult = await client.query(
+        `
+            select
+                a.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name,
+                fl.address1 as fulfillment_address1,
+                fl.address2 as fulfillment_address2,
+                fl.city as fulfillment_city,
+                fl.state as fulfillment_state,
+                fl.postal_code as fulfillment_postal_code,
+                fl.country as fulfillment_country
+            from portal_delivery_appointments a
+            left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            where a.id = $1
+            limit 1
+        `,
+        [appointmentId]
+    );
+    const savedAppointment = mapPortalDeliveryAppointmentRow(savedResult.rows[0]);
+    await insertActivity(
+        client,
+        "receipt",
+        `Requested delivery appointment ${savedAppointment.appointmentCode}`,
+        [
+            savedAppointment.accountName,
+            `Ref ${savedAppointment.referenceNumber}`,
+            `${savedAppointment.requestedDate} ${savedAppointment.requestedTime}`,
+            savedAppointment.fulfillmentLocationCode ? `Location ${savedAppointment.fulfillmentLocationCode}` : ""
+        ].filter(Boolean).join(" | ")
+    );
+    return { appointment: savedAppointment, approvalToken };
+}
+
+async function respondToDeliveryAppointment(client, token, input = {}) {
+    const row = await getPortalDeliveryAppointmentByToken(client, token);
+    if (!row) {
+        throw httpError(404, "That delivery appointment approval link is not valid.");
+    }
+
+    const current = mapPortalDeliveryAppointmentRow(row);
+    if (current.status !== "REQUESTED") {
+        return { appointment: current, changed: false };
+    }
+
+    const decision = normalizeText(input?.decision || input?.status || "");
+    const warehouseNote = normalizeFreeText(input?.warehouseNote || input?.warehouse_note || input?.note || "");
+    const respondedBy = normalizeFreeText(input?.respondedBy || input?.responded_by || "Warehouse");
+    let nextStatus = "";
+    let alternativeDate = "";
+    let alternativeTime = "";
+    if (decision === "APPROVE" || decision === "APPROVED") {
+        nextStatus = "APPROVED";
+    } else if (decision === "DENY" || decision === "DENIED") {
+        nextStatus = "DENIED";
+        alternativeDate = normalizeDateInput(input?.alternativeDate || input?.alternative_date);
+        alternativeTime = normalizeFreeText(input?.alternativeTime || input?.alternative_time);
+        if (!alternativeDate || !alternativeTime) {
+            throw httpError(400, "Enter an alternative date and time when denying a delivery appointment.");
+        }
+    } else {
+        throw httpError(400, "Choose approve or deny for this delivery appointment.");
+    }
+
+    const updateResult = await client.query(
+        `
+            update portal_delivery_appointments
+            set
+                status = $2,
+                approved_at = case when $2 = 'APPROVED' then now() else approved_at end,
+                denied_at = case when $2 = 'DENIED' then now() else denied_at end,
+                responded_by = $3,
+                warehouse_note = $4,
+                alternative_date = nullif($5, '')::date,
+                alternative_time = $6,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [row.id, nextStatus, respondedBy || "Warehouse", warehouseNote, alternativeDate, alternativeTime]
+    );
+    const refreshedResult = await client.query(
+        `
+            select
+                a.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name,
+                fl.address1 as fulfillment_address1,
+                fl.address2 as fulfillment_address2,
+                fl.city as fulfillment_city,
+                fl.state as fulfillment_state,
+                fl.postal_code as fulfillment_postal_code,
+                fl.country as fulfillment_country
+            from portal_delivery_appointments a
+            left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            where a.id = $1
+            limit 1
+        `,
+        [updateResult.rows[0].id]
+    );
+    const appointment = mapPortalDeliveryAppointmentRow(refreshedResult.rows[0]);
+    await insertActivity(
+        client,
+        "receipt",
+        `${appointment.status === "APPROVED" ? "Approved" : "Denied"} delivery appointment ${appointment.appointmentCode}`,
+        [
+            appointment.accountName,
+            `Ref ${appointment.referenceNumber}`,
+            respondedBy || "Warehouse",
+            appointment.status === "DENIED" ? `Alternative ${appointment.alternativeDate} ${appointment.alternativeTime}` : ""
+        ].filter(Boolean).join(" | ")
+    );
+    return { appointment, changed: true };
+}
+
 async function getPortalInboundsForAccount(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const inboundResult = await client.query(
@@ -12099,7 +14402,9 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
                     i.account_name,
                     c.description as item_description,
                     c.upc as item_upc,
-                    c.tracking_level as item_tracking_level
+                    c.tracking_level as item_tracking_level,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
                 from portal_inbound_lines l
                 join portal_inbounds i on i.id = l.inbound_id
                 left join item_catalog c
@@ -12199,6 +14504,7 @@ async function savePortalInboundForAccount(
             activityActor || ""
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForInbound(client, savedInbound);
     return savedInbound;
 }
 
@@ -12332,6 +14638,9 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
     }
 
     const updatedInbound = await getPortalInboundById(client, inboundId);
+    if (nextStatus === "RECEIVED") {
+        await createPortalInboundBillingEvents(client, updatedInbound);
+    }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     await insertActivity(
         client,
@@ -12344,10 +14653,11 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
             actor
         ].filter(Boolean).join(" | ")
     );
+    await syncWarehouseTasksForInbound(client, updatedInbound, appUser);
     return updatedInbound;
 }
 
-async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null) {
+async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null, details = {}) {
     const inboundResult = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
     if (inboundResult.rowCount !== 1) {
         throw httpError(404, "That purchase order could not be found.");
@@ -12358,15 +14668,53 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
         throw httpError(404, "That purchase order could not be found.");
     }
     if (currentInbound.status === nextStatus) {
+        await syncWarehouseTasksForInbound(client, currentInbound, appUser);
         return currentInbound;
     }
 
     const allowedTransitions = {
-        SUBMITTED: ["RECEIVED", "CANCELLED"]
+        SUBMITTED: ["ARRIVED", "RECEIVED", "CANCELLED"],
+        ARRIVED: ["RECEIVED", "CANCELLED"]
     };
     const allowedNext = allowedTransitions[currentInbound.status] || [];
     if (!allowedNext.includes(nextStatus)) {
         throw httpError(400, `Purchase orders in ${currentInbound.status} can only move to ${allowedNext.join(" or ") || "their next allowed status"}.`);
+    }
+
+    if (nextStatus === "RECEIVED") {
+        const receivedLines = sanitizePortalInboundReceivingInput(details, currentInbound);
+        for (const line of receivedLines) {
+            await client.query(
+                `
+                    update portal_inbound_lines
+                    set
+                        received_quantity = $2,
+                        received_location = $3,
+                        lot_number = $4,
+                        expiration_date = nullif($5, '')::date,
+                        updated_at = now()
+                    where id = $1
+                `,
+                [
+                    line.id,
+                    line.receivedQuantity,
+                    line.receivedLocation,
+                    line.lotNumber || "",
+                    line.expirationDate || ""
+                ]
+            );
+            await upsertInventoryLine(client, {
+                accountName: currentInbound.accountName,
+                location: line.receivedLocation,
+                sku: line.sku,
+                upc: line.upc || "",
+                lotNumber: line.lotNumber || "",
+                expirationDate: line.expirationDate || "",
+                trackingLevel: line.trackingLevel || "UNIT",
+                quantity: line.receivedQuantity,
+                description: line.description || ""
+            });
+        }
     }
 
     await client.query(
@@ -12374,11 +14722,19 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
             update portal_inbounds
             set
                 status = $2,
+                arrived_at = case when $2 in ('ARRIVED', 'RECEIVED') then coalesce(arrived_at, now()) else arrived_at end,
+                arrived_by = case when $2 in ('ARRIVED', 'RECEIVED') and btrim(coalesce(arrived_by, '')) = '' then $3 else arrived_by end,
+                arrival_note = case when $2 = 'ARRIVED' and btrim($4) <> '' then $4 else arrival_note end,
                 received_at = case when $2 = 'RECEIVED' then coalesce(received_at, now()) else received_at end,
                 updated_at = now()
             where id = $1
         `,
-        [inboundId, nextStatus]
+        [
+            inboundId,
+            nextStatus,
+            appUser?.full_name || appUser?.email || "Warehouse",
+            normalizeFreeText(details?.arrivalNote || details?.note || "")
+        ]
     );
 
     const updatedInbound = await getPortalInboundById(client, inboundId);
@@ -12389,6 +14745,7 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
         `Marked purchase order ${updatedInbound.inboundCode} ${nextStatus.toLowerCase()}`,
         `${updatedInbound.accountName} | ${formatCount(updatedInbound.lines.length, "line")} | ${actor}`
     );
+    await syncWarehouseTasksForInbound(client, updatedInbound, appUser);
     return updatedInbound;
 }
 
@@ -12406,6 +14763,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         if (nextStatus === "SHIPPED") {
             return savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
         }
+        await syncWarehouseTasksForOrder(client, currentOrder, appUser);
         return currentOrder;
     }
 
@@ -12445,7 +14803,532 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         `Marked portal order ${updatedOrder.orderCode} ${nextStatus.toLowerCase()}`,
         `${updatedOrder.accountName} | ${formatCount(updatedOrder.lines.length, "line")} | ${actor}`
     );
+    await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
     return updatedOrder;
+}
+
+function makeWarehouseTaskCode(id) {
+    return `TASK-${String(id).padStart(6, "0")}`;
+}
+
+function normalizeWarehouseTaskType(value) {
+    const normalized = normalizeText(value);
+    return WAREHOUSE_TASK_TYPES.includes(normalized) ? normalized : "";
+}
+
+function normalizeWarehouseTaskStatus(value) {
+    const normalized = normalizeText(value);
+    return WAREHOUSE_TASK_STATUSES.includes(normalized) ? normalized : "";
+}
+
+function normalizeWarehouseTaskPriority(value) {
+    const normalized = normalizeText(value);
+    return WAREHOUSE_TASK_PRIORITIES.includes(normalized) ? normalized : "NORMAL";
+}
+
+function normalizeWarehouseTaskSourceType(value) {
+    const normalized = normalizeText(value);
+    return WAREHOUSE_TASK_SOURCE_TYPES.includes(normalized) ? normalized : "MANUAL";
+}
+
+function warehouseTaskDueAtFromDate(value) {
+    const date = normalizeDateInput(value);
+    return date ? `${date}T23:59:00.000Z` : null;
+}
+
+function getTaskRecordField(record, camelName, snakeName = "") {
+    if (record && Object.prototype.hasOwnProperty.call(record, camelName)) return record[camelName];
+    if (snakeName && record && Object.prototype.hasOwnProperty.call(record, snakeName)) return record[snakeName];
+    return "";
+}
+
+function getOrderTaskFacts(order) {
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    return {
+        id: toPositiveInt(getTaskRecordField(order, "id", "id")),
+        code: normalizeFreeText(getTaskRecordField(order, "orderCode", "order_code")) || makePortalOrderCode(getTaskRecordField(order, "id", "id")),
+        accountName: normalizeText(getTaskRecordField(order, "accountName", "account_name")),
+        status: normalizePortalOrderStatus(getTaskRecordField(order, "status", "status")),
+        poNumber: normalizeFreeText(getTaskRecordField(order, "poNumber", "po_number")),
+        shippingReference: normalizeFreeText(getTaskRecordField(order, "shippingReference", "shipping_reference")),
+        requestedShipDate: normalizeDateInput(getTaskRecordField(order, "requestedShipDate", "requested_ship_date")),
+        lineCount: Number(getTaskRecordField(order, "lineCount", "line_count")) || lines.length,
+        totalQuantity: Number(getTaskRecordField(order, "totalQuantity", "total_quantity")) || lines.reduce((sum, line) => sum + (Number(line.quantity || line.requested_quantity) || 0), 0)
+    };
+}
+
+function getInboundTaskFacts(inbound) {
+    const lines = Array.isArray(inbound?.lines) ? inbound.lines : [];
+    return {
+        id: toPositiveInt(getTaskRecordField(inbound, "id", "id")),
+        code: normalizeFreeText(getTaskRecordField(inbound, "inboundCode", "inbound_code")) || makePortalInboundCode(getTaskRecordField(inbound, "id", "id")),
+        accountName: normalizeText(getTaskRecordField(inbound, "accountName", "account_name")),
+        status: normalizePortalInboundStatus(getTaskRecordField(inbound, "status", "status")),
+        referenceNumber: normalizeFreeText(getTaskRecordField(inbound, "referenceNumber", "reference_number")),
+        carrierName: normalizeFreeText(getTaskRecordField(inbound, "carrierName", "carrier_name")),
+        expectedDate: normalizeDateInput(getTaskRecordField(inbound, "expectedDate", "expected_date")),
+        lineCount: Number(getTaskRecordField(inbound, "lineCount", "line_count")) || lines.length,
+        totalQuantity: Number(getTaskRecordField(inbound, "totalQuantity", "total_quantity")) || lines.reduce((sum, line) => sum + (Number(line.quantity || line.expected_quantity) || 0), 0)
+    };
+}
+
+function classifyWarehouseTaskPriorityFromDate(dateValue) {
+    const date = normalizeDateInput(dateValue);
+    if (!date) return "NORMAL";
+    const today = new Date().toISOString().slice(0, 10);
+    return date <= today ? "HIGH" : "NORMAL";
+}
+
+function warehouseTaskTypeLabel(type) {
+    const normalized = normalizeWarehouseTaskType(type);
+    const labels = {
+        INBOUND_ARRIVAL: "Inbound Arrival",
+        RECEIVING: "Receiving",
+        PUT_AWAY: "Put Away",
+        PICK: "Pick",
+        PACK: "Pack",
+        SHIP: "Ship",
+        EXCEPTION: "Exception",
+        COUNT: "Count",
+        REPLENISHMENT: "Replenishment"
+    };
+    return labels[normalized] || "Warehouse Task";
+}
+
+async function upsertWarehouseTask(client, rawTask) {
+    const taskType = normalizeWarehouseTaskType(rawTask?.taskType);
+    const sourceType = normalizeWarehouseTaskSourceType(rawTask?.sourceType);
+    const sourceId = toPositiveInt(rawTask?.sourceId) || null;
+    const accountName = normalizeText(rawTask?.accountName);
+    if (!taskType || !accountName) return null;
+
+    const metadata = rawTask?.metadata && typeof rawTask.metadata === "object" && !Array.isArray(rawTask.metadata)
+        ? rawTask.metadata
+        : {};
+    const result = await client.query(
+        `
+            insert into warehouse_tasks (
+                task_type, source_type, source_id, source_code, account_name,
+                fulfillment_location_id, status, priority, title, details, due_at, metadata, updated_at
+            )
+            values ($1, $2, $3, $4, $5, nullif($6, 0), $7, $8, $9, $10, $11, $12::jsonb, now())
+            on conflict (source_type, source_id, task_type) where source_id is not null
+            do update set
+                source_code = excluded.source_code,
+                account_name = excluded.account_name,
+                fulfillment_location_id = coalesce(excluded.fulfillment_location_id, warehouse_tasks.fulfillment_location_id),
+                status = case
+                    when warehouse_tasks.status in ('IN_PROGRESS', 'BLOCKED') then warehouse_tasks.status
+                    else excluded.status
+                end,
+                priority = excluded.priority,
+                title = excluded.title,
+                details = excluded.details,
+                due_at = excluded.due_at,
+                metadata = warehouse_tasks.metadata || excluded.metadata,
+                completed_at = null,
+                completed_by = '',
+                updated_at = now()
+            returning *
+        `,
+        [
+            taskType,
+            sourceType,
+            sourceId,
+            normalizeFreeText(rawTask?.sourceCode || ""),
+            accountName,
+            toPositiveInt(rawTask?.fulfillmentLocationId) || 0,
+            normalizeWarehouseTaskStatus(rawTask?.status) || "OPEN",
+            normalizeWarehouseTaskPriority(rawTask?.priority),
+            normalizeFreeText(rawTask?.title || warehouseTaskTypeLabel(taskType)),
+            normalizeFreeText(rawTask?.details || ""),
+            rawTask?.dueAt || null,
+            JSON.stringify(metadata)
+        ]
+    );
+    const row = result.rows[0];
+    if (row && !row.task_code) {
+        const codeResult = await client.query(
+            "update warehouse_tasks set task_code = $2, updated_at = now() where id = $1 returning *",
+            [row.id, makeWarehouseTaskCode(row.id)]
+        );
+        return codeResult.rows[0] || row;
+    }
+    return row;
+}
+
+async function closeWarehouseTasksForSource(client, sourceType, sourceId, taskTypes, status, actor = "") {
+    const normalizedSourceType = normalizeWarehouseTaskSourceType(sourceType);
+    const normalizedStatus = normalizeWarehouseTaskStatus(status);
+    const normalizedTaskTypes = (Array.isArray(taskTypes) ? taskTypes : [])
+        .map(normalizeWarehouseTaskType)
+        .filter(Boolean);
+    const normalizedSourceId = toPositiveInt(sourceId);
+    if (!normalizedSourceType || !normalizedSourceId || !normalizedStatus || !normalizedTaskTypes.length) return;
+    await client.query(
+        `
+            update warehouse_tasks
+            set
+                status = $4,
+                completed_at = case when $4 in ('DONE', 'CANCELLED') then coalesce(completed_at, now()) else completed_at end,
+                completed_by = case when $4 in ('DONE', 'CANCELLED') and btrim(coalesce(completed_by, '')) = '' then $5 else completed_by end,
+                blocked_reason = case when $4 <> 'BLOCKED' then '' else blocked_reason end,
+                updated_at = now()
+            where source_type = $1
+              and source_id = $2
+              and task_type = any($3::text[])
+              and status = any($6::text[])
+        `,
+        [normalizedSourceType, normalizedSourceId, normalizedTaskTypes, normalizedStatus, normalizeFreeText(actor), ACTIVE_WAREHOUSE_TASK_STATUSES]
+    );
+}
+
+async function syncWarehouseTasksForOrder(client, order, appUser = null) {
+    const facts = getOrderTaskFacts(order);
+    if (!facts.id || !facts.accountName) return;
+    const actor = appUser?.full_name || appUser?.email || "System";
+    const sourceType = "PORTAL_ORDER";
+    const allTaskTypes = ["PICK", "PACK", "SHIP"];
+    if (facts.status === "DRAFT" || facts.status === "ARCHIVED") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "CANCELLED", actor);
+        return;
+    }
+    if (facts.status === "SHIPPED") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "DONE", actor);
+        return;
+    }
+
+    const taskByStatus = {
+        RELEASED: "PICK",
+        PICKED: "PACK",
+        STAGED: "SHIP"
+    };
+    const activeTaskType = taskByStatus[facts.status];
+    if (!activeTaskType) return;
+
+    const completedBefore = allTaskTypes.slice(0, allTaskTypes.indexOf(activeTaskType));
+    const cancelledAfter = allTaskTypes.slice(allTaskTypes.indexOf(activeTaskType) + 1);
+    const fulfillmentLocation = (await getPortalOrderReleaseFulfillmentLocations(client, facts.accountName))[0] || null;
+    await closeWarehouseTasksForSource(client, sourceType, facts.id, completedBefore, "DONE", actor);
+    await closeWarehouseTasksForSource(client, sourceType, facts.id, cancelledAfter, "CANCELLED", actor);
+    await upsertWarehouseTask(client, {
+        taskType: activeTaskType,
+        sourceType,
+        sourceId: facts.id,
+        sourceCode: facts.code,
+        accountName: facts.accountName,
+        fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
+        status: "OPEN",
+        priority: classifyWarehouseTaskPriorityFromDate(facts.requestedShipDate),
+        dueAt: warehouseTaskDueAtFromDate(facts.requestedShipDate),
+        title: `${warehouseTaskTypeLabel(activeTaskType)} ${facts.code}`,
+        details: [
+            facts.accountName,
+            facts.poNumber ? `PO ${facts.poNumber}` : "",
+            facts.shippingReference ? `Ref ${facts.shippingReference}` : "",
+            `${formatCount(facts.lineCount, "line")}`,
+            facts.totalQuantity ? `${facts.totalQuantity} units/cases` : ""
+        ].filter(Boolean).join(" | "),
+        metadata: {
+            orderStatus: facts.status,
+            requestedShipDate: facts.requestedShipDate,
+            lineCount: facts.lineCount,
+            totalQuantity: facts.totalQuantity
+        }
+    });
+}
+
+async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
+    const facts = getInboundTaskFacts(inbound);
+    if (!facts.id || !facts.accountName) return;
+    const actor = appUser?.full_name || appUser?.email || "System";
+    const sourceType = "PORTAL_INBOUND";
+    const allTaskTypes = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY"];
+    const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, facts.accountName);
+    if (facts.status === "CANCELLED") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "CANCELLED", actor);
+        return;
+    }
+
+    if (facts.status === "SUBMITTED") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["RECEIVING", "PUT_AWAY"], "CANCELLED", actor);
+        await upsertWarehouseTask(client, {
+            taskType: "INBOUND_ARRIVAL",
+            sourceType,
+            sourceId: facts.id,
+            sourceCode: facts.code,
+            accountName: facts.accountName,
+            fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
+            status: "OPEN",
+            priority: classifyWarehouseTaskPriorityFromDate(facts.expectedDate),
+            dueAt: warehouseTaskDueAtFromDate(facts.expectedDate),
+            title: `Check in ${facts.code}`,
+            details: [
+                facts.accountName,
+                facts.referenceNumber ? `Ref ${facts.referenceNumber}` : "",
+                facts.carrierName ? `Carrier ${facts.carrierName}` : "",
+                `${formatCount(facts.lineCount, "line")}`,
+                facts.totalQuantity ? `${facts.totalQuantity} expected` : ""
+            ].filter(Boolean).join(" | "),
+            metadata: {
+                inboundStatus: facts.status,
+                expectedDate: facts.expectedDate,
+                lineCount: facts.lineCount,
+                totalQuantity: facts.totalQuantity
+            }
+        });
+        return;
+    }
+
+    if (facts.status === "ARRIVED") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["INBOUND_ARRIVAL"], "DONE", actor);
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["PUT_AWAY"], "CANCELLED", actor);
+        await upsertWarehouseTask(client, {
+            taskType: "RECEIVING",
+            sourceType,
+            sourceId: facts.id,
+            sourceCode: facts.code,
+            accountName: facts.accountName,
+            fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
+            status: "OPEN",
+            priority: "HIGH",
+            dueAt: warehouseTaskDueAtFromDate(facts.expectedDate),
+            title: `Receive ${facts.code}`,
+            details: [
+                facts.accountName,
+                facts.referenceNumber ? `Ref ${facts.referenceNumber}` : "",
+                `${formatCount(facts.lineCount, "line")}`,
+                facts.totalQuantity ? `${facts.totalQuantity} expected` : ""
+            ].filter(Boolean).join(" | "),
+            metadata: {
+                inboundStatus: facts.status,
+                expectedDate: facts.expectedDate,
+                lineCount: facts.lineCount,
+                totalQuantity: facts.totalQuantity
+            }
+        });
+        return;
+    }
+
+    if (facts.status === "RECEIVED") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["INBOUND_ARRIVAL", "RECEIVING"], "DONE", actor);
+        await upsertWarehouseTask(client, {
+            taskType: "PUT_AWAY",
+            sourceType,
+            sourceId: facts.id,
+            sourceCode: facts.code,
+            accountName: facts.accountName,
+            fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
+            status: "OPEN",
+            priority: "NORMAL",
+            title: `Put away ${facts.code}`,
+            details: [
+                facts.accountName,
+                facts.referenceNumber ? `Ref ${facts.referenceNumber}` : "",
+                `${formatCount(facts.lineCount, "line")}`,
+                facts.totalQuantity ? `${facts.totalQuantity} received/expected` : ""
+            ].filter(Boolean).join(" | "),
+            metadata: {
+                inboundStatus: facts.status,
+                expectedDate: facts.expectedDate,
+                lineCount: facts.lineCount,
+                totalQuantity: facts.totalQuantity
+            }
+        });
+    }
+}
+
+async function syncWarehouseTasksFromOperationalRecords(client = pool) {
+    const ordersResult = await client.query(
+        `
+            select
+                o.*,
+                coalesce(l.line_count, 0)::integer as line_count,
+                coalesce(l.total_quantity, 0)::integer as total_quantity
+            from portal_orders o
+            left join (
+                select order_id, count(*)::integer as line_count, coalesce(sum(requested_quantity), 0)::integer as total_quantity
+                from portal_order_lines
+                group by order_id
+            ) l on l.order_id = o.id
+            where o.status in ('RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED')
+               or exists (
+                    select 1
+                    from warehouse_tasks wt
+                    where wt.source_type = 'PORTAL_ORDER'
+                      and wt.source_id = o.id
+                      and wt.status = any($1::text[])
+               )
+            order by o.updated_at desc
+            limit 1000
+        `,
+        [ACTIVE_WAREHOUSE_TASK_STATUSES]
+    );
+    for (const row of ordersResult.rows) {
+        await syncWarehouseTasksForOrder(client, row);
+    }
+
+    const inboundsResult = await client.query(
+        `
+            select
+                i.*,
+                coalesce(l.line_count, 0)::integer as line_count,
+                coalesce(l.total_quantity, 0)::integer as total_quantity
+            from portal_inbounds i
+            left join (
+                select inbound_id, count(*)::integer as line_count, coalesce(sum(expected_quantity), 0)::integer as total_quantity
+                from portal_inbound_lines
+                group by inbound_id
+            ) l on l.inbound_id = i.id
+            where i.status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED')
+               or exists (
+                    select 1
+                    from warehouse_tasks wt
+                    where wt.source_type = 'PORTAL_INBOUND'
+                      and wt.source_id = i.id
+                      and wt.status = any($1::text[])
+               )
+            order by i.updated_at desc
+            limit 1000
+        `,
+        [ACTIVE_WAREHOUSE_TASK_STATUSES]
+    );
+    for (const row of inboundsResult.rows) {
+        await syncWarehouseTasksForInbound(client, row);
+    }
+}
+
+async function getWarehouseTaskRowsForAppUser(client, appUser, {
+    accountName = "",
+    status = "",
+    type = "",
+    activeOnly = true,
+    limit = 240
+} = {}) {
+    const clauses = [];
+    const params = [];
+    const normalizedAccount = normalizeText(accountName);
+    if (normalizedAccount) {
+        params.push(normalizedAccount);
+        clauses.push(`wt.account_name = $${params.length}`);
+    }
+    if (appUser && !isSuperAdminUser(appUser)) {
+        const accessibleCompanies = await getAccessibleCompanyNamesForAppUser(client, appUser);
+        if (!accessibleCompanies.length) return { rows: [] };
+        params.push(accessibleCompanies);
+        clauses.push(`wt.account_name = any($${params.length}::text[])`);
+    }
+    const normalizedStatus = normalizeWarehouseTaskStatus(status);
+    if (normalizedStatus) {
+        params.push(normalizedStatus);
+        clauses.push(`wt.status = $${params.length}`);
+    } else if (activeOnly) {
+        params.push(ACTIVE_WAREHOUSE_TASK_STATUSES);
+        clauses.push(`wt.status = any($${params.length}::text[])`);
+    }
+    const normalizedType = normalizeWarehouseTaskType(type);
+    if (normalizedType) {
+        params.push(normalizedType);
+        clauses.push(`wt.task_type = $${params.length}`);
+    }
+    params.push(Math.min(Math.max(toPositiveInt(limit) || 240, 1), 500));
+    const limitIndex = params.length;
+    const whereSql = clauses.length ? `where ${clauses.join(" and ")}` : "";
+    return client.query(
+        `
+            select
+                wt.*,
+                au.email as assigned_email,
+                au.full_name as assigned_full_name,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from warehouse_tasks wt
+            left join app_users au on au.id = wt.assigned_app_user_id
+            left join fulfillment_locations fl on fl.id = wt.fulfillment_location_id
+            ${whereSql}
+            order by
+                case wt.priority when 'RUSH' then 1 when 'HIGH' then 2 when 'NORMAL' then 3 else 4 end,
+                case wt.status when 'BLOCKED' then 1 when 'IN_PROGRESS' then 2 when 'OPEN' then 3 else 4 end,
+                wt.due_at asc nulls last,
+                wt.updated_at desc,
+                wt.id desc
+            limit $${limitIndex}
+        `,
+        params
+    );
+}
+
+async function getWarehouseTaskById(client, taskId) {
+    const result = await client.query(
+        `
+            select
+                wt.*,
+                au.email as assigned_email,
+                au.full_name as assigned_full_name,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from warehouse_tasks wt
+            left join app_users au on au.id = wt.assigned_app_user_id
+            left join fulfillment_locations fl on fl.id = wt.fulfillment_location_id
+            where wt.id = $1
+            limit 1
+        `,
+        [taskId]
+    );
+    return result.rows[0] || null;
+}
+
+async function updateWarehouseTaskStatus(client, taskId, rawInput = {}, appUser = null) {
+    const status = normalizeWarehouseTaskStatus(rawInput?.status);
+    if (!status) {
+        throw httpError(400, "Choose a valid warehouse task status.");
+    }
+    const hasAssignmentUpdate = Object.prototype.hasOwnProperty.call(rawInput || {}, "assignedAppUserId")
+        || Object.prototype.hasOwnProperty.call(rawInput || {}, "assigned_app_user_id");
+    const assignedAppUserId = rawInput?.assignedAppUserId === "" || rawInput?.assigned_app_user_id === ""
+        ? null
+        : (toPositiveInt(rawInput?.assignedAppUserId || rawInput?.assigned_app_user_id) || null);
+    if (assignedAppUserId) {
+        const userResult = await client.query("select id from app_users where id = $1 and is_active = true limit 1", [assignedAppUserId]);
+        if (userResult.rowCount !== 1) {
+            throw httpError(400, "That warehouse user is not active.");
+        }
+    }
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    const blockedReason = normalizeFreeText(rawInput?.blockedReason || rawInput?.blocked_reason || rawInput?.note || "");
+    const result = await client.query(
+        `
+            update warehouse_tasks
+            set
+                status = $2,
+                assigned_app_user_id = case when $6::boolean then $3 else assigned_app_user_id end,
+                blocked_reason = case when $2 = 'BLOCKED' then $4 else '' end,
+                completed_at = case when $2 in ('DONE', 'CANCELLED') then coalesce(completed_at, now()) else null end,
+                completed_by = case when $2 in ('DONE', 'CANCELLED') then $5 else '' end,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [taskId, status, assignedAppUserId, blockedReason, actor, hasAssignmentUpdate]
+    );
+    if (result.rowCount !== 1) {
+        throw httpError(404, "That warehouse task could not be found.");
+    }
+    await insertActivity(
+        client,
+        "task",
+        `Updated warehouse task ${result.rows[0].task_code || makeWarehouseTaskCode(result.rows[0].id)}`,
+        [
+            result.rows[0].account_name,
+            warehouseTaskTypeLabel(result.rows[0].task_type),
+            `Status ${status}`,
+            actor
+        ].filter(Boolean).join(" | ")
+    );
+    const refreshed = await getWarehouseTaskById(client, taskId);
+    return mapWarehouseTaskRow(refreshed || result.rows[0]);
 }
 
 async function consumePortalOrderInventory(client, order) {
@@ -14818,6 +17701,58 @@ function mapShipToAddressRow(row) {
     };
 }
 
+function mapWarehouseTaskRow(row) {
+    const taskType = normalizeWarehouseTaskType(row.task_type || row.taskType) || "EXCEPTION";
+    const status = normalizeWarehouseTaskStatus(row.status) || "OPEN";
+    const priority = normalizeWarehouseTaskPriority(row.priority);
+    const createdAt = row.created_at ? new Date(row.created_at).toISOString() : null;
+    const updatedAt = row.updated_at ? new Date(row.updated_at).toISOString() : null;
+    const dueAt = row.due_at ? new Date(row.due_at).toISOString() : null;
+    const now = Date.now();
+    const dueMs = dueAt ? new Date(dueAt).getTime() : NaN;
+    const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+    const ageMinutes = Number.isFinite(createdMs) ? Math.max(0, Math.round((now - createdMs) / 60000)) : null;
+    const dueInMinutes = Number.isFinite(dueMs) ? Math.round((dueMs - now) / 60000) : null;
+    const slaStatus = !Number.isFinite(dueMs)
+        ? "NO_DUE_DATE"
+        : dueMs < now
+            ? "OVERDUE"
+            : dueMs - now <= 4 * 60 * 60000
+                ? "DUE_SOON"
+                : "ON_TRACK";
+    return {
+        id: String(row.id),
+        taskCode: row.task_code || row.taskCode || makeWarehouseTaskCode(row.id),
+        taskType,
+        taskTypeLabel: warehouseTaskTypeLabel(taskType),
+        sourceType: normalizeWarehouseTaskSourceType(row.source_type || row.sourceType),
+        sourceId: row.source_id ? String(row.source_id) : "",
+        sourceCode: row.source_code || row.sourceCode || "",
+        accountName: row.account_name || row.accountName || "",
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        fulfillmentPartnerName: row.fulfillment_partner_name || "",
+        status,
+        priority,
+        title: row.title || warehouseTaskTypeLabel(taskType),
+        details: row.details || "",
+        assignedAppUserId: row.assigned_app_user_id ? String(row.assigned_app_user_id) : "",
+        assignedEmail: row.assigned_email || "",
+        assignedFullName: row.assigned_full_name || "",
+        dueAt,
+        ageMinutes,
+        dueInMinutes,
+        slaStatus,
+        completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+        completedBy: row.completed_by || "",
+        blockedReason: row.blocked_reason || "",
+        metadata: row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {},
+        createdAt,
+        updatedAt
+    };
+}
+
 function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents") {
     return {
         id: String(row.id),
@@ -14932,6 +17867,9 @@ function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix
         referenceNumber: row.reference_number || "",
         carrierName: row.carrier_name || "",
         expectedDate: row.expected_date ? new Date(row.expected_date).toISOString().slice(0, 10) : "",
+        arrivedAt: row.arrived_at ? new Date(row.arrived_at).toISOString() : null,
+        arrivedBy: row.arrived_by || "",
+        arrivalNote: row.arrival_note || "",
         receivedAt: row.received_at ? new Date(row.received_at).toISOString() : null,
         contactName: row.contact_name || "",
         contactPhone: row.contact_phone || "",
@@ -14949,9 +17887,15 @@ function mapPortalInboundLineRow(row) {
         lineNumber: Number(row.line_number || 0),
         sku: row.sku || "",
         quantity: Number(row.expected_quantity || 0),
+        receivedQuantity: Number(row.received_quantity || 0),
+        receivedLocation: row.received_location || "",
+        lotNumber: row.lot_number || "",
+        expirationDate: row.expiration_date ? normalizeDateOnly(row.expiration_date) : "",
         description: row.item_description || "",
         upc: row.item_upc || "",
-        trackingLevel: row.item_tracking_level || "UNIT"
+        trackingLevel: row.item_tracking_level || "UNIT",
+        lotTracked: row.item_lot_tracked === true,
+        expirationTracked: row.item_expiration_tracked === true
     };
 }
 
@@ -14973,6 +17917,50 @@ function sanitizePortalInboundInput(inbound, accountName) {
         notes: normalizeFreeText(inbound?.notes),
         lines
     };
+}
+
+function sanitizePortalInboundReceivingInput(payload, inbound) {
+    const rawLines = Array.isArray(payload?.receivingLines)
+        ? payload.receivingLines
+        : (Array.isArray(payload?.lines) ? payload.lines : []);
+    const byId = new Map();
+    const bySku = new Map();
+    rawLines.forEach((line) => {
+        const id = String(line?.id || line?.lineId || line?.line_id || "").trim();
+        const sku = normalizeText(line?.sku || "");
+        if (id) byId.set(id, line);
+        if (sku && !bySku.has(sku)) bySku.set(sku, line);
+    });
+
+    const defaultLocation = normalizeText(payload?.receivingLocation || payload?.location || "BULK") || "BULK";
+    return (Array.isArray(inbound?.lines) ? inbound.lines : []).map((line) => {
+        const rawLine = byId.get(String(line.id || "")) || bySku.get(normalizeText(line.sku || "")) || {};
+        const receivedQuantity = toPositiveInt(rawLine?.receivedQuantity ?? rawLine?.received_quantity ?? rawLine?.quantity ?? line.quantity);
+        const receivedLocation = normalizeText(rawLine?.receivedLocation || rawLine?.received_location || rawLine?.location || defaultLocation) || defaultLocation;
+        const lotNumber = normalizeText(rawLine?.lotNumber || rawLine?.lot_number || rawLine?.lot || "");
+        const expirationDate = normalizeDateOnly(rawLine?.expirationDate || rawLine?.expiration_date || rawLine?.expiryDate || rawLine?.expiry_date || "");
+
+        if (!receivedQuantity) {
+            throw httpError(400, `Enter a received quantity greater than zero for SKU ${line.sku}.`);
+        }
+        if (!receivedLocation) {
+            throw httpError(400, `Enter a receiving location for SKU ${line.sku}.`);
+        }
+        if (line.lotTracked && !lotNumber) {
+            throw httpError(400, `Enter a lot number for lot-tracked SKU ${line.sku}.`);
+        }
+        if (line.expirationTracked && !expirationDate) {
+            throw httpError(400, `Enter an expiration date for expiration-tracked SKU ${line.sku}.`);
+        }
+
+        return {
+            ...line,
+            receivedQuantity,
+            receivedLocation,
+            lotNumber,
+            expirationDate
+        };
+    });
 }
 
 function sanitizePortalOrderInput(order, accountName) {
@@ -15080,7 +18068,1304 @@ function normalizePortalOrderStatus(value) {
 
 function normalizePortalInboundStatus(value) {
     const normalized = normalizeText(value);
-    return ["SUBMITTED", "RECEIVED", "CANCELLED"].includes(normalized) ? normalized : "";
+    return ["SUBMITTED", "ARRIVED", "RECEIVED", "CANCELLED"].includes(normalized) ? normalized : "";
+}
+
+function categoryAccountCode(category) {
+    const normalized = normalizeText(category);
+    if (normalized.includes("LABOUR")) return "5010";
+    if (normalized.includes("FREIGHT")) return "5020";
+    if (normalized.includes("RENT")) return "5030";
+    if (normalized.includes("SUPPLIES")) return "5040";
+    return "5000";
+}
+
+function normalizeBillingFinanceStatus(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (["pending", "open"].includes(normalized)) return "pending";
+    if (["approved", "approve"].includes(normalized)) return "approved";
+    if (["invoiced", "invoice"].includes(normalized)) return "invoiced";
+    if (["voided", "void"].includes(normalized)) return "voided";
+    return "";
+}
+
+function normalizeInvoiceStatus(value) {
+    const normalized = String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
+    if (["draft", "sent", "paid", "partial", "overdue", "void", "credit_note"].includes(normalized)) return normalized;
+    return "draft";
+}
+
+function normalizePaymentMethod(value) {
+    const text = normalizeFreeText(value || "EFT");
+    const match = BILLING_FINANCE_PAYMENT_METHODS.find((method) => normalizeText(method) === normalizeText(text));
+    return match || "EFT";
+}
+
+function normalizeCurrencyCode(value, fallback = "CAD") {
+    const normalized = normalizeText(value || fallback).replace(/[^A-Z]/g, "").slice(0, 3);
+    return normalized || fallback;
+}
+
+function roundMoney(value) {
+    const numeric = Number.parseFloat(String(value));
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.round(numeric * 100) / 100;
+}
+
+function mapCustomerBillingProfileRow(row) {
+    if (!row) return null;
+    return {
+        id: String(row.id),
+        accountName: row.account_name || "",
+        customerName: row.customer_name || row.account_name || "",
+        billingContact: row.billing_contact || "",
+        email: row.email || "",
+        phone: row.phone || "",
+        billingAddress: row.billing_address || "",
+        paymentTerms: row.payment_terms || "Net 30",
+        currency: row.currency || "CAD",
+        taxSettings: row.tax_settings || {},
+        assignedRateCardId: row.assigned_rate_card_id ? String(row.assigned_rate_card_id) : "",
+        billingCycle: row.billing_cycle || "Monthly",
+        minimumMonthlyBilling: Number(row.minimum_monthly_billing || 0),
+        creditLimit: Number(row.credit_limit || 0),
+        notes: row.notes || "",
+        isActive: row.is_active !== false,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : ""
+    };
+}
+
+function mapRateCardRow(row, lines = []) {
+    if (!row) return null;
+    return {
+        id: String(row.id),
+        name: row.name || "",
+        description: row.description || "",
+        currency: row.currency || "CAD",
+        effectiveFrom: normalizeDateOnly(row.effective_from),
+        effectiveTo: normalizeDateOnly(row.effective_to),
+        isActive: row.is_active !== false,
+        lines,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : ""
+    };
+}
+
+function mapRateCardLineRow(row) {
+    return {
+        id: String(row.id),
+        rateCardId: String(row.rate_card_id),
+        chargeType: row.charge_type || "",
+        unit: row.unit || "",
+        rate: Number(row.rate || 0),
+        taxCode: row.tax_code || "HST_ON",
+        customerId: row.customer_id || "",
+        effectiveFrom: normalizeDateOnly(row.effective_from),
+        effectiveTo: normalizeDateOnly(row.effective_to),
+        notes: row.notes || ""
+    };
+}
+
+function mapBillingFinanceEventRow(row) {
+    return {
+        id: String(row.id),
+        customerId: row.customer_id || row.account_name || "",
+        warehouseId: row.warehouse_id || "",
+        activityDate: normalizeDateOnly(row.activity_date || row.service_date),
+        sourceModule: row.source_module || row.source_type || "",
+        sourceReference: row.source_reference || row.source_ref || "",
+        activityType: row.activity_type || "",
+        chargeType: row.charge_type || row.fee_code || "",
+        description: row.description || row.fee_name || "",
+        quantity: Number(row.quantity || 0),
+        unitRate: Number(row.unit_rate || row.rate || 0),
+        amount: Number(row.amount || 0),
+        taxCode: row.tax_code || "HST_ON",
+        status: normalizeBillingFinanceStatus(row.status) || (normalizeText(row.status) === "OPEN" ? "pending" : String(row.status || "").toLowerCase()),
+        invoiceId: row.invoice_id ? String(row.invoice_id) : "",
+        createdBy: row.created_by || "",
+        notes: row.notes || row.note || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : ""
+    };
+}
+
+function mapInvoiceLineRow(row) {
+    return {
+        id: String(row.id || ""),
+        invoiceId: row.invoice_id ? String(row.invoice_id) : "",
+        billingEventId: row.billing_event_id ? String(row.billing_event_id) : "",
+        lineNumber: Number(row.line_number || 1),
+        description: row.description || "",
+        chargeType: row.charge_type || "",
+        quantity: Number(row.quantity || 0),
+        unitRate: Number(row.unit_rate || 0),
+        taxCode: row.tax_code || "HST_ON",
+        taxAmount: Number(row.tax_amount || 0),
+        amount: Number(row.amount || 0)
+    };
+}
+
+function mapInvoiceRow(row, lines = []) {
+    return {
+        id: String(row.id),
+        invoiceNumber: row.invoice_number || "",
+        customerId: row.customer_id || "",
+        billingAddress: row.billing_address || "",
+        invoiceDate: normalizeDateOnly(row.invoice_date),
+        dueDate: normalizeDateOnly(row.due_date),
+        paymentTerms: row.payment_terms || "Net 30",
+        currency: row.currency || "CAD",
+        lines,
+        subtotal: Number(row.subtotal || 0),
+        tax: Number(row.tax || 0),
+        total: Number(row.total || 0),
+        paidAmount: Number(row.paid_amount || 0),
+        balanceDue: Number(row.balance_due || 0),
+        notes: row.notes || "",
+        status: row.status || "draft",
+        isRecurring: row.is_recurring === true,
+        recurrenceRule: row.recurrence_rule || "",
+        postingStatus: row.posting_status || "unposted",
+        postedAt: row.posted_at ? new Date(row.posted_at).toISOString() : "",
+        postedJournalEntryId: row.posted_journal_entry_id ? String(row.posted_journal_entry_id) : "",
+        lockedAt: row.locked_at ? new Date(row.locked_at).toISOString() : "",
+        lockedBy: row.locked_by || "",
+        sentAt: row.sent_at ? new Date(row.sent_at).toISOString() : "",
+        paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : ""
+    };
+}
+
+function mapPaymentRow(row, allocations = []) {
+    return {
+        id: String(row.id),
+        paymentDate: normalizeDateOnly(row.payment_date),
+        customerId: row.customer_id || "",
+        invoiceReference: row.invoice_reference || "",
+        amount: Number(row.amount || 0),
+        paymentMethod: row.payment_method || "EFT",
+        referenceNumber: row.reference_number || "",
+        notes: row.notes || "",
+        unappliedAmount: Number(row.unapplied_amount || 0),
+        allocations
+    };
+}
+
+function mapExpenseRow(row) {
+    return {
+        id: String(row.id),
+        vendorId: row.vendor_id ? String(row.vendor_id) : "",
+        vendor: row.vendor || "",
+        expenseCategory: row.expense_category || "Miscellaneous",
+        expenseDate: normalizeDateOnly(row.expense_date),
+        description: row.description || "",
+        amountBeforeTax: Number(row.amount_before_tax || 0),
+        taxAmount: Number(row.tax_amount || 0),
+        totalAmount: Number(row.total_amount || 0),
+        paymentStatus: row.payment_status || "unpaid",
+        paymentMethod: row.payment_method || "",
+        receiptUpload: row.receipt_upload || "",
+        billable: row.billable === true,
+        customerReference: row.customer_reference || "",
+        warehouseReference: row.warehouse_reference || "",
+        notes: row.notes || ""
+    };
+}
+
+function mapVendorRow(row) {
+    return {
+        id: String(row.id),
+        vendorName: row.vendor_name || "",
+        contactName: row.contact_name || "",
+        email: row.email || "",
+        phone: row.phone || "",
+        address: row.address || "",
+        taxNumber: row.tax_number || "",
+        notes: row.notes || "",
+        outstandingBalance: Number(row.outstanding_balance || 0)
+    };
+}
+
+function mapBankAccountRow(row) {
+    return {
+        id: String(row.id),
+        accountName: row.account_name || "",
+        bankName: row.bank_name || "",
+        accountNumber: row.account_number || "",
+        currency: row.currency || "CAD",
+        openingBalance: Number(row.opening_balance || 0),
+        currentBalance: Number(row.current_balance || 0),
+        isActive: row.is_active !== false
+    };
+}
+
+function mapBankTransactionRow(row) {
+    return {
+        id: String(row.id),
+        bankAccountId: row.bank_account_id ? String(row.bank_account_id) : "",
+        transactionDate: normalizeDateOnly(row.transaction_date),
+        transactionType: row.transaction_type || "deposit",
+        description: row.description || "",
+        amount: Number(row.amount || 0),
+        matchedType: row.matched_type || "",
+        matchedId: row.matched_id ? String(row.matched_id) : "",
+        reconciliationId: row.reconciliation_id ? String(row.reconciliation_id) : ""
+    };
+}
+
+function mapJournalEntryRow(row, lines = []) {
+    return {
+        id: String(row.id),
+        entryNumber: row.entry_number || "",
+        entryDate: normalizeDateOnly(row.entry_date),
+        sourceType: row.source_type || "manual",
+        sourceId: row.source_id ? String(row.source_id) : "",
+        memo: row.memo || "",
+        createdBy: row.created_by || "",
+        isPosted: row.is_posted !== false,
+        postedAt: row.posted_at ? new Date(row.posted_at).toISOString() : "",
+        lockedAt: row.locked_at ? new Date(row.locked_at).toISOString() : "",
+        reversedEntryId: row.reversed_entry_id ? String(row.reversed_entry_id) : "",
+        reversalEntryId: row.reversal_entry_id ? String(row.reversal_entry_id) : "",
+        isReversal: row.is_reversal === true,
+        lines
+    };
+}
+
+function mapJournalEntryLineRow(row) {
+    return {
+        id: String(row.id || ""),
+        journalEntryId: row.journal_entry_id ? String(row.journal_entry_id) : "",
+        accountCode: row.account_code || "",
+        description: row.description || "",
+        debit: Number(row.debit || 0),
+        credit: Number(row.credit || 0)
+    };
+}
+
+function mapTaxCodeRow(row) {
+    return {
+        id: String(row.id),
+        code: row.code || "",
+        name: row.name || "",
+        rate: Number(row.rate || 0),
+        province: row.province || "",
+        recoverable: row.recoverable !== false,
+        isActive: row.is_active !== false
+    };
+}
+
+async function getBillingFinanceAllowedCompanies(client, appUser) {
+    if (!appUser || isSuperAdminUser(appUser) || normalizeAppUserRole(appUser.role) === APP_USER_ROLES.ADMIN) return null;
+    return [...new Set([
+        ...(await getAccessibleCompanyNamesForAppUser(client, appUser)),
+        ...((appUser.assigned_companies || []).map(normalizeText)),
+        ...((appUser.inherited_companies || []).map(normalizeText))
+    ].filter(Boolean))];
+}
+
+function filterBillingFinanceRows(rows, allowedCompanies, selector) {
+    if (!Array.isArray(allowedCompanies)) return rows;
+    const allowed = new Set(allowedCompanies.map(normalizeText));
+    return rows.filter((row) => allowed.has(normalizeText(selector(row))));
+}
+
+async function assertBillingFinanceCustomerAccess(client, appUser, customerId) {
+    const normalizedCustomer = normalizeText(customerId);
+    if (!normalizedCustomer) throw httpError(400, "Customer is required.");
+    if (isSuperAdminUser(appUser) || normalizeAppUserRole(appUser?.role) === APP_USER_ROLES.ADMIN) return;
+    const allowed = await getBillingFinanceAllowedCompanies(client, appUser);
+    if (Array.isArray(allowed) && !allowed.includes(normalizedCustomer)) {
+        throw httpError(403, `You do not have Billing & Finance access to ${normalizedCustomer}.`);
+    }
+}
+
+async function getTaxRate(client, code) {
+    const taxCode = normalizeText(code || "HST_ON") || "HST_ON";
+    const result = await client.query("select rate from tax_codes where code = $1 and is_active = true limit 1", [taxCode]);
+    return Number(result.rows[0]?.rate || 0);
+}
+
+async function nextDocumentNumber(client, tableName, columnName, prefix) {
+    const result = await client.query(`select ${columnName} as number from ${tableName} where ${columnName} like $1 order by id desc limit 1`, [`${prefix}-%`]);
+    const current = String(result.rows[0]?.number || "");
+    const last = Number.parseInt(current.replace(/^\D+-/, ""), 10);
+    const next = Number.isFinite(last) ? last + 1 : 1;
+    return `${prefix}-${String(next).padStart(6, "0")}`;
+}
+
+async function nextBillingFinanceDocumentNumber(client, documentType, fallbackPrefix) {
+    const normalizedType = normalizeText(documentType).toLowerCase().replace(/[^a-z0-9_]+/g, "_") || "document";
+    const result = await client.query(
+        "select * from billing_finance_document_sequences where document_type = $1 for update",
+        [normalizedType]
+    );
+    let row = result.rows[0];
+    if (!row) {
+        row = (await client.query(
+            `
+                insert into billing_finance_document_sequences (document_type, prefix, next_number, number_padding)
+                values ($1, $2, 1, 6)
+                returning *
+            `,
+            [normalizedType, normalizeText(fallbackPrefix || "DOC")]
+        )).rows[0];
+    }
+    const prefix = normalizeText(row.prefix || fallbackPrefix || "DOC");
+    const nextNumber = Math.max(Number.parseInt(row.next_number, 10) || 1, 1);
+    const padding = Math.max(Number.parseInt(row.number_padding, 10) || 6, 1);
+    await client.query(
+        "update billing_finance_document_sequences set next_number = $2, updated_at = now() where document_type = $1",
+        [normalizedType, nextNumber + 1]
+    );
+    return `${prefix}-${String(nextNumber).padStart(padding, "0")}`;
+}
+
+function isInvoiceLockedStatus(status) {
+    return ["sent", "paid", "partial", "overdue", "void"].includes(normalizeInvoiceStatus(status));
+}
+
+async function saveCustomerBillingProfile(client, input, appUser) {
+    const accountName = normalizeText(input?.accountName || input?.customerId || input?.customerName);
+    await assertBillingFinanceCustomerAccess(client, appUser, accountName);
+    const rateCardId = toPositiveInt(input?.assignedRateCardId || input?.assigned_rate_card_id);
+    const result = await client.query(
+        `
+            insert into customer_billing_profiles (
+                account_name, customer_name, billing_contact, email, phone, billing_address,
+                payment_terms, currency, tax_settings, assigned_rate_card_id, billing_cycle,
+                minimum_monthly_billing, credit_limit, notes, is_active
+            )
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            on conflict (account_name) do update set
+                customer_name = excluded.customer_name,
+                billing_contact = excluded.billing_contact,
+                email = excluded.email,
+                phone = excluded.phone,
+                billing_address = excluded.billing_address,
+                payment_terms = excluded.payment_terms,
+                currency = excluded.currency,
+                tax_settings = excluded.tax_settings,
+                assigned_rate_card_id = excluded.assigned_rate_card_id,
+                billing_cycle = excluded.billing_cycle,
+                minimum_monthly_billing = excluded.minimum_monthly_billing,
+                credit_limit = excluded.credit_limit,
+                notes = excluded.notes,
+                is_active = excluded.is_active,
+                updated_at = now()
+            returning *
+        `,
+        [
+            accountName,
+            normalizeFreeText(input?.customerName || accountName),
+            normalizeFreeText(input?.billingContact),
+            normalizeEmail(input?.email),
+            normalizeFreeText(input?.phone),
+            normalizeFreeText(input?.billingAddress),
+            normalizeFreeText(input?.paymentTerms || "Net 30"),
+            normalizeCurrencyCode(input?.currency),
+            JSON.stringify(input?.taxSettings && typeof input.taxSettings === "object" ? input.taxSettings : { defaultTaxCode: normalizeText(input?.taxCode || "HST_ON") }),
+            rateCardId,
+            normalizeFreeText(input?.billingCycle || "Monthly"),
+            roundMoney(input?.minimumMonthlyBilling),
+            roundMoney(input?.creditLimit),
+            normalizeFreeText(input?.notes),
+            input?.isActive !== false
+        ]
+    );
+    return mapCustomerBillingProfileRow(result.rows[0]);
+}
+
+async function saveBillingFinanceRateCard(client, input, appUser) {
+    const name = normalizeFreeText(input?.name || "Standard 3PL Rate Card");
+    if (!name) throw httpError(400, "Rate card name is required.");
+    const id = toPositiveInt(input?.id);
+    const cardResult = id
+        ? await client.query(
+            `update rate_cards set name=$2, description=$3, currency=$4, effective_from=$5, effective_to=$6, is_active=$7, updated_at=now() where id=$1 returning *`,
+            [id, name, normalizeFreeText(input?.description), normalizeCurrencyCode(input?.currency), normalizeDateOnly(input?.effectiveFrom) || null, normalizeDateOnly(input?.effectiveTo) || null, input?.isActive !== false]
+        )
+        : await client.query(
+            `insert into rate_cards (name, description, currency, effective_from, effective_to, is_active) values ($1,$2,$3,$4,$5,$6) on conflict (name) do update set description=excluded.description, currency=excluded.currency, effective_from=excluded.effective_from, effective_to=excluded.effective_to, is_active=excluded.is_active, updated_at=now() returning *`,
+            [name, normalizeFreeText(input?.description), normalizeCurrencyCode(input?.currency), normalizeDateOnly(input?.effectiveFrom) || null, normalizeDateOnly(input?.effectiveTo) || null, input?.isActive !== false]
+        );
+    const card = cardResult.rows[0];
+    const lines = Array.isArray(input?.lines) ? input.lines : [];
+    if (lines.length) {
+        await client.query("delete from rate_card_lines where rate_card_id = $1", [card.id]);
+        for (const rawLine of lines) {
+            const chargeType = normalizeText(rawLine?.chargeType || rawLine?.charge_type);
+            if (!chargeType) continue;
+            const unit = BILLING_FINANCE_UNITS.find((entry) => normalizeText(entry) === normalizeText(rawLine?.unit)) || "Flat fee";
+            const lineResult = await client.query(
+                `
+                    insert into rate_card_lines (rate_card_id, charge_type, unit, rate, tax_code, customer_id, effective_from, effective_to, notes)
+                    values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                    returning *
+                `,
+                [card.id, chargeType, unit, Number(rawLine?.rate || 0), normalizeText(rawLine?.taxCode || "HST_ON"), normalizeText(rawLine?.customerId || ""), normalizeDateOnly(rawLine?.effectiveFrom) || null, normalizeDateOnly(rawLine?.effectiveTo) || null, normalizeFreeText(rawLine?.notes)]
+            );
+            await client.query(
+                `insert into rate_card_history (rate_card_id, rate_card_line_id, change_type, new_values, changed_by) values ($1,$2,'upsert',$3,$4)`,
+                [card.id, lineResult.rows[0].id, JSON.stringify(lineResult.rows[0]), appUser?.email || ""]
+            );
+        }
+    }
+    return getBillingFinanceRateCardById(client, card.id);
+}
+
+async function saveBillingFinanceEvent(client, input, appUser) {
+    const customerId = normalizeText(input?.customerId || input?.customer_id || input?.accountName);
+    await assertBillingFinanceCustomerAccess(client, appUser, customerId);
+    const chargeType = normalizeText(input?.chargeType || input?.charge_type || "CUSTOM_CHARGE") || "CUSTOM_CHARGE";
+    const quantity = Number(input?.quantity || 0);
+    const unitRate = Number(input?.unitRate ?? input?.unit_rate ?? input?.rate ?? 0);
+    if (!(quantity > 0)) throw httpError(400, "Billing event quantity must be greater than zero.");
+    const amount = roundMoney(input?.amount ?? (quantity * unitRate));
+    const status = normalizeBillingFinanceStatus(input?.status || "pending") || "pending";
+    await client.query(
+        `insert into billing_fee_catalog (code, category, name, unit_label, is_active) values ($1,'Custom',$1,'Flat fee',true) on conflict (code) do nothing`,
+        [chargeType]
+    );
+    const result = await client.query(
+        `
+            insert into billing_events (
+                account_name, customer_id, warehouse_id, activity_date, service_date, source_module, source_reference,
+                source_type, source_ref, activity_type, charge_type, fee_code, description, fee_name, quantity,
+                unit_rate, rate, amount, tax_code, status, invoice_id, created_by, notes, note, reference
+            )
+            values ($1,$1,$2,$3,$3,$4,$5,$4,$5,$6,$7,$7,$8,$8,$9,$10,$10,$11,$12,$13,$14,$15,$16,$16,$5)
+            returning *
+        `,
+        [
+            customerId,
+            normalizeText(input?.warehouseId || input?.warehouse_id),
+            normalizeDateOnly(input?.activityDate || input?.activity_date) || normalizeDateOnly(new Date()),
+            normalizeFreeText(input?.sourceModule || "Manual"),
+            normalizeFreeText(input?.sourceReference || input?.source_reference || input?.reference),
+            normalizeFreeText(input?.activityType || "Labour"),
+            chargeType,
+            normalizeFreeText(input?.description || chargeType),
+            quantity,
+            unitRate,
+            amount,
+            normalizeText(input?.taxCode || "HST_ON"),
+            status,
+            toPositiveInt(input?.invoiceId || input?.invoice_id),
+            appUser?.email || "",
+            normalizeFreeText(input?.notes)
+        ]
+    );
+    return mapBillingFinanceEventRow(result.rows[0]);
+}
+
+async function getBillingFinanceRateCardById(client, id) {
+    const [cardResult, lineResult] = await Promise.all([
+        client.query("select * from rate_cards where id = $1 limit 1", [id]),
+        client.query("select * from rate_card_lines where rate_card_id = $1 order by charge_type asc, customer_id asc", [id])
+    ]);
+    return mapRateCardRow(cardResult.rows[0], lineResult.rows.map(mapRateCardLineRow));
+}
+
+async function getBillingFinanceInvoiceById(client, id) {
+    const [invoiceResult, lineResult] = await Promise.all([
+        client.query("select * from invoices where id = $1 limit 1", [id]),
+        client.query("select * from invoice_lines where invoice_id = $1 order by line_number asc, id asc", [id])
+    ]);
+    if (!invoiceResult.rows[0]) return null;
+    return mapInvoiceRow(invoiceResult.rows[0], lineResult.rows.map(mapInvoiceLineRow));
+}
+
+async function saveBillingFinanceInvoice(client, input, appUser) {
+    const customerId = normalizeText(input?.customerId || input?.customer_id || input?.accountName);
+    await assertBillingFinanceCustomerAccess(client, appUser, customerId);
+    const lines = Array.isArray(input?.lines) ? input.lines : [];
+    if (!lines.length) throw httpError(400, "Invoice lines are required.");
+    const id = toPositiveInt(input?.id);
+    let existingInvoice = null;
+    if (id) {
+        existingInvoice = (await client.query("select * from invoices where id = $1 for update", [id])).rows[0];
+        if (!existingInvoice) throw httpError(404, "Invoice was not found.");
+        const hasPayments = Number((await client.query("select count(*) as count from payment_allocations where invoice_id = $1", [id])).rows[0]?.count || 0) > 0;
+        if (existingInvoice.locked_at || isInvoiceLockedStatus(existingInvoice.status) || hasPayments) {
+            throw httpError(409, "This invoice is locked. Duplicate it or issue a credit note instead of editing posted invoice lines.");
+        }
+    }
+    const invoiceNumber = normalizeFreeText(input?.invoiceNumber) || existingInvoice?.invoice_number || await nextBillingFinanceDocumentNumber(client, "invoice", "INV");
+    let subtotal = 0;
+    let tax = 0;
+    const normalizedLines = [];
+    for (const rawLine of lines) {
+        const quantity = Number(rawLine?.quantity || 0);
+        const unitRate = Number(rawLine?.unitRate ?? rawLine?.unit_rate ?? 0);
+        if (!(quantity > 0)) continue;
+        const amount = roundMoney(rawLine?.amount ?? quantity * unitRate);
+        const taxCode = normalizeText(rawLine?.taxCode || "HST_ON");
+        const taxAmount = roundMoney(rawLine?.taxAmount ?? amount * (await getTaxRate(client, taxCode)) / 100);
+        subtotal += amount;
+        tax += taxAmount;
+        normalizedLines.push({
+            billingEventId: toPositiveInt(rawLine?.billingEventId || rawLine?.billing_event_id),
+            description: normalizeFreeText(rawLine?.description || rawLine?.chargeType || "Invoice line"),
+            chargeType: normalizeText(rawLine?.chargeType || rawLine?.charge_type),
+            quantity,
+            unitRate,
+            taxCode,
+            taxAmount,
+            amount
+        });
+    }
+    if (!normalizedLines.length) throw httpError(400, "At least one invoice line needs a quantity greater than zero.");
+    subtotal = roundMoney(subtotal);
+    tax = roundMoney(tax);
+    const paidAmount = roundMoney(input?.paidAmount);
+    const total = roundMoney(subtotal + tax);
+    const balanceDue = roundMoney(total - paidAmount);
+    const status = normalizeInvoiceStatus(input?.status || (balanceDue <= 0 && paidAmount > 0 ? "paid" : "draft"));
+    const lockInvoice = isInvoiceLockedStatus(status);
+    const invoiceDate = normalizeDateOnly(input?.invoiceDate) || normalizeDateOnly(new Date());
+    const dueDate = normalizeDateOnly(input?.dueDate) || normalizeDateOnly(new Date(Date.parse(`${invoiceDate}T00:00:00Z`) + 30 * 24 * 60 * 60 * 1000));
+    const invoiceResult = id
+        ? await client.query(
+            `
+                update invoices
+                set invoice_number=$2, customer_id=$3, billing_address=$4, invoice_date=$5, due_date=$6,
+                    payment_terms=$7, currency=$8, subtotal=$9, tax=$10, total=$11, paid_amount=$12,
+                    balance_due=$13, notes=$14, status=$15, is_recurring=$16, recurrence_rule=$17,
+                    locked_at=case when $18 then coalesce(locked_at, now()) else locked_at end,
+                    locked_by=case when $18 and locked_by = '' then $19 else locked_by end,
+                    updated_at=now()
+                where id=$1
+                returning *
+            `,
+            [id, invoiceNumber, customerId, normalizeFreeText(input?.billingAddress), invoiceDate, dueDate, normalizeFreeText(input?.paymentTerms || "Net 30"), normalizeCurrencyCode(input?.currency), subtotal, tax, total, paidAmount, balanceDue, normalizeFreeText(input?.notes), status, input?.isRecurring === true, normalizeFreeText(input?.recurrenceRule), lockInvoice, appUser?.email || ""]
+        )
+        : await client.query(
+            `
+                insert into invoices (
+                    invoice_number, customer_id, billing_address, invoice_date, due_date, payment_terms, currency,
+                    subtotal, tax, total, paid_amount, balance_due, notes, status, is_recurring, recurrence_rule,
+                    locked_at, locked_by
+                )
+                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                returning *
+            `,
+            [invoiceNumber, customerId, normalizeFreeText(input?.billingAddress), invoiceDate, dueDate, normalizeFreeText(input?.paymentTerms || "Net 30"), normalizeCurrencyCode(input?.currency), subtotal, tax, total, paidAmount, balanceDue, normalizeFreeText(input?.notes), status, input?.isRecurring === true, normalizeFreeText(input?.recurrenceRule), lockInvoice ? new Date() : null, lockInvoice ? appUser?.email || "" : ""]
+        );
+    const invoice = invoiceResult.rows[0];
+    await client.query("delete from invoice_lines where invoice_id = $1", [invoice.id]);
+    for (let index = 0; index < normalizedLines.length; index += 1) {
+        const line = normalizedLines[index];
+        await client.query(
+            `
+                insert into invoice_lines (invoice_id, billing_event_id, line_number, description, charge_type, quantity, unit_rate, tax_code, tax_amount, amount)
+                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            `,
+            [invoice.id, line.billingEventId, index + 1, line.description, line.chargeType, line.quantity, line.unitRate, line.taxCode, line.taxAmount, line.amount]
+        );
+    }
+    return mapInvoiceRow(invoice);
+}
+
+async function createInvoiceFromBillingEvents(client, input, appUser) {
+    const ids = Array.isArray(input?.billingEventIds || input?.ids)
+        ? (input.billingEventIds || input.ids).map(toPositiveInt).filter(Boolean)
+        : [];
+    if (!ids.length) throw httpError(400, "Choose approved billing events first.");
+    const eventResult = await client.query("select * from billing_events where id = any($1::bigint[]) and status in ('OPEN','pending','approved') order by activity_date asc, id asc", [ids]);
+    if (!eventResult.rowCount) throw httpError(400, "No pending or approved billing events were found.");
+    const customerIds = [...new Set(eventResult.rows.map((row) => normalizeText(row.customer_id || row.account_name)).filter(Boolean))];
+    if (customerIds.length !== 1) throw httpError(400, "Create one invoice per customer.");
+    await assertBillingFinanceCustomerAccess(client, appUser, customerIds[0]);
+    const profile = (await client.query("select * from customer_billing_profiles where account_name = $1 limit 1", [customerIds[0]])).rows[0] || {};
+    const invoice = await saveBillingFinanceInvoice(client, {
+        customerId: customerIds[0],
+        billingAddress: profile.billing_address || "",
+        invoiceDate: input?.invoiceDate,
+        dueDate: input?.dueDate,
+        paymentTerms: profile.payment_terms || "Net 30",
+        currency: profile.currency || "CAD",
+        status: "draft",
+        notes: input?.notes || "Created from approved warehouse billing events.",
+        lines: eventResult.rows.map((row) => ({
+            billingEventId: row.id,
+            description: row.description || row.fee_name || row.charge_type || row.fee_code,
+            chargeType: row.charge_type || row.fee_code,
+            quantity: row.quantity,
+            unitRate: row.unit_rate || row.rate,
+            taxCode: row.tax_code || "HST_ON",
+            amount: row.amount
+        }))
+    }, appUser);
+    await client.query("update billing_events set status = 'invoiced', invoice_id = $2, invoice_number = $3, invoiced_at = now(), updated_at = now() where id = any($1::bigint[])", [ids, invoice.id, invoice.invoiceNumber]);
+    return invoice;
+}
+
+async function saveBillingFinancePayment(client, input, appUser) {
+    const customerId = normalizeText(input?.customerId || input?.customer_id || input?.accountName);
+    await assertBillingFinanceCustomerAccess(client, appUser, customerId);
+    const amount = roundMoney(input?.amount);
+    if (!(amount > 0)) throw httpError(400, "Payment amount must be greater than zero.");
+    const result = await client.query(
+        `
+            insert into payments (payment_date, customer_id, invoice_reference, amount, payment_method, reference_number, notes, unapplied_amount)
+            values ($1,$2,$3,$4,$5,$6,$7,$4)
+            returning *
+        `,
+        [normalizeDateOnly(input?.paymentDate) || normalizeDateOnly(new Date()), customerId, normalizeFreeText(input?.invoiceReference), amount, normalizePaymentMethod(input?.paymentMethod), normalizeFreeText(input?.referenceNumber), normalizeFreeText(input?.notes)]
+    );
+    const payment = result.rows[0];
+    const allocations = Array.isArray(input?.allocations) && input.allocations.length
+        ? input.allocations
+        : input?.invoiceId
+            ? [{ invoiceId: input.invoiceId, amount }]
+            : [];
+    let allocatedTotal = 0;
+    const remainingByInvoiceId = new Map();
+    for (const allocation of allocations) {
+        const invoiceId = toPositiveInt(allocation?.invoiceId || allocation?.invoice_id);
+        const allocationAmount = roundMoney(allocation?.amount);
+        if (!invoiceId || !(allocationAmount > 0)) continue;
+        const invoice = (await client.query("select * from invoices where id = $1 for update", [invoiceId])).rows[0];
+        if (!invoice) throw httpError(404, "Invoice for payment allocation was not found.");
+        if (normalizeInvoiceStatus(invoice.status) === "void") throw httpError(409, "Payments cannot be allocated to void invoices.");
+        if (normalizeText(invoice.customer_id) !== customerId) throw httpError(403, "Payments can only be allocated to invoices for the same customer.");
+        const remaining = remainingByInvoiceId.has(invoiceId)
+            ? remainingByInvoiceId.get(invoiceId)
+            : roundMoney(invoice.balance_due);
+        if (allocationAmount > remaining) {
+            throw httpError(409, `Allocation exceeds the open balance for ${invoice.invoice_number}. Leave the extra amount unapplied as customer credit.`);
+        }
+        if (roundMoney(allocatedTotal + allocationAmount) > amount) {
+            throw httpError(409, "Payment allocations cannot exceed the payment amount.");
+        }
+        remainingByInvoiceId.set(invoiceId, roundMoney(remaining - allocationAmount));
+        await client.query("insert into payment_allocations (payment_id, invoice_id, amount) values ($1,$2,$3)", [payment.id, invoiceId, allocationAmount]);
+        allocatedTotal += allocationAmount;
+        await refreshInvoicePaymentTotals(client, invoiceId);
+    }
+    if (!allocations.length && input?.invoiceReference) {
+        const invoice = await client.query("select * from invoices where invoice_number = $1 and customer_id = $2 and status <> 'void' for update", [normalizeFreeText(input.invoiceReference), customerId]);
+        if (invoice.rows[0]) {
+            const allocationAmount = Math.min(amount, roundMoney(invoice.rows[0].balance_due));
+            if (allocationAmount > 0) {
+                await client.query("insert into payment_allocations (payment_id, invoice_id, amount) values ($1,$2,$3)", [payment.id, invoice.rows[0].id, allocationAmount]);
+                allocatedTotal = allocationAmount;
+            }
+            await refreshInvoicePaymentTotals(client, invoice.rows[0].id);
+        }
+    }
+    await client.query("update payments set unapplied_amount = $2, updated_at = now() where id = $1", [payment.id, roundMoney(amount - allocatedTotal)]);
+    return mapPaymentRow({ ...payment, unapplied_amount: roundMoney(amount - allocatedTotal) });
+}
+
+async function refreshInvoicePaymentTotals(client, invoiceId) {
+    const result = await client.query(
+        `
+            update invoices i
+            set
+                paid_amount = coalesce((select sum(amount) from payment_allocations where invoice_id = i.id), 0),
+                balance_due = greatest(i.total - coalesce((select sum(amount) from payment_allocations where invoice_id = i.id), 0), 0),
+                status = case
+                    when i.status = 'void' then i.status
+                    when coalesce((select sum(amount) from payment_allocations where invoice_id = i.id), 0) >= i.total then 'paid'
+                    when coalesce((select sum(amount) from payment_allocations where invoice_id = i.id), 0) > 0 then 'partial'
+                    when i.due_date < current_date and i.status <> 'draft' then 'overdue'
+                    else i.status
+                end,
+                paid_at = case when coalesce((select sum(amount) from payment_allocations where invoice_id = i.id), 0) >= i.total then now() else i.paid_at end,
+                updated_at = now()
+            where i.id = $1
+            returning *
+        `,
+        [invoiceId]
+    );
+    return result.rows[0] ? mapInvoiceRow(result.rows[0]) : null;
+}
+
+async function saveBillingFinanceVendor(client, input) {
+    const vendorName = normalizeFreeText(input?.vendorName || input?.vendor || input?.name);
+    if (!vendorName) throw httpError(400, "Vendor name is required.");
+    const result = await client.query(
+        `
+            insert into vendors (vendor_name, contact_name, email, phone, address, tax_number, notes)
+            values ($1,$2,$3,$4,$5,$6,$7)
+            on conflict (vendor_name) do update set
+                contact_name=excluded.contact_name,
+                email=excluded.email,
+                phone=excluded.phone,
+                address=excluded.address,
+                tax_number=excluded.tax_number,
+                notes=excluded.notes,
+                updated_at=now()
+            returning *
+        `,
+        [vendorName, normalizeFreeText(input?.contactName), normalizeEmail(input?.email), normalizeFreeText(input?.phone), normalizeFreeText(input?.address), normalizeFreeText(input?.taxNumber), normalizeFreeText(input?.notes)]
+    );
+    return mapVendorRow(result.rows[0]);
+}
+
+async function saveBillingFinanceExpense(client, input, appUser) {
+    const vendorName = normalizeFreeText(input?.vendor || input?.vendorName);
+    let vendorId = toPositiveInt(input?.vendorId);
+    if (!vendorId && vendorName) {
+        vendorId = Number((await saveBillingFinanceVendor(client, { vendorName })).id);
+    }
+    const customerReference = normalizeText(input?.customerReference || "");
+    if (customerReference) await assertBillingFinanceCustomerAccess(client, appUser, customerReference);
+    const amountBeforeTax = roundMoney(input?.amountBeforeTax ?? input?.amount_before_tax);
+    const taxAmount = roundMoney(input?.taxAmount ?? input?.tax_amount);
+    const totalAmount = roundMoney(input?.totalAmount ?? amountBeforeTax + taxAmount);
+    const result = await client.query(
+        `
+            insert into expenses (
+                vendor_id, vendor, expense_category, expense_date, description, amount_before_tax, tax_amount,
+                total_amount, payment_status, payment_method, receipt_upload, billable, customer_reference,
+                warehouse_reference, notes
+            )
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            returning *
+        `,
+        [
+            vendorId,
+            vendorName,
+            normalizeFreeText(input?.expenseCategory || "Miscellaneous"),
+            normalizeDateOnly(input?.expenseDate) || normalizeDateOnly(new Date()),
+            normalizeFreeText(input?.description),
+            amountBeforeTax,
+            taxAmount,
+            totalAmount,
+            normalizeFreeText(input?.paymentStatus || "unpaid").toLowerCase(),
+            normalizePaymentMethod(input?.paymentMethod || ""),
+            normalizeFreeText(input?.receiptUpload),
+            input?.billable === true,
+            customerReference,
+            normalizeText(input?.warehouseReference || ""),
+            normalizeFreeText(input?.notes)
+        ]
+    );
+    return mapExpenseRow(result.rows[0]);
+}
+
+async function saveBillingFinanceBankAccount(client, input) {
+    const accountName = normalizeFreeText(input?.accountName || input?.name);
+    if (!accountName) throw httpError(400, "Bank account name is required.");
+    const result = await client.query(
+        `
+            insert into bank_accounts (account_name, bank_name, account_number, currency, opening_balance, current_balance, is_active)
+            values ($1,$2,$3,$4,$5,$6,$7)
+            on conflict (account_name) do update set
+                bank_name=excluded.bank_name,
+                account_number=excluded.account_number,
+                currency=excluded.currency,
+                current_balance=excluded.current_balance,
+                is_active=excluded.is_active,
+                updated_at=now()
+            returning *
+        `,
+        [accountName, normalizeFreeText(input?.bankName), normalizeFreeText(input?.accountNumber), normalizeCurrencyCode(input?.currency), roundMoney(input?.openingBalance), roundMoney(input?.currentBalance ?? input?.openingBalance), input?.isActive !== false]
+    );
+    return mapBankAccountRow(result.rows[0]);
+}
+
+async function saveBillingFinanceBankTransaction(client, input) {
+    const bankAccountId = toPositiveInt(input?.bankAccountId || input?.bank_account_id);
+    if (!bankAccountId) throw httpError(400, "Bank account is required.");
+    const transactionType = normalizeFreeText(input?.transactionType || "deposit").toLowerCase();
+    const amount = roundMoney(input?.amount);
+    const result = await client.query(
+        `
+            insert into bank_transactions (bank_account_id, transaction_date, transaction_type, description, amount, matched_type, matched_id)
+            values ($1,$2,$3,$4,$5,$6,$7)
+            returning *
+        `,
+        [bankAccountId, normalizeDateOnly(input?.transactionDate) || normalizeDateOnly(new Date()), transactionType, normalizeFreeText(input?.description), amount, normalizeFreeText(input?.matchedType), toPositiveInt(input?.matchedId)]
+    );
+    const signedAmount = transactionType === "withdrawal" ? -amount : amount;
+    await client.query("update bank_accounts set current_balance = current_balance + $2, updated_at = now() where id = $1", [bankAccountId, signedAmount]);
+    return mapBankTransactionRow(result.rows[0]);
+}
+
+async function saveBillingFinanceJournalEntry(client, input, appUser) {
+    const lines = Array.isArray(input?.lines) ? input.lines : [];
+    const normalizedLines = lines.map((line) => ({
+        accountCode: normalizeFreeText(line?.accountCode || line?.account_code),
+        description: normalizeFreeText(line?.description),
+        debit: roundMoney(line?.debit),
+        credit: roundMoney(line?.credit)
+    })).filter((line) => line.accountCode && (line.debit > 0 || line.credit > 0));
+    const debitTotal = roundMoney(normalizedLines.reduce((sum, line) => sum + line.debit, 0));
+    const creditTotal = roundMoney(normalizedLines.reduce((sum, line) => sum + line.credit, 0));
+    if (!normalizedLines.length || debitTotal !== creditTotal) throw httpError(400, "Journal entry debits and credits must balance.");
+    const entryNumber = normalizeFreeText(input?.entryNumber) || await nextBillingFinanceDocumentNumber(client, "journal_entry", "JE");
+    const result = await client.query(
+        `
+            insert into journal_entries (entry_number, entry_date, source_type, source_id, memo, created_by, is_posted, posted_at, locked_at, reversed_entry_id, is_reversal)
+            values ($1,$2,$3,$4,$5,$6,true,now(),now(),$7,$8)
+            returning *
+        `,
+        [entryNumber, normalizeDateOnly(input?.entryDate) || normalizeDateOnly(new Date()), normalizeFreeText(input?.sourceType || "manual"), toPositiveInt(input?.sourceId), normalizeFreeText(input?.memo), appUser?.email || "", toPositiveInt(input?.reversedEntryId || input?.reversed_entry_id), input?.isReversal === true]
+    );
+    for (const line of normalizedLines) {
+        await client.query(
+            "insert into journal_entry_lines (journal_entry_id, account_code, description, debit, credit) values ($1,$2,$3,$4,$5)",
+            [result.rows[0].id, line.accountCode, line.description, line.debit, line.credit]
+        );
+    }
+    return mapJournalEntryRow(result.rows[0], normalizedLines.map((line) => ({ ...line, id: "" })));
+}
+
+async function reverseBillingFinanceJournalEntry(client, journalEntryId, appUser) {
+    const entryResult = await client.query("select * from journal_entries where id = $1 for update", [journalEntryId]);
+    const entry = entryResult.rows[0];
+    if (!entry) throw httpError(404, "Journal entry was not found.");
+    if (entry.reversal_entry_id) throw httpError(409, "This journal entry has already been reversed.");
+    if (entry.is_reversal) throw httpError(409, "Reversal entries cannot be reversed again.");
+    const lineResult = await client.query("select * from journal_entry_lines where journal_entry_id = $1 order by id asc", [journalEntryId]);
+    if (!lineResult.rowCount) throw httpError(409, "Journal entry has no lines to reverse.");
+    const reversal = await saveBillingFinanceJournalEntry(client, {
+        sourceType: "journal_reversal",
+        sourceId: journalEntryId,
+        memo: `Reversal of ${entry.entry_number}`,
+        reversedEntryId: journalEntryId,
+        isReversal: true,
+        lines: lineResult.rows.map((line) => ({
+            accountCode: line.account_code,
+            description: `Reverse: ${line.description || entry.memo || entry.entry_number}`,
+            debit: Number(line.credit || 0),
+            credit: Number(line.debit || 0)
+        }))
+    }, appUser);
+    await client.query("update journal_entries set reversal_entry_id = $2, updated_at = now() where id = $1", [journalEntryId, reversal.id]);
+    return getBillingFinanceJournalEntryById(client, reversal.id);
+}
+
+async function getBillingFinanceJournalEntryById(client, id) {
+    const [entryResult, lineResult] = await Promise.all([
+        client.query("select * from journal_entries where id = $1 limit 1", [id]),
+        client.query("select * from journal_entry_lines where journal_entry_id = $1 order by id asc", [id])
+    ]);
+    if (!entryResult.rows[0]) return null;
+    return mapJournalEntryRow(entryResult.rows[0], lineResult.rows.map(mapJournalEntryLineRow));
+}
+
+async function postInvoiceJournalEntry(client, invoiceId, appUser) {
+    const invoice = await getBillingFinanceInvoiceById(client, invoiceId);
+    if (!invoice || invoice.status === "draft" || invoice.status === "void") return null;
+    const existing = await client.query("select id from journal_entries where source_type = 'invoice' and source_id = $1 limit 1", [invoiceId]);
+    if (existing.rowCount) return null;
+    const revenueAccount = invoice.lines.some((line) => normalizeText(line.chargeType).includes("FREIGHT")) ? "4030"
+        : invoice.lines.some((line) => normalizeText(line.chargeType).includes("PICK")) ? "4020"
+            : invoice.lines.some((line) => normalizeText(line.chargeType).includes("STORAGE")) ? "4010"
+                : "4000";
+    const entry = await saveBillingFinanceJournalEntry(client, {
+        sourceType: "invoice",
+        sourceId: invoiceId,
+        memo: `Invoice ${invoice.invoiceNumber}`,
+        lines: [
+            { accountCode: "1100", description: "Accounts receivable", debit: invoice.total, credit: 0 },
+            { accountCode: revenueAccount, description: "Warehouse revenue", debit: 0, credit: invoice.subtotal },
+            { accountCode: "2100", description: "Tax payable", debit: 0, credit: invoice.tax }
+        ].filter((line) => line.debit > 0 || line.credit > 0)
+    }, appUser);
+    await client.query(
+        "update invoices set posting_status = 'posted', posted_at = now(), posted_journal_entry_id = $2, locked_at = coalesce(locked_at, now()), locked_by = case when locked_by = '' then $3 else locked_by end, updated_at = now() where id = $1",
+        [invoiceId, entry.id, appUser?.email || ""]
+    );
+    return entry;
+}
+
+async function postPaymentJournalEntry(client, paymentId, appUser) {
+    const payment = (await client.query("select * from payments where id = $1 limit 1", [paymentId])).rows[0];
+    if (!payment) return null;
+    const existing = await client.query("select id from journal_entries where source_type = 'payment' and source_id = $1 limit 1", [paymentId]);
+    if (existing.rowCount) return null;
+    const allocationResult = await client.query("select coalesce(sum(amount), 0) as allocated from payment_allocations where payment_id = $1", [paymentId]);
+    const allocatedAmount = roundMoney(allocationResult.rows[0]?.allocated || 0);
+    const unappliedAmount = roundMoney(Number(payment.amount || 0) - allocatedAmount);
+    return saveBillingFinanceJournalEntry(client, {
+        sourceType: "payment",
+        sourceId: paymentId,
+        memo: `Payment ${payment.reference_number || payment.id}`,
+        lines: [
+            { accountCode: "1000", description: "Cash received", debit: Number(payment.amount || 0), credit: 0 },
+            { accountCode: "1100", description: "Accounts receivable", debit: 0, credit: allocatedAmount },
+            { accountCode: "2200", description: "Customer credit balance", debit: 0, credit: unappliedAmount }
+        ].filter((line) => line.debit > 0 || line.credit > 0)
+    }, appUser);
+}
+
+async function postExpenseJournalEntry(client, expenseId, appUser) {
+    const expense = (await client.query("select * from expenses where id = $1 limit 1", [expenseId])).rows[0];
+    if (!expense) return null;
+    const existing = await client.query("select id from journal_entries where source_type = 'expense' and source_id = $1 limit 1", [expenseId]);
+    if (existing.rowCount) return null;
+    const paid = String(expense.payment_status || "").toLowerCase() === "paid";
+    return saveBillingFinanceJournalEntry(client, {
+        sourceType: "expense",
+        sourceId: expenseId,
+        memo: `Expense ${expense.description || expense.id}`,
+        lines: [
+            { accountCode: categoryAccountCode(expense.expense_category), description: expense.expense_category, debit: Number(expense.amount_before_tax || 0), credit: 0 },
+            { accountCode: "1200", description: "Tax recoverable", debit: Number(expense.tax_amount || 0), credit: 0 },
+            { accountCode: paid ? "1000" : "2000", description: paid ? "Cash paid" : "Accounts payable", debit: 0, credit: Number(expense.total_amount || 0) }
+        ].filter((line) => line.debit > 0 || line.credit > 0)
+    }, appUser);
+}
+
+async function insertBillingFinanceAudit(client, entityType, entityId, action, appUser, details = {}) {
+    await client.query(
+        "insert into audit_logs (module, entity_type, entity_id, action, actor_email, details) values ('billing_finance',$1,$2,$3,$4,$5)",
+        [entityType, String(entityId || ""), action, appUser?.email || "", JSON.stringify(details || {})]
+    );
+}
+
+async function getBillingFinanceState(client = pool, appUser = null, query = {}) {
+    const allowedCompanies = await getBillingFinanceAllowedCompanies(client, appUser);
+    const [
+        profileResult,
+        rateCardResult,
+        rateLineResult,
+        rateHistoryResult,
+        eventResult,
+        invoiceResult,
+        invoiceLineResult,
+        paymentResult,
+        allocationResult,
+        vendorResult,
+        vendorBillResult,
+        vendorPaymentResult,
+        expenseResult,
+        expenseCategoryResult,
+        bankAccountResult,
+        bankTransactionResult,
+        bankReconciliationResult,
+        accountResult,
+        journalResult,
+        journalLineResult,
+        taxCodeResult,
+        auditResult
+    ] = await Promise.all([
+        client.query("select * from customer_billing_profiles order by customer_name asc"),
+        client.query("select * from rate_cards order by is_active desc, name asc"),
+        client.query("select * from rate_card_lines order by rate_card_id asc, charge_type asc"),
+        client.query("select * from rate_card_history order by changed_at desc limit 200"),
+        client.query("select * from billing_events order by coalesce(activity_date, service_date) desc, id desc limit 1000"),
+        client.query("select * from invoices order by invoice_date desc, id desc limit 500"),
+        client.query("select * from invoice_lines order by invoice_id asc, line_number asc, id asc"),
+        client.query("select * from payments order by payment_date desc, id desc limit 500"),
+        client.query("select * from payment_allocations order by payment_id asc, id asc"),
+        client.query(`
+            select v.*,
+                coalesce((select sum(amount - paid_amount) from vendor_bills b where b.vendor_id = v.id and b.status <> 'paid'), 0) as outstanding_balance
+            from vendors v
+            order by vendor_name asc
+        `),
+        client.query("select * from vendor_bills order by due_date asc nulls last, id desc limit 500"),
+        client.query("select * from vendor_payments order by payment_date desc, id desc limit 500"),
+        client.query("select * from expenses order by expense_date desc, id desc limit 500"),
+        client.query("select * from expense_categories order by name asc"),
+        client.query("select * from bank_accounts order by account_name asc"),
+        client.query("select * from bank_transactions order by transaction_date desc, id desc limit 500"),
+        client.query("select * from bank_reconciliations order by statement_date desc, id desc limit 200"),
+        client.query("select * from chart_of_accounts order by account_code asc"),
+        client.query("select * from journal_entries order by entry_date desc, id desc limit 500"),
+        client.query("select * from journal_entry_lines order by journal_entry_id asc, id asc"),
+        client.query("select * from tax_codes order by code asc"),
+        client.query("select * from audit_logs where module = 'billing_finance' order by created_at desc limit 200")
+    ]);
+
+    const profiles = filterBillingFinanceRows(profileResult.rows, allowedCompanies, (row) => row.account_name).map(mapCustomerBillingProfileRow);
+    const events = filterBillingFinanceRows(eventResult.rows, allowedCompanies, (row) => row.customer_id || row.account_name).map(mapBillingFinanceEventRow);
+    const invoices = filterBillingFinanceRows(invoiceResult.rows, allowedCompanies, (row) => row.customer_id);
+    const invoiceIds = new Set(invoices.map((row) => String(row.id)));
+    const linesByInvoiceId = new Map();
+    invoiceLineResult.rows.forEach((line) => {
+        const key = String(line.invoice_id);
+        if (!invoiceIds.has(key)) return;
+        if (!linesByInvoiceId.has(key)) linesByInvoiceId.set(key, []);
+        linesByInvoiceId.get(key).push(mapInvoiceLineRow(line));
+    });
+    const mappedInvoices = invoices.map((row) => mapInvoiceRow(row, linesByInvoiceId.get(String(row.id)) || []));
+    const payments = filterBillingFinanceRows(paymentResult.rows, allowedCompanies, (row) => row.customer_id);
+    const paymentIds = new Set(payments.map((row) => String(row.id)));
+    const allocationsByPaymentId = new Map();
+    allocationResult.rows.forEach((allocation) => {
+        const key = String(allocation.payment_id);
+        if (!paymentIds.has(key)) return;
+        if (!allocationsByPaymentId.has(key)) allocationsByPaymentId.set(key, []);
+        allocationsByPaymentId.get(key).push({
+            id: String(allocation.id),
+            paymentId: key,
+            invoiceId: allocation.invoice_id ? String(allocation.invoice_id) : "",
+            amount: Number(allocation.amount || 0)
+        });
+    });
+    const mappedPayments = payments.map((row) => mapPaymentRow(row, allocationsByPaymentId.get(String(row.id)) || []));
+    const expenses = (Array.isArray(allowedCompanies)
+        ? expenseResult.rows.filter((row) => row.customer_reference && allowedCompanies.includes(normalizeText(row.customer_reference)))
+        : expenseResult.rows
+    ).map(mapExpenseRow);
+    const rateLinesByCardId = new Map();
+    rateLineResult.rows.forEach((line) => {
+        const key = String(line.rate_card_id);
+        if (!rateLinesByCardId.has(key)) rateLinesByCardId.set(key, []);
+        rateLinesByCardId.get(key).push(mapRateCardLineRow(line));
+    });
+    const journalLinesByEntryId = new Map();
+    journalLineResult.rows.forEach((line) => {
+        const key = String(line.journal_entry_id);
+        if (!journalLinesByEntryId.has(key)) journalLinesByEntryId.set(key, []);
+        journalLinesByEntryId.get(key).push(mapJournalEntryLineRow(line));
+    });
+
+    const state = {
+        dashboard: buildBillingFinanceDashboard({
+            profiles,
+            events,
+            invoices: mappedInvoices,
+            payments: mappedPayments,
+            expenses,
+            vendorBills: vendorBillResult.rows
+        }),
+        profiles,
+        rateCards: rateCardResult.rows.map((row) => mapRateCardRow(row, rateLinesByCardId.get(String(row.id)) || [])),
+        rateCardHistory: rateHistoryResult.rows.map((row) => ({
+            id: String(row.id),
+            rateCardId: row.rate_card_id ? String(row.rate_card_id) : "",
+            rateCardLineId: row.rate_card_line_id ? String(row.rate_card_line_id) : "",
+            changeType: row.change_type || "",
+            previousValues: row.previous_values || {},
+            newValues: row.new_values || {},
+            changedBy: row.changed_by || "",
+            changedAt: row.changed_at ? new Date(row.changed_at).toISOString() : ""
+        })),
+        billingEvents: events,
+        invoices: mappedInvoices,
+        payments: mappedPayments,
+        creditNotes: [],
+        vendors: vendorResult.rows.map(mapVendorRow),
+        vendorBills: vendorBillResult.rows.map((row) => ({
+            id: String(row.id),
+            vendorId: row.vendor_id ? String(row.vendor_id) : "",
+            billNumber: row.bill_number || "",
+            billDate: normalizeDateOnly(row.bill_date),
+            dueDate: normalizeDateOnly(row.due_date),
+            amount: Number(row.amount || 0),
+            paidAmount: Number(row.paid_amount || 0),
+            status: row.status || "open",
+            notes: row.notes || ""
+        })),
+        vendorPayments: vendorPaymentResult.rows.map((row) => ({
+            id: String(row.id),
+            vendorId: row.vendor_id ? String(row.vendor_id) : "",
+            vendorBillId: row.vendor_bill_id ? String(row.vendor_bill_id) : "",
+            paymentDate: normalizeDateOnly(row.payment_date),
+            amount: Number(row.amount || 0),
+            paymentMethod: row.payment_method || "",
+            referenceNumber: row.reference_number || "",
+            notes: row.notes || ""
+        })),
+        expenses,
+        expenseCategories: expenseCategoryResult.rows.map((row) => ({ id: String(row.id), name: row.name || "", accountCode: row.account_code || "5000", isActive: row.is_active !== false })),
+        bankAccounts: bankAccountResult.rows.map(mapBankAccountRow),
+        bankTransactions: bankTransactionResult.rows.map(mapBankTransactionRow),
+        bankReconciliations: bankReconciliationResult.rows.map((row) => ({
+            id: String(row.id),
+            bankAccountId: row.bank_account_id ? String(row.bank_account_id) : "",
+            statementDate: normalizeDateOnly(row.statement_date),
+            statementBalance: Number(row.statement_balance || 0),
+            reconciledBalance: Number(row.reconciled_balance || 0),
+            status: row.status || "draft",
+            notes: row.notes || ""
+        })),
+        chartOfAccounts: accountResult.rows.map((row) => ({
+            id: String(row.id),
+            accountCode: row.account_code || "",
+            accountName: row.account_name || "",
+            accountType: row.account_type || "",
+            isActive: row.is_active !== false
+        })),
+        journalEntries: journalResult.rows.map((row) => mapJournalEntryRow(row, journalLinesByEntryId.get(String(row.id)) || [])),
+        taxCodes: taxCodeResult.rows.map(mapTaxCodeRow),
+        auditLogs: auditResult.rows.map((row) => ({
+            id: String(row.id),
+            entityType: row.entity_type || "",
+            entityId: row.entity_id || "",
+            action: row.action || "",
+            actorEmail: row.actor_email || "",
+            details: row.details || {},
+            createdAt: row.created_at ? new Date(row.created_at).toISOString() : ""
+        })),
+        catalog: {
+            chargeTypes: BILLING_FINANCE_CHARGE_TYPES.map(([code, category, name, unit]) => ({ code, category, name, unit })),
+            units: BILLING_FINANCE_UNITS,
+            activityTypes: BILLING_FINANCE_ACTIVITY_TYPES,
+            expenseCategories: BILLING_FINANCE_EXPENSE_CATEGORIES,
+            paymentMethods: BILLING_FINANCE_PAYMENT_METHODS
+        },
+        meta: {
+            serverSyncedAt: new Date().toISOString(),
+            allowedCompanies
+        }
+    };
+    return state;
+}
+
+function buildBillingFinanceDashboard({ profiles = [], events = [], invoices = [], payments = [], expenses = [], vendorBills = [] }) {
+    const now = new Date();
+    const monthKey = now.toISOString().slice(0, 7);
+    const invoiceThisMonth = invoices.filter((invoice) => String(invoice.invoiceDate || "").slice(0, 7) === monthKey && invoice.status !== "void");
+    const expenseThisMonth = expenses.filter((expense) => String(expense.expenseDate || "").slice(0, 7) === monthKey);
+    const revenueThisMonth = roundMoney(invoiceThisMonth.reduce((sum, invoice) => sum + Number(invoice.subtotal || 0), 0));
+    const expensesThisMonth = roundMoney(expenseThisMonth.reduce((sum, expense) => sum + Number(expense.totalAmount || 0), 0));
+    const grossProfit = roundMoney(revenueThisMonth - expenseThisMonth);
+    const netProfit = grossProfit;
+    const outstandingReceivables = roundMoney(invoices.filter((invoice) => !["paid", "void"].includes(invoice.status)).reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0));
+    const outstandingPayables = roundMoney(vendorBills.reduce((sum, bill) => sum + Math.max(Number(bill.amount || 0) - Number(bill.paid_amount || 0), 0), 0)
+        + expenses.filter((expense) => expense.paymentStatus !== "paid").reduce((sum, expense) => sum + Number(expense.totalAmount || 0), 0));
+    const unbilledWarehouseActivity = roundMoney(events.filter((event) => ["pending", "approved"].includes(event.status)).reduce((sum, event) => sum + Number(event.amount || 0), 0));
+    const taxCollected = roundMoney(invoices.reduce((sum, invoice) => sum + Number(invoice.tax || 0), 0));
+    const taxPaid = roundMoney(expenses.reduce((sum, expense) => sum + Number(expense.taxAmount || 0), 0));
+    const taxPayable = roundMoney(taxCollected - taxPaid);
+    const byCharge = (needle) => roundMoney(invoices.flatMap((invoice) => invoice.lines || [])
+        .filter((line) => normalizeText(line.chargeType || line.description).includes(needle))
+        .reduce((sum, line) => sum + Number(line.amount || 0), 0));
+    const customerRevenue = new Map();
+    invoices.forEach((invoice) => {
+        customerRevenue.set(invoice.customerId, roundMoney((customerRevenue.get(invoice.customerId) || 0) + Number(invoice.total || 0)));
+    });
+    const topCustomers = [...customerRevenue.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([customerId, amount]) => ({ customerId, customerName: profiles.find((profile) => profile.accountName === customerId)?.customerName || customerId, amount }));
+    const overdueInvoices = invoices
+        .filter((invoice) => invoice.status !== "paid" && invoice.status !== "void" && invoice.dueDate && invoice.dueDate < now.toISOString().slice(0, 10))
+        .map((invoice) => ({ invoiceNumber: invoice.invoiceNumber, customerId: invoice.customerId, dueDate: invoice.dueDate, balanceDue: invoice.balanceDue }));
+    const months = [];
+    for (let index = 5; index >= 0; index -= 1) {
+        const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - index, 1));
+        months.push(date.toISOString().slice(0, 7));
+    }
+    const monthlyRevenue = months.map((month) => ({ month, amount: roundMoney(invoices.filter((invoice) => String(invoice.invoiceDate).slice(0, 7) === month).reduce((sum, invoice) => sum + Number(invoice.subtotal || 0), 0)) }));
+    const monthlyExpenses = months.map((month) => ({ month, amount: roundMoney(expenses.filter((expense) => String(expense.expenseDate).slice(0, 7) === month).reduce((sum, expense) => sum + Number(expense.totalAmount || 0), 0)) }));
+    const profitTrend = months.map((month) => ({
+        month,
+        amount: roundMoney((monthlyRevenue.find((entry) => entry.month === month)?.amount || 0) - (monthlyExpenses.find((entry) => entry.month === month)?.amount || 0))
+    }));
+    const agingBuckets = { Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
+    invoices.filter((invoice) => invoice.balanceDue > 0).forEach((invoice) => {
+        const age = Math.floor((Date.now() - Date.parse(`${invoice.dueDate}T00:00:00Z`)) / (24 * 60 * 60 * 1000));
+        const bucket = age <= 0 ? "Current" : age <= 30 ? "1-30" : age <= 60 ? "31-60" : age <= 90 ? "61-90" : "90+";
+        agingBuckets[bucket] = roundMoney(agingBuckets[bucket] + Number(invoice.balanceDue || 0));
+    });
+    return {
+        revenueThisMonth,
+        expensesThisMonth,
+        grossProfit,
+        netProfit,
+        outstandingReceivables,
+        outstandingPayables,
+        unbilledWarehouseActivity,
+        taxPayable,
+        storageRevenue: byCharge("STORAGE"),
+        pickPackRevenue: byCharge("PICK"),
+        freightRevenue: byCharge("FREIGHT"),
+        topCustomers,
+        overdueInvoices,
+        charts: {
+            monthlyRevenue,
+            monthlyExpenses,
+            profitTrend,
+            invoiceAging: Object.entries(agingBuckets).map(([bucket, amount]) => ({ bucket, amount }))
+        }
+    };
+}
+
+async function buildBillingFinanceReport(client, reportKey, query, appUser) {
+    const state = await getBillingFinanceState(client, appUser, query);
+    const key = normalizeText(reportKey).replace(/[-\s]+/g, "_");
+    const from = normalizeDateOnly(query?.from || query?.dateFrom) || "0001-01-01";
+    const to = normalizeDateOnly(query?.to || query?.dateTo) || "9999-12-31";
+    const invoices = state.invoices.filter((invoice) => invoice.invoiceDate >= from && invoice.invoiceDate <= to);
+    const expenses = state.expenses.filter((expense) => expense.expenseDate >= from && expense.expenseDate <= to);
+    const revenue = roundMoney(invoices.reduce((sum, invoice) => sum + invoice.subtotal, 0));
+    const tax = roundMoney(invoices.reduce((sum, invoice) => sum + invoice.tax, 0));
+    const expenseTotal = roundMoney(expenses.reduce((sum, expense) => sum + expense.totalAmount, 0));
+    if (["PROFIT_LOSS", "P_AND_L", "PL"].includes(key)) {
+        return { key, title: "Profit & Loss", columns: ["Metric", "Amount"], rows: [["Revenue", revenue], ["Expenses", expenseTotal], ["Net Profit", roundMoney(revenue - expenseTotal)]] };
+    }
+    if (key === "BALANCE_SHEET") {
+        return { key, title: "Balance Sheet", columns: ["Account", "Amount"], rows: [["Cash", state.bankAccounts.reduce((sum, account) => sum + account.currentBalance, 0)], ["Accounts Receivable", state.dashboard.outstandingReceivables], ["Accounts Payable", state.dashboard.outstandingPayables], ["Tax Payable", state.dashboard.taxPayable], ["Equity", roundMoney(state.dashboard.outstandingReceivables - state.dashboard.outstandingPayables)]] };
+    }
+    if (key === "CASH_FLOW") {
+        return { key, title: "Cash Flow", columns: ["Metric", "Amount"], rows: [["Payments Received", state.payments.reduce((sum, payment) => sum + payment.amount, 0)], ["Expenses Paid", expenses.filter((expense) => expense.paymentStatus === "paid").reduce((sum, expense) => sum + expense.totalAmount, 0)], ["Net Cash Flow", roundMoney(state.payments.reduce((sum, payment) => sum + payment.amount, 0) - expenses.filter((expense) => expense.paymentStatus === "paid").reduce((sum, expense) => sum + expense.totalAmount, 0))]] };
+    }
+    if (key === "TRIAL_BALANCE") {
+        const totals = new Map();
+        state.journalEntries.flatMap((entry) => entry.lines || []).forEach((line) => {
+            const current = totals.get(line.accountCode) || { debit: 0, credit: 0 };
+            current.debit += line.debit;
+            current.credit += line.credit;
+            totals.set(line.accountCode, current);
+        });
+        return { key, title: "Trial Balance", columns: ["Account", "Debit", "Credit"], rows: [...totals.entries()].map(([account, total]) => [account, roundMoney(total.debit), roundMoney(total.credit)]) };
+    }
+    if (key === "GENERAL_LEDGER") {
+        return { key, title: "General Ledger", columns: ["Date", "Entry", "Account", "Description", "Debit", "Credit"], rows: state.journalEntries.flatMap((entry) => (entry.lines || []).map((line) => [entry.entryDate, entry.entryNumber, line.accountCode, line.description || entry.memo, line.debit, line.credit])) };
+    }
+    if (key.includes("AGING") || key.includes("UNPAID_INVOICES")) {
+        return { key, title: key.includes("AP") ? "AP Aging" : "AR Aging", columns: ["Reference", "Customer/Vendor", "Due Date", "Amount"], rows: invoices.filter((invoice) => invoice.balanceDue > 0).map((invoice) => [invoice.invoiceNumber, invoice.customerId, invoice.dueDate, invoice.balanceDue]) };
+    }
+    if (key.includes("CUSTOMER_PROFITABILITY")) {
+        const rows = state.profiles.map((profile) => {
+            const customerRevenue = invoices.filter((invoice) => invoice.customerId === profile.accountName).reduce((sum, invoice) => sum + invoice.subtotal, 0);
+            const customerExpenses = expenses.filter((expense) => expense.customerReference === profile.accountName).reduce((sum, expense) => sum + expense.totalAmount, 0);
+            return [profile.customerName, roundMoney(customerRevenue), roundMoney(customerExpenses), roundMoney(customerRevenue - customerExpenses)];
+        });
+        return { key, title: "Customer Profitability", columns: ["Customer", "Revenue", "Cost", "Profit"], rows };
+    }
+    return { key, title: "Billing & Finance Report", columns: ["Metric", "Amount"], rows: [["Revenue", revenue], ["Tax Collected", tax], ["Expenses", expenseTotal], ["Unbilled Activity", state.dashboard.unbilledWarehouseActivity]] };
+}
+
+async function buildBillingFinanceExport(client, query, appUser) {
+    const state = await getBillingFinanceState(client, appUser, query);
+    const entity = normalizeText(query?.entity || "invoices").toLowerCase();
+    const format = normalizeText(query?.format || "csv").toLowerCase();
+    const sourceMap = {
+        invoices: state.invoices,
+        payments: state.payments,
+        expenses: state.expenses,
+        journal_entries: state.journalEntries,
+        tax_summaries: state.taxCodes,
+        profit_loss: (await buildBillingFinanceReport(client, "profit_loss", query, appUser)).rows,
+        balance_sheet: (await buildBillingFinanceReport(client, "balance_sheet", query, appUser)).rows,
+        trial_balance: (await buildBillingFinanceReport(client, "trial_balance", query, appUser)).rows,
+        general_ledger: (await buildBillingFinanceReport(client, "general_ledger", query, appUser)).rows
+    };
+    const rows = sourceMap[entity] || state.invoices;
+    const normalizedRows = Array.isArray(rows[0])
+        ? rows
+        : rows.map((row) => Object.values(row).map((value) => typeof value === "object" ? JSON.stringify(value) : value));
+    const headers = Array.isArray(rows[0])
+        ? []
+        : rows[0]
+            ? Object.keys(rows[0])
+            : [];
+    const csvRows = (headers.length ? [headers] : []).concat(normalizedRows).map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","));
+    const content = format === "pdf"
+        ? `<html><body><h1>WMS365 ${entity.replace(/_/g, " ")}</h1><pre>${csvRows.join("\n")}</pre></body></html>`
+        : csvRows.join("\r\n");
+    return {
+        entity,
+        format,
+        filename: `wms365-${entity}-${new Date().toISOString().slice(0, 10)}.${format === "excel" ? "csv" : format}`,
+        mimeType: format === "pdf" ? "text/html" : "text/csv",
+        content
+    };
 }
 
 function groupPortalOrderLines(lines) {
@@ -15180,6 +19465,16 @@ function toBooleanFlag(value, fallback = false) {
 
 function isSuperAdminUser(user) {
     return normalizeText(user?.role || "") === "SUPER_ADMIN";
+}
+
+function isBillingFinanceUser(user) {
+    return BILLING_FINANCE_ROLE_SET.has(normalizeAppUserRole(user?.role || ""));
+}
+
+function assertBillingFinanceAccess(user) {
+    if (!isBillingFinanceUser(user)) {
+        throw httpError(403, "Billing & Finance access is restricted to Super Admin, Admin, Accounting, and Finance Manager roles.");
+    }
 }
 
 function assertSuperAdminAccess(user) {
@@ -15746,6 +20041,7 @@ function isPublicRequest(req) {
     if (pathName === "/book-demo" || pathName === "/book-demo.html") return true;
     if (pathName === "/integrations" || pathName === "/integrations.html") return true;
     if (pathName === "/implementation" || pathName === "/implementation.html") return true;
+    if (pathName === "/delivery-appointment-action") return true;
     if (pathName === "/robots.txt" || pathName === "/sitemap.xml") return true;
     if (pathName === "/marketing-logo.svg") return true;
     if (pathName === "/hero-warehouse-scene.svg") return true;

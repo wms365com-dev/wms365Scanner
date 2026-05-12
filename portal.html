@@ -339,6 +339,7 @@
         }
         .pill.success { background: rgba(31, 157, 104, 0.1); color: #146846; border-color: rgba(31, 157, 104, 0.25); }
         .pill.warn { background: rgba(210, 132, 0, 0.1); color: #9b5d00; border-color: rgba(210, 132, 0, 0.22); }
+        .pill.info { background: rgba(8, 145, 178, 0.1); color: #0e7490; border-color: rgba(8, 145, 178, 0.22); }
         .inventory-meta, .order-meta, .line-note { display: grid; gap: 0.35rem; margin-top: 0.6rem; color: var(--muted); font-size: 0.92rem; }
         .order-document-upload {
             display: grid;
@@ -605,7 +606,7 @@
                         </div>
                     </form>
                     <div class="auth-links">
-                        <a class="auth-link" href="https://app.wms365.co/login">Warehouse Login</a>
+                        <a class="auth-link" href="https://app.wms365.co/">Warehouse Login</a>
                         <a class="auth-link" href="mailto:support@wms365.co">Support</a>
                     </div>
                     <div class="small">Warehouse users should use the separate warehouse login page.</div>
@@ -620,6 +621,7 @@
                     <div class="portal-nav-group portal-nav-primary">
                         <button class="btn ghost" type="button" data-view="order">New Sales Order</button>
                         <button class="btn ghost" type="button" data-view="inbound">New Purchase Order</button>
+                        <button class="btn ghost" type="button" data-view="delivery">Book Delivery</button>
                     </div>
                     <div class="portal-nav-group">
                         <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
@@ -627,6 +629,7 @@
                         <button class="btn ghost" type="button" data-view="orders">My Sales Orders</button>
                         <button class="btn ghost" type="button" data-view="shipped">Shipped Orders</button>
                         <button class="btn ghost" type="button" data-view="inbounds">My Purchase Orders</button>
+                        <button class="btn ghost" type="button" data-view="deliveries">My Deliveries</button>
                     </div>
                     <div class="portal-nav-group">
                         <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Bug / Request Feature</button>
@@ -817,6 +820,45 @@
                 </div>
             </section>
 
+            <section id="deliveryPanel" class="card hidden">
+                <div class="order-form-head">
+                    <div class="header-copy">
+                        <h2>Book Delivery Appointment</h2>
+                        <p class="lead">Request a delivery time at the warehouse. The warehouse will approve the appointment or suggest another date/time.</p>
+                    </div>
+                    <button class="btn ghost" id="resetDeliveryBtn" type="button">Clear Form</button>
+                </div>
+
+                <form id="deliveryForm" class="form-grid" autocomplete="off">
+                    <label class="field"><span>Reference / PO #</span><input id="deliveryReferenceNumber" type="text" placeholder="Required"></label>
+                    <label class="field"><span>Requested Date</span><input id="deliveryRequestedDate" type="date"></label>
+                    <label class="field"><span>Requested Time</span><input id="deliveryRequestedTime" type="text" placeholder="Example: 10:00 AM - 12:00 PM"></label>
+                    <label class="field"><span>Carrier</span><input id="deliveryCarrierName" type="text" placeholder="Optional"></label>
+                    <label class="field"><span>Trailer / Container #</span><input id="deliveryTrailerNumber" type="text" placeholder="Optional"></label>
+                    <label class="field"><span>Pallet Count</span><input id="deliveryPalletCount" type="number" min="1" step="1" placeholder="Optional"></label>
+                    <label class="field"><span>Carton Count</span><input id="deliveryCartonCount" type="number" min="1" step="1" placeholder="Optional"></label>
+                    <label class="field"><span>Contact Name</span><input id="deliveryContactName" type="text" placeholder="Required"></label>
+                    <label class="field"><span>Contact Email</span><input id="deliveryContactEmail" type="email" placeholder="Optional"></label>
+                    <label class="field"><span>Contact Phone</span><input id="deliveryContactPhone" type="text" placeholder="Optional"></label>
+                    <label class="field span-2"><span>Delivery Notes</span><input id="deliveryNotes" type="text" placeholder="Dock notes, unload details, or special instructions"></label>
+                </form>
+
+                <div class="order-actions">
+                    <button class="btn" id="submitDeliveryBtn" type="button">Request Delivery Appointment</button>
+                </div>
+                <div id="deliveryMessage" class="status" style="margin-top: 1rem;"></div>
+            </section>
+
+            <section id="deliveriesPanel" class="card hidden">
+                <div class="header-copy" style="margin-bottom: 1rem;">
+                    <h2>My Delivery Appointments</h2>
+                    <p class="lead">Track delivery appointment requests, approvals, and alternate times from the warehouse.</p>
+                </div>
+                <div id="deliveriesList" class="orders-list">
+                    <div class="empty">No delivery appointments requested yet.</div>
+                </div>
+            </section>
+
             <section id="inboundsPanel" class="card hidden">
                 <div class="header-copy" style="margin-bottom: 1rem;">
                     <h2>My Purchase Orders</h2>
@@ -964,6 +1006,7 @@
             catalogItems: [],
             orders: [],
             inbounds: [],
+            deliveryAppointments: [],
             shipToAddresses: [],
             activeView: "inventory",
             editingOrderId: null,
@@ -1000,12 +1043,15 @@
             itemsPanel: document.getElementById("itemsPanel"),
             orderPanel: document.getElementById("orderPanel"),
             inboundPanel: document.getElementById("inboundPanel"),
+            deliveryPanel: document.getElementById("deliveryPanel"),
+            deliveriesPanel: document.getElementById("deliveriesPanel"),
             ordersPanel: document.getElementById("ordersPanel"),
             ordersPanelLead: document.getElementById("ordersPanelLead"),
             clearOrderStatusFilterBtn: document.getElementById("clearOrderStatusFilterBtn"),
             exportOrdersBtn: document.getElementById("exportOrdersBtn"),
             shippedPanel: document.getElementById("shippedPanel"),
             inboundsPanel: document.getElementById("inboundsPanel"),
+            deliveriesList: document.getElementById("deliveriesList"),
             shippedStatButton: document.getElementById("shippedStatButton"),
             inventoryFilter: document.getElementById("inventoryFilter"),
             inventoryList: document.getElementById("inventoryList"),
@@ -1074,6 +1120,21 @@
             resetInboundBtn: document.getElementById("resetInboundBtn"),
             submitInboundBtn: document.getElementById("submitInboundBtn"),
             inboundsList: document.getElementById("inboundsList"),
+            deliveryForm: document.getElementById("deliveryForm"),
+            deliveryReferenceNumber: document.getElementById("deliveryReferenceNumber"),
+            deliveryRequestedDate: document.getElementById("deliveryRequestedDate"),
+            deliveryRequestedTime: document.getElementById("deliveryRequestedTime"),
+            deliveryCarrierName: document.getElementById("deliveryCarrierName"),
+            deliveryTrailerNumber: document.getElementById("deliveryTrailerNumber"),
+            deliveryPalletCount: document.getElementById("deliveryPalletCount"),
+            deliveryCartonCount: document.getElementById("deliveryCartonCount"),
+            deliveryContactName: document.getElementById("deliveryContactName"),
+            deliveryContactEmail: document.getElementById("deliveryContactEmail"),
+            deliveryContactPhone: document.getElementById("deliveryContactPhone"),
+            deliveryNotes: document.getElementById("deliveryNotes"),
+            resetDeliveryBtn: document.getElementById("resetDeliveryBtn"),
+            submitDeliveryBtn: document.getElementById("submitDeliveryBtn"),
+            deliveryMessage: document.getElementById("deliveryMessage"),
             portalFeedbackModal: document.getElementById("portalFeedbackModal"),
             portalFeedbackCloseButtons: [...document.querySelectorAll("[data-portal-feedback-close], #cancelPortalFeedbackBtn")],
             portalFeedbackForm: document.getElementById("portalFeedbackForm"),
@@ -1097,7 +1158,7 @@
             if (["order", "orders", "shipped"].includes(view)) {
                 return portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY);
             }
-            if (["inbound", "inbounds"].includes(view)) {
+            if (["inbound", "inbounds", "delivery", "deliveries"].includes(view)) {
                 return portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES);
             }
             return true;
@@ -1105,7 +1166,7 @@
 
         function getFirstAllowedPortalView(preferredView = "inventory") {
             if (isPortalViewAllowed(preferredView)) return preferredView;
-            const orderedViews = ["inventory", "items", "order", "orders", "shipped", "inbound", "inbounds"];
+            const orderedViews = ["inventory", "items", "order", "orders", "shipped", "inbound", "inbounds", "delivery", "deliveries"];
             return orderedViews.find((view) => isPortalViewAllowed(view)) || "inventory";
         }
 
@@ -1130,9 +1191,11 @@
             ui.addInboundLineBtn.addEventListener("click", () => addInboundLine());
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
             ui.resetInboundBtn.addEventListener("click", () => resetInboundForm());
+            ui.resetDeliveryBtn.addEventListener("click", () => resetDeliveryForm());
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
+            ui.submitDeliveryBtn.addEventListener("click", submitDeliveryAppointment);
             ui.orderShipToName.addEventListener("input", maybeApplyShipToAddressSelection);
             ui.orderShipToName.addEventListener("change", maybeApplyShipToAddressSelection);
             ui.orderShipToName.addEventListener("blur", maybeApplyShipToAddressSelection);
@@ -1261,6 +1324,7 @@
             portalState.catalogItems = [];
             portalState.orders = [];
             portalState.inbounds = [];
+            portalState.deliveryAppointments = [];
             portalState.editingOrderId = null;
             portalState.editingItemSku = null;
             portalState.selectedShippedOrderId = null;
@@ -1324,7 +1388,7 @@
         }
 
         async function loadPortalData() {
-            const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload, shipToPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload, deliveriesPayload, shipToPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
                 requestJson("/api/portal/items"),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
@@ -1333,6 +1397,9 @@
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
                     ? requestJson("/api/portal/inbounds")
                     : Promise.resolve({ inbounds: [] }),
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
+                    ? requestJson("/api/portal/delivery-appointments")
+                    : Promise.resolve({ appointments: [] }),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
                     ? requestJson("/api/portal/ship-to-addresses")
                     : Promise.resolve({ addresses: [] })
@@ -1342,6 +1409,7 @@
             portalState.catalogItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items.map(sanitizeCatalogItem).filter(Boolean) : [];
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
+            portalState.deliveryAppointments = Array.isArray(deliveriesPayload?.appointments) ? deliveriesPayload.appointments.map(sanitizeDeliveryAppointment).filter(Boolean) : [];
             portalState.shipToAddresses = Array.isArray(shipToPayload?.addresses) ? shipToPayload.addresses.map(sanitizeShipToAddress).filter(Boolean) : [];
             applyPortalFeatureAccess();
             renderShipToAddressOptions();
@@ -1351,6 +1419,7 @@
             renderOrders();
             renderShippedOrders();
             renderInbounds();
+            renderDeliveryAppointments();
             if (!portalState.editingOrderId) {
                 resetOrderForm();
             }
@@ -1360,6 +1429,7 @@
             if (!ui.inboundLines.children.length) {
                 resetInboundForm();
             }
+            resetDeliveryForm({ keepMessage: true });
             setView(portalState.activeView);
         }
 
@@ -1385,6 +1455,8 @@
             ui.itemsPanel.classList.toggle("hidden", activeView !== "items");
             ui.orderPanel.classList.toggle("hidden", activeView !== "order");
             ui.inboundPanel.classList.toggle("hidden", activeView !== "inbound");
+            ui.deliveryPanel.classList.toggle("hidden", activeView !== "delivery");
+            ui.deliveriesPanel.classList.toggle("hidden", activeView !== "deliveries");
             ui.ordersPanel.classList.toggle("hidden", activeView !== "orders");
             ui.shippedPanel.classList.toggle("hidden", activeView !== "shipped");
             ui.inboundsPanel.classList.toggle("hidden", activeView !== "inbounds");
@@ -1394,6 +1466,7 @@
             ui.itemsStatButton.classList.toggle("active", activeView === "items");
             ui.inventoryStatButton.classList.toggle("active", activeView === "inventory");
             if (activeView === "orders") renderOrders();
+            if (activeView === "deliveries") renderDeliveryAppointments();
             syncPortalFeedbackContext();
         }
 
@@ -1886,6 +1959,12 @@
                 return;
             }
 
+            const inboundPillClass = (status) => {
+                if (status === "RECEIVED") return "success";
+                if (status === "ARRIVED") return "info";
+                return "warn";
+            };
+
             ui.inboundsList.innerHTML = portalState.inbounds.map((inbound) => `
                 <article class="order-card">
                     <div class="order-head">
@@ -1893,11 +1972,13 @@
                             <strong>${esc(inbound.inboundCode)}</strong>
                             <div class="meta">Submitted ${esc(formatDate(inbound.createdAt))}</div>
                         </div>
-                        <span class="pill ${inbound.status === "SUBMITTED" ? "warn" : "success"}">${esc(inbound.status)}</span>
+                        <span class="pill ${inboundPillClass(inbound.status)}">${esc(inbound.status)}</span>
                     </div>
                     <div class="order-meta">
                         <div>Reference: ${esc(inbound.referenceNumber || "None")}</div>
                         <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
+                        ${inbound.arrivedAt ? `<div>Arrived at DC: ${esc(formatDate(inbound.arrivedAt))}</div>` : ""}
+                        ${inbound.receivedAt ? `<div>Received: ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
                         <div>Carrier: ${esc(inbound.carrierName || "Not provided")}</div>
                         <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
                         <div>Notes: ${esc(inbound.notes || "None")}</div>
@@ -1910,6 +1991,14 @@
                                     <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
                                 </div>
                                 <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                                ${(line.receivedQuantity || line.receivedLocation || line.lotNumber || line.expirationDate) ? `
+                                    <div class="line-note">
+                                        Received ${line.receivedQuantity ? esc(formatTrackedQuantity(line.receivedQuantity, line.trackingLevel)) : "-"}
+                                        ${line.receivedLocation ? ` | Location ${esc(line.receivedLocation)}` : ""}
+                                        ${line.lotNumber ? ` | Lot ${esc(line.lotNumber)}` : ""}
+                                        ${line.expirationDate ? ` | Exp ${esc(line.expirationDate)}` : ""}
+                                    </div>
+                                ` : ""}
                             </div>
                         `).join("")}
                     </div>
@@ -2014,6 +2103,120 @@
                 });
             } catch (error) {
                 setMessage(error.message, 'error');
+            }
+        }
+
+        function deliveryStatusPillClass(status) {
+            if (status === "APPROVED") return "success";
+            if (status === "DENIED") return "warn";
+            if (status === "CANCELLED") return "error";
+            return "info";
+        }
+
+        function renderDeliveryAppointments() {
+            if (!ui.deliveriesList) return;
+            if (!portalState.deliveryAppointments.length) {
+                ui.deliveriesList.innerHTML = `<div class="empty">No delivery appointments requested yet.</div>`;
+                return;
+            }
+
+            ui.deliveriesList.innerHTML = portalState.deliveryAppointments.map((appointment) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(appointment.appointmentCode)}</strong>
+                            <div class="meta">Requested ${esc(formatDate(appointment.createdAt))}</div>
+                        </div>
+                        <span class="pill ${deliveryStatusPillClass(appointment.status)}">${esc(appointment.status)}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div>Reference / PO: ${esc(appointment.referenceNumber || "None")}</div>
+                        <div>Requested: ${esc(appointment.requestedDate || "Not set")} ${esc(appointment.requestedTime || "")}</div>
+                        ${appointment.status === "APPROVED" ? `<div>Approved: ${esc(formatDate(appointment.approvedAt))}</div>` : ""}
+                        ${appointment.status === "DENIED" ? `<div>Alternative: ${esc(appointment.alternativeDate || "Not set")} ${esc(appointment.alternativeTime || "")}</div>` : ""}
+                        <div>Warehouse: ${esc(formatDeliveryLocation(appointment))}</div>
+                        <div>Carrier: ${esc(appointment.carrierName || "Not provided")}${appointment.trailerNumber ? ` | Trailer ${esc(appointment.trailerNumber)}` : ""}</div>
+                        <div>Counts: ${appointment.palletCount ? `${esc(appointment.palletCount)} pallet${appointment.palletCount === 1 ? "" : "s"}` : "Pallets not provided"}${appointment.cartonCount ? ` | ${esc(appointment.cartonCount)} carton${appointment.cartonCount === 1 ? "" : "s"}` : ""}</div>
+                        <div>Contact: ${esc(appointment.contactName || "None")}${appointment.contactPhone ? ` | ${esc(appointment.contactPhone)}` : ""}${appointment.contactEmail ? ` | ${esc(appointment.contactEmail)}` : ""}</div>
+                        ${appointment.warehouseNote ? `<div>Warehouse Note: ${esc(appointment.warehouseNote)}</div>` : ""}
+                        <div>Notes: ${esc(appointment.notes || "None")}</div>
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function formatDeliveryLocation(appointment) {
+            return [
+                appointment.fulfillmentPartnerName || appointment.fulfillmentLocationName || appointment.fulfillmentLocationCode || "Assigned warehouse",
+                appointment.fulfillmentCity || "",
+                appointment.fulfillmentState || ""
+            ].filter(Boolean).join(" - ");
+        }
+
+        function resetDeliveryForm({ keepMessage = false } = {}) {
+            ui.deliveryForm?.reset();
+            if (ui.deliveryContactEmail && portalState.account?.email) {
+                ui.deliveryContactEmail.value = portalState.account.email;
+            }
+            if (!keepMessage && ui.deliveryMessage) {
+                ui.deliveryMessage.textContent = "";
+                ui.deliveryMessage.className = "status";
+            }
+        }
+
+        function collectDeliveryAppointmentForm() {
+            return {
+                referenceNumber: ui.deliveryReferenceNumber.value.trim(),
+                requestedDate: ui.deliveryRequestedDate.value,
+                requestedTime: ui.deliveryRequestedTime.value.trim(),
+                carrierName: ui.deliveryCarrierName.value.trim(),
+                trailerNumber: ui.deliveryTrailerNumber.value.trim(),
+                palletCount: ui.deliveryPalletCount.value,
+                cartonCount: ui.deliveryCartonCount.value,
+                contactName: ui.deliveryContactName.value.trim(),
+                contactEmail: ui.deliveryContactEmail.value.trim(),
+                contactPhone: ui.deliveryContactPhone.value.trim(),
+                notes: ui.deliveryNotes.value.trim()
+            };
+        }
+
+        function validateDeliveryAppointmentPayload(payload) {
+            if (!payload.referenceNumber) return fail(ui.deliveryMessage, "Enter the reference or purchase order number.", ui.deliveryReferenceNumber);
+            if (!payload.requestedDate) return fail(ui.deliveryMessage, "Choose the requested delivery date.", ui.deliveryRequestedDate);
+            if (!payload.requestedTime) return fail(ui.deliveryMessage, "Enter the requested delivery time or window.", ui.deliveryRequestedTime);
+            if (!payload.contactName) return fail(ui.deliveryMessage, "Enter a contact name for this delivery.", ui.deliveryContactName);
+            return payload;
+        }
+
+        async function submitDeliveryAppointment(event) {
+            if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)) {
+                return setMessage("Delivery appointments are not enabled for your company.", "error");
+            }
+            const actionButton = resolveActionButton(event, ui.submitDeliveryBtn);
+            try {
+                await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Requesting appointment...",
+                    progressMessage: "Sending your delivery appointment request to the warehouse..."
+                }, async () => {
+                    const payload = validateDeliveryAppointmentPayload(collectDeliveryAppointmentForm());
+                    if (!payload) return;
+                    const response = await requestJson("/api/portal/delivery-appointments", {
+                        method: "POST",
+                        body: JSON.stringify(payload)
+                    });
+                    const appointment = sanitizeDeliveryAppointment(response?.appointment);
+                    if (!appointment?.appointmentCode) {
+                        throw new Error("The delivery appointment was saved, but the confirmation could not be read. Refresh My Deliveries to confirm it is listed.");
+                    }
+                    portalState.deliveryAppointments.unshift(appointment);
+                    renderDeliveryAppointments();
+                    resetDeliveryForm();
+                    setView("deliveries");
+                    setMessage(`Delivery appointment ${appointment.appointmentCode} requested. The warehouse approval email is being sent.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.deliveryMessage, error.message, "error");
             }
         }
 
@@ -2602,6 +2805,18 @@
             ui.portalMessage.textContent = text;
         }
 
+        function showMessage(element, text, tone) {
+            if (!element) return setMessage(text, tone);
+            element.className = `status show ${tone}`;
+            element.textContent = text;
+        }
+
+        function fail(element, text, focusEl) {
+            showMessage(element, text, "error");
+            focusEl?.focus?.();
+            return null;
+        }
+
         function isActionButtonElement(value) {
             return value instanceof HTMLButtonElement
                 || (value instanceof HTMLInputElement && ["button", "submit", "reset"].includes(String(value.type || "").toLowerCase()));
@@ -2855,20 +3070,67 @@
                 referenceNumber: String(inbound.referenceNumber || inbound.reference_number || ""),
                 carrierName: String(inbound.carrierName || inbound.carrier_name || ""),
                 expectedDate: String(inbound.expectedDate || inbound.expected_date || ""),
+                arrivedAt: inbound.arrivedAt || inbound.arrived_at || null,
+                arrivedBy: String(inbound.arrivedBy || inbound.arrived_by || ""),
+                arrivalNote: String(inbound.arrivalNote || inbound.arrival_note || ""),
+                receivedAt: inbound.receivedAt || inbound.received_at || null,
                 contactName: String(inbound.contactName || inbound.contact_name || ""),
                 contactPhone: String(inbound.contactPhone || inbound.contact_phone || ""),
                 notes: String(inbound.notes || ""),
                 createdAt: inbound.createdAt || inbound.created_at || null,
                 lines: Array.isArray(inbound.lines) ? inbound.lines.map((line) => ({
+                    id: String(line.id || line.lineId || ""),
+                    lineNumber: Number(line.lineNumber || line.line_number || 0) || 0,
                     sku: String(line.sku || ""),
                     quantity: Number(line.quantity || 0),
+                    receivedQuantity: Number(line.receivedQuantity || line.received_quantity || 0) || 0,
+                    receivedLocation: String(line.receivedLocation || line.received_location || ""),
+                    lotNumber: String(line.lotNumber || line.lot_number || line.lot || ""),
+                    expirationDate: String(line.expirationDate || line.expiration_date || line.expiryDate || line.expiry_date || "").slice(0, 10),
                     description: String(line.description || ""),
                     upc: String(line.upc || ""),
-                    trackingLevel: String(line.trackingLevel || line.tracking_level || "UNIT")
+                    trackingLevel: String(line.trackingLevel || line.tracking_level || "UNIT"),
+                    lotTracked: line.lotTracked === true || line.lot_tracked === true,
+                    expirationTracked: line.expirationTracked === true || line.expiration_tracked === true
                 })).filter((line) => line.sku && line.quantity > 0) : [],
                 documents: Array.isArray(inbound.documents)
                     ? inbound.documents.map(sanitizeOrderDocument).filter(Boolean)
                     : []
+            };
+        }
+
+        function sanitizeDeliveryAppointment(appointment) {
+            if (!appointment || typeof appointment !== "object") return null;
+            const appointmentCode = String(appointment.appointmentCode || appointment.appointment_code || "").trim();
+            return {
+                id: String(appointment.id || ""),
+                appointmentCode,
+                accountName: norm(appointment.accountName || appointment.account_name || portalState.account?.accountName || ""),
+                status: String(appointment.status || "REQUESTED").trim().toUpperCase(),
+                requestedDate: String(appointment.requestedDate || appointment.requested_date || "").slice(0, 10),
+                requestedTime: String(appointment.requestedTime || appointment.requested_time || ""),
+                deliveryType: String(appointment.deliveryType || appointment.delivery_type || "INBOUND"),
+                referenceNumber: String(appointment.referenceNumber || appointment.reference_number || appointment.poNumber || "").trim(),
+                carrierName: String(appointment.carrierName || appointment.carrier_name || ""),
+                trailerNumber: String(appointment.trailerNumber || appointment.trailer_number || ""),
+                palletCount: toPositiveInt(appointment.palletCount || appointment.pallet_count),
+                cartonCount: toPositiveInt(appointment.cartonCount || appointment.carton_count),
+                contactName: String(appointment.contactName || appointment.contact_name || ""),
+                contactEmail: String(appointment.contactEmail || appointment.contact_email || ""),
+                contactPhone: String(appointment.contactPhone || appointment.contact_phone || ""),
+                notes: String(appointment.notes || ""),
+                fulfillmentLocationCode: String(appointment.fulfillmentLocationCode || appointment.fulfillment_location_code || ""),
+                fulfillmentLocationName: String(appointment.fulfillmentLocationName || appointment.fulfillment_location_name || ""),
+                fulfillmentPartnerName: String(appointment.fulfillmentPartnerName || appointment.fulfillment_partner_name || ""),
+                fulfillmentCity: String(appointment.fulfillmentCity || appointment.fulfillment_city || ""),
+                fulfillmentState: String(appointment.fulfillmentState || appointment.fulfillment_state || ""),
+                approvedAt: appointment.approvedAt || appointment.approved_at || null,
+                deniedAt: appointment.deniedAt || appointment.denied_at || null,
+                warehouseNote: String(appointment.warehouseNote || appointment.warehouse_note || ""),
+                alternativeDate: String(appointment.alternativeDate || appointment.alternative_date || "").slice(0, 10),
+                alternativeTime: String(appointment.alternativeTime || appointment.alternative_time || ""),
+                createdAt: appointment.createdAt || appointment.created_at || null,
+                updatedAt: appointment.updatedAt || appointment.updated_at || null
             };
         }
 

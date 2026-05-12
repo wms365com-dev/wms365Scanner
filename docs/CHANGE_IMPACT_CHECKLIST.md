@@ -1,6 +1,6 @@
 # WMS365 Change Impact Checklist
 
-Last reviewed: 2026-04-26
+Last reviewed: 2026-05-11
 
 Use this before pushing any warehouse workflow change live.
 
@@ -9,6 +9,7 @@ Use this before pushing any warehouse workflow change live.
 - Does this change affect desktop navigation?
 - Does this change affect the home directory or top quick actions?
 - Does this change affect the workspace drill path?
+- Does this change affect the screen ownership map?
 - Does this change affect company scoping or permissions?
 - Does this change affect customer portal isolation?
 - Does this change affect mobile?
@@ -21,6 +22,7 @@ Use this before pushing any warehouse workflow change live.
 
 - Update `C:\WMS365Scanner\docs\WAREHOUSE_WORKSPACE_TOC.md` when a nav section changes.
 - Update `C:\WMS365Scanner\docs\WAREHOUSE_FEATURE_REGISTRY.md` when a feature moves or gains dependencies.
+- Update `C:\WMS365Scanner\docs\WAREHOUSE_SCREEN_FEATURE_MAP.md` when a feature moves visually, gains a screen, or changes ownership.
 - Update `const WAREHOUSE_WORKSPACE_TOC` in `C:\WMS365Scanner\index.html` when desktop navigation changes.
 - Keep user-facing labels consistent across `index.html`, `portal.html`, and `server.js`.
 
@@ -43,7 +45,9 @@ Use this before pushing any warehouse workflow change live.
 
 - company scoping
 - super user company setup flow
-- warehouse user assigned-company access
+- warehouse user assigned-warehouse access
+- warehouse role permissions
+- inherited customer company access from warehouse / 3PL assignment
 - customer portal isolation
 - feature flag gating
 - fulfillment location / 3PL partner assignment
@@ -52,6 +56,11 @@ Use this before pushing any warehouse workflow change live.
 
 ## Workflow State
 
+- warehouse task open / in progress / blocked / done / cancelled
+- warehouse task SLA aging / due-soon / overdue display
+- warehouse task assigned worker and assigned fulfillment location
+- mobile task routing for receiving, put-away, and picking
+- source-linked task sync from sales orders and purchase orders
 - sales order draft / released / picked / staged / shipped
 - purchase order submitted / received
 - receiving batch staged / saved
@@ -66,6 +75,7 @@ Use this before pushing any warehouse workflow change live.
 - sales order release PDF
 - file attachments
 - warehouse order email
+- portal welcome/access email
 - customer shipment email
 - shipment quote
 - carrier label
@@ -78,7 +88,14 @@ Use this before pushing any warehouse workflow change live.
 
 ## Commercial / Billing
 
+- company billing profile
+- billing cadence
+- warehouse / 3PL billing rollup
+- assigned-account billing visibility
+- Zoho customer/contact mapping
+- Zoho item/service mapping
 - receiving charge capture
+- purchase order receipt billing event creation
 - picking charge capture
 - labeling charge capture
 - supplies charge capture
@@ -89,6 +106,9 @@ Use this before pushing any warehouse workflow change live.
 - dangerous goods/special handling capture
 - storage charge capture
 - manual billing availability
+- invoice batch creation
+- Zoho draft invoice sync
+- Zoho sync retry/error log
 - month-end export
 - shipped-order billing completeness
 
@@ -114,6 +134,7 @@ Use this before pushing any warehouse workflow change live.
 - inline script parse for `index.html`
 - inline script parse for `portal.html` if portal-facing
 - `node --check server.js` for server changes
+- verify `WAREHOUSE_SCREEN_FEATURE_MAP.md` still matches the UI
 - one real desktop click path
 - one real portal click path if customer-facing
 - one mobile path if floor-facing

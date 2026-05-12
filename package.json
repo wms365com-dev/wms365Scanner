@@ -17,5 +17,21 @@
     "pg": "^8.13.1",
     "stripe": "^18.4.0",
     "ssh2-sftp-client": "^12.0.1"
-  }
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wms365com-dev/wms365Scanner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/wms365com-dev/wms365Scanner/issues"
+  },
+  "homepage": "https://github.com/wms365com-dev/wms365Scanner#readme"
 }

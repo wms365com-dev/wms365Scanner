@@ -1,6 +1,6 @@
 # WMS365 Warehouse Workspace TOC
 
-Last reviewed: 2026-04-30
+Last reviewed: 2026-05-11
 
 Purpose:
 - This is the human-maintained table of contents for the warehouse desktop app.
@@ -11,8 +11,12 @@ Runtime source of truth:
 - `C:\WMS365Scanner\index.html`
 - `const WAREHOUSE_WORKSPACE_TOC = Object.freeze(...)`
 
+Screen-level placement map:
+- `C:\WMS365Scanner\docs\WAREHOUSE_SCREEN_FEATURE_MAP.md`
+
 Navigation principles:
 - Keep the left nav workflow-based, not feature-dump based.
+- Keep each major feature in one primary home; use quick links for convenience, not duplicate full workspaces.
 - Use a WMS365-branded Dynamics-style desktop method: top module menus, command bar, list/workspace page, then drill into the working form and back out.
 - Keep a second-level quick link strip under the module menus for high-frequency lists like Customers, Items, Inventory, Sales Orders, Purchase Orders, and Reports.
 - Use a right-side FactBox on desktop for page context, company scope, operational counts, and related actions.
@@ -28,6 +32,8 @@ Navigation principles:
 - Keep shipped orders separate from the live sales order work queue.
 - Keep mobile focused on floor tasks only.
 - Keep public website, signup, SEO, and Stripe outside the warehouse desktop navigation.
+- Keep Inventory Lookup focused on search/results only; setup and admin controls belong under Setup or System.
+- Keep Master Data focused on setup records; operational actions, reports, integrations, and admin should not be mixed into its working area.
 
 ## Desktop Navigation Order
 
@@ -37,7 +43,7 @@ Navigation principles:
 | Inbound | Purchase Orders, Receiving | Enter expected receipts first, then physically receive |
 | Inventory | Inventory Lookup, Adjust & Move, Labels | Find stock, correct/move stock, print floor labels |
 | Outbound | Sales Orders, planned Quote & Ship, Shipped Orders | Process orders, create labels, then separate completed shipments |
-| Setup | Master Data, Integrations | Configure companies/items/locations before connections |
+| Setup | Master Data, Marketplace Connections | Configure companies/items/locations before store, marketplace, SFTP, and carrier connections |
 | Reporting | Reports & Counts | Review/export warehouse data |
 | Commercial | Billing | Capture and review customer charges |
 | System | Admin & System | Super-user controls, users, feedback, backups, versioning |
@@ -49,6 +55,9 @@ Navigation principles:
 - Drill path: `Home / Dashboard`
 - Purpose: daily landing page for warehouse users to plan open inbounds, open outbounds, picking, staging, shipping, and then drill into workflow sections
 - Primary features:
+  - Warehouse Task Queue
+  - SLA Aging
+  - Assigned Worker / Warehouse
   - Inbound Plan
   - Outbound Plan
   - Open Purchase Orders
@@ -84,6 +93,7 @@ Navigation principles:
   - Save Batch
 - Related channels:
   - mobile receive flow
+  - mobile task queue
   - receiving billing events
   - lot/expiration inventory creation
 
@@ -98,6 +108,8 @@ Navigation principles:
   - Location Search
   - Multi Item Search
   - Lot / Expiration Review
+- Placement rule:
+  - Do not place company setup, item setup, integrations, billing, reports, or admin controls here.
 
 ### Section: `actions`
 - Title: `Adjust & Move`
@@ -107,6 +119,7 @@ Navigation principles:
   - Remove Quantity
   - Delete Line
   - Transfer Stock
+  - Put Away Stock
   - Convert Items
   - Move BIN
 
@@ -180,17 +193,23 @@ Navigation principles:
 - Primary features:
   - Super User Company Setup
   - Company Profile
+  - Customers
+  - Vendors
   - Fulfillment Locations / 3PL Partners
   - Company Location Assignment
   - BIN Locations
   - Item Master
+  - Store SKU Mapping
   - Lot / Expiration Controls
   - Portal Access
+  - Portal Welcome / Access Email
   - Bulk Inventory Worksheet
+- Placement rule:
+  - Master Data may link users to operational workflows, but operational tools should stay in their own sections.
 
 ### Section: `integrations`
-- Title: `Integrations`
-- Drill path: `Setup / Integrations`
+- Title: `Marketplace Connections`
+- Drill path: `Setup / Marketplace Connections`
 - Purpose: connect customer order, purchase order, shipment, receipt, and inventory data lanes
 - Primary features:
   - Shopify
@@ -221,13 +240,20 @@ Navigation principles:
 ### Section: `billing`
 - Title: `Billing`
 - Drill path: `Commercial / Billing`
-- Purpose: capture and prepare customer charges for month-end billing
+- Purpose: capture, review, batch, and sync customer charges for Zoho Books invoicing
 - Primary features:
+  - Billing Dashboard
+  - Company Billing Profile
   - Company Fee Setup
   - Manual Billing Events
   - Storage Billing
+  - Billable Activity Review
   - Billing Ledger
+  - Invoice Batches
+  - Zoho Books Sync
   - Invoice Exports
+- Internal spec:
+  - `C:\WMS365Scanner\docs\ZOHO_BOOKS_BILLING_SCOPE.md`
 
 ## Group: System
 
@@ -236,11 +262,16 @@ Navigation principles:
 - Drill path: `System / Admin & System`
 - Purpose: super-user tools, safeguards, and support visibility
 - Primary features:
-  - Import / Export
+  - Company Email Flow Check
+  - System Email Test
   - Company Feature Access
   - Warehouse Users
+  - Warehouse Roles
+  - Warehouse / 3PL Location Access
   - Feedback Queue
   - Daily Admin Summary
+  - Import / Export
+  - Backup / Restore
   - Build / Version
 
 ## Logged Outside Desktop Navigation
@@ -249,13 +280,16 @@ These features are part of the product but should not clutter the warehouse desk
 - Customer Portal: login, inventory, item master, new sales order, new purchase order, order history, purchase order history, export, feedback.
 - Mobile Worker: receive stock, lookup inventory, adjust/move, pallet labels, picking, mobile-only back behavior.
 - Public Website: marketing pages, SEO landing pages, demo request, Stripe signup, pricing, domain routing.
+- Access Center: app-domain gateway before warehouse/customer login, with noindex/no-follow protection.
 - Platform Services: email SMTP, scheduled sync, daily admin summary, Stripe webhook handling, app version endpoint.
+- Internal UX Map: `C:\WMS365Scanner\docs\WAREHOUSE_SCREEN_FEATURE_MAP.md`.
 
 ## TOC Update Rules
 
 Whenever a warehouse workflow changes:
 - Update the runtime TOC in `index.html`.
 - Update this file.
+- Update `WAREHOUSE_SCREEN_FEATURE_MAP.md` if a feature moved visually or gained a new screen.
 - Update `WAREHOUSE_FEATURE_REGISTRY.md` if a feature moved or gained dependencies.
 - Check the home directory grouping.
 - Check the left navigation grouping.

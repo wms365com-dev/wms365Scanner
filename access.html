@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#1f1f1f">
+  <link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+  <link rel="shortcut icon" href="/marketing-logo.svg">
+  <title>WMS365 Access</title>
+  <style>
+    :root{--ink:#162635;--muted:#5d7081;--line:#d5dde4;--panel:#fff;--page:#eef4f8;--blue:#1767ff;--blue2:#0d4fe0;--teal:#008b8f;--dark:#1f1f1f;--shadow:0 22px 60px rgba(22,38,53,.14)}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;font-family:"Segoe UI Variable Text","Segoe UI",Arial,sans-serif;color:var(--ink);background:linear-gradient(135deg,#f7fbff 0%,var(--page) 46%,#f8fafc 100%)}
+    a{text-decoration:none;color:inherit}
+    .topbar{min-height:42px;background:var(--dark);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.55rem clamp(1rem,3vw,2rem);font-size:.86rem;font-weight:700}
+    .brand{display:flex;align-items:center;gap:.85rem}
+    .brand img{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 12px 24px rgba(23,103,255,.2))}
+    .brand-copy{display:grid;gap:.1rem}
+    .brand-copy span{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:#7890a5}
+    .brand-copy strong{font-size:1.32rem;color:#102133}
+    .shell{width:min(1180px,calc(100% - 2rem));margin:0 auto}
+    .nav{padding:1rem 0;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+    .nav-links{display:flex;gap:.7rem;flex-wrap:wrap;justify-content:flex-end}
+    .link-pill,.btn{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;border:1px solid var(--line);border-radius:999px;background:#fff;padding:.78rem 1rem;font-weight:700}
+    .btn-primary{border-color:transparent;color:#fff;background:linear-gradient(135deg,var(--blue),var(--blue2));box-shadow:0 16px 34px rgba(23,103,255,.22)}
+    .btn-dark{border-color:transparent;color:#fff;background:#102133}
+    .hero{display:grid;grid-template-columns:1fr minmax(360px,.72fr);gap:1.25rem;align-items:stretch;padding:2.6rem 0 1.2rem}
+    .panel{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow)}
+    .hero-copy{padding:2rem;display:grid;align-content:center;gap:1.1rem}
+    .eyebrow{width:max-content;display:inline-flex;align-items:center;gap:.5rem;border:1px solid var(--line);background:#fff;border-radius:999px;padding:.45rem .75rem;color:var(--muted);font-size:.84rem;font-weight:700}
+    .eyebrow::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:var(--teal)}
+    h1{margin:0;font-size:clamp(2.4rem,5vw,4.75rem);line-height:.98;letter-spacing:-.055em;color:#111827}
+    h2,h3,p{margin:0}
+    p{color:var(--muted);line-height:1.62}
+    .access-card{padding:1.35rem;display:grid;gap:1rem}
+    .access-card h2{font-size:1.45rem;color:#102133}
+    .action-stack{display:grid;gap:.7rem}
+    .mini-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:.3rem}
+    .mini{border:1px solid var(--line);border-radius:16px;background:#f8fafc;padding:.9rem}
+    .mini strong{display:block;margin-bottom:.25rem}
+    .mini span{display:block;color:var(--muted);font-size:.86rem;line-height:1.35}
+    .product-window{padding:1rem;overflow:hidden;position:relative}
+    .product-window::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(15,23,42,.52),rgba(23,103,255,.16)),url("/hero-warehouse-scene.svg") center/cover no-repeat;opacity:.88}
+    .window-inner{position:relative;z-index:1;display:grid;gap:.8rem}
+    .window-bar{display:flex;gap:.38rem}
+    .window-bar span{width:.72rem;height:.72rem;border-radius:50%;background:rgba(255,255,255,.58)}
+    .metric-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.65rem}
+    .metric,.line{background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.7);border-radius:16px;padding:.8rem}
+    .metric span{display:block;color:var(--muted);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}
+    .metric strong{font-size:1.42rem}
+    .line{display:grid;grid-template-columns:1fr auto;gap:.7rem;align-items:center}
+    .status{color:#006d4f;font-weight:800}
+    .feature-row{display:grid;grid-template-columns:repeat(4,1fr);gap:.85rem;padding:1rem 0 2rem}
+    .feature{padding:1rem;background:#fff;border:1px solid var(--line);border-radius:18px}
+    .feature strong{display:block;margin-bottom:.35rem}
+    .feature span{display:block;color:var(--muted);font-size:.9rem;line-height:1.45}
+    .build{color:#7c91a5;font-size:.84rem;text-align:center;padding:0 0 2rem}
+    @media(max-width:900px){.hero{grid-template-columns:1fr}.feature-row,.metric-row,.mini-grid{grid-template-columns:1fr 1fr}.nav{display:grid}.nav-links{justify-content:start}}
+    @media(max-width:620px){.shell{width:min(100% - 1rem,1180px)}.topbar{font-size:.75rem}.topbar [data-build-label]{display:none}.nav-links,.feature-row,.metric-row,.mini-grid{grid-template-columns:1fr}.hero{padding:1.2rem 0}.access-card{order:-1}.hero-copy,.access-card{padding:1.1rem}h1{font-size:2.55rem}.brand img{width:40px;height:40px}}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span>WMS365 Access Center</span>
+    <span data-build-label>Deployment: loading...</span>
+  </div>
+
+  <nav class="shell nav" aria-label="WMS365 access navigation">
+    <a class="brand" href="/access">
+      <img src="/marketing-logo.svg" alt="WMS365 logo" width="46" height="46">
+      <span class="brand-copy">
+        <span>Warehouse Software</span>
+        <strong>WMS365</strong>
+      </span>
+    </a>
+    <div class="nav-links">
+      <a class="link-pill" href="https://wms365.co">Marketing Site</a>
+      <a class="link-pill" href="mailto:support@wms365.co">Support</a>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <section class="hero">
+      <article class="panel hero-copy">
+        <span class="eyebrow">Warehouse management software access</span>
+        <h1>Run the warehouse. Keep customers informed. Scale the platform.</h1>
+        <p>Sign in to WMS365 to manage receiving, inventory, sales orders, purchase orders, shipment status, customer portals, integrations, and billing workflows from one controlled warehouse system.</p>
+        <div class="mini-grid">
+          <div class="mini"><strong>Company-safe portals</strong><span>Customers only see their own inventory, orders, documents, and shipped history.</span></div>
+          <div class="mini"><strong>ERP-style workflow</strong><span>List pages, drill-in documents, command actions, and operational FactBox context.</span></div>
+        </div>
+      </article>
+
+      <aside class="panel access-card" aria-label="Sign in options">
+        <h2>Choose your access path</h2>
+        <p>Warehouse staff and customer portal users sign in through separate secured entry points.</p>
+        <div class="action-stack">
+          <a class="btn btn-primary" href="/login?next=%2Fapp">Warehouse Login</a>
+          <a class="btn btn-dark" href="/portal">Customer Portal</a>
+          <a class="btn" href="mailto:support@wms365.co">Need Help?</a>
+        </div>
+        <div class="mini">
+          <strong>New to WMS365?</strong>
+          <span>Visit the marketing site to review WMS, ERP-connected warehouse, Shopify, SFTP, lot tracking, billing, and customer portal features.</span>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel product-window" aria-label="WMS365 feature preview">
+      <div class="window-inner">
+        <div class="window-bar"><span></span><span></span><span></span></div>
+        <div class="metric-row">
+          <div class="metric"><span>Inbound</span><strong>POs</strong><p>Expected receipts, documents, and receiving status.</p></div>
+          <div class="metric"><span>Outbound</span><strong>Orders</strong><p>Release, pick, stage, ship, and notify customers.</p></div>
+          <div class="metric"><span>Inventory</span><strong>Lots</strong><p>Optional lot and expiration control with FEFO allocation.</p></div>
+        </div>
+        <div class="line"><strong>Shopify, marketplaces, and SFTP integration lanes</strong><span class="status">Available by company</span></div>
+        <div class="line"><strong>Billing-ready activity capture for warehouse work</strong><span class="status">In progress</span></div>
+      </div>
+    </section>
+
+    <section class="feature-row" aria-label="Feature summary">
+      <div class="feature"><strong>Warehouse Dashboard</strong><span>Plan open inbounds, released orders, staged shipments, and customer workload.</span></div>
+      <div class="feature"><strong>Customer Portal</strong><span>Let customers create orders and inbounds, upload documents, and review shipped tracking.</span></div>
+      <div class="feature"><strong>Marketplace Connections</strong><span>Connect Shopify, Best Buy, SFTP, and future marketplace order lanes by company.</span></div>
+      <div class="feature"><strong>Billing Controls</strong><span>Capture processing, freight, supplies, labels, receiving, and storage for invoice review.</span></div>
+    </section>
+  </main>
+
+  <div class="build">&copy; <span data-site-year></span> WMS365. support@wms365.co</div>
+  <script src="/marketing.js"></script>
+</body>
+</html>
