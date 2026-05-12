@@ -294,6 +294,7 @@ How to use:
   - company email flow check
   - latest order email routing test
   - system email test
+  - email queue / delivery log
   - company feature access
   - warehouse users
   - warehouse roles: worker, customer service, warehouse admin, super user

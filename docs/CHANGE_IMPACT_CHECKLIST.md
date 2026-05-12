@@ -77,6 +77,7 @@ Use this before pushing any warehouse workflow change live.
 - warehouse order email
 - portal welcome/access email
 - customer shipment email
+- email queue / delivery log visibility
 - shipment quote
 - carrier label
 - tracking number

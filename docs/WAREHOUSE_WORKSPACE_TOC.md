@@ -264,6 +264,7 @@ Navigation principles:
 - Primary features:
   - Company Email Flow Check
   - System Email Test
+  - Email Queue / Delivery Log
   - Company Feature Access
   - Warehouse Users
   - Warehouse Roles
@@ -281,7 +282,7 @@ These features are part of the product but should not clutter the warehouse desk
 - Mobile Worker: receive stock, lookup inventory, adjust/move, pallet labels, picking, mobile-only back behavior.
 - Public Website: marketing pages, SEO landing pages, demo request, Stripe signup, pricing, domain routing.
 - Access Center: app-domain gateway before warehouse/customer login, with noindex/no-follow protection.
-- Platform Services: email SMTP, scheduled sync, daily admin summary, Stripe webhook handling, app version endpoint.
+- Platform Services: email provider send/logging, scheduled sync, daily admin summary, Stripe webhook handling, app version endpoint.
 - Internal UX Map: `C:\WMS365Scanner\docs\WAREHOUSE_SCREEN_FEATURE_MAP.md`.
 
 ## TOC Update Rules

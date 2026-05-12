@@ -9316,6 +9316,39 @@
                     <div class="status" id="systemEmailTestMessage"></div>
                 </article>
 
+                <article class="card span-2" id="emailQueueCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Email Queue / Delivery Log</h2>
+                            <p class="lead">Review recent WMS365 emails sent to warehouses, customers, portal users, and admins.</p>
+                        </div>
+                        <span class="meta" id="emailQueueMeta">Super users only</span>
+                    </div>
+                    <div class="helper" id="emailQueueAccessGate">
+                        Super user access is required to view the email delivery log.
+                    </div>
+                    <div id="emailQueueControls" class="form-grid hidden">
+                        <label class="field">
+                            <span>Status</span>
+                            <select id="emailQueueStatusFilter">
+                                <option value="">All statuses</option>
+                                <option value="PENDING">Pending</option>
+                                <option value="SENT">Sent</option>
+                                <option value="FAILED">Failed</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Search</span>
+                            <input id="emailQueueSearch" type="text" placeholder="Company, recipient, subject, provider, or error">
+                        </label>
+                        <div class="button-row span-2">
+                            <button class="btn secondary" id="refreshEmailQueueBtn" type="button">Refresh Email Log</button>
+                        </div>
+                    </div>
+                    <div class="stack-list" id="emailQueueList" style="margin-top: 1rem;"></div>
+                    <div class="status" id="emailQueueMessage"></div>
+                </article>
+
                 <article class="card span-2" id="companyFeatureAdminCard">
                     <div class="card-head">
                         <div>
@@ -9876,6 +9909,10 @@
         let portalInboundRecords = [];
         let shipToAddressRecords = [];
         let feedbackRecords = [];
+        let emailQueueRecords = [];
+        let emailQueueSummary = { total: 0, pending: 0, sent: 0, failed: 0 };
+        let emailQueueLoaded = false;
+        let emailQueueLoading = false;
         let editingWarehouseOrderId = "";
         let editingWarehouseInboundId = "";
         let inventoryWorksheetDraftCompany = "";
@@ -10141,6 +10178,15 @@
             systemEmailTestAccessGate: document.getElementById("systemEmailTestAccessGate"),
             systemEmailTestMessage: document.getElementById("systemEmailTestMessage"),
             sendSystemEmailTestBtn: document.getElementById("sendSystemEmailTestBtn"),
+            emailQueueCard: document.getElementById("emailQueueCard"),
+            emailQueueMeta: document.getElementById("emailQueueMeta"),
+            emailQueueAccessGate: document.getElementById("emailQueueAccessGate"),
+            emailQueueControls: document.getElementById("emailQueueControls"),
+            emailQueueStatusFilter: document.getElementById("emailQueueStatusFilter"),
+            emailQueueSearch: document.getElementById("emailQueueSearch"),
+            emailQueueList: document.getElementById("emailQueueList"),
+            emailQueueMessage: document.getElementById("emailQueueMessage"),
+            refreshEmailQueueBtn: document.getElementById("refreshEmailQueueBtn"),
             companyEmailFlowCard: document.getElementById("companyEmailFlowCard"),
             companyEmailFlowForm: document.getElementById("companyEmailFlowForm"),
             companyEmailFlowAccount: document.getElementById("companyEmailFlowAccount"),
@@ -11198,6 +11244,9 @@
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
             ui.systemEmailTestForm?.addEventListener("submit", sendSystemEmailTest);
+            ui.refreshEmailQueueBtn?.addEventListener("click", () => refreshEmailQueue(false));
+            ui.emailQueueStatusFilter?.addEventListener("change", () => refreshEmailQueue(false));
+            ui.emailQueueSearch?.addEventListener("input", debounce(() => refreshEmailQueue(true), 250));
             ui.companyEmailFlowForm?.addEventListener("submit", checkCompanyEmailFlow);
             ui.sendCompanyEmailFlowTestBtn?.addEventListener("click", sendCompanyEmailFlowTest);
             ui.sendLatestOrderEmailFlowTestBtn?.addEventListener("click", sendLatestOrderEmailFlowTest);
@@ -11864,6 +11913,7 @@
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();
             syncFeedbackContext();
+            syncEmailQueueUi();
             if (focusAnchorId) {
                 focusWorkspaceAnchor(focusAnchorId);
             } else {
@@ -14315,6 +14365,7 @@
             renderWarehouseInboundContext();
             syncFeedbackContext();
             syncSystemEmailTestUi();
+            syncEmailQueueUi();
             syncCompanyEmailFlowUi();
         }
 
@@ -23402,10 +23453,137 @@
                         body: JSON.stringify({ recipient })
                     });
                     showMessage(ui.systemEmailTestMessage, `Test email sent to ${response.recipient || recipient}.`, "success");
+                    refreshEmailQueue(true).catch(() => {});
                     return response;
                 });
             } catch (error) {
                 showMessage(ui.systemEmailTestMessage, error.message, "error");
+            }
+        }
+
+        function sanitizeEmailQueueRecord(item) {
+            if (!item?.id) return null;
+            const status = norm(item.status || "PENDING");
+            return {
+                id: String(item.id),
+                status: ["PENDING", "SENT", "FAILED"].includes(status) ? status : "PENDING",
+                provider: norm(item.provider || ""),
+                fromAddress: String(item.fromAddress || item.from_address || "").trim(),
+                toAddresses: Array.isArray(item.toAddresses || item.to_addresses) ? (item.toAddresses || item.to_addresses).map((email) => String(email || "").trim()).filter(Boolean) : [],
+                ccAddresses: Array.isArray(item.ccAddresses || item.cc_addresses) ? (item.ccAddresses || item.cc_addresses).map((email) => String(email || "").trim()).filter(Boolean) : [],
+                bccAddresses: Array.isArray(item.bccAddresses || item.bcc_addresses) ? (item.bccAddresses || item.bcc_addresses).map((email) => String(email || "").trim()).filter(Boolean) : [],
+                replyTo: String(item.replyTo || item.reply_to || "").trim(),
+                subject: String(item.subject || "").trim(),
+                accountName: norm(item.accountName || item.account_name || ""),
+                sourceType: String(item.sourceType || item.source_type || "").trim(),
+                sourceRef: String(item.sourceRef || item.source_ref || "").trim(),
+                messageId: String(item.messageId || item.message_id || "").trim(),
+                providerResponse: String(item.providerResponse || item.provider_response || "").trim(),
+                errorMessage: String(item.errorMessage || item.error_message || "").trim(),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : null),
+                sentAt: typeof item.sentAt === "string" ? item.sentAt : (typeof item.sent_at === "string" ? item.sent_at : null),
+                failedAt: typeof item.failedAt === "string" ? item.failedAt : (typeof item.failed_at === "string" ? item.failed_at : null),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : null)
+            };
+        }
+
+        function emailQueueStatusTone(status) {
+            if (status === "SENT") return "success";
+            if (status === "FAILED") return "warn";
+            return "info";
+        }
+
+        function syncEmailQueueUi() {
+            const isSuperUser = currentUserIsSuperAdmin();
+            ui.emailQueueAccessGate?.classList.toggle("hidden", isSuperUser);
+            ui.emailQueueControls?.classList.toggle("hidden", !isSuperUser);
+            if (ui.emailQueueMeta) {
+                ui.emailQueueMeta.textContent = isSuperUser
+                    ? `7 days: ${num(emailQueueSummary.sent || 0)} sent | ${num(emailQueueSummary.failed || 0)} failed`
+                    : "Super users only";
+            }
+            if (!isSuperUser) {
+                if (ui.emailQueueList) ui.emailQueueList.innerHTML = "";
+                return;
+            }
+            if (activeSection === "backup" && !emailQueueLoaded && !emailQueueLoading) {
+                refreshEmailQueue(true).catch(() => {});
+            }
+        }
+
+        function renderEmailQueue() {
+            if (!ui.emailQueueList) return;
+            const isSuperUser = currentUserIsSuperAdmin();
+            if (!isSuperUser) {
+                ui.emailQueueList.innerHTML = "";
+                return;
+            }
+            if (ui.emailQueueMeta) {
+                ui.emailQueueMeta.textContent = `7 days: ${num(emailQueueSummary.sent || 0)} sent | ${num(emailQueueSummary.failed || 0)} failed`;
+            }
+            if (!emailQueueRecords.length) {
+                ui.emailQueueList.innerHTML = `<p class="empty">No email delivery records match the current filters.</p>`;
+                return;
+            }
+
+            ui.emailQueueList.innerHTML = emailQueueRecords.map((record) => {
+                const recipients = record.toAddresses.join(", ") || "No recipient captured";
+                const cc = record.ccAddresses.length ? ` | CC ${record.ccAddresses.join(", ")}` : "";
+                const source = [record.accountName, record.sourceType, record.sourceRef].filter(Boolean).join(" | ");
+                const statusTime = record.status === "FAILED"
+                    ? record.failedAt || record.updatedAt || record.createdAt
+                    : (record.sentAt || record.updatedAt || record.createdAt);
+                return `
+                    <div class="helper">
+                        <div class="list-head">
+                            <div>
+                                <strong>${esc(record.subject || "WMS365 Notification")}</strong>
+                                <p class="meta">${esc(recipients + cc)}</p>
+                            </div>
+                            <span class="pill ${emailQueueStatusTone(record.status)}">${esc(record.status)}</span>
+                        </div>
+                        <p class="meta">${esc([
+                            record.provider || "Provider unknown",
+                            statusTime ? formatPreciseDate(statusTime) : "No timestamp",
+                            source || "No source tagged"
+                        ].join(" | "))}</p>
+                        ${record.messageId ? `<p class="meta">Provider ID: ${esc(record.messageId)}</p>` : ""}
+                        ${record.providerResponse ? `<p class="meta">Response: ${esc(record.providerResponse)}</p>` : ""}
+                        ${record.errorMessage ? `<div class="helper" style="border-color:#f4c7c3;background:#fff7f7;color:#7f1d1d;margin-top:0.55rem;">${esc(record.errorMessage)}</div>` : ""}
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function refreshEmailQueue(silent = true) {
+            if (!currentUserIsSuperAdmin()) return [];
+            const params = new URLSearchParams({ limit: "75" });
+            const status = norm(ui.emailQueueStatusFilter?.value || "");
+            const search = String(ui.emailQueueSearch?.value || "").trim();
+            if (status) params.set("status", status);
+            if (search) params.set("search", search);
+            emailQueueLoading = true;
+            try {
+                const response = await requestJson(`/api/admin/system-email/queue?${params.toString()}`);
+                emailQueueRecords = Array.isArray(response?.emails)
+                    ? response.emails.map(sanitizeEmailQueueRecord).filter(Boolean)
+                    : [];
+                emailQueueSummary = {
+                    total: Number(response?.summary?.total || 0) || 0,
+                    pending: Number(response?.summary?.pending || 0) || 0,
+                    sent: Number(response?.summary?.sent || 0) || 0,
+                    failed: Number(response?.summary?.failed || 0) || 0
+                };
+                emailQueueLoaded = true;
+                renderEmailQueue();
+                syncEmailQueueUi();
+                if (!silent) showMessage(ui.emailQueueMessage, `Loaded ${num(emailQueueRecords.length)} email delivery record${emailQueueRecords.length === 1 ? "" : "s"}.`, "success");
+                return emailQueueRecords;
+            } catch (error) {
+                if (!silent) showMessage(ui.emailQueueMessage, error.message, "error");
+                throw error;
+            } finally {
+                emailQueueLoading = false;
             }
         }
 
@@ -23572,6 +23750,7 @@
                     });
                     renderCompanyEmailFlowResults(response.flow);
                     showMessage(ui.companyEmailFlowMessage, `Routing test sent to ${(response.recipients || []).join(", ")}.`, "success");
+                    refreshEmailQueue(true).catch(() => {});
                     return response;
                 });
             } catch (error) {
@@ -23604,6 +23783,7 @@
                     renderCompanyEmailFlowResults(response.flow);
                     const orderCode = response.order?.orderCode || "latest order";
                     showMessage(ui.companyEmailFlowMessage, `Test release email for ${orderCode} sent to ${(response.recipients || []).join(", ")}.`, "success");
+                    refreshEmailQueue(true).catch(() => {});
                     return response;
                 });
             } catch (error) {

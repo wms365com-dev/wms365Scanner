@@ -47,7 +47,7 @@ Latest desktop layout audit:
 | Setup | Marketplace Connections | Shopify, SFTP, Best Buy, Amazon, Woo, schedules, import/export lanes | Good but naming inconsistent | Rename visible labels to Marketplace Connections or Storefront & Marketplace Connections consistently. |
 | Reporting | Reports & Counts | Inventory exports, item/location reports, counts, utilization | Good | Keep read/export reporting here. |
 | Commercial | Billing | Billing dashboard, warehouse progress rollups, company billing profile, fees, manual charges, storage billing, billable activity review, invoice batches, Zoho sync | Good but needs invoice batching | Keep invoices company-owned while super admins can roll up progress billing by warehouse/3PL location and assigned accounts. |
-| System | Admin & System | Feature access, warehouse users, email flow test, system email test, feedback queue, backup/import/export, build/version | Good but order can improve | Put daily admin/support checks before backup tools. |
+| System | Admin & System | Feature access, warehouse users, email flow test, system email test, email delivery log, feedback queue, backup/import/export, build/version | Good but order can improve | Put daily admin/support checks before backup tools. |
 | Customer portal | Customer home | Company-scoped stats, order filters, inventory, items, new SO, new PO, shipped orders, feedback | Good | Keep no company selector. |
 | Customer portal | New Sales Order | Ship-to address book, lines, label/document uploads, draft/release | Good | Keep ship-to saving company-scoped. |
 | Customer portal | My Sales Orders | Draft/released/picked/staged views, archive/delete drafts, upload docs | Good | Status metric cards should remain clickable filters. |
@@ -93,7 +93,7 @@ Latest desktop layout audit:
 | Stock lookup | Inventory / Inventory Lookup | Mobile Lookup |
 | Stock movement/correction | Inventory / Adjust & Move | Mobile Adjust/Move |
 | Labels | Inventory / Labels | Mobile Labels |
-| Email tests | System / Admin & System | Company Email Flow related action |
+| Email tests and delivery log | System / Admin & System | Company Email Flow related action plus Email Queue / Delivery Log |
 | Bug/feature requests | System / Admin & System | Customer portal and warehouse floating button |
 
 ## Next UI Pass

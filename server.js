@@ -694,7 +694,11 @@ app.post("/api/admin/system-email/test", async (req, res, next) => {
                         ${SMTP_REPLY_TO ? `<tr><td style="padding:6px 0;font-weight:600;">Reply-To</td><td style="padding:6px 0;">${escapeHtml(SMTP_REPLY_TO)}</td></tr>` : ""}
                     </table>
                 </div>
-            `
+            `,
+            emailContext: {
+                sourceType: "SYSTEM_EMAIL_TEST",
+                sourceRef: APP_BUILD_INFO.deploymentRef
+            }
         }, "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
         res.json({
@@ -705,6 +709,71 @@ app.post("/api/admin/system-email/test", async (req, res, next) => {
             smtpHost: SMTP_HOST,
             emailProvider: emailResult.provider || provider,
             messageId: emailResult.messageId || ""
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/system-email/queue", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        const status = normalizeEmailDeliveryStatus(req.query?.status || "");
+        const search = normalizeFreeText(req.query?.search || req.query?.query || "").slice(0, 200);
+        const limit = Math.min(Math.max(toPositiveInt(req.query?.limit) || 75, 1), 250);
+        const params = [];
+        const clauses = [];
+
+        if (status) {
+            params.push(status);
+            clauses.push(`status = $${params.length}`);
+        }
+        if (search) {
+            params.push(`%${search.toLowerCase()}%`);
+            clauses.push(`(
+                lower(subject) like $${params.length}
+                or lower(account_name) like $${params.length}
+                or lower(source_ref) like $${params.length}
+                or lower(provider) like $${params.length}
+                or lower(from_address) like $${params.length}
+                or lower(to_addresses::text) like $${params.length}
+                or lower(cc_addresses::text) like $${params.length}
+                or lower(error_message) like $${params.length}
+            )`);
+        }
+
+        params.push(limit);
+        const whereSql = clauses.length ? `where ${clauses.join(" and ")}` : "";
+        const result = await pool.query(
+            `
+                select *
+                from email_delivery_log
+                ${whereSql}
+                order by created_at desc, id desc
+                limit $${params.length}
+            `,
+            params
+        );
+        const summaryResult = await pool.query(`
+            select status, count(*)::integer as count
+            from email_delivery_log
+            where created_at >= now() - interval '7 days'
+            group by status
+        `);
+        const summary = { total: 0, pending: 0, sent: 0, failed: 0 };
+        summaryResult.rows.forEach((row) => {
+            const key = String(row.status || "").toLowerCase();
+            const count = Number(row.count || 0);
+            summary.total += count;
+            if (key === "pending" || key === "sent" || key === "failed") summary[key] = count;
+        });
+
+        res.json({
+            success: true,
+            emails: result.rows.map(mapEmailDeliveryLogRow),
+            summary,
+            filters: { status, search, limit }
         });
     } catch (error) {
         next(error);
@@ -738,7 +807,12 @@ app.post("/api/admin/company-email-flow/test", async (req, res, next) => {
             replyTo: SMTP_REPLY_TO || undefined,
             subject: `WMS365 Email Flow Test - ${flow.accountName}`,
             text: buildCompanyEmailFlowTestText(flow, req.appUser?.email || ""),
-            html: buildCompanyEmailFlowTestHtml(flow, req.appUser?.email || "")
+            html: buildCompanyEmailFlowTestHtml(flow, req.appUser?.email || ""),
+            emailContext: {
+                accountName: flow.accountName,
+                sourceType: "EMAIL_FLOW_TEST",
+                sourceRef: req.appUser?.email || "admin"
+            }
         }, "Company email flow test cannot send because system email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
         await withTransaction((client) => insertActivity(
@@ -4296,6 +4370,55 @@ async function initializeDatabase() {
             created_at timestamptz not null default now()
         );
     `);
+
+    await pool.query(`
+        create table if not exists email_delivery_log (
+            id bigserial primary key,
+            status text not null default 'PENDING',
+            provider text not null default '',
+            from_address text not null default '',
+            to_addresses jsonb not null default '[]'::jsonb,
+            cc_addresses jsonb not null default '[]'::jsonb,
+            bcc_addresses jsonb not null default '[]'::jsonb,
+            reply_to text not null default '',
+            subject text not null default '',
+            account_name text not null default '',
+            source_type text not null default '',
+            source_ref text not null default '',
+            message_id text not null default '',
+            provider_response text not null default '',
+            error_message text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            sent_at timestamptz,
+            failed_at timestamptz,
+            updated_at timestamptz not null default now(),
+            constraint email_delivery_log_status_check check (status in ('PENDING', 'SENT', 'FAILED'))
+        );
+    `);
+    await pool.query("alter table email_delivery_log add column if not exists status text not null default 'PENDING';");
+    await pool.query("alter table email_delivery_log add column if not exists provider text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists from_address text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists to_addresses jsonb not null default '[]'::jsonb;");
+    await pool.query("alter table email_delivery_log add column if not exists cc_addresses jsonb not null default '[]'::jsonb;");
+    await pool.query("alter table email_delivery_log add column if not exists bcc_addresses jsonb not null default '[]'::jsonb;");
+    await pool.query("alter table email_delivery_log add column if not exists reply_to text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists subject text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists account_name text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists source_type text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists source_ref text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists message_id text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists provider_response text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists error_message text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists metadata jsonb not null default '{}'::jsonb;");
+    await pool.query("alter table email_delivery_log add column if not exists sent_at timestamptz;");
+    await pool.query("alter table email_delivery_log add column if not exists failed_at timestamptz;");
+    await pool.query("alter table email_delivery_log add column if not exists updated_at timestamptz not null default now();");
+    await pool.query("alter table email_delivery_log drop constraint if exists email_delivery_log_status_check;");
+    await pool.query("alter table email_delivery_log add constraint email_delivery_log_status_check check (status in ('PENDING', 'SENT', 'FAILED'))");
+    await pool.query("create index if not exists idx_email_delivery_log_created_at on email_delivery_log (created_at desc);");
+    await pool.query("create index if not exists idx_email_delivery_log_status_created on email_delivery_log (status, created_at desc);");
+    await pool.query("create index if not exists idx_email_delivery_log_account_created on email_delivery_log (account_name, created_at desc);");
 
     await pool.query(`
         create table if not exists bin_locations (
@@ -10942,6 +11065,127 @@ function buildEmailSendResult(provider, payload = {}) {
     };
 }
 
+function normalizeEmailDeliveryStatus(value) {
+    const status = normalizeText(value);
+    return ["PENDING", "SENT", "FAILED"].includes(status) ? status : "";
+}
+
+function getEmailLogRecipients(mailOptions, fieldName) {
+    const snakeName = fieldName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    return asEmailRecipientArray(mailOptions?.[fieldName] || mailOptions?.[fieldName.toLowerCase()] || mailOptions?.[snakeName] || "");
+}
+
+function sanitizeEmailLogMetadata(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function getEmailLogContext(mailOptions = {}) {
+    const context = sanitizeEmailLogMetadata(mailOptions.emailContext || mailOptions.context || {});
+    const metadata = sanitizeEmailLogMetadata(mailOptions.metadata || {});
+    return {
+        accountName: normalizeText(context.accountName || metadata.accountName || mailOptions.accountName || ""),
+        sourceType: normalizeFreeText(context.sourceType || metadata.sourceType || mailOptions.sourceType || "").slice(0, 80),
+        sourceRef: normalizeFreeText(context.sourceRef || metadata.sourceRef || mailOptions.sourceRef || "").slice(0, 120),
+        metadata: {
+            ...metadata,
+            ...context
+        }
+    };
+}
+
+async function insertEmailDeliveryLog(mailOptions = {}, provider = "") {
+    if (!DATABASE_URL || !databaseReady) return null;
+    const context = getEmailLogContext(mailOptions);
+    const fromAddress = normalizeFreeText(mailOptions.from || SMTP_FROM).slice(0, 320);
+    const replyTo = getEmailLogRecipients(mailOptions, "replyTo");
+    try {
+        const result = await pool.query(
+            `
+                insert into email_delivery_log (
+                    status, provider, from_address, to_addresses, cc_addresses, bcc_addresses,
+                    reply_to, subject, account_name, source_type, source_ref, metadata
+                )
+                values ('PENDING', $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb)
+                returning id
+            `,
+            [
+                normalizeText(provider || "UNKNOWN"),
+                fromAddress,
+                JSON.stringify(getEmailLogRecipients(mailOptions, "to")),
+                JSON.stringify(getEmailLogRecipients(mailOptions, "cc")),
+                JSON.stringify(getEmailLogRecipients(mailOptions, "bcc")),
+                replyTo.join(", ").slice(0, 500),
+                normalizeFreeText(mailOptions.subject || "WMS365 Notification").slice(0, 500),
+                context.accountName,
+                context.sourceType,
+                context.sourceRef,
+                JSON.stringify(context.metadata)
+            ]
+        );
+        return result.rows[0]?.id || null;
+    } catch (error) {
+        console.error("Unable to insert email delivery log:", error);
+        return null;
+    }
+}
+
+async function updateEmailDeliveryLog(logId, patch = {}) {
+    if (!logId || !DATABASE_URL || !databaseReady) return;
+    try {
+        await pool.query(
+            `
+                update email_delivery_log
+                set
+                    status = $2,
+                    provider = coalesce(nullif($3, ''), provider),
+                    message_id = $4,
+                    provider_response = $5,
+                    error_message = $6,
+                    sent_at = case when $2 = 'SENT' then now() else sent_at end,
+                    failed_at = case when $2 = 'FAILED' then now() else failed_at end,
+                    updated_at = now()
+                where id = $1
+            `,
+            [
+                logId,
+                normalizeEmailDeliveryStatus(patch.status) || "FAILED",
+                normalizeText(patch.provider || ""),
+                normalizeFreeText(patch.messageId || "").slice(0, 500),
+                normalizeFreeText(patch.response || "").slice(0, 2000),
+                normalizeFreeText(patch.errorMessage || "").slice(0, 2000)
+            ]
+        );
+    } catch (error) {
+        console.error(`Unable to update email delivery log ${logId}:`, error);
+    }
+}
+
+function mapEmailDeliveryLogRow(row) {
+    const jsonArray = (value) => Array.isArray(value) ? value.map((entry) => String(entry || "").trim()).filter(Boolean) : [];
+    return {
+        id: String(row.id),
+        status: normalizeEmailDeliveryStatus(row.status) || "PENDING",
+        provider: row.provider || "",
+        fromAddress: row.from_address || "",
+        toAddresses: jsonArray(row.to_addresses),
+        ccAddresses: jsonArray(row.cc_addresses),
+        bccAddresses: jsonArray(row.bcc_addresses),
+        replyTo: row.reply_to || "",
+        subject: row.subject || "",
+        accountName: row.account_name || "",
+        sourceType: row.source_type || "",
+        sourceRef: row.source_ref || "",
+        messageId: row.message_id || "",
+        providerResponse: row.provider_response || "",
+        errorMessage: row.error_message || "",
+        metadata: row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {},
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        sentAt: row.sent_at ? new Date(row.sent_at).toISOString() : null,
+        failedAt: row.failed_at ? new Date(row.failed_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
 async function parseEmailApiResponse(response) {
     const text = await response.text();
     if (!text) return {};
@@ -11067,17 +11311,39 @@ async function sendEmailViaSendGrid(mailOptions) {
 }
 
 async function sendSystemEmail(mailOptions, configErrorMessage = "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.") {
-    if (!hasSystemEmailConfig()) {
-        throw httpError(500, configErrorMessage || getEmailConfigErrorMessage("System email"));
+    const provider = getConfiguredEmailProvider() || (hasSmtpEmailConfig() ? "SMTP" : (EMAIL_PROVIDER || "NOT_CONFIGURED"));
+    const logId = await insertEmailDeliveryLog(mailOptions, provider);
+    try {
+        if (!hasSystemEmailConfig()) {
+            throw httpError(500, configErrorMessage || getEmailConfigErrorMessage("System email"));
+        }
+        let result;
+        if (provider === "RESEND") {
+            result = await sendEmailViaResend(mailOptions);
+        } else if (provider === "SENDGRID") {
+            result = await sendEmailViaSendGrid(mailOptions);
+        } else {
+            const transporter = getSystemMailer(configErrorMessage);
+            result = {
+                ...(await transporter.sendMail(mailOptions)),
+                provider: "SMTP"
+            };
+        }
+        await updateEmailDeliveryLog(logId, {
+            status: "SENT",
+            provider: result.provider || provider,
+            messageId: result.messageId || "",
+            response: result.response || ""
+        });
+        return result;
+    } catch (error) {
+        await updateEmailDeliveryLog(logId, {
+            status: "FAILED",
+            provider,
+            errorMessage: error?.message || "Email send failed"
+        });
+        throw error;
     }
-    const provider = getConfiguredEmailProvider();
-    if (provider === "RESEND") return sendEmailViaResend(mailOptions);
-    if (provider === "SENDGRID") return sendEmailViaSendGrid(mailOptions);
-    const transporter = getSystemMailer(configErrorMessage);
-    return {
-        ...(await transporter.sendMail(mailOptions)),
-        provider: "SMTP"
-    };
 }
 
 function buildPortalLoginUrl(req) {
@@ -11160,7 +11426,12 @@ async function sendPortalAccessWelcomeEmail({ accountName, email, password, port
             ? `Welcome to WMS365 - ${accountName} portal access`
             : `WMS365 portal access updated - ${accountName}`,
         text: buildPortalAccessWelcomeEmailText({ accountName, email, password, portalUrl, wasCreated }),
-        html: buildPortalAccessWelcomeEmailHtml({ accountName, email, password, portalUrl, wasCreated })
+        html: buildPortalAccessWelcomeEmailHtml({ accountName, email, password, portalUrl, wasCreated }),
+        emailContext: {
+            accountName,
+            sourceType: "PORTAL_ACCESS",
+            sourceRef: email
+        }
     }, "Portal welcome email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 }
 
@@ -11308,7 +11579,12 @@ async function sendDemoRequestNotification(request) {
         replyTo: request.workEmail || SMTP_REPLY_TO || undefined,
         subject: `New WMS365 demo request - ${request.companyName}`,
         text: buildDemoRequestEmailText(request),
-        html: buildDemoRequestEmailHtml(request)
+        html: buildDemoRequestEmailHtml(request),
+        emailContext: {
+            accountName: request.companyName,
+            sourceType: "DEMO_REQUEST",
+            sourceRef: request.workEmail || request.phone || ""
+        }
     });
     return recipients;
 }
@@ -11579,7 +11855,11 @@ async function sendAdminActivityDigestEmail(digest) {
         to: ADMIN_ACTIVITY_SUMMARY_TO,
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `WMS365 daily activity summary - ${digest.dateLabel}`,
-        text: buildAdminActivityDigestText(digest)
+        text: buildAdminActivityDigestText(digest),
+        emailContext: {
+            sourceType: "ADMIN_DAILY_SUMMARY",
+            sourceRef: digest.dateKey || digest.dateLabel || ""
+        }
     }, "Admin activity email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 }
 
@@ -12318,7 +12598,12 @@ async function sendStripeSubscriptionNotification(notification) {
         replyTo: notification.subscription.workEmail || SMTP_REPLY_TO || undefined,
         subject: `${subjectPrefix} - ${notification.subscription.companyName || notification.subscription.companyAccountName || "Unknown company"}`,
         text: buildStripeSubscriptionNotificationText(notification),
-        html: buildStripeSubscriptionNotificationHtml(notification)
+        html: buildStripeSubscriptionNotificationHtml(notification),
+        emailContext: {
+            accountName: notification.subscription.companyAccountName || notification.subscription.companyName || "",
+            sourceType: notification.kind === "PAYMENT_FAILED" ? "STRIPE_PAYMENT_FAILED" : "STRIPE_SIGNUP",
+            sourceRef: notification.subscription.stripeSubscriptionId || notification.subscription.stripeCustomerId || ""
+        }
     });
     return recipients;
 }
@@ -12747,7 +13032,12 @@ async function sendPortalInboundArrivalEmail(client, inbound, { actorLabel = "" 
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `Inbound Arrived at DC - ${inbound.inboundCode}`,
         text: buildPortalInboundArrivalEmailText(inbound, { warehouseLocation, actorLabel }),
-        html: buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation, actorLabel })
+        html: buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation, actorLabel }),
+        emailContext: {
+            accountName: inbound.accountName,
+            sourceType: "PORTAL_INBOUND",
+            sourceRef: inbound.inboundCode || inbound.id
+        }
     }, "Inbound arrival email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     return recipients;
 }
@@ -12920,7 +13210,12 @@ async function sendDeliveryAppointmentRequestEmail(client, appointment, approval
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `Delivery Appointment Requested - ${appointment.appointmentCode}`,
         text: buildDeliveryAppointmentWarehouseEmailText(appointment, actionUrl),
-        html: buildDeliveryAppointmentWarehouseEmailHtml(appointment, actionUrl)
+        html: buildDeliveryAppointmentWarehouseEmailHtml(appointment, actionUrl),
+        emailContext: {
+            accountName: appointment.accountName,
+            sourceType: "DELIVERY_APPOINTMENT_REQUEST",
+            sourceRef: appointment.appointmentCode || appointment.id
+        }
     }, "Delivery appointment email cannot send because system email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     return recipients;
 }
@@ -12940,7 +13235,12 @@ async function sendDeliveryAppointmentCustomerEmail(client, appointment) {
             ? `Delivery Appointment Approved - ${appointment.appointmentCode}`
             : `Delivery Appointment Alternative Needed - ${appointment.appointmentCode}`,
         text: buildDeliveryAppointmentCustomerEmailText(appointment),
-        html: buildDeliveryAppointmentCustomerEmailHtml(appointment)
+        html: buildDeliveryAppointmentCustomerEmailHtml(appointment),
+        emailContext: {
+            accountName: appointment.accountName,
+            sourceType: "DELIVERY_APPOINTMENT_CUSTOMER",
+            sourceRef: appointment.appointmentCode || appointment.id
+        }
     }, "Delivery appointment customer email cannot send because system email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     return [...recipients];
 }
@@ -13664,7 +13964,12 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
         subject: `${subjectPrefix || ""}Portal Order Released - ${order.orderCode}`,
         text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
         html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
-        attachments: [buildPortalOrderPickTicketPdfAttachment(order)]
+        attachments: [buildPortalOrderPickTicketPdfAttachment(order)],
+        emailContext: {
+            accountName: order.accountName,
+            sourceType: testMode ? "PORTAL_ORDER_TEST" : "PORTAL_ORDER",
+            sourceRef: order.orderCode || order.id
+        }
     }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 
     return {
@@ -13732,7 +14037,12 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
             filename: document.fileName,
             content: document.fileBuffer,
             contentType: document.fileType
-        }))
+        })),
+        emailContext: {
+            accountName: order.accountName,
+            sourceType: "SHIPMENT_CONFIRMATION",
+            sourceRef: order.orderCode || order.id
+        }
     }, "Shipment email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings before marking an order shipped.");
 
     return recipients;
