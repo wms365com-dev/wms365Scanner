@@ -3814,14 +3814,18 @@ function detectWarehouseRouteMode(req) {
     if (requestedMode === "mobile" || requestedMode === "desktop") {
         return requestedMode;
     }
-    const userAgent = String(req.headers["user-agent"] || "");
-    return /iphone|ipod|android.+mobile|windows phone|blackberry|opera mini|mobile/i.test(userAgent)
+    return isWarehouseMobileUserAgent(req)
         ? "mobile"
         : "desktop";
 }
 
 function getWarehouseRoutePath(req) {
     return detectWarehouseRouteMode(req) === "mobile" ? "/mobile" : "/desktop";
+}
+
+function isWarehouseMobileUserAgent(req) {
+    const userAgent = String(req.headers["user-agent"] || "");
+    return /iphone|ipod|android.+mobile|windows phone|blackberry|opera mini|mobile/i.test(userAgent);
 }
 
 function sanitizeInternalAppPath(value, fallbackPath = "/app") {
@@ -4149,6 +4153,9 @@ app.get("/inventory-worksheet/", async (req, res) => {
 app.get("/mobile", async (req, res) => {
     try {
         await requireAppSession(req);
+        if (!isWarehouseMobileUserAgent(req) && String(req.query?.mode || req.query?.experience || "").toLowerCase() !== "mobile") {
+            return res.redirect("/desktop");
+        }
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
@@ -4159,6 +4166,9 @@ app.get("/mobile", async (req, res) => {
 app.get("/mobile/", async (req, res) => {
     try {
         await requireAppSession(req);
+        if (!isWarehouseMobileUserAgent(req) && String(req.query?.mode || req.query?.experience || "").toLowerCase() !== "mobile") {
+            return res.redirect("/desktop");
+        }
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);

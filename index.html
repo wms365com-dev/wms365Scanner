@@ -11732,7 +11732,7 @@
         }
 
         function isDesktopMobilePreviewEnabled() {
-            return detectedDeviceExperienceMode !== "mobile" && !!state.preferences.desktopMobilePreview;
+            return false;
         }
 
         function isHandheldDeviceCandidate() {
@@ -11756,34 +11756,26 @@
 
         function getForcedDeviceExperienceMode() {
             const pathName = String(window.location.pathname || "").trim().replace(/\/+$/, "").toLowerCase();
-            if (pathName === "/mobile") return "mobile";
             const isHandheld = isHandheldDeviceCandidate();
+            if (pathName === "/mobile") return isHandheld ? "mobile" : "desktop";
             if (pathName === "/desktop") return isHandheld ? "" : "desktop";
             const params = new URLSearchParams(window.location.search || "");
             const explicitMode = String(params.get("experience") || params.get("mode") || "").trim().toLowerCase();
             if (explicitMode === "desktop" && isHandheld) return "";
+            if (explicitMode === "mobile" && !isHandheld) return "desktop";
             return explicitMode === "mobile" || explicitMode === "desktop" ? explicitMode : "";
         }
 
         function syncDesktopPreviewToggle() {
             if (!ui.desktopPreviewToggle) return;
-            const canPreview = !forcedDeviceExperienceMode && detectedDeviceExperienceMode !== "mobile";
-            ui.desktopPreviewToggle.hidden = !canPreview;
-            if (!canPreview) return;
-            const previewOn = isDesktopMobilePreviewEnabled();
-            ui.desktopPreviewToggle.textContent = previewOn ? "Desktop View" : "Mobile Preview";
-            ui.desktopPreviewToggle.setAttribute("aria-pressed", String(previewOn));
+            ui.desktopPreviewToggle.hidden = true;
+            ui.desktopPreviewToggle.setAttribute("aria-pressed", "false");
         }
 
         function toggleDesktopPreviewMode() {
-            if (forcedDeviceExperienceMode || detectedDeviceExperienceMode === "mobile") return;
-            state.preferences.desktopMobilePreview = !state.preferences.desktopMobilePreview;
+            state.preferences.desktopMobilePreview = false;
             saveState();
             applyDeviceExperienceMode();
-            if (isMobileView()) {
-                setSection("mobile-home");
-                return;
-            }
             setSection(activeSection === "mobile-home" ? "home" : activeSection);
         }
 
