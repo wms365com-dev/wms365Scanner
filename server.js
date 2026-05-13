@@ -4831,7 +4831,7 @@ async function initializeDatabase() {
             metadata jsonb not null default '{}'::jsonb,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint billing_events_status_check check (status in ('OPEN', 'INVOICED', 'VOID'))
+            constraint billing_events_status_check check (lower(trim(status)) in ('open', 'pending', 'approved', 'invoiced', 'void', 'voided'))
         );
     `);
 
@@ -4847,8 +4847,19 @@ async function initializeDatabase() {
     await pool.query("alter table billing_events add column if not exists fee_category text not null default ''");
     await pool.query("alter table billing_events add column if not exists fee_name text not null default ''");
     await pool.query("alter table billing_events add column if not exists unit_label text not null default ''");
+    await pool.query(`
+        update billing_events
+        set status = case
+            when lower(trim(coalesce(status, ''))) in ('', 'draft', 'new') then 'OPEN'
+            when lower(trim(coalesce(status, ''))) in ('approve') then 'approved'
+            when lower(trim(coalesce(status, ''))) in ('invoice', 'billed', 'sent', 'paid', 'partial', 'overdue') then 'invoiced'
+            when lower(trim(coalesce(status, ''))) in ('cancelled', 'canceled', 'deleted', 'archived') then 'VOID'
+            else 'OPEN'
+        end
+        where lower(trim(coalesce(status, ''))) not in ('open', 'pending', 'approved', 'invoiced', 'void', 'voided')
+    `);
     await pool.query("alter table billing_events drop constraint if exists billing_events_status_check");
-    await pool.query("alter table billing_events add constraint billing_events_status_check check (status in ('OPEN', 'INVOICED', 'VOID'))");
+    await pool.query("alter table billing_events add constraint billing_events_status_check check (lower(trim(status)) in ('open', 'pending', 'approved', 'invoiced', 'void', 'voided'))");
     await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
     await pool.query("create index if not exists idx_owner_billing_rates_account on owner_billing_rates (account_name)");
@@ -5494,10 +5505,21 @@ async function initializeBillingFinanceSchema(client = pool) {
     await client.query("update billing_events set charge_type = fee_code where charge_type = ''");
     await client.query("update billing_events set description = fee_name where description = ''");
     await client.query("update billing_events set notes = note where notes = '' and note <> ''");
+    await client.query(`
+        update billing_events
+        set status = case
+            when lower(trim(coalesce(status, ''))) in ('', 'draft', 'new') then 'OPEN'
+            when lower(trim(coalesce(status, ''))) in ('approve') then 'approved'
+            when lower(trim(coalesce(status, ''))) in ('invoice', 'billed', 'sent', 'paid', 'partial', 'overdue') then 'invoiced'
+            when lower(trim(coalesce(status, ''))) in ('cancelled', 'canceled', 'deleted', 'archived') then 'VOID'
+            else 'OPEN'
+        end
+        where lower(trim(coalesce(status, ''))) not in ('open', 'pending', 'approved', 'invoiced', 'void', 'voided')
+    `);
     await client.query("alter table billing_events drop constraint if exists billing_events_status_check");
     await client.query(`
         alter table billing_events add constraint billing_events_status_check
-        check (status in ('OPEN', 'INVOICED', 'VOID', 'pending', 'approved', 'invoiced', 'voided'))
+        check (lower(trim(status)) in ('open', 'pending', 'approved', 'invoiced', 'void', 'voided'))
     `);
 
     await client.query(`
