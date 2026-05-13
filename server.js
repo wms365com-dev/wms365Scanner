@@ -7165,7 +7165,7 @@ async function createAppSession(client, userId) {
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashPortalSessionToken(token);
     const expiresAt = new Date(Date.now() + (APP_SESSION_MAX_AGE * 1000)).toISOString();
-    await client.query("delete from app_sessions where app_user_id = $1 or expires_at <= now()", [userId]);
+    await client.query("delete from app_sessions where expires_at <= now()");
     await client.query(
         `
             insert into app_sessions (app_user_id, token_hash, expires_at)
