@@ -148,8 +148,10 @@ const SMTP_PORT = Number.parseInt(readEnv("SMTP_PORT", "0") || "0", 10) || 0;
 const SMTP_SECURE = /^(1|true|yes|on)$/i.test(readEnv("SMTP_SECURE", ""));
 const SMTP_USER = readEnv("SMTP_USER", "");
 const SMTP_PASS = normalizeSmtpPassword(SMTP_HOST, readEnv("SMTP_PASS", ""));
-const SMTP_FROM = readEnv("SMTP_FROM", "");
-const SMTP_REPLY_TO = readEnv("SMTP_REPLY_TO", "");
+const WMS365_SYSTEM_EMAIL_ADDRESS = "support@wms365.co";
+const WMS365_SYSTEM_EMAIL_FROM = "WMS365 <support@wms365.co>";
+const SMTP_FROM = WMS365_SYSTEM_EMAIL_FROM;
+const SMTP_REPLY_TO = WMS365_SYSTEM_EMAIL_ADDRESS;
 const ORDER_RELEASE_TO = readEnv("ORDER_RELEASE_TO", "");
 const EMAIL_PROVIDER = normalizeText(readEnv("EMAIL_PROVIDER", ""));
 const RESEND_API_KEY = readEnv("RESEND_API_KEY", "");
@@ -11069,6 +11071,15 @@ function parseEmailAddressHeader(value) {
     };
 }
 
+function normalizeSystemEmailMailOptions(mailOptions = {}) {
+    const replyToRecipients = asEmailRecipientArray(mailOptions.replyTo || mailOptions.reply_to || SMTP_REPLY_TO);
+    return {
+        ...mailOptions,
+        from: WMS365_SYSTEM_EMAIL_FROM,
+        replyTo: replyToRecipients.length ? replyToRecipients.join(", ") : WMS365_SYSTEM_EMAIL_ADDRESS
+    };
+}
+
 function attachmentContentToBase64(attachment) {
     const content = attachment?.content;
     if (Buffer.isBuffer(content)) return content.toString("base64");
@@ -11343,21 +11354,22 @@ async function sendEmailViaSendGrid(mailOptions) {
 }
 
 async function sendSystemEmail(mailOptions, configErrorMessage = "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.") {
+    const safeMailOptions = normalizeSystemEmailMailOptions(mailOptions);
     const provider = getConfiguredEmailProvider() || (hasSmtpEmailConfig() ? "SMTP" : (EMAIL_PROVIDER || "NOT_CONFIGURED"));
-    const logId = await insertEmailDeliveryLog(mailOptions, provider);
+    const logId = await insertEmailDeliveryLog(safeMailOptions, provider);
     try {
         if (!hasSystemEmailConfig()) {
             throw httpError(500, configErrorMessage || getEmailConfigErrorMessage("System email"));
         }
         let result;
         if (provider === "RESEND") {
-            result = await sendEmailViaResend(mailOptions);
+            result = await sendEmailViaResend(safeMailOptions);
         } else if (provider === "SENDGRID") {
-            result = await sendEmailViaSendGrid(mailOptions);
+            result = await sendEmailViaSendGrid(safeMailOptions);
         } else {
             const transporter = getSystemMailer(configErrorMessage);
             result = {
-                ...(await transporter.sendMail(mailOptions)),
+                ...(await transporter.sendMail(safeMailOptions)),
                 provider: "SMTP"
             };
         }
