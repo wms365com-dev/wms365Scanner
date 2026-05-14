@@ -5123,7 +5123,7 @@
             #mobileHomePanel { display: none !important; }
         }
 
-        @media (max-width: 640px) {
+        @media (max-width: 640px) and (pointer: coarse) {
             :root {
                 --panel: #ffffff;
                 --panel-2: #f6f8fa;
@@ -6128,7 +6128,7 @@
                         <summary>Finance</summary>
                         <div class="module-menu-panel">
                             <button class="module-menu-item primary" type="button" data-jump-section="billing">Billing Ledger</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Finance</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
                             <button class="module-menu-item" type="button" data-jump-section="billing">Customer Fees</button>
                             <button class="module-menu-item" type="button" data-jump-section="reports">Billing Reports</button>
                         </div>
@@ -6137,7 +6137,7 @@
                         <summary>Cash Management</summary>
                         <div class="module-menu-panel">
                             <button class="module-menu-item primary" type="button" data-jump-section="billing">Invoice Review</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Finance</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
                             <button class="module-menu-item" type="button" data-jump-section="billing">Manual Charges</button>
                             <button class="module-menu-item" type="button" data-jump-section="reports">Month-End Export</button>
                         </div>
@@ -6150,7 +6150,7 @@
                             <button class="module-menu-item" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
                             <button class="module-menu-item" type="button" data-jump-section="shipped">Shipped Orders</button>
                             <button class="module-menu-item" type="button" data-jump-section="billing">Billing Ledger</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Finance</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
                         </div>
                     </details>
                     <details class="module-menu">
@@ -6187,7 +6187,7 @@
                         <div class="module-menu-panel">
                             <button class="module-menu-item primary" type="button" data-jump-section="reports">All Reports</button>
                             <button class="module-menu-item" type="button" data-jump-section="reports">Inventory Export</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Finance</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
                             <button class="module-menu-item" type="button" data-jump-section="shipped">Shipment History</button>
                         </div>
                     </details>
@@ -6352,7 +6352,7 @@
                 <span class="tab-meta">Apply company fee schedules and review invoice-ready billing lines.</span>
             </button>
             <button class="tab" data-section="billing-finance" type="button">
-                <span class="tab-label">Billing & Finance</span>
+                <span class="tab-label">Billing & Accounting</span>
                 <span class="tab-meta">Warehouse billing, invoices, payments, expenses, accounting, tax, reports, and exports.</span>
             </button>
             <button class="tab" data-section="labels" type="button">
@@ -7094,6 +7094,26 @@
                                 <span>Primary Fulfillment Location</span>
                                 <select id="companySetupFulfillmentLocation"></select>
                             </label>
+                            <label class="field">
+                                <span>Pricing Plan</span>
+                                <select id="companySetupPricingPlan">
+                                    <option value="UNASSIGNED">Unassigned</option>
+                                    <option value="LAUNCH_WAREHOUSE">Launch Warehouse - $129/month</option>
+                                    <option value="CUSTOMER_FACING_OPERATION">Customer-Facing Operation</option>
+                                    <option value="INTEGRATED_WAREHOUSE_PLATFORM">Integrated Warehouse Platform</option>
+                                    <option value="GREY_WOLF_3PL_CUSTOMER">Grey Wolf 3PL Customer - no software charge</option>
+                                    <option value="CUSTOM">Custom</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>Software Access</span>
+                                <select id="companySetupAccessMode">
+                                    <option value="AUTO">Auto: paid subscription or Grey Wolf no-charge</option>
+                                    <option value="PAID_SUBSCRIPTION">Paid subscription</option>
+                                    <option value="NO_CHARGE">No-charge access</option>
+                                    <option value="BLOCKED">Blocked</option>
+                                </select>
+                            </label>
                             <div class="button-row span-2">
                                 <button class="btn" id="companySetupCreateBtn" type="submit">Create Company Setup</button>
                                 <button class="btn ghost" id="companySetupNewBtn" type="button">New Company</button>
@@ -7125,6 +7145,45 @@
                                 <label class="field"><span>Account Code</span><input id="masterOwnerCode" type="text" placeholder="Optional internal code" enterkeyhint="next"></label>
                                 <label class="field"><span>Status</span><select id="masterOwnerActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
                                 <label class="field span-2"><span>Primary Fulfillment Location</span><select id="masterOwnerFulfillmentLocation"></select></label>
+                                <div class="erp-fasttab-heading desktop-only span-2">Pricing & Paywall</div>
+                                <label class="field">
+                                    <span>Pricing Plan</span>
+                                    <select id="masterOwnerPricingPlan">
+                                        <option value="UNASSIGNED">Unassigned</option>
+                                        <option value="LAUNCH_WAREHOUSE">Launch Warehouse - $129/month</option>
+                                        <option value="CUSTOMER_FACING_OPERATION">Customer-Facing Operation</option>
+                                        <option value="INTEGRATED_WAREHOUSE_PLATFORM">Integrated Warehouse Platform</option>
+                                        <option value="GREY_WOLF_3PL_CUSTOMER">Grey Wolf 3PL Customer - no software charge</option>
+                                        <option value="CUSTOM">Custom</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Software Access</span>
+                                    <select id="masterOwnerAccessMode">
+                                        <option value="AUTO">Auto: paid subscription or Grey Wolf no-charge</option>
+                                        <option value="PAID_SUBSCRIPTION">Paid subscription</option>
+                                        <option value="NO_CHARGE">No-charge access</option>
+                                        <option value="BLOCKED">Blocked</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Subscription Status</span>
+                                    <select id="masterOwnerSubscriptionStatus">
+                                        <option value="PENDING">Pending</option>
+                                        <option value="TRIALING">Trialing</option>
+                                        <option value="ACTIVE">Active</option>
+                                        <option value="PAST_DUE">Past due</option>
+                                        <option value="UNPAID">Unpaid</option>
+                                        <option value="CANCELED">Canceled</option>
+                                        <option value="NO_CHARGE">No charge</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Paywall Note</span>
+                                    <input id="masterOwnerSubscriptionNote" type="text" placeholder="Stripe, no-charge, or contract note" enterkeyhint="next">
+                                </label>
+                                <div class="helper span-2" id="masterOwnerPaywallMeta">Grey Wolf 3PL assigned customers are treated as no-charge unless Software Access is set to Blocked.</div>
+                                <div class="erp-fasttab-heading desktop-only span-2">Contact</div>
                                 <label class="field"><span>Main Contact</span><input id="masterOwnerContactName" type="text" placeholder="Primary contact name" enterkeyhint="next"></label>
                                 <label class="field"><span>Contact Title</span><input id="masterOwnerContactTitle" type="text" placeholder="Optional title" enterkeyhint="next"></label>
                                 <label class="field"><span>Main Email</span><input id="masterOwnerEmail" type="email" placeholder="General contact email" enterkeyhint="next"></label>
@@ -8786,14 +8845,14 @@
                 <div class="mobile-appbar">
                     <div class="mobile-appbar-copy">
                         <span class="mobile-appbar-kicker">WMS365</span>
-                        <strong class="mobile-appbar-title">Billing & Finance</strong>
+                        <strong class="mobile-appbar-title">Billing & Accounting</strong>
                     </div>
                     <span class="mobile-appbar-badge">Finance</span>
                 </div>
                 <button class="btn" type="button" data-mobile-home>Back To Menu</button>
             </div>
             <div class="mobile-screen-body">
-            <div class="finance-tabbar" id="financeTabbar" role="tablist" aria-label="Billing and finance sections">
+            <div class="finance-tabbar" id="financeTabbar" role="tablist" aria-label="Billing and accounting sections">
                 <button class="active" type="button" data-finance-tab="dashboard">Dashboard</button>
                 <button type="button" data-finance-tab="profiles">Customer Profiles</button>
                 <button type="button" data-finance-tab="rates">Rate Cards</button>
@@ -8812,7 +8871,7 @@
             <article class="card workspace-control-card">
                 <div class="card-head">
                     <div>
-                        <h2>Billing & Finance</h2>
+                        <h2>Billing & Accounting</h2>
                         <p class="lead">Warehouse billing, accounting, profitability, tax, and accountant-ready exports for 3PL finance teams.</p>
                     </div>
                     <div class="button-row">
@@ -9879,6 +9938,16 @@
             [COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION]: false,
             [COMPANY_FEATURE_KEYS.SFTP_INTEGRATION]: false
         });
+        const COMPANY_WMS_PRICING_PLANS = Object.freeze({
+            UNASSIGNED: { key: "UNASSIGNED", label: "Unassigned", priceLabel: "" },
+            LAUNCH_WAREHOUSE: { key: "LAUNCH_WAREHOUSE", label: "Launch Warehouse", priceLabel: "$129 / month" },
+            CUSTOMER_FACING_OPERATION: { key: "CUSTOMER_FACING_OPERATION", label: "Customer-Facing Operation", priceLabel: "Custom quote" },
+            INTEGRATED_WAREHOUSE_PLATFORM: { key: "INTEGRATED_WAREHOUSE_PLATFORM", label: "Integrated Warehouse Platform", priceLabel: "Custom quote" },
+            GREY_WOLF_3PL_CUSTOMER: { key: "GREY_WOLF_3PL_CUSTOMER", label: "Grey Wolf 3PL Customer", priceLabel: "No software charge" },
+            CUSTOM: { key: "CUSTOM", label: "Custom", priceLabel: "Custom quote" }
+        });
+        const COMPANY_WMS_ACCESS_MODES = Object.freeze(["AUTO", "PAID_SUBSCRIPTION", "NO_CHARGE", "BLOCKED"]);
+        const COMPANY_WMS_SUBSCRIPTION_STATUSES = Object.freeze(["PENDING", "TRIALING", "ACTIVE", "PAST_DUE", "UNPAID", "CANCELED", "NO_CHARGE"]);
         const FEEDBACK_REQUEST_TYPES = Object.freeze(["BUG", "FEATURE", "OTHER"]);
         const FEEDBACK_STATUSES = Object.freeze(["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"]);
         const LEGACY_COMPANY_FEATURE_FLAGS = Object.freeze(
@@ -9890,6 +9959,7 @@
         const state = loadState();
         let labelToolState = loadLabelToolState();
         let activeSection = "home";
+        let appSessionStateLoaded = false;
         const mobileSectionHistory = [];
         const desktopSectionHistory = [];
         let searchMode = "sku";
@@ -10011,9 +10081,9 @@
                     features: ["Company Fee Setup", "Manual Billing Events", "Storage Billing", "Billing Ledger", "Invoice Exports"]
                 },
                 "billing-finance": {
-                    title: "Billing & Finance",
+                    title: "Billing & Accounting",
                     meta: "Manage warehouse billing, invoices, payments, expenses, accounting, tax, profitability, and exports.",
-                    drillPath: "Commercial / Billing & Finance",
+                    drillPath: "Commercial / Billing & Accounting",
                     features: ["Dashboard", "Customer Profiles", "Rate Cards", "Billing Events", "Invoices", "Payments", "Expenses", "Accounting", "Tax", "Reports", "Exports"]
                 },
                 labels: {
@@ -10052,7 +10122,7 @@
             integrations: "Marketplace Connections",
             reports: "All Reports",
             billing: "Billing Ledger",
-            "billing-finance": "Billing & Finance",
+            "billing-finance": "Billing & Accounting",
             backup: "Admin & System"
         });
         const LINK_TARGETS = Object.freeze({
@@ -10258,6 +10328,8 @@
             companySetupPortalEmail: document.getElementById("companySetupPortalEmail"),
             companySetupPreset: document.getElementById("companySetupPreset"),
             companySetupFulfillmentLocation: document.getElementById("companySetupFulfillmentLocation"),
+            companySetupPricingPlan: document.getElementById("companySetupPricingPlan"),
+            companySetupAccessMode: document.getElementById("companySetupAccessMode"),
             companySetupNewBtn: document.getElementById("companySetupNewBtn"),
             companySetupPortalBtn: document.getElementById("companySetupPortalBtn"),
             companySetupFeaturesBtn: document.getElementById("companySetupFeaturesBtn"),
@@ -10404,6 +10476,11 @@
             masterOwnerCode: document.getElementById("masterOwnerCode"),
             masterOwnerActive: document.getElementById("masterOwnerActive"),
             masterOwnerFulfillmentLocation: document.getElementById("masterOwnerFulfillmentLocation"),
+            masterOwnerPricingPlan: document.getElementById("masterOwnerPricingPlan"),
+            masterOwnerAccessMode: document.getElementById("masterOwnerAccessMode"),
+            masterOwnerSubscriptionStatus: document.getElementById("masterOwnerSubscriptionStatus"),
+            masterOwnerSubscriptionNote: document.getElementById("masterOwnerSubscriptionNote"),
+            masterOwnerPaywallMeta: document.getElementById("masterOwnerPaywallMeta"),
             masterOwnerContactName: document.getElementById("masterOwnerContactName"),
             masterOwnerContactTitle: document.getElementById("masterOwnerContactTitle"),
             masterOwnerEmail: document.getElementById("masterOwnerEmail"),
@@ -10952,6 +11029,9 @@
             }));
             ui.workspaceAnchorButtons.forEach((button) => button.addEventListener("click", () => handleWorkspaceAnchorButtonClick(button)));
             document.getElementById("masterOwnerForm").addEventListener("submit", saveMasterOwner);
+            [ui.masterOwnerPricingPlan, ui.masterOwnerAccessMode, ui.masterOwnerSubscriptionStatus].forEach((element) => {
+                element?.addEventListener("change", () => renderOwnerPaywallMeta(ui.masterOwnerName?.value || getActiveCompany()));
+            });
             document.getElementById("partnerForm")?.addEventListener("submit", saveCompanyPartner);
             ui.masterRecordViewFilter?.addEventListener("change", renderFocusedMasterRecordList);
             ui.masterRecordSearch?.addEventListener("input", debounce(() => renderFocusedMasterRecordList(), 120));
@@ -11013,6 +11093,11 @@
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
             ui.companySetupForm?.addEventListener("submit", saveCompanySetup);
+            ui.companySetupPricingPlan?.addEventListener("change", () => {
+                if (ui.companySetupPricingPlan.value === "GREY_WOLF_3PL_CUSTOMER" && ui.companySetupAccessMode) {
+                    ui.companySetupAccessMode.value = "NO_CHARGE";
+                }
+            });
             ui.companySetupNewBtn?.addEventListener("click", resetCompanySetupFlow);
             ui.companySetupPortalBtn?.addEventListener("click", () => openCompanySetupNextStep("portal"));
             ui.companySetupFeaturesBtn?.addEventListener("click", () => openCompanySetupNextStep("features"));
@@ -11467,6 +11552,10 @@
 
         function getInitialSectionFromUrl() {
             const params = new URLSearchParams(window.location.search || "");
+            const path = String(window.location.pathname || "").replace(/\/+$/, "").toLowerCase();
+            if (path === "/billing-accounting") {
+                return normalizeSectionForCurrentDevice("billing-finance");
+            }
             const requestedSection = String(params.get("section") || "").trim().toLowerCase();
             if (requestedSection === MOBILE_HOME_SECTION) {
                 return isMobileView() ? MOBILE_HOME_SECTION : "home";
@@ -11750,8 +11839,7 @@
                 viewportMin || 0
             );
             const compactTouchHandset = coarsePointer && touchPoints > 0 && screenMax <= 950 && screenMin <= 500;
-            const compactViewport = viewportMin <= 640;
-            return userAgentMobile || phoneLikeAgent || compactTouchHandset || compactViewport;
+            return userAgentMobile || phoneLikeAgent || compactTouchHandset;
         }
 
         function getForcedDeviceExperienceMode() {
@@ -16689,6 +16777,13 @@
             document.getElementById("masterOwnerForm")?.reset();
             if (ui.masterOwnerActive) ui.masterOwnerActive.value = "true";
             if (ui.companySetupPreset) ui.companySetupPreset.value = "STANDARD";
+            if (ui.companySetupPricingPlan) ui.companySetupPricingPlan.value = "LAUNCH_WAREHOUSE";
+            if (ui.companySetupAccessMode) ui.companySetupAccessMode.value = "AUTO";
+            if (ui.masterOwnerPricingPlan) ui.masterOwnerPricingPlan.value = "UNASSIGNED";
+            if (ui.masterOwnerAccessMode) ui.masterOwnerAccessMode.value = "AUTO";
+            if (ui.masterOwnerSubscriptionStatus) ui.masterOwnerSubscriptionStatus.value = "PENDING";
+            if (ui.masterOwnerSubscriptionNote) ui.masterOwnerSubscriptionNote.value = "";
+            renderOwnerPaywallMeta("");
             refreshFulfillmentLocationSelectors();
             showMessage(ui.companySetupMessage, "Ready for a new company setup.", "info");
             ui.companySetupName?.focus();
@@ -16704,16 +16799,23 @@
             if (ui.companySetupFulfillmentLocation) {
                 ui.companySetupFulfillmentLocation.value = getPrimaryFulfillmentAssignment(company.name)?.locationCode || getDefaultFulfillmentLocationCode();
             }
+            if (ui.companySetupPricingPlan) ui.companySetupPricingPlan.value = company.wmsPricingPlanKey || "LAUNCH_WAREHOUSE";
+            if (ui.companySetupAccessMode) ui.companySetupAccessMode.value = company.wmsAccessMode || "AUTO";
         }
 
         async function saveCompanySetup(event) {
             event.preventDefault();
+            const accessMode = normalizeCompanyWmsAccessMode(ui.companySetupAccessMode?.value || "AUTO");
             const entry = sanitizeMasterOwner({
                 name: ui.companySetupName?.value,
                 email: ui.companySetupEmail?.value,
                 portalLoginEmail: ui.companySetupPortalEmail?.value || ui.companySetupEmail?.value,
                 billingEmail: ui.companySetupEmail?.value,
-                isActive: true
+                isActive: true,
+                wmsPricingPlanKey: ui.companySetupPricingPlan?.value || "LAUNCH_WAREHOUSE",
+                wmsAccessMode: accessMode,
+                wmsSubscriptionStatus: accessMode === "NO_CHARGE" ? "NO_CHARGE" : "PENDING",
+                wmsSubscriptionNote: accessMode === "NO_CHARGE" ? "No-charge access set during company setup." : ""
             });
             if (!entry?.name) return fail(ui.companySetupMessage, "Enter the company name first.", ui.companySetupName);
 
@@ -16847,7 +16949,11 @@
                 postalCode: ui.masterOwnerPostalCode.value,
                 country: ui.masterOwnerCountry.value,
                 isActive: ui.masterOwnerActive.value !== "false",
-                note: ui.masterOwnerNote.value
+                note: ui.masterOwnerNote.value,
+                wmsPricingPlanKey: ui.masterOwnerPricingPlan?.value,
+                wmsAccessMode: ui.masterOwnerAccessMode?.value,
+                wmsSubscriptionStatus: ui.masterOwnerSubscriptionStatus?.value,
+                wmsSubscriptionNote: ui.masterOwnerSubscriptionNote?.value
             });
             if (!entry?.name) return fail(ui.catalogMessage, "Enter a company name to save.", ui.masterOwnerName);
             const fulfillmentLocationCode = norm(ui.masterOwnerFulfillmentLocation?.value || getDefaultFulfillmentLocationCode());
@@ -16883,6 +16989,11 @@
                     showMessage(ui.catalogMessage, `Saved company ${entry.name}${entry.portalLoginEmail ? ` with linked portal email ${entry.portalLoginEmail}` : ""}.`, "success");
                     document.getElementById("masterOwnerForm").reset();
                     ui.masterOwnerActive.value = "true";
+                    if (ui.masterOwnerPricingPlan) ui.masterOwnerPricingPlan.value = "UNASSIGNED";
+                    if (ui.masterOwnerAccessMode) ui.masterOwnerAccessMode.value = "AUTO";
+                    if (ui.masterOwnerSubscriptionStatus) ui.masterOwnerSubscriptionStatus.value = "PENDING";
+                    if (ui.masterOwnerSubscriptionNote) ui.masterOwnerSubscriptionNote.value = "";
+                    renderOwnerPaywallMeta("");
                     ui.masterOwnerName.focus();
                 });
             } catch (error) {
@@ -16902,6 +17013,11 @@
             if (ui.masterOwnerFulfillmentLocation) {
                 ui.masterOwnerFulfillmentLocation.value = getPrimaryFulfillmentAssignment(entry.name)?.locationCode || getDefaultFulfillmentLocationCode();
             }
+            if (ui.masterOwnerPricingPlan) ui.masterOwnerPricingPlan.value = entry.wmsPricingPlanKey || "UNASSIGNED";
+            if (ui.masterOwnerAccessMode) ui.masterOwnerAccessMode.value = entry.wmsAccessMode || "AUTO";
+            if (ui.masterOwnerSubscriptionStatus) ui.masterOwnerSubscriptionStatus.value = entry.wmsSubscriptionStatus || "PENDING";
+            if (ui.masterOwnerSubscriptionNote) ui.masterOwnerSubscriptionNote.value = entry.wmsSubscriptionNote || "";
+            renderOwnerPaywallMeta(entry.name);
             ui.masterOwnerContactName.value = entry.contactName || "";
             ui.masterOwnerContactTitle.value = entry.contactTitle || "";
             ui.masterOwnerEmail.value = entry.email || "";
@@ -17005,11 +17121,12 @@
         }
 
         function applyBillingFinanceAccessUi() {
+            const sessionPending = !appSessionStateLoaded && !getCurrentAppUser();
             const allowed = currentUserCanBillingFinance();
             document.querySelectorAll('[data-section="billing-finance"], [data-jump-section="billing-finance"]').forEach((node) => {
-                node.hidden = !allowed;
+                node.hidden = !sessionPending && !allowed;
             });
-            if (!allowed && activeSection === "billing-finance") setSection("home", { recordHistory: false });
+            if (!sessionPending && !allowed && activeSection === "billing-finance") setSection("home", { recordHistory: false });
         }
 
         function initBillingFinanceModule() {
@@ -17082,11 +17199,11 @@
                 return;
             }
             try {
-                if (!silent) showMessage(financeEl("financeMessage"), "Refreshing Billing & Finance...", "info");
+                if (!silent) showMessage(financeEl("financeMessage"), "Refreshing Billing & Accounting...", "info");
                 financeState = { ...createEmptyFinanceState(), ...(await requestJson("/api/billing-finance")) };
                 applyBillingFinanceAccessUi();
                 renderBillingFinance();
-                if (!silent) showMessage(financeEl("financeMessage"), "Billing & Finance refreshed.", "success");
+                if (!silent) showMessage(financeEl("financeMessage"), "Billing & Accounting refreshed.", "success");
             } catch (error) {
                 if (!silent) showMessage(financeEl("financeMessage"), error.message, "error");
             }
@@ -21542,6 +21659,12 @@
 
             const rows = owners.map((entry) => {
                 const primaryAssignment = getPrimaryFulfillmentAssignment(entry.name);
+                const paywallMeta = [
+                    companyPricingPlanLabel(entry.wmsPricingPlanKey),
+                    entry.wmsAccessMode ? `Access ${entry.wmsAccessMode.replace(/_/g, " ")}` : "",
+                    entry.wmsSubscriptionStatus ? `Status ${entry.wmsSubscriptionStatus.replace(/_/g, " ")}` : "",
+                    companyHasGreyWolfFulfillmentAssignment(entry.name) ? "Grey Wolf no-charge" : ""
+                ].filter(Boolean).join(" | ");
                 const meta = [
                     entry.contactName ? `Contact ${entry.contactName}` : "",
                     entry.email ? `Email ${entry.email}` : "",
@@ -21556,6 +21679,7 @@
                     <div class="quick-main">
                         <strong>${esc(entry.name)}</strong>
                         <div class="quick-meta">${esc(meta || entry.note || "Saved company")}</div>
+                        ${paywallMeta ? `<div class="quick-meta">${esc(paywallMeta)}</div>` : ""}
                         ${entry.note ? `<div class="quick-meta">${esc(entry.note)}</div>` : ""}
                     </div>
                     <div class="quick-row-actions">
@@ -24091,6 +24215,7 @@
                     }
                     : null
             };
+            appSessionStateLoaded = true;
             const availableCompanies = [...new Set(
                 []
                     .concat(state.masters.owners || [])
@@ -24119,6 +24244,9 @@
             state.meta.localCacheAt = new Date().toISOString();
             saveState({ includeCache: true });
             renderAll();
+            if (activeSection === "billing-finance" && currentUserCanBillingFinance()) {
+                refreshBillingFinance({ silent: true }).catch(() => {});
+            }
             updateWorkspaceCommandBar();
             refreshSearchFromCurrentState();
         }
@@ -24570,11 +24698,33 @@
             };
         }
 
+        function normalizeCompanyWmsPricingPlanKey(value) {
+            const normalized = norm(value || "");
+            return COMPANY_WMS_PRICING_PLANS[normalized] ? normalized : "UNASSIGNED";
+        }
+
+        function normalizeCompanyWmsAccessMode(value) {
+            const normalized = norm(value || "");
+            return COMPANY_WMS_ACCESS_MODES.includes(normalized) ? normalized : "AUTO";
+        }
+
+        function normalizeCompanyWmsSubscriptionStatus(value) {
+            const normalized = norm(value || "");
+            return COMPANY_WMS_SUBSCRIPTION_STATUSES.includes(normalized) ? normalized : "PENDING";
+        }
+
+        function companyPricingPlanLabel(planKey) {
+            const plan = COMPANY_WMS_PRICING_PLANS[normalizeCompanyWmsPricingPlanKey(planKey)];
+            return [plan.label, plan.priceLabel].filter(Boolean).join(" - ");
+        }
+
         function sanitizeMasterOwner(item) {
             const value = typeof item === "string" ? item : item?.name ?? item?.owner ?? item?.vendor ?? item?.customer;
             const name = norm(value);
             if (!name) return null;
             const featureFlagsInherited = item?.featureFlagsInherited === true || item?.feature_flags_inherited === true;
+            const pricingPlanKey = normalizeCompanyWmsPricingPlanKey(item?.wmsPricingPlanKey || item?.wms_pricing_plan_key);
+            const pricingPlan = COMPANY_WMS_PRICING_PLANS[pricingPlanKey] || COMPANY_WMS_PRICING_PLANS.UNASSIGNED;
             return {
                 id: typeof item?.id === "string" ? item.id : makeId("owner"),
                 name,
@@ -24601,6 +24751,14 @@
                 featureFlagsInherited,
                 featureFlagsUpdatedAt: typeof item?.featureFlagsUpdatedAt === "string" ? item.featureFlagsUpdatedAt : (typeof item?.feature_flags_updated_at === "string" ? item.feature_flags_updated_at : null),
                 featureFlagsUpdatedBy: String(item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by || "").trim(),
+                wmsPricingPlanKey: pricingPlanKey,
+                wmsPricingPlanLabel: String(item?.wmsPricingPlanLabel || item?.wms_pricing_plan_label || pricingPlan.label || "").trim(),
+                wmsPricingPlanPriceLabel: String(item?.wmsPricingPlanPriceLabel || item?.wms_pricing_plan_price_label || pricingPlan.priceLabel || "").trim(),
+                wmsAccessMode: normalizeCompanyWmsAccessMode(item?.wmsAccessMode || item?.wms_access_mode),
+                wmsSubscriptionStatus: normalizeCompanyWmsSubscriptionStatus(item?.wmsSubscriptionStatus || item?.wms_subscription_status),
+                wmsSubscriptionNote: String(item?.wmsSubscriptionNote || item?.wms_subscription_note || "").trim().replace(/\s+/g, " "),
+                wmsPaywallUpdatedAt: typeof item?.wmsPaywallUpdatedAt === "string" ? item.wmsPaywallUpdatedAt : (typeof item?.wms_paywall_updated_at === "string" ? item.wms_paywall_updated_at : null),
+                wmsPaywallUpdatedBy: String(item?.wmsPaywallUpdatedBy || item?.wms_paywall_updated_by || "").trim(),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
@@ -25371,6 +25529,46 @@
             return assignments.find((entry) => entry.isPrimary) || assignments[0] || null;
         }
 
+        function isGreyWolfFulfillmentAssignment(assignment = {}) {
+            const location = getFulfillmentLocationByCode(assignment.locationCode) || {};
+            const haystack = [
+                assignment.locationCode,
+                assignment.locationName,
+                assignment.partnerName,
+                assignment.note,
+                location.code,
+                location.name,
+                location.partnerName,
+                location.note
+            ].map((value) => norm(value)).join(" | ");
+            return haystack.includes("GREY WOLF") || haystack.includes("GW3PL") || haystack.includes("GREYWOLF");
+        }
+
+        function companyHasGreyWolfFulfillmentAssignment(accountName = getActiveCompany()) {
+            return getCompanyFulfillmentAssignments(accountName).some(isGreyWolfFulfillmentAssignment);
+        }
+
+        function renderOwnerPaywallMeta(accountName = getActiveCompany()) {
+            if (!ui.masterOwnerPaywallMeta) return;
+            const company = accountName ? getCompanyRecord(accountName) : null;
+            const accessMode = normalizeCompanyWmsAccessMode(ui.masterOwnerAccessMode?.value || company?.wmsAccessMode);
+            const status = normalizeCompanyWmsSubscriptionStatus(ui.masterOwnerSubscriptionStatus?.value || company?.wmsSubscriptionStatus);
+            const planKey = normalizeCompanyWmsPricingPlanKey(ui.masterOwnerPricingPlan?.value || company?.wmsPricingPlanKey);
+            const hasGreyWolf = accountName ? companyHasGreyWolfFulfillmentAssignment(accountName) : false;
+            const planLabel = companyPricingPlanLabel(planKey);
+            let message = `${planLabel || "No pricing plan selected"} | Access ${accessMode.replace(/_/g, " ").toLowerCase()} | Status ${status.replace(/_/g, " ").toLowerCase()}.`;
+            if (accessMode === "BLOCKED") {
+                message = `${message} Portal access is blocked for this company.`;
+            } else if (accessMode === "NO_CHARGE") {
+                message = `${message} This company is manually allowed no-charge access.`;
+            } else if (hasGreyWolf) {
+                message = `${message} Grey Wolf 3PL assignment gives no-charge customer access unless blocked.`;
+            } else if (accessMode === "AUTO") {
+                message = `${message} Auto mode requires an active/trial Stripe subscription unless no-charge fulfillment applies.`;
+            }
+            ui.masterOwnerPaywallMeta.textContent = message;
+        }
+
         function formatFulfillmentAddress(entry = {}) {
             return [
                 entry.address1,
@@ -25958,6 +26156,6 @@
                 </table>
             `;
         }
-    </script>
+</script>
 </body>
 </html>

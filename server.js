@@ -194,6 +194,7 @@ const BILLING_FINANCE_ROLE_SET = new Set([
     APP_USER_ROLES.ACCOUNTING,
     APP_USER_ROLES.FINANCE_MANAGER
 ]);
+const BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER = "WMS365 MASTER COMPANY";
 const BILLING_FINANCE_CHARGE_TYPES = Object.freeze([
     ["PALLET_STORAGE_MONTHLY", "Storage", "Pallet storage monthly", "Per pallet"],
     ["OVERSIZED_PALLET_STORAGE", "Storage", "Oversized pallet storage", "Per pallet"],
@@ -256,6 +257,18 @@ const BILLING_FINANCE_CHART_ACCOUNTS = Object.freeze([
 const SITE_SUBSCRIPTION_STATUSES = ["PENDING", "TRIALING", "ACTIVE", "PAST_DUE", "UNPAID", "INCOMPLETE", "INCOMPLETE_EXPIRED", "CANCELED", "PAUSED"];
 const SITE_SUBSCRIPTION_BILLING_STATUSES = ["PENDING", "PAID", "PAYMENT_FAILED", "PAST_DUE", "CANCELED"];
 const SITE_SUBSCRIPTION_PROVISIONING_STATUSES = ["PENDING_REVIEW", "OWNER_CREATED"];
+const PAYWALL_ENFORCEMENT_ENABLED = !/^(0|false|no|off)$/i.test(readEnv("PAYWALL_ENFORCEMENT_ENABLED", "true"));
+const COMPANY_WMS_ACCESS_MODES = ["AUTO", "PAID_SUBSCRIPTION", "NO_CHARGE", "BLOCKED"];
+const COMPANY_WMS_SUBSCRIPTION_STATUSES = ["PENDING", "TRIALING", "ACTIVE", "PAST_DUE", "UNPAID", "CANCELED", "NO_CHARGE"];
+const COMPANY_PAYWALL_ALLOWED_SUBSCRIPTION_STATUSES = new Set(["ACTIVE", "TRIALING", "NO_CHARGE"]);
+const COMPANY_WMS_PRICING_PLANS = Object.freeze({
+    UNASSIGNED: { key: "UNASSIGNED", label: "Unassigned", priceLabel: "" },
+    LAUNCH_WAREHOUSE: { key: "LAUNCH_WAREHOUSE", label: "Launch Warehouse", priceLabel: "$129 / month" },
+    CUSTOMER_FACING_OPERATION: { key: "CUSTOMER_FACING_OPERATION", label: "Customer-Facing Operation", priceLabel: "Custom quote" },
+    INTEGRATED_WAREHOUSE_PLATFORM: { key: "INTEGRATED_WAREHOUSE_PLATFORM", label: "Integrated Warehouse Platform", priceLabel: "Custom quote" },
+    GREY_WOLF_3PL_CUSTOMER: { key: "GREY_WOLF_3PL_CUSTOMER", label: "Grey Wolf 3PL Customer", priceLabel: "No software charge" },
+    CUSTOM: { key: "CUSTOM", label: "Custom", priceLabel: "Custom quote" }
+});
 const SHOPIFY_ADMIN_API_VERSION = "2026-01";
 const SHOPIFY_ORDER_PAGE_LIMIT = 250;
 const STRIPE_CHECKOUT_PLANS = Object.freeze({
@@ -563,6 +576,24 @@ app.post("/api/app/login", async (req, res, next) => {
 
         setAppSessionCookie(res, session.token, req);
         res.json({ success: true, user: mapAppUserRow(session.user) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/app/recovery/username", async (req, res, next) => {
+    try {
+        const result = await recoverWarehouseUsername(req);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/app/recovery/password", async (req, res, next) => {
+    try {
+        const result = await recoverWarehousePassword(req);
+        res.json(result);
     } catch (error) {
         next(error);
     }
@@ -1403,6 +1434,11 @@ app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
     }
 });
 
+app.use("/api/billing-accounting", (req, res, next) => {
+    req.url = `/api/billing-finance${req.url}`;
+    app.handle(req, res, next);
+});
+
 app.get("/api/billing-finance", async (req, res, next) => {
     try {
         assertBillingFinanceAccess(req.appUser);
@@ -1592,6 +1628,7 @@ app.post("/api/billing-finance/invoices/:id/email", async (req, res, next) => {
         assertBillingFinanceAccess(req.appUser);
         const invoiceId = toPositiveInt(req.params.id);
         if (!invoiceId) throw httpError(400, "An invoice is required.");
+        let emailResult = { emailed: false, provider: "draft", message: "" };
         const invoice = await withTransaction(async (client) => {
             const updated = await client.query(
                 `
@@ -1608,10 +1645,51 @@ app.post("/api/billing-finance/invoices/:id/email", async (req, res, next) => {
             );
             if (updated.rowCount !== 1) throw httpError(404, "Invoice was not found.");
             await postInvoiceJournalEntry(client, invoiceId, req.appUser);
-            await insertBillingFinanceAudit(client, "invoices", invoiceId, "email_button", req.appUser, { queued: false });
+            const fullInvoice = await getBillingFinanceInvoiceById(client, invoiceId);
+            const profile = (await client.query("select email from customer_billing_profiles where account_name = $1 limit 1", [fullInvoice.customerId])).rows[0] || {};
+            const toEmail = normalizeEmail(req.body?.to || profile.email || "");
+            const subject = normalizeFreeText(req.body?.subject || `Invoice ${fullInvoice.invoiceNumber}`);
+            const text = buildInvoiceEmailText(fullInvoice, buildPortalLoginUrl(req));
+            if (toEmail && hasSystemEmailConfig()) {
+                const sent = await sendSystemEmail({
+                    from: SMTP_FROM,
+                    to: toEmail,
+                    replyTo: SMTP_REPLY_TO || undefined,
+                    subject,
+                    text,
+                    attachments: [{ filename: `${fullInvoice.invoiceNumber}.pdf`, content: buildInvoicePdfBuffer(fullInvoice), contentType: "application/pdf" }],
+                    emailContext: { accountName: fullInvoice.customerId, sourceType: "invoice", sourceRef: fullInvoice.invoiceNumber }
+                }, "Invoice email is not configured. Set SMTP/Resend/SendGrid settings first.");
+                emailResult = { emailed: true, provider: sent.provider || getConfiguredEmailProvider(), message: sent.messageId || "" };
+            } else {
+                await client.query(
+                    "insert into invoice_email_logs (invoice_id, customer_id, to_email, subject, body, provider, status, created_by) values ($1,$2,$3,$4,$5,'draft','draft',$6)",
+                    [invoiceId, fullInvoice.customerId, toEmail, subject, text, req.appUser?.email || ""]
+                );
+                emailResult = { emailed: false, provider: "draft", message: toEmail ? "Email settings are not configured, so a draft/log was saved." : "No billing email is configured for this customer, so a draft/log was saved." };
+            }
+            await client.query("update invoices set email_status = $2, last_emailed_at = case when $2 = 'sent' then now() else last_emailed_at end, updated_at = now() where id = $1", [invoiceId, emailResult.emailed ? "sent" : "draft"]);
+            await insertBillingFinanceAudit(client, "invoices", invoiceId, "email_button", req.appUser, emailResult);
             return getBillingFinanceInvoiceById(client, invoiceId);
         });
-        res.json({ success: true, invoice, message: "Invoice email action recorded. Configure system email templates before live sending." });
+        res.json({ success: true, invoice, email: emailResult, message: emailResult.emailed ? "Invoice email sent." : emailResult.message });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/billing-finance/invoices/:id/pdf", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const invoiceId = toPositiveInt(req.params.id);
+        if (!invoiceId) throw httpError(400, "An invoice is required.");
+        const invoice = await getBillingFinanceInvoiceById(pool, invoiceId);
+        if (!invoice) throw httpError(404, "Invoice was not found.");
+        await assertBillingFinanceCustomerAccess(pool, req.appUser, invoice.customerId);
+        const pdf = buildInvoicePdfBuffer(invoice);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename="${invoice.invoiceNumber || "invoice"}.pdf"`);
+        res.send(pdf);
     } catch (error) {
         next(error);
     }
@@ -3202,6 +3280,7 @@ app.post("/api/portal/login", async (req, res, next) => {
                 throw httpError(401, "That company portal login is not active.");
             }
             assertCompanyFeatureEnabledForOwnerRow(vendorAccess, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+            await assertCompanyPaywallAccess(client, vendorAccess.account_name);
             if (!verifyPortalPassword(password, vendorAccess.password_hash)) {
                 throw httpError(401, "The company portal password was not accepted.");
             }
@@ -3237,6 +3316,24 @@ app.post("/api/portal/logout", async (req, res, next) => {
     }
 });
 
+app.post("/api/portal/recovery/username", async (req, res, next) => {
+    try {
+        const result = await recoverPortalUsername(req);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/portal/recovery/password", async (req, res, next) => {
+    try {
+        const result = await recoverPortalPassword(req);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/portal/me", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -3249,6 +3346,81 @@ app.get("/api/portal/me", async (req, res, next) => {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
         }
+        next(error);
+    }
+});
+
+app.get("/api/portal/invoices", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        const invoiceResult = await pool.query(
+            `
+                select *
+                from invoices
+                where customer_id = $1
+                  and status <> 'draft'
+                order by invoice_date desc, id desc
+                limit 200
+            `,
+            [session.access.accountName]
+        );
+        const lineResult = invoiceResult.rowCount
+            ? await pool.query("select * from invoice_lines where invoice_id = any($1::bigint[]) order by invoice_id asc, line_number asc, id asc", [invoiceResult.rows.map((row) => row.id)])
+            : { rows: [] };
+        const linesByInvoiceId = new Map();
+        lineResult.rows.forEach((line) => {
+            const key = String(line.invoice_id);
+            if (!linesByInvoiceId.has(key)) linesByInvoiceId.set(key, []);
+            linesByInvoiceId.get(key).push(mapInvoiceLineRow(line));
+        });
+        const invoices = invoiceResult.rows.map((row) => mapInvoiceRow(row, linesByInvoiceId.get(String(row.id)) || []));
+        const summary = {
+            totalBilled: roundMoney(invoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0)),
+            unpaidBalance: roundMoney(invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0)),
+            invoiceCount: invoices.length,
+            currentInvoices: invoices.filter((invoice) => Number(invoice.balanceDue || 0) > 0).length
+        };
+        res.json({ success: true, summary, invoices });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
+app.get("/api/portal/invoices/:id/pdf", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        const invoiceId = toPositiveInt(req.params.id);
+        if (!invoiceId) throw httpError(400, "An invoice is required.");
+        const invoice = await getBillingFinanceInvoiceById(pool, invoiceId);
+        if (!invoice || normalizeText(invoice.customerId) !== normalizeText(session.access.accountName) || invoice.status === "draft") {
+            throw httpError(404, "Invoice was not found.");
+        }
+        const pdf = buildInvoicePdfBuffer(invoice);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename="${invoice.invoiceNumber || "invoice"}.pdf"`);
+        res.send(pdf);
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
+app.get("/api/portal/invoices/:id/attachments", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        const invoiceId = toPositiveInt(req.params.id);
+        if (!invoiceId) throw httpError(400, "An invoice is required.");
+        const invoice = await getBillingFinanceInvoiceById(pool, invoiceId);
+        if (!invoice || normalizeText(invoice.customerId) !== normalizeText(session.access.accountName) || invoice.status === "draft") {
+            throw httpError(404, "Invoice was not found.");
+        }
+        res.json({ success: true, attachments: await getBillingFinanceInvoiceAttachments(pool, invoiceId) });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
         next(error);
     }
 });
@@ -4112,6 +4284,26 @@ app.get("/app/", async (req, res) => {
     }
 });
 
+app.get("/billing-accounting", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        sendWarehouseApp(res);
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, "/billing-accounting"));
+    }
+});
+
+app.get("/billing-accounting/", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        sendWarehouseApp(res);
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, "/billing-accounting"));
+    }
+});
+
 app.get("/desktop", async (req, res) => {
     try {
         await requireAppSession(req);
@@ -4473,6 +4665,15 @@ async function initializeDatabase() {
     await pool.query("alter table owner_accounts add column if not exists feature_flags jsonb;");
     await pool.query("alter table owner_accounts add column if not exists feature_flags_updated_at timestamptz;");
     await pool.query("alter table owner_accounts add column if not exists feature_flags_updated_by text not null default '';");
+    await pool.query("alter table owner_accounts add column if not exists wms_pricing_plan_key text not null default 'UNASSIGNED';");
+    await pool.query("alter table owner_accounts add column if not exists wms_access_mode text not null default 'AUTO';");
+    await pool.query("alter table owner_accounts add column if not exists wms_subscription_status text not null default 'PENDING';");
+    await pool.query("alter table owner_accounts add column if not exists wms_subscription_note text not null default '';");
+    await pool.query("alter table owner_accounts add column if not exists wms_paywall_updated_at timestamptz;");
+    await pool.query("alter table owner_accounts add column if not exists wms_paywall_updated_by text not null default '';");
+    await pool.query("update owner_accounts set wms_access_mode = 'AUTO' where wms_access_mode is null or wms_access_mode = ''");
+    await pool.query("update owner_accounts set wms_subscription_status = 'PENDING' where wms_subscription_status is null or wms_subscription_status = ''");
+    await pool.query("update owner_accounts set wms_pricing_plan_key = 'UNASSIGNED' where wms_pricing_plan_key is null or wms_pricing_plan_key = ''");
 
     await pool.query(`
         create table if not exists fulfillment_locations (
@@ -5486,7 +5687,63 @@ async function initializeDatabase() {
 }
 
 async function initializeBillingFinanceSchema(client = pool) {
+    await client.query(`
+        create table if not exists master_customers (
+            id bigserial primary key,
+            name text not null unique,
+            legal_name text not null default '',
+            billing_email text not null default '',
+            phone text not null default '',
+            address text not null default '',
+            logo_url text not null default '',
+            payment_instructions text not null default '',
+            currency text not null default 'CAD',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        insert into master_customers (name, legal_name, currency, is_active)
+        values ($1, $1, 'CAD', true)
+        on conflict (name) do nothing
+    `, [BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER]);
+    await client.query(`
+        create table if not exists warehouses (
+            id bigserial primary key,
+            master_customer_id bigint references master_customers(id) on delete set null,
+            code text not null unique,
+            name text not null,
+            source_fulfillment_location_id bigint,
+            address text not null default '',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists sub_customers (
+            id bigserial primary key,
+            master_customer_id bigint references master_customers(id) on delete cascade,
+            account_name text not null,
+            customer_name text not null,
+            source_owner_account_id bigint,
+            billing_email text not null default '',
+            portal_email text not null default '',
+            payment_terms text not null default 'Net 30',
+            currency text not null default 'CAD',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (master_customer_id, account_name)
+        );
+    `);
+
     await client.query("alter table billing_events add column if not exists customer_id text not null default ''");
+    await client.query("alter table billing_events add column if not exists master_customer_id bigint");
+    await client.query("alter table billing_events add column if not exists master_customer_name text not null default ''");
+    await client.query("alter table billing_events add column if not exists sub_customer_id bigint");
+    await client.query("alter table billing_events add column if not exists sub_customer_name text not null default ''");
     await client.query("alter table billing_events add column if not exists warehouse_id text not null default ''");
     await client.query("alter table billing_events add column if not exists activity_date date");
     await client.query("update billing_events set activity_date = service_date where activity_date is null");
@@ -5594,6 +5851,11 @@ async function initializeBillingFinanceSchema(client = pool) {
         create table if not exists invoices (
             id bigserial primary key,
             invoice_number text not null unique,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
+            sub_customer_id bigint,
+            sub_customer_name text not null default '',
+            warehouse_id text not null default '',
             customer_id text not null,
             billing_address text not null default '',
             invoice_date date not null default current_date,
@@ -5601,6 +5863,7 @@ async function initializeBillingFinanceSchema(client = pool) {
             payment_terms text not null default 'Net 30',
             currency text not null default 'CAD',
             subtotal numeric(12, 2) not null default 0,
+            discount_amount numeric(12, 2) not null default 0,
             tax numeric(12, 2) not null default 0,
             total numeric(12, 2) not null default 0,
             paid_amount numeric(12, 2) not null default 0,
@@ -5609,6 +5872,9 @@ async function initializeBillingFinanceSchema(client = pool) {
             status text not null default 'draft',
             is_recurring boolean not null default false,
             recurrence_rule text not null default '',
+            payment_instructions text not null default '',
+            email_status text not null default '',
+            last_emailed_at timestamptz,
             posting_status text not null default 'unposted',
             posted_at timestamptz,
             posted_journal_entry_id bigint,
@@ -5621,6 +5887,15 @@ async function initializeBillingFinanceSchema(client = pool) {
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table invoices add column if not exists master_customer_id bigint");
+    await client.query("alter table invoices add column if not exists master_customer_name text not null default ''");
+    await client.query("alter table invoices add column if not exists sub_customer_id bigint");
+    await client.query("alter table invoices add column if not exists sub_customer_name text not null default ''");
+    await client.query("alter table invoices add column if not exists warehouse_id text not null default ''");
+    await client.query("alter table invoices add column if not exists discount_amount numeric(12, 2) not null default 0");
+    await client.query("alter table invoices add column if not exists payment_instructions text not null default ''");
+    await client.query("alter table invoices add column if not exists email_status text not null default ''");
+    await client.query("alter table invoices add column if not exists last_emailed_at timestamptz");
     await client.query("alter table invoices add column if not exists posting_status text not null default 'unposted'");
     await client.query("alter table invoices add column if not exists posted_at timestamptz");
     await client.query("alter table invoices add column if not exists posted_journal_entry_id bigint");
@@ -5638,6 +5913,7 @@ async function initializeBillingFinanceSchema(client = pool) {
             charge_type text not null default '',
             quantity numeric(12, 4) not null default 1,
             unit_rate numeric(12, 4) not null default 0,
+            discount_amount numeric(12, 2) not null default 0,
             tax_code text not null default 'HST_ON',
             tax_amount numeric(12, 2) not null default 0,
             amount numeric(12, 2) not null default 0,
@@ -5645,9 +5921,43 @@ async function initializeBillingFinanceSchema(client = pool) {
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table invoice_lines add column if not exists discount_amount numeric(12, 2) not null default 0");
+    await client.query(`
+        create table if not exists invoice_attachments (
+            id bigserial primary key,
+            invoice_id bigint not null references invoices(id) on delete cascade,
+            file_name text not null default '',
+            mime_type text not null default '',
+            file_data text not null default '',
+            source_type text not null default 'upload',
+            source_reference text not null default '',
+            notes text not null default '',
+            created_by text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+    await client.query(`
+        create table if not exists invoice_email_logs (
+            id bigserial primary key,
+            invoice_id bigint references invoices(id) on delete set null,
+            customer_id text not null default '',
+            to_email text not null default '',
+            subject text not null default '',
+            body text not null default '',
+            provider text not null default 'draft',
+            status text not null default 'draft',
+            error_message text not null default '',
+            created_by text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
     await client.query(`
         create table if not exists payments (
             id bigserial primary key,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
+            sub_customer_id bigint,
+            sub_customer_name text not null default '',
             payment_date date not null default current_date,
             customer_id text not null,
             invoice_reference text not null default '',
@@ -5660,6 +5970,10 @@ async function initializeBillingFinanceSchema(client = pool) {
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table payments add column if not exists master_customer_id bigint");
+    await client.query("alter table payments add column if not exists master_customer_name text not null default ''");
+    await client.query("alter table payments add column if not exists sub_customer_id bigint");
+    await client.query("alter table payments add column if not exists sub_customer_name text not null default ''");
     await client.query(`
         create table if not exists payment_allocations (
             id bigserial primary key,
@@ -5688,6 +6002,8 @@ async function initializeBillingFinanceSchema(client = pool) {
     await client.query(`
         create table if not exists vendors (
             id bigserial primary key,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
             vendor_name text not null unique,
             contact_name text not null default '',
             email text not null default '',
@@ -5699,13 +6015,21 @@ async function initializeBillingFinanceSchema(client = pool) {
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table vendors add column if not exists master_customer_id bigint");
+    await client.query("alter table vendors add column if not exists master_customer_name text not null default ''");
     await client.query(`
         create table if not exists vendor_bills (
             id bigserial primary key,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
+            warehouse_id text not null default '',
             vendor_id bigint references vendors(id) on delete set null,
             bill_number text not null default '',
             bill_date date not null default current_date,
             due_date date,
+            category text not null default 'Miscellaneous',
+            tax_amount numeric(12, 2) not null default 0,
+            attachment_upload text not null default '',
             amount numeric(12, 2) not null default 0,
             paid_amount numeric(12, 2) not null default 0,
             status text not null default 'open',
@@ -5714,9 +6038,17 @@ async function initializeBillingFinanceSchema(client = pool) {
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table vendor_bills add column if not exists master_customer_id bigint");
+    await client.query("alter table vendor_bills add column if not exists master_customer_name text not null default ''");
+    await client.query("alter table vendor_bills add column if not exists warehouse_id text not null default ''");
+    await client.query("alter table vendor_bills add column if not exists category text not null default 'Miscellaneous'");
+    await client.query("alter table vendor_bills add column if not exists tax_amount numeric(12, 2) not null default 0");
+    await client.query("alter table vendor_bills add column if not exists attachment_upload text not null default ''");
     await client.query(`
         create table if not exists vendor_payments (
             id bigserial primary key,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
             vendor_id bigint references vendors(id) on delete set null,
             vendor_bill_id bigint references vendor_bills(id) on delete set null,
             payment_date date not null default current_date,
@@ -5727,6 +6059,8 @@ async function initializeBillingFinanceSchema(client = pool) {
             created_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table vendor_payments add column if not exists master_customer_id bigint");
+    await client.query("alter table vendor_payments add column if not exists master_customer_name text not null default ''");
     await client.query(`
         create table if not exists expense_categories (
             id bigserial primary key,
@@ -5740,6 +6074,8 @@ async function initializeBillingFinanceSchema(client = pool) {
     await client.query(`
         create table if not exists expenses (
             id bigserial primary key,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
             vendor_id bigint references vendors(id) on delete set null,
             vendor text not null default '',
             expense_category text not null default 'Miscellaneous',
@@ -5754,11 +6090,17 @@ async function initializeBillingFinanceSchema(client = pool) {
             billable boolean not null default false,
             customer_reference text not null default '',
             warehouse_reference text not null default '',
+            is_recurring boolean not null default false,
+            recurrence_rule text not null default '',
             notes text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table expenses add column if not exists master_customer_id bigint");
+    await client.query("alter table expenses add column if not exists master_customer_name text not null default ''");
+    await client.query("alter table expenses add column if not exists is_recurring boolean not null default false");
+    await client.query("alter table expenses add column if not exists recurrence_rule text not null default ''");
     await client.query(`
         create table if not exists expense_attachments (
             id bigserial primary key,
@@ -5827,6 +6169,8 @@ async function initializeBillingFinanceSchema(client = pool) {
     await client.query(`
         create table if not exists journal_entries (
             id bigserial primary key,
+            master_customer_id bigint,
+            master_customer_name text not null default '',
             entry_number text not null unique,
             entry_date date not null default current_date,
             source_type text not null default 'manual',
@@ -5843,6 +6187,8 @@ async function initializeBillingFinanceSchema(client = pool) {
             updated_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table journal_entries add column if not exists master_customer_id bigint");
+    await client.query("alter table journal_entries add column if not exists master_customer_name text not null default ''");
     await client.query("alter table journal_entries add column if not exists is_posted boolean not null default true");
     await client.query("alter table journal_entries add column if not exists posted_at timestamptz not null default now()");
     await client.query("alter table journal_entries add column if not exists locked_at timestamptz not null default now()");
@@ -5877,6 +6223,8 @@ async function initializeBillingFinanceSchema(client = pool) {
         create table if not exists audit_logs (
             id bigserial primary key,
             module text not null default 'billing_finance',
+            master_customer_id bigint,
+            master_customer_name text not null default '',
             entity_type text not null default '',
             entity_id text not null default '',
             action text not null default '',
@@ -5885,6 +6233,8 @@ async function initializeBillingFinanceSchema(client = pool) {
             created_at timestamptz not null default now()
         );
     `);
+    await client.query("alter table audit_logs add column if not exists master_customer_id bigint");
+    await client.query("alter table audit_logs add column if not exists master_customer_name text not null default ''");
     await client.query(`
         create table if not exists billing_finance_document_sequences (
             document_type text primary key,
@@ -5899,12 +6249,86 @@ async function initializeBillingFinanceSchema(client = pool) {
     await client.query("alter table invoices drop constraint if exists invoices_posted_journal_entry_id_fkey");
     await client.query("alter table invoices add constraint invoices_posted_journal_entry_id_fkey foreign key (posted_journal_entry_id) references journal_entries(id) on delete set null");
 
+    await client.query(`
+        insert into warehouses (master_customer_id, code, name, source_fulfillment_location_id, address, is_active)
+        select
+            (select id from master_customers where name = $1 limit 1),
+            fl.code,
+            fl.name,
+            fl.id,
+            concat_ws(', ', nullif(fl.address1, ''), nullif(fl.address2, ''), nullif(fl.city, ''), nullif(fl.state, ''), nullif(fl.postal_code, ''), nullif(fl.country, '')),
+            coalesce(fl.is_active, true)
+        from fulfillment_locations fl
+        where trim(coalesce(fl.code, '')) <> ''
+        on conflict (code) do update set
+            name = excluded.name,
+            source_fulfillment_location_id = excluded.source_fulfillment_location_id,
+            address = excluded.address,
+            is_active = excluded.is_active,
+            updated_at = now()
+    `, [BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER]);
+    await client.query(`
+        insert into sub_customers (master_customer_id, account_name, customer_name, source_owner_account_id, billing_email, portal_email, payment_terms, currency, is_active)
+        select
+            (select id from master_customers where name = $1 limit 1),
+            o.name,
+            coalesce(nullif(o.legal_name, ''), o.name),
+            o.id,
+            coalesce(nullif(o.billing_email, ''), nullif(o.ap_email, ''), nullif(o.email, ''), ''),
+            coalesce(nullif(o.portal_login_email, ''), ''),
+            'Net 30',
+            'CAD',
+            coalesce(o.is_active, true)
+        from owner_accounts o
+        where trim(coalesce(o.name, '')) <> ''
+        on conflict (master_customer_id, account_name) do update set
+            customer_name = excluded.customer_name,
+            source_owner_account_id = excluded.source_owner_account_id,
+            billing_email = excluded.billing_email,
+            portal_email = excluded.portal_email,
+            is_active = excluded.is_active,
+            updated_at = now()
+    `, [BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER]);
+    await client.query(`
+        with scoped as (
+            select
+                be.id as billing_event_id,
+                mc.id as master_customer_id,
+                mc.name as master_customer_name,
+                sc.id as sub_customer_id,
+                coalesce(nullif(be.customer_id, ''), be.account_name) as sub_customer_name
+            from billing_events be
+            cross join master_customers mc
+            left join sub_customers sc
+              on sc.master_customer_id = mc.id
+             and sc.account_name = coalesce(nullif(be.customer_id, ''), be.account_name)
+            where mc.name = $1
+        )
+        update billing_events be
+        set
+            master_customer_id = coalesce(be.master_customer_id, scoped.master_customer_id),
+            master_customer_name = case when be.master_customer_name = '' then scoped.master_customer_name else be.master_customer_name end,
+            sub_customer_id = coalesce(be.sub_customer_id, scoped.sub_customer_id),
+            sub_customer_name = case when be.sub_customer_name = '' then scoped.sub_customer_name else be.sub_customer_name end
+        from scoped
+        where be.id = scoped.billing_event_id
+    `, [BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER]);
+    for (const tableName of ["invoices", "payments", "vendors", "vendor_bills", "vendor_payments", "expenses", "journal_entries", "audit_logs"]) {
+        await client.query(`update ${tableName} set master_customer_id = coalesce(master_customer_id, (select id from master_customers where name = $1 limit 1)), master_customer_name = case when master_customer_name = '' then $1 else master_customer_name end`, [BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER]);
+    }
+    await client.query("update invoices set sub_customer_id = coalesce(sub_customer_id, sc.id), sub_customer_name = case when sub_customer_name = '' then customer_id else sub_customer_name end from sub_customers sc where sc.account_name = invoices.customer_id");
+    await client.query("update payments set sub_customer_id = coalesce(sub_customer_id, sc.id), sub_customer_name = case when sub_customer_name = '' then customer_id else sub_customer_name end from sub_customers sc where sc.account_name = payments.customer_id");
+
     await client.query("create index if not exists idx_billing_finance_customer_profiles_account on customer_billing_profiles (account_name)");
     await client.query("create index if not exists idx_rate_card_lines_card on rate_card_lines (rate_card_id)");
     await client.query("create index if not exists idx_invoices_customer_status on invoices (customer_id, status, due_date)");
     await client.query("create index if not exists idx_invoice_lines_invoice on invoice_lines (invoice_id)");
     await client.query("create index if not exists idx_payments_customer on payments (customer_id, payment_date desc)");
     await client.query("create index if not exists idx_payment_allocations_invoice on payment_allocations (invoice_id)");
+    await client.query("create index if not exists idx_invoices_master_customer on invoices (master_customer_id, customer_id, invoice_date desc)");
+    await client.query("create index if not exists idx_expenses_master_customer on expenses (master_customer_id, expense_date desc)");
+    await client.query("create index if not exists idx_billing_events_master_customer on billing_events (master_customer_id, customer_id, activity_date desc)");
+    await client.query("create index if not exists idx_invoice_attachments_invoice on invoice_attachments (invoice_id)");
     await client.query("create index if not exists idx_expenses_category_date on expenses (expense_category, expense_date desc)");
     await client.query("create index if not exists idx_journal_entry_lines_account on journal_entry_lines (account_code)");
     await seedBillingFinanceReferenceData(client);
@@ -7235,6 +7659,8 @@ function requiresAppAuth(req) {
         || pathName === "/api/site/stripe-webhook"
         || pathName === "/api/delivery-appointment-action"
         || pathName === "/api/app/login"
+        || pathName === "/api/app/recovery/username"
+        || pathName === "/api/app/recovery/password"
         || pathName === "/api/app/logout"
         || pathName === "/api/app/me") return false;
     if (pathName.startsWith("/api/portal/")) return false;
@@ -9703,6 +10129,7 @@ async function requirePortalSession(req, client = pool) {
     if (!row.is_active) {
         throw httpError(401, "That company portal login is no longer active.");
     }
+    await assertCompanyPaywallAccess(client, row.account_name);
 
     await client.query("update portal_sessions set last_seen_at = now() where id = $1", [row.session_id]);
     return {
@@ -11479,6 +11906,241 @@ async function sendPortalAccessWelcomeEmail({ accountName, email, password, port
     }, "Portal welcome email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
 }
 
+function buildWarehouseLoginUrl(req) {
+    return `${getAppActionOrigin(getRequestOrigin(req))}/login`;
+}
+
+function buildMarketingSignupUrl() {
+    return `${(PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL).replace(/\/+$/, "")}/pricing`;
+}
+
+function createRecoveryTemporaryPassword() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    let randomPart = "";
+    const bytes = crypto.randomBytes(14);
+    for (const byte of bytes) {
+        randomPart += alphabet[byte % alphabet.length];
+    }
+    return `WMS365-${randomPart.slice(0, 6)}-${randomPart.slice(6, 12)}!`;
+}
+
+function getRecoveryEmailFromRequest(req) {
+    const email = normalizeEmail(req.body?.email || req.body?.username || req.body?.login || "");
+    if (!isValidEmailAddress(email)) {
+        throw httpError(400, "Enter the email address used for WMS365 access.");
+    }
+    return email;
+}
+
+function noRegisteredUserRecoveryError(userType = "user") {
+    const supportMessage = "No registered WMS365 user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.";
+    return httpError(404, userType === "portal"
+        ? `No registered customer portal user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.`
+        : supportMessage);
+}
+
+function portalAccessCanRecover(row) {
+    if (!row || row.is_active !== true) return false;
+    const { featureFlags } = extractOwnerFeatureFlags(row);
+    return featureFlags[COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL] === true;
+}
+
+function buildRecoveryUsernameEmailText({ accessLabel, loginUrl, username, signupUrl }) {
+    return [
+        "WMS365 username recovery",
+        "",
+        `Access type: ${accessLabel}`,
+        `Login page: ${loginUrl}`,
+        `Username: ${username}`,
+        "",
+        "This email was sent because someone requested the username for this registered WMS365 account.",
+        "If you did not request this, you can ignore this message.",
+        "",
+        `Need a different account? Sign up or contact us: ${signupUrl}`,
+        "",
+        "WMS365 Support"
+    ].join("\n");
+}
+
+function buildRecoveryUsernameEmailHtml({ accessLabel, loginUrl, username, signupUrl }) {
+    const safeLoginUrl = escapeHtml(loginUrl);
+    const safeSignupUrl = escapeHtml(signupUrl);
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.55;max-width:680px;">
+            <h2 style="margin:0 0 12px;">WMS365 username recovery</h2>
+            <p style="margin:0 0 16px;">This email was sent because someone requested the username for this registered WMS365 account.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:640px;margin:0 0 18px;border:1px solid #dbe4ee;">
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Access type</td><td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;">${escapeHtml(accessLabel)}</td></tr>
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Login page</td><td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;"><a href="${safeLoginUrl}">${safeLoginUrl}</a></td></tr>
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;">Username</td><td style="padding:10px 12px;">${escapeHtml(username)}</td></tr>
+            </table>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">If you did not request this, you can ignore this message.</p>
+            <p style="margin:0;">Need a different account? <a href="${safeSignupUrl}">Sign up or contact WMS365</a>.</p>
+        </div>
+    `;
+}
+
+function buildRecoveryPasswordEmailText({ accessLabel, loginUrl, username, temporaryPassword, signupUrl }) {
+    return [
+        "WMS365 password reset",
+        "",
+        `Access type: ${accessLabel}`,
+        `Login page: ${loginUrl}`,
+        `Username: ${username}`,
+        `Temporary password: ${temporaryPassword}`,
+        "",
+        "Please sign in with this temporary password and ask your administrator to set a new password if needed.",
+        "This password was sent only because the email address is registered and active in WMS365.",
+        "",
+        `Need a different account? Sign up or contact us: ${signupUrl}`,
+        "",
+        "WMS365 Support"
+    ].join("\n");
+}
+
+function buildRecoveryPasswordEmailHtml({ accessLabel, loginUrl, username, temporaryPassword, signupUrl }) {
+    const safeLoginUrl = escapeHtml(loginUrl);
+    const safeSignupUrl = escapeHtml(signupUrl);
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.55;max-width:680px;">
+            <h2 style="margin:0 0 12px;">WMS365 password reset</h2>
+            <p style="margin:0 0 16px;">A temporary password was created for this active WMS365 account.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:640px;margin:0 0 18px;border:1px solid #dbe4ee;">
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Access type</td><td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;">${escapeHtml(accessLabel)}</td></tr>
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Login page</td><td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;"><a href="${safeLoginUrl}">${safeLoginUrl}</a></td></tr>
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Username</td><td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;">${escapeHtml(username)}</td></tr>
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;">Temporary password</td><td style="padding:10px 12px;">${escapeHtml(temporaryPassword)}</td></tr>
+            </table>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;">Please sign in with this temporary password and ask your administrator to set a new password if needed.</p>
+            <p style="margin:0;">Need a different account? <a href="${safeSignupUrl}">Sign up or contact WMS365</a>.</p>
+        </div>
+    `;
+}
+
+async function sendRecoveryEmail({ to, accessLabel, loginUrl, username, temporaryPassword = "", accountName = "", sourceType = "ACCESS_RECOVERY" }) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Account recovery email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    }
+    const isPasswordReset = !!temporaryPassword;
+    const signupUrl = buildMarketingSignupUrl();
+    const templateInput = { accessLabel, loginUrl, username, temporaryPassword, signupUrl };
+    return sendSystemEmail({
+        from: SMTP_FROM,
+        to,
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: isPasswordReset
+            ? `WMS365 temporary password - ${accessLabel}`
+            : `WMS365 username recovery - ${accessLabel}`,
+        text: isPasswordReset
+            ? buildRecoveryPasswordEmailText(templateInput)
+            : buildRecoveryUsernameEmailText(templateInput),
+        html: isPasswordReset
+            ? buildRecoveryPasswordEmailHtml(templateInput)
+            : buildRecoveryUsernameEmailHtml(templateInput),
+        emailContext: {
+            accountName,
+            sourceType,
+            sourceRef: username
+        }
+    }, "Account recovery email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+}
+
+async function recoverWarehouseUsername(req) {
+    const email = getRecoveryEmailFromRequest(req);
+    const user = await getAppUserByEmail(pool, email);
+    if (!user || user.is_active !== true) {
+        throw noRegisteredUserRecoveryError("warehouse");
+    }
+    await sendRecoveryEmail({
+        to: email,
+        accessLabel: "Warehouse",
+        loginUrl: buildWarehouseLoginUrl(req),
+        username: user.email,
+        accountName: "",
+        sourceType: "WAREHOUSE_USERNAME_RECOVERY"
+    });
+    return { success: true, message: "Username recovery email sent from support@wms365.co." };
+}
+
+async function recoverWarehousePassword(req) {
+    const email = getRecoveryEmailFromRequest(req);
+    const temporaryPassword = createRecoveryTemporaryPassword();
+    await withTransaction(async (client) => {
+        const existing = await getAppUserByEmail(client, email);
+        if (!existing || existing.is_active !== true) {
+            throw noRegisteredUserRecoveryError("warehouse");
+        }
+        await client.query(
+            "update app_users set password_hash = $2, updated_at = now() where id = $1",
+            [existing.id, hashPortalPassword(temporaryPassword)]
+        );
+        await client.query("delete from app_sessions where app_user_id = $1", [existing.id]);
+        const user = await getAppUserById(client, existing.id);
+        await sendRecoveryEmail({
+            to: email,
+            accessLabel: "Warehouse",
+            loginUrl: buildWarehouseLoginUrl(req),
+            username: user.email,
+            temporaryPassword,
+            accountName: "",
+            sourceType: "WAREHOUSE_PASSWORD_RECOVERY"
+        });
+    });
+    return { success: true, message: "Temporary password email sent from support@wms365.co." };
+}
+
+async function recoverPortalUsername(req) {
+    const email = getRecoveryEmailFromRequest(req);
+    const access = await getPortalAccessByEmail(pool, email);
+    if (!portalAccessCanRecover(access)) {
+        throw noRegisteredUserRecoveryError("portal");
+    }
+    const paywallStatus = await getCompanyPaywallStatus(pool, access.account_name);
+    if (!paywallStatus.allowed) {
+        throw noRegisteredUserRecoveryError("portal");
+    }
+    await sendRecoveryEmail({
+        to: email,
+        accessLabel: "Customer Portal",
+        loginUrl: buildPortalLoginUrl(req),
+        username: access.email,
+        accountName: access.account_name,
+        sourceType: "PORTAL_USERNAME_RECOVERY"
+    });
+    return { success: true, message: "Username recovery email sent from support@wms365.co." };
+}
+
+async function recoverPortalPassword(req) {
+    const email = getRecoveryEmailFromRequest(req);
+    const temporaryPassword = createRecoveryTemporaryPassword();
+    await withTransaction(async (client) => {
+        const existing = await getPortalAccessByEmail(client, email);
+        if (!portalAccessCanRecover(existing)) {
+            throw noRegisteredUserRecoveryError("portal");
+        }
+        const paywallStatus = await getCompanyPaywallStatus(client, existing.account_name);
+        if (!paywallStatus.allowed) {
+            throw noRegisteredUserRecoveryError("portal");
+        }
+        await client.query(
+            "update portal_vendor_access set password_hash = $2, updated_at = now() where id = $1",
+            [existing.id, hashPortalPassword(temporaryPassword)]
+        );
+        await client.query("delete from portal_sessions where portal_access_id = $1", [existing.id]);
+        const access = await getPortalAccessById(client, existing.id);
+        await sendRecoveryEmail({
+            to: email,
+            accessLabel: "Customer Portal",
+            loginUrl: buildPortalLoginUrl(req),
+            username: access.email,
+            temporaryPassword,
+            accountName: access.account_name,
+            sourceType: "PORTAL_PASSWORD_RECOVERY"
+        });
+    });
+    return { success: true, message: "Temporary password email sent from support@wms365.co." };
+}
+
 function hasShipmentEmailConfig() {
     return hasSystemEmailConfig();
 }
@@ -12081,6 +12743,149 @@ async function getSiteSubscriptionRowByStripeSubscriptionId(client, stripeSubscr
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
+async function getLatestSiteSubscriptionRowByCompany(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query(
+        `
+            select *
+            from site_subscriptions
+            where upper(company_account_name) = $1
+               or upper(company_name) = $1
+            order by updated_at desc, created_at desc, id desc
+            limit 1
+        `,
+        [normalizedAccount]
+    );
+    return result.rows[0] || null;
+}
+
+async function getOwnerAccountRowByName(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query("select * from owner_accounts where name = $1 limit 1", [normalizedAccount]);
+    return result.rows[0] || null;
+}
+
+function isGreyWolfFulfillmentLocationRow(row) {
+    const haystack = [
+        row?.location_code,
+        row?.code,
+        row?.location_name,
+        row?.name,
+        row?.partner_name,
+        row?.note
+    ].map((value) => normalizeText(value)).join(" | ");
+    return haystack.includes("GREY WOLF")
+        || haystack.includes("GW3PL")
+        || haystack.includes("GREYWOLF");
+}
+
+async function companyHasGreyWolfFulfillmentAssignment(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return false;
+    const result = await client.query(
+        `
+            select
+                c.account_name,
+                l.code as location_code,
+                l.name as location_name,
+                l.partner_name,
+                c.note
+            from company_fulfillment_locations c
+            join fulfillment_locations l on l.id = c.fulfillment_location_id
+            where c.account_name = $1
+              and l.is_active = true
+            order by c.is_primary desc, c.id asc
+        `,
+        [normalizedAccount]
+    );
+    return result.rows.some(isGreyWolfFulfillmentLocationRow);
+}
+
+async function getCompanyPaywallStatus(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    const owner = await getOwnerAccountRowByName(client, normalizedAccount);
+    const subscriptionRow = await getLatestSiteSubscriptionRowByCompany(client, normalizedAccount);
+    const subscription = subscriptionRow ? mapSiteSubscriptionRow(subscriptionRow) : null;
+    const ownerAccessMode = normalizeCompanyWmsAccessMode(owner?.wms_access_mode);
+    const ownerSubscriptionStatus = normalizeCompanyWmsSubscriptionStatus(owner?.wms_subscription_status);
+    const planKey = normalizeCompanyWmsPricingPlanKey(owner?.wms_pricing_plan_key || subscription?.planKey);
+    const greyWolfNoCharge = await companyHasGreyWolfFulfillmentAssignment(client, normalizedAccount);
+    const stripeStatus = normalizeSiteSubscriptionStatus(subscription?.status || "");
+    const stripeAllowed = ["ACTIVE", "TRIALING"].includes(stripeStatus);
+    const ownerAllowed = COMPANY_PAYWALL_ALLOWED_SUBSCRIPTION_STATUSES.has(ownerSubscriptionStatus);
+
+    if (ownerAccessMode === "BLOCKED") {
+        return {
+            allowed: false,
+            status: "BLOCKED",
+            accountName: normalizedAccount,
+            planKey,
+            reason: owner?.wms_subscription_note || "WMS365 access is blocked for this company."
+        };
+    }
+
+    if (ownerAccessMode === "NO_CHARGE" || greyWolfNoCharge) {
+        return {
+            allowed: true,
+            status: "NO_CHARGE",
+            accountName: normalizedAccount,
+            planKey: ownerAccessMode === "NO_CHARGE" ? planKey : "GREY_WOLF_3PL_CUSTOMER",
+            reason: greyWolfNoCharge
+                ? "No software charge: company is assigned to Grey Wolf 3PL."
+                : (owner?.wms_subscription_note || "No-charge WMS365 access is enabled for this company.")
+        };
+    }
+
+    if (ownerAccessMode === "PAID_SUBSCRIPTION" && ownerAllowed) {
+        return {
+            allowed: true,
+            status: ownerSubscriptionStatus,
+            accountName: normalizedAccount,
+            planKey,
+            reason: "Manual paid subscription status allows access."
+        };
+    }
+
+    if (stripeAllowed) {
+        return {
+            allowed: true,
+            status: stripeStatus,
+            accountName: normalizedAccount,
+            planKey: subscription?.planKey || planKey,
+            reason: "Active Stripe subscription allows access.",
+            subscription
+        };
+    }
+
+    if (!PAYWALL_ENFORCEMENT_ENABLED) {
+        return {
+            allowed: true,
+            status: "MONITOR_ONLY",
+            accountName: normalizedAccount,
+            planKey,
+            reason: "Paywall enforcement is currently disabled."
+        };
+    }
+
+    return {
+        allowed: false,
+        status: ownerSubscriptionStatus || stripeStatus || "PENDING",
+        accountName: normalizedAccount,
+        planKey,
+        reason: "WMS365 access requires an active subscription or a no-charge Grey Wolf 3PL assignment."
+    };
+}
+
+async function assertCompanyPaywallAccess(client, accountName) {
+    const status = await getCompanyPaywallStatus(client, accountName);
+    if (!status.allowed) {
+        throw httpError(402, `${status.reason} Visit wms365.co/pricing or contact support@wms365.co.`);
+    }
+    return status;
+}
+
 async function findSiteSubscriptionRowByStripeReferences(client, { checkoutSessionId = "", stripeSubscriptionId = "", stripeCustomerId = "" } = {}) {
     const normalizedCheckoutSessionId = normalizeStripeCheckoutSessionId(checkoutSessionId);
     const normalizedStripeSubscriptionId = normalizeStripeSubscriptionId(stripeSubscriptionId);
@@ -12428,7 +13233,13 @@ async function ensureSiteSubscriptionCompanyProvisioned(client, subscription) {
         note: "Created from Stripe self-serve signup.",
         featureFlags: buildStripePlanFeatureFlags(subscription.planKey),
         featureFlagsUpdatedAt: new Date().toISOString(),
-        featureFlagsUpdatedBy: "stripe-signup"
+        featureFlagsUpdatedBy: "stripe-signup",
+        wmsPricingPlanKey: subscription.planKey,
+        wmsAccessMode: "PAID_SUBSCRIPTION",
+        wmsSubscriptionStatus: normalizeSiteSubscriptionStatus(subscription.status),
+        wmsSubscriptionNote: "Stripe self-serve subscription.",
+        wmsPaywallUpdatedAt: new Date().toISOString(),
+        wmsPaywallUpdatedBy: "stripe-signup"
     });
 
     if (normalizeSiteSubscriptionProvisioningStatus(subscription.provisioningStatus) === "OWNER_CREATED") {
@@ -16049,6 +16860,12 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
     const featureFlagsUpdatedBy = entry.featureFlagsConfigured
         ? normalizeFreeText(entry.featureFlagsUpdatedBy || "system")
         : "";
+    const paywallUpdatedAt = entry.paywallConfigured
+        ? (entry.paywallUpdatedAt || new Date().toISOString())
+        : null;
+    const paywallUpdatedBy = entry.paywallConfigured
+        ? normalizeFreeText(entry.paywallUpdatedBy || "system")
+        : "";
 
     await client.query(
         `
@@ -16056,13 +16873,17 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
                 name, note, legal_name, account_code, contact_name, contact_title,
                 email, phone, mobile, website, billing_email, ap_email, portal_login_email,
                 address1, address2, city, state, postal_code, country, is_active,
-                feature_flags, feature_flags_updated_at, feature_flags_updated_by
+                feature_flags, feature_flags_updated_at, feature_flags_updated_by,
+                wms_pricing_plan_key, wms_access_mode, wms_subscription_status,
+                wms_subscription_note, wms_paywall_updated_at, wms_paywall_updated_by
             )
             values (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, $11, $12, $13,
                 $14, $15, $16, $17, $18, $19, $20,
-                $21::jsonb, $22, $23
+                $21::jsonb, $22, $23,
+                $24, $25, $26,
+                $27, $28, $29
             )
             on conflict (name)
             do update set
@@ -16085,16 +16906,25 @@ async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
                 postal_code = case when excluded.postal_code <> '' then excluded.postal_code else owner_accounts.postal_code end,
                 country = case when excluded.country <> '' then excluded.country else owner_accounts.country end,
                 is_active = excluded.is_active,
-                feature_flags = case when $24 = true then excluded.feature_flags else owner_accounts.feature_flags end,
-                feature_flags_updated_at = case when $24 = true then excluded.feature_flags_updated_at else owner_accounts.feature_flags_updated_at end,
-                feature_flags_updated_by = case when $24 = true then excluded.feature_flags_updated_by else owner_accounts.feature_flags_updated_by end,
+                feature_flags = case when $30 = true then excluded.feature_flags else owner_accounts.feature_flags end,
+                feature_flags_updated_at = case when $30 = true then excluded.feature_flags_updated_at else owner_accounts.feature_flags_updated_at end,
+                feature_flags_updated_by = case when $30 = true then excluded.feature_flags_updated_by else owner_accounts.feature_flags_updated_by end,
+                wms_pricing_plan_key = case when $31 = true then excluded.wms_pricing_plan_key else owner_accounts.wms_pricing_plan_key end,
+                wms_access_mode = case when $31 = true then excluded.wms_access_mode else owner_accounts.wms_access_mode end,
+                wms_subscription_status = case when $31 = true then excluded.wms_subscription_status else owner_accounts.wms_subscription_status end,
+                wms_subscription_note = case when $31 = true then excluded.wms_subscription_note else owner_accounts.wms_subscription_note end,
+                wms_paywall_updated_at = case when $31 = true then excluded.wms_paywall_updated_at else owner_accounts.wms_paywall_updated_at end,
+                wms_paywall_updated_by = case when $31 = true then excluded.wms_paywall_updated_by else owner_accounts.wms_paywall_updated_by end,
                 updated_at = now()
         `,
         [
             entry.name, entry.note, entry.legalName, entry.accountCode, entry.contactName, entry.contactTitle,
             entry.email, entry.phone, entry.mobile, entry.website, entry.billingEmail, entry.apEmail, entry.portalLoginEmail,
             entry.address1, entry.address2, entry.city, entry.state, entry.postalCode, entry.country, entry.isActive,
-            insertFeatureFlags, featureFlagsUpdatedAt, featureFlagsUpdatedBy, entry.featureFlagsConfigured === true
+            insertFeatureFlags, featureFlagsUpdatedAt, featureFlagsUpdatedBy,
+            entry.wmsPricingPlanKey, entry.wmsAccessMode, entry.wmsSubscriptionStatus,
+            entry.wmsSubscriptionNote, paywallUpdatedAt, paywallUpdatedBy,
+            entry.featureFlagsConfigured === true, entry.paywallConfigured === true
         ]
     );
 }
@@ -17412,6 +18242,21 @@ function sanitizeLocationMasterInput(item) {
     };
 }
 
+function normalizeCompanyWmsPricingPlanKey(value) {
+    const normalized = normalizeText(value || "UNASSIGNED");
+    return COMPANY_WMS_PRICING_PLANS[normalized] ? normalized : "UNASSIGNED";
+}
+
+function normalizeCompanyWmsAccessMode(value) {
+    const normalized = normalizeText(value || "AUTO");
+    return COMPANY_WMS_ACCESS_MODES.includes(normalized) ? normalized : "AUTO";
+}
+
+function normalizeCompanyWmsSubscriptionStatus(value) {
+    const normalized = normalizeText(value || "PENDING");
+    return COMPANY_WMS_SUBSCRIPTION_STATUSES.includes(normalized) ? normalized : "PENDING";
+}
+
 function sanitizeOwnerMasterInput(item) {
     const value = typeof item === "string" ? item : item?.name ?? item?.owner ?? item?.vendor ?? item?.customer;
     const name = normalizeText(value);
@@ -17424,6 +18269,16 @@ function sanitizeOwnerMasterInput(item) {
     const featureFlags = hasFeatureFlags
         ? sanitizeCompanyFeatureFlagsInput(item?.featureFlags || item?.feature_flags || item?.features || {})
         : null;
+    const hasPaywallFields = typeof item === "object"
+        && item !== null
+        && (Object.prototype.hasOwnProperty.call(item, "wmsPricingPlanKey")
+            || Object.prototype.hasOwnProperty.call(item, "wms_pricing_plan_key")
+            || Object.prototype.hasOwnProperty.call(item, "wmsAccessMode")
+            || Object.prototype.hasOwnProperty.call(item, "wms_access_mode")
+            || Object.prototype.hasOwnProperty.call(item, "wmsSubscriptionStatus")
+            || Object.prototype.hasOwnProperty.call(item, "wms_subscription_status")
+            || Object.prototype.hasOwnProperty.call(item, "wmsSubscriptionNote")
+            || Object.prototype.hasOwnProperty.call(item, "wms_subscription_note"));
     return {
         name,
         legalName: normalizeFreeText(typeof item === "string" ? "" : item?.legalName || item?.legal_name),
@@ -17449,6 +18304,13 @@ function sanitizeOwnerMasterInput(item) {
         featureFlagsConfigured: hasFeatureFlags,
         featureFlagsUpdatedAt: typeof item === "string" ? null : (typeof item?.featureFlagsUpdatedAt === "string" ? item.featureFlagsUpdatedAt : (typeof item?.feature_flags_updated_at === "string" ? item.feature_flags_updated_at : null)),
         featureFlagsUpdatedBy: normalizeFreeText(typeof item === "string" ? "" : item?.featureFlagsUpdatedBy || item?.feature_flags_updated_by),
+        wmsPricingPlanKey: normalizeCompanyWmsPricingPlanKey(typeof item === "string" ? "" : item?.wmsPricingPlanKey || item?.wms_pricing_plan_key),
+        wmsAccessMode: normalizeCompanyWmsAccessMode(typeof item === "string" ? "" : item?.wmsAccessMode || item?.wms_access_mode),
+        wmsSubscriptionStatus: normalizeCompanyWmsSubscriptionStatus(typeof item === "string" ? "" : item?.wmsSubscriptionStatus || item?.wms_subscription_status),
+        wmsSubscriptionNote: normalizeFreeText(typeof item === "string" ? "" : item?.wmsSubscriptionNote || item?.wms_subscription_note),
+        paywallConfigured: hasPaywallFields,
+        paywallUpdatedAt: typeof item === "string" ? null : (typeof item?.wmsPaywallUpdatedAt === "string" ? item.wmsPaywallUpdatedAt : (typeof item?.wms_paywall_updated_at === "string" ? item.wms_paywall_updated_at : null)),
+        paywallUpdatedBy: normalizeFreeText(typeof item === "string" ? "" : item?.wmsPaywallUpdatedBy || item?.wms_paywall_updated_by),
         createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
     };
@@ -17744,6 +18606,14 @@ function mapOwnerMasterRow(row) {
         featureFlagsInherited: legacyMode,
         featureFlagsUpdatedAt: row.feature_flags_updated_at ? new Date(row.feature_flags_updated_at).toISOString() : null,
         featureFlagsUpdatedBy: row.feature_flags_updated_by || "",
+        wmsPricingPlanKey: normalizeCompanyWmsPricingPlanKey(row.wms_pricing_plan_key),
+        wmsPricingPlanLabel: COMPANY_WMS_PRICING_PLANS[normalizeCompanyWmsPricingPlanKey(row.wms_pricing_plan_key)]?.label || "",
+        wmsPricingPlanPriceLabel: COMPANY_WMS_PRICING_PLANS[normalizeCompanyWmsPricingPlanKey(row.wms_pricing_plan_key)]?.priceLabel || "",
+        wmsAccessMode: normalizeCompanyWmsAccessMode(row.wms_access_mode),
+        wmsSubscriptionStatus: normalizeCompanyWmsSubscriptionStatus(row.wms_subscription_status),
+        wmsSubscriptionNote: row.wms_subscription_note || "",
+        wmsPaywallUpdatedAt: row.wms_paywall_updated_at ? new Date(row.wms_paywall_updated_at).toISOString() : null,
+        wmsPaywallUpdatedBy: row.wms_paywall_updated_by || "",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };
@@ -18445,7 +19315,7 @@ function normalizeBillingFinanceStatus(value) {
 
 function normalizeInvoiceStatus(value) {
     const normalized = String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
-    if (["draft", "sent", "paid", "partial", "overdue", "void", "credit_note"].includes(normalized)) return normalized;
+    if (["draft", "approved", "sent", "paid", "partial", "overdue", "void", "credit_note"].includes(normalized)) return normalized;
     return "draft";
 }
 
@@ -18464,6 +19334,15 @@ function roundMoney(value) {
     const numeric = Number.parseFloat(String(value));
     if (!Number.isFinite(numeric)) return 0;
     return Math.round(numeric * 100) / 100;
+}
+
+function normalizeMasterCustomerName(value) {
+    return normalizeText(value || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER) || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER;
+}
+
+async function getDefaultMasterCustomer(client) {
+    const result = await client.query("select * from master_customers where name = $1 limit 1", [BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER]);
+    return result.rows[0] || { id: null, name: BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER };
 }
 
 function mapCustomerBillingProfileRow(row) {
@@ -18524,6 +19403,10 @@ function mapRateCardLineRow(row) {
 function mapBillingFinanceEventRow(row) {
     return {
         id: String(row.id),
+        masterCustomerId: row.master_customer_id ? String(row.master_customer_id) : "",
+        masterCustomerName: row.master_customer_name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
+        subCustomerId: row.sub_customer_id ? String(row.sub_customer_id) : "",
+        subCustomerName: row.sub_customer_name || row.customer_id || row.account_name || "",
         customerId: row.customer_id || row.account_name || "",
         warehouseId: row.warehouse_id || "",
         activityDate: normalizeDateOnly(row.activity_date || row.service_date),
@@ -18555,6 +19438,7 @@ function mapInvoiceLineRow(row) {
         chargeType: row.charge_type || "",
         quantity: Number(row.quantity || 0),
         unitRate: Number(row.unit_rate || 0),
+        discountAmount: Number(row.discount_amount || 0),
         taxCode: row.tax_code || "HST_ON",
         taxAmount: Number(row.tax_amount || 0),
         amount: Number(row.amount || 0)
@@ -18565,6 +19449,11 @@ function mapInvoiceRow(row, lines = []) {
     return {
         id: String(row.id),
         invoiceNumber: row.invoice_number || "",
+        masterCustomerId: row.master_customer_id ? String(row.master_customer_id) : "",
+        masterCustomerName: row.master_customer_name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
+        subCustomerId: row.sub_customer_id ? String(row.sub_customer_id) : "",
+        subCustomerName: row.sub_customer_name || row.customer_id || "",
+        warehouseId: row.warehouse_id || "",
         customerId: row.customer_id || "",
         billingAddress: row.billing_address || "",
         invoiceDate: normalizeDateOnly(row.invoice_date),
@@ -18573,6 +19462,7 @@ function mapInvoiceRow(row, lines = []) {
         currency: row.currency || "CAD",
         lines,
         subtotal: Number(row.subtotal || 0),
+        discountAmount: Number(row.discount_amount || 0),
         tax: Number(row.tax || 0),
         total: Number(row.total || 0),
         paidAmount: Number(row.paid_amount || 0),
@@ -18581,6 +19471,9 @@ function mapInvoiceRow(row, lines = []) {
         status: row.status || "draft",
         isRecurring: row.is_recurring === true,
         recurrenceRule: row.recurrence_rule || "",
+        paymentInstructions: row.payment_instructions || "",
+        emailStatus: row.email_status || "",
+        lastEmailedAt: row.last_emailed_at ? new Date(row.last_emailed_at).toISOString() : "",
         postingStatus: row.posting_status || "unposted",
         postedAt: row.posted_at ? new Date(row.posted_at).toISOString() : "",
         postedJournalEntryId: row.posted_journal_entry_id ? String(row.posted_journal_entry_id) : "",
@@ -18596,6 +19489,10 @@ function mapInvoiceRow(row, lines = []) {
 function mapPaymentRow(row, allocations = []) {
     return {
         id: String(row.id),
+        masterCustomerId: row.master_customer_id ? String(row.master_customer_id) : "",
+        masterCustomerName: row.master_customer_name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
+        subCustomerId: row.sub_customer_id ? String(row.sub_customer_id) : "",
+        subCustomerName: row.sub_customer_name || row.customer_id || "",
         paymentDate: normalizeDateOnly(row.payment_date),
         customerId: row.customer_id || "",
         invoiceReference: row.invoice_reference || "",
@@ -18611,6 +19508,8 @@ function mapPaymentRow(row, allocations = []) {
 function mapExpenseRow(row) {
     return {
         id: String(row.id),
+        masterCustomerId: row.master_customer_id ? String(row.master_customer_id) : "",
+        masterCustomerName: row.master_customer_name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
         vendorId: row.vendor_id ? String(row.vendor_id) : "",
         vendor: row.vendor || "",
         expenseCategory: row.expense_category || "Miscellaneous",
@@ -18625,6 +19524,8 @@ function mapExpenseRow(row) {
         billable: row.billable === true,
         customerReference: row.customer_reference || "",
         warehouseReference: row.warehouse_reference || "",
+        isRecurring: row.is_recurring === true,
+        recurrenceRule: row.recurrence_rule || "",
         notes: row.notes || ""
     };
 }
@@ -18632,6 +19533,8 @@ function mapExpenseRow(row) {
 function mapVendorRow(row) {
     return {
         id: String(row.id),
+        masterCustomerId: row.master_customer_id ? String(row.master_customer_id) : "",
+        masterCustomerName: row.master_customer_name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
         vendorName: row.vendor_name || "",
         contactName: row.contact_name || "",
         email: row.email || "",
@@ -18673,6 +19576,8 @@ function mapBankTransactionRow(row) {
 function mapJournalEntryRow(row, lines = []) {
     return {
         id: String(row.id),
+        masterCustomerId: row.master_customer_id ? String(row.master_customer_id) : "",
+        masterCustomerName: row.master_customer_name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
         entryNumber: row.entry_number || "",
         entryDate: normalizeDateOnly(row.entry_date),
         sourceType: row.source_type || "manual",
@@ -18779,7 +19684,7 @@ async function nextBillingFinanceDocumentNumber(client, documentType, fallbackPr
 }
 
 function isInvoiceLockedStatus(status) {
-    return ["sent", "paid", "partial", "overdue", "void"].includes(normalizeInvoiceStatus(status));
+    return ["approved", "sent", "paid", "partial", "overdue", "void"].includes(normalizeInvoiceStatus(status));
 }
 
 async function saveCustomerBillingProfile(client, input, appUser) {
@@ -18874,6 +19779,8 @@ async function saveBillingFinanceRateCard(client, input, appUser) {
 async function saveBillingFinanceEvent(client, input, appUser) {
     const customerId = normalizeText(input?.customerId || input?.customer_id || input?.accountName);
     await assertBillingFinanceCustomerAccess(client, appUser, customerId);
+    const masterCustomer = await getDefaultMasterCustomer(client);
+    const subCustomer = (await client.query("select id, customer_name from sub_customers where master_customer_id = $1 and account_name = $2 limit 1", [masterCustomer.id, customerId])).rows[0] || {};
     const chargeType = normalizeText(input?.chargeType || input?.charge_type || "CUSTOM_CHARGE") || "CUSTOM_CHARGE";
     const quantity = Number(input?.quantity || 0);
     const unitRate = Number(input?.unitRate ?? input?.unit_rate ?? input?.rate ?? 0);
@@ -18887,15 +19794,19 @@ async function saveBillingFinanceEvent(client, input, appUser) {
     const result = await client.query(
         `
             insert into billing_events (
-                account_name, customer_id, warehouse_id, activity_date, service_date, source_module, source_reference,
+                account_name, customer_id, master_customer_id, master_customer_name, sub_customer_id, sub_customer_name, warehouse_id, activity_date, service_date, source_module, source_reference,
                 source_type, source_ref, activity_type, charge_type, fee_code, description, fee_name, quantity,
                 unit_rate, rate, amount, tax_code, status, invoice_id, created_by, notes, note, reference
             )
-            values ($1,$1,$2,$3,$3,$4,$5,$4,$5,$6,$7,$7,$8,$8,$9,$10,$10,$11,$12,$13,$14,$15,$16,$16,$5)
+            values ($1,$1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$8,$9,$10,$11,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20,$20,$9)
             returning *
         `,
         [
             customerId,
+            masterCustomer.id,
+            masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
+            subCustomer.id || null,
+            subCustomer.customer_name || customerId,
             normalizeText(input?.warehouseId || input?.warehouse_id),
             normalizeDateOnly(input?.activityDate || input?.activity_date) || normalizeDateOnly(new Date()),
             normalizeFreeText(input?.sourceModule || "Manual"),
@@ -18933,9 +19844,109 @@ async function getBillingFinanceInvoiceById(client, id) {
     return mapInvoiceRow(invoiceResult.rows[0], lineResult.rows.map(mapInvoiceLineRow));
 }
 
+async function getBillingFinanceInvoiceAttachments(client, invoiceId) {
+    const result = await client.query(
+        "select id, file_name, mime_type, source_type, source_reference, notes, created_at from invoice_attachments where invoice_id = $1 order by created_at desc, id desc",
+        [invoiceId]
+    );
+    return result.rows.map((row) => ({
+        id: String(row.id),
+        fileName: row.file_name || "",
+        mimeType: row.mime_type || "",
+        sourceType: row.source_type || "",
+        sourceReference: row.source_reference || "",
+        notes: row.notes || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : ""
+    }));
+}
+
+function invoicePlainTextLines(invoice, { includeBackup = true } = {}) {
+    const lines = [
+        `${invoice.masterCustomerName || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER}`,
+        `Invoice ${invoice.invoiceNumber}`,
+        "",
+        `Bill to: ${invoice.subCustomerName || invoice.customerId}`,
+        `Invoice date: ${invoice.invoiceDate}`,
+        `Due date: ${invoice.dueDate}`,
+        `Terms: ${invoice.paymentTerms}`,
+        "",
+        "Line items:"
+    ];
+    (invoice.lines || []).forEach((line) => {
+        lines.push(`${line.description} | Qty ${line.quantity} | Rate ${roundMoney(line.unitRate).toFixed(2)} | Amount ${roundMoney(line.amount).toFixed(2)}`);
+    });
+    lines.push("");
+    lines.push(`Subtotal: ${roundMoney(invoice.subtotal).toFixed(2)}`);
+    if (Number(invoice.discountAmount || 0) > 0) lines.push(`Discount: ${roundMoney(invoice.discountAmount).toFixed(2)}`);
+    lines.push(`Tax: ${roundMoney(invoice.tax).toFixed(2)}`);
+    lines.push(`Total: ${roundMoney(invoice.total).toFixed(2)}`);
+    lines.push(`Paid: ${roundMoney(invoice.paidAmount).toFixed(2)}`);
+    lines.push(`Balance due: ${roundMoney(invoice.balanceDue).toFixed(2)}`);
+    if (invoice.notes) lines.push("", `Notes: ${invoice.notes}`);
+    if (invoice.paymentInstructions) lines.push("", `Payment instructions: ${invoice.paymentInstructions}`);
+    if (includeBackup) lines.push("", "Backup summary: warehouse activity and uploaded support documents are available in the WMS365 customer portal.");
+    return lines;
+}
+
+function buildSimplePdfBuffer(lines, title = "WMS365 Invoice") {
+    const escapePdf = (value) => String(value || "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+    const contentLines = [
+        "BT",
+        "/F1 16 Tf",
+        "50 760 Td",
+        `(${escapePdf(title)}) Tj`,
+        "/F1 10 Tf",
+        "0 -24 Td",
+        ...lines.flatMap((line) => [`(${escapePdf(line).slice(0, 110)}) Tj`, "0 -14 Td"]),
+        "ET"
+    ];
+    const stream = contentLines.join("\n");
+    const objects = [
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
+        "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
+        `5 0 obj << /Length ${Buffer.byteLength(stream, "utf8")} >> stream\n${stream}\nendstream endobj`
+    ];
+    let pdf = "%PDF-1.4\n";
+    const offsets = [0];
+    for (const object of objects) {
+        offsets.push(Buffer.byteLength(pdf, "utf8"));
+        pdf += `${object}\n`;
+    }
+    const xrefOffset = Buffer.byteLength(pdf, "utf8");
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let index = 1; index <= objects.length; index += 1) {
+        pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+    }
+    pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    return Buffer.from(pdf, "utf8");
+}
+
+function buildInvoicePdfBuffer(invoice) {
+    return buildSimplePdfBuffer(invoicePlainTextLines(invoice), `Invoice ${invoice.invoiceNumber}`);
+}
+
+function buildInvoiceEmailText(invoice, portalUrl = "") {
+    return [
+        `Invoice ${invoice.invoiceNumber} is ready.`,
+        "",
+        `Customer: ${invoice.subCustomerName || invoice.customerId}`,
+        `Total: ${roundMoney(invoice.total).toFixed(2)} ${invoice.currency}`,
+        `Balance due: ${roundMoney(invoice.balanceDue).toFixed(2)} ${invoice.currency}`,
+        `Due date: ${invoice.dueDate}`,
+        portalUrl ? `Portal: ${portalUrl}` : "",
+        "",
+        "Thank you.",
+        invoice.masterCustomerName || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER
+    ].filter(Boolean).join("\n");
+}
+
 async function saveBillingFinanceInvoice(client, input, appUser) {
     const customerId = normalizeText(input?.customerId || input?.customer_id || input?.accountName);
     await assertBillingFinanceCustomerAccess(client, appUser, customerId);
+    const masterCustomer = await getDefaultMasterCustomer(client);
+    const subCustomer = (await client.query("select id, customer_name from sub_customers where master_customer_id = $1 and account_name = $2 limit 1", [masterCustomer.id, customerId])).rows[0] || {};
     const lines = Array.isArray(input?.lines) ? input.lines : [];
     if (!lines.length) throw httpError(400, "Invoice lines are required.");
     const id = toPositiveInt(input?.id);
@@ -18950,16 +19961,20 @@ async function saveBillingFinanceInvoice(client, input, appUser) {
     }
     const invoiceNumber = normalizeFreeText(input?.invoiceNumber) || existingInvoice?.invoice_number || await nextBillingFinanceDocumentNumber(client, "invoice", "INV");
     let subtotal = 0;
+    let discountTotal = 0;
     let tax = 0;
     const normalizedLines = [];
     for (const rawLine of lines) {
         const quantity = Number(rawLine?.quantity || 0);
         const unitRate = Number(rawLine?.unitRate ?? rawLine?.unit_rate ?? 0);
         if (!(quantity > 0)) continue;
-        const amount = roundMoney(rawLine?.amount ?? quantity * unitRate);
+        const grossAmount = roundMoney(rawLine?.amount ?? quantity * unitRate);
+        const discountAmount = Math.min(roundMoney(rawLine?.discountAmount ?? rawLine?.discount_amount), grossAmount);
+        const amount = roundMoney(grossAmount - discountAmount);
         const taxCode = normalizeText(rawLine?.taxCode || "HST_ON");
         const taxAmount = roundMoney(rawLine?.taxAmount ?? amount * (await getTaxRate(client, taxCode)) / 100);
-        subtotal += amount;
+        subtotal += grossAmount;
+        discountTotal += discountAmount;
         tax += taxAmount;
         normalizedLines.push({
             billingEventId: toPositiveInt(rawLine?.billingEventId || rawLine?.billing_event_id),
@@ -18967,6 +19982,7 @@ async function saveBillingFinanceInvoice(client, input, appUser) {
             chargeType: normalizeText(rawLine?.chargeType || rawLine?.charge_type),
             quantity,
             unitRate,
+            discountAmount,
             taxCode,
             taxAmount,
             amount
@@ -18974,9 +19990,10 @@ async function saveBillingFinanceInvoice(client, input, appUser) {
     }
     if (!normalizedLines.length) throw httpError(400, "At least one invoice line needs a quantity greater than zero.");
     subtotal = roundMoney(subtotal);
+    discountTotal = roundMoney(input?.discountAmount ?? input?.discount_amount ?? discountTotal);
     tax = roundMoney(tax);
     const paidAmount = roundMoney(input?.paidAmount);
-    const total = roundMoney(subtotal + tax);
+    const total = roundMoney(subtotal - discountTotal + tax);
     const balanceDue = roundMoney(total - paidAmount);
     const status = normalizeInvoiceStatus(input?.status || (balanceDue <= 0 && paidAmount > 0 ? "paid" : "draft"));
     const lockInvoice = isInvoiceLockedStatus(status);
@@ -18986,28 +20003,30 @@ async function saveBillingFinanceInvoice(client, input, appUser) {
         ? await client.query(
             `
                 update invoices
-                set invoice_number=$2, customer_id=$3, billing_address=$4, invoice_date=$5, due_date=$6,
-                    payment_terms=$7, currency=$8, subtotal=$9, tax=$10, total=$11, paid_amount=$12,
-                    balance_due=$13, notes=$14, status=$15, is_recurring=$16, recurrence_rule=$17,
-                    locked_at=case when $18 then coalesce(locked_at, now()) else locked_at end,
-                    locked_by=case when $18 and locked_by = '' then $19 else locked_by end,
+                set invoice_number=$2, master_customer_id=$3, master_customer_name=$4, sub_customer_id=$5,
+                    sub_customer_name=$6, warehouse_id=$7, customer_id=$8, billing_address=$9, invoice_date=$10, due_date=$11,
+                    payment_terms=$12, currency=$13, subtotal=$14, discount_amount=$15, tax=$16, total=$17, paid_amount=$18,
+                    balance_due=$19, notes=$20, status=$21, is_recurring=$22, recurrence_rule=$23, payment_instructions=$24,
+                    locked_at=case when $25 then coalesce(locked_at, now()) else locked_at end,
+                    locked_by=case when $25 and locked_by = '' then $26 else locked_by end,
                     updated_at=now()
                 where id=$1
                 returning *
             `,
-            [id, invoiceNumber, customerId, normalizeFreeText(input?.billingAddress), invoiceDate, dueDate, normalizeFreeText(input?.paymentTerms || "Net 30"), normalizeCurrencyCode(input?.currency), subtotal, tax, total, paidAmount, balanceDue, normalizeFreeText(input?.notes), status, input?.isRecurring === true, normalizeFreeText(input?.recurrenceRule), lockInvoice, appUser?.email || ""]
+            [id, invoiceNumber, masterCustomer.id, masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER, subCustomer.id || null, subCustomer.customer_name || customerId, normalizeText(input?.warehouseId || input?.warehouse_id), customerId, normalizeFreeText(input?.billingAddress), invoiceDate, dueDate, normalizeFreeText(input?.paymentTerms || "Net 30"), normalizeCurrencyCode(input?.currency), subtotal, discountTotal, tax, total, paidAmount, balanceDue, normalizeFreeText(input?.notes), status, input?.isRecurring === true, normalizeFreeText(input?.recurrenceRule), normalizeFreeText(input?.paymentInstructions || input?.payment_instructions), lockInvoice, appUser?.email || ""]
         )
         : await client.query(
             `
                 insert into invoices (
-                    invoice_number, customer_id, billing_address, invoice_date, due_date, payment_terms, currency,
-                    subtotal, tax, total, paid_amount, balance_due, notes, status, is_recurring, recurrence_rule,
-                    locked_at, locked_by
+                    invoice_number, master_customer_id, master_customer_name, sub_customer_id, sub_customer_name, warehouse_id,
+                    customer_id, billing_address, invoice_date, due_date, payment_terms, currency,
+                    subtotal, discount_amount, tax, total, paid_amount, balance_due, notes, status, is_recurring, recurrence_rule,
+                    payment_instructions, locked_at, locked_by
                 )
-                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
                 returning *
             `,
-            [invoiceNumber, customerId, normalizeFreeText(input?.billingAddress), invoiceDate, dueDate, normalizeFreeText(input?.paymentTerms || "Net 30"), normalizeCurrencyCode(input?.currency), subtotal, tax, total, paidAmount, balanceDue, normalizeFreeText(input?.notes), status, input?.isRecurring === true, normalizeFreeText(input?.recurrenceRule), lockInvoice ? new Date() : null, lockInvoice ? appUser?.email || "" : ""]
+            [invoiceNumber, masterCustomer.id, masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER, subCustomer.id || null, subCustomer.customer_name || customerId, normalizeText(input?.warehouseId || input?.warehouse_id), customerId, normalizeFreeText(input?.billingAddress), invoiceDate, dueDate, normalizeFreeText(input?.paymentTerms || "Net 30"), normalizeCurrencyCode(input?.currency), subtotal, discountTotal, tax, total, paidAmount, balanceDue, normalizeFreeText(input?.notes), status, input?.isRecurring === true, normalizeFreeText(input?.recurrenceRule), normalizeFreeText(input?.paymentInstructions || input?.payment_instructions), lockInvoice ? new Date() : null, lockInvoice ? appUser?.email || "" : ""]
         );
     const invoice = invoiceResult.rows[0];
     await client.query("delete from invoice_lines where invoice_id = $1", [invoice.id]);
@@ -19015,10 +20034,10 @@ async function saveBillingFinanceInvoice(client, input, appUser) {
         const line = normalizedLines[index];
         await client.query(
             `
-                insert into invoice_lines (invoice_id, billing_event_id, line_number, description, charge_type, quantity, unit_rate, tax_code, tax_amount, amount)
-                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                insert into invoice_lines (invoice_id, billing_event_id, line_number, description, charge_type, quantity, unit_rate, discount_amount, tax_code, tax_amount, amount)
+                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             `,
-            [invoice.id, line.billingEventId, index + 1, line.description, line.chargeType, line.quantity, line.unitRate, line.taxCode, line.taxAmount, line.amount]
+            [invoice.id, line.billingEventId, index + 1, line.description, line.chargeType, line.quantity, line.unitRate, line.discountAmount, line.taxCode, line.taxAmount, line.amount]
         );
     }
     return mapInvoiceRow(invoice);
@@ -19061,15 +20080,17 @@ async function createInvoiceFromBillingEvents(client, input, appUser) {
 async function saveBillingFinancePayment(client, input, appUser) {
     const customerId = normalizeText(input?.customerId || input?.customer_id || input?.accountName);
     await assertBillingFinanceCustomerAccess(client, appUser, customerId);
+    const masterCustomer = await getDefaultMasterCustomer(client);
+    const subCustomer = (await client.query("select id, customer_name from sub_customers where master_customer_id = $1 and account_name = $2 limit 1", [masterCustomer.id, customerId])).rows[0] || {};
     const amount = roundMoney(input?.amount);
     if (!(amount > 0)) throw httpError(400, "Payment amount must be greater than zero.");
     const result = await client.query(
         `
-            insert into payments (payment_date, customer_id, invoice_reference, amount, payment_method, reference_number, notes, unapplied_amount)
-            values ($1,$2,$3,$4,$5,$6,$7,$4)
+            insert into payments (master_customer_id, master_customer_name, sub_customer_id, sub_customer_name, payment_date, customer_id, invoice_reference, amount, payment_method, reference_number, notes, unapplied_amount)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$8)
             returning *
         `,
-        [normalizeDateOnly(input?.paymentDate) || normalizeDateOnly(new Date()), customerId, normalizeFreeText(input?.invoiceReference), amount, normalizePaymentMethod(input?.paymentMethod), normalizeFreeText(input?.referenceNumber), normalizeFreeText(input?.notes)]
+        [masterCustomer.id, masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER, subCustomer.id || null, subCustomer.customer_name || customerId, normalizeDateOnly(input?.paymentDate) || normalizeDateOnly(new Date()), customerId, normalizeFreeText(input?.invoiceReference), amount, normalizePaymentMethod(input?.paymentMethod), normalizeFreeText(input?.referenceNumber), normalizeFreeText(input?.notes)]
     );
     const payment = result.rows[0];
     const allocations = Array.isArray(input?.allocations) && input.allocations.length
@@ -19143,11 +20164,14 @@ async function refreshInvoicePaymentTotals(client, invoiceId) {
 async function saveBillingFinanceVendor(client, input) {
     const vendorName = normalizeFreeText(input?.vendorName || input?.vendor || input?.name);
     if (!vendorName) throw httpError(400, "Vendor name is required.");
+    const masterCustomer = await getDefaultMasterCustomer(client);
     const result = await client.query(
         `
-            insert into vendors (vendor_name, contact_name, email, phone, address, tax_number, notes)
-            values ($1,$2,$3,$4,$5,$6,$7)
+            insert into vendors (master_customer_id, master_customer_name, vendor_name, contact_name, email, phone, address, tax_number, notes)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             on conflict (vendor_name) do update set
+                master_customer_id=excluded.master_customer_id,
+                master_customer_name=excluded.master_customer_name,
                 contact_name=excluded.contact_name,
                 email=excluded.email,
                 phone=excluded.phone,
@@ -19157,12 +20181,13 @@ async function saveBillingFinanceVendor(client, input) {
                 updated_at=now()
             returning *
         `,
-        [vendorName, normalizeFreeText(input?.contactName), normalizeEmail(input?.email), normalizeFreeText(input?.phone), normalizeFreeText(input?.address), normalizeFreeText(input?.taxNumber), normalizeFreeText(input?.notes)]
+        [masterCustomer.id, masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER, vendorName, normalizeFreeText(input?.contactName), normalizeEmail(input?.email), normalizeFreeText(input?.phone), normalizeFreeText(input?.address), normalizeFreeText(input?.taxNumber), normalizeFreeText(input?.notes)]
     );
     return mapVendorRow(result.rows[0]);
 }
 
 async function saveBillingFinanceExpense(client, input, appUser) {
+    const masterCustomer = await getDefaultMasterCustomer(client);
     const vendorName = normalizeFreeText(input?.vendor || input?.vendorName);
     let vendorId = toPositiveInt(input?.vendorId);
     if (!vendorId && vendorName) {
@@ -19176,14 +20201,16 @@ async function saveBillingFinanceExpense(client, input, appUser) {
     const result = await client.query(
         `
             insert into expenses (
-                vendor_id, vendor, expense_category, expense_date, description, amount_before_tax, tax_amount,
+                master_customer_id, master_customer_name, vendor_id, vendor, expense_category, expense_date, description, amount_before_tax, tax_amount,
                 total_amount, payment_status, payment_method, receipt_upload, billable, customer_reference,
-                warehouse_reference, notes
+                warehouse_reference, is_recurring, recurrence_rule, notes
             )
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
             returning *
         `,
         [
+            masterCustomer.id,
+            masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER,
             vendorId,
             vendorName,
             normalizeFreeText(input?.expenseCategory || "Miscellaneous"),
@@ -19198,6 +20225,8 @@ async function saveBillingFinanceExpense(client, input, appUser) {
             input?.billable === true,
             customerReference,
             normalizeText(input?.warehouseReference || ""),
+            input?.isRecurring === true,
+            normalizeFreeText(input?.recurrenceRule || input?.recurrence_rule),
             normalizeFreeText(input?.notes)
         ]
     );
@@ -19244,6 +20273,7 @@ async function saveBillingFinanceBankTransaction(client, input) {
 }
 
 async function saveBillingFinanceJournalEntry(client, input, appUser) {
+    const masterCustomer = await getDefaultMasterCustomer(client);
     const lines = Array.isArray(input?.lines) ? input.lines : [];
     const normalizedLines = lines.map((line) => ({
         accountCode: normalizeFreeText(line?.accountCode || line?.account_code),
@@ -19257,11 +20287,11 @@ async function saveBillingFinanceJournalEntry(client, input, appUser) {
     const entryNumber = normalizeFreeText(input?.entryNumber) || await nextBillingFinanceDocumentNumber(client, "journal_entry", "JE");
     const result = await client.query(
         `
-            insert into journal_entries (entry_number, entry_date, source_type, source_id, memo, created_by, is_posted, posted_at, locked_at, reversed_entry_id, is_reversal)
-            values ($1,$2,$3,$4,$5,$6,true,now(),now(),$7,$8)
+            insert into journal_entries (master_customer_id, master_customer_name, entry_number, entry_date, source_type, source_id, memo, created_by, is_posted, posted_at, locked_at, reversed_entry_id, is_reversal)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,true,now(),now(),$9,$10)
             returning *
         `,
-        [entryNumber, normalizeDateOnly(input?.entryDate) || normalizeDateOnly(new Date()), normalizeFreeText(input?.sourceType || "manual"), toPositiveInt(input?.sourceId), normalizeFreeText(input?.memo), appUser?.email || "", toPositiveInt(input?.reversedEntryId || input?.reversed_entry_id), input?.isReversal === true]
+        [masterCustomer.id, masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER, entryNumber, normalizeDateOnly(input?.entryDate) || normalizeDateOnly(new Date()), normalizeFreeText(input?.sourceType || "manual"), toPositiveInt(input?.sourceId), normalizeFreeText(input?.memo), appUser?.email || "", toPositiveInt(input?.reversedEntryId || input?.reversed_entry_id), input?.isReversal === true]
     );
     for (const line of normalizedLines) {
         await client.query(
@@ -19371,9 +20401,10 @@ async function postExpenseJournalEntry(client, expenseId, appUser) {
 }
 
 async function insertBillingFinanceAudit(client, entityType, entityId, action, appUser, details = {}) {
+    const masterCustomer = await getDefaultMasterCustomer(client);
     await client.query(
-        "insert into audit_logs (module, entity_type, entity_id, action, actor_email, details) values ('billing_finance',$1,$2,$3,$4,$5)",
-        [entityType, String(entityId || ""), action, appUser?.email || "", JSON.stringify(details || {})]
+        "insert into audit_logs (module, master_customer_id, master_customer_name, entity_type, entity_id, action, actor_email, details) values ('billing_accounting',$1,$2,$3,$4,$5,$6,$7)",
+        [masterCustomer.id, masterCustomer.name || BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER, entityType, String(entityId || ""), action, appUser?.email || "", JSON.stringify(details || {})]
     );
 }
 

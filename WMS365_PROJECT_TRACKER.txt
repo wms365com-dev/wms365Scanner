@@ -20,6 +20,12 @@ CURRENT SYSTEM SUMMARY
 - Separate warehouse login and customer portal login.
 - Company-scoped inventory so warehouse activity can be filtered to one 3PL customer at a time.
 
+RECENT UPDATE - 2026-05-13
+- Added dedicated marketing folder for the public WMS365 promotional site.
+- Updated pricing language for Launch Warehouse at $129/month plus published add-ons.
+- Added company-level pricing/paywall controls in Master Data.
+- Customer portal paywall allows no-charge access for companies assigned to Grey Wolf 3PL fulfillment locations.
+
 CURRENT FEATURE SET
 
 1. Warehouse Operations

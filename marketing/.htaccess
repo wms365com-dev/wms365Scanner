@@ -1,0 +1,14 @@
+AddType application/manifest+json .webmanifest
+
+RewriteEngine On
+
+RewriteRule ^pricing/?$ /pricing.html [L]
+RewriteRule ^industries/?$ /industries.html [L]
+RewriteRule ^book-demo/?$ /book-demo.html [L]
+RewriteRule ^integrations/?$ /integrations.html [L]
+RewriteRule ^implementation/?$ /implementation.html [L]
+RewriteRule ^3pl-warehouse-management-software/?$ /3pl-warehouse-management-software.html [L]
+RewriteRule ^shopify-warehouse-management-software/?$ /shopify-warehouse-management-software.html [L]
+RewriteRule ^lot-tracking-expiration-date-inventory-software/?$ /lot-tracking-expiration-date-inventory-software.html [L]
+RewriteRule ^customer-portal-for-3pl-warehouses/?$ /customer-portal-for-3pl-warehouses.html [L]
+RewriteRule ^sftp-warehouse-integration-software/?$ /sftp-warehouse-integration-software.html [L]

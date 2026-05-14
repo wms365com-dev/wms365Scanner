@@ -1,0 +1,19 @@
+{
+  "name": "WMS365 Warehouse Management Software",
+  "short_name": "WMS365",
+  "description": "Warehouse management software for 3PLs, private warehouses, and growth brands.",
+  "lang": "en-US",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f7ff",
+  "theme_color": "#1767ff",
+  "icons": [
+    {
+      "src": "/marketing-logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

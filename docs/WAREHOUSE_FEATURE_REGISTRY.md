@@ -353,6 +353,7 @@ Mobile features:
 
 Primary folder:
 - `C:\WMS365Scanner\bluehost-site`
+- `C:\WMS365Scanner\marketing`
 
 Related server file:
 - `C:\WMS365Scanner\server.js`
@@ -368,6 +369,8 @@ Public features:
 - SEO landing pages
 - sitemap and robots files
 - Stripe checkout/signup
+- company pricing/paywall controls
+- Grey Wolf 3PL no-charge portal access for assigned companies
 - public API CORS allowlist
 - domain routing for `wms365.co` and `app.wms365.co`
 - app subdomain root routes to `/access` for unauthenticated users
