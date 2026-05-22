@@ -41,6 +41,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -74,7 +75,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         configureFullscreen()
-        requestCameraPermissionIfNeeded()
         buildLayout()
         configureWebView()
         webView.loadUrl(resolveStartUrl(intent))
@@ -375,6 +375,11 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun scanBarcode(targetId: String) {
             runOnUiThread {
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this@MainActivity, "Allow camera, then tap Scan again.", Toast.LENGTH_SHORT).show()
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
+                    return@runOnUiThread
+                }
                 pendingScanTargetId = targetId
                 IntentIntegrator(this@MainActivity)
                     .setDesiredBarcodeFormats(IntentIntegrator.ALL_CODE_TYPES)
