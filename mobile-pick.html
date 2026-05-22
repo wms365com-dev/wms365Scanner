@@ -157,6 +157,7 @@ button:disabled{opacity:.45}
 <script>
 const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,scanTarget:'',scannerStream:null,scannerTimer:null,requestedOrderId:'',requestedTaskId:''};
 const $=id=>document.getElementById(id);
+const GLOBAL_COMPANY_KEY='wms365-mobile-company-context';
 
 async function requestJson(url,opt={}){
   const r=await fetch(url,{headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt});
@@ -169,6 +170,9 @@ async function requestJson(url,opt={}){
 
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function normalize(v){return String(v||'').trim().toUpperCase()}
+function getGlobalCompany(){return normalize(window.WMS365Mobile?.getCompanyContext?.()||localStorage.getItem(GLOBAL_COMPANY_KEY)||'')}
+function setGlobalCompany(company){const normalized=normalize(company);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
+function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
 function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
 function ageTime(value){
   const timestamp=Date.parse(String(value||''));
@@ -232,8 +236,13 @@ async function loadCompanies(){
     const match=companyNames.find(name=>normalize(name)===requested);
     if(match) state.company=match;
   }
+  if(!state.company){
+    const globalCompany=getGlobalCompany();
+    const match=companyNames.find(name=>normalize(name)===globalCompany);
+    if(match) state.company=match;
+  }
   if(!state.company&&companyNames.length===1) state.company=companyNames[0];
-  if(state.company) sel.value=state.company;
+  if(state.company){sel.value=state.company;setGlobalCompany(state.company)}
   renderCompanyLock();
 }
 
@@ -431,6 +440,7 @@ $('lockCompanyBtn').addEventListener('click',async()=>{
   state.company=$('companySelect').value;
   state.selectedOrder=null;state.picks=[];state.index=0;
   if(!state.company)return;
+  setGlobalCompany(state.company);
   renderCompanyLock();
   await loadOrders();
   renderPick();
@@ -438,6 +448,7 @@ $('lockCompanyBtn').addEventListener('click',async()=>{
 
 $('switchCompanyBtn').addEventListener('click',()=>{
   state.company='';state.selectedOrder=null;state.picks=[];state.index=0;
+  clearGlobalCompany();
   $('companySelect').value='';
   $('orderSelect').innerHTML='<option value="">Choose order</option>';
   renderCompanyLock();

@@ -13134,6 +13134,14 @@
             const previous = getActiveCompany();
             state.preferences.activeCompany = normalized;
             state.preferences.lastAccount = normalized || "";
+            if (window.WMS365Mobile?.setCompanyContext) {
+                window.WMS365Mobile.setCompanyContext(normalized);
+            } else {
+                try {
+                    if (normalized) localStorage.setItem("wms365-mobile-company-context", normalized);
+                    else localStorage.removeItem("wms365-mobile-company-context");
+                } catch {}
+            }
             if (ui.activeCompany) {
                 ui.activeCompany.value = normalized;
             }

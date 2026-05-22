@@ -122,11 +122,15 @@
 <script>
 const $=id=>document.getElementById(id);
 const LOCKED_COMPANY_KEY="wms365_inventory_count_company";
+const GLOBAL_COMPANY_KEY="wms365-mobile-company-context";
 const LOCAL_DB_NAME="wms365-mobile-count";
 const LOCAL_DB_VERSION=1;
 const state={inventory:[],items:[],locations:[],owners:[],session:null,lockedAccount:"",photoData:"",scanTarget:"",scannerStream:null,scannerTimer:null,offlineMode:false,pendingCount:0};
 function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
 function norm(v){return String(v||"").trim().replace(/\s+/g," ").toUpperCase()}
+function getGlobalCompany(){return norm(window.WMS365Mobile?.getCompanyContext?.()||localStorage.getItem(GLOBAL_COMPANY_KEY)||"")}
+function setGlobalCompany(account){const normalized=norm(account);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
+function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function trackingLabel(v){const t=norm(v);return t==="PALLET"?"Pallets":t==="CASE"?"Cases":"Units"}
 function qtyText(q,t){const n=Number(q)||0;return `${n} ${trackingLabel(t).toLowerCase()}`}
@@ -286,12 +290,14 @@ function lockCompany(){
   if(!account){$("companyMessage").className="status bad";$("companyMessage").textContent="Choose a company before counting.";return}
   state.lockedAccount=account;
   try{localStorage.setItem(LOCKED_COMPANY_KEY,account)}catch{}
+  setGlobalCompany(account);
   $("companyMessage").className="status";$("companyMessage").textContent="Choose the company for this count.";
   clearSku();renderCompanyStep();$("locationInput").focus();
 }
 function switchCompany(){
   state.lockedAccount="";
   try{localStorage.removeItem(LOCKED_COMPANY_KEY)}catch{}
+  clearGlobalCompany();
   $("locationInput").value="";clearSku();renderCompanyStep();$("accountSelect").focus();
 }
 async function load(){
@@ -309,12 +315,14 @@ async function load(){
   $("accountSelect").innerHTML=state.owners.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
   const params=new URLSearchParams(location.search);const requested=norm(params.get("accountName")||params.get("account")||"");
   if(requested&&state.owners.map(norm).includes(requested))$("accountSelect").value=state.owners.find(o=>norm(o)===requested);
+  const globalCompany=getGlobalCompany();
   const saved=norm(localStorage.getItem(LOCKED_COMPANY_KEY)||"");const allowed=state.owners.map(norm);
   if(requested&&allowed.includes(requested))state.lockedAccount=requested;
+  else if(globalCompany&&allowed.includes(globalCompany))state.lockedAccount=globalCompany;
   else if(state.lockedAccount&&allowed.includes(state.lockedAccount))state.lockedAccount=state.lockedAccount;
   else if(saved&&allowed.includes(saved))state.lockedAccount=saved;
   else state.lockedAccount="";
-  if(state.lockedAccount&&allowed.includes(state.lockedAccount))$("accountSelect").value=state.owners.find(o=>norm(o)===state.lockedAccount)||state.lockedAccount;
+  if(state.lockedAccount&&allowed.includes(state.lockedAccount)){setGlobalCompany(state.lockedAccount);try{localStorage.setItem(LOCKED_COMPANY_KEY,state.lockedAccount)}catch{};$("accountSelect").value=state.owners.find(o=>norm(o)===state.lockedAccount)||state.lockedAccount}
   renderOptions();renderCompanyStep();(state.lockedAccount?$("locationInput"):$("accountSelect")).focus();
   await updateQueueStatus();
   if(!state.offlineMode){
