@@ -1100,6 +1100,13 @@
                                 <span class="meta">Schedule the pick ticket for the warehouse after 30 minutes so changes can still be made first.</span>
                             </span>
                         </label>
+                        <label class="toggle-card span-2">
+                            <input id="portalReleaseLabelAttached" type="checkbox">
+                            <span class="toggle-copy">
+                                <strong>Shipping label is attached</strong>
+                                <span class="meta">Check this only after the label has been uploaded under Shipping Labels / Order Documents.</span>
+                            </span>
+                        </label>
                         <label class="field span-2">
                             <span>CC Others</span>
                             <input id="portalReleaseCcEmails" type="text" placeholder="ops@example.com, manager@example.com">
@@ -1314,6 +1321,7 @@
             portalReleaseReference: document.getElementById("portalReleaseReference"),
             portalReleaseShipTo: document.getElementById("portalReleaseShipTo"),
             portalReleaseEmailWarehouse: document.getElementById("portalReleaseEmailWarehouse"),
+            portalReleaseLabelAttached: document.getElementById("portalReleaseLabelAttached"),
             portalReleaseCcEmails: document.getElementById("portalReleaseCcEmails"),
             portalReleaseSubmitBtn: document.getElementById("portalReleaseSubmitBtn"),
             portalReleaseMessage: document.getElementById("portalReleaseMessage"),
@@ -2847,6 +2855,7 @@
 
         function collectPortalReleaseOptions() {
             const notifyWarehouse = ui.portalReleaseEmailWarehouse.checked;
+            const shippingLabelAttached = ui.portalReleaseLabelAttached.checked;
             const ccEmails = splitPortalEmailList(ui.portalReleaseCcEmails.value);
             const invalidEmails = ccEmails.filter((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
             if (invalidEmails.length) {
@@ -2857,7 +2866,8 @@
             }
             return {
                 notifyWarehouse,
-                ccEmails
+                ccEmails,
+                shippingLabelAttached
             };
         }
 
@@ -2868,18 +2878,23 @@
                 [ui.orderShipToCity.value.trim(), ui.orderShipToState.value.trim()].filter(Boolean).join(", ")
             ].filter(Boolean).join(" | ");
             return {
+                orderId: currentOrder?.id || portalState.editingOrderId || "",
                 orderCode: currentOrder?.orderCode || "New draft order",
                 reference: ui.orderShippingReference.value.trim() || currentOrder?.shippingReference || "Not set",
-                shipTo: shipToSummary || "Not set"
+                shipTo: shipToSummary || "Not set",
+                documentCount: Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0
             };
         }
 
-        function openPortalReleaseModal({ orderCode = "Draft order", reference = "Not set", shipTo = "Not set", onConfirm = null } = {}) {
+        function openPortalReleaseModal({ orderCode = "Draft order", reference = "Not set", shipTo = "Not set", orderId = "", documentCount = 0, onConfirm = null } = {}) {
             portalState.pendingReleaseHandler = typeof onConfirm === "function" ? onConfirm : null;
+            portalState.pendingReleaseOrderId = String(orderId || "");
+            portalState.pendingReleaseDocumentCount = Number(documentCount) || 0;
             ui.portalReleaseOrderCode.textContent = orderCode || "Draft order";
             ui.portalReleaseReference.textContent = `Reference: ${reference || "Not set"}`;
             ui.portalReleaseShipTo.textContent = `Ship to: ${shipTo || "Not set"}`;
             ui.portalReleaseEmailWarehouse.checked = true;
+            ui.portalReleaseLabelAttached.checked = false;
             ui.portalReleaseCcEmails.value = "";
             syncPortalReleaseFields();
             setPortalReleaseMessage("", "info");
@@ -2889,9 +2904,12 @@
 
         function closePortalReleaseModal() {
             portalState.pendingReleaseHandler = null;
+            portalState.pendingReleaseOrderId = "";
+            portalState.pendingReleaseDocumentCount = 0;
             ui.portalReleaseModal.classList.add("hidden");
             ui.portalReleaseModal.setAttribute("aria-hidden", "true");
             ui.portalReleaseEmailWarehouse.checked = true;
+            ui.portalReleaseLabelAttached.checked = false;
             ui.portalReleaseCcEmails.value = "";
             syncPortalReleaseFields();
             setPortalReleaseMessage("", "info");
@@ -2981,9 +2999,11 @@
             }
             const preview = getCurrentOrderReleasePreview();
             openPortalReleaseModal({
+                orderId: preview.orderId,
                 orderCode: preview.orderCode,
                 reference: preview.reference,
                 shipTo: preview.shipTo,
+                documentCount: preview.documentCount,
                 onConfirm: async (releaseOptions) => releaseCurrentOrderFlow({ releaseOptions, resetForm: true, nextView: "orders" })
             });
         }
@@ -2999,6 +3019,12 @@
                 releaseOptions = collectPortalReleaseOptions();
             } catch (error) {
                 setPortalReleaseMessage(error.message, "error");
+                return;
+            }
+            if (releaseOptions.shippingLabelAttached && !portalState.pendingReleaseDocumentCount) {
+                const message = "You checked Shipping label is attached, but no label/document is uploaded on this order. Upload the label first, then release the order.";
+                window.alert(message);
+                setPortalReleaseMessage(message, "error");
                 return;
             }
 
@@ -3068,9 +3094,11 @@
             const order = portalState.orders.find((entry) => entry.id === releaseButton.dataset.releaseOrder);
             if (!order) return;
             openPortalReleaseModal({
+                orderId: order.id,
                 orderCode: order.orderCode,
                 reference: order.shippingReference || "Not set",
                 shipTo: [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not set",
+                documentCount: Array.isArray(order.documents) ? order.documents.length : 0,
                 onConfirm: async (releaseOptions) => releaseOrderByIdFlow(order.id, {
                     releaseOptions,
                     resetForm: false,

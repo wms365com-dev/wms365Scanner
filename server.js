@@ -3902,7 +3902,12 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
             throw httpError(400, "A valid order id is required.");
         }
         const releaseOptions = sanitizePortalOrderReleaseOptions(req.body);
-        const order = await withTransaction(async (client) => releasePortalOrder(client, session.accessRow, orderId));
+        const order = await withTransaction(async (client) => {
+            if (releaseOptions.shippingLabelAttached) {
+                await assertPortalOrderHasCustomerDocuments(client, orderId, session.access.accountName);
+            }
+            return releasePortalOrder(client, session.accessRow, orderId);
+        });
         const releaseActions = {
             warehouseEmailRequested: releaseOptions.notifyWarehouse,
             warehouseEmailSent: false,
@@ -11521,6 +11526,30 @@ async function savePortalOrderDocuments(client, accessRow, orderId, rawPayload) 
     });
 }
 
+async function assertPortalOrderHasCustomerDocuments(client, orderId, accountName) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedOrderId || !normalizedAccount) {
+        throw httpError(400, "A valid order is required before confirming the shipping label attachment.");
+    }
+    const result = await client.query(
+        `
+            select d.id, d.file_name
+            from portal_order_documents d
+            join portal_orders o on o.id = d.order_id
+            where d.order_id = $1
+              and o.account_name = $2
+            order by d.created_at asc, d.id asc
+        `,
+        [normalizedOrderId, normalizedAccount]
+    );
+    const visibleDocuments = result.rows.filter((row) => !isPortalOrderReleaseCopyDocument(row));
+    if (!visibleDocuments.length) {
+        throw httpError(400, "You selected Shipping label is attached, but no label/document is uploaded on this order. Upload the label first, then release the order.");
+    }
+    return true;
+}
+
 function sortInventoryRowsForAllocation(rows = [], { expirationTracked = false } = {}) {
     return [...rows].sort((left, right) => {
         const leftExpiration = normalizeDateOnly(left.expiration_date || left.expirationDate);
@@ -12753,6 +12782,7 @@ function normalizeEmailList(value, { throwOnInvalid = false } = {}) {
 function sanitizePortalOrderReleaseOptions(raw) {
     const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const notifyWarehouse = toBooleanFlag(input.notifyWarehouse, false);
+    const shippingLabelAttached = toBooleanFlag(input.shippingLabelAttached ?? input.shipping_label_attached, false);
     const ccEmails = normalizeEmailList(input.ccEmails, { throwOnInvalid: true });
 
     if (!notifyWarehouse && ccEmails.length) {
@@ -12761,7 +12791,8 @@ function sanitizePortalOrderReleaseOptions(raw) {
 
     return {
         notifyWarehouse,
-        ccEmails
+        ccEmails,
+        shippingLabelAttached
     };
 }
 
