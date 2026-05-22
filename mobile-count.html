@@ -42,7 +42,7 @@
       <label class="field">
         <span>Location</span>
         <div class="scan-row">
-          <input id="locationInput" list="locationList" autocomplete="off" placeholder="Scan or key in location" enterkeyhint="next">
+          <input id="locationInput" list="locationList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or key in location" enterkeyhint="next">
           <button class="btn ghost" type="button" data-scan-target="locationInput">Scan</button>
         </div>
       </label>
@@ -50,7 +50,7 @@
       <label class="field">
         <span>SKU / UPC</span>
         <div class="scan-row">
-          <input id="skuInput" list="skuList" autocomplete="off" placeholder="Scan barcode or key in SKU" enterkeyhint="next">
+          <input id="skuInput" list="skuList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan barcode or key in SKU" enterkeyhint="next">
           <button class="btn ghost" type="button" data-scan-target="skuInput">Scan</button>
         </div>
       </label>
@@ -63,7 +63,10 @@
       <div class="row hidden" id="traceFields">
         <label class="field hidden" id="lotField">
           <span>Lot</span>
-          <input id="lotInput" autocomplete="off" placeholder="Scan or enter lot" enterkeyhint="next">
+          <div class="scan-row">
+            <input id="lotInput" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or enter lot" enterkeyhint="next">
+            <button class="btn ghost" type="button" data-scan-target="lotInput">Scan</button>
+          </div>
         </label>
         <label class="field hidden" id="expirationField">
           <span>Expiry</span>
@@ -382,7 +385,12 @@ function acceptScanValue(targetId,value){
   renderItem();
   window.WMS365Mobile?.vibrate?.(45);
   window.WMS365Mobile?.beep?.("success");
-  const next=targetId==="locationInput"?$("skuInput"):$("casesInput");
+  const item=selectedItem();
+  const visible=id=>$(id)&&!$(id).closest(".hidden");
+  let next=$("casesInput");
+  if(targetId==="locationInput")next=$("skuInput");
+  else if(targetId==="skuInput")next=item?.lotTracked&&visible("lotInput")?$("lotInput"):(item?.expirationTracked&&visible("expirationInput")?$("expirationInput"):$("casesInput"));
+  else if(targetId==="lotInput")next=item?.expirationTracked&&visible("expirationInput")?$("expirationInput"):$("casesInput");
   next?.focus();
 }
 async function startScanner(targetId){
@@ -444,7 +452,7 @@ $("closeScannerBtn").addEventListener("click",stopScanner);
 window.addEventListener("online",()=>syncPendingCounts().then((synced)=>{if(synced){$("message").className="status good";$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;return load()}}).catch(()=>updateQueueStatus()));
 window.addEventListener("offline",()=>{state.offlineMode=true;updateQueueStatus()});
 window.addEventListener("beforeunload",()=>window.WMS365Mobile?.setKeepAwake?.(false));
-document.addEventListener("keydown",event=>{if(event.key!=="Enter")return;const order=["locationInput","skuInput","casesInput","lotInput","expirationInput"];const index=order.indexOf(document.activeElement?.id);if(index>=0){event.preventDefault();(order.slice(index+1).map($).find(el=>el&&!el.closest(".hidden"))||$("saveBtn")).focus()}});
+document.addEventListener("keydown",event=>{if(event.key!=="Enter")return;const order=["locationInput","skuInput","lotInput","expirationInput","casesInput"];const activeId=document.activeElement?.id;const index=order.indexOf(activeId);if(index>=0){event.preventDefault();if(activeId==="casesInput")$("saveBtn").focus();else(order.slice(index+1).map($).find(el=>el&&!el.closest(".hidden"))||$("casesInput")||$("saveBtn")).focus()}});
 window.WMS365Mobile?.setKeepAwake?.(true);
 load().catch(error=>{$("message").className="status bad";$("message").textContent=error.message});
 </script>

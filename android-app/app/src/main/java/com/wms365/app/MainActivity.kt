@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.AudioManager
@@ -73,6 +74,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         configureFullscreen()
         buildLayout()
@@ -384,10 +386,11 @@ class MainActivity : Activity() {
                 }
                 pendingScanTargetId = targetId
                 IntentIntegrator(this@MainActivity)
+                    .setCaptureActivity(PortraitCaptureActivity::class.java)
                     .setDesiredBarcodeFormats(IntentIntegrator.ALL_CODE_TYPES)
-                    .setPrompt("Scan WMS365 barcode")
+                    .setPrompt("Hold phone upright and scan barcode")
                     .setBeepEnabled(false)
-                    .setOrientationLocked(false)
+                    .setOrientationLocked(true)
                     .initiateScan()
             }
         }

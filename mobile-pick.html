@@ -117,11 +117,11 @@ button:disabled{opacity:.45}
         <div><div class="kicker">Required</div><div class="big" id="pickQty">0</div></div>
         <div><div class="kicker">Available</div><div class="big" id="pickAvailable">0</div></div>
       </div>
-      <label>Confirm Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan or enter location" autocomplete="off" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
-      <label>Confirm SKU<div class="scan-row"><input id="confirmSku" placeholder="Scan or enter SKU" autocomplete="off" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
-      <label id="confirmLotWrap">Confirm Lot (If Required)<div class="scan-row"><input id="confirmLot" placeholder="Scan or enter lot" autocomplete="off" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
+      <label>Confirm Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan or enter location" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
+      <label>Confirm SKU<div class="scan-row"><input id="confirmSku" placeholder="Scan or enter SKU" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
+      <label id="confirmLotWrap">Confirm Lot (If Required)<div class="scan-row"><input id="confirmLot" placeholder="Scan or enter lot" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
       <label>Confirm Expiration (If Required)<input id="confirmExpiration" type="text" placeholder="YYYY-MM-DD"></label>
-      <label>Picked Quantity<input id="confirmQty" type="number" min="1" step="1" placeholder="Enter picked qty"></label>
+      <label>Picked Quantity<input id="confirmQty" type="number" min="1" step="1" inputmode="numeric" placeholder="Enter picked qty" enterkeyhint="done"></label>
       <div class="quick-actions">
         <button class="secondary" id="fillExpectedBtn" type="button">Use Expected</button>
         <button class="secondary" id="nextFieldBtn" type="button">Next Field</button>

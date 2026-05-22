@@ -5822,6 +5822,11 @@
             grid-template-columns: 1fr;
             gap: 0.18rem;
         }
+        body.device-mobile .menu-card-btn:disabled {
+            opacity: 0.55;
+            filter: grayscale(0.15);
+            cursor: not-allowed;
+        }
         body.device-mobile .menu-card-title { font-size: 0.98rem; }
         body.device-mobile .mobile-company-card,
         body.device-mobile .mobile-pending-panel {
@@ -13177,12 +13182,22 @@
         function updateMobileCompanyContextUi() {
             const company = getActiveCompany();
             const draftCompany = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
+            const mobileTaskButtons = [
+                ...(ui.mobileNavButtons || []),
+                ...(ui.mobileLinkButtons || []),
+                ui.mobilePendingBtn
+            ].filter(Boolean);
             if (ui.mobileCompanyLocked) ui.mobileCompanyLocked.classList.toggle("hidden", !company);
             if (ui.mobileCompanySelectWrap) ui.mobileCompanySelectWrap.classList.toggle("hidden", !!company);
             if (ui.mobileLockCompanyBtn) {
                 ui.mobileLockCompanyBtn.classList.toggle("hidden", !!company);
                 ui.mobileLockCompanyBtn.disabled = !draftCompany;
             }
+            mobileTaskButtons.forEach((button) => {
+                button.disabled = !company;
+                button.title = company ? "" : "Choose a company first.";
+            });
+            if (!company) ui.mobilePendingPanel?.classList.add("hidden");
             if (ui.mobileCompanyLockedLabel) ui.mobileCompanyLockedLabel.textContent = company || "Choose company";
             if (ui.mobileCompanyMeta) {
                 ui.mobileCompanyMeta.textContent = company

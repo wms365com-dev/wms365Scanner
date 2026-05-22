@@ -3,6 +3,7 @@
 
   const DEVICE_ID_KEY = "wms365-mobile-device-id";
   const COMPANY_CONTEXT_KEY = "wms365-mobile-company-context";
+  const LEGACY_COUNT_COMPANY_KEY = "wms365_inventory_count_company";
   const QUEUE_DB_NAME = "wms365-mobile-offline";
   const QUEUE_DB_VERSION = 1;
   const QUEUE_STORE = "transactions";
@@ -46,7 +47,11 @@
 
   function getCompanyContext() {
     try {
-      return normalizeCompany(localStorage.getItem(COMPANY_CONTEXT_KEY) || "");
+      return normalizeCompany(
+        localStorage.getItem(COMPANY_CONTEXT_KEY)
+        || localStorage.getItem(LEGACY_COUNT_COMPANY_KEY)
+        || ""
+      );
     } catch {
       return "";
     }
@@ -55,8 +60,13 @@
   function setCompanyContext(company) {
     const normalized = normalizeCompany(company);
     try {
-      if (normalized) localStorage.setItem(COMPANY_CONTEXT_KEY, normalized);
-      else localStorage.removeItem(COMPANY_CONTEXT_KEY);
+      if (normalized) {
+        localStorage.setItem(COMPANY_CONTEXT_KEY, normalized);
+        localStorage.setItem(LEGACY_COUNT_COMPANY_KEY, normalized);
+      } else {
+        localStorage.removeItem(COMPANY_CONTEXT_KEY);
+        localStorage.removeItem(LEGACY_COUNT_COMPANY_KEY);
+      }
     } catch {}
     window.dispatchEvent(new CustomEvent("wms365:company-context", { detail: { company: normalized } }));
     return normalized;

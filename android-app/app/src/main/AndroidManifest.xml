@@ -29,6 +29,7 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -43,5 +44,11 @@
                 <data android:scheme="https" android:host="app.wms365.co" android:pathPrefix="/mobile-pick" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".PortraitCaptureActivity"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            android:theme="@style/AppTheme"
+            android:exported="false" />
     </application>
 </manifest>
