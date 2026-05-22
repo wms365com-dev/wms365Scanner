@@ -126,6 +126,8 @@
 const $=id=>document.getElementById(id);
 const LOCKED_COMPANY_KEY="wms365_inventory_count_company";
 const GLOBAL_COMPANY_KEY="wms365-mobile-company-context";
+const MOBILE_DEVICE_STATE_CACHE_KEY="warehouse-state-v1";
+const MOBILE_DEVICE_CACHE_MAX_AGE_MS=12*60*60*1000;
 const LOCAL_DB_NAME="wms365-mobile-count";
 const LOCAL_DB_VERSION=1;
 const state={inventory:[],items:[],locations:[],owners:[],session:null,lockedAccount:"",photoData:"",scanTarget:"",scannerStream:null,scannerTimer:null,offlineMode:false,pendingCount:0};
@@ -175,8 +177,17 @@ const localGet=(store,key)=>localStore(store,"readonly",s=>s.get(key));
 const localAll=(store)=>localStore(store,"readonly",s=>s.getAll());
 function makeLocalId(){return `count-${Date.now()}-${Math.random().toString(36).slice(2,8)}`}
 function shouldQueueSave(error){return error?.offline||!navigator.onLine||error?.status===503||error?.status>=500}
-async function cacheStatePayload(payload){await localPut("stateCache",{key:"latest",payload,cachedAt:new Date().toISOString()})}
-async function readCachedStatePayload(){const cached=await localGet("stateCache","latest");return cached?.payload||null}
+function compactStatePayload(payload){return{inventory:payload?.inventory||[],inventoryCounts:payload?.inventoryCounts||[],warehouseTasks:payload?.warehouseTasks||[],masters:payload?.masters||{},meta:payload?.meta||{},session:payload?.session||{}}}
+async function cacheStatePayload(payload){
+  await localPut("stateCache",{key:"latest",payload,cachedAt:new Date().toISOString()});
+  if(window.WMS365Mobile?.cacheData)await window.WMS365Mobile.cacheData(MOBILE_DEVICE_STATE_CACHE_KEY,compactStatePayload(payload)).catch(()=>{});
+}
+async function readCachedStatePayload(){
+  const cached=await localGet("stateCache","latest");
+  if(cached?.payload)return cached.payload;
+  const shared=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData(MOBILE_DEVICE_STATE_CACHE_KEY,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
+  return shared?.payload||null;
+}
 async function queuedCounts(){try{return await localAll("pendingCounts")}catch{return[]}}
 async function updateQueueStatus(){
   const queued=await queuedCounts();state.pendingCount=queued.length;

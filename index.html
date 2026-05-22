@@ -10074,6 +10074,8 @@
     <script>
         const LOCAL_STORAGE_KEY = "wms365-scanner-local-v2";
         const LABEL_TOOL_STORAGE_KEY = "wms365-scanner-label-tool-v1";
+        const MOBILE_DEVICE_STATE_CACHE_KEY = "warehouse-state-v1";
+        const MOBILE_DEVICE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
         const LOCAL_CACHE_ACTIVITY_LIMIT = 30;
         const AUTOCOMPLETE_OPTION_LIMIT = 24;
         const MOBILE_PICKER_ROW_HEIGHT = 68;
@@ -11662,6 +11664,7 @@
             renderAll();
             setSection(getInitialSectionFromUrl() || (isMobileView() ? "mobile-home" : "home"), { recordHistory: false, syncOnSectionChange: false });
             focusInitialLinkTarget();
+            hydrateMobileDeviceCache().catch(() => {});
             preloadMobileCompanyOptions().catch(() => {});
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
@@ -13253,6 +13256,33 @@
                 ui.mobileActiveCompany.value = savedCompany;
             }
             updateMobileCompanyContextUi();
+        }
+
+        async function hydrateMobileDeviceCache() {
+            if (!isMobileView() || !window.WMS365Mobile?.getCachedData) return;
+            const record = await window.WMS365Mobile.getCachedData(MOBILE_DEVICE_STATE_CACHE_KEY, {
+                maxAgeMs: MOBILE_DEVICE_CACHE_MAX_AGE_MS
+            });
+            if (!record?.payload) return;
+            const cache = sanitizeLocalCache(record.payload);
+            const hasUsefulCache = cache.inventory.length
+                || cache.masters.items.length
+                || cache.masters.owners.length
+                || cache.warehouseTasks.length;
+            if (!hasUsefulCache) return;
+            state.inventory = cache.inventory;
+            state.inventoryCounts = cache.inventoryCounts;
+            state.pallets = cache.pallets;
+            state.activity = cache.activity;
+            state.warehouseTasks = cache.warehouseTasks;
+            state.masters = cache.masters;
+            state.billing = cache.billing;
+            state.meta.lastChangedAt = cache.meta.lastChangedAt;
+            state.meta.serverSyncedAt = cache.meta.serverSyncedAt;
+            state.meta.localCacheAt = cache.meta.localCacheAt || record.cachedAt || new Date().toISOString();
+            renderAll();
+            updateWorkspaceCommandBar();
+            refreshSearchFromCurrentState();
         }
 
         function lockMobileCompanyContext() {
@@ -24858,6 +24888,9 @@
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             state.meta.localCacheAt = new Date().toISOString();
             saveState({ includeCache: true });
+            if (isMobileView() && window.WMS365Mobile?.cacheData) {
+                window.WMS365Mobile.cacheData(MOBILE_DEVICE_STATE_CACHE_KEY, buildLocalCachePayload({ compact: true })).catch(() => {});
+            }
             renderAll();
             if (activeSection === "billing-finance" && currentUserCanBillingFinance()) {
                 refreshBillingFinance({ silent: true }).catch(() => {});

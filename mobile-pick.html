@@ -158,6 +158,8 @@ button:disabled{opacity:.45}
 const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,scanTarget:'',scannerStream:null,scannerTimer:null,requestedOrderId:'',requestedTaskId:''};
 const $=id=>document.getElementById(id);
 const GLOBAL_COMPANY_KEY='wms365-mobile-company-context';
+const MOBILE_DEVICE_STATE_CACHE_KEY='warehouse-state-v1';
+const MOBILE_DEVICE_CACHE_MAX_AGE_MS=12*60*60*1000;
 
 async function requestJson(url,opt={}){
   const r=await fetch(url,{headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt});
@@ -224,7 +226,24 @@ async function loadBuildLabel(){
 async function loadCompanies(){
   const provisional=provisionalCompany();
   if(provisional&&!state.company){state.company=provisional;renderCompanyLock()}
+  const cached=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData(MOBILE_DEVICE_STATE_CACHE_KEY,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
+  if(cached?.payload)applyCompanyPayload(cached.payload);
   const payload=await requestJson('/api/state');
+  if(window.WMS365Mobile?.cacheData)await window.WMS365Mobile.cacheData(MOBILE_DEVICE_STATE_CACHE_KEY,compactStatePayload(payload)).catch(()=>{});
+  applyCompanyPayload(payload);
+}
+
+function compactStatePayload(payload){
+  return {
+    inventory: payload?.inventory||[],
+    inventoryCounts: payload?.inventoryCounts||[],
+    warehouseTasks: payload?.warehouseTasks||[],
+    masters: payload?.masters||{},
+    meta: payload?.meta||{}
+  };
+}
+
+function applyCompanyPayload(payload){
   const names=new Set();
   (payload.masters?.owners||[]).forEach(v=>names.add(String(v).trim()));
   (payload.inventory||[]).forEach(v=>{if(v.accountName) names.add(String(v.accountName).trim())});

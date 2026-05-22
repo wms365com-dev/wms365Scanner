@@ -5,8 +5,9 @@
   const COMPANY_CONTEXT_KEY = "wms365-mobile-company-context";
   const LEGACY_COUNT_COMPANY_KEY = "wms365_inventory_count_company";
   const QUEUE_DB_NAME = "wms365-mobile-offline";
-  const QUEUE_DB_VERSION = 1;
+  const QUEUE_DB_VERSION = 2;
   const QUEUE_STORE = "transactions";
+  const CACHE_STORE = "cache";
 
   function isAndroidApp() {
     return !!window.WMS365Android;
@@ -176,6 +177,9 @@
           store.createIndex("status", "status", { unique: false });
           store.createIndex("createdAt", "createdAt", { unique: false });
         }
+        if (!db.objectStoreNames.contains(CACHE_STORE)) {
+          db.createObjectStore(CACHE_STORE, { keyPath: "key" });
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error || new Error("Offline storage is unavailable."));
@@ -216,6 +220,44 @@
     });
     db.close();
     return records;
+  }
+
+  async function cacheData(key, payload) {
+    const cacheKey = String(key || "").trim();
+    if (!cacheKey) return null;
+    const db = await openQueueDb();
+    const record = {
+      key: cacheKey,
+      payload,
+      cachedAt: new Date().toISOString(),
+      source: getSource(),
+      appVersion: getAppVersion()
+    };
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(CACHE_STORE, "readwrite");
+      tx.objectStore(CACHE_STORE).put(record);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Unable to cache device data."));
+    });
+    db.close();
+    return record;
+  }
+
+  async function getCachedData(key, { maxAgeMs = 0 } = {}) {
+    const cacheKey = String(key || "").trim();
+    if (!cacheKey) return null;
+    const db = await openQueueDb();
+    const record = await new Promise((resolve, reject) => {
+      const tx = db.transaction(CACHE_STORE, "readonly");
+      const request = tx.objectStore(CACHE_STORE).get(cacheKey);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error("Unable to read cached device data."));
+    });
+    db.close();
+    if (!record) return null;
+    const age = Date.now() - Date.parse(record.cachedAt || "");
+    if (maxAgeMs && Number.isFinite(age) && age > maxAgeMs) return null;
+    return record;
   }
 
   async function syncQueue() {
@@ -294,6 +336,8 @@
     scanBarcode,
     queueTransaction,
     getQueuedTransactions,
+    cacheData,
+    getCachedData,
     syncQueue,
     registerServiceWorker
   };
