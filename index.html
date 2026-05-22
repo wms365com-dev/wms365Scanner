@@ -11662,6 +11662,7 @@
             renderAll();
             setSection(getInitialSectionFromUrl() || (isMobileView() ? "mobile-home" : "home"), { recordHistory: false, syncOnSectionChange: false });
             focusInitialLinkTarget();
+            preloadMobileCompanyOptions().catch(() => {});
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
             refreshIntegrationsList().catch(() => {});
@@ -13233,6 +13234,25 @@
                     ? "This device is locked to the selected company. Use Back to switch before starting another company's work."
                     : "Choose the company once, then stay locked in while you work.";
             }
+        }
+
+        async function preloadMobileCompanyOptions() {
+            if (!isMobileView() || !ui.mobileActiveCompany) return;
+            const payload = await requestJson("/api/app/me");
+            const user = payload?.user || {};
+            const companies = [...new Set([]
+                .concat(user.assignedCompanies || [])
+                .concat(user.inheritedCompanies || [])
+                .map((value) => norm(value))
+                .filter(Boolean)
+            )].sort((a, b) => a.localeCompare(b));
+            if (!companies.length) return;
+            renderActiveCompanyOptions(companies);
+            const savedCompany = normalizeCompanyContextValue(window.WMS365Mobile?.getCompanyContext?.() || "");
+            if (savedCompany && companies.includes(savedCompany)) {
+                ui.mobileActiveCompany.value = savedCompany;
+            }
+            updateMobileCompanyContextUi();
         }
 
         function lockMobileCompanyContext() {
