@@ -12328,8 +12328,7 @@
                 ui.activeCompany?.value,
                 state.preferences.activeCompany,
                 mobileCompanyContext,
-                chipText,
-                displayText
+                ...(isMobileView() ? [] : [chipText, displayText])
             ];
             for (const candidate of candidates) {
                 const normalized = normalizeCompanyContextValue(candidate);
