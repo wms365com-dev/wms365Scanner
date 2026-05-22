@@ -3,6 +3,9 @@ const path = require("path");
 const { Client } = require("pg");
 
 const REQUIRED_TABLES = [
+    "master_customers",
+    "warehouses",
+    "sub_customers",
     "customer_billing_profiles",
     "rate_cards",
     "billing_events",
@@ -11,7 +14,9 @@ const REQUIRED_TABLES = [
     "payment_allocations",
     "journal_entries",
     "journal_entry_lines",
-    "billing_finance_document_sequences"
+    "billing_finance_document_sequences",
+    "invoice_attachments",
+    "invoice_email_logs"
 ];
 
 function makeClient() {
@@ -48,7 +53,7 @@ async function probe(client) {
             order by table_name, column_name
         `,
         [
-            ["posting_status", "posted_at", "posted_journal_entry_id", "locked_at", "locked_by"],
+            ["master_customer_id", "master_customer_name", "sub_customer_id", "sub_customer_name", "discount_amount", "posting_status", "posted_at", "posted_journal_entry_id", "locked_at", "locked_by"],
             ["is_posted", "posted_at", "locked_at", "reversed_entry_id", "reversal_entry_id", "is_reversal"]
         ]
     );
@@ -63,7 +68,8 @@ async function migrate(client) {
     try {
         for (const fileName of [
             "20260512_billing_finance_base.sql",
-            "20260512_billing_finance_accounting_controls.sql"
+            "20260512_billing_finance_accounting_controls.sql",
+            "20260513_billing_accounting_phase1.sql"
         ]) {
             const migrationPath = path.resolve(__dirname, "..", "migrations", fileName);
             const sql = fs.readFileSync(migrationPath, "utf8");

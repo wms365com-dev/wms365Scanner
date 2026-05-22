@@ -25,6 +25,10 @@ The server listens on Railway's `PORT` value automatically.
 2. Set `DATABASE_URL` to a PostgreSQL database
 3. Run `npm start`
 
+## Android Count App
+
+The dedicated Android wrapper lives in `android-app/`. Open that folder in Android Studio, set `WMS365_BASE_URL` in `android-app/gradle.properties`, and run the `app` configuration on a device or emulator. It opens the hosted WMS365 mobile workspace at `/mobile`, so normal mobile web updates are picked up after deployment. The inventory count screen uses device WebView storage plus an IndexedDB offline queue, so counts saved during connectivity issues stay on the device and sync when the connection returns.
+
 ## Shared Data Model
 
 - Shared on the server:

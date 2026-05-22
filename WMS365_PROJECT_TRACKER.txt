@@ -1,5 +1,5 @@
 WMS365 PROJECT TRACKER
-Last Updated: 2026-04-17
+Last Updated: 2026-05-15
 
 PURPOSE
 This file is the quick project log for WMS365 Scanner.
@@ -20,9 +20,17 @@ CURRENT SYSTEM SUMMARY
 - Separate warehouse login and customer portal login.
 - Company-scoped inventory so warehouse activity can be filtered to one 3PL customer at a time.
 
+RECENT UPDATE - 2026-05-15
+- Simplified the customer portal navigation by moving kitting into an Added Services flow:
+  - main portal nav now has one Added Services button instead of separate kitting buttons
+  - Added Services shows New Kitting Request and View Kitting Requests choices
+  - kitting request and kitting status pages have Back to Added Services navigation
+  - Playwright walkthrough passed for menu, kitting page, back navigation, and request list
+
 RECENT UPDATE - 2026-05-13
 - Added dedicated marketing folder for the public WMS365 promotional site.
 - Updated pricing language for Launch Warehouse at $129/month plus published add-ons.
+- Added card-backed 14-day Stripe trial for Launch Warehouse signup.
 - Added company-level pricing/paywall controls in Master Data.
 - Customer portal paywall allows no-charge access for companies assigned to Grey Wolf 3PL fulfillment locations.
 
@@ -97,6 +105,42 @@ CURRENT FEATURE SET
 - Shipment confirmation email support is now wired in for shipped orders.
 
 RECENT FIXES COMPLETED
+
+2026-05-14
+- Added public WMS365 affiliate program page and route:
+  - /affiliate-program
+  - /affiliate-program.html
+- Added public WMS365 hiring / sales-member page and route:
+  - /hiring
+  - /hiring.html
+- Added sendable affiliate package under marketing/affiliate-program:
+  - promotion plan
+  - outreach email scripts
+  - screenshot shot list
+  - ready-to-send marketing screenshots
+- Added sales-member recruiting package under marketing/hiring:
+  - role details
+  - commission rules
+  - recruiting email script
+- Added Grey Wolf 3PL no-charge paywall guard script so Stripe changes do not break existing 3PL customer portal access.
+- Changed warehouse release emails to send as Pick Ticket emails:
+  - subject starts with Pick Ticket
+  - email body shows pick lines with pick location / lot / expiration
+  - printable pick-ticket PDF remains attached
+- Added a 30-minute pick-ticket email grace window:
+  - released orders schedule the warehouse email instead of sending immediately
+  - the scheduler re-checks the order before emailing so edits/reopens during the window stop the email
+  - email/PDF labels show Ready to Pick while core order status remains Released until the warehouse physically picks it
+- Added customer kitting / SKU conversion request workflow:
+  - portal users submit source SKU, source qty, target SKU, target qty, and related order refs
+  - requests are company-scoped and notify the assigned warehouse by email
+  - warehouse users can review requests under Adjust & Move and complete the physical work with Convert Item
+- Added matching Bluehost affiliate folder for static upload.
+- Added matching Bluehost hiring folder for static upload.
+- Added affiliate and hiring footer/details blocks to the marketing homepage copies.
+- Added affiliate and hiring links to pricing/footer navigation and sitemap entries.
+- Affiliate offer copy: 25% of monthly software fees collected, paid within 15 days after customer payment is received.
+- Sales-member offer copy: 25% recurring monthly commission on WMS365 software fees collected from customers they bring in.
 
 2026-04-17
 - Synced E:\WMS365Scanner to the current C:\WMS365Scanner version before patching.

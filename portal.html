@@ -189,6 +189,27 @@
             font-size: 0.82rem;
             font-weight: 700;
         }
+        button.auth-link {
+            cursor: pointer;
+        }
+        .recovery-box {
+            display: grid;
+            gap: 0.65rem;
+            padding: 0.85rem;
+            border: 1px solid #dce4ea;
+            border-radius: 14px;
+            background: #f8fafc;
+        }
+        .recovery-box p {
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+        .recovery-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem;
+        }
         .small {
             font-size: 0.82rem;
             color: #7b8fa2;
@@ -233,6 +254,26 @@
         }
         .portal-nav-primary .btn {
             min-width: 160px;
+        }
+        .service-grid {
+            display: grid;
+            gap: 0.85rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .service-card {
+            display: grid;
+            gap: 0.75rem;
+            align-content: start;
+            padding: 1rem;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: var(--panel-2);
+        }
+        .service-card h3 {
+            font-size: 1.05rem;
+        }
+        .service-card .btn {
+            justify-self: start;
         }
         .btn {
             display: inline-flex;
@@ -512,7 +553,7 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields { grid-template-columns: 1fr; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -605,6 +646,17 @@
                             <button class="btn" type="submit">Sign in</button>
                         </div>
                     </form>
+                    <div class="recovery-box">
+                        <p>Forgot your username or password? Enter the email tied to your WMS365 customer portal access. Recovery emails are only sent to active registered portal users.</p>
+                        <label class="field">
+                            <span>Recovery Email</span>
+                            <input id="portalRecoveryEmail" type="email" placeholder="name@company.com">
+                        </label>
+                        <div class="recovery-actions">
+                            <button class="auth-link" id="portalForgotUsernameBtn" type="button">Forgot username</button>
+                            <button class="auth-link" id="portalForgotPasswordBtn" type="button">Forgot password</button>
+                        </div>
+                    </div>
                     <div class="auth-links">
                         <a class="auth-link" href="https://app.wms365.co/">Warehouse Login</a>
                         <a class="auth-link" href="mailto:support@wms365.co">Support</a>
@@ -622,6 +674,7 @@
                         <button class="btn ghost" type="button" data-view="order">New Sales Order</button>
                         <button class="btn ghost" type="button" data-view="inbound">New Purchase Order</button>
                         <button class="btn ghost" type="button" data-view="delivery">Book Delivery</button>
+                        <button class="btn ghost" type="button" data-view="addedServices">Added Services</button>
                     </div>
                     <div class="portal-nav-group">
                         <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
@@ -630,6 +683,7 @@
                         <button class="btn ghost" type="button" data-view="shipped">Shipped Orders</button>
                         <button class="btn ghost" type="button" data-view="inbounds">My Purchase Orders</button>
                         <button class="btn ghost" type="button" data-view="deliveries">My Deliveries</button>
+                        <button class="btn ghost" type="button" data-view="invoices">Invoices</button>
                     </div>
                     <div class="portal-nav-group">
                         <button class="btn ghost" id="openPortalFeedbackBtn" type="button">Report Bug / Request Feature</button>
@@ -660,6 +714,9 @@
                     </button>
                     <button class="stat stat-button" id="shippedStatButton" type="button" data-order-status-filter="SHIPPED">
                         <span>Shipped</span><strong id="statShipped">0</strong>
+                    </button>
+                    <button class="stat stat-button" id="invoicesStatButton" type="button">
+                        <span>Unpaid</span><strong id="statUnpaidBalance">$0.00</strong>
                     </button>
                 </div>
             </section>
@@ -739,6 +796,123 @@
                     <div id="itemsList" class="orders-list">
                         <div class="empty">No item masters saved yet.</div>
                     </div>
+                </div>
+            </section>
+
+            <section id="addedServicesPanel" class="card hidden">
+                <div class="inventory-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>Added Services</h2>
+                        <p class="lead">Request special warehouse work without cluttering your main order and inventory screens.</p>
+                    </div>
+                </div>
+                <div class="service-grid">
+                    <article class="service-card">
+                        <div class="header-copy">
+                            <h3>Kitting / SKU Conversion</h3>
+                            <p class="meta">Ask the warehouse to kit, de-kit, case-break, or convert inventory from one SKU to another.</p>
+                        </div>
+                        <button class="btn" type="button" data-service-view="kitting">New Kitting Request</button>
+                    </article>
+                    <article class="service-card">
+                        <div class="header-copy">
+                            <h3>Request Status</h3>
+                            <p class="meta"><span id="addedServiceKittingCount">0</span> kitting requests are saved for your company.</p>
+                        </div>
+                        <button class="btn ghost" type="button" data-service-view="kittingRequests">View Kitting Requests</button>
+                    </article>
+                </div>
+            </section>
+
+            <section id="kittingPanel" class="card hidden">
+                <div class="order-form-head">
+                    <div class="header-copy">
+                        <h2>Kitting / SKU Conversion Request</h2>
+                        <p class="lead">Request the warehouse to physically kit, de-kit, or re-SKU inventory. The warehouse will complete the work and update inventory.</p>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn ghost" type="button" data-service-back>Back to Added Services</button>
+                        <button class="btn ghost" id="resetKittingBtn" type="button">Clear Form</button>
+                    </div>
+                </div>
+                <form id="kittingForm" class="form-grid" autocomplete="off">
+                    <label class="field">
+                        <span>Related Sales Order</span>
+                        <input id="kittingSalesOrder" type="text" placeholder="Example: ORD-000045">
+                    </label>
+                    <label class="field">
+                        <span>Related Purchase Order</span>
+                        <input id="kittingPurchaseOrder" type="text" placeholder="Example: INB-000012">
+                    </label>
+                    <label class="field">
+                        <span>Source SKU</span>
+                        <input id="kittingSourceSku" list="kittingSkuList" type="text" placeholder="SKU to consume">
+                    </label>
+                    <label class="field">
+                        <span>Source Quantity</span>
+                        <input id="kittingSourceQty" type="number" min="1" inputmode="numeric" placeholder="Quantity to consume">
+                    </label>
+                    <label class="field">
+                        <span>Target SKU</span>
+                        <input id="kittingTargetSku" list="kittingSkuList" type="text" placeholder="SKU to create">
+                    </label>
+                    <label class="field">
+                        <span>Target Quantity</span>
+                        <input id="kittingTargetQty" type="number" min="1" inputmode="numeric" placeholder="Quantity expected">
+                    </label>
+                    <label class="field">
+                        <span>Needed By</span>
+                        <input id="kittingNeededBy" type="date">
+                    </label>
+                    <label class="field">
+                        <span>Your Name</span>
+                        <input id="kittingRequestedBy" type="text" placeholder="Optional">
+                    </label>
+                    <label class="field span-2">
+                        <span>Instructions / Notes</span>
+                        <textarea id="kittingNotes" rows="4" placeholder="Example: Convert 10 CS of source SKU into 60 CS of target SKU for waiting orders."></textarea>
+                    </label>
+                    <div class="helper span-2">
+                        <strong>Warehouse controlled</strong>
+                        <p class="meta">Submitting this request does not change stock. It creates a company-scoped request and emails the assigned warehouse team.</p>
+                    </div>
+                    <div class="button-row span-2">
+                        <button class="btn" type="submit">Submit Kitting Request</button>
+                    </div>
+                </form>
+                <div id="kittingMessage" class="status" style="margin-top: 1rem;"></div>
+            </section>
+
+            <section id="kittingRequestsPanel" class="card hidden">
+                <div class="inventory-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>My Kitting Requests</h2>
+                        <p class="lead">Track submitted kitting, de-kitting, and SKU conversion requests without using email threads.</p>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn ghost" type="button" data-service-back>Back to Added Services</button>
+                        <button class="btn ghost" id="refreshKittingRequestsBtn" type="button">Refresh Requests</button>
+                    </div>
+                </div>
+                <div id="kittingRequestsList" class="orders-list">
+                    <div class="empty">No kitting requests submitted yet.</div>
+                </div>
+            </section>
+
+            <section id="invoicesPanel" class="card hidden">
+                <div class="inventory-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>Invoices</h2>
+                        <p class="lead">Review current and past invoices, download PDFs, and see your total billed and unpaid balance.</p>
+                    </div>
+                </div>
+                <div class="stats" style="margin-bottom: 1rem;">
+                    <div class="stat"><span>Total billed</span><strong id="portalInvoiceTotalBilled">$0.00</strong></div>
+                    <div class="stat"><span>Unpaid balance</span><strong id="portalInvoiceUnpaidBalance">$0.00</strong></div>
+                    <div class="stat"><span>Invoices</span><strong id="portalInvoiceCount">0</strong></div>
+                </div>
+                <div id="portalInvoicesList" class="orders-list">
+                    <div class="empty">No invoices are available yet.</div>
                 </div>
             </section>
 
@@ -911,7 +1085,7 @@
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalReleaseTitle">
                     <div class="header-copy">
                         <h2 id="portalReleaseTitle">Release Order</h2>
-                        <p class="lead">Choose whether to email the warehouse team now and add CC recipients.</p>
+                        <p class="lead">Choose whether to schedule the warehouse pick-ticket email after a 30-minute review window and add CC recipients.</p>
                     </div>
                     <div class="mini-context">
                         <div><strong id="portalReleaseOrderCode">Draft order</strong></div>
@@ -923,7 +1097,7 @@
                             <input id="portalReleaseEmailWarehouse" type="checkbox" checked>
                             <span class="toggle-copy">
                                 <strong>Email the warehouse team</strong>
-                                <span class="meta">Send the released order to the warehouse inbox right away.</span>
+                                <span class="meta">Schedule the pick ticket for the warehouse after 30 minutes so changes can still be made first.</span>
                             </span>
                         </label>
                         <label class="field span-2">
@@ -940,6 +1114,7 @@
             </div>
 
             <datalist id="portalShipToAddressList"></datalist>
+            <datalist id="kittingSkuList"></datalist>
 
             <div id="portalFeedbackModal" class="feedback-modal hidden" aria-hidden="true">
                 <div class="feedback-modal-backdrop" data-portal-feedback-close></div>
@@ -1006,6 +1181,9 @@
             catalogItems: [],
             orders: [],
             inbounds: [],
+            kittingRequests: [],
+            invoices: [],
+            invoiceSummary: { totalBilled: 0, unpaidBalance: 0, invoiceCount: 0 },
             deliveryAppointments: [],
             shipToAddresses: [],
             activeView: "inventory",
@@ -1026,6 +1204,9 @@
             loginForm: document.getElementById("loginForm"),
             loginEmail: document.getElementById("loginEmail"),
             loginPassword: document.getElementById("loginPassword"),
+            portalRecoveryEmail: document.getElementById("portalRecoveryEmail"),
+            portalForgotUsernameBtn: document.getElementById("portalForgotUsernameBtn"),
+            portalForgotPasswordBtn: document.getElementById("portalForgotPasswordBtn"),
             navButtons: [...document.querySelectorAll("[data-view]")],
             openPortalFeedbackBtn: document.getElementById("openPortalFeedbackBtn"),
             logoutBtn: document.getElementById("logoutBtn"),
@@ -1036,13 +1217,41 @@
             statPicked: document.getElementById("statPicked"),
             statStaged: document.getElementById("statStaged"),
             statShipped: document.getElementById("statShipped"),
+            statUnpaidBalance: document.getElementById("statUnpaidBalance"),
             orderStatusFilterButtons: [...document.querySelectorAll("[data-order-status-filter]")],
             itemsStatButton: document.getElementById("itemsStatButton"),
             inventoryStatButton: document.getElementById("inventoryStatButton"),
+            invoicesStatButton: document.getElementById("invoicesStatButton"),
             inventoryPanel: document.getElementById("inventoryPanel"),
             itemsPanel: document.getElementById("itemsPanel"),
+            invoicesPanel: document.getElementById("invoicesPanel"),
+            addedServicesPanel: document.getElementById("addedServicesPanel"),
+            serviceViewButtons: [...document.querySelectorAll("[data-service-view]")],
+            serviceBackButtons: [...document.querySelectorAll("[data-service-back]")],
+            addedServiceKittingCount: document.getElementById("addedServiceKittingCount"),
+            portalInvoicesList: document.getElementById("portalInvoicesList"),
+            portalInvoiceTotalBilled: document.getElementById("portalInvoiceTotalBilled"),
+            portalInvoiceUnpaidBalance: document.getElementById("portalInvoiceUnpaidBalance"),
+            portalInvoiceCount: document.getElementById("portalInvoiceCount"),
             orderPanel: document.getElementById("orderPanel"),
             inboundPanel: document.getElementById("inboundPanel"),
+            kittingPanel: document.getElementById("kittingPanel"),
+            kittingRequestsPanel: document.getElementById("kittingRequestsPanel"),
+            kittingForm: document.getElementById("kittingForm"),
+            kittingSalesOrder: document.getElementById("kittingSalesOrder"),
+            kittingPurchaseOrder: document.getElementById("kittingPurchaseOrder"),
+            kittingSourceSku: document.getElementById("kittingSourceSku"),
+            kittingSourceQty: document.getElementById("kittingSourceQty"),
+            kittingTargetSku: document.getElementById("kittingTargetSku"),
+            kittingTargetQty: document.getElementById("kittingTargetQty"),
+            kittingNeededBy: document.getElementById("kittingNeededBy"),
+            kittingRequestedBy: document.getElementById("kittingRequestedBy"),
+            kittingNotes: document.getElementById("kittingNotes"),
+            resetKittingBtn: document.getElementById("resetKittingBtn"),
+            kittingMessage: document.getElementById("kittingMessage"),
+            refreshKittingRequestsBtn: document.getElementById("refreshKittingRequestsBtn"),
+            kittingRequestsList: document.getElementById("kittingRequestsList"),
+            kittingSkuList: document.getElementById("kittingSkuList"),
             deliveryPanel: document.getElementById("deliveryPanel"),
             deliveriesPanel: document.getElementById("deliveriesPanel"),
             ordersPanel: document.getElementById("ordersPanel"),
@@ -1166,7 +1375,7 @@
 
         function getFirstAllowedPortalView(preferredView = "inventory") {
             if (isPortalViewAllowed(preferredView)) return preferredView;
-            const orderedViews = ["inventory", "items", "order", "orders", "shipped", "inbound", "inbounds", "delivery", "deliveries"];
+            const orderedViews = ["inventory", "items", "addedServices", "kitting", "kittingRequests", "order", "orders", "shipped", "inbound", "inbounds", "delivery", "deliveries"];
             return orderedViews.find((view) => isPortalViewAllowed(view)) || "inventory";
         }
 
@@ -1182,11 +1391,18 @@
         function init() {
             refreshBuildLabel().catch(() => {});
             ui.loginForm.addEventListener("submit", onLoginSubmit);
+            ui.portalForgotUsernameBtn?.addEventListener("click", () => runPortalRecovery("username"));
+            ui.portalForgotPasswordBtn?.addEventListener("click", () => runPortalRecovery("password"));
             ui.inventoryFilter.addEventListener("input", renderInventory);
             ui.exportInventoryBtn.addEventListener("click", exportInventoryReport);
             ui.resetItemBtn.addEventListener("click", () => resetItemForm());
             ui.saveItemBtn.addEventListener("click", savePortalItem);
             ui.itemsList.addEventListener("click", onItemsListClick);
+            ui.kittingForm?.addEventListener("submit", submitKittingRequest);
+            ui.resetKittingBtn?.addEventListener("click", resetKittingForm);
+            ui.refreshKittingRequestsBtn?.addEventListener("click", () => refreshKittingRequests(false));
+            ui.serviceViewButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.serviceView)));
+            ui.serviceBackButtons.forEach((button) => button.addEventListener("click", () => setView("addedServices")));
             ui.addLineBtn.addEventListener("click", () => addOrderLine());
             ui.addInboundLineBtn.addEventListener("click", () => addInboundLine());
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
@@ -1211,6 +1427,7 @@
             ui.orderStatusFilterButtons.forEach((button) => button.addEventListener("click", () => applyOrderStatusFilter(button.dataset.orderStatusFilter)));
             ui.itemsStatButton.addEventListener("click", () => setView("items"));
             ui.inventoryStatButton.addEventListener("click", () => setView("inventory"));
+            ui.invoicesStatButton?.addEventListener("click", () => setView("invoices"));
             ui.clearOrderStatusFilterBtn.addEventListener("click", clearOrderStatusFilter);
             ui.exportOrdersBtn.addEventListener("click", exportVisibleOrders);
             ui.exportShippedOrdersBtn.addEventListener("click", exportShippedOrders);
@@ -1324,6 +1541,9 @@
             portalState.catalogItems = [];
             portalState.orders = [];
             portalState.inbounds = [];
+            portalState.kittingRequests = [];
+            portalState.invoices = [];
+            portalState.invoiceSummary = { totalBilled: 0, unpaidBalance: 0, invoiceCount: 0 };
             portalState.deliveryAppointments = [];
             portalState.editingOrderId = null;
             portalState.editingItemSku = null;
@@ -1387,10 +1607,40 @@
             }
         }
 
+        async function runPortalRecovery(kind) {
+            const email = String(ui.portalRecoveryEmail?.value || ui.loginEmail?.value || "").trim().toLowerCase();
+            const button = kind === "username" ? ui.portalForgotUsernameBtn : ui.portalForgotPasswordBtn;
+            if (!email) {
+                setMessage("Enter the email address used for WMS365 customer portal access.", "error");
+                ui.portalRecoveryEmail?.focus?.();
+                return;
+            }
+
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: kind === "username" ? "Sending..." : "Resetting...",
+                    progressMessage: kind === "username"
+                        ? "Checking customer portal username access..."
+                        : "Creating a temporary customer portal password..."
+                }, async () => {
+                    const payload = await requestJson(`/api/portal/recovery/${kind}`, {
+                        method: "POST",
+                        body: JSON.stringify({ email })
+                    });
+                    setMessage(payload.message || "Recovery email sent from support@wms365.co.", "success");
+                });
+            } catch (error) {
+                setMessage(error.message || "No registered customer portal user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.", "error");
+            }
+        }
+
         async function loadPortalData() {
-            const [inventoryPayload, itemsPayload, ordersPayload, inboundsPayload, deliveriesPayload, shipToPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, shipToPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
                 requestJson("/api/portal/items"),
+                requestJson("/api/portal/kitting-requests").catch(() => ({ requests: [] })),
+                requestJson("/api/portal/invoices").catch(() => ({ invoices: [], summary: {} })),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
                     ? requestJson("/api/portal/orders")
                     : Promise.resolve({ orders: [] }),
@@ -1407,6 +1657,9 @@
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
             portalState.catalogItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items.map(sanitizeCatalogItem).filter(Boolean) : [];
+            portalState.kittingRequests = Array.isArray(kittingPayload?.requests) ? kittingPayload.requests.map(sanitizeKittingRequest).filter(Boolean) : [];
+            portalState.invoices = Array.isArray(invoicesPayload?.invoices) ? invoicesPayload.invoices : [];
+            portalState.invoiceSummary = invoicesPayload?.summary || { totalBilled: 0, unpaidBalance: 0, invoiceCount: portalState.invoices.length };
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
             portalState.deliveryAppointments = Array.isArray(deliveriesPayload?.appointments) ? deliveriesPayload.appointments.map(sanitizeDeliveryAppointment).filter(Boolean) : [];
@@ -1416,6 +1669,10 @@
             renderStats();
             renderInventory();
             renderItems();
+            renderKittingRequests();
+            renderAddedServices();
+            renderKittingSkuOptions();
+            renderInvoices();
             renderOrders();
             renderShippedOrders();
             renderInbounds();
@@ -1450,9 +1707,17 @@
         function setView(view) {
             portalState.activeView = getFirstAllowedPortalView(view);
             const activeView = portalState.activeView;
-            ui.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === activeView));
+            ui.navButtons.forEach((button) => {
+                const buttonView = button.dataset.view;
+                const isAddedServiceChild = buttonView === "addedServices" && ["kitting", "kittingRequests"].includes(activeView);
+                button.classList.toggle("active", buttonView === activeView || isAddedServiceChild);
+            });
             ui.inventoryPanel.classList.toggle("hidden", activeView !== "inventory");
             ui.itemsPanel.classList.toggle("hidden", activeView !== "items");
+            ui.addedServicesPanel?.classList.toggle("hidden", activeView !== "addedServices");
+            ui.kittingPanel?.classList.toggle("hidden", activeView !== "kitting");
+            ui.kittingRequestsPanel?.classList.toggle("hidden", activeView !== "kittingRequests");
+            ui.invoicesPanel?.classList.toggle("hidden", activeView !== "invoices");
             ui.orderPanel.classList.toggle("hidden", activeView !== "order");
             ui.inboundPanel.classList.toggle("hidden", activeView !== "inbound");
             ui.deliveryPanel.classList.toggle("hidden", activeView !== "delivery");
@@ -1465,9 +1730,18 @@
             });
             ui.itemsStatButton.classList.toggle("active", activeView === "items");
             ui.inventoryStatButton.classList.toggle("active", activeView === "inventory");
+            ui.invoicesStatButton?.classList.toggle("active", activeView === "invoices");
             if (activeView === "orders") renderOrders();
+            if (activeView === "addedServices") renderAddedServices();
+            if (activeView === "kittingRequests") renderKittingRequests();
             if (activeView === "deliveries") renderDeliveryAppointments();
             syncPortalFeedbackContext();
+        }
+
+        function renderAddedServices() {
+            if (ui.addedServiceKittingCount) {
+                ui.addedServiceKittingCount.textContent = String(portalState.kittingRequests.length);
+            }
         }
 
         function resetPortalFeedbackForm({ keepType = true } = {}) {
@@ -1480,6 +1754,8 @@
 
         function getPortalFeedbackViewLabel() {
             const activeButton = ui.navButtons.find((button) => button.dataset.view === portalState.activeView);
+            if (!activeButton && portalState.activeView === "kitting") return "Added Services / Kitting Request";
+            if (!activeButton && portalState.activeView === "kittingRequests") return "Added Services / Kitting Requests";
             return String(activeButton?.textContent || portalState.activeView || "Portal").trim();
         }
 
@@ -1581,6 +1857,7 @@
             ui.statPicked.textContent = num(portalState.orders.filter((order) => order.status === "PICKED").length);
             ui.statStaged.textContent = num(portalState.orders.filter((order) => order.status === "STAGED").length);
             ui.statShipped.textContent = num(portalState.orders.filter((order) => order.status === "SHIPPED").length);
+            if (ui.statUnpaidBalance) ui.statUnpaidBalance.textContent = money(portalState.invoiceSummary.unpaidBalance || 0);
         }
 
         function renderInventory() {
@@ -1654,6 +1931,136 @@
                     </div>
                 </article>
             `).join("");
+        }
+
+        function renderInvoices() {
+            if (ui.portalInvoiceTotalBilled) ui.portalInvoiceTotalBilled.textContent = money(portalState.invoiceSummary.totalBilled || 0);
+            if (ui.portalInvoiceUnpaidBalance) ui.portalInvoiceUnpaidBalance.textContent = money(portalState.invoiceSummary.unpaidBalance || 0);
+            if (ui.portalInvoiceCount) ui.portalInvoiceCount.textContent = num(portalState.invoiceSummary.invoiceCount || portalState.invoices.length);
+            if (!ui.portalInvoicesList) return;
+            if (!portalState.invoices.length) {
+                ui.portalInvoicesList.innerHTML = `<div class="empty">No invoices are available yet.</div>`;
+                return;
+            }
+            ui.portalInvoicesList.innerHTML = portalState.invoices.map((invoice) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(invoice.invoiceNumber)}</strong>
+                            <div class="meta">Issued ${esc(formatDate(invoice.invoiceDate))} | Due ${esc(formatDate(invoice.dueDate))}</div>
+                        </div>
+                        <span class="pill">${esc(invoice.status || "sent")}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div>Total ${esc(money(invoice.total))} | Paid ${esc(money(invoice.paidAmount))} | Balance ${esc(money(invoice.balanceDue))}</div>
+                        <div>${(invoice.lines || []).slice(0, 3).map((line) => esc(line.description || line.chargeType || "Invoice line")).join(", ") || "No line summary"}</div>
+                    </div>
+                    <div class="order-actions">
+                        <a class="btn ghost" href="/api/portal/invoices/${encodeURIComponent(invoice.id)}/pdf" target="_blank" rel="noopener">Download PDF</a>
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        function renderKittingSkuOptions() {
+            if (!ui.kittingSkuList) return;
+            const items = [...portalState.catalogItems].sort((a, b) => a.sku.localeCompare(b.sku));
+            ui.kittingSkuList.innerHTML = items.map((item) => `
+                <option value="${attr(item.sku)}">${esc([item.description, item.upc].filter(Boolean).join(" | "))}</option>
+            `).join("");
+        }
+
+        function resetKittingForm() {
+            ui.kittingForm?.reset();
+            showMessage(ui.kittingMessage, "", "info");
+        }
+
+        function renderKittingRequests() {
+            if (!ui.kittingRequestsList) return;
+            renderAddedServices();
+            if (!portalState.kittingRequests.length) {
+                ui.kittingRequestsList.innerHTML = `<div class="empty">No kitting requests submitted yet.</div>`;
+                return;
+            }
+            ui.kittingRequestsList.innerHTML = portalState.kittingRequests.map((request) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(request.requestCode)}</strong>
+                            <div class="meta">Created ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed by ${esc(request.requestedCompletionDate)}` : ""}</div>
+                        </div>
+                        <span class="pill">${esc(request.status)}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div><strong>Convert:</strong> ${esc(request.sourceQuantity)} of ${esc(request.sourceSku)} to ${esc(request.targetQuantity)} of ${esc(request.targetSku)}</div>
+                        <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
+                        ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
+                        ${request.warehouseNote ? `<div><strong>Warehouse note:</strong> ${esc(request.warehouseNote)}</div>` : ""}
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        async function refreshKittingRequests(silent = true) {
+            try {
+                const payload = await requestJson("/api/portal/kitting-requests");
+                portalState.kittingRequests = Array.isArray(payload?.requests) ? payload.requests.map(sanitizeKittingRequest).filter(Boolean) : [];
+                renderKittingRequests();
+                renderAddedServices();
+                if (!silent) setMessage("Kitting requests refreshed.", "success");
+                return portalState.kittingRequests;
+            } catch (error) {
+                if (!silent) setMessage(error.message, "error");
+                throw error;
+            }
+        }
+
+        function collectKittingRequestPayload() {
+            const sourceSku = norm(ui.kittingSourceSku?.value || "");
+            const targetSku = norm(ui.kittingTargetSku?.value || "");
+            const sourceQuantity = toPositiveInt(ui.kittingSourceQty?.value);
+            const targetQuantity = toPositiveInt(ui.kittingTargetQty?.value);
+            if (!sourceSku || !sourceQuantity || !targetSku || !targetQuantity) {
+                throw new Error("Enter source SKU, source quantity, target SKU, and target quantity.");
+            }
+            if (sourceSku === targetSku) {
+                throw new Error("Source and target SKU must be different.");
+            }
+            return {
+                salesOrderReference: ui.kittingSalesOrder?.value || "",
+                purchaseOrderReference: ui.kittingPurchaseOrder?.value || "",
+                sourceSku,
+                sourceQuantity,
+                targetSku,
+                targetQuantity,
+                requestedCompletionDate: ui.kittingNeededBy?.value || "",
+                requestedByName: ui.kittingRequestedBy?.value || "",
+                notes: ui.kittingNotes?.value || ""
+            };
+        }
+
+        async function submitKittingRequest(event) {
+            event.preventDefault();
+            try {
+                const payload = collectKittingRequestPayload();
+                const response = await runActionWithFeedback({
+                    button: event.submitter,
+                    busyLabel: "Submitting...",
+                    progressMessage: "Submitting kitting request and notifying the warehouse...",
+                    onProgress: (message, tone) => showMessage(ui.kittingMessage, message, tone)
+                }, async () => requestJson("/api/portal/kitting-requests", {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                }));
+                portalState.kittingRequests = [sanitizeKittingRequest(response.request), ...portalState.kittingRequests].filter(Boolean);
+                resetKittingForm();
+                renderKittingRequests();
+                renderAddedServices();
+                setView("kittingRequests");
+                setMessage(`Submitted kitting request ${response.request?.requestCode || ""}. The warehouse was notified.`, "success");
+            } catch (error) {
+                showMessage(ui.kittingMessage, error.message, "error");
+            }
         }
 
         function resetItemForm(item = null) {
@@ -2506,8 +2913,13 @@
             if (actions.warehouseEmailRequested) {
                 if (actions.warehouseEmailSent) {
                     successNotes.push(`emailed the warehouse${actions.ccRecipients?.length ? ` and copied ${actions.ccRecipients.join(", ")}` : ""}`);
+                } else if (actions.warehouseEmailScheduled) {
+                    const delayText = actions.warehouseEmailDelayMinutes
+                        ? `in about ${actions.warehouseEmailDelayMinutes} minutes`
+                        : "shortly";
+                    successNotes.push(`scheduled the pick-ticket email to the warehouse ${delayText}${actions.ccRecipients?.length ? ` and will copy ${actions.ccRecipients.join(", ")}` : ""}`);
                 } else if (actions.warehouseEmailError) {
-                    warningNotes.push(`the warehouse email did not send (${actions.warehouseEmailError})`);
+                    warningNotes.push(`the warehouse email could not be scheduled (${actions.warehouseEmailError})`);
                 }
             }
 
@@ -2523,7 +2935,7 @@
 
         function getPortalReleaseResultTone(response) {
             const actions = response?.releaseActions || {};
-            const hasWarning = actions.warehouseEmailRequested && !actions.warehouseEmailSent;
+            const hasWarning = actions.warehouseEmailRequested && !actions.warehouseEmailSent && !actions.warehouseEmailScheduled;
             return hasWarning ? "info" : "success";
         }
 
@@ -2595,7 +3007,7 @@
                     button: ui.portalReleaseSubmitBtn,
                     busyLabel: "Releasing...",
                     progressMessage: releaseOptions.notifyWarehouse
-                        ? "Releasing the order and preparing the warehouse email..."
+                        ? "Releasing the order and scheduling the warehouse pick-ticket email..."
                         : "Releasing the order...",
                     onProgress: setPortalReleaseMessage
                 }, async () => portalState.pendingReleaseHandler(releaseOptions));
@@ -3061,6 +3473,37 @@
             };
         }
 
+        function sanitizeKittingRequest(request) {
+            if (!request || typeof request !== "object") return null;
+            const requestCode = String(request.requestCode || request.request_code || "").trim();
+            const sourceSku = norm(request.sourceSku || request.source_sku);
+            const targetSku = norm(request.targetSku || request.target_sku);
+            if (!sourceSku || !targetSku) return null;
+            return {
+                id: String(request.id || ""),
+                requestCode: requestCode || `KIT-${String(request.id || "").padStart(6, "0")}`,
+                accountName: norm(request.accountName || request.account_name || portalState.account?.accountName || ""),
+                status: String(request.status || "SUBMITTED").trim().toUpperCase(),
+                salesOrderReference: String(request.salesOrderReference || request.sales_order_reference || "").trim(),
+                purchaseOrderReference: String(request.purchaseOrderReference || request.purchase_order_reference || "").trim(),
+                sourceSku,
+                sourceQuantity: toPositiveInt(request.sourceQuantity || request.source_quantity) || 0,
+                sourceDescription: String(request.sourceDescription || request.source_description || "").trim(),
+                targetSku,
+                targetQuantity: toPositiveInt(request.targetQuantity || request.target_quantity) || 0,
+                targetDescription: String(request.targetDescription || request.target_description || "").trim(),
+                requestedCompletionDate: String(request.requestedCompletionDate || request.requested_completion_date || "").slice(0, 10),
+                requestedByName: String(request.requestedByName || request.requested_by_name || "").trim(),
+                requestedByEmail: String(request.requestedByEmail || request.requested_by_email || "").trim(),
+                notes: String(request.notes || "").trim(),
+                warehouseNote: String(request.warehouseNote || request.warehouse_note || "").trim(),
+                completedAt: request.completedAt || request.completed_at || null,
+                completedBy: String(request.completedBy || request.completed_by || "").trim(),
+                createdAt: request.createdAt || request.created_at || null,
+                updatedAt: request.updatedAt || request.updated_at || null
+            };
+        }
+
         function sanitizeInbound(inbound) {
             if (!inbound || typeof inbound !== "object") return null;
             return {
@@ -3286,6 +3729,10 @@
 
         function num(value) {
             return new Intl.NumberFormat().format(value || 0);
+        }
+
+        function money(value) {
+            return new Intl.NumberFormat(undefined, { style: "currency", currency: "CAD" }).format(Number(value || 0));
         }
 
         function formatDate(value) {

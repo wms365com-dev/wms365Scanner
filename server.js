@@ -107,6 +107,8 @@ const APP_BUILD_FILES = [
     "industries.html",
     "book-demo.html",
     "integrations.html",
+    "affiliate-program.html",
+    "hiring.html",
     "implementation.html",
     "3pl-warehouse-management-software.html",
     "shopify-warehouse-management-software.html",
@@ -119,7 +121,8 @@ const APP_BUILD_FILES = [
     "index.html",
     "portal.html",
     "login.html",
-    "mobile-pick.html"
+    "mobile-pick.html",
+    "mobile-count.html"
 ];
 const APP_BUILD_INFO = createAppBuildInfo(ROOT_DIR, APP_BUILD_FILES);
 const DATABASE_URL = readEnv("DATABASE_PRIVATE_URL") || readEnv("DATABASE_URL") || "";
@@ -143,6 +146,8 @@ const STRIPE_SECRET_KEY = readEnv("STRIPE_SECRET_KEY", "");
 const STRIPE_WEBHOOK_SECRET = readEnv("STRIPE_WEBHOOK_SECRET", "");
 const STRIPE_PRICE_LAUNCH_WAREHOUSE = readEnv("STRIPE_PRICE_LAUNCH_WAREHOUSE", "");
 const STRIPE_PRICE_CUSTOMER_FACING = readEnv("STRIPE_PRICE_CUSTOMER_FACING", "");
+const STRIPE_LAUNCH_TRIAL_DAYS = Math.max(0, Number.parseInt(readEnv("STRIPE_LAUNCH_TRIAL_DAYS", "14") || "14", 10) || 0);
+const STRIPE_API_VERSION = readEnv("STRIPE_API_VERSION", "2026-02-25.clover");
 const SMTP_HOST = readEnv("SMTP_HOST", "");
 const SMTP_PORT = Number.parseInt(readEnv("SMTP_PORT", "0") || "0", 10) || 0;
 const SMTP_SECURE = /^(1|true|yes|on)$/i.test(readEnv("SMTP_SECURE", ""));
@@ -158,12 +163,16 @@ const RESEND_API_KEY = readEnv("RESEND_API_KEY", "");
 const RESEND_API_URL = readEnv("RESEND_API_URL", "https://api.resend.com").replace(/\/+$/, "");
 const SENDGRID_API_KEY = readEnv("SENDGRID_API_KEY", "");
 const SENDGRID_API_URL = readEnv("SENDGRID_API_URL", "https://api.sendgrid.com").replace(/\/+$/, "");
+const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES = Math.max(0, Number.parseInt(readEnv("PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES", "30") || "30", 10) || 0);
+const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES * 60 * 1000;
+const PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ADMIN_ACTIVITY_DIGEST_JOB_KEY = "ADMIN_ACTIVITY_DIGEST";
 const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const PORTAL_KITTING_REQUEST_STATUSES = ["SUBMITTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
 const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT"];
 const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL", "INVENTORY"];
 const WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
@@ -279,6 +288,8 @@ const STRIPE_CHECKOUT_PLANS = Object.freeze({
         priceId: STRIPE_PRICE_LAUNCH_WAREHOUSE,
         mode: "subscription",
         selfServe: true,
+        trialDays: STRIPE_LAUNCH_TRIAL_DAYS,
+        collectPaymentMethod: true,
         successPath: "/pricing?checkout=success&plan=launch-warehouse",
         cancelPath: "/pricing?checkout=cancelled&plan=launch-warehouse"
     },
@@ -488,10 +499,14 @@ let stripeClient = null;
 let storeIntegrationSchedulerStarted = false;
 let storeIntegrationSchedulerRunning = false;
 let storeIntegrationSchedulerTimer = null;
+let portalOrderPickTicketEmailSchedulerStarted = false;
+let portalOrderPickTicketEmailSchedulerRunning = false;
+let portalOrderPickTicketEmailSchedulerTimer = null;
 let adminActivityDigestSchedulerStarted = false;
 let adminActivityDigestSchedulerRunning = false;
 let adminActivityDigestSchedulerTimer = null;
 const storeIntegrationSyncLocks = new Set();
+const portalOrderPickTicketEmailLocks = new Set();
 
 const pool = DATABASE_URL
     ? new Pool({
@@ -534,7 +549,14 @@ app.use((req, res, next) => {
     return next();
 });
 
-app.use(express.json({ limit: "30mb" }));
+const jsonBodyParser = express.json({ limit: "30mb" });
+app.use((req, res, next) => {
+    const pathName = req.path || req.url || "";
+    if (pathName === "/api/site/stripe-webhook") {
+        return next();
+    }
+    return jsonBodyParser(req, res, next);
+});
 
 app.use(async (req, res, next) => {
     try {
@@ -1069,6 +1091,59 @@ app.use((req, _res, next) => {
 app.get("/api/state", async (req, res, next) => {
     try {
         res.json(await getServerState(pool, { billingEventLimit: 1000, appUser: req.appUser }));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory-counts", async (req, res, next) => {
+    try {
+        const count = await withTransaction((client) => submitInventoryCount(client, req.body || {}, req.appUser));
+        res.status(201).json({ success: true, count });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory-counts/:id", async (req, res, next) => {
+    try {
+        const countId = toPositiveInt(req.params.id);
+        if (!countId) throw httpError(400, "Inventory count id is required.");
+        const count = await withTransaction((client) => updateInventoryCount(client, countId, req.body || {}, req.appUser));
+        res.json({ success: true, count });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory-counts/:id/reject", async (req, res, next) => {
+    try {
+        const countId = toPositiveInt(req.params.id);
+        if (!countId) throw httpError(400, "Inventory count id is required.");
+        const count = await withTransaction((client) => setInventoryCountStatus(client, countId, "REJECTED", req.body || {}, req.appUser));
+        res.json({ success: true, count });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory-counts/:id/approve", async (req, res, next) => {
+    try {
+        const countId = toPositiveInt(req.params.id);
+        if (!countId) throw httpError(400, "Inventory count id is required.");
+        const count = await withTransaction((client) => setInventoryCountStatus(client, countId, "APPROVED", req.body || {}, req.appUser));
+        res.json({ success: true, count });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory-counts/:id/post", async (req, res, next) => {
+    try {
+        const countId = toPositiveInt(req.params.id);
+        if (!countId) throw httpError(400, "Inventory count id is required.");
+        const count = await withTransaction((client) => postInventoryCountAdjustment(client, countId, req.body || {}, req.appUser));
+        res.json({ success: true, count });
     } catch (error) {
         next(error);
     }
@@ -2804,6 +2879,47 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/kitting-requests", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
+        const requests = await getAdminPortalKittingRequests(pool, requestedAccount);
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            requests: isSuperAdminUser(req.appUser)
+                ? requests
+                : requests.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/kitting-requests/:id/status", async (req, res, next) => {
+    try {
+        const requestId = toPositiveInt(req.params.id);
+        if (!requestId) {
+            throw httpError(400, "A valid kitting request id is required.");
+        }
+        const status = normalizePortalKittingRequestStatus(req.body?.status);
+        if (!status) {
+            throw httpError(400, "A valid kitting request status is required.");
+        }
+        const request = await withTransaction((client) => updatePortalKittingRequestStatus(client, requestId, status, req.body || {}, req.appUser));
+        res.json({ success: true, request });
+        if (status === "COMPLETED" || status === "CANCELLED") {
+            queuePortalKittingRequestStatusEmail(request, {
+                actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse"
+            });
+        }
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
@@ -3556,6 +3672,39 @@ app.post("/api/portal/inbounds/:id/documents", async (req, res, next) => {
     }
 });
 
+app.get("/api/portal/kitting-requests", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            requests: await getPortalKittingRequestsForAccount(session.access.accountName)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
+app.post("/api/portal/kitting-requests", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        const request = await withTransaction((client) => savePortalKittingRequest(client, session.accessRow, req.body));
+        res.status(201).json({ success: true, request, warehouseEmailQueued: true });
+        queuePortalKittingRequestEmail(request, {
+            actorLabel: session.access.email || "Company portal"
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.get("/api/portal/delivery-appointments", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -3714,6 +3863,9 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
         const releaseActions = {
             warehouseEmailRequested: releaseOptions.notifyWarehouse,
             warehouseEmailSent: false,
+            warehouseEmailScheduled: false,
+            warehouseEmailScheduledAt: "",
+            warehouseEmailDelayMinutes: PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES,
             warehouseRecipients: [],
             ccRecipients: [...releaseOptions.ccEmails],
             warehouseEmailError: ""
@@ -3721,33 +3873,22 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
 
         if (releaseOptions.notifyWarehouse) {
             try {
-                const emailResult = await sendPortalOrderReleaseEmail(order, {
-                    ccRecipients: releaseOptions.ccEmails
+                const scheduleResult = await schedulePortalOrderReleaseEmailForSend(order, {
+                    ccRecipients: releaseOptions.ccEmails,
+                    actorLabel: session.access.email || "Company portal",
+                    reason: "Customer portal release"
                 });
-                releaseActions.warehouseEmailSent = true;
-                releaseActions.warehouseRecipients = emailResult.recipients;
-                releaseActions.ccRecipients = emailResult.ccRecipients;
-
-                await withTransaction(async (client) => {
-                    await insertActivity(
-                        client,
-                        "order",
-                        `Emailed warehouse release ${order.orderCode}`,
-                        [
-                            order.accountName,
-                            emailResult.recipients.join(", "),
-                            emailResult.ccRecipients.length ? `CC ${emailResult.ccRecipients.join(", ")}` : "",
-                            session.access.email || "Company portal"
-                        ].filter(Boolean).join(" | ")
-                    );
-                });
+                releaseActions.warehouseEmailScheduled = true;
+                releaseActions.warehouseEmailScheduledAt = scheduleResult.scheduledAt;
+                releaseActions.warehouseRecipients = scheduleResult.recipients;
+                releaseActions.ccRecipients = scheduleResult.ccRecipients;
             } catch (error) {
-                releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be sent.";
+                releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be scheduled.";
                 try {
                     await withTransaction((client) => insertActivity(
                         client,
                         "order",
-                        `Warehouse release email failed for portal order ${order.orderCode}`,
+                        `Warehouse pick ticket email schedule failed for portal order ${order.orderCode}`,
                         [
                             order.accountName,
                             releaseActions.warehouseEmailError,
@@ -3963,6 +4104,34 @@ app.get("/mobile-pick.html", async (req, res) => {
     }
 });
 
+app.get("/mobile-count", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.sendFile(path.join(ROOT_DIR, "mobile-count.html"));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, "/mobile-count"));
+    }
+});
+
+app.get("/mobile-count.html", async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.sendFile(path.join(ROOT_DIR, "mobile-count.html"));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, "/mobile-count"));
+    }
+});
+
 app.get("/login", (_req, res) => {
     res.setHeader("X-Robots-Tag", "noindex, nofollow");
     res.sendFile(path.join(ROOT_DIR, "login.html"));
@@ -4112,6 +4281,22 @@ app.get("/integrations", (req, res) => {
 
 app.get("/integrations.html", (req, res) => {
     sendMarketingPage(req, res, "integrations.html");
+});
+
+app.get("/affiliate-program", (req, res) => {
+    sendMarketingPage(req, res, "affiliate-program.html");
+});
+
+app.get("/affiliate-program.html", (req, res) => {
+    sendMarketingPage(req, res, "affiliate-program.html");
+});
+
+app.get("/hiring", (req, res) => {
+    sendMarketingPage(req, res, "hiring.html");
+});
+
+app.get("/hiring.html", (req, res) => {
+    sendMarketingPage(req, res, "hiring.html");
 });
 
 app.get("/implementation", (req, res) => {
@@ -4564,6 +4749,70 @@ async function initializeDatabase() {
     await pool.query("update inventory_lines set lot_number = '' where lot_number is null");
     await pool.query("update inventory_lines set expiration_date = '' where expiration_date is null");
     await pool.query("alter table inventory_lines drop constraint if exists inventory_lines_location_sku_unique");
+
+    await pool.query(`
+        create table if not exists inventory_count_records (
+            id bigserial primary key,
+            account_name text not null,
+            location text not null,
+            sku text not null,
+            upc text not null default '',
+            lot_number text not null default '',
+            expiration_date text not null default '',
+            count_photo text not null default '',
+            location_missing boolean not null default false,
+            sku_missing boolean not null default false,
+            tracking_level text not null default 'CASE',
+            counted_cases integer not null check (counted_cases >= 0),
+            counted_quantity integer not null check (counted_quantity >= 0),
+            system_quantity integer not null default 0 check (system_quantity >= 0),
+            variance_quantity integer not null default 0,
+            status text not null default 'PENDING',
+            submitted_by text not null default '',
+            submitted_at timestamptz not null default now(),
+            reviewed_by text not null default '',
+            reviewed_at timestamptz,
+            posted_by text not null default '',
+            posted_at timestamptz,
+            review_note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table inventory_count_records add column if not exists upc text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists lot_number text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists expiration_date text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists count_photo text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists location_missing boolean not null default false;");
+    await pool.query("alter table inventory_count_records add column if not exists sku_missing boolean not null default false;");
+    await pool.query("alter table inventory_count_records add column if not exists tracking_level text not null default 'CASE';");
+    await pool.query("alter table inventory_count_records add column if not exists counted_cases integer not null default 0;");
+    await pool.query("alter table inventory_count_records add column if not exists counted_quantity integer not null default 0;");
+    await pool.query("alter table inventory_count_records add column if not exists system_quantity integer not null default 0;");
+    await pool.query("alter table inventory_count_records add column if not exists variance_quantity integer not null default 0;");
+    await pool.query("alter table inventory_count_records add column if not exists status text not null default 'PENDING';");
+    await pool.query("alter table inventory_count_records add column if not exists submitted_by text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists submitted_at timestamptz not null default now();");
+    await pool.query("alter table inventory_count_records add column if not exists reviewed_by text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists reviewed_at timestamptz;");
+    await pool.query("alter table inventory_count_records add column if not exists posted_by text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists posted_at timestamptz;");
+    await pool.query("alter table inventory_count_records add column if not exists review_note text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists created_at timestamptz not null default now();");
+    await pool.query("alter table inventory_count_records add column if not exists updated_at timestamptz not null default now();");
+    await pool.query("alter table inventory_count_records drop constraint if exists inventory_count_records_status_check;");
+    await pool.query("alter table inventory_count_records add constraint inventory_count_records_status_check check (status in ('PENDING', 'APPROVED', 'REJECTED', 'POSTED'))");
+
+    await pool.query(`
+        create table if not exists inventory_count_audit (
+            id bigserial primary key,
+            count_id bigint not null references inventory_count_records(id) on delete cascade,
+            action text not null,
+            actor_email text not null default '',
+            details jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        );
+    `);
 
     await pool.query(`
         create table if not exists activity_log (
@@ -5113,6 +5362,12 @@ async function initializeDatabase() {
             shipped_tracking_reference text not null default '',
             shipped_confirmation_note text not null default '',
             released_at timestamptz,
+            pick_ticket_email_status text not null default '',
+            pick_ticket_email_scheduled_at timestamptz,
+            pick_ticket_email_sent_at timestamptz,
+            pick_ticket_email_last_error text not null default '',
+            pick_ticket_email_cc text not null default '',
+            pick_ticket_email_requested_by text not null default '',
             archived_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
@@ -5131,9 +5386,16 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
     await pool.query("alter table portal_orders add column if not exists ship_to_phone text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists pick_ticket_email_status text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists pick_ticket_email_scheduled_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists pick_ticket_email_sent_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists pick_ticket_email_last_error text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists pick_ticket_email_cc text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists pick_ticket_email_requested_by text not null default ''");
     await pool.query("alter table portal_orders add column if not exists archived_at timestamptz");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
     await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED'))");
+    await pool.query("create index if not exists idx_portal_orders_pick_ticket_email_due on portal_orders (pick_ticket_email_status, pick_ticket_email_scheduled_at)");
 
     await pool.query(`
         create table if not exists portal_ship_to_addresses (
@@ -5257,6 +5519,38 @@ async function initializeDatabase() {
     await pool.query("alter table portal_inbound_lines add column if not exists expiration_date date");
     await pool.query("update portal_inbounds set inbound_code = null where inbound_code = ''");
     await pool.query("update portal_inbounds set inbound_code = concat('INB-', lpad(id::text, 6, '0')) where inbound_code is null");
+
+    await pool.query(`
+        create table if not exists portal_kitting_requests (
+            id bigserial primary key,
+            request_code text,
+            account_name text not null,
+            portal_access_id bigint references portal_vendor_access(id) on delete set null,
+            status text not null default 'SUBMITTED',
+            sales_order_reference text not null default '',
+            purchase_order_reference text not null default '',
+            source_sku text not null,
+            source_quantity integer not null check (source_quantity > 0),
+            target_sku text not null,
+            target_quantity integer not null check (target_quantity > 0),
+            requested_completion_date date,
+            requested_by_name text not null default '',
+            requested_by_email text not null default '',
+            notes text not null default '',
+            warehouse_note text not null default '',
+            completed_at timestamptz,
+            completed_by text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint portal_kitting_requests_status_check check (status in ('SUBMITTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'))
+        );
+    `);
+    await pool.query("alter table portal_kitting_requests alter column request_code drop not null");
+    await pool.query("alter table portal_kitting_requests alter column request_code drop default");
+    await pool.query("alter table portal_kitting_requests drop constraint if exists portal_kitting_requests_status_check");
+    await pool.query("alter table portal_kitting_requests add constraint portal_kitting_requests_status_check check (status in ('SUBMITTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'))");
+    await pool.query("update portal_kitting_requests set request_code = null where request_code = ''");
+    await pool.query("update portal_kitting_requests set request_code = concat('KIT-', lpad(id::text, 6, '0')) where request_code is null");
 
     await pool.query(`
         create table if not exists portal_order_lines (
@@ -5541,6 +5835,9 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_lines_expiration_date on inventory_lines (expiration_date);");
     await pool.query("create index if not exists idx_inventory_lines_upc on inventory_lines (upc);");
     await pool.query("create index if not exists idx_inventory_lines_tracking_level on inventory_lines (tracking_level);");
+    await pool.query("create index if not exists idx_inventory_count_records_status_submitted on inventory_count_records (status, submitted_at desc);");
+    await pool.query("create index if not exists idx_inventory_count_records_account_location_sku on inventory_count_records (account_name, location, sku);");
+    await pool.query("create index if not exists idx_inventory_count_audit_count_id on inventory_count_audit (count_id, created_at desc);");
     await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
     await pool.query("create index if not exists idx_owner_accounts_name on owner_accounts (name);");
     await pool.query("create index if not exists idx_fulfillment_locations_code on fulfillment_locations (code);");
@@ -5555,6 +5852,9 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_portal_orders_order_code_unique on portal_orders (order_code);");
     await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
     await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
+    await pool.query("create unique index if not exists idx_portal_kitting_requests_code_unique on portal_kitting_requests (request_code);");
+    await pool.query("create index if not exists idx_portal_kitting_requests_account on portal_kitting_requests (account_name, created_at desc);");
+    await pool.query("create index if not exists idx_portal_kitting_requests_status on portal_kitting_requests (status, created_at desc);");
     await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_order_id on portal_order_allocations (order_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_order_line_id on portal_order_allocations (order_line_id);");
@@ -6589,6 +6889,7 @@ async function initializeDatabaseWithRetry() {
             databaseReady = true;
             databaseErrorMessage = "";
             ensureStoreIntegrationSchedulerStarted();
+            ensurePortalOrderPickTicketEmailSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
             console.log("PostgreSQL schema ready.");
         } catch (error) {
@@ -6608,7 +6909,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         : client.query("select * from billing_events order by service_date desc, id desc");
     const warehouseTasksQuery = getWarehouseTaskRowsForAppUser(client, appUser, { activeOnly: true, limit: 240 });
 
-    const [inventoryResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, warehouseTaskResult, metaResult] = await Promise.all([
+    const [inventoryResult, inventoryCountResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, warehouseTaskResult, metaResult] = await Promise.all([
         client.query(
             `
                 select
@@ -6636,6 +6937,14 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
             `,
             [ACTIVE_PORTAL_ORDER_STATUSES]
         ),
+        client.query(`
+            select *
+            from inventory_count_records
+            where status <> 'POSTED'
+               or posted_at >= now() - interval '30 days'
+            order by submitted_at desc, id desc
+            limit 300
+        `),
         client.query("select * from activity_log order by created_at desc limit $1", [80]),
         client.query("select * from bin_locations order by code asc"),
         client.query("select * from owner_accounts order by name asc"),
@@ -6668,6 +6977,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
             select nullif(
                 greatest(
                     coalesce((select max(updated_at) from inventory_lines), to_timestamp(0)),
+                    coalesce((select max(updated_at) from inventory_count_records), to_timestamp(0)),
                     coalesce((select max(created_at) from activity_log), to_timestamp(0)),
                     coalesce((select max(updated_at) from bin_locations), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_accounts), to_timestamp(0)),
@@ -6677,6 +6987,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce((select max(updated_at) from item_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from pallet_records), to_timestamp(0)),
                     coalesce((select max(updated_at) from portal_orders), to_timestamp(0)),
+                    coalesce((select max(updated_at) from portal_kitting_requests), to_timestamp(0)),
                     coalesce((select max(updated_at) from portal_order_allocations), to_timestamp(0)),
                     coalesce((select max(updated_at) from warehouse_tasks), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
@@ -6696,6 +7007,9 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
     const inventoryRows = companyScoped
         ? filterRowsByAllowedCompanies(inventoryResult.rows, accessibleCompanies, (row) => row.account_name)
         : inventoryResult.rows;
+    const inventoryCountRows = companyScoped
+        ? filterRowsByAllowedCompanies(inventoryCountResult.rows, accessibleCompanies, (row) => row.account_name)
+        : inventoryCountResult.rows;
     const palletRows = companyScoped
         ? filterRowsByAllowedCompanies(palletResult.rows, accessibleCompanies, (row) => row.account_name)
         : palletResult.rows;
@@ -6737,6 +7051,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
 
     return {
         inventory: inventoryRows.map(mapInventoryRow),
+        inventoryCounts: inventoryCountRows.map(mapInventoryCountRow),
         pallets: palletRows.map(mapPalletRecordRow),
         activity: activityRows.map(mapActivityRow),
         masters: {
@@ -10210,6 +10525,196 @@ async function getPortalItemsForAccount(accountName, client = pool) {
     return result.rows.map(mapPortalItemRow);
 }
 
+function normalizePortalKittingRequestStatus(value) {
+    const normalized = normalizeText(value || "SUBMITTED");
+    return PORTAL_KITTING_REQUEST_STATUSES.includes(normalized) ? normalized : "";
+}
+
+function makePortalKittingRequestCode(id) {
+    return `KIT-${String(id).padStart(6, "0")}`;
+}
+
+function sanitizePortalKittingRequestInput(raw, { accountName = "", requestedByEmail = "" } = {}) {
+    const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const sourceSku = normalizeText(input.sourceSku || input.source_sku || input.fromSku || "");
+    const targetSku = normalizeText(input.targetSku || input.target_sku || input.toSku || "");
+    const sourceQuantity = toPositiveInt(input.sourceQuantity || input.source_quantity || input.fromQuantity || input.quantity);
+    const targetQuantity = toPositiveInt(input.targetQuantity || input.target_quantity || input.toQuantity);
+
+    if (!sourceSku || !sourceQuantity || !targetSku || !targetQuantity) {
+        throw httpError(400, "Source SKU, source quantity, target SKU, and target quantity are required.");
+    }
+    if (sourceSku === targetSku) {
+        throw httpError(400, "Source and target SKU must be different.");
+    }
+
+    return {
+        accountName: normalizeText(accountName),
+        salesOrderReference: normalizeFreeText(input.salesOrderReference || input.sales_order_reference || input.salesOrder || ""),
+        purchaseOrderReference: normalizeFreeText(input.purchaseOrderReference || input.purchase_order_reference || input.purchaseOrder || ""),
+        sourceSku,
+        sourceQuantity,
+        targetSku,
+        targetQuantity,
+        requestedCompletionDate: normalizeDateInput(input.requestedCompletionDate || input.requested_completion_date || input.neededBy || ""),
+        requestedByName: normalizeFreeText(input.requestedByName || input.requested_by_name || ""),
+        requestedByEmail: normalizeEmail(input.requestedByEmail || input.requested_by_email || requestedByEmail || ""),
+        notes: normalizeFreeText(input.notes || input.note || "")
+    };
+}
+
+async function getPortalKittingRequestsForAccount(accountName, client = pool) {
+    const normalizedAccount = normalizeText(accountName);
+    const result = await client.query(
+        `
+            select
+                k.*,
+                source_item.description as source_description,
+                source_item.tracking_level as source_tracking_level,
+                target_item.description as target_description,
+                target_item.tracking_level as target_tracking_level
+            from portal_kitting_requests k
+            left join item_catalog source_item
+              on source_item.account_name = k.account_name
+             and source_item.sku = k.source_sku
+            left join item_catalog target_item
+              on target_item.account_name = k.account_name
+             and target_item.sku = k.target_sku
+            where k.account_name = $1
+            order by k.created_at desc, k.id desc
+            limit 100
+        `,
+        [normalizedAccount]
+    );
+    return result.rows.map(mapPortalKittingRequestRow);
+}
+
+async function getAdminPortalKittingRequests(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    const params = [];
+    let whereSql = "";
+    if (normalizedAccount) {
+        params.push(normalizedAccount);
+        whereSql = "where k.account_name = $1";
+    }
+    const result = await client.query(
+        `
+            select
+                k.*,
+                source_item.description as source_description,
+                source_item.tracking_level as source_tracking_level,
+                target_item.description as target_description,
+                target_item.tracking_level as target_tracking_level
+            from portal_kitting_requests k
+            left join item_catalog source_item
+              on source_item.account_name = k.account_name
+             and source_item.sku = k.source_sku
+            left join item_catalog target_item
+              on target_item.account_name = k.account_name
+             and target_item.sku = k.target_sku
+            ${whereSql}
+            order by k.created_at desc, k.id desc
+            limit 200
+        `,
+        params
+    );
+    return result.rows.map(mapPortalKittingRequestRow);
+}
+
+async function savePortalKittingRequest(client, accessRow, rawRequest) {
+    const access = mapPortalAccessRow(accessRow);
+    const request = sanitizePortalKittingRequestInput(rawRequest, {
+        accountName: access.accountName,
+        requestedByEmail: access.email
+    });
+
+    const sourceItem = await findCatalogItem(client, request.accountName, request.sourceSku, request.sourceSku);
+    if (!sourceItem) {
+        throw httpError(404, "The source SKU could not be found in your item master.");
+    }
+    const targetItem = await findCatalogItem(client, request.accountName, request.targetSku, request.targetSku);
+    if (!targetItem) {
+        throw httpError(404, "The target SKU could not be found in your item master.");
+    }
+
+    const insertResult = await client.query(
+        `
+            insert into portal_kitting_requests (
+                account_name, portal_access_id, sales_order_reference, purchase_order_reference,
+                source_sku, source_quantity, target_sku, target_quantity,
+                requested_completion_date, requested_by_name, requested_by_email, notes
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            returning *
+        `,
+        [
+            request.accountName,
+            access.id || null,
+            request.salesOrderReference,
+            request.purchaseOrderReference,
+            request.sourceSku,
+            request.sourceQuantity,
+            request.targetSku,
+            request.targetQuantity,
+            request.requestedCompletionDate || null,
+            request.requestedByName,
+            request.requestedByEmail,
+            request.notes
+        ]
+    );
+    const requestId = insertResult.rows[0].id;
+    const requestCode = makePortalKittingRequestCode(requestId);
+    await client.query("update portal_kitting_requests set request_code = $2, updated_at = now() where id = $1", [requestId, requestCode]);
+    await insertActivity(
+        client,
+        "kitting",
+        `Submitted kitting request ${requestCode}`,
+        [
+            request.accountName,
+            `${request.sourceQuantity} of ${request.sourceSku} -> ${request.targetQuantity} of ${request.targetSku}`,
+            request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "",
+            request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""
+        ].filter(Boolean).join(" | ")
+    );
+    return (await getPortalKittingRequestsForAccount(request.accountName, client)).find((entry) => entry.id === String(requestId));
+}
+
+async function updatePortalKittingRequestStatus(client, requestId, status, rawInput = {}, appUser = null) {
+    const normalizedStatus = normalizePortalKittingRequestStatus(status);
+    if (!normalizedStatus) {
+        throw httpError(400, "Choose a valid kitting request status.");
+    }
+    const existingResult = await client.query("select * from portal_kitting_requests where id = $1 limit 1", [requestId]);
+    if (existingResult.rowCount !== 1) {
+        throw httpError(404, "That kitting request could not be found.");
+    }
+    const existing = existingResult.rows[0];
+    await assertAppUserCompanyAccess(client, appUser, existing.account_name);
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    const warehouseNote = normalizeFreeText(rawInput?.warehouseNote || rawInput?.warehouse_note || "");
+    await client.query(
+        `
+            update portal_kitting_requests
+            set
+                status = $2,
+                warehouse_note = case when $3 <> '' then $3 else warehouse_note end,
+                completed_at = case when $2 = 'COMPLETED' then now() else completed_at end,
+                completed_by = case when $2 = 'COMPLETED' then $4 else completed_by end,
+                updated_at = now()
+            where id = $1
+        `,
+        [requestId, normalizedStatus, warehouseNote, actor]
+    );
+    await insertActivity(
+        client,
+        "kitting",
+        `Updated kitting request ${existing.request_code || makePortalKittingRequestCode(existing.id)} to ${normalizedStatus}`,
+        [existing.account_name, warehouseNote, actor].filter(Boolean).join(" | ")
+    );
+    const updated = (await getAdminPortalKittingRequests(client, existing.account_name)).find((entry) => entry.id === String(requestId));
+    return updated;
+}
+
 function buildPortalInventoryExportCsv(items) {
     const rows = [
         ["SKU", "UPC", "Description", "Tracking", "On Hand Qty", "Reserved Qty", "Available Qty", "Location Count", "Locations"]
@@ -11216,6 +11721,12 @@ async function releasePortalOrderForAccount(
             set
                 status = 'RELEASED',
                 released_at = now(),
+                pick_ticket_email_status = '',
+                pick_ticket_email_scheduled_at = null,
+                pick_ticket_email_sent_at = null,
+                pick_ticket_email_last_error = '',
+                pick_ticket_email_cc = '',
+                pick_ticket_email_requested_by = '',
                 updated_at = now()
             where id = $1
         `,
@@ -13593,6 +14104,8 @@ function getStripeCheckoutPlanSummaries() {
         key: plan.key,
         label: plan.label,
         marketingPriceLabel: plan.marketingPriceLabel || "",
+        trialDays: Number(plan.trialDays || 0) || 0,
+        collectPaymentMethod: plan.collectPaymentMethod === true,
         selfServe: plan.selfServe === true,
         enabled: !!Stripe && !!STRIPE_SECRET_KEY && !!plan.priceId
     }));
@@ -13607,7 +14120,9 @@ function getStripeClient() {
         throw httpError(503, "Stripe checkout is not configured yet. Add STRIPE_SECRET_KEY first.");
     }
     if (!stripeClient) {
-        stripeClient = new Stripe(STRIPE_SECRET_KEY);
+        stripeClient = new Stripe(STRIPE_SECRET_KEY, {
+            apiVersion: STRIPE_API_VERSION
+        });
     }
     return stripeClient;
 }
@@ -13640,7 +14155,7 @@ async function createStripeCheckoutSessionForSite(req, input) {
     const sourcePage = normalizeFreeText(input?.sourcePage || "");
     const successUrl = `${origin}${plan.successPath}${plan.successPath.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
 
-    return await stripe.checkout.sessions.create({
+    const sessionInput = {
         mode: plan.mode,
         line_items: [
             {
@@ -13658,7 +14173,8 @@ async function createStripeCheckoutSessionForSite(req, input) {
             planLabel: plan.label,
             companyName: companyName || "",
             fullName: fullName || "",
-            sourcePage: sourcePage || ""
+            sourcePage: sourcePage || "",
+            trialDays: String(plan.trialDays || 0)
         },
         subscription_data: {
             metadata: {
@@ -13666,10 +14182,20 @@ async function createStripeCheckoutSessionForSite(req, input) {
                 planLabel: plan.label,
                 companyName: companyName || "",
                 fullName: fullName || "",
-                sourcePage: sourcePage || ""
+                sourcePage: sourcePage || "",
+                trialDays: String(plan.trialDays || 0)
             }
         }
-    });
+    };
+
+    if (plan.collectPaymentMethod === true) {
+        sessionInput.payment_method_collection = "always";
+    }
+    if (plan.trialDays > 0 && plan.mode === "subscription") {
+        sessionInput.subscription_data.trial_period_days = plan.trialDays;
+    }
+
+    return await stripe.checkout.sessions.create(sessionInput);
 }
 
 async function getPortalShipmentRecipients(client, accountName) {
@@ -14582,23 +15108,24 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
     const lines = [
         testMode ? "TEST EMAIL ONLY - no order status was changed." : "",
         testMode && testRequestedBy ? `Requested by: ${testRequestedBy}` : "",
-        `Portal order released: ${order.orderCode}`,
+        `WMS365 PICK TICKET: ${order.orderCode}`,
         `Company: ${order.accountName}`,
-        `Status: ${order.status}`,
+        `Pick Status: ${formatPickTicketWorkflowStatus(order)}`,
         order.poNumber ? `PO Number: ${order.poNumber}` : "",
         order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
         order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
         order.contactName ? `Customer Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
+        order.orderNotes ? `Order Notes: ${order.orderNotes}` : "",
         ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
-        "Pick Ticket: attached as PDF",
+        `Printable PDF: wms365-${order.orderCode || "order"}-pick-ticket.pdf`,
         "",
-        "Order Lines:"
+        "Pick Lines:"
     ];
 
     order.lines.forEach((line) => {
         lines.push(
-            `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
+            `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)} | Pick: ${formatPickTicketLocationText(line)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
         );
     });
 
@@ -14606,40 +15133,69 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
 }
 
 function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
-    const linesHtml = order.lines.map((line) => `
+    const pickTicketFileName = normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket.pdf`);
+    const linesHtml = order.lines.map((line, index) => `
         <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${index + 1}</td>
             <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
             <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "-")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatPickTicketLocationText(line))}</td>
             <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.upc || "-")}</td>
         </tr>
     `).join("");
 
     return `
-        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:860px;">
             ${testMode ? `
                 <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;">
                     <strong>TEST EMAIL ONLY.</strong> No order status was changed.${testRequestedBy ? ` Requested by ${escapeHtml(testRequestedBy)}.` : ""}
                 </div>
             ` : ""}
-            <h2 style="margin:0 0 12px;">Portal Order Released</h2>
-            <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> was released from the customer portal and is ready for warehouse review.</p>
-            <p style="margin:0 0 16px;padding:10px 12px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;">Pick ticket PDF is attached for warehouse picking.</p>
-            <table style="border-collapse:collapse;width:100%;max-width:720px;">
-                <tr><td style="padding:6px 0;font-weight:600;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
-                <tr><td style="padding:6px 0;font-weight:600;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
-                <tr><td style="padding:6px 0;font-weight:600;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
-                <tr><td style="padding:6px 0;font-weight:600;">Customer Contact</td><td style="padding:6px 0;">${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</td></tr>
-                <tr><td style="padding:6px 0;font-weight:600;">Ship To</td><td style="padding:6px 0;">${escapeHtml(formatPortalOrderShipToAddress(order) || "-")}</td></tr>
-                ${ccRecipients.length ? `<tr><td style="padding:6px 0;font-weight:600;">CC</td><td style="padding:6px 0;">${escapeHtml(ccRecipients.join(", "))}</td></tr>` : ""}
+            <div style="margin:0 0 16px;padding:16px 18px;border:1px solid #dbeafe;background:#eff6ff;">
+                <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#1d4ed8;font-weight:700;">Warehouse Pick Ticket</div>
+                <h2 style="margin:4px 0 8px;font-size:24px;line-height:1.2;">Pick Ticket ${escapeHtml(order.orderCode || "")}</h2>
+                <p style="margin:0;color:#1f2937;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> is released and ready to pick. The printable PDF pick ticket is attached as <strong>${escapeHtml(pickTicketFileName)}</strong>.</p>
+            </div>
+            <table style="border-collapse:collapse;width:100%;margin:0 0 18px;">
+                <tr>
+                    <td style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;width:50%;">
+                        <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">Order Info</div>
+                        <div><strong>PO:</strong> ${escapeHtml(order.poNumber || "-")}</div>
+                        <div><strong>Ship Ref:</strong> ${escapeHtml(order.shippingReference || "-")}</div>
+                        <div><strong>Requested Ship Date:</strong> ${escapeHtml(order.requestedShipDate || "-")}</div>
+                        <div><strong>Customer Contact:</strong> ${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</div>
+                    </td>
+                    <td style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;width:50%;">
+                        <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">Ship To</div>
+                        <div>${escapeHtml(formatPortalOrderShipToAddress(order) || "-")}</div>
+                    </td>
+                </tr>
+                ${order.orderNotes ? `
+                    <tr>
+                        <td colspan="2" style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;">
+                            <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">Order Notes</div>
+                            <div>${escapeHtml(order.orderNotes)}</div>
+                        </td>
+                    </tr>
+                ` : ""}
+                ${ccRecipients.length ? `
+                    <tr>
+                        <td colspan="2" style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;">
+                            <strong>CC:</strong> ${escapeHtml(ccRecipients.join(", "))}
+                        </td>
+                    </tr>
+                ` : ""}
             </table>
-            <p style="margin:20px 0 8px;font-weight:600;">Order Lines</p>
-            <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
+            <p style="margin:20px 0 8px;font-weight:700;font-size:16px;">Pick Lines</p>
+            <table style="border-collapse:collapse;width:100%;border:1px solid #e5e7eb;">
                 <thead>
                     <tr style="background:#f9fafb;">
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Line</th>
                         <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Quantity</th>
                         <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Qty</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Pick Location / Lot / Expiration</th>
                         <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">UPC</th>
                     </tr>
                 </thead>
@@ -14753,13 +15309,19 @@ function formatPickTicketLocationText(line) {
     ].filter(Boolean).join(" | ")).join("; ");
 }
 
+function formatPickTicketWorkflowStatus(order) {
+    const status = String(order?.status || "").toUpperCase();
+    if (status === "RELEASED") return "READY TO PICK";
+    return status || "READY TO PICK";
+}
+
 function buildPortalOrderPickTicketPdfAttachment(order) {
     const lines = [
         "WMS365 PICK TICKET",
         "",
         `Order: ${order.orderCode || ""}`,
         `Company: ${order.accountName || ""}`,
-        `Status: ${order.status || ""}`,
+        `Pick Status: ${formatPickTicketWorkflowStatus(order)}`,
         `PO Number: ${order.poNumber || "-"}`,
         `Shipping Reference: ${order.shippingReference || "-"}`,
         `Requested Ship Date: ${order.requestedShipDate || "-"}`,
@@ -14816,7 +15378,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
         to: recipients.join(", "),
         cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
         replyTo: SMTP_REPLY_TO || undefined,
-        subject: `${subjectPrefix || ""}Portal Order Released - ${order.orderCode}`,
+        subject: `${subjectPrefix || ""}Pick Ticket - ${order.orderCode} - ${order.accountName}`,
         text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
         html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
         attachments: [buildPortalOrderPickTicketPdfAttachment(order)],
@@ -14834,45 +15396,452 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     };
 }
 
-function queuePortalOrderReleaseEmail(order, { ccRecipients = [], actorLabel = "System", reason = "" } = {}) {
-    if (!order?.id || !order?.accountName) return;
-    const orderLabel = order.orderCode || String(order.id);
-    const normalizedCcRecipients = Array.isArray(ccRecipients) ? ccRecipients : [];
+function formatKittingRequestSummary(request) {
+    return [
+        `${request.sourceQuantity} of ${request.sourceSku}`,
+        "to",
+        `${request.targetQuantity} of ${request.targetSku}`
+    ].join(" ");
+}
 
+function buildPortalKittingRequestEmailText(request) {
+    return [
+        `Kitting request ${request.requestCode}`,
+        `Company: ${request.accountName}`,
+        `Status: ${request.status}`,
+        `Request: ${formatKittingRequestSummary(request)}`,
+        request.salesOrderReference ? `Sales Order: ${request.salesOrderReference}` : "",
+        request.purchaseOrderReference ? `Purchase Order: ${request.purchaseOrderReference}` : "",
+        request.requestedCompletionDate ? `Needed By: ${request.requestedCompletionDate}` : "",
+        request.requestedByEmail || request.requestedByName ? `Requested By: ${[request.requestedByName, request.requestedByEmail].filter(Boolean).join(" | ")}` : "",
+        request.sourceDescription ? `Source: ${request.sourceDescription}` : "",
+        request.targetDescription ? `Target: ${request.targetDescription}` : "",
+        request.notes ? `Notes: ${request.notes}` : "",
+        "",
+        "Warehouse action required: review the request, complete the physical kitting/re-SKU work, then use the warehouse Convert Item process to update inventory."
+    ].filter(Boolean).join("\n");
+}
+
+function buildPortalKittingRequestEmailHtml(request) {
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:760px;">
+            <div style="margin:0 0 16px;padding:16px 18px;border:1px solid #dbeafe;background:#eff6ff;">
+                <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#1d4ed8;font-weight:700;">Warehouse Kitting Request</div>
+                <h2 style="margin:4px 0 8px;font-size:24px;line-height:1.2;">${escapeHtml(request.requestCode || "Kitting Request")}</h2>
+                <p style="margin:0;color:#1f2937;"><strong>${escapeHtml(request.accountName)}</strong> requested ${escapeHtml(formatKittingRequestSummary(request))}.</p>
+            </div>
+            <table style="border-collapse:collapse;width:100%;margin:0 0 18px;">
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Sales Order</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.salesOrderReference || "-")}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Purchase Order</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.purchaseOrderReference || "-")}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Source SKU</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.sourceSku)} | Qty ${escapeHtml(String(request.sourceQuantity))}${request.sourceDescription ? ` | ${escapeHtml(request.sourceDescription)}` : ""}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Target SKU</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.targetSku)} | Qty ${escapeHtml(String(request.targetQuantity))}${request.targetDescription ? ` | ${escapeHtml(request.targetDescription)}` : ""}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Needed By</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.requestedCompletionDate || "-")}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Requested By</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml([request.requestedByName, request.requestedByEmail].filter(Boolean).join(" | ") || "-")}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Notes</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.notes || "-")}</td></tr>
+            </table>
+            <p style="margin:0;padding:12px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;">Warehouse action required: complete the physical kitting/re-SKU work, then use Convert Item to update inventory.</p>
+        </div>
+    `;
+}
+
+async function sendPortalKittingRequestEmail(request) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    }
+    const recipients = await getPortalOrderReleaseRecipients(pool, request.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No warehouse notification email is configured for this company.");
+    }
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `Kitting Request - ${request.requestCode} - ${request.accountName}`,
+        text: buildPortalKittingRequestEmailText(request),
+        html: buildPortalKittingRequestEmailHtml(request),
+        emailContext: {
+            accountName: request.accountName,
+            sourceType: "PORTAL_KITTING_REQUEST",
+            sourceRef: request.requestCode || request.id
+        }
+    }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    return { recipients };
+}
+
+function queuePortalKittingRequestEmail(request, { actorLabel = "Company portal" } = {}) {
+    if (!request?.id || !request?.accountName) return;
+    const requestLabel = request.requestCode || String(request.id);
     setTimeout(async () => {
         try {
-            const emailResult = await sendPortalOrderReleaseEmail(order, { ccRecipients: normalizedCcRecipients });
+            const emailResult = await sendPortalKittingRequestEmail(request);
             await withTransaction((client) => insertActivity(
                 client,
-                "order",
-                `Warehouse release email sent for portal order ${orderLabel}`,
+                "kitting",
+                `Emailed warehouse kitting request ${requestLabel}`,
                 [
-                    order.accountName,
-                    `Sent to ${formatCount(emailResult.recipients.length, "recipient")}`,
-                    emailResult.ccRecipients.length ? `CC ${emailResult.ccRecipients.join(", ")}` : "",
-                    reason || "",
-                    actorLabel || ""
+                    request.accountName,
+                    `Sent to ${emailResult.recipients.join(", ")}`,
+                    actorLabel
                 ].filter(Boolean).join(" | ")
             ));
         } catch (error) {
-            console.error(`Warehouse release email failed for portal order ${orderLabel}:`, error);
+            console.error(`Kitting request email failed for ${requestLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "kitting",
+                    `Kitting request email failed for ${requestLabel}`,
+                    [request.accountName, error.message || "Unknown email error", actorLabel].filter(Boolean).join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record kitting request email failure for ${requestLabel}:`, logError);
+            }
+        }
+    }, 0);
+}
+
+async function sendPortalKittingRequestStatusEmail(request) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "System email is not configured.");
+    }
+    const recipients = await getPortalShipmentRecipients(pool, request.accountName);
+    if (!recipients.length) return { recipients: [] };
+    const subject = `Kitting Request ${request.status === "COMPLETED" ? "Completed" : "Updated"} - ${request.requestCode}`;
+    const text = [
+        `Kitting request ${request.requestCode} is now ${request.status}.`,
+        `Company: ${request.accountName}`,
+        `Request: ${formatKittingRequestSummary(request)}`,
+        request.warehouseNote ? `Warehouse Note: ${request.warehouseNote}` : "",
+        request.completedAt ? `Completed: ${request.completedAt}` : ""
+    ].filter(Boolean).join("\n");
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject,
+        text,
+        html: `<div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;"><h2>${escapeHtml(subject)}</h2><p>${escapeHtml(formatKittingRequestSummary(request))}</p>${request.warehouseNote ? `<p><strong>Warehouse note:</strong> ${escapeHtml(request.warehouseNote)}</p>` : ""}</div>`,
+        emailContext: {
+            accountName: request.accountName,
+            sourceType: "PORTAL_KITTING_STATUS",
+            sourceRef: request.requestCode || request.id
+        }
+    }, "System email is not configured.");
+    return { recipients };
+}
+
+function queuePortalKittingRequestStatusEmail(request, { actorLabel = "Warehouse" } = {}) {
+    if (!request?.id || !request?.accountName) return;
+    setTimeout(async () => {
+        try {
+            const emailResult = await sendPortalKittingRequestStatusEmail(request);
+            await withTransaction((client) => insertActivity(
+                client,
+                "kitting",
+                `Emailed customer kitting status ${request.requestCode}`,
+                [request.accountName, request.status, `Sent to ${emailResult.recipients.join(", ")}`, actorLabel].filter(Boolean).join(" | ")
+            ));
+        } catch (error) {
+            console.error(`Kitting request status email failed for ${request.requestCode || request.id}:`, error);
+        }
+    }, 0);
+}
+
+function normalizePickTicketEmailDelayMs(value = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS;
+    }
+    return Math.floor(parsed);
+}
+
+function formatPickTicketEmailDelay(delayMs = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS) {
+    const normalizedDelayMs = normalizePickTicketEmailDelayMs(delayMs);
+    if (normalizedDelayMs <= 0) return "immediately";
+    const totalMinutes = Math.round(normalizedDelayMs / 60000);
+    if (totalMinutes < 60) return `${totalMinutes} minute${totalMinutes === 1 ? "" : "s"}`;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours} hour${hours === 1 ? "" : "s"}${minutes ? ` ${minutes} minute${minutes === 1 ? "" : "s"}` : ""}`;
+}
+
+function armPortalOrderReleaseEmailTimer(orderId, scheduledAt) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return;
+    const dueAt = new Date(scheduledAt);
+    if (!Number.isFinite(dueAt.getTime())) return;
+    const delayMs = Math.max(0, Math.min(dueAt.getTime() - Date.now(), 2147483647));
+    const timer = setTimeout(() => {
+        void processScheduledPortalOrderReleaseEmail(normalizedOrderId);
+    }, delayMs);
+    if (typeof timer?.unref === "function") {
+        timer.unref();
+    }
+}
+
+async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = [], actorLabel = "System", reason = "", delayMs = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS } = {}) {
+    if (!order?.id || !order?.accountName) {
+        throw httpError(400, "A released order is required before scheduling a pick ticket email.");
+    }
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    }
+    const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No warehouse notification email is configured. Assign an active warehouse user to this company, or set ORDER_RELEASE_TO or SMTP_REPLY_TO.");
+    }
+
+    const normalizedDelayMs = normalizePickTicketEmailDelayMs(delayMs);
+    const scheduledAt = new Date(Date.now() + normalizedDelayMs);
+    const normalizedCcRecipients = normalizeEmailList(ccRecipients);
+    const orderLabel = order.orderCode || String(order.id);
+    const actor = normalizeFreeText(actorLabel || "System");
+    const note = [
+        reason || "Portal order release",
+        `Pick ticket email delay ${formatPickTicketEmailDelay(normalizedDelayMs)}`
+    ].filter(Boolean).join(" | ");
+
+    await withTransaction(async (client) => {
+        const result = await client.query(
+            `
+                update portal_orders
+                set
+                    pick_ticket_email_status = 'SCHEDULED',
+                    pick_ticket_email_scheduled_at = $3,
+                    pick_ticket_email_sent_at = null,
+                    pick_ticket_email_last_error = '',
+                    pick_ticket_email_cc = $4,
+                    pick_ticket_email_requested_by = $5,
+                    updated_at = now()
+                where id = $1
+                  and account_name = $2
+                  and status = 'RELEASED'
+                returning id
+            `,
+            [order.id, order.accountName, scheduledAt.toISOString(), normalizedCcRecipients.join(","), actor]
+        );
+        if (result.rowCount !== 1) {
+            throw httpError(409, "The order must still be released before a pick ticket email can be scheduled.");
+        }
+        await insertActivity(
+            client,
+            "order",
+            `Scheduled warehouse pick ticket email for ${orderLabel}`,
+            [
+                order.accountName,
+                `Due ${scheduledAt.toISOString()}`,
+                recipients.join(", "),
+                normalizedCcRecipients.length ? `CC ${normalizedCcRecipients.join(", ")}` : "",
+                note,
+                actor
+            ].filter(Boolean).join(" | ")
+        );
+    });
+
+    armPortalOrderReleaseEmailTimer(order.id, scheduledAt);
+    return {
+        scheduledAt: scheduledAt.toISOString(),
+        delayMinutes: Math.round(normalizedDelayMs / 60000),
+        recipients,
+        ccRecipients: normalizedCcRecipients
+    };
+}
+
+function queuePortalOrderReleaseEmail(order, { ccRecipients = [], actorLabel = "System", reason = "" } = {}) {
+    if (!order?.id || !order?.accountName) return;
+    const orderLabel = order.orderCode || String(order.id);
+    const scheduleWithRetry = (attempt = 1) => {
+        void schedulePortalOrderReleaseEmailForSend(order, { ccRecipients, actorLabel, reason }).catch(async (error) => {
+            if (attempt < 5) {
+                setTimeout(() => scheduleWithRetry(attempt + 1), attempt * 1500);
+                return;
+            }
+            console.error(`Unable to schedule warehouse pick ticket email for portal order ${orderLabel}:`, error);
             try {
                 await withTransaction((client) => insertActivity(
                     client,
                     "order",
-                    `Warehouse release email failed for portal order ${orderLabel}`,
+                    `Warehouse pick ticket email schedule failed for ${orderLabel}`,
                     [
                         order.accountName,
                         reason || "",
                         actorLabel || "",
-                        error.message || "Unknown email error"
+                        error.message || "Unknown email scheduling error"
                     ].filter(Boolean).join(" | ")
                 ));
             } catch (logError) {
-                console.error(`Unable to record warehouse release email failure for portal order ${orderLabel}:`, logError);
+                console.error(`Unable to record pick ticket email schedule failure for portal order ${orderLabel}:`, logError);
             }
+        });
+    };
+    setTimeout(() => scheduleWithRetry(), 1000);
+}
+
+async function processScheduledPortalOrderReleaseEmail(orderId) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return { sent: false, reason: "invalid-order" };
+    const lockKey = String(normalizedOrderId);
+    if (portalOrderPickTicketEmailLocks.has(lockKey)) {
+        return { sent: false, reason: "locked" };
+    }
+    portalOrderPickTicketEmailLocks.add(lockKey);
+    let claim = null;
+
+    try {
+        const claimResult = await pool.query(
+            `
+                update portal_orders
+                set
+                    pick_ticket_email_status = 'SENDING',
+                    pick_ticket_email_last_error = '',
+                    updated_at = now()
+                where id = $1
+                  and status = 'RELEASED'
+                  and (
+                    (pick_ticket_email_status = 'SCHEDULED' and pick_ticket_email_scheduled_at <= now())
+                    or (pick_ticket_email_status = 'SENDING' and updated_at < now() - interval '15 minutes')
+                  )
+                returning id, account_name, order_code, pick_ticket_email_cc, pick_ticket_email_requested_by
+            `,
+            [normalizedOrderId]
+        );
+        if (claimResult.rowCount !== 1) {
+            return { sent: false, reason: "not-due" };
         }
-    }, 0);
+        claim = claimResult.rows[0];
+        const order = await withTransaction((client) => getPortalOrderById(client, claim.id, claim.account_name, "/api/admin/portal-order-documents"));
+        if (!order || order.status !== "RELEASED") {
+            await pool.query(
+                `
+                    update portal_orders
+                    set
+                        pick_ticket_email_status = 'SKIPPED',
+                        pick_ticket_email_last_error = 'Order was changed before the pick ticket email was sent.',
+                        updated_at = now()
+                    where id = $1
+                `,
+                [normalizedOrderId]
+            );
+            return { sent: false, reason: "status-changed" };
+        }
+
+        const normalizedCcRecipients = normalizeEmailList(claim.pick_ticket_email_cc || "");
+        const emailResult = await sendPortalOrderReleaseEmail(order, { ccRecipients: normalizedCcRecipients });
+        await withTransaction(async (client) => {
+            await client.query(
+                `
+                    update portal_orders
+                    set
+                        pick_ticket_email_status = 'SENT',
+                        pick_ticket_email_sent_at = now(),
+                        pick_ticket_email_last_error = '',
+                        updated_at = now()
+                    where id = $1
+                `,
+                [normalizedOrderId]
+            );
+            await insertActivity(
+                client,
+                "order",
+                `Warehouse pick ticket email sent for ${order.orderCode}`,
+                [
+                    order.accountName,
+                    `Sent to ${formatCount(emailResult.recipients.length, "recipient")}`,
+                    emailResult.ccRecipients.length ? `CC ${emailResult.ccRecipients.join(", ")}` : "",
+                    "Order remains RELEASED until warehouse marks it physically picked.",
+                    claim.pick_ticket_email_requested_by || ""
+                ].filter(Boolean).join(" | ")
+            );
+        });
+        return { sent: true, orderCode: order.orderCode, recipients: emailResult.recipients };
+    } catch (error) {
+        console.error(`Warehouse pick ticket email failed for portal order ${normalizedOrderId}:`, error);
+        try {
+            await pool.query(
+                `
+                    update portal_orders
+                    set
+                        pick_ticket_email_status = 'FAILED',
+                        pick_ticket_email_last_error = $2,
+                        updated_at = now()
+                    where id = $1
+                `,
+                [normalizedOrderId, truncateStoreSyncMessage(error.message || "Unknown email error")]
+            );
+            await withTransaction((client) => insertActivity(
+                client,
+                "order",
+                `Warehouse pick ticket email failed for ${claim?.order_code || normalizedOrderId}`,
+                [
+                    claim?.account_name || "",
+                    error.message || "Unknown email error"
+                ].filter(Boolean).join(" | ")
+            ));
+        } catch (logError) {
+            console.error(`Unable to record warehouse pick ticket email failure for portal order ${normalizedOrderId}:`, logError);
+        }
+        return { sent: false, reason: "error", error: error.message || "Unknown email error" };
+    } finally {
+        portalOrderPickTicketEmailLocks.delete(lockKey);
+    }
+}
+
+function ensurePortalOrderPickTicketEmailSchedulerStarted() {
+    if (portalOrderPickTicketEmailSchedulerStarted) {
+        return;
+    }
+    portalOrderPickTicketEmailSchedulerStarted = true;
+    portalOrderPickTicketEmailSchedulerTimer = setInterval(() => {
+        void runDuePortalOrderPickTicketEmails();
+    }, PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS);
+    if (typeof portalOrderPickTicketEmailSchedulerTimer?.unref === "function") {
+        portalOrderPickTicketEmailSchedulerTimer.unref();
+    }
+    void runDuePortalOrderPickTicketEmails();
+}
+
+async function runDuePortalOrderPickTicketEmails() {
+    if (!databaseReady || portalOrderPickTicketEmailSchedulerRunning) {
+        return;
+    }
+
+    portalOrderPickTicketEmailSchedulerRunning = true;
+    try {
+        await pool.query(
+            `
+                update portal_orders
+                set
+                    pick_ticket_email_status = 'SKIPPED',
+                    pick_ticket_email_last_error = 'Order was changed before the pick ticket email was sent.',
+                    updated_at = now()
+                where pick_ticket_email_status = 'SCHEDULED'
+                  and pick_ticket_email_scheduled_at <= now()
+                  and status <> 'RELEASED'
+            `
+        );
+
+        const dueResult = await pool.query(
+            `
+                select id
+                from portal_orders
+                where status = 'RELEASED'
+                  and (
+                    (pick_ticket_email_status = 'SCHEDULED' and pick_ticket_email_scheduled_at <= now())
+                    or (pick_ticket_email_status = 'SENDING' and updated_at < now() - interval '15 minutes')
+                  )
+                order by pick_ticket_email_scheduled_at asc nulls last, id asc
+                limit 20
+            `
+        );
+
+        for (const row of dueResult.rows) {
+            await processScheduledPortalOrderReleaseEmail(row.id);
+        }
+    } catch (error) {
+        console.error("Portal order pick ticket email scheduler failed:", error.message || error);
+    } finally {
+        portalOrderPickTicketEmailSchedulerRunning = false;
+    }
 }
 
 async function sendPortalShipmentConfirmationEmail(client, order, confirmation, { isUpdate = false } = {}) {
@@ -17864,6 +18833,283 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
     return { processed, added, updated, deleted };
 }
 
+function normalizeInventoryCountStatus(value) {
+    const normalized = normalizeText(value || "PENDING");
+    return ["PENDING", "APPROVED", "REJECTED", "POSTED"].includes(normalized) ? normalized : "PENDING";
+}
+
+function inventoryCountActor(appUser = null) {
+    return normalizeFreeText(appUser?.email || appUser?.full_name || "");
+}
+
+async function insertInventoryCountAudit(client, countId, action, appUser = null, details = {}) {
+    await client.query(
+        "insert into inventory_count_audit (count_id, action, actor_email, details) values ($1, $2, $3, $4)",
+        [countId, normalizeText(action || "update"), inventoryCountActor(appUser), JSON.stringify(details || {})]
+    );
+}
+
+async function getInventoryCountById(client, countId) {
+    const result = await client.query("select * from inventory_count_records where id = $1", [countId]);
+    return result.rows[0] || null;
+}
+
+async function getInventoryCountSystemQuantity(client, entry) {
+    const result = await client.query(
+        `
+            select coalesce(sum(quantity), 0)::integer as quantity
+            from inventory_lines
+            where account_name = $1
+              and location = $2
+              and sku = $3
+              and lot_number = $4
+              and expiration_date = $5
+        `,
+        [entry.accountName, entry.location, entry.sku, entry.lotNumber || "", entry.expirationDate || ""]
+    );
+    return Number(result.rows[0]?.quantity) || 0;
+}
+
+function countedCasesToInventoryQuantity(countedCases, master = null) {
+    const cases = toNonNegativeInt(countedCases);
+    const trackingLevel = normalizeTrackingLevel(master?.trackingLevel || "CASE");
+    if (trackingLevel === "UNIT") {
+        const unitsPerCase = toPositiveInt(master?.unitsPerCase);
+        if (!unitsPerCase) {
+            throw httpError(400, `Set units per case for ${master?.accountName || "this company"} / ${master?.sku || "this SKU"} before counting it in cases.`);
+        }
+        return { countedCases: cases, countedQuantity: cases * unitsPerCase, trackingLevel };
+    }
+    return { countedCases: cases, countedQuantity: cases, trackingLevel };
+}
+
+async function buildInventoryCountEntry(client, rawInput, appUser = null, existing = null) {
+    const accountName = normalizeText(rawInput?.accountName || rawInput?.owner || existing?.account_name || "");
+    const location = normalizeText(rawInput?.location || existing?.location || "");
+    const skuOrUpc = normalizeText(rawInput?.sku || rawInput?.skuOrUpc || rawInput?.upc || existing?.sku || "");
+    const rawUpc = normalizeText(rawInput?.upc || existing?.upc || "");
+    const countedCases = toNonNegativeInt(rawInput?.countedCases ?? rawInput?.quantityCases ?? rawInput?.cases ?? existing?.counted_cases);
+    const rawLot = Object.prototype.hasOwnProperty.call(rawInput || {}, "lotNumber")
+        || Object.prototype.hasOwnProperty.call(rawInput || {}, "lot")
+        || Object.prototype.hasOwnProperty.call(rawInput || {}, "lot_number")
+        ? (rawInput?.lotNumber || rawInput?.lot_number || rawInput?.lot || "")
+        : (existing?.lot_number || "");
+    const rawExpiration = Object.prototype.hasOwnProperty.call(rawInput || {}, "expirationDate")
+        || Object.prototype.hasOwnProperty.call(rawInput || {}, "expiration_date")
+        || Object.prototype.hasOwnProperty.call(rawInput || {}, "expiryDate")
+        || Object.prototype.hasOwnProperty.call(rawInput || {}, "expiry_date")
+        ? (rawInput?.expirationDate || rawInput?.expiration_date || rawInput?.expiryDate || rawInput?.expiry_date || "")
+        : (existing?.expiration_date || "");
+    const lotNumber = normalizeText(rawLot);
+    const expirationDate = normalizeDateOnly(rawExpiration);
+
+    if (!accountName || !location || !skuOrUpc) {
+        throw httpError(400, "Company, location, and SKU are required.");
+    }
+    if (countedCases == null || countedCases < 0) {
+        throw httpError(400, "Counted cases must be zero or greater.");
+    }
+
+    await assertAppUserCompanyAccess(client, appUser, accountName);
+    const master = await findCatalogItem(client, accountName, skuOrUpc, skuOrUpc);
+    if (master?.lotTracked && !lotNumber) throw httpError(400, `Lot number is required for ${accountName} / ${master.sku}.`);
+    if (master?.expirationTracked && !expirationDate) throw httpError(400, `Expiration date is required for ${accountName} / ${master.sku}.`);
+
+    const quantity = countedCasesToInventoryQuantity(countedCases, master);
+    const locationExists = (await client.query("select 1 from bin_locations where code = $1 limit 1", [location])).rowCount === 1;
+    const entry = {
+        accountName,
+        location,
+        sku: master?.sku || skuOrUpc,
+        upc: master?.upc || rawUpc || "",
+        lotNumber: master?.lotTracked ? lotNumber : "",
+        expirationDate: master?.expirationTracked ? expirationDate : "",
+        countPhoto: normalizeImageReference(rawInput?.countPhoto || rawInput?.photo || rawInput?.photoData || existing?.count_photo || ""),
+        locationMissing: !locationExists,
+        skuMissing: !master,
+        countedCases: quantity.countedCases,
+        countedQuantity: quantity.countedQuantity,
+        trackingLevel: quantity.trackingLevel
+    };
+    entry.systemQuantity = await getInventoryCountSystemQuantity(client, entry);
+    entry.varianceQuantity = entry.countedQuantity - entry.systemQuantity;
+    return entry;
+}
+
+async function submitInventoryCount(client, rawInput, appUser = null) {
+    const entry = await buildInventoryCountEntry(client, rawInput, appUser);
+    const result = await client.query(
+        `
+            insert into inventory_count_records (
+                account_name, location, sku, upc, lot_number, expiration_date, count_photo,
+                location_missing, sku_missing, tracking_level, counted_cases, counted_quantity,
+                system_quantity, variance_quantity, status, submitted_by
+            )
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'PENDING',$15)
+            returning *
+        `,
+        [
+            entry.accountName,
+            entry.location,
+            entry.sku,
+            entry.upc,
+            entry.lotNumber,
+            entry.expirationDate,
+            entry.countPhoto,
+            entry.locationMissing,
+            entry.skuMissing,
+            entry.trackingLevel,
+            entry.countedCases,
+            entry.countedQuantity,
+            entry.systemQuantity,
+            entry.varianceQuantity,
+            inventoryCountActor(appUser)
+        ]
+    );
+    const row = result.rows[0];
+    await insertInventoryCountAudit(client, row.id, "SUBMIT", appUser, entry);
+    await insertActivity(
+        client,
+        "count",
+        `Submitted inventory count for ${entry.accountName} / ${entry.sku}`,
+        `${entry.location} | Counted ${formatTrackedQuantity(entry.countedQuantity, entry.trackingLevel)} | Variance ${entry.varianceQuantity}`
+    );
+    return mapInventoryCountRow(row);
+}
+
+async function updateInventoryCount(client, countId, rawInput, appUser = null) {
+    const existing = await getInventoryCountById(client, countId);
+    if (!existing) throw httpError(404, "Inventory count was not found.");
+    if (!["PENDING", "APPROVED"].includes(normalizeInventoryCountStatus(existing.status))) {
+        throw httpError(409, "Only pending or approved counts can be edited.");
+    }
+    const entry = await buildInventoryCountEntry(client, rawInput, appUser, existing);
+    const result = await client.query(
+        `
+            update inventory_count_records
+            set account_name=$2, location=$3, sku=$4, upc=$5, lot_number=$6, expiration_date=$7,
+                count_photo=$8, location_missing=$9, sku_missing=$10, tracking_level=$11,
+                counted_cases=$12, counted_quantity=$13, system_quantity=$14,
+                variance_quantity=$15, status='PENDING', reviewed_by='', reviewed_at=null,
+                review_note=$16, updated_at=now()
+            where id=$1
+            returning *
+        `,
+        [
+            countId,
+            entry.accountName,
+            entry.location,
+            entry.sku,
+            entry.upc,
+            entry.lotNumber,
+            entry.expirationDate,
+            entry.countPhoto,
+            entry.locationMissing,
+            entry.skuMissing,
+            entry.trackingLevel,
+            entry.countedCases,
+            entry.countedQuantity,
+            entry.systemQuantity,
+            entry.varianceQuantity,
+            normalizeFreeText(rawInput?.reviewNote || rawInput?.note || existing.review_note || "")
+        ]
+    );
+    await insertInventoryCountAudit(client, countId, "EDIT", appUser, entry);
+    return mapInventoryCountRow(result.rows[0]);
+}
+
+async function setInventoryCountStatus(client, countId, status, rawInput = {}, appUser = null) {
+    const existing = await getInventoryCountById(client, countId);
+    if (!existing) throw httpError(404, "Inventory count was not found.");
+    await assertAppUserCompanyAccess(client, appUser, existing.account_name);
+    if (normalizeInventoryCountStatus(existing.status) === "POSTED") {
+        throw httpError(409, "Posted counts cannot be changed.");
+    }
+    const normalizedStatus = normalizeInventoryCountStatus(status);
+    if (!["APPROVED", "REJECTED"].includes(normalizedStatus)) {
+        throw httpError(400, "Inventory count status must be approved or rejected.");
+    }
+    const result = await client.query(
+        `
+            update inventory_count_records
+            set status=$2, reviewed_by=$3, reviewed_at=now(), review_note=$4, updated_at=now()
+            where id=$1
+            returning *
+        `,
+        [countId, normalizedStatus, inventoryCountActor(appUser), normalizeFreeText(rawInput?.reviewNote || rawInput?.note || "")]
+    );
+    await insertInventoryCountAudit(client, countId, normalizedStatus, appUser, { reviewNote: rawInput?.reviewNote || rawInput?.note || "" });
+    return mapInventoryCountRow(result.rows[0]);
+}
+
+async function postInventoryCountAdjustment(client, countId, rawInput = {}, appUser = null) {
+    const existing = await getInventoryCountById(client, countId);
+    if (!existing) throw httpError(404, "Inventory count was not found.");
+    await assertAppUserCompanyAccess(client, appUser, existing.account_name);
+    if (normalizeInventoryCountStatus(existing.status) === "REJECTED") {
+        throw httpError(409, "Rejected counts cannot be posted.");
+    }
+    if (normalizeInventoryCountStatus(existing.status) === "POSTED") {
+        return mapInventoryCountRow(existing);
+    }
+
+    const line = await findInventoryLine(client, existing.account_name, existing.location, existing.sku, {
+        lotNumber: existing.lot_number || "",
+        expirationDate: existing.expiration_date || ""
+    });
+    const countedQuantity = Number(existing.counted_quantity) || 0;
+    if (line) {
+        await assertInventoryLineCanChange(client, line, {
+            nextQuantity: countedQuantity,
+            actionLabel: "post this inventory count"
+        });
+        await setInventoryQuantity(client, line.id, countedQuantity);
+    } else if (countedQuantity > 0) {
+        await assertLocationCompatibleForOwner(client, existing.account_name, existing.location);
+        await upsertLocationMaster(client, existing.location);
+        await upsertItemMaster(client, {
+            accountName: existing.account_name,
+            sku: existing.sku,
+            upc: existing.upc || "",
+            trackingLevel: existing.tracking_level
+        });
+        await upsertInventoryLine(client, {
+            accountName: existing.account_name,
+            location: existing.location,
+            sku: existing.sku,
+            upc: existing.upc || "",
+            lotNumber: existing.lot_number || "",
+            expirationDate: normalizeDateOnly(existing.expiration_date || ""),
+            quantity: countedQuantity,
+            trackingLevel: existing.tracking_level
+        });
+    }
+
+    const result = await client.query(
+        `
+            update inventory_count_records
+            set status='POSTED', reviewed_by=case when reviewed_by = '' then $2 else reviewed_by end,
+                reviewed_at=coalesce(reviewed_at, now()), posted_by=$2, posted_at=now(),
+                review_note=case when $3 = '' then review_note else $3 end, updated_at=now()
+            where id=$1
+            returning *
+        `,
+        [countId, inventoryCountActor(appUser), normalizeFreeText(rawInput?.reviewNote || rawInput?.note || "")]
+    );
+    await insertInventoryCountAudit(client, countId, "POST", appUser, {
+        previousQuantity: line ? Number(line.quantity) || 0 : 0,
+        postedQuantity: countedQuantity,
+        varianceQuantity: Number(existing.variance_quantity) || 0
+    });
+    await insertActivity(
+        client,
+        "count",
+        `Posted inventory count for ${existing.account_name} / ${existing.sku}`,
+        `${existing.location} | ${formatTrackedQuantity(line ? Number(line.quantity) || 0 : 0, existing.tracking_level)} -> ${formatTrackedQuantity(countedQuantity, existing.tracking_level)}`
+    );
+    return mapInventoryCountRow(result.rows[0]);
+}
+
 async function insertActivity(client, type, title, details) {
     const result = await client.query(
         "insert into activity_log (type, title, details) values ($1, $2, $3) returning *",
@@ -18568,6 +19814,37 @@ function mapActivityRow(row) {
     };
 }
 
+function mapInventoryCountRow(row) {
+    const trackingLevel = normalizeTrackingLevel(row.tracking_level || "CASE");
+    return {
+        id: String(row.id),
+        accountName: row.account_name || "",
+        location: row.location || "",
+        sku: row.sku || "",
+        upc: row.upc || "",
+        lotNumber: row.lot_number || "",
+        expirationDate: normalizeDateOnly(row.expiration_date || ""),
+        countPhoto: row.count_photo || "",
+        locationMissing: row.location_missing === true,
+        skuMissing: row.sku_missing === true,
+        trackingLevel,
+        countedCases: Number(row.counted_cases) || 0,
+        countedQuantity: Number(row.counted_quantity) || 0,
+        systemQuantity: Number(row.system_quantity) || 0,
+        varianceQuantity: Number(row.variance_quantity) || 0,
+        status: normalizeInventoryCountStatus(row.status),
+        submittedBy: row.submitted_by || "",
+        submittedAt: row.submitted_at ? new Date(row.submitted_at).toISOString() : "",
+        reviewedBy: row.reviewed_by || "",
+        reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : "",
+        postedBy: row.posted_by || "",
+        postedAt: row.posted_at ? new Date(row.posted_at).toISOString() : "",
+        reviewNote: row.review_note || "",
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+    };
+}
+
 function mapLocationMasterRow(row) {
     return {
         id: String(row.id),
@@ -18901,6 +20178,34 @@ function mapPortalItemRow(row) {
     };
 }
 
+function mapPortalKittingRequestRow(row) {
+    return {
+        id: String(row.id),
+        requestCode: row.request_code || makePortalKittingRequestCode(row.id),
+        accountName: row.account_name || "",
+        status: normalizePortalKittingRequestStatus(row.status) || "SUBMITTED",
+        salesOrderReference: row.sales_order_reference || "",
+        purchaseOrderReference: row.purchase_order_reference || "",
+        sourceSku: normalizeText(row.source_sku || ""),
+        sourceQuantity: Number(row.source_quantity) || 0,
+        sourceDescription: row.source_description || "",
+        sourceTrackingLevel: normalizeTrackingLevel(row.source_tracking_level || "UNIT"),
+        targetSku: normalizeText(row.target_sku || ""),
+        targetQuantity: Number(row.target_quantity) || 0,
+        targetDescription: row.target_description || "",
+        targetTrackingLevel: normalizeTrackingLevel(row.target_tracking_level || "UNIT"),
+        requestedCompletionDate: row.requested_completion_date ? normalizeDateOnly(row.requested_completion_date) : "",
+        requestedByName: row.requested_by_name || "",
+        requestedByEmail: row.requested_by_email || "",
+        notes: row.notes || "",
+        warehouseNote: row.warehouse_note || "",
+        completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+        completedBy: row.completed_by || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
 function isPortalOrderReleaseCopyDocument(document) {
     const fileName = normalizeUploadFileName(document?.file_name || document?.fileName || "");
     return /^wms365-.*-release-copy\.pdf$/i.test(fileName);
@@ -19002,6 +20307,10 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         shippedTrackingReference: row.shipped_tracking_reference || "",
         shippedConfirmationNote: row.shipped_confirmation_note || "",
         releasedAt: row.released_at ? new Date(row.released_at).toISOString() : null,
+        pickTicketEmailStatus: row.pick_ticket_email_status || "",
+        pickTicketEmailScheduledAt: row.pick_ticket_email_scheduled_at ? new Date(row.pick_ticket_email_scheduled_at).toISOString() : null,
+        pickTicketEmailSentAt: row.pick_ticket_email_sent_at ? new Date(row.pick_ticket_email_sent_at).toISOString() : null,
+        pickTicketEmailLastError: row.pick_ticket_email_last_error || "",
         pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
         stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
@@ -21425,6 +22734,8 @@ function isPublicRequest(req) {
     if (pathName === "/industries" || pathName === "/industries.html") return true;
     if (pathName === "/book-demo" || pathName === "/book-demo.html") return true;
     if (pathName === "/integrations" || pathName === "/integrations.html") return true;
+    if (pathName === "/affiliate-program" || pathName === "/affiliate-program.html") return true;
+    if (pathName === "/hiring" || pathName === "/hiring.html") return true;
     if (pathName === "/implementation" || pathName === "/implementation.html") return true;
     if (pathName === "/delivery-appointment-action") return true;
     if (pathName === "/robots.txt" || pathName === "/sitemap.xml") return true;

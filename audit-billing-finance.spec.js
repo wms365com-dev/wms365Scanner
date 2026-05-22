@@ -50,7 +50,7 @@ const financeState = {
   }
 };
 
-test("Billing & Finance module exposes Zoho replacement surfaces", async ({ page }) => {
+test("Billing & Accounting module exposes Zoho replacement surfaces", async ({ page }) => {
   let server;
   const indexHtml = fs.readFileSync(path.resolve("index.html"), "utf8");
   const serverState = {
@@ -83,21 +83,17 @@ test("Billing & Finance module exposes Zoho replacement surfaces", async ({ page
   const port = server.address().port;
 
   try {
-    await page.goto(`http://127.0.0.1:${port}/app`);
+    await page.goto(`http://127.0.0.1:${port}/billing-accounting`);
     await page.waitForFunction(() => {
       const home = document.querySelector("#homePanel");
       const finance = document.querySelector("#billingFinancePanel");
-      return home && finance && home.hidden === false && finance.hidden === true;
+      return home && finance && home.hidden === true && finance.hidden === false;
     });
     await expect(page.locator('[data-section="billing"]')).toHaveCount(1);
     await expect(page.locator('[data-section="billing-finance"]')).toHaveCount(1);
-
-    const financeMenu = page.locator("details.module-menu").filter({ hasText: "Finance" }).first();
-    await expect(financeMenu.locator("summary")).toBeVisible();
-    await financeMenu.locator("summary").click();
-    await financeMenu.locator('[data-jump-section="billing-finance"]').click();
     await expect(page.locator("#billingFinancePanel")).toBeVisible();
     await expect(page.locator("#homePanel")).toBeHidden();
+    await expect(page.locator("#billingFinancePanel h2").filter({ hasText: "Billing & Accounting" }).first()).toBeVisible();
 
     for (const tab of ["Dashboard", "Customer Profiles", "Rate Cards", "Billing Events", "Invoices", "Payments", "Expenses", "Vendors", "Banking", "Accounting", "Tax Center", "Reports", "Accountant Export"]) {
       await expect(page.locator("#financeTabbar").getByText(tab, { exact: true })).toBeVisible();
@@ -127,7 +123,7 @@ test("Billing & Finance module exposes Zoho replacement surfaces", async ({ page
     await expect(page.locator("#billingFinancePanel")).toBeVisible();
     await expect(page.locator("#homePanel")).toBeHidden();
 
-    await page.screenshot({ path: "test-results/billing-finance-zoho-replacement-audit.png", fullPage: true });
+    await page.screenshot({ path: "test-results/billing-accounting-zoho-replacement-audit.png", fullPage: true });
   } finally {
     if (typeof server.closeAllConnections === "function") server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

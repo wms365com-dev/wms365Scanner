@@ -1,6 +1,13 @@
 node_modules/
 .npm-cache/
+.android-build-tools/
 .chrome-headless/
 .edge-headless/
 .env
 .env.*
+test-results/
+.playwright-*/
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties

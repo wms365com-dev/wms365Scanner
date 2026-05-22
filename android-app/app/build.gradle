@@ -1,0 +1,32 @@
+plugins {
+    id "com.android.application"
+}
+
+def configuredBaseUrl = (project.findProperty("WMS365_BASE_URL") ?: "https://your-live-wms365-domain.com").toString().replaceAll("/+\$", "")
+def configuredStartPath = (project.findProperty("WMS365_START_PATH") ?: "/mobile").toString()
+if (!configuredStartPath.startsWith("/")) {
+    configuredStartPath = "/" + configuredStartPath
+}
+
+android {
+    namespace "com.wms365.scanner"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.wms365.scanner"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+        buildConfigField "String", "WMS365_BASE_URL", "\"${configuredBaseUrl}\""
+        buildConfigField "String", "WMS365_START_PATH", "\"${configuredStartPath}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+    implementation "androidx.core:core:1.13.1"
+}

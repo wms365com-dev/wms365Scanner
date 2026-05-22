@@ -3,7 +3,7 @@
 ## Public pricing
 
 The public pricing page now publishes:
-- Launch Warehouse: `$129 / month`, 1 warehouse, 3 users.
+- Launch Warehouse: 14-day credit-card trial, then `$129 / month`, 1 warehouse, 3 users.
 - Extra user: `$15 / month`.
 - Extra warehouse: `$39 / month`.
 - Customer portal: `$29 / month`.
@@ -17,11 +17,31 @@ The public marketing package is stored in `C:\WMS365Scanner\marketing`.
 
 Required Railway environment variables:
 - `STRIPE_SECRET_KEY`: Stripe secret key.
+- `STRIPE_API_VERSION`: defaults to `2026-02-25.clover`.
 - `STRIPE_WEBHOOK_SECRET`: Stripe webhook signing secret.
 - `STRIPE_PRICE_LAUNCH_WAREHOUSE`: recurring Stripe price ID for the `$129 / month` Launch Warehouse plan.
+- `STRIPE_LAUNCH_TRIAL_DAYS`: defaults to `14`. Stripe Checkout collects the customer's credit card and starts the subscription after this free-trial window unless canceled.
 - `PAYWALL_ENFORCEMENT_ENABLED`: defaults to `true`. Set to `false` only if you want monitor-only rollout before enforcing portal access.
 
 Existing public pages use Stripe Checkout for the Launch Warehouse subscription. Successful Stripe subscriptions create/update the company shell, mark software access as paid subscription, and turn on feature flags for the selected plan.
+
+Stripe webhook endpoint:
+- `https://app.wms365.co/api/site/stripe-webhook`
+
+Subscribe the endpoint to:
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `invoice.paid`
+- `invoice.payment_failed`
+
+The webhook route must receive Stripe's raw JSON body before the global JSON parser runs. WMS365 keeps the webhook route out of the global JSON parser and verifies events with `STRIPE_WEBHOOK_SECRET`.
+
+Launch Warehouse checkout is configured as a card-backed 14-day free trial:
+- Checkout collects a payment method during signup.
+- Stripe creates the subscription in trialing status.
+- The first `$129/month` charge starts after the trial unless the subscription is canceled before trial end.
 
 ## Company paywall behavior
 

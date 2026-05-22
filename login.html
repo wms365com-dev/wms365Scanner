@@ -49,6 +49,11 @@
     .small{font-size:12px;color:#7b8fa2}
     .card-links{display:flex;flex-wrap:wrap;gap:12px}
     .card-link{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;color:#30475a;text-decoration:none;font-size:13px;font-weight:700}
+    .card-link.recovery-action{width:auto;margin-top:0;background:#fff;color:#30475a;border-color:var(--line)}
+    .recovery-box{display:grid;gap:10px;padding:12px;border:1px solid #dce4ea;border-radius:14px;background:#f8fafc}
+    .recovery-box p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+    .recovery-actions{display:flex;flex-wrap:wrap;gap:10px}
+    .recovery-actions button{width:auto;margin:0;padding:10px 13px;background:#fff;color:#30475a;border:1px solid var(--line)}
     .build{padding-top:4px;border-top:1px solid #e3edf6}
     @media (max-width:900px){.shell{grid-template-columns:1fr}.intro{order:2}.card{order:1}}
     @media (max-width:640px){body{padding:12px}.intro,.card{padding:18px}.brand img{width:46px;height:46px;flex-basis:46px}.brand-copy strong{font-size:23px}.feature-grid{grid-template-columns:1fr}}
@@ -85,6 +90,15 @@
       <input id="password" name="password" type="password" autocomplete="current-password" required>
       <button type="submit">Sign in</button>
       <div class="msg" id="message"></div>
+      <div class="recovery-box">
+        <p>Forgot your username or password? Enter the email tied to your WMS365 warehouse access. We only send recovery emails to active registered users.</p>
+        <label for="recoveryEmail">Recovery email</label>
+        <input id="recoveryEmail" name="recoveryEmail" type="email" autocomplete="email" placeholder="name@company.com">
+        <div class="recovery-actions">
+          <button id="forgotUsernameBtn" type="button">Forgot username</button>
+          <button id="forgotPasswordBtn" type="button">Forgot password</button>
+        </div>
+      </div>
       <div class="card-links">
         <a class="card-link" href="/access">Access Center</a>
         <a class="card-link" href="https://app.wms365.co/portal">Customer Portal</a>
@@ -99,6 +113,9 @@
     const message=document.getElementById('message');
     const buildLabel=document.getElementById('loginBuildLabel');
     const submitButton=form.querySelector('button[type="submit"]');
+    const recoveryEmail=document.getElementById('recoveryEmail');
+    const forgotUsernameBtn=document.getElementById('forgotUsernameBtn');
+    const forgotPasswordBtn=document.getElementById('forgotPasswordBtn');
     function setButtonBusy(button,busy,label){
       if(!button) return;
       if(busy){
@@ -151,6 +168,33 @@
         setButtonBusy(submitButton,false);
       }
     });
+    async function runRecovery(kind){
+      const email=(recoveryEmail.value||form.email.value||'').trim();
+      if(!email){
+        message.className='msg err';
+        message.textContent='Enter the email address used for WMS365 access.';
+        recoveryEmail.focus();
+        return;
+      }
+      const button=kind==='username'?forgotUsernameBtn:forgotPasswordBtn;
+      try{
+        message.className='msg';
+        message.textContent=kind==='username'?'Checking username access...':'Creating a temporary password...';
+        setButtonBusy(button,true,kind==='username'?'Sending...':'Resetting...');
+        const res=await fetch(`/api/app/recovery/${kind}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+        const data=await res.json().catch(()=>({}));
+        if(!res.ok){ throw new Error(data.error||'Recovery request failed.'); }
+        message.className='msg ok';
+        message.textContent=data.message||'Recovery email sent from support@wms365.co.';
+      }catch(err){
+        message.className='msg err';
+        message.textContent=err.message||'No registered WMS365 user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.';
+      }finally{
+        setButtonBusy(button,false);
+      }
+    }
+    forgotUsernameBtn.addEventListener('click',()=>runRecovery('username'));
+    forgotPasswordBtn.addEventListener('click',()=>runRecovery('password'));
   </script>
 </body>
 </html>

@@ -365,10 +365,13 @@ Public features:
 - integrations page
 - industries pages
 - pricing page
+- affiliate program page and sendable affiliate sales pack
+- hiring / sales-member page and recruiting package
 - book demo form
 - SEO landing pages
 - sitemap and robots files
 - Stripe checkout/signup
+- 14-day card-backed Stripe trial for Launch Warehouse
 - company pricing/paywall controls
 - Grey Wolf 3PL no-charge portal access for assigned companies
 - public API CORS allowlist

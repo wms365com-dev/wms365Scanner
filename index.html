@@ -2965,6 +2965,23 @@
             min-width: 220px;
         }
 
+        .inventory-count-exceptions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            align-items: center;
+            min-width: 190px;
+        }
+
+        .count-photo-thumb {
+            width: 58px;
+            height: 46px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #f8fafc;
+        }
+
         .billing-rate-table input[type="text"],
         .billing-rate-table input[type="number"] {
             width: 100%;
@@ -6420,6 +6437,10 @@
                             <span class="menu-card-title">Adjust</span>
                             <span class="menu-card-meta">Handle stock corrections and BIN moves one task at a time.</span>
                         </button>
+                        <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-count">
+                            <span class="menu-card-title">Inventory Count</span>
+                            <span class="menu-card-meta">Submit pending location counts for desktop review before posting.</span>
+                        </button>
                         <button class="btn menu-card-btn" type="button" data-mobile-nav="inbounds">
                             <span class="menu-card-title">Inbound Arrival</span>
                             <span class="menu-card-meta">Check in arriving purchase orders and notify the customer from the floor.</span>
@@ -8045,6 +8066,20 @@
                 </div>
             </article>
             <div class="action-grid action-workspace-grid">
+                <article class="card desktop-complex workspace-action-card" id="customerKittingRequestsCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Customer Kitting Requests</h2>
+                            <p class="lead">Customer-submitted kit, de-kit, and re-SKU work. Complete the physical work, then use Convert Item to update stock.</p>
+                        </div>
+                        <button class="btn ghost mini" id="refreshKittingRequestsAdminBtn" type="button">Refresh</button>
+                    </div>
+                    <p class="meta">Review customer conversion requests first. Mark the request status here, then update stock with Convert Item after the warehouse work is complete.</p>
+                    <div id="customerKittingRequestsList" class="orders-list">
+                        <p class="empty">No customer kitting requests yet.</p>
+                    </div>
+                </article>
+
                 <article class="card mobile-subview active workspace-action-card" id="adjustInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="adjust">
                     <div class="card-head">
                         <div>
@@ -8729,6 +8764,42 @@
             </div>
 
             <div class="action-grid report-sheet-grid">
+                <article class="card workspace-sheet-card full-span" id="inventoryCountReviewCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Inventory Count Review</h2>
+                            <p class="lead">Mobile counts stay pending here until a desktop user edits, rejects, or posts the adjustment.</p>
+                        </div>
+                        <div class="inline-actions">
+                            <span class="meta" id="inventoryCountReviewMeta">0 pending</span>
+                            <button class="btn ghost" id="refreshInventoryCountsBtn" type="button">Refresh</button>
+                        </div>
+                    </div>
+                    <p class="empty" id="inventoryCountReviewEmpty">No pending inventory counts are waiting for review.</p>
+                    <div class="table-wrap report-sheet-wrap hidden" id="inventoryCountReviewWrap">
+                        <table class="report-sheet-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Location</th>
+                                    <th>SKU</th>
+                                    <th>Counted Cases</th>
+                                    <th>System Qty</th>
+                                    <th>Variance</th>
+                                    <th>Lot / Expiry</th>
+                                    <th>Photo / Warning</th>
+                                    <th>User</th>
+                                    <th>Date / Time</th>
+                                    <th>Note</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryCountReviewBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="status" id="inventoryCountReviewMessage"></div>
+                </article>
+
                 <article class="card workspace-sheet-card">
                     <div class="card-head">
                         <div>
@@ -9977,6 +10048,7 @@
         let skuMappingRecords = [];
         let portalOrderRecords = [];
         let portalInboundRecords = [];
+        let portalKittingRecords = [];
         let shipToAddressRecords = [];
         let feedbackRecords = [];
         let emailQueueRecords = [];
@@ -10593,6 +10665,8 @@
             convertSourceQty: document.getElementById("convertSourceQty"),
             convertTargetSku: document.getElementById("convertTargetSku"),
             convertPreview: document.getElementById("convertPreview"),
+            customerKittingRequestsList: document.getElementById("customerKittingRequestsList"),
+            refreshKittingRequestsAdminBtn: document.getElementById("refreshKittingRequestsAdminBtn"),
             moveAccount: document.getElementById("moveAccount"),
             moveFrom: document.getElementById("moveFrom"),
             moveTo: document.getElementById("moveTo"),
@@ -10618,6 +10692,12 @@
             saveInventoryWorksheetBtn: document.getElementById("saveInventoryWorksheetBtn"),
             reportFilter: document.getElementById("reportFilter"),
             reportMessage: document.getElementById("reportMessage"),
+            inventoryCountReviewMeta: document.getElementById("inventoryCountReviewMeta"),
+            inventoryCountReviewEmpty: document.getElementById("inventoryCountReviewEmpty"),
+            inventoryCountReviewWrap: document.getElementById("inventoryCountReviewWrap"),
+            inventoryCountReviewBody: document.getElementById("inventoryCountReviewBody"),
+            inventoryCountReviewMessage: document.getElementById("inventoryCountReviewMessage"),
+            refreshInventoryCountsBtn: document.getElementById("refreshInventoryCountsBtn"),
             reportUnitsCount: document.getElementById("reportUnitsCount"),
             locationReportMeta: document.getElementById("locationReportMeta"),
             locationReportEmpty: document.getElementById("locationReportEmpty"),
@@ -11270,6 +11350,8 @@
             document.getElementById("transferForm").addEventListener("submit", transferQuantity);
             document.getElementById("putAwayForm").addEventListener("submit", putAwayQuantity);
             document.getElementById("convertForm").addEventListener("submit", convertInventoryItems);
+            ui.refreshKittingRequestsAdminBtn?.addEventListener("click", () => refreshKittingRequestsAdmin(false));
+            ui.customerKittingRequestsList?.addEventListener("click", onCustomerKittingRequestsClick);
             document.getElementById("moveForm").addEventListener("submit", moveAllItems);
             [
                 ui.adjustAccount, ui.adjustLocation,
@@ -11296,6 +11378,8 @@
             ui.inventoryWorksheetBody?.addEventListener("change", onInventoryWorksheetTableChange);
             ui.reportFilter.addEventListener("input", debouncedRenderReports);
             ui.reportOwner.addEventListener("input", debouncedRenderReports);
+            ui.inventoryCountReviewBody?.addEventListener("click", onInventoryCountReviewClick);
+            ui.refreshInventoryCountsBtn?.addEventListener("click", () => syncServerState(false).catch((error) => showMessage(ui.inventoryCountReviewMessage, error.message, "error")));
             document.getElementById("clearReportFilterBtn").addEventListener("click", () => {
                 ui.reportFilter.value = "";
                 ui.reportOwner.value = getActiveCompany() || "";
@@ -11430,6 +11514,7 @@
             refreshSkuMappingsList(true).catch(() => {});
             refreshPortalOrdersList().catch(() => {});
             refreshPortalInboundsList().catch(() => {});
+            refreshKittingRequestsAdmin(true).catch(() => {});
             refreshFeedbackQueue(true).catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
@@ -11438,6 +11523,7 @@
                     refreshSkuMappingsList(true).catch(() => {});
                     refreshPortalOrdersList(true).catch(() => {});
                     refreshPortalInboundsList(true).catch(() => {});
+                    refreshKittingRequestsAdmin(true).catch(() => {});
                     refreshFeedbackQueue(true).catch(() => {});
                 }
             }, 30000);
@@ -11447,6 +11533,7 @@
                 refreshSkuMappingsList(true).catch(() => {});
                 refreshPortalOrdersList(true).catch(() => {});
                 refreshPortalInboundsList(true).catch(() => {});
+                refreshKittingRequestsAdmin(true).catch(() => {});
                 refreshFeedbackQueue(true).catch(() => {});
             });
             window.addEventListener("keydown", (event) => {
@@ -12941,6 +13028,7 @@
             if (rerender) refreshCompanyScopedUi();
             refreshPortalOrdersList(true).catch(() => {});
             refreshPortalInboundsList(true).catch(() => {});
+            refreshKittingRequestsAdmin(true).catch(() => {});
             refreshSkuMappingsList(true).catch(() => {});
         }
 
@@ -14435,7 +14523,9 @@
             renderActivity();
             renderInventory(ui.inventoryFilter.value);
             renderInventoryWorksheet();
+            renderCustomerKittingRequests();
             renderReports(ui.reportFilter.value);
+            renderInventoryCountReview();
             renderSummary();
             renderWarehouseDashboard();
             renderMasterItemSkuMappings();
@@ -14505,6 +14595,13 @@
             return company
                 ? portalInboundRecords.filter((inbound) => norm(inbound.accountName) === company)
                 : portalInboundRecords;
+        }
+
+        function getCompanyScopedKittingRequests() {
+            const company = norm(getActiveCompany());
+            return company
+                ? portalKittingRecords.filter((request) => norm(request.accountName) === company)
+                : portalKittingRecords;
         }
 
         function getCompanyScopedWarehouseTasks() {
@@ -19959,6 +20056,81 @@
             }
         }
 
+        function renderCustomerKittingRequests() {
+            if (!ui.customerKittingRequestsList) return;
+            const requests = getCompanyScopedKittingRequests()
+                .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            if (!requests.length) {
+                ui.customerKittingRequestsList.innerHTML = `<p class="empty">No customer kitting requests yet.</p>`;
+                return;
+            }
+            ui.customerKittingRequestsList.innerHTML = requests.map((request) => `
+                <article class="order-card">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(request.requestCode || request.id)}</strong>
+                            <div class="meta">${esc(request.accountName)} | ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed ${esc(request.requestedCompletionDate)}` : ""}</div>
+                        </div>
+                        <span class="badge ${norm(request.status) === "COMPLETED" ? "success" : ""}">${esc(request.status)}</span>
+                    </div>
+                    <div class="order-meta">
+                        <div><strong>Convert:</strong> ${esc(request.sourceQuantity)} of ${esc(request.sourceSku)} to ${esc(request.targetQuantity)} of ${esc(request.targetSku)}</div>
+                        <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
+                        ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
+                    </div>
+                    <div class="button-row">
+                        <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="IN_PROGRESS">In Progress</button>
+                        <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="COMPLETED">Completed</button>
+                        <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="CANCELLED">Cancel</button>
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        async function refreshKittingRequestsAdmin(silent = true) {
+            try {
+                const company = getActiveCompany();
+                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+                const payload = await requestJson(`/api/admin/kitting-requests${query}`);
+                portalKittingRecords = Array.isArray(payload?.requests)
+                    ? payload.requests.map(sanitizePortalKittingRequestRecord).filter(Boolean)
+                    : [];
+                renderCustomerKittingRequests();
+                if (!silent) showMessage(ui.actionMessage, "Kitting requests refreshed.", "success");
+                return portalKittingRecords;
+            } catch (error) {
+                if (!silent) showMessage(ui.actionMessage, error.message, "error");
+                throw error;
+            }
+        }
+
+        async function onCustomerKittingRequestsClick(event) {
+            const button = event.target.closest("[data-kitting-status]");
+            if (!button) return;
+            const requestId = button.dataset.kittingStatus;
+            const status = button.dataset.status;
+            const warehouseNote = status === "COMPLETED"
+                ? "Completed by warehouse."
+                : status === "IN_PROGRESS"
+                    ? "Warehouse is working on this request."
+                    : "Cancelled by warehouse.";
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Saving...",
+                    progressMessage: `Updating kitting request to ${status}...`,
+                    onProgress: (message, tone) => showMessage(ui.actionMessage, message, tone)
+                }, async () => requestJson(`/api/admin/kitting-requests/${encodeURIComponent(requestId)}/status`, {
+                    method: "POST",
+                    body: JSON.stringify({ status, warehouseNote })
+                }));
+                await refreshKittingRequestsAdmin(true);
+                showMessage(ui.actionMessage, `Kitting request marked ${status}.`, "success");
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
+        }
+
         async function refreshPortalInboundsList(silent = false) {
             try {
                 const company = getActiveCompany();
@@ -22385,6 +22557,131 @@
                     </tr>
                 `).join("");
             }
+            renderInventoryCountReview();
+        }
+
+        function inventoryCountStatusLabel(status) {
+            const value = norm(status || "PENDING");
+            if (value === "POSTED") return "Posted";
+            if (value === "APPROVED") return "Approved";
+            if (value === "REJECTED") return "Rejected";
+            return "Pending";
+        }
+
+        function filteredInventoryCountsForReview() {
+            const ownerFilter = getScopedCompanyValue(ui.reportOwner?.value || "");
+            const query = norm(ui.reportFilter?.value || "");
+            return (state.inventoryCounts || [])
+                .filter((entry) => !ownerFilter || entry.accountName === ownerFilter)
+                .filter((entry) => !query || norm(`${entry.location} ${entry.sku} ${entry.upc} ${entry.lotNumber} ${entry.reviewNote} ${entry.submittedBy}`).includes(query))
+                .sort((a, b) => {
+                    const order = { PENDING: 0, APPROVED: 1, REJECTED: 2, POSTED: 3 };
+                    return (order[a.status] ?? 9) - (order[b.status] ?? 9) || Date.parse(b.submittedAt || 0) - Date.parse(a.submittedAt || 0);
+                });
+        }
+
+        function renderInventoryCountReview() {
+            if (!ui.inventoryCountReviewBody) return;
+            const rows = filteredInventoryCountsForReview();
+            const pendingCount = rows.filter((entry) => entry.status === "PENDING" || entry.status === "APPROVED").length;
+            ui.inventoryCountReviewMeta.textContent = `${num(pendingCount)} pending / ${num(rows.length)} shown`;
+            if (!rows.length) {
+                ui.inventoryCountReviewEmpty.classList.remove("hidden");
+                ui.inventoryCountReviewWrap.classList.add("hidden");
+                ui.inventoryCountReviewBody.innerHTML = "";
+                return;
+            }
+            ui.inventoryCountReviewEmpty.classList.add("hidden");
+            ui.inventoryCountReviewWrap.classList.remove("hidden");
+            ui.inventoryCountReviewBody.innerHTML = rows.map((entry) => {
+                const editable = entry.status === "PENDING" || entry.status === "APPROVED";
+                const trace = [entry.lotNumber ? `Lot ${entry.lotNumber}` : "", entry.expirationDate ? `Exp ${formatLabelDate(entry.expirationDate)}` : ""].filter(Boolean).join(" | ") || "-";
+                const exceptionTags = [
+                    entry.locationMissing ? `<span class="pill warning">Unknown location</span>` : "",
+                    entry.skuMissing ? `<span class="pill warning">Unknown SKU</span>` : "",
+                    entry.countPhoto ? `<a href="${attr(entry.countPhoto)}" target="_blank" rel="noopener"><img class="count-photo-thumb" src="${attr(entry.countPhoto)}" alt="Inventory count verification photo"></a>` : "",
+                    (entry.locationMissing || entry.skuMissing) && !entry.countPhoto ? `<span class="pill warn">Photo needed</span>` : ""
+                ].filter(Boolean).join("");
+                return `
+                    <tr data-inventory-count-id="${attr(entry.id)}">
+                        <td>${esc(inventoryCountStatusLabel(entry.status))}</td>
+                        <td>${esc(entry.location)}</td>
+                        <td>${esc(entry.sku)}</td>
+                        <td><input data-count-field="countedCases" type="number" min="0" step="1" value="${attr(entry.countedCases)}" ${editable ? "" : "disabled"}></td>
+                        <td>${esc(formatTrackedQuantity(entry.systemQuantity, entry.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(entry.varianceQuantity, entry.trackingLevel))}</td>
+                        <td>${esc(trace)}</td>
+                        <td class="sheet-wrap"><div class="inventory-count-exceptions">${exceptionTags || "-"}</div></td>
+                        <td>${esc(entry.submittedBy || "-")}</td>
+                        <td>${esc(formatDate(entry.submittedAt))}</td>
+                        <td><input data-count-field="reviewNote" type="text" value="${attr(entry.reviewNote || "")}" placeholder="Optional note" ${editable ? "" : "disabled"}></td>
+                        <td>
+                            <div class="inline-actions">
+                                <button class="btn ghost mini" type="button" data-inventory-count-action="save" ${editable ? "" : "disabled"}>Save</button>
+                                <button class="btn ghost mini" type="button" data-inventory-count-action="approve" ${editable ? "" : "disabled"}>Approve</button>
+                                <button class="btn secondary mini" type="button" data-inventory-count-action="post" ${editable ? "" : "disabled"}>Post</button>
+                                <button class="btn warn mini" type="button" data-inventory-count-action="reject" ${editable ? "" : "disabled"}>Reject</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        async function onInventoryCountReviewClick(event) {
+            const button = event.target.closest("[data-inventory-count-action]");
+            if (!button) return;
+            const row = button.closest("[data-inventory-count-id]");
+            const countId = row?.dataset.inventoryCountId || "";
+            const entry = (state.inventoryCounts || []).find((item) => item.id === countId);
+            if (!entry) return showMessage(ui.inventoryCountReviewMessage, "That count is no longer loaded. Refresh and try again.", "error");
+            const action = button.dataset.inventoryCountAction;
+            const countedCases = Number.parseInt(row.querySelector('[data-count-field="countedCases"]')?.value || "", 10);
+            const reviewNote = row.querySelector('[data-count-field="reviewNote"]')?.value || "";
+            if (!Number.isFinite(countedCases) || countedCases < 0) {
+                return showMessage(ui.inventoryCountReviewMessage, "Counted cases must be zero or greater.", "error");
+            }
+            try {
+                button.disabled = true;
+                if (action === "save") {
+                    await requestJson(`/api/inventory-counts/${encodeURIComponent(countId)}`, {
+                        method: "POST",
+                        body: JSON.stringify({ countedCases, reviewNote })
+                    });
+                    showMessage(ui.inventoryCountReviewMessage, "Inventory count edits saved.", "success");
+                } else if (action === "reject") {
+                    await requestJson(`/api/inventory-counts/${encodeURIComponent(countId)}/reject`, {
+                        method: "POST",
+                        body: JSON.stringify({ reviewNote })
+                    });
+                    showMessage(ui.inventoryCountReviewMessage, "Inventory count rejected.", "success");
+                } else if (action === "approve") {
+                    await requestJson(`/api/inventory-counts/${encodeURIComponent(countId)}`, {
+                        method: "POST",
+                        body: JSON.stringify({ countedCases, reviewNote })
+                    });
+                    await requestJson(`/api/inventory-counts/${encodeURIComponent(countId)}/approve`, {
+                        method: "POST",
+                        body: JSON.stringify({ reviewNote })
+                    });
+                    showMessage(ui.inventoryCountReviewMessage, "Inventory count approved.", "success");
+                } else if (action === "post") {
+                    await requestJson(`/api/inventory-counts/${encodeURIComponent(countId)}`, {
+                        method: "POST",
+                        body: JSON.stringify({ countedCases, reviewNote })
+                    });
+                    await requestJson(`/api/inventory-counts/${encodeURIComponent(countId)}/post`, {
+                        method: "POST",
+                        body: JSON.stringify({ reviewNote })
+                    });
+                    showMessage(ui.inventoryCountReviewMessage, "Inventory count posted and inventory adjusted.", "success");
+                }
+                await syncServerState(true);
+            } catch (error) {
+                showMessage(ui.inventoryCountReviewMessage, error.message, "error");
+            } finally {
+                button.disabled = false;
+            }
         }
 
         async function exportOwnerReportCsv() {
@@ -24174,6 +24471,7 @@
 
         function applyServerState(payload) {
             state.inventory = Array.isArray(payload?.inventory) ? payload.inventory.map(sanitizeInventoryLine).filter(Boolean) : [];
+            state.inventoryCounts = Array.isArray(payload?.inventoryCounts) ? payload.inventoryCounts.map(sanitizeInventoryCount).filter(Boolean) : [];
             state.pallets = Array.isArray(payload?.pallets) ? payload.pallets.map(sanitizePalletRecord).filter(Boolean) : [];
             state.activity = Array.isArray(payload?.activity) ? payload.activity.map(sanitizeActivityItem).filter(Boolean) : [];
             state.warehouseTasks = Array.isArray(payload?.warehouseTasks) ? payload.warehouseTasks.map(sanitizeWarehouseTask).filter(Boolean) : [];
@@ -24224,6 +24522,7 @@
                     .concat((state.masters.partners || []).map((partner) => partner.accountName))
                     .concat((state.masters.items || []).map((item) => item.accountName))
                     .concat((state.inventory || []).map((line) => line.accountName))
+                    .concat((state.inventoryCounts || []).map((count) => count.accountName))
                     .concat((state.warehouseTasks || []).map((task) => task.accountName))
             )].map((value) => norm(value)).filter(Boolean);
             const currentActiveCompany = norm(state.preferences.activeCompany);
@@ -24425,6 +24724,7 @@
         function defaultState() {
             return {
                 inventory: [],
+                inventoryCounts: [],
                 pallets: [],
                 batch: [],
                 activity: [],
@@ -24485,6 +24785,7 @@
             const cache = sanitizeLocalCache(raw?.cache);
             return {
                 inventory: cache.inventory,
+                inventoryCounts: cache.inventoryCounts,
                 pallets: cache.pallets,
                 batch: Array.isArray(raw.batch) ? raw.batch.map(sanitizeBatchLine).filter(Boolean) : [],
                 activity: cache.activity,
@@ -24513,6 +24814,7 @@
         function sanitizeLocalCache(raw) {
             return {
                 inventory: Array.isArray(raw?.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
+                inventoryCounts: Array.isArray(raw?.inventoryCounts) ? raw.inventoryCounts.map(sanitizeInventoryCount).filter(Boolean) : [],
                 pallets: Array.isArray(raw?.pallets) ? raw.pallets.map(sanitizePalletRecord).filter(Boolean) : [],
                 activity: Array.isArray(raw?.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
                 warehouseTasks: Array.isArray(raw?.warehouseTasks) ? raw.warehouseTasks.map(sanitizeWarehouseTask).filter(Boolean) : [],
@@ -24541,6 +24843,7 @@
         function sanitizeServerImport(raw) {
             return {
                 inventory: Array.isArray(raw.inventory) ? raw.inventory.map(sanitizeInventoryLine).filter(Boolean) : [],
+                inventoryCounts: Array.isArray(raw.inventoryCounts) ? raw.inventoryCounts.map(sanitizeInventoryCount).filter(Boolean) : [],
                 pallets: Array.isArray(raw?.pallets) ? raw.pallets.map(sanitizePalletRecord).filter(Boolean) : [],
                 activity: Array.isArray(raw.activity) ? raw.activity.map(sanitizeActivityItem).filter(Boolean) : [],
                 masters: {
@@ -24621,6 +24924,42 @@
                 availableQuantity,
                 createdAt: typeof line.createdAt === "string" ? line.createdAt : new Date().toISOString(),
                 updatedAt: typeof line.updatedAt === "string" ? line.updatedAt : new Date().toISOString()
+            };
+        }
+
+        function sanitizeInventoryCount(item) {
+            const id = item?.id != null ? String(item.id) : "";
+            const accountName = norm(item?.accountName || item?.owner || item?.vendor || item?.customer);
+            const location = norm(item?.location);
+            const sku = norm(item?.sku);
+            if (!id || !accountName || !location || !sku) return null;
+            const status = norm(item?.status || "PENDING");
+            return {
+                id,
+                accountName,
+                location,
+                sku,
+                upc: norm(item?.upc || ""),
+                lotNumber: norm(item?.lotNumber || item?.lot_number || item?.lot || ""),
+                expirationDate: normalizeLabelDate(item?.expirationDate || item?.expiration_date || item?.expiryDate || item?.expiry_date || ""),
+                countPhoto: normalizeImageReference(item?.countPhoto || item?.count_photo || item?.photo || item?.photoData || ""),
+                locationMissing: item?.locationMissing === true || item?.location_missing === true,
+                skuMissing: item?.skuMissing === true || item?.sku_missing === true,
+                trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+                countedCases: normalizeQuantity(item?.countedCases ?? item?.counted_cases ?? item?.cases ?? 0),
+                countedQuantity: normalizeQuantity(item?.countedQuantity ?? item?.counted_quantity ?? 0),
+                systemQuantity: normalizeQuantity(item?.systemQuantity ?? item?.system_quantity ?? 0),
+                varianceQuantity: Number(item?.varianceQuantity ?? item?.variance_quantity ?? 0) || 0,
+                status: ["PENDING", "APPROVED", "REJECTED", "POSTED"].includes(status) ? status : "PENDING",
+                submittedBy: String(item?.submittedBy || item?.submitted_by || "").trim(),
+                submittedAt: typeof item?.submittedAt === "string" ? item.submittedAt : (typeof item?.submitted_at === "string" ? item.submitted_at : ""),
+                reviewedBy: String(item?.reviewedBy || item?.reviewed_by || "").trim(),
+                reviewedAt: typeof item?.reviewedAt === "string" ? item.reviewedAt : (typeof item?.reviewed_at === "string" ? item.reviewed_at : ""),
+                postedBy: String(item?.postedBy || item?.posted_by || "").trim(),
+                postedAt: typeof item?.postedAt === "string" ? item.postedAt : (typeof item?.posted_at === "string" ? item.posted_at : ""),
+                reviewNote: String(item?.reviewNote || item?.review_note || "").trim(),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
         }
 
@@ -25079,6 +25418,34 @@
             };
         }
 
+        function sanitizePortalKittingRequestRecord(item) {
+            const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
+            if (!item?.id || !accountName) return null;
+            return {
+                id: String(item.id),
+                requestCode: String(item.requestCode || item.request_code || "").trim(),
+                accountName,
+                status: norm(item.status || "SUBMITTED"),
+                salesOrderReference: String(item.salesOrderReference || item.sales_order_reference || "").trim(),
+                purchaseOrderReference: String(item.purchaseOrderReference || item.purchase_order_reference || "").trim(),
+                sourceSku: norm(item.sourceSku || item.source_sku),
+                sourceQuantity: Number(item.sourceQuantity || item.source_quantity || 0) || 0,
+                sourceDescription: String(item.sourceDescription || item.source_description || "").trim(),
+                targetSku: norm(item.targetSku || item.target_sku),
+                targetQuantity: Number(item.targetQuantity || item.target_quantity || 0) || 0,
+                targetDescription: String(item.targetDescription || item.target_description || "").trim(),
+                requestedCompletionDate: String(item.requestedCompletionDate || item.requested_completion_date || "").trim().slice(0, 10),
+                requestedByName: String(item.requestedByName || item.requested_by_name || "").trim(),
+                requestedByEmail: String(item.requestedByEmail || item.requested_by_email || "").trim(),
+                notes: String(item.notes || "").trim(),
+                warehouseNote: String(item.warehouseNote || item.warehouse_note || "").trim(),
+                completedAt: typeof item.completedAt === "string" ? item.completedAt : (typeof item.completed_at === "string" ? item.completed_at : null),
+                completedBy: String(item.completedBy || item.completed_by || "").trim(),
+                createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
+                updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString())
+            };
+        }
+
         function sanitizePortalOrderRecord(item) {
             const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
             if (!item?.id || !accountName) return null;
@@ -25325,6 +25692,7 @@
 
             return {
                 inventory: state.inventory,
+                inventoryCounts: state.inventoryCounts,
                 pallets: state.pallets,
                 activity: compact ? [] : state.activity.slice(0, LOCAL_CACHE_ACTIVITY_LIMIT),
                 warehouseTasks: compact ? state.warehouseTasks.slice(0, 80) : state.warehouseTasks,
