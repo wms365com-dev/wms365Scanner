@@ -15127,7 +15127,8 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
     `;
 }
 
-function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
+function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "", orderDocumentAttachments = [] } = {}) {
+    const customerDocuments = Array.isArray(orderDocumentAttachments) ? orderDocumentAttachments : [];
     const lines = [
         testMode ? "TEST EMAIL ONLY - no order status was changed." : "",
         testMode && testRequestedBy ? `Requested by: ${testRequestedBy}` : "",
@@ -15142,6 +15143,7 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
         order.orderNotes ? `Order Notes: ${order.orderNotes}` : "",
         ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
         `Printable PDF: wms365-${order.orderCode || "order"}-pick-ticket.pdf`,
+        customerDocuments.length ? `Customer Attached Documents (${customerDocuments.length}): ${customerDocuments.map((attachment) => attachment.filename).join(", ")}` : "",
         "",
         "Pick Lines:"
     ];
@@ -15155,8 +15157,9 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
     return lines.filter((line, index, array) => line || (index > 0 && array[index - 1] !== "")).join("\n");
 }
 
-function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
+function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "", orderDocumentAttachments = [] } = {}) {
     const pickTicketFileName = normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket.pdf`);
+    const customerDocuments = Array.isArray(orderDocumentAttachments) ? orderDocumentAttachments : [];
     const linesHtml = order.lines.map((line, index) => `
         <tr>
             <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${index + 1}</td>
@@ -15167,6 +15170,14 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
             <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.upc || "-")}</td>
         </tr>
     `).join("");
+    const customerDocumentsHtml = customerDocuments.length
+        ? `
+            <p style="margin:16px 0 8px;font-weight:700;font-size:16px;">Customer Attached Documents</p>
+            <ul style="margin:0 0 18px 18px;padding:0;">
+                ${customerDocuments.map((attachment) => `<li>${escapeHtml(attachment.filename)}</li>`).join("")}
+            </ul>
+        `
+        : "";
 
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:860px;">
@@ -15224,6 +15235,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                 </thead>
                 <tbody>${linesHtml}</tbody>
             </table>
+            ${customerDocumentsHtml}
         </div>
     `;
 }
@@ -15385,6 +15397,29 @@ function buildPortalOrderPickTicketPdfAttachment(order) {
     };
 }
 
+async function getPortalOrderReleaseDocumentAttachments(orderId, client = pool) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return [];
+    const result = await client.query(
+        `
+            select id, file_name, file_type, file_size, file_data
+            from portal_order_documents
+            where order_id = $1
+            order by created_at asc, id asc
+        `,
+        [normalizedOrderId]
+    );
+    return result.rows
+        .filter((row) => !isPortalOrderReleaseCopyDocument(row))
+        .map((row) => ({
+            filename: normalizeUploadFileName(row.file_name || `order-document-${row.id}`),
+            content: row.file_data,
+            contentType: row.file_type || "application/octet-stream",
+            fileSize: Number(row.file_size) || Number(row.file_data?.length) || 0
+        }))
+        .filter((attachment) => attachment.filename && attachment.content);
+}
+
 async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPrefix = "", testMode = false, testRequestedBy = "" } = {}) {
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
@@ -15396,15 +15431,20 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     }
 
     const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
+    const orderDocumentAttachments = await getPortalOrderReleaseDocumentAttachments(order.id);
+    const attachments = [
+        buildPortalOrderPickTicketPdfAttachment(order),
+        ...orderDocumentAttachments
+    ];
     await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `${subjectPrefix || ""}Pick Ticket - ${order.orderCode} - ${order.accountName}`,
-        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
-        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
-        attachments: [buildPortalOrderPickTicketPdfAttachment(order)],
+        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy, orderDocumentAttachments }),
+        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy, orderDocumentAttachments }),
+        attachments,
         emailContext: {
             accountName: order.accountName,
             sourceType: testMode ? "PORTAL_ORDER_TEST" : "PORTAL_ORDER",
@@ -15415,7 +15455,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     return {
         recipients,
         ccRecipients: normalizedCcRecipients,
-        attachments: ["pick-ticket"]
+        attachments: attachments.map((attachment) => attachment.filename)
     };
 }
 
