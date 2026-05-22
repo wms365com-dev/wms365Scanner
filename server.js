@@ -98,6 +98,8 @@ const APP_BUILD_FILES = [
     "marketing.js",
     "marketing-logo.svg",
     "site.webmanifest",
+    "mobile-bridge.js",
+    "sw.js",
     "hero-warehouse-scene.svg",
     "industry-3pl-scene.svg",
     "industry-ecommerce-scene.svg",
@@ -4374,6 +4376,15 @@ app.get("/marketing-logo.svg", (_req, res) => {
 
 app.get("/site.webmanifest", (_req, res) => {
     sendMarketingAsset(res, "site.webmanifest", "application/manifest+json; charset=utf-8");
+});
+
+app.get("/mobile-bridge.js", (_req, res) => {
+    sendMarketingAsset(res, "mobile-bridge.js", "application/javascript; charset=utf-8");
+});
+
+app.get("/sw.js", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    sendMarketingAsset(res, "sw.js", "application/javascript; charset=utf-8");
 });
 
 app.get("/hero-warehouse-scene.svg", (_req, res) => {

@@ -118,13 +118,14 @@
   </div>
 </div>
 
+<script src="/mobile-bridge.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const LOCKED_COMPANY_KEY="wms365_inventory_count_company";
 const LOCAL_DB_NAME="wms365-mobile-count";
 const LOCAL_DB_VERSION=1;
 const state={inventory:[],items:[],locations:[],owners:[],session:null,lockedAccount:"",photoData:"",scanTarget:"",scannerStream:null,scannerTimer:null,offlineMode:false,pendingCount:0};
-function isAndroidShell(){return !!window.WMS365Android}
+function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
 function norm(v){return String(v||"").trim().replace(/\s+/g," ").toUpperCase()}
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function trackingLabel(v){const t=norm(v);return t==="PALLET"?"Pallets":t==="CASE"?"Cases":"Units"}
@@ -332,7 +333,8 @@ async function saveCount(){
     if(item?.expirationTracked&&!$("expirationInput").value)throw new Error("Expiry is required for this SKU.");
     if(exceptionMessages().length&&!state.photoData){$("message").className="status";$("message").textContent="Photo is recommended for this exception, but the count will still save."}
     $("saveBtn").disabled=true;$("message").className="status";$("message").textContent="Saving pending count...";
-    const body={accountName:account,location:locationValue,sku:item?.sku||skuValue,upc:item?.upc||"",countedCases:cases,lotNumber:$("lotInput").value,expirationDate:$("expirationInput").value,countPhoto:state.photoData};
+    const rawBody={accountName:account,location:locationValue,sku:item?.sku||skuValue,upc:item?.upc||"",countedCases:cases,lotNumber:$("lotInput").value,expirationDate:$("expirationInput").value,countPhoto:state.photoData};
+    const body=window.WMS365Mobile?.envelope?.(rawBody,"INVENTORY_COUNT_SUBMIT")||rawBody;
     let payload=null;
     try{
       payload=await requestJson("/api/inventory-counts",{method:"POST",body:JSON.stringify(body)});
@@ -370,16 +372,15 @@ function acceptScanValue(targetId,value){
   const target=$(targetId);if(!target)return;
   target.value=norm(value);
   renderItem();
-  try{window.WMS365Android?.vibrate?.(45)}catch{}
-  try{window.WMS365Android?.beep?.("success")}catch{}
+  window.WMS365Mobile?.vibrate?.(45);
+  window.WMS365Mobile?.beep?.("success");
   const next=targetId==="locationInput"?$("skuInput"):$("casesInput");
   next?.focus();
 }
 async function startScanner(targetId){
   state.scanTarget=targetId;
-  if(isAndroidShell()&&typeof window.WMS365Android.scanBarcode==="function"){
+  if(window.WMS365Mobile?.scanBarcode?.(targetId)){
     $("scannerOverlay").classList.add("hidden");
-    window.WMS365Android.scanBarcode(targetId);
     return;
   }
   $("scannerOverlay").classList.remove("hidden");
@@ -434,7 +435,9 @@ $("clearPhotoBtn").addEventListener("click",clearPhoto);
 $("closeScannerBtn").addEventListener("click",stopScanner);
 window.addEventListener("online",()=>syncPendingCounts().then((synced)=>{if(synced){$("message").className="status good";$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;return load()}}).catch(()=>updateQueueStatus()));
 window.addEventListener("offline",()=>{state.offlineMode=true;updateQueueStatus()});
+window.addEventListener("beforeunload",()=>window.WMS365Mobile?.setKeepAwake?.(false));
 document.addEventListener("keydown",event=>{if(event.key!=="Enter")return;const order=["locationInput","skuInput","casesInput","lotInput","expirationInput"];const index=order.indexOf(document.activeElement?.id);if(index>=0){event.preventDefault();(order.slice(index+1).map($).find(el=>el&&!el.closest(".hidden"))||$("saveBtn")).focus()}});
+window.WMS365Mobile?.setKeepAwake?.(true);
 load().catch(error=>{$("message").className="status bad";$("message").textContent=error.message});
 </script>
 </body>

@@ -1,19 +1,40 @@
 {
-  "name": "WMS365 Warehouse Management Software",
+  "name": "WMS365 Scanner",
   "short_name": "WMS365",
-  "description": "Warehouse management software for 3PLs, private warehouses, and growth brands.",
+  "description": "Mobile warehouse scanner for WMS365 receiving, picking, moves, and counts.",
   "lang": "en-US",
-  "start_url": "/",
+  "start_url": "/mobile?mode=mobile",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f3f7ff",
-  "theme_color": "#1767ff",
+  "background_color": "#f3f5f6",
+  "theme_color": "#14304a",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "/marketing-logo.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Mobile Workspace",
+      "short_name": "Mobile",
+      "url": "/mobile?mode=mobile",
+      "icons": [{ "src": "/marketing-logo.svg", "sizes": "512x512", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Inventory Count",
+      "short_name": "Count",
+      "url": "/mobile-count?mode=mobile",
+      "icons": [{ "src": "/marketing-logo.svg", "sizes": "512x512", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Picking",
+      "short_name": "Pick",
+      "url": "/mobile-pick?mode=mobile",
+      "icons": [{ "src": "/marketing-logo.svg", "sizes": "512x512", "type": "image/svg+xml" }]
     }
   ]
 }

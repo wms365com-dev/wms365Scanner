@@ -2,6 +2,10 @@
 
 This is a dedicated Android shell for the WMS365 mobile warehouse flow.
 
+For the full architecture, bridge contract, deployment notes, and test checklist, see:
+
+`C:\WMS365Scanner\docs\ANDROID_HYBRID_ARCHITECTURE.md`
+
 ## Chosen Approach
 
 WMS365 uses a native Android WebView shell around the hosted mobile web app. This keeps the mobile web/PWA frontend as the single source of truth, while still allowing Android-only behavior such as camera permission handling, file/photo upload, persistent device storage, native barcode scan handoff, haptics, sound feedback, loading/error screens, and approved-domain navigation controls.
@@ -19,6 +23,7 @@ Trusted Web Activity was not chosen for this build because the warehouse flow be
 - Works with the web page's IndexedDB offline queue. If connectivity drops, counts are saved locally and sync automatically when the device comes back online.
 - Restricts WebView navigation to approved HTTPS WMS365 domains.
 - Supports Android deep links for `/mobile`, `/mobile-count`, and `/mobile-pick`.
+- Exposes native device features through the shared `/mobile-bridge.js` wrapper so mobile web and Android stay in sync.
 
 ## Update Model
 

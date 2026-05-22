@@ -24,6 +24,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -32,6 +33,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -361,6 +363,14 @@ class MainActivity : Activity() {
         ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80).startTone(tone, 120)
     }
 
+    private fun setKeepScreenAwake(enabled: Boolean) {
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     inner class AndroidBridge {
         @JavascriptInterface
         fun scanBarcode(targetId: String) {
@@ -392,5 +402,26 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun getAppVersion(): String = BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
+        fun getPlatform(): String = "android"
+
+        @JavascriptInterface
+        fun isOnline(): Boolean = this@MainActivity.isOnline()
+
+        @JavascriptInterface
+        fun setKeepScreenAwake(enabled: Boolean) {
+            runOnUiThread { this@MainActivity.setKeepScreenAwake(enabled) }
+        }
+
+        @JavascriptInterface
+        fun clearWebData() {
+            runOnUiThread {
+                CookieManager.getInstance().removeAllCookies(null)
+                WebStorage.getInstance().deleteAllData()
+                webView.clearCache(true)
+                webView.clearHistory()
+            }
+        }
     }
 }
