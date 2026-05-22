@@ -2529,6 +2529,18 @@
             line-height: 1.45;
         }
 
+        .action-scan-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 84px;
+            gap: 0.55rem;
+            align-items: stretch;
+        }
+
+        .action-scan-row .btn {
+            min-height: 46px;
+            padding-inline: 0.75rem;
+        }
+
         .labels-tool-grid {
             display: grid;
             gap: 1rem;
@@ -3685,12 +3697,12 @@
             right: 1.2rem;
             bottom: 1.2rem;
             z-index: 1200;
-            border: 1px solid rgba(116, 178, 255, 0.28);
-            background: linear-gradient(135deg, #2f7dff 0%, #1b4fcc 100%);
+            border: 1px solid rgba(63, 95, 118, 0.24);
+            background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
             color: #fff;
             border-radius: 999px;
             padding: 0.82rem 1.15rem;
-            box-shadow: 0 18px 45px rgba(4, 14, 29, 0.42);
+            box-shadow: 0 14px 34px rgba(32, 48, 58, 0.22);
             font-weight: 700;
             cursor: pointer;
         }
@@ -3718,10 +3730,10 @@
             z-index: 1;
             width: min(760px, 100%);
             max-height: calc(100dvh - 2.5rem);
-            border-radius: 28px;
-            border: 1px solid rgba(139, 179, 214, 0.18);
-            background: linear-gradient(180deg, rgba(13, 28, 46, 0.98), rgba(7, 17, 29, 0.98));
-            box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            box-shadow: 0 28px 80px rgba(32, 48, 58, 0.28);
             padding: 1.35rem;
             overflow-y: auto;
             overscroll-behavior: contain;
@@ -3729,7 +3741,43 @@
         }
 
         .feedback-modal-dialog .field span {
-            color: #d8e6f5;
+            color: var(--muted);
+        }
+
+        .feedback-background-context {
+            display: none !important;
+        }
+
+        .feedback-attachment-preview {
+            display: none;
+            margin-top: 0.55rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .feedback-attachment-preview.active {
+            display: block;
+        }
+
+        .feedback-attachment-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-top: 0.7rem;
+            color: var(--brand-2);
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .feedback-attachment-thumb {
+            display: block;
+            max-width: 220px;
+            max-height: 180px;
+            margin-top: 0.65rem;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            object-fit: contain;
+            background: var(--panel-2);
         }
 
         .feedback-context-grid {
@@ -3888,7 +3936,7 @@
         .mobile-picker-copy { gap: 0.2rem; }
 
         .mobile-picker-kicker {
-            color: #5f7082;
+            color: var(--muted);
             font-size: 0.72rem;
             font-weight: 700;
             letter-spacing: 0.12em;
@@ -3896,7 +3944,7 @@
         }
 
         .mobile-picker-title {
-            color: #1c2b39;
+            color: var(--text);
             font-size: 1.15rem;
             font-weight: 700;
         }
@@ -3906,7 +3954,7 @@
         }
 
         .mobile-picker-search span {
-            color: #5f7082;
+            color: var(--muted);
             font-size: 0.82rem;
             font-weight: 600;
         }
@@ -3915,12 +3963,12 @@
             gap: 0.18rem;
             padding: 0.75rem 0.85rem;
             border-radius: 14px;
-            border: 1px solid rgba(0, 123, 255, 0.14);
-            background: rgba(0, 123, 255, 0.06);
+            border: 1px solid rgba(92, 123, 146, 0.18);
+            background: rgba(92, 123, 146, 0.08);
         }
 
         .mobile-picker-selected strong {
-            color: #1c2b39;
+            color: var(--text);
             font-size: 0.92rem;
         }
 
@@ -3937,8 +3985,8 @@
             height: var(--mobile-wheel-frame);
             overflow: hidden;
             border-radius: 20px;
-            border: 1px solid #dbe3ec;
-            background: #eef4f8;
+            border: 1px solid var(--line);
+            background: var(--brand-soft);
         }
 
         .mobile-picker-wheel::before,
@@ -3954,12 +4002,12 @@
 
         .mobile-picker-wheel::before {
             top: 0;
-            background: linear-gradient(180deg, rgba(238, 244, 248, 0.98) 0%, rgba(238, 244, 248, 0.92) 34%, rgba(238, 244, 248, 0) 100%);
+            background: linear-gradient(180deg, rgba(237, 243, 246, 0.98) 0%, rgba(237, 243, 246, 0.92) 34%, rgba(237, 243, 246, 0) 100%);
         }
 
         .mobile-picker-wheel::after {
             bottom: 0;
-            background: linear-gradient(0deg, rgba(238, 244, 248, 0.98) 0%, rgba(238, 244, 248, 0.92) 34%, rgba(238, 244, 248, 0) 100%);
+            background: linear-gradient(0deg, rgba(237, 243, 246, 0.98) 0%, rgba(237, 243, 246, 0.92) 34%, rgba(237, 243, 246, 0) 100%);
         }
 
         .mobile-picker-wheel-focus {
@@ -3970,7 +4018,7 @@
             height: var(--mobile-wheel-row);
             transform: translateY(-50%);
             border-radius: 18px;
-            border: 1px solid rgba(0, 123, 255, 0.18);
+            border: 1px solid rgba(92, 123, 146, 0.22);
             background: rgba(255, 255, 255, 0.84);
             box-shadow: 0 12px 28px rgba(13, 34, 55, 0.08);
             pointer-events: none;
@@ -4000,9 +4048,9 @@
             min-height: var(--mobile-wheel-row);
             padding: 1rem;
             border-radius: 14px;
-            border: 1px dashed #d6dde6;
-            background: #f5f8fb;
-            color: #5f7082;
+            border: 1px dashed var(--line);
+            background: var(--panel-2);
+            color: var(--muted);
             line-height: 1.45;
             text-align: center;
         }
@@ -4034,7 +4082,7 @@
         }
 
         .mobile-picker-option.selected {
-            border-color: rgba(0, 123, 255, 0.24);
+            border-color: rgba(92, 123, 146, 0.28);
             background: rgba(255, 255, 255, 0.88);
             color: #13304a;
             opacity: 1;
@@ -4044,21 +4092,21 @@
         .mobile-picker-option:active,
         .mobile-picker-option:focus-visible {
             outline: none;
-            border-color: rgba(0, 123, 255, 0.28);
-            background: rgba(0, 123, 255, 0.12);
+            border-color: rgba(92, 123, 146, 0.34);
+            background: rgba(92, 123, 146, 0.12);
         }
 
         .mobile-picker-option-title {
             font-size: 1.02rem;
             font-weight: 700;
-            color: #1c2b39;
+            color: var(--text);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
         .mobile-picker-option-meta {
-            color: #5f7082;
+            color: var(--muted);
             font-size: 0.82rem;
             line-height: 1.2;
             white-space: nowrap;
@@ -5143,12 +5191,12 @@
         @media (max-width: 640px) and (pointer: coarse) {
             :root {
                 --panel: #ffffff;
-                --panel-2: #f6f8fa;
-                --line: #d9e1e8;
-                --text: #1c2b39;
-                --muted: #5f7082;
-                --brand: #1768ff;
-                --brand-2: #1768ff;
+                --panel-2: #f7f9fa;
+                --line: #d5dde4;
+                --text: #20303a;
+                --muted: #657582;
+                --brand: #5c7b92;
+                --brand-2: #3f5f76;
                 --shadow: none;
                 --radius: 12px;
                 --radius-sm: 10px;
@@ -5158,7 +5206,7 @@
                 width: 100%;
                 height: 100%;
                 overflow: hidden;
-                background: #eef2f5;
+                background: var(--bg);
             }
 
             body {
@@ -5178,9 +5226,11 @@
             .desktop-only { display: none !important; }
             .feedback-launcher {
                 right: 0.85rem;
-                left: 0.85rem;
+                left: auto;
                 bottom: 0.85rem;
                 text-align: center;
+                min-width: 112px;
+                padding: 0.78rem 0.95rem;
             }
             .feedback-modal {
                 align-items: end;
@@ -5205,7 +5255,7 @@
                 padding: 0;
                 overflow: hidden;
                 isolation: isolate;
-                background: #f4f6f8;
+                background: var(--bg);
             }
             .app,
             .panel,
@@ -5275,6 +5325,7 @@
             }
             .mobile-home-card .lead,
             .mobile-home-card .meta,
+            .mobile-build-label,
             .card-head .lead,
             .menu-card-meta,
             .mobile-picker-kicker {
@@ -5286,7 +5337,7 @@
                 z-index: 4;
                 margin-bottom: 0.45rem;
                 padding: 0 0 0.35rem;
-                background: #f4f6f8;
+                background: var(--bg);
             }
             .mobile-panel-head .btn {
                 width: 100%;
@@ -5319,7 +5370,7 @@
                 padding: 0;
                 border: none;
                 border-radius: 0;
-                background: rgba(24, 35, 47, 0.08);
+                background: rgba(32, 48, 58, 0.08);
                 box-shadow: none;
                 max-width: none;
                 overflow: hidden;
@@ -5337,9 +5388,9 @@
             }
             .mobile-picker-search input {
                 padding: 0.9rem 0.95rem;
-                border: 1px solid #d6dde6;
+                border: 1px solid var(--line);
                 border-radius: 14px;
-                background: #f9fbfd;
+                background: var(--panel-2);
             }
             .mobile-picker-options {
                 overflow-y: auto;
@@ -5364,13 +5415,13 @@
             input, select, textarea {
                 padding: 10px;
                 font-size: 14px;
-                border: 2px solid #d6dde6;
+                border: 2px solid var(--line);
                 background: #ffffff;
                 color: var(--text);
             }
             input:focus, select:focus, textarea:focus {
                 border-color: var(--brand);
-                box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+                box-shadow: 0 0 0 2px rgba(92, 123, 146, 0.14);
             }
             .field span, h2, h3 { color: var(--text); }
             .form-section-note { display: none; }
@@ -5384,11 +5435,11 @@
             .btn.ghost {
                 color: var(--text);
                 background: #ffffff;
-                border: 2px solid #d6dde6;
+                border: 2px solid var(--line);
             }
             .helper, .summary, .stat, .result-group, .activity-item, .table-wrap, .quick-row {
-                background: #f5f8fb;
-                border-color: #dbe3ec;
+                background: var(--panel-2);
+                border-color: var(--line);
             }
             .mobile-task-picker {
                 padding: 0.85rem;
@@ -5485,8 +5536,8 @@
             }
             .empty {
                 text-align: left;
-                background: #f5f8fb;
-                border-color: #dbe3ec;
+                background: var(--panel-2);
+                border-color: var(--line);
                 color: var(--muted);
             }
             .footer {
@@ -5540,12 +5591,12 @@
 
         body.device-mobile {
             --panel: #ffffff;
-            --panel-2: #f6f8fa;
-            --line: #d9e1e8;
-            --text: #1c2b39;
-            --muted: #5f7082;
-            --brand: #1768ff;
-            --brand-2: #1768ff;
+            --panel-2: #f7f9fa;
+            --line: #d5dde4;
+            --text: #20303a;
+            --muted: #657582;
+            --brand: #5c7b92;
+            --brand-2: #3f5f76;
             --shadow: none;
             --radius: 12px;
             --radius-sm: 10px;
@@ -5558,7 +5609,7 @@
             overflow: hidden;
             overscroll-behavior: none;
             padding: 0;
-            background: #eef2f5;
+            background: var(--bg);
         }
 
         body.device-mobile #mobileHomePanel { display: none !important; }
@@ -5580,7 +5631,7 @@
             isolation: isolate;
             border-radius: 0;
             border: 0;
-            background: #f4f6f8;
+            background: var(--bg);
             box-shadow: none;
         }
         body.device-mobile .app,
@@ -5637,7 +5688,7 @@
             -webkit-overflow-scrolling: touch;
             padding: 0;
             scroll-padding-top: 0;
-            background: #eef2f5;
+            background: var(--bg);
         }
         body.device-mobile .mobile-screen-body {
             min-height: 100%;
@@ -5645,7 +5696,7 @@
             align-content: start;
             gap: 0.55rem;
             padding: 0.55rem 0.55rem calc(0.9rem + env(safe-area-inset-bottom));
-            background: #eef2f5;
+            background: var(--bg);
         }
         body.device-mobile .mobile-panel-head {
             position: sticky;
@@ -5654,13 +5705,13 @@
             display: grid;
             gap: 0.45rem;
             padding: 0.55rem 0.55rem 0.45rem;
-            background: #eef2f5;
+            background: var(--bg);
             border-bottom: 1px solid #dbe3ea;
         }
         body.device-mobile .mobile-appbar {
             align-items: center;
             padding: 0.68rem 0.78rem;
-            border: 1px solid #d8e0e8;
+            border: 1px solid var(--line);
             border-radius: 12px;
             background: #ffffff;
         }
@@ -5701,7 +5752,7 @@
             z-index: 4;
             margin: -0.1rem -0.1rem 0.65rem;
             padding: 0.15rem 0.15rem 0.45rem;
-            background: #f4f6f8;
+            background: var(--bg);
         }
         body.device-mobile .mobile-panel-head .btn { width: 100%; }
         body.device-mobile input[data-mobile-picker="true"] {
@@ -5722,7 +5773,7 @@
             padding: 0;
             border: none;
             border-radius: 0;
-            background: rgba(24, 35, 47, 0.08);
+            background: rgba(32, 48, 58, 0.08);
             box-shadow: none;
             max-width: none;
             overflow: hidden;
@@ -5745,9 +5796,9 @@
         }
         body.device-mobile .mobile-picker-search input {
             padding: 0.9rem 0.95rem;
-            border: 1px solid #d6dde6;
+            border: 1px solid var(--line);
             border-radius: 14px;
-            background: #f9fbfd;
+            background: var(--panel-2);
         }
         body.device-mobile .mobile-picker-options {
             padding-right: 0.1rem;
@@ -5774,7 +5825,7 @@
         body.device-mobile textarea {
             padding: 10px;
             font-size: 14px;
-            border: 2px solid #d6dde6;
+            border: 2px solid var(--line);
             background: #ffffff;
             color: var(--text);
         }
@@ -5782,7 +5833,7 @@
         body.device-mobile select:focus,
         body.device-mobile textarea:focus {
             border-color: var(--brand);
-            box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+            box-shadow: 0 0 0 2px rgba(92, 123, 146, 0.14);
         }
         body.device-mobile .field span,
         body.device-mobile h2,
@@ -5796,7 +5847,7 @@
         body.device-mobile .btn.ghost {
             color: var(--text);
             background: #ffffff;
-            border: 2px solid #d6dde6;
+            border: 2px solid var(--line);
         }
         body.device-mobile .helper,
         body.device-mobile .summary,
@@ -5805,8 +5856,8 @@
         body.device-mobile .activity-item,
         body.device-mobile .table-wrap,
         body.device-mobile .quick-row {
-            background: #f5f8fb;
-            border-color: #dbe3ec;
+            background: var(--panel-2);
+            border-color: var(--line);
         }
         body.device-mobile .mobile-task-picker { padding: 0.85rem; }
         body.device-mobile .mobile-drill-menu,
@@ -5926,8 +5977,8 @@
         body.device-mobile .mobile-subview.active { display: block !important; }
         body.device-mobile .empty {
             text-align: left;
-            background: #f5f8fb;
-            border-color: #dbe3ec;
+            background: var(--panel-2);
+            border-color: var(--line);
             color: var(--muted);
         }
         body.device-mobile .footer {
@@ -5967,7 +6018,7 @@
             z-index: 3;
             margin-top: 0.5rem;
             padding: 0.75rem 0 0;
-            background: #f4f6f8;
+            background: var(--bg);
         }
         body.device-mobile .scan-action-note { display: none; }
         body.device-mobile .fold summary { padding: 0.85rem 0.95rem; }
@@ -6549,7 +6600,7 @@
                                 <span class="menu-card-meta">Search one item, one BIN, or multiple item codes.</span>
                             </button>
                             <button class="btn menu-card-btn" type="button" data-mobile-nav="actions" data-mobile-subview-group="actions" data-mobile-subview-target="transfer">
-                                <span class="menu-card-title">Move / Transfer</span>
+                                <span class="menu-card-title">Move Item</span>
                                 <span class="menu-card-meta">Move stock between BINs or transfer product after a scan.</span>
                             </button>
                             <button class="btn menu-card-btn" type="button" data-mobile-nav="actions" data-mobile-subview-group="actions" data-mobile-subview-target="adjust">
@@ -7020,6 +7071,7 @@
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandPostBtn">Post...</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandArriveBtn">Arrived at DC</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandReceiveBtn">Receive</button>
+                            <button class="erp-command-link" type="button" id="purchaseOrderCommandCancelBtn" hidden>Cancel PO</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandAddLineBtn">Select items...</button>
                         </div>
                     </div>
@@ -7072,6 +7124,7 @@
                     <div class="erp-document-process hidden" id="warehouseInboundWorkflowPanel"></div>
                     <div class="button-row" style="margin-top: 1rem;">
                         <button class="btn" id="submitWarehouseInboundBtn" type="button">Create Purchase Order</button>
+                        <button class="btn ghost" id="cancelWarehouseInboundBtn" type="button" hidden>Cancel PO</button>
                     </div>
                     <div class="status" id="warehouseInboundMessage"></div>
                 </article>
@@ -8150,7 +8203,7 @@
                 <div class="mobile-appbar">
                     <div class="mobile-appbar-copy">
                         <span class="mobile-appbar-kicker">WMS365</span>
-                        <strong class="mobile-appbar-title">Adjustments</strong>
+                        <strong class="mobile-appbar-title">Move Stock</strong>
                     </div>
                     <span class="mobile-appbar-badge">Warehouse</span>
                 </div>
@@ -8160,30 +8213,26 @@
             <article class="card mobile-only mobile-task-picker mobile-drill-menu active" data-mobile-subview-menu-group="actions">
                 <div class="card-head" style="margin-bottom: 0.75rem;">
                     <div>
-                        <h2>Action Tasks</h2>
+                        <h2>Stock Actions</h2>
                         <p class="lead">Open one action at a time so the mobile flow stays simple.</p>
                     </div>
                 </div>
                 <div class="menu-stack">
-                    <button class="btn ghost active menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="adjust">
-                        <span class="menu-card-title">Remove</span>
-                        <span class="menu-card-meta">Fix counts or remove an inventory line from a BIN.</span>
-                    </button>
-                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="transfer">
-                        <span class="menu-card-title">Transfer</span>
-                        <span class="menu-card-meta">Move part of a quantity from one location to another.</span>
+                    <button class="btn ghost active menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="transfer">
+                        <span class="menu-card-title">Move Item</span>
+                        <span class="menu-card-meta">Scan from, to, SKU, and move the available quantity.</span>
                     </button>
                     <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="putaway">
                         <span class="menu-card-title">Put Away</span>
                         <span class="menu-card-meta">Move received stock from staging or dock space into its storage BIN.</span>
                     </button>
-                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="convert">
-                        <span class="menu-card-title">Convert</span>
-                        <span class="menu-card-meta">Break cases into eaches, convert eaches into cases, or re-SKU product.</span>
-                    </button>
                     <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="move">
-                        <span class="menu-card-title">Move BIN</span>
+                        <span class="menu-card-title">Move Full BIN</span>
                         <span class="menu-card-meta">Move every line in a BIN into a new destination BIN.</span>
+                    </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="adjust">
+                        <span class="menu-card-title">Remove</span>
+                        <span class="menu-card-meta">Fix counts or remove an inventory line from a BIN.</span>
                     </button>
                 </div>
             </article>
@@ -8236,8 +8285,8 @@
                 <article class="card mobile-subview workspace-action-card" id="transferInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="transfer">
                     <div class="card-head">
                         <div>
-                            <h2>Transfer Stock</h2>
-                            <p class="lead">Move part of an item count from one location to another.</p>
+                            <h2>Move Item</h2>
+                            <p class="lead">Scan from, to, SKU. Quantity fills with available stock and can be changed for a partial move.</p>
                         </div>
                     </div>
                     <form id="transferForm" class="form-grid" autocomplete="off">
@@ -8246,23 +8295,32 @@
                             <input id="transferAccount" hidden list="ownerList" type="text" placeholder="Required company">
                         </label>
                         <label class="field">
-                            <span>From Location</span>
-                            <input id="transferFrom" list="transferFromList" type="text" placeholder="Choose company first">
+                            <span>From</span>
+                            <div class="action-scan-row">
+                                <input id="transferFrom" list="transferFromList" type="text" placeholder="Choose company first">
+                                <button class="btn ghost" type="button" data-action-scan-target="transferFrom">Scan</button>
+                            </div>
                         </label>
                         <label class="field">
-                            <span>To Location</span>
-                            <input id="transferTo" list="transferToList" type="text" placeholder="Choose company and source location first">
+                            <span>To</span>
+                            <div class="action-scan-row">
+                                <input id="transferTo" list="transferToList" type="text" placeholder="Choose company and source location first">
+                                <button class="btn ghost" type="button" data-action-scan-target="transferTo">Scan</button>
+                            </div>
                         </label>
                         <label class="field span-2">
                             <span>SKU or UPC</span>
-                            <input id="transferSku" list="transferSkuList" type="text" placeholder="Choose company and source location first">
+                            <div class="action-scan-row">
+                                <input id="transferSku" list="transferSkuList" type="text" placeholder="Choose company and source location first">
+                                <button class="btn ghost" type="button" data-action-scan-target="transferSku">Scan</button>
+                            </div>
                         </label>
                         <label class="field span-2">
                             <span>Quantity</span>
-                            <input id="transferQty" type="number" min="1" inputmode="numeric" placeholder="Units to move">
+                            <input id="transferQty" type="number" min="1" inputmode="numeric" placeholder="Auto fills available qty">
                         </label>
                         <div class="button-row span-2">
-                            <button class="btn" type="submit">Transfer Quantity</button>
+                            <button class="btn" type="submit">Move Item</button>
                         </div>
                     </form>
                 </article>
@@ -8280,25 +8338,30 @@
                             <input id="putAwayAccount" hidden list="ownerList" type="text" placeholder="Required company">
                         </label>
                         <label class="field">
-                            <span>From Area / Location</span>
-                            <input id="putAwayFrom" list="putAwayFromList" type="text" placeholder="Choose company first">
+                            <span>From</span>
+                            <div class="action-scan-row">
+                                <input id="putAwayFrom" list="putAwayFromList" type="text" placeholder="Choose company first">
+                                <button class="btn ghost" type="button" data-action-scan-target="putAwayFrom">Scan</button>
+                            </div>
                         </label>
                         <label class="field">
-                            <span>Put Away To BIN</span>
-                            <input id="putAwayTo" list="putAwayToList" type="text" placeholder="Choose company and source location first">
+                            <span>To BIN</span>
+                            <div class="action-scan-row">
+                                <input id="putAwayTo" list="putAwayToList" type="text" placeholder="Choose company and source location first">
+                                <button class="btn ghost" type="button" data-action-scan-target="putAwayTo">Scan</button>
+                            </div>
                         </label>
                         <label class="field span-2">
                             <span>SKU or UPC</span>
-                            <input id="putAwaySku" list="putAwaySkuList" type="text" placeholder="Choose company and source location first">
+                            <div class="action-scan-row">
+                                <input id="putAwaySku" list="putAwaySkuList" type="text" placeholder="Choose company and source location first">
+                                <button class="btn ghost" type="button" data-action-scan-target="putAwaySku">Scan</button>
+                            </div>
                         </label>
                         <label class="field span-2">
                             <span>Quantity</span>
-                            <input id="putAwayQty" type="number" min="1" inputmode="numeric" placeholder="Units to put away">
+                            <input id="putAwayQty" type="number" min="1" inputmode="numeric" placeholder="Auto fills available qty">
                         </label>
-                        <div class="helper span-2">
-                            <strong>Put-away rule</strong>
-                            <p class="meta">Stock remains company-safe. WMS365 will not allow put-away into a BIN that already contains another company's inventory.</p>
-                        </div>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Put Away Stock</button>
                         </div>
@@ -8359,15 +8422,21 @@
                             <input id="moveAccount" hidden list="ownerList" type="text" placeholder="Required company">
                         </label>
                         <label class="field">
-                            <span>From Location</span>
-                            <input id="moveFrom" list="moveFromList" type="text" placeholder="Choose company first">
+                            <span>From BIN</span>
+                            <div class="action-scan-row">
+                                <input id="moveFrom" list="moveFromList" type="text" placeholder="Choose company first">
+                                <button class="btn ghost" type="button" data-action-scan-target="moveFrom">Scan</button>
+                            </div>
                         </label>
                         <label class="field">
-                            <span>To Location</span>
-                            <input id="moveTo" list="moveToList" type="text" placeholder="Choose company and source location first">
+                            <span>To BIN</span>
+                            <div class="action-scan-row">
+                                <input id="moveTo" list="moveToList" type="text" placeholder="Choose company and source location first">
+                                <button class="btn ghost" type="button" data-action-scan-target="moveTo">Scan</button>
+                            </div>
                         </label>
                         <div class="button-row span-2">
-                            <button class="btn secondary" type="submit">Move All Items</button>
+                            <button class="btn secondary" type="submit">Move Full BIN</button>
                         </div>
                     </form>
                 </article>
@@ -8673,7 +8742,7 @@
                         <div class="erp-command-strip">
                             <button class="erp-command-link" type="button" id="salesOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
-                            <button class="erp-command-link" type="button" id="salesOrderCommandDeleteBtn" hidden>Delete Draft</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandDeleteBtn" hidden>Cancel Order</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReopenBtn" hidden>Reopen to Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPickTicketBtn">Print Pick Ticket</button>
@@ -8764,7 +8833,7 @@
                     <div class="erp-document-process hidden" id="warehouseOrderWorkflowPanel"></div>
                     <div class="button-row" style="margin-top: 1rem;">
                         <button class="btn secondary" id="saveWarehouseOrderDraftBtn" type="button">Save Draft</button>
-                        <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Delete Draft</button>
+                        <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Cancel Order</button>
                         <button class="btn" id="releaseWarehouseOrderBtn" type="button">Release Order</button>
                         <button class="btn ghost" id="reopenWarehouseOrderBtn" type="button" hidden>Reopen to Draft</button>
                     </div>
@@ -8797,6 +8866,7 @@
                                     <option value="PICKED">Picked</option>
                                     <option value="STAGED">Staged / Packed</option>
                                     <option value="SHIPPED">Shipped</option>
+                                    <option value="CANCELLED">Cancelled</option>
                                 </select>
                             </label>
                             <label class="field" style="flex: 1 1 280px;">
@@ -8818,6 +8888,7 @@
                             <div class="summary"><span>Picked</span><strong id="salesOrderPickedCount">0</strong></div>
                             <div class="summary"><span>Staged</span><strong id="salesOrderStagedCount">0</strong></div>
                             <div class="summary"><span>Shipped</span><strong id="salesOrderShippedCount">0</strong></div>
+                            <div class="summary"><span>Cancelled</span><strong id="salesOrderCancelledCount">0</strong></div>
                         </div>
                     </div>
                     <div id="portalOrdersList">
@@ -9975,17 +10046,16 @@
 
         <p class="footer"><strong>WMS365 Warehouse Management System</strong><span class="footer-build" id="appBuildFooter">Deployment: loading...</span></p>
     </div>
-    <button class="feedback-launcher" id="openFeedbackBtn" type="button">Report Bug / Request Feature</button>
+    <button class="feedback-launcher" id="openFeedbackBtn" type="button">Report Issue</button>
     <div id="feedbackModal" class="feedback-modal hidden" aria-hidden="true">
         <div class="feedback-modal-backdrop" data-feedback-close></div>
         <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="feedbackModalTitle">
             <div class="card-head">
                 <div>
-                    <h2 id="feedbackModalTitle">Send Product Feedback</h2>
-                    <p class="lead">Capture bugs and feature requests while the screen is still open so the team gets the exact workflow context.</p>
+                    <h2 id="feedbackModalTitle">Report Issue</h2>
                 </div>
             </div>
-            <div class="feedback-context-grid">
+            <div class="feedback-context-grid feedback-background-context" aria-hidden="true">
                 <div class="feedback-context-card">
                     <span>Current Section</span>
                     <strong id="feedbackContextSection">Operations Home</strong>
@@ -10000,7 +10070,7 @@
                 </div>
             </div>
             <form id="feedbackForm" class="form-grid" autocomplete="off">
-                <label class="field">
+                <label class="field hidden">
                     <span>Type</span>
                     <select id="feedbackType">
                         <option value="BUG">Bug</option>
@@ -10008,19 +10078,22 @@
                         <option value="OTHER">Other</option>
                     </select>
                 </label>
-                <label class="field span-2">
+                <label class="field span-2 hidden">
                     <span>Short Title</span>
-                    <input id="feedbackTitle" type="text" maxlength="180" placeholder="Example: Released orders page does not show staged count">
+                    <input id="feedbackTitle" type="text" maxlength="180" placeholder="Issue summary">
                 </label>
                 <label class="field span-2">
-                    <span>Details</span>
-                    <textarea id="feedbackDetails" rows="7" placeholder="What happened, what you expected, and any steps the team should follow to reproduce it."></textarea>
+                    <span>What is wrong?</span>
+                    <textarea id="feedbackDetails" rows="6" placeholder="Example: I scanned the SKU and the next button did not work."></textarea>
                 </label>
-                <div class="helper span-2">
-                    <div class="meta" id="feedbackContextMeta">The current section, URL, company, browser, and build are attached automatically.</div>
-                </div>
+                <label class="field span-2">
+                    <span>Add photo or screenshot</span>
+                    <input id="feedbackAttachment" type="file" accept="image/*">
+                    <small class="feedback-attachment-preview" id="feedbackAttachmentPreview"></small>
+                </label>
+                <div class="meta hidden" id="feedbackContextMeta">Screen context is attached automatically.</div>
                 <div class="button-row span-2">
-                    <button class="btn" id="submitFeedbackBtn" type="submit">Submit Feedback</button>
+                    <button class="btn" id="submitFeedbackBtn" type="submit">Send</button>
                     <button class="btn ghost" id="cancelFeedbackBtn" type="button">Cancel</button>
                 </div>
             </form>
@@ -10965,10 +11038,12 @@
             addWarehouseInboundLineBtn: document.getElementById("addWarehouseInboundLineBtn"),
             resetWarehouseInboundBtn: document.getElementById("resetWarehouseInboundBtn"),
             submitWarehouseInboundBtn: document.getElementById("submitWarehouseInboundBtn"),
+            cancelWarehouseInboundBtn: document.getElementById("cancelWarehouseInboundBtn"),
             purchaseOrderCommandNewBtn: document.getElementById("purchaseOrderCommandNewBtn"),
             purchaseOrderCommandPostBtn: document.getElementById("purchaseOrderCommandPostBtn"),
             purchaseOrderCommandArriveBtn: document.getElementById("purchaseOrderCommandArriveBtn"),
             purchaseOrderCommandReceiveBtn: document.getElementById("purchaseOrderCommandReceiveBtn"),
+            purchaseOrderCommandCancelBtn: document.getElementById("purchaseOrderCommandCancelBtn"),
             purchaseOrderCommandAddLineBtn: document.getElementById("purchaseOrderCommandAddLineBtn"),
             warehouseInboundMessage: document.getElementById("warehouseInboundMessage"),
             salesOrderDraftCount: document.getElementById("salesOrderDraftCount"),
@@ -10976,6 +11051,7 @@
             salesOrderPickedCount: document.getElementById("salesOrderPickedCount"),
             salesOrderStagedCount: document.getElementById("salesOrderStagedCount"),
             salesOrderShippedCount: document.getElementById("salesOrderShippedCount"),
+            salesOrderCancelledCount: document.getElementById("salesOrderCancelledCount"),
             summaryLocations: document.getElementById("summaryLocations"),
             summaryOwners: document.getElementById("summaryOwners"),
             summarySkus: document.getElementById("summarySkus"),
@@ -11022,6 +11098,8 @@
             feedbackType: document.getElementById("feedbackType"),
             feedbackTitle: document.getElementById("feedbackTitle"),
             feedbackDetails: document.getElementById("feedbackDetails"),
+            feedbackAttachment: document.getElementById("feedbackAttachment"),
+            feedbackAttachmentPreview: document.getElementById("feedbackAttachmentPreview"),
             feedbackContextSection: document.getElementById("feedbackContextSection"),
             feedbackContextCompany: document.getElementById("feedbackContextCompany"),
             feedbackContextBuild: document.getElementById("feedbackContextBuild"),
@@ -11221,7 +11299,7 @@
                     deleteWarehouseSalesOrder(event);
                     return;
                 }
-                showMessage(ui.scanMessage, "Open a draft sales order before using Delete.", "info");
+                showMessage(ui.scanMessage, "Open a sales order before using Cancel.", "info");
             });
             ui.mobileNavButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button.dataset.mobileLabelMode) {
@@ -11446,10 +11524,12 @@
             ui.addWarehouseInboundLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
             ui.resetWarehouseInboundBtn?.addEventListener("click", () => showPurchaseOrderDocument(null));
             ui.submitWarehouseInboundBtn?.addEventListener("click", submitWarehouseInbound);
+            ui.cancelWarehouseInboundBtn?.addEventListener("click", cancelCurrentWarehouseInbound);
             ui.purchaseOrderCommandNewBtn?.addEventListener("click", () => showPurchaseOrderDocument(null));
             ui.purchaseOrderCommandPostBtn?.addEventListener("click", submitWarehouseInbound);
             ui.purchaseOrderCommandArriveBtn?.addEventListener("click", arriveCurrentWarehouseInbound);
             ui.purchaseOrderCommandReceiveBtn?.addEventListener("click", receiveCurrentWarehouseInbound);
+            ui.purchaseOrderCommandCancelBtn?.addEventListener("click", cancelCurrentWarehouseInbound);
             ui.purchaseOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
             ui.warehouseInboundLines?.addEventListener("click", onWarehouseInboundLinesClick);
             ui.warehouseInboundLines?.addEventListener("change", onWarehouseInboundLinesChange);
@@ -11509,14 +11589,23 @@
             ui.refreshKittingRequestsAdminBtn?.addEventListener("click", () => refreshKittingRequestsAdmin(false));
             ui.customerKittingRequestsList?.addEventListener("click", onCustomerKittingRequestsClick);
             document.getElementById("moveForm").addEventListener("submit", moveAllItems);
+            document.querySelectorAll("[data-action-scan-target]").forEach((button) => {
+                button.addEventListener("click", () => startActionFieldScan(button.dataset.actionScanTarget || ""));
+            });
             [
-                ui.adjustAccount, ui.adjustLocation,
-                ui.transferAccount, ui.transferFrom, ui.transferTo,
-                ui.putAwayAccount, ui.putAwayFrom, ui.putAwayTo,
+                ui.adjustAccount, ui.adjustLocation, ui.adjustSku,
+                ui.transferAccount, ui.transferFrom, ui.transferTo, ui.transferSku,
+                ui.putAwayAccount, ui.putAwayFrom, ui.putAwayTo, ui.putAwaySku,
                 ui.convertAccount, ui.convertFrom, ui.convertTo, ui.convertSourceSku, ui.convertSourceQty, ui.convertTargetSku,
                 ui.moveAccount, ui.moveFrom, ui.moveTo
             ].forEach((input) => {
                 ["input", "change", "blur"].forEach((eventName) => input.addEventListener(eventName, syncActionItemSelectors));
+            });
+            [ui.transferFrom, ui.transferSku].forEach((input) => {
+                ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("transfer")));
+            });
+            [ui.putAwayFrom, ui.putAwaySku].forEach((input) => {
+                ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("putaway")));
             });
 
             ui.inventoryFilter.addEventListener("input", debouncedRenderInventory);
@@ -11588,6 +11677,7 @@
             ui.feedbackLauncherButtons.forEach((button) => button.addEventListener("click", openFeedbackModal));
             ui.feedbackModalCloseButtons.forEach((button) => button.addEventListener("click", closeFeedbackModal));
             ui.feedbackForm?.addEventListener("submit", submitFeedbackRequest);
+            ui.feedbackAttachment?.addEventListener("change", updateFeedbackAttachmentPreview);
             ui.feedbackTypeFilter?.addEventListener("change", renderFeedbackQueue);
             ui.feedbackStatusFilter?.addEventListener("change", renderFeedbackQueue);
             ui.feedbackSourceFilter?.addEventListener("change", renderFeedbackQueue);
@@ -12918,6 +13008,8 @@
             }
             if (ui.feedbackTitle) ui.feedbackTitle.value = "";
             if (ui.feedbackDetails) ui.feedbackDetails.value = "";
+            if (ui.feedbackAttachment) ui.feedbackAttachment.value = "";
+            updateFeedbackAttachmentPreview();
             if (ui.feedbackMessage) {
                 ui.feedbackMessage.className = "status";
                 ui.feedbackMessage.textContent = "";
@@ -12933,15 +13025,45 @@
             ui.feedbackContextMeta.textContent = `Current URL ${window.location.pathname || "/"}${window.location.search || ""} will be attached automatically${company ? ` for ${company}` : ""}.`;
         }
 
+        function buildFeedbackTitle(details = "") {
+            const firstLine = String(details || "").split("\n").map((line) => line.trim()).find(Boolean) || "Warehouse app issue";
+            return firstLine.slice(0, 120);
+        }
+
+        function updateFeedbackAttachmentPreview() {
+            if (!ui.feedbackAttachmentPreview) return;
+            const file = ui.feedbackAttachment?.files?.[0] || null;
+            ui.feedbackAttachmentPreview.classList.toggle("active", !!file);
+            ui.feedbackAttachmentPreview.textContent = file ? `Attached: ${file.name}` : "";
+        }
+
+        function readFeedbackAttachment() {
+            const file = ui.feedbackAttachment?.files?.[0] || null;
+            if (!file) return Promise.resolve(null);
+            if (!/^image\//i.test(file.type || "")) {
+                return Promise.reject(new Error("Attach an image file only."));
+            }
+            const maxBytes = 4 * 1024 * 1024;
+            if (file.size > maxBytes) {
+                return Promise.reject(new Error("Image is too large. Attach one under 4 MB."));
+            }
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve({
+                    fileName: file.name || "feedback-image",
+                    mimeType: file.type || "image/jpeg",
+                    dataUrl: String(reader.result || "")
+                });
+                reader.onerror = () => reject(new Error("Unable to read that image. Try another photo or screenshot."));
+                reader.readAsDataURL(file);
+            });
+        }
+
         function openFeedbackModal() {
             syncFeedbackContext();
             ui.feedbackModal?.classList.remove("hidden");
             ui.feedbackModal?.setAttribute("aria-hidden", "false");
-            if (!ui.feedbackTitle?.value) {
-                ui.feedbackTitle?.focus();
-            } else {
-                ui.feedbackDetails?.focus();
-            }
+            ui.feedbackDetails?.focus();
         }
 
         function closeFeedbackModal() {
@@ -12952,22 +13074,20 @@
 
         async function submitFeedbackRequest(event) {
             event.preventDefault();
-            const title = String(ui.feedbackTitle?.value || "").trim();
             const details = String(ui.feedbackDetails?.value || "").trim();
-            if (!title) {
-                return fail(ui.feedbackMessage, "Add a short title so the team can identify this request.");
-            }
             if (!details) {
-                return fail(ui.feedbackMessage, "Add a few details so the team can reproduce or review this request.", ui.feedbackDetails);
+                return fail(ui.feedbackMessage, "Tell us what went wrong.", ui.feedbackDetails);
             }
+            const title = String(ui.feedbackTitle?.value || "").trim() || buildFeedbackTitle(details);
 
             const submitButton = event.submitter || ui.feedbackForm?.querySelector('[type="submit"]');
             try {
+                const attachment = await readFeedbackAttachment();
                 await runActionWithFeedback({
                     button: submitButton,
-                    busyLabel: "Submitting...",
+                    busyLabel: "Sending...",
                     messageElement: ui.feedbackMessage,
-                    progressMessage: "Sending your feedback to the review queue..."
+                    progressMessage: "Sending issue..."
                 }, async () => {
                     await requestJson("/api/app/feedback", {
                         method: "POST",
@@ -12980,13 +13100,14 @@
                             appSection: activeSection,
                             pageUrl: `${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`,
                             buildLabel: getFeedbackBuildLabel(),
-                            browserInfo: buildFeedbackBrowserInfo()
+                            browserInfo: buildFeedbackBrowserInfo(),
+                            attachment
                         })
                     });
                     await refreshFeedbackQueue(true);
-                    showMessage(ui.feedbackMessage, "Feedback submitted. It is now in the admin review queue.", "success");
+                    showMessage(ui.feedbackMessage, "Issue sent.", "success");
                     if (ui.backupMessage) {
-                        showMessage(ui.backupMessage, "Feedback submitted and added to the review queue.", "success");
+                        showMessage(ui.backupMessage, "Issue sent to the review queue.", "success");
                     }
                     window.setTimeout(() => closeFeedbackModal(), 700);
                 });
@@ -13023,6 +13144,9 @@
                 pageUrl: String(item?.pageUrl || item?.page_url || "").trim(),
                 buildLabel: String(item?.buildLabel || item?.build_label || "").trim(),
                 browserInfo: String(item?.browserInfo || item?.browser_info || "").trim(),
+                attachmentFileName: String(item?.attachmentFileName || item?.attachment_file_name || "").trim(),
+                attachmentMimeType: String(item?.attachmentMimeType || item?.attachment_mime_type || "").trim(),
+                attachmentDataUrl: String(item?.attachmentDataUrl || item?.attachment_data_url || "").trim(),
                 adminNote: String(item?.adminNote || item?.admin_note || "").trim(),
                 createdAt: item?.createdAt || item?.created_at || null,
                 updatedAt: item?.updatedAt || item?.updated_at || null
@@ -13099,6 +13223,10 @@
                         </div>
                         <div class="feedback-row-meta">${esc(contextParts.join(" | ") || "No extra context captured.")}</div>
                         <div class="feedback-row-details">${esc(entry.details || "No details provided.")}</div>
+                        ${entry.attachmentDataUrl ? `
+                            <a class="feedback-attachment-link" href="${attr(entry.attachmentDataUrl)}" target="_blank" rel="noopener">Open attached image</a>
+                            <img class="feedback-attachment-thumb" src="${attr(entry.attachmentDataUrl)}" alt="${attr(entry.attachmentFileName || "Feedback attachment")}">
+                        ` : ""}
                         ${entry.adminNote ? `<div class="feedback-row-note"><strong>Internal Note</strong><div style="margin-top:0.45rem;">${esc(entry.adminNote)}</div></div>` : ""}
                         <div class="feedback-row-actions" style="margin-top: 1rem;">
                             <label class="field" style="flex: 0 0 200px;">
@@ -13375,7 +13503,8 @@
             });
             setCommandButtonState(ui.desktopCommandDeleteBtn, {
                 hidden: !isOrderList,
-                disabled: false
+                disabled: false,
+                text: "Cancel Order"
             });
             setCommandButtonState(ui.desktopCommandHomeBtn, { hidden: activeSection === "home", text: "Home", jumpSection: "home" });
             setCommandButtonState(ui.desktopCommandReleaseBtn, { hidden: !isOrderList, text: "Release", jumpSection: "orders" });
@@ -14908,7 +15037,7 @@
             const releasedCount = orders.filter((order) => norm(order.status) === "RELEASED").length;
             const pickedCount = orders.filter((order) => norm(order.status) === "PICKED").length;
             const stagedCount = orders.filter((order) => norm(order.status) === "STAGED").length;
-            const openInboundCount = inbounds.filter((inbound) => norm(inbound.status) !== "RECEIVED").length;
+            const openInboundCount = inbounds.filter((inbound) => !["RECEIVED", "CANCELLED"].includes(norm(inbound.status))).length;
             if (ui.desktopAlertReleased) {
                 ui.desktopAlertReleased.textContent = num(releasedCount);
             }
@@ -15065,7 +15194,7 @@
 
         function getDashboardOpenInbounds() {
             return getCompanyScopedPortalInbounds()
-                .filter((inbound) => norm(inbound.status) !== "RECEIVED")
+                .filter((inbound) => !["RECEIVED", "CANCELLED"].includes(norm(inbound.status)))
                 .sort((a, b) => dashboardDateSort(a.expectedDate).localeCompare(dashboardDateSort(b.expectedDate)) || (a.inboundCode || "").localeCompare(b.inboundCode || ""));
         }
 
@@ -19355,7 +19484,10 @@
             const hasCompany = !!company;
             const featureEnabled = !company || companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             const currentOrder = editingWarehouseOrderId ? getPortalOrderById(editingWarehouseOrderId) : null;
-            const canPrintOrderDocuments = !!currentOrder?.id && currentOrder.status !== "DRAFT";
+            const orderStatus = currentOrder?.status || "DRAFT";
+            const lockedOrder = !!currentOrder?.id && orderStatus !== "DRAFT";
+            const canReleaseOrder = !currentOrder?.id || orderStatus === "DRAFT";
+            const canPrintOrderDocuments = !!currentOrder?.id && !["DRAFT", "CANCELLED", "ARCHIVED"].includes(orderStatus);
             ui.warehouseOrderCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
                     ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
@@ -19364,12 +19496,16 @@
             [
                 ui.addWarehouseOrderLineBtn,
                 ui.saveWarehouseOrderDraftBtn,
-                ui.releaseWarehouseOrderBtn,
                 ui.salesOrderCommandSaveBtn,
-                ui.salesOrderCommandReleaseBtn,
                 ui.salesOrderCommandAddLineBtn
             ].filter(Boolean).forEach((button) => {
-                button.disabled = !hasCompany || !featureEnabled;
+                button.disabled = !hasCompany || !featureEnabled || lockedOrder;
+            });
+            [
+                ui.releaseWarehouseOrderBtn,
+                ui.salesOrderCommandReleaseBtn
+            ].filter(Boolean).forEach((button) => {
+                button.disabled = !hasCompany || !featureEnabled || !canReleaseOrder;
             });
             [
                 ui.salesOrderCommandPickTicketBtn,
@@ -19389,6 +19525,9 @@
                             select.value = "";
                         }
                     }
+                    card.querySelectorAll("select, input, button").forEach((control) => {
+                        control.disabled = lockedOrder;
+                    });
                     updateWarehouseSalesOrderLineMeta(card);
                 });
             }
@@ -19403,6 +19542,8 @@
             }
 
             const isDraft = order.status === "DRAFT";
+            const canPrintWorkflowDocuments = !["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status);
+            const canManageOrderDocuments = !["CANCELLED", "ARCHIVED"].includes(order.status);
             const nextStatus = nextPortalOrderStatus(order.status);
             const shipDateValue = order.confirmedShipDate || (order.shippedAt ? String(order.shippedAt).slice(0, 10) : todayIso());
             const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
@@ -19452,15 +19593,17 @@
                             `).join("")}
                         </div>
                     ` : `<div class="quick-meta">No order documents or labels saved yet.</div>`}
-                    <div class="form-grid compact-grid" style="margin-top:0.8rem;">
-                        <label class="field span-2">
-                            <span>Upload Missing Label / Docs</span>
-                            <input data-portal-order-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
-                        </label>
-                    </div>
-                    <div class="quick-row-actions">
-                        <button class="btn ghost" type="button" data-portal-order-documents-upload="${attr(order.id)}">Upload Label / Docs</button>
-                    </div>
+                    ${canManageOrderDocuments ? `
+                        <div class="form-grid compact-grid" style="margin-top:0.8rem;">
+                            <label class="field span-2">
+                                <span>Upload Missing Label / Docs</span>
+                                <input data-portal-order-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
+                            </label>
+                        </div>
+                        <div class="quick-row-actions">
+                            <button class="btn ghost" type="button" data-portal-order-documents-upload="${attr(order.id)}">Upload Label / Docs</button>
+                        </div>
+                    ` : `<div class="quick-meta">Cancelled orders are read-only. Existing documents remain available for audit.</div>`}
                 </div>
             `;
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
@@ -19483,11 +19626,15 @@
                             <input data-portal-ship-note="${attr(order.id)}" type="text" placeholder="Optional shipped confirmation note" value="${attr(order.shippedConfirmationNote || "")}">
                         </label>
                         <label class="field span-2">
-                            <span>Add Shipment Documents</span>
+                            <span>Signed BOL / POD</span>
                             <input data-portal-ship-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
                         </label>
+                        <label class="field span-2">
+                            <span>Loaded Truck Photos</span>
+                            <input data-portal-ship-photos="${attr(order.id)}" type="file" accept="image/*" capture="environment" multiple>
+                        </label>
                     </div>
-                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : "Upload POD, signed BOL, packing slip, or carrier confirmation. Images are compressed before upload."}</div>
+                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : "Upload signed BOL/POD and loaded truck photos for pickup proof. Images are compressed before upload."}</div>
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>
@@ -19502,9 +19649,10 @@
                         <p class="meta">Order-specific actions stay here after drill-in.</p>
                     </div>
                     <div class="erp-document-process-actions">
-                        ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket</button>` : ""}
-                        ${!isDraft ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip</button>` : ""}
+                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket</button>` : ""}
+                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip</button>` : ""}
                         ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
+                        ${["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status) ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="CANCELLED">Cancel Order</button>` : ""}
                     </div>
                 </div>
                 <div class="quick-meta">
@@ -19584,14 +19732,15 @@
             if (ui.warehouseOrderStatusChip) {
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
             }
-            const canDeleteDraft = !!order?.id && order.status === "DRAFT";
+            const canCancelOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status);
             const canReopenReleased = !!order?.id && order.status === "RELEASED";
             [ui.deleteWarehouseOrderBtn, ui.salesOrderCommandDeleteBtn].filter(Boolean).forEach((button) => {
-                button.hidden = !canDeleteDraft;
-                button.disabled = !canDeleteDraft;
-                button.title = canDeleteDraft
-                    ? "Delete this draft order from the warehouse queue."
-                    : "Only saved draft orders can be deleted.";
+                button.hidden = !canCancelOrder;
+                button.disabled = !canCancelOrder;
+                button.textContent = "Cancel Order";
+                button.title = canCancelOrder
+                    ? "Cancel this order, keep the order number, and close active warehouse work."
+                    : "Only draft, released, picked, or staged orders can be cancelled.";
             });
             [ui.reopenWarehouseOrderBtn, ui.salesOrderCommandReopenBtn].filter(Boolean).forEach((button) => {
                 button.hidden = !canReopenReleased;
@@ -19793,32 +19942,36 @@
             }
             const currentOrder = getPortalOrderById(editingWarehouseOrderId);
             if (!currentOrder?.id) {
-                return showMessage(ui.warehouseOrderMessage, "Open a saved draft sales order before deleting.", "error");
+                return showMessage(ui.warehouseOrderMessage, "Open a saved sales order before cancelling.", "error");
             }
-            if (currentOrder.status !== "DRAFT") {
-                return showMessage(ui.warehouseOrderMessage, `Only draft orders can be deleted. This order is ${currentOrder.status}.`, "error");
+            if (!["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(currentOrder.status)) {
+                return showMessage(ui.warehouseOrderMessage, `Only draft, released, picked, or staged orders can be cancelled. This order is ${currentOrder.status}.`, "error");
             }
             const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
-            if (!window.confirm(`Delete draft order ${orderLabel}? It will be archived and removed from the active sales order queue.`)) {
+            if (!window.confirm(`Cancel order ${orderLabel}? The order number stays in WMS365 history, active warehouse work is closed, and the number will not be reused.`)) {
                 return null;
             }
             const actionButton = resolveActionButton(context, ui.deleteWarehouseOrderBtn);
             try {
                 return await runActionWithFeedback({
                     button: actionButton,
-                    busyLabel: "Deleting...",
+                    busyLabel: "Cancelling...",
                     messageElement: ui.warehouseOrderMessage,
-                    progressMessage: `Deleting draft order ${orderLabel}...`
+                    progressMessage: `Cancelling order ${orderLabel}...`
                 }, async () => {
-                    await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/archive`, {
-                        method: "POST"
+                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/status`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            status: "CANCELLED",
+                            note: "Cancelled from WMS365 warehouse order screen."
+                        })
                     });
-                    portalOrderRecords = portalOrderRecords.filter((entry) => String(entry.id) !== String(editingWarehouseOrderId));
                     await refreshPortalOrdersList(true);
+                    applyPortalOrderUpdate(response?.order, "", ui.warehouseOrderMessage);
                     showSalesOrderList({ scroll: false });
                     resetWarehouseSalesOrderForm();
-                    showMessage(ui.portalOrdersMessage, `Draft order ${orderLabel} deleted from the active queue.`, "success");
-                    return true;
+                    showMessage(ui.portalOrdersMessage, `Order ${response?.order?.orderCode || orderLabel} cancelled. The number remains in history and active warehouse work was closed.`, "success");
+                    return response;
                 });
             } catch (error) {
                 showMessage(ui.warehouseOrderMessage, error.message, "error");
@@ -19924,6 +20077,14 @@
             if (ui.purchaseOrderCommandReceiveBtn) {
                 ui.purchaseOrderCommandReceiveBtn.disabled = !editingWarehouseInboundId || !["SUBMITTED", "ARRIVED"].includes(inboundStatus);
             }
+            [ui.cancelWarehouseInboundBtn, ui.purchaseOrderCommandCancelBtn].filter(Boolean).forEach((button) => {
+                const canCancelInbound = !!editingWarehouseInboundId && ["SUBMITTED", "ARRIVED"].includes(inboundStatus);
+                button.hidden = !canCancelInbound;
+                button.disabled = !canCancelInbound;
+                button.title = canCancelInbound
+                    ? "Cancel this purchase order, keep the number, and close active receiving work."
+                    : "Only submitted or arrived purchase orders can be cancelled.";
+            });
             if (ui.warehouseInboundLines) {
                 [...ui.warehouseInboundLines.querySelectorAll(".line-card")].forEach((card) => {
                     const select = card.querySelector("[data-warehouse-inbound-line-sku]");
@@ -19936,6 +20097,9 @@
                             select.value = "";
                         }
                     }
+                    card.querySelectorAll("select, input, button").forEach((control) => {
+                        control.disabled = lockedInbound;
+                    });
                     updateWarehouseInboundLineMeta(card);
                 });
             }
@@ -19960,6 +20124,7 @@
             const isSubmitted = inbound.status === "SUBMITTED";
             const isArrived = inbound.status === "ARRIVED";
             const isReceived = inbound.status === "RECEIVED";
+            const isCancelled = inbound.status === "CANCELLED";
             const statusClass = inboundStatusPillClass(inbound.status);
             const lineRows = inbound.lines.map((line) => `
                 <tr>
@@ -19978,7 +20143,7 @@
                 const receivedLocation = line.receivedLocation || "BULK";
                 const lotRequired = line.lotTracked ? "required" : "";
                 const expirationRequired = line.expirationTracked ? "required" : "";
-                const locked = isReceived ? "disabled" : "";
+                const locked = (isReceived || isCancelled) ? "disabled" : "";
                 return `
                     <tr data-inbound-receive-line="${attr(line.id || line.sku)}">
                         <td>
@@ -20030,6 +20195,7 @@
                         <button class="btn ghost mini" type="button" data-print-receiving-document="${attr(inbound.id)}">Print Receiving Document</button>
                         ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Arrived at DC</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
+                        ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="CANCELLED">Cancel PO</button>` : ""}
                     </div>
                 </div>
                 <div class="quick-meta">
@@ -20619,11 +20785,19 @@
 
                 try {
                     const inbound = getPortalInboundRecordById(inboundId);
+                    if (nextStatus === "CANCELLED") {
+                        const inboundLabel = inbound?.inboundCode || inboundId;
+                        if (!window.confirm(`Cancel purchase order ${inboundLabel}? The PO number stays in WMS365 history, active receiving work is closed, and the number will not be reused.`)) {
+                            return;
+                        }
+                    }
                     const receivingPayload = nextStatus === "RECEIVED" && inbound
                         ? collectWarehouseInboundReceivingPayload(inbound)
                         : {};
                     if (nextStatus === "RECEIVED" && !receivingPayload) return;
-                    await updatePortalInboundStatus(inboundId, nextStatus, statusButton, receivingPayload || {});
+                    await updatePortalInboundStatus(inboundId, nextStatus, statusButton, nextStatus === "CANCELLED"
+                        ? { note: "Cancelled from WMS365 purchase order screen." }
+                        : (receivingPayload || {}));
                 } catch (error) {
                     showMessage(ui.warehouseInboundMessage, error.message, "error");
                 }
@@ -20644,7 +20818,7 @@
             const messageElement = button?.closest?.("#mobileInboundArrivalCard") ? ui.mobileInboundArrivalMessage : ui.warehouseInboundMessage;
             return runActionWithFeedback({
                 button,
-                busyLabel: nextStatus === "ARRIVED" ? "Checking in..." : (nextStatus === "RECEIVED" ? "Receiving..." : "Updating..."),
+                busyLabel: nextStatus === "ARRIVED" ? "Checking in..." : (nextStatus === "RECEIVED" ? "Receiving..." : (nextStatus === "CANCELLED" ? "Cancelling..." : "Updating...")),
                 messageElement,
                 progressMessage: `Updating purchase order ${inboundId} to ${nextStatus}...`
             }, async () => {
@@ -20692,6 +20866,37 @@
                 await updatePortalInboundStatus(editingWarehouseInboundId, "RECEIVED", resolveActionButton(event, ui.purchaseOrderCommandReceiveBtn), receivingPayload);
             } catch (error) {
                 showMessage(ui.warehouseInboundMessage, error.message, "error");
+            }
+        }
+
+        async function cancelCurrentWarehouseInbound(event) {
+            if (!editingWarehouseInboundId) {
+                return showMessage(ui.warehouseInboundMessage, "Open a submitted or arrived purchase order before cancelling it.", "error");
+            }
+            const inbound = getPortalInboundRecordById(editingWarehouseInboundId);
+            if (!inbound?.id) {
+                return showMessage(ui.warehouseInboundMessage, "Open a saved purchase order before cancelling it.", "error");
+            }
+            if (!["SUBMITTED", "ARRIVED"].includes(inbound.status)) {
+                return showMessage(ui.warehouseInboundMessage, `Only submitted or arrived purchase orders can be cancelled. This PO is ${inbound.status}.`, "error");
+            }
+            const inboundLabel = inbound.inboundCode || editingWarehouseInboundId;
+            if (!window.confirm(`Cancel purchase order ${inboundLabel}? The PO number stays in WMS365 history, active receiving work is closed, and the number will not be reused.`)) {
+                return null;
+            }
+            try {
+                const response = await updatePortalInboundStatus(
+                    editingWarehouseInboundId,
+                    "CANCELLED",
+                    resolveActionButton(event, ui.cancelWarehouseInboundBtn),
+                    { note: "Cancelled from WMS365 purchase order screen." }
+                );
+                showPurchaseOrderList({ scroll: false });
+                showMessage(ui.portalInboundsMessage || ui.warehouseInboundMessage, `Purchase order ${response?.inbound?.inboundCode || inboundLabel} cancelled and kept in history.`, "success");
+                return response;
+            } catch (error) {
+                showMessage(ui.warehouseInboundMessage, error.message, "error");
+                return null;
             }
         }
 
@@ -20804,11 +21009,13 @@
             const picked = orders.filter((order) => order.status === "PICKED").length;
             const staged = orders.filter((order) => order.status === "STAGED").length;
             const shipped = orders.filter((order) => order.status === "SHIPPED").length;
+            const cancelled = orders.filter((order) => order.status === "CANCELLED").length;
             if (ui.salesOrderDraftCount) ui.salesOrderDraftCount.textContent = num(drafts);
             if (ui.salesOrderReleasedCount) ui.salesOrderReleasedCount.textContent = num(released);
             if (ui.salesOrderPickedCount) ui.salesOrderPickedCount.textContent = num(picked);
             if (ui.salesOrderStagedCount) ui.salesOrderStagedCount.textContent = num(staged);
             if (ui.salesOrderShippedCount) ui.salesOrderShippedCount.textContent = num(shipped);
+            if (ui.salesOrderCancelledCount) ui.salesOrderCancelledCount.textContent = num(cancelled);
         }
 
         function renderPortalOrdersList(errorText = "") {
@@ -20835,6 +21042,7 @@
 
             const rows = visibleOrders.map((order) => {
                 const isDraft = order.status === "DRAFT";
+                const orderStateLabel = order.status === "CANCELLED" ? "Cancelled" : (isDraft ? "Draft" : "Open document");
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
                 return `
                     <tr data-open-warehouse-order="${attr(order.id)}">
@@ -20846,7 +21054,7 @@
                         <td>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</td>
                         <td><span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span></td>
                         <td>${order.documents?.length ? `${num(order.documents.length)} doc${order.documents.length === 1 ? "" : "s"}` : "-"}</td>
-                        <td>${esc(isDraft ? "Draft" : "Open document")}</td>
+                        <td>${esc(orderStateLabel)}</td>
                     </tr>
                 `;
             }).join("");
@@ -20884,14 +21092,18 @@
             if (status === "PICKED") return "Mark Picked";
             if (status === "STAGED") return "Mark Staged";
             if (status === "SHIPPED") return "Mark Shipped";
+            if (status === "CANCELLED") return "Cancel Order";
             return status;
         }
 
         function portalOrderStatusTone(status) {
-            return status === "DRAFT" ? "warn" : "success";
+            if (status === "CANCELLED") return "error";
+            if (status === "DRAFT") return "warn";
+            return "success";
         }
 
         function formatPortalOrderTimeline(order) {
+            if (order.cancelledAt) return `Cancelled ${formatDate(order.cancelledAt)}`;
             if (order.shippedAt) return `Shipped ${formatDate(order.shippedAt)}`;
             if (order.stagedAt) return `Staged ${formatDate(order.stagedAt)}`;
             if (order.pickedAt) return `Picked ${formatDate(order.pickedAt)}`;
@@ -21176,8 +21388,8 @@
                 showMessage(ui.warehouseOrderMessage, "Open a released sales order before printing.", "error");
                 return;
             }
-            if (order.status === "DRAFT") {
-                showMessage(ui.warehouseOrderMessage, "Release the sales order before printing warehouse documents.", "error");
+            if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
+                showMessage(ui.warehouseOrderMessage, "Release an active sales order before printing warehouse documents.", "error");
                 return;
             }
             printPortalOrderDocument(order, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
@@ -21261,8 +21473,12 @@
                         const carrierName = orderCard?.querySelector(`[data-portal-ship-carrier="${orderId}"]`)?.value || "";
                         const trackingNumber = orderCard?.querySelector(`[data-portal-ship-tracking="${orderId}"]`)?.value || "";
                         const shippingNote = orderCard?.querySelector(`[data-portal-ship-note="${orderId}"]`)?.value || "";
-                        const fileInput = orderCard?.querySelector(`[data-portal-ship-documents="${orderId}"]`);
-                        const documents = await readPortalShippingDocuments(fileInput?.files);
+                        const fileInputs = Array.from(orderCard?.querySelectorAll(`[data-portal-ship-documents="${orderId}"], [data-portal-ship-photos="${orderId}"]`) || []);
+                        const documentGroups = await Promise.all(fileInputs.map((input) => readPortalShippingDocuments(input.files)));
+                        const documents = documentGroups.flat();
+                        if (documents.length > 5) {
+                            throw new Error("Upload up to 5 shipment proof files at a time.");
+                        }
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
                             body: JSON.stringify({
@@ -21284,8 +21500,8 @@
                                 : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}`,
                             actionMessageElement
                         );
-                        if (savedOrder?.status === "SHIPPED" && fileInput) {
-                            fileInput.value = "";
+                        if (savedOrder?.status === "SHIPPED") {
+                            fileInputs.forEach((input) => { input.value = ""; });
                         }
                         queuePortalOrderRefresh();
                     });
@@ -21301,6 +21517,13 @@
                 const nextStatus = norm(button.dataset.nextStatus || "");
                 if (!orderId || !nextStatus) return;
                 const label = portalOrderActionLabel(nextStatus);
+                const currentOrder = getPortalOrderById(orderId);
+                if (nextStatus === "CANCELLED") {
+                    const orderLabel = currentOrder?.orderCode || orderId;
+                    if (!window.confirm(`Cancel order ${orderLabel}? The order number stays in WMS365 history, active warehouse work is closed, and the number will not be reused.`)) {
+                        return;
+                    }
+                }
 
                 try {
                     await runActionWithFeedback({
@@ -21311,9 +21534,18 @@
                     }, async () => {
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
-                            body: JSON.stringify({ status: nextStatus })
+                            body: JSON.stringify({
+                                status: nextStatus,
+                                ...(nextStatus === "CANCELLED" ? { note: "Cancelled from WMS365 warehouse order screen." } : {})
+                            })
                         });
-                        applyPortalOrderUpdate(response?.order, `${label} complete for ${response?.order?.orderCode || orderId}.`, actionMessageElement);
+                        applyPortalOrderUpdate(
+                            response?.order,
+                            nextStatus === "CANCELLED"
+                                ? `Order ${response?.order?.orderCode || orderId} cancelled. The number remains in history and active warehouse work was closed.`
+                                : `${label} complete for ${response?.order?.orderCode || orderId}.`,
+                            actionMessageElement
+                        );
                         queuePortalOrderRefresh();
                     });
                 } catch (error) {
@@ -23889,6 +24121,77 @@
             ui.summarySaved.textContent = state.meta.lastChangedAt ? formatDate(state.meta.lastChangedAt) : (state.meta.serverSyncedAt ? formatDate(state.meta.serverSyncedAt) : "Never");
         }
 
+        function getActionScanNextTarget(targetId) {
+            return {
+                transferFrom: "transferTo",
+                transferTo: "transferSku",
+                transferSku: "transferQty",
+                putAwayFrom: "putAwayTo",
+                putAwayTo: "putAwaySku",
+                putAwaySku: "putAwayQty",
+                moveFrom: "moveTo"
+            }[targetId] || "";
+        }
+
+        function focusActionField(targetId) {
+            const input = document.getElementById(targetId);
+            if (!input || input.disabled) return;
+            window.setTimeout(() => {
+                input.focus?.();
+                input.select?.();
+            }, 80);
+        }
+
+        function acceptActionScanValue(targetId, value) {
+            const input = document.getElementById(targetId);
+            if (!input) return false;
+            input.value = norm(value);
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            syncActionItemSelectors();
+            if (targetId === "transferSku") autofillActionMoveQuantity("transfer", { force: true });
+            if (targetId === "putAwaySku") autofillActionMoveQuantity("putaway", { force: true });
+            const nextTarget = getActionScanNextTarget(targetId);
+            if (nextTarget) focusActionField(nextTarget);
+            return true;
+        }
+
+        function startActionFieldScan(targetId) {
+            const input = document.getElementById(targetId);
+            if (!input) return;
+            const started = window.WMS365Mobile?.scanBarcode?.(targetId, () => {
+                input.focus?.();
+                showMessage(ui.actionMessage, "Use the hardware scanner or key it in.", "info");
+            });
+            if (!started && !window.WMS365Mobile?.scanBarcode) {
+                input.focus?.();
+                showMessage(ui.actionMessage, "Use the hardware scanner or key it in.", "info");
+            }
+        }
+
+        function getActionAvailableQuantity(accountName, fromLocation, skuOrUpc) {
+            const matchingLine = findClientInventoryLine(accountName, fromLocation, skuOrUpc);
+            if (!matchingLine || matchingLine.duplicateUpc || matchingLine.multipleSkuMatches) return 0;
+            return Math.max(lineAvailableQuantity(matchingLine), 0);
+        }
+
+        function autofillActionMoveQuantity(mode, { force = false } = {}) {
+            const isPutAway = mode === "putaway";
+            const accountName = getScopedCompanyValue(isPutAway ? ui.putAwayAccount?.value : ui.transferAccount?.value);
+            const fromLocation = norm(isPutAway ? ui.putAwayFrom?.value : ui.transferFrom?.value);
+            const skuOrUpc = norm(isPutAway ? ui.putAwaySku?.value : ui.transferSku?.value);
+            const quantityInput = isPutAway ? ui.putAwayQty : ui.transferQty;
+            if (!quantityInput || (!force && String(quantityInput.value || "").trim())) return 0;
+            if (!accountName || !fromLocation || !skuOrUpc) return 0;
+            const availableQuantity = getActionAvailableQuantity(accountName, fromLocation, skuOrUpc);
+            if (availableQuantity > 0) quantityInput.value = String(availableQuantity);
+            return availableQuantity;
+        }
+
+        window.wms365ReceiveAndroidScan = (targetId, value) => {
+            acceptActionScanValue(targetId, value);
+        };
+
         async function removeQuantity() {
             const accountName = getScopedCompanyValue(ui.adjustAccount.value);
             const location = norm(ui.adjustLocation.value);
@@ -23965,8 +24268,9 @@
             const from = norm(ui.transferFrom.value);
             const to = norm(ui.transferTo.value);
             const skuOrUpc = norm(ui.transferSku.value);
-            const quantity = toPositiveInt(ui.transferQty.value);
-            if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Fill in company, from location, to location, SKU or UPC, and quantity.", "error");
+            let quantity = toPositiveInt(ui.transferQty.value);
+            if (!quantity) quantity = autofillActionMoveQuantity("transfer", { force: true });
+            if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Scan from, to, and SKU. Quantity fills automatically when stock is available.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
             setActiveCompany(accountName, { force: true, rerender: false });
             const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
@@ -23994,8 +24298,11 @@
                     body: JSON.stringify({ accountName, fromLocation: from, toLocation: to, skuOrUpc, quantity })
                 });
                 await syncServerState(true);
-                showMessage(ui.actionMessage, "Transfer completed successfully.", "success");
-                document.getElementById("transferForm").reset();
+                showMessage(ui.actionMessage, `Moved ${formatTrackedQuantity(quantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} of ${matchingLine.sku || skuOrUpc} to ${to}.`, "success");
+                ui.transferSku.value = "";
+                ui.transferQty.value = "";
+                focusActionField("transferSku");
+                syncActionItemSelectors();
             } catch (error) {
                 showMessage(ui.actionMessage, error.message, "error");
             }
@@ -24007,8 +24314,9 @@
             const from = norm(ui.putAwayFrom.value);
             const to = norm(ui.putAwayTo.value);
             const skuOrUpc = norm(ui.putAwaySku.value);
-            const quantity = toPositiveInt(ui.putAwayQty.value);
-            if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Fill in company, from area/location, destination BIN, SKU or UPC, and quantity to put away.", "error");
+            let quantity = toPositiveInt(ui.putAwayQty.value);
+            if (!quantity) quantity = autofillActionMoveQuantity("putaway", { force: true });
+            if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Scan from, to BIN, and SKU. Quantity fills automatically when stock is available.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
             setActiveCompany(accountName, { force: true, rerender: false });
             const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
@@ -24037,7 +24345,10 @@
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, `Put away ${formatTrackedQuantity(quantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} of ${matchingLine.sku || skuOrUpc} into ${to}.`, "success");
-                document.getElementById("putAwayForm").reset();
+                ui.putAwaySku.value = "";
+                ui.putAwayQty.value = "";
+                focusActionField("putAwaySku");
+                syncActionItemSelectors();
             } catch (error) {
                 showMessage(ui.actionMessage, error.message, "error");
             }
@@ -24125,7 +24436,9 @@
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, "BIN to BIN move completed.", "success");
-                document.getElementById("moveForm").reset();
+                ui.moveFrom.value = "";
+                focusActionField("moveFrom");
+                syncActionItemSelectors();
             } catch (error) {
                 showMessage(ui.actionMessage, error.message, "error");
             }
@@ -25827,6 +26140,7 @@
                 pickedAt: typeof item.pickedAt === "string" ? item.pickedAt : (typeof item.picked_at === "string" ? item.picked_at : null),
                 stagedAt: typeof item.stagedAt === "string" ? item.stagedAt : (typeof item.staged_at === "string" ? item.staged_at : null),
                 shippedAt: typeof item.shippedAt === "string" ? item.shippedAt : (typeof item.shipped_at === "string" ? item.shipped_at : null),
+                cancelledAt: typeof item.cancelledAt === "string" ? item.cancelledAt : (typeof item.cancelled_at === "string" ? item.cancelled_at : null),
                 documents: Array.isArray(item.documents)
                     ? item.documents.map((document) => sanitizePortalOrderDocumentRecord(document)).filter(Boolean)
                     : [],

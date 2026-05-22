@@ -5235,6 +5235,9 @@ async function initializeDatabase() {
             page_url text not null default '',
             build_label text not null default '',
             browser_info text not null default '',
+            attachment_file_name text not null default '',
+            attachment_mime_type text not null default '',
+            attachment_data_url text not null default '',
             ip_address text not null default '',
             status text not null default 'NEW',
             admin_note text not null default '',
@@ -5419,10 +5422,11 @@ async function initializeDatabase() {
             pick_ticket_email_last_error text not null default '',
             pick_ticket_email_cc text not null default '',
             pick_ticket_email_requested_by text not null default '',
+            cancelled_at timestamptz,
             archived_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED'))
+            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))
         );
     `);
     await pool.query("alter table portal_orders alter column order_code drop not null");
@@ -5444,8 +5448,9 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_cc text not null default ''");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_requested_by text not null default ''");
     await pool.query("alter table portal_orders add column if not exists archived_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists cancelled_at timestamptz");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
-    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED'))");
+    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))");
     await pool.query("create index if not exists idx_portal_orders_pick_ticket_email_due on portal_orders (pick_ticket_email_status, pick_ticket_email_scheduled_at)");
 
     await pool.query(`
@@ -5596,6 +5601,9 @@ async function initializeDatabase() {
             constraint portal_kitting_requests_status_check check (status in ('SUBMITTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'))
         );
     `);
+    await pool.query("alter table feedback_submissions add column if not exists attachment_file_name text not null default '';");
+    await pool.query("alter table feedback_submissions add column if not exists attachment_mime_type text not null default '';");
+    await pool.query("alter table feedback_submissions add column if not exists attachment_data_url text not null default '';");
     await pool.query("alter table portal_kitting_requests alter column request_code drop not null");
     await pool.query("alter table portal_kitting_requests alter column request_code drop default");
     await pool.query("alter table portal_kitting_requests drop constraint if exists portal_kitting_requests_status_check");
@@ -8218,10 +8226,26 @@ function sanitizeFeedbackLongText(value, maxLength = 4000) {
     return text.slice(0, maxLength);
 }
 
+function sanitizeFeedbackAttachment(input) {
+    const attachment = input && typeof input === "object" && !Array.isArray(input) ? input : null;
+    if (!attachment) return { fileName: "", mimeType: "", dataUrl: "" };
+    const fileName = normalizeFreeText(attachment.fileName || attachment.file_name || "feedback-image").slice(0, 180);
+    const mimeType = normalizeFreeText(attachment.mimeType || attachment.mime_type || "").toLowerCase().slice(0, 80);
+    const dataUrl = String(attachment.dataUrl || attachment.data_url || "").trim();
+    if (!fileName || !mimeType || !dataUrl) return { fileName: "", mimeType: "", dataUrl: "" };
+    if (!/^image\/(png|jpe?g|webp|gif|heic|heif)$/i.test(mimeType)) return { fileName: "", mimeType: "", dataUrl: "" };
+    if (!dataUrl.startsWith(`data:${mimeType};base64,`)) return { fileName: "", mimeType: "", dataUrl: "" };
+    if (dataUrl.length > 6_000_000) {
+        throw httpError(400, "Attached image is too large.");
+    }
+    return { fileName, mimeType, dataUrl };
+}
+
 function sanitizeFeedbackSubmissionInput(input) {
+    const attachment = sanitizeFeedbackAttachment(input?.attachment || input?.screenshot || input?.image);
     return {
         requestType: normalizeFeedbackRequestType(input?.requestType || input?.type),
-        title: normalizeFreeText(input?.title || input?.subject || "").slice(0, 180),
+        title: normalizeFreeText(input?.title || input?.subject || input?.details || input?.message || input?.description || "").slice(0, 180),
         details: sanitizeFeedbackLongText(input?.details || input?.message || input?.description, 8000),
         accountName: normalizeText(input?.accountName || input?.owner || input?.company || input?.customer || ""),
         pageName: normalizeFreeText(input?.pageName || input?.page || input?.view || "").slice(0, 160),
@@ -8229,6 +8253,9 @@ function sanitizeFeedbackSubmissionInput(input) {
         pageUrl: String(input?.pageUrl || input?.url || "").trim().slice(0, 600),
         buildLabel: normalizeFreeText(input?.buildLabel || "").slice(0, 160),
         browserInfo: sanitizeFeedbackLongText(input?.browserInfo || "", 1000),
+        attachmentFileName: attachment.fileName,
+        attachmentMimeType: attachment.mimeType,
+        attachmentDataUrl: attachment.dataUrl,
         status: normalizeFeedbackStatus(input?.status || "NEW"),
         adminNote: sanitizeFeedbackLongText(input?.adminNote || input?.note || "", 2000)
     };
@@ -8250,6 +8277,9 @@ function mapFeedbackSubmissionRow(row) {
         pageUrl: row.page_url || "",
         buildLabel: row.build_label || "",
         browserInfo: row.browser_info || "",
+        attachmentFileName: row.attachment_file_name || "",
+        attachmentMimeType: row.attachment_mime_type || "",
+        attachmentDataUrl: row.attachment_data_url || "",
         ipAddress: row.ip_address || "",
         status: normalizeFeedbackStatus(row.status),
         adminNote: row.admin_note || "",
@@ -8286,6 +8316,9 @@ async function saveFeedbackSubmission(client, input, requestMeta = {}) {
                 page_url,
                 build_label,
                 browser_info,
+                attachment_file_name,
+                attachment_mime_type,
+                attachment_data_url,
                 ip_address,
                 status,
                 admin_note
@@ -8293,7 +8326,7 @@ async function saveFeedbackSubmission(client, input, requestMeta = {}) {
             values (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, $11, $12,
-                $13, $14, $15, $16
+                $13, $14, $15, $16, $17, $18, $19
             )
             returning *
         `,
@@ -8311,6 +8344,9 @@ async function saveFeedbackSubmission(client, input, requestMeta = {}) {
             entry.pageUrl,
             normalizeFreeText(requestMeta.buildLabel || entry.buildLabel || APP_BUILD_INFO.label || ""),
             entry.browserInfo,
+            entry.attachmentFileName,
+            entry.attachmentMimeType,
+            entry.attachmentDataUrl,
             normalizeFreeText(requestMeta.ipAddress || ""),
             status,
             requestMeta.allowAdminNote === true ? entry.adminNote : ""
@@ -8784,6 +8820,9 @@ async function syncStoreIntegrationById(integrationId, appUser = null) {
             if (normalizeStoreIntegrationProvider(integrationRow.provider) === SFTP_SYNC_PROVIDER) {
                 return await syncSftpIntegration(integrationRow, appUser);
             }
+            if (normalizeStoreIntegrationProvider(integrationRow.provider) === SHOPIFY_SYNC_PROVIDER) {
+                return await syncShopifyIntegration(integrationRow, appUser);
+            }
 
             const fetchedOrders = await fetchStoreOrdersForIntegration(integrationRow);
             return withTransaction(async (client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser));
@@ -8805,6 +8844,70 @@ async function syncStoreIntegrationById(integrationId, appUser = null) {
     } finally {
         storeIntegrationSyncLocks.delete(lockKey);
     }
+}
+
+async function syncShopifyIntegration(integrationRow, appUser = null) {
+    const fetchedOrders = await fetchShopifyOrdersForIntegration(integrationRow);
+    const orderSummary = await withTransaction((client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser));
+    const shipmentSummary = await withTransaction((client) => exportShopifyShipmentConfirmations(client, integrationRow));
+    const failedCount = (Number(orderSummary.failedCount) || 0) + shipmentSummary.failedCount;
+    const meaningfulProgress = (Number(orderSummary.importedCount) || 0)
+        + (Number(orderSummary.skippedCount) || 0)
+        + shipmentSummary.exportedCount
+        + shipmentSummary.skippedCount;
+    const status = failedCount > 0
+        ? (meaningfulProgress > 0 ? "WARNING" : "ERROR")
+        : "SUCCESS";
+    const summaryMessage = [
+        orderSummary.message || `Fetched ${fetchedOrders.length} Shopify order${fetchedOrders.length === 1 ? "" : "s"}.`,
+        `Shipment confirmations ${shipmentSummary.exportedCount} sent.`,
+        `Shipment confirmations ${shipmentSummary.skippedCount} skipped.`,
+        `Shipment confirmation failures ${shipmentSummary.failedCount}.`,
+        shipmentSummary.detailMessages.length ? truncateStoreSyncMessage(shipmentSummary.detailMessages.slice(0, 3).join(" | "), 260) : ""
+    ].filter(Boolean).join(" ");
+
+    const updatedResult = await pool.query(
+        `
+            update store_integrations
+            set
+                last_synced_at = now(),
+                last_sync_status = $2,
+                last_sync_message = $3,
+                next_scheduled_sync_at = $4,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [
+            integrationRow.id,
+            status,
+            truncateStoreSyncMessage(summaryMessage),
+            computeNextStoreIntegrationSyncAt(integrationRow.sync_schedule, { lastSyncedAt: new Date() })
+        ]
+    );
+
+    if (shipmentSummary.exportedCount || shipmentSummary.failedCount) {
+        await withTransaction((client) => insertActivity(
+            client,
+            "setup",
+            `Synced Shopify shipment confirmations for ${integrationRow.account_name}`,
+            [
+                integrationRow.store_identifier || "No Shopify store saved",
+                `Sent ${shipmentSummary.exportedCount}`,
+                `Skipped ${shipmentSummary.skippedCount}`,
+                `Failed ${shipmentSummary.failedCount}`
+            ].join(" | ")
+        ));
+    }
+
+    return {
+        ...orderSummary,
+        integration: mapStoreIntegrationRow(updatedResult.rows[0]),
+        failedCount,
+        skippedCount: (Number(orderSummary.skippedCount) || 0) + shipmentSummary.skippedCount,
+        shippedExportCount: shipmentSummary.exportedCount,
+        message: truncateStoreSyncMessage(summaryMessage)
+    };
 }
 
 async function importStoreOrdersForIntegration(client, integrationRow, orders, appUser = null) {
@@ -11490,8 +11593,8 @@ async function savePortalOrderDocumentsForAccount(
     if (!order) {
         throw httpError(404, "That order could not be found.");
     }
-    if (order.status === "ARCHIVED") {
-        throw httpError(400, "Archived orders cannot receive new shipping labels or documents.");
+    if (["ARCHIVED", "CANCELLED"].includes(order.status)) {
+        throw httpError(400, `${order.status === "CANCELLED" ? "Cancelled" : "Archived"} orders cannot receive new shipping labels or documents.`);
     }
 
     const documents = sanitizePortalOrderDocumentsInput(Array.isArray(rawPayload?.documents) ? rawPayload.documents : []);
@@ -16179,6 +16282,55 @@ async function sendShopifyShipmentConfirmationForImport(client, integrationRow, 
     };
 }
 
+async function exportShopifyShipmentConfirmations(client, integrationRow) {
+    const summary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const normalizedProvider = normalizeStoreIntegrationProvider(integrationRow?.provider);
+    if (normalizedProvider !== SHOPIFY_SYNC_PROVIDER) return summary;
+
+    const result = await client.query(
+        `
+            select o.id, i.external_order_id
+            from portal_orders o
+            join store_order_imports i on i.portal_order_id = o.id
+            where i.integration_id = $1
+              and o.status = 'SHIPPED'
+            order by coalesce(o.shipped_at, o.updated_at) asc, o.id asc
+        `,
+        [integrationRow.id]
+    );
+
+    for (const row of result.rows) {
+        try {
+            const order = await getPortalOrderById(client, row.id, integrationRow.account_name);
+            if (!order) {
+                summary.skippedCount += 1;
+                continue;
+            }
+            const exportPayload = buildShopifyFulfillmentExportPayload(order, row.external_order_id || "");
+            const contentHash = computeStoreSyncContentHash(exportPayload);
+            if (await hasStoreSyncExport(client, integrationRow.id, SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE, String(order.id), contentHash)) {
+                summary.skippedCount += 1;
+                continue;
+            }
+
+            const result = await sendShopifyShipmentConfirmationForImport(client, integrationRow, order, row.external_order_id || "", {}, { isUpdate: true });
+            if (result?.skipped) {
+                summary.skippedCount += 1;
+                if (result.reason) {
+                    summary.detailMessages.push(`${order.orderCode || row.id}: ${result.reason}`);
+                }
+            } else {
+                summary.exportedCount += 1;
+            }
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`Shipment ${row.external_order_id || row.id}: ${error.message || "Shopify fulfillment failed."}`);
+        }
+    }
+
+    return summary;
+}
+
 async function savePortalShippingConfirmation(client, order, rawConfirmation, appUser = null, { transitionToShipped = false } = {}) {
     const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
@@ -16990,11 +17142,17 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
 
     const updatedInbound = await getPortalInboundById(client, inboundId);
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    const statusNote = normalizeFreeText(details?.cancelReason || details?.reason || details?.note || details?.arrivalNote || "");
     await insertActivity(
         client,
         "receipt",
         `Marked purchase order ${updatedInbound.inboundCode} ${nextStatus.toLowerCase()}`,
-        `${updatedInbound.accountName} | ${formatCount(updatedInbound.lines.length, "line")} | ${actor}`
+        [
+            updatedInbound.accountName,
+            `${formatCount(updatedInbound.lines.length, "line")}`,
+            statusNote,
+            actor
+        ].filter(Boolean).join(" | ")
     );
     await syncWarehouseTasksForInbound(client, updatedInbound, appUser);
     return updatedInbound;
@@ -17016,6 +17174,51 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         }
         await syncWarehouseTasksForOrder(client, currentOrder, appUser);
         return currentOrder;
+    }
+
+    if (nextStatus === "CANCELLED") {
+        const cancellableStatuses = ["DRAFT", "RELEASED", "PICKED", "STAGED"];
+        if (!cancellableStatuses.includes(currentOrder.status)) {
+            throw httpError(400, `Orders in ${currentOrder.status} cannot be cancelled.`);
+        }
+
+        const actor = appUser?.full_name || appUser?.email || "Warehouse";
+        const cancelNote = normalizeFreeText(details?.cancelReason || details?.reason || details?.note || "");
+        await client.query("delete from portal_order_allocations where order_id = $1", [orderId]);
+        await client.query(
+            `
+                update portal_orders
+                set
+                    status = 'CANCELLED',
+                    cancelled_at = coalesce(cancelled_at, now()),
+                    pick_ticket_email_status = case
+                        when pick_ticket_email_status in ('SCHEDULED', 'SENDING', 'FAILED') then 'SKIPPED'
+                        else pick_ticket_email_status
+                    end,
+                    pick_ticket_email_last_error = case
+                        when pick_ticket_email_status in ('SCHEDULED', 'SENDING', 'FAILED') then 'Order was cancelled before the pick ticket email was sent.'
+                        else pick_ticket_email_last_error
+                    end,
+                    updated_at = now()
+                where id = $1
+            `,
+            [orderId]
+        );
+
+        const cancelledOrder = await getPortalOrderById(client, orderId, currentOrder.accountName);
+        await insertActivity(
+            client,
+            "order",
+            `Cancelled portal order ${cancelledOrder.orderCode}`,
+            [
+                cancelledOrder.accountName,
+                `Previous status ${currentOrder.status}`,
+                cancelNote,
+                actor
+            ].filter(Boolean).join(" | ")
+        );
+        await syncWarehouseTasksForOrder(client, cancelledOrder, appUser);
+        return cancelledOrder;
     }
 
     const allowedTransitions = {
@@ -17372,7 +17575,7 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
     const actor = appUser?.full_name || appUser?.email || "System";
     const sourceType = "PORTAL_ORDER";
     const allTaskTypes = ["PICK", "PACK", "SHIP"];
-    if (facts.status === "DRAFT" || facts.status === "ARCHIVED") {
+    if (facts.status === "DRAFT" || facts.status === "CANCELLED" || facts.status === "ARCHIVED") {
         await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "CANCELLED", actor);
         return;
     }
@@ -17534,7 +17737,7 @@ async function syncWarehouseTasksFromOperationalRecords(client = pool) {
                 from portal_order_lines
                 group by order_id
             ) l on l.order_id = o.id
-            where o.status in ('RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'ARCHIVED')
+            where o.status in ('RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED')
                or exists (
                     select 1
                     from warehouse_tasks wt
@@ -20563,6 +20766,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
         stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
+        cancelledAt: row.cancelled_at ? new Date(row.cancelled_at).toISOString() : null,
         archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString(),
@@ -20845,7 +21049,7 @@ function normalizeUploadFileName(value) {
 
 function normalizePortalOrderStatus(value) {
     const normalized = normalizeText(value);
-    return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "ARCHIVED"].includes(normalized) ? normalized : "";
+    return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED", "ARCHIVED"].includes(normalized) ? normalized : "";
 }
 
 function normalizePortalInboundStatus(value) {

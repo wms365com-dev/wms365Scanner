@@ -3,51 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#14304a">
+<meta name="theme-color" content="#e6edf0">
 <link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
 <link rel="shortcut icon" href="/marketing-logo.svg">
 <link rel="manifest" href="/site.webmanifest">
 <title>WMS365 Mobile Picking</title>
 <style>
-:root{--bg:#eef2f5;--card:#fff;--line:#d9e1e8;--text:#1c2b39;--muted:#5f7082;--accent:#1768ff;--accent-2:#23394b;--success:#1f9d68;--warn:#b07d2b;--bad:#b42318}
+:root{--bg:#f3f5f6;--card:#fff;--line:#d5dde4;--text:#20303a;--muted:#657582;--accent:#5c7b92;--accent-2:#3f5f76;--accent-soft:#edf3f6;--success:#5f8169;--warn:#b08b47;--bad:#b66363}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bg);overflow:hidden}
 body{font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans-serif;color:var(--text)}
 .app{width:min(414px,100%);min-height:100dvh;margin:0 auto;display:grid;grid-template-rows:auto 1fr auto;background:var(--bg)}
-header{padding:10px 10px 8px;background:var(--bg);border-bottom:1px solid #dbe3ea}
+header{padding:10px 10px 8px;background:var(--bg);border-bottom:1px solid var(--line)}
 .head-card{display:grid;gap:6px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .brand{display:flex;align-items:center;gap:10px}
 .brand img{width:38px;height:38px;flex:0 0 38px;object-fit:contain}
 .brand-copy{display:grid;gap:2px}
-.brand-copy span{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#607892;font-weight:700}
-.title{font-size:22px;font-weight:800;color:#1f3446}
+.brand-copy span{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.title{font-size:22px;font-weight:800;color:var(--text)}
 .sub{font-size:12px;color:var(--muted);margin-top:4px}
 main{padding:10px;display:grid;gap:10px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:none}
-label{display:grid;gap:6px;font-size:12px;font-weight:700;letter-spacing:.08em;color:#567}
+label{display:grid;gap:6px;font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--muted)}
 select,input,button{font:inherit}
 select,input{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text)}
 button{padding:12px 14px;border-radius:12px;border:1px solid transparent;background:var(--accent);color:#fff;font-weight:700}
-button.secondary{background:#fff;color:var(--text);border-color:var(--line)}
+button.secondary{background:#fff;color:var(--accent-2);border-color:var(--line)}
 button.success{background:var(--success)}
 button.warn{background:var(--warn)}
 button:disabled{opacity:.45}
 .muted{color:var(--muted)}
 .kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#5f738a}
 .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
-.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef5ff;color:#194ea5;font-size:12px;font-weight:700}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-2);font-size:12px;font-weight:700}
 .pick-step{display:grid;gap:10px}
 .big{font-size:22px;font-weight:800}
 .loc{font-size:30px;font-weight:900;color:var(--accent-2)}
 .hidden{display:none!important}
-.progress{height:10px;background:#dbe8f5;border-radius:999px;overflow:hidden}
+.progress{height:10px;background:#dfe7ed;border-radius:999px;overflow:hidden}
 .progress>div{height:100%;background:var(--accent)}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.status{padding:10px 12px;border-radius:12px;background:#edf3f6;color:#31495d;font-weight:600;border:1px solid var(--line)}
-.status.good{color:var(--success);background:#effaf4;border-color:#b7e4cf}
-.status.bad{color:var(--bad);background:#fff1f0;border-color:#ffd4d0}
+.status{padding:10px 12px;border-radius:12px;background:var(--accent-soft);color:var(--accent-2);font-weight:600;border:1px solid var(--line)}
+.status.good{color:#3f6f4d;background:#f0f5f1;border-color:#c9d9cd}
+.status.bad{color:#9a4d4d;background:#fff4f4;border-color:#e9c7c7}
 .scan-row{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
-.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f8fafc;padding:10px 12px}
+.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:10px 12px}
 .locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.08em}
 .locked strong{font-size:16px;overflow-wrap:anywhere}
 .locked .btn{width:auto;min-height:38px;padding:9px 11px;flex:0 0 auto}
@@ -57,6 +57,8 @@ button:disabled{opacity:.45}
 .order-row span,.order-row small{font-size:12px;color:var(--muted);line-height:1.3}
 .order-row .pill{justify-self:start;margin-top:3px}
 .quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.proof-grid{display:grid;gap:10px}
+.proof-grid input[type=file]{padding:10px;background:#f8fafb}
 .scanner{position:fixed;inset:0;background:rgba(9,22,35,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:12px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}
 .footer{padding:0 10px calc(12px + env(safe-area-inset-bottom));color:var(--muted);font-size:12px;text-align:center}
 </style>
@@ -143,6 +145,33 @@ button:disabled{opacity:.45}
       <button class="secondary" id="resetFlowBtn">Choose Another Order</button>
     </div>
   </div>
+
+  <div class="card hidden" id="stageCard">
+    <div class="kicker">Ready To Stage</div>
+    <div class="big" id="stageOrderTitle">Order picked</div>
+    <div class="muted" id="stageOrderMeta"></div>
+    <div class="actions" style="margin-top:12px">
+      <button class="success" id="markStagedBtn">Mark Staged</button>
+      <button class="secondary" id="stageChooseAnotherBtn">Choose Another Order</button>
+    </div>
+    <div class="status" id="stageMessage" style="margin-top:10px">Confirm the order is packed/staged for pickup.</div>
+  </div>
+
+  <div class="card hidden" id="pickupProofCard">
+    <div class="kicker">Pickup Proof</div>
+    <div class="big" id="pickupProofTitle">Ready for pickup</div>
+    <div class="muted" id="pickupProofMeta"></div>
+    <div class="proof-grid" style="margin-top:12px">
+      <label>Carrier<input id="shipCarrier" type="text" placeholder="Carrier or driver name" autocomplete="off" enterkeyhint="next"></label>
+      <label>Tracking / PRO / BOL<div class="scan-row"><input id="shipTracking" type="text" placeholder="Scan or enter reference" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="shipTracking">Scan</button></div></label>
+      <label>Signed BOL / POD<input id="shipBolFiles" type="file" accept="application/pdf,image/*" multiple></label>
+      <label>Loaded Truck Photos<input id="shipTruckPhotos" type="file" accept="image/*" capture="environment" multiple></label>
+      <label>Note<input id="shipNote" type="text" placeholder="Optional pickup note" enterkeyhint="done"></label>
+      <button class="success" id="submitPickupProofBtn" type="button">Save Proof & Ship</button>
+      <button class="secondary" id="pickupChooseAnotherBtn" type="button">Choose Another Order</button>
+      <div class="status" id="pickupProofMessage">Capture signed BOL or truck photos before closing the shipment.</div>
+    </div>
+  </div>
 </main>
 <div class="footer" id="mobileBuildLabel">Deployment: loading...</div>
 </div>
@@ -212,6 +241,57 @@ function formatDateOnly(v){
 }
 function traceabilityText(p){
   return [p?.lotNumber?`Lot ${p.lotNumber}`:'',p?.expirationDate?`Exp ${formatDateOnly(p.expirationDate)}`:''].filter(Boolean).join(' | ')||'Standard stock rotation';
+}
+function todayIso(){return new Date().toISOString().slice(0,10)}
+function readFileAsDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||''));
+    reader.onerror=()=>reject(new Error(`Unable to read ${file?.name||'the file'}.`));
+    reader.readAsDataURL(file);
+  });
+}
+function compressImageFile(file,{maxWidth=1600,maxHeight=1600,quality=0.76}={}){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const image=new Image();
+      image.onload=()=>{
+        const scale=Math.min(1,maxWidth/image.width,maxHeight/image.height);
+        const width=Math.max(1,Math.round(image.width*scale));
+        const height=Math.max(1,Math.round(image.height*scale));
+        const canvas=document.createElement('canvas');
+        canvas.width=width;canvas.height=height;
+        const context=canvas.getContext('2d');
+        if(!context){reject(new Error('Image compression is not available on this device.'));return}
+        context.fillStyle='#fff';
+        context.fillRect(0,0,width,height);
+        context.drawImage(image,0,0,width,height);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      image.onerror=()=>reject(new Error('The selected image could not be loaded.'));
+      image.src=String(reader.result||'');
+    };
+    reader.onerror=()=>reject(new Error(`Unable to read ${file?.name||'the image'}.`));
+    reader.readAsDataURL(file);
+  });
+}
+async function readPortalShippingDocuments(...fileLists){
+  const files=fileLists.flatMap(list=>Array.from(list||[]).filter(Boolean));
+  if(!files.length)return [];
+  if(files.length>5)throw new Error('Attach up to 5 proof files at a time.');
+  const documents=[];
+  for(const file of files){
+    const fileType=String(file.type||'').toLowerCase();
+    if(!(fileType==='application/pdf'||fileType.startsWith('image/'))){
+      throw new Error(`${file.name} must be a PDF or image file.`);
+    }
+    const dataUrl=fileType.startsWith('image/')
+      ? await compressImageFile(file)
+      : await readFileAsDataUrl(file);
+    documents.push({fileName:file.name,fileType:fileType||'application/octet-stream',dataUrl});
+  }
+  return documents;
 }
 
 async function loadBuildLabel(){
@@ -312,6 +392,7 @@ function renderPendingOrders(){
 }
 
 function currentPick(){return state.picks[state.index]||null}
+function currentOrderStatus(){return normalize(state.selectedOrder?.status)}
 
 function renderSummary(){
   const o=state.selectedOrder;
@@ -327,10 +408,36 @@ function renderSummary(){
 function renderPick(){
   window.WMS365Mobile?.setKeepAwake?.(!!state.selectedOrder);
   renderSummary();
+  const status=currentOrderStatus();
+  const isStageStep=status==='PICKED';
+  const isPickupProofStep=status==='STAGED';
+  $('stageCard').classList.toggle('hidden',!isStageStep);
+  $('pickupProofCard').classList.toggle('hidden',!isPickupProofStep);
+  if(!state.selectedOrder){
+    $('pickCard').classList.add('hidden');
+    $('doneCard').classList.add('hidden');
+    $('stageCard').classList.add('hidden');
+    $('pickupProofCard').classList.add('hidden');
+    return;
+  }
+  if(isStageStep){
+    $('pickCard').classList.add('hidden');
+    $('doneCard').classList.add('hidden');
+    $('stageOrderTitle').textContent=`${state.selectedOrder.orderCode} picked`;
+    $('stageOrderMeta').textContent='Pack and move it to the outbound pickup area, then mark staged.';
+    $('stageMessage').className='status';
+    $('stageMessage').textContent='Confirm the order is packed/staged for pickup.';
+    return;
+  }
+  if(isPickupProofStep){
+    $('pickCard').classList.add('hidden');
+    $('doneCard').classList.add('hidden');
+    renderPickupProof();
+    return;
+  }
   const p=currentPick();
   $('pickCard').classList.toggle('hidden',!p);
   $('doneCard').classList.toggle('hidden',!!p || !state.selectedOrder);
-  if(!state.selectedOrder){$('doneCard').classList.add('hidden'); return;}
   if(!p){
     $('doneCard').classList.remove('hidden');
     $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} is ready to mark as picked.`;
@@ -352,6 +459,17 @@ function renderPick(){
   $('pickMessage').className='status';
   $('pickMessage').textContent='Scan location, then SKU. Quantity is prefilled from the order.';
   setTimeout(()=>($('confirmLocation').focus()),50);
+}
+
+function renderPickupProof(){
+  const order=state.selectedOrder;
+  $('pickupProofTitle').textContent=`${order.orderCode} pickup`;
+  $('pickupProofMeta').textContent=[order.accountName,order.shippingReference||order.poNumber||'',order.shipToName||order.contactName||''].filter(Boolean).join(' | ');
+  if(!$('shipCarrier').value)$('shipCarrier').value=order.shippedCarrierName||'';
+  if(!$('shipTracking').value)$('shipTracking').value=order.shippedTrackingReference||'';
+  if(!$('shipNote').value)$('shipNote').value=order.shippedConfirmationNote||'';
+  $('pickupProofMessage').className='status';
+  $('pickupProofMessage').textContent='Capture signed BOL or truck photos before closing the shipment.';
 }
 
 function startOrder(order){
@@ -408,7 +526,8 @@ function acceptScanValue(targetId,value){
   target.value=String(value||'').trim();
   window.WMS365Mobile?.vibrate?.(45);
   window.WMS365Mobile?.beep?.('success');
-  nextPickField();
+  if(String(targetId||'').startsWith('confirm'))nextPickField();
+  else target.focus();
 }
 
 async function startScanner(targetId){
@@ -535,9 +654,85 @@ $('skipPickBtn').addEventListener('click',()=>{
 $('markPickedBtn').addEventListener('click',async()=>{
   if(!state.selectedOrder) return;
   const body=window.WMS365Mobile?.envelope?.({status:'PICKED'},'MOBILE_PICK_MARK_PICKED')||{status:'PICKED'};
-  await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
+  const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
+  state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
   $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} marked as PICKED.`;
   await loadOrders();
+  renderPick();
+});
+
+$('markStagedBtn').addEventListener('click',async()=>{
+  if(!state.selectedOrder)return;
+  $('stageMessage').className='status';
+  $('stageMessage').textContent='Saving staged status...';
+  try{
+    const body=window.WMS365Mobile?.envelope?.({status:'STAGED'},'MOBILE_PICK_MARK_STAGED')||{status:'STAGED'};
+    const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
+    state.selectedOrder=response.order||{...state.selectedOrder,status:'STAGED'};
+    await loadOrders();
+    renderPick();
+    window.WMS365Mobile?.vibrate?.(70);
+  }catch(error){
+    $('stageMessage').className='status bad';
+    $('stageMessage').textContent=error.message||'Unable to stage this order.';
+    window.WMS365Mobile?.beep?.('error');
+  }
+});
+
+async function submitPickupProof(){
+  if(!state.selectedOrder)return;
+  const message=$('pickupProofMessage');
+  message.className='status';
+  if(window.WMS365Mobile?.isOnline && !window.WMS365Mobile.isOnline()){
+    message.className='status bad';
+    message.textContent='Reconnect before saving pickup proof with photos.';
+    window.WMS365Mobile?.beep?.('error');
+    return;
+  }
+  try{
+    message.textContent='Reading proof files...';
+    const documents=await readPortalShippingDocuments($('shipBolFiles').files,$('shipTruckPhotos').files);
+    if(!documents.length){
+      throw new Error('Add a signed BOL, POD, or loaded truck photo before marking shipped.');
+    }
+    message.textContent='Saving proof and marking shipped...';
+    const payload={
+      status:'SHIPPED',
+      confirmedShipDate:todayIso(),
+      shippedCarrierName:$('shipCarrier').value.trim(),
+      shippedTrackingReference:$('shipTracking').value.trim(),
+      shippedConfirmationNote:$('shipNote').value.trim(),
+      documents
+    };
+    const body=window.WMS365Mobile?.envelope?.(payload,'MOBILE_OUTBOUND_PICKUP_PROOF')||payload;
+    const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
+    state.selectedOrder=response.order||{...state.selectedOrder,status:'SHIPPED'};
+    $('shipBolFiles').value='';
+    $('shipTruckPhotos').value='';
+    await loadOrders();
+    message.className='status good';
+    message.textContent=`${state.selectedOrder.orderCode} shipped. Proof saved with the order.`;
+    window.WMS365Mobile?.vibrate?.(90);
+    window.WMS365Mobile?.beep?.('success');
+  }catch(error){
+    message.className='status bad';
+    message.textContent=error.message||'Unable to save pickup proof.';
+    window.WMS365Mobile?.beep?.('error');
+  }
+}
+
+$('submitPickupProofBtn').addEventListener('click',submitPickupProof);
+$('stageChooseAnotherBtn').addEventListener('click',()=>{
+  state.selectedOrder=null;
+  state.picks=[];
+  state.index=0;
+  renderPick();
+});
+$('pickupChooseAnotherBtn').addEventListener('click',()=>{
+  state.selectedOrder=null;
+  state.picks=[];
+  state.index=0;
+  renderPick();
 });
 
 $('resetFlowBtn').addEventListener('click',()=>{
@@ -568,6 +763,14 @@ document.addEventListener('keydown',event=>{
     event.preventDefault();
     if(document.activeElement?.id==='confirmQty')$('confirmPickBtn').click();
     else nextPickField();
+    return;
+  }
+  const shipIds=['shipCarrier','shipTracking','shipNote'];
+  if(shipIds.includes(document.activeElement?.id)){
+    event.preventDefault();
+    if(document.activeElement?.id==='shipCarrier')$('shipTracking').focus();
+    else if(document.activeElement?.id==='shipTracking')$('shipBolFiles').focus();
+    else submitPickupProof();
   }
 });
 window.addEventListener('beforeunload',()=>window.WMS365Mobile?.setKeepAwake?.(false));

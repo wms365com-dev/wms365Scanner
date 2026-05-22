@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WMS365 Mobile Inventory Count Worker Guide</title>
+<style>
+@page { size: letter; margin: 0.45in; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: #102033;
+  font-family: Arial, sans-serif;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+h1 {
+  margin: 0 0 6px;
+  color: #0f4f68;
+  font-size: 23px;
+}
+h2 {
+  margin: 12px 0 6px;
+  color: #193647;
+  font-size: 14px;
+}
+h3 {
+  margin: 0 0 5px;
+  color: #193647;
+  font-size: 12px;
+}
+p { margin: 0 0 6px; }
+ol, ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+li { margin: 0 0 4px; }
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 2px solid #176b87;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+.tag {
+  align-self: flex-start;
+  border: 1px solid #d8e1ea;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #0f4f68;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.quick {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.box,
+.card {
+  border: 1px solid #d8e1ea;
+  border-radius: 8px;
+  padding: 9px;
+  break-inside: avoid;
+}
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.card img {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  border: 1px solid #d8e1ea;
+  border-radius: 6px;
+  background: #f4f7f9;
+}
+.callout {
+  border: 1px solid #f5c66d;
+  background: #fff8e6;
+  color: #8a4b00;
+  border-radius: 8px;
+  padding: 8px 9px;
+  margin: 8px 0;
+}
+.good {
+  border-color: #b7e4cf;
+  background: #effaf4;
+  color: #147a4c;
+}
+.danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #9f1239;
+}
+.mini {
+  color: #64748b;
+  font-size: 9.5px;
+}
+.page-break { break-before: page; }
+.footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #d8e1ea;
+  color: #64748b;
+  font-size: 9px;
+}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>WMS365 Mobile Inventory Count</h1>
+      <p><strong>Warehouse worker quick guide.</strong> Use the Android app or mobile web app to submit counts from the floor. Counts are saved as pending records first. Office staff reviews and posts adjustments later.</p>
+      <p class="mini">Updated May 22, 2026</p>
+    </div>
+    <div class="tag">Mobile Count</div>
+  </div>
+
+  <div class="quick">
+    <div class="box">
+      <h2>Fast Flow</h2>
+      <ol>
+        <li>Open <strong>WMS365 Scanner</strong> or the WMS365 mobile web app.</li>
+        <li>Sign in with your warehouse login.</li>
+        <li>Select the correct <strong>Company</strong>. The company stays locked for the count.</li>
+        <li>Tap <strong>Inventory Count</strong>.</li>
+        <li>Scan or key in the <strong>Location</strong>.</li>
+        <li>Scan or key in the <strong>Product / SKU / UPC</strong>.</li>
+        <li>Enter the counted quantity in <strong>cases</strong>.</li>
+        <li>Enter <strong>lot</strong> and/or <strong>expiry</strong> only if the fields appear.</li>
+        <li>If location or SKU is not found, take a picture and continue.</li>
+        <li>Tap <strong>Save Count</strong>, then choose another SKU or the next location.</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h2>Worker Rules</h2>
+      <ul>
+        <li>Do not switch companies unless a lead tells you to.</li>
+        <li>Scan when possible. Key in only if the barcode will not scan.</li>
+        <li>If the app shows a warning, take the photo before saving.</li>
+        <li>Counts do not change inventory immediately.</li>
+        <li>Use <strong>Pending</strong> to check items waiting to sync or review.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Company lock:</strong> After you choose a company, WMS365 keeps that company selected so the count does not get entered under the wrong customer. Use the <strong>Back</strong> or switch-company option only when you truly need to change companies.
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>1. Select Company</h3>
+      <p>Choose the customer/company once at the start. This keeps all counts in the right account.</p>
+      <img src="screenshots/mobile-inventory-count-company-select.png" alt="Company selection screen">
+    </div>
+
+    <div class="card">
+      <h3>2. Company Stays Locked</h3>
+      <p>The count screen shows the locked company. Use Back only if the company is wrong.</p>
+      <img src="screenshots/mobile-inventory-count-locked-company.png" alt="Locked company count screen">
+    </div>
+
+    <div class="card">
+      <h3>3. Scan Or Key In</h3>
+      <p>Use camera scan for location and product. If scanning fails, type the location or SKU.</p>
+      <img src="screenshots/mobile-inventory-count-scan-keyin.png" alt="Location and SKU scan screen">
+    </div>
+
+    <div class="card">
+      <h3>4. Warning And Photo</h3>
+      <p>If the location or SKU is not found, WMS365 gives a light warning. Take a picture so the office can verify without sending you back.</p>
+      <img src="screenshots/mobile-inventory-count-exception-photo.png" alt="Warning with picture prompt">
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <h2>Finish The Count</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>5. Lot And Expiry</h3>
+      <p>Lot and expiry fields only show when required for the item or customer. Fill them in before saving.</p>
+      <img src="screenshots/mobile-inventory-count-lot-expiry.png" alt="Lot and expiry fields">
+    </div>
+
+    <div class="card">
+      <h3>6. Save Count</h3>
+      <p>After saving, add another SKU in the same location or move to the next location.</p>
+      <img src="screenshots/mobile-inventory-count-saved.png" alt="Saved count screen">
+    </div>
+
+    <div class="card">
+      <h3>7. Pending / Offline</h3>
+      <p>If Wi-Fi or cell service drops, the app saves the count on the device and syncs when the connection returns.</p>
+      <img src="screenshots/mobile-inventory-count-offline-queued.png" alt="Offline queued count screen">
+    </div>
+
+    <div class="card">
+      <h3>8. Mobile Menu</h3>
+      <p>Use the mobile menu to move between Inventory Count, Picking, and Pending work.</p>
+      <img src="screenshots/mobile-live-company-pending.png" alt="Mobile company and pending screen">
+    </div>
+  </div>
+
+  <div class="callout good">
+    <strong>What happens after Save:</strong> The count is submitted as pending. A desktop user reviews location, SKU, counted quantity, system quantity, variance, lot/expiry, worker, and date/time before posting.
+  </div>
+
+  <div class="callout danger">
+    <strong>Stop and ask a lead when:</strong> the wrong company is locked, the product label is damaged, the physical product does not match the SKU, the location is blocked, or the same product appears in two mixed locations.
+  </div>
+
+  <h2>Quick Checklist Before Leaving A Location</h2>
+  <ul>
+    <li>Every SKU in the location was counted.</li>
+    <li>Case quantity was entered correctly.</li>
+    <li>Lot and expiry were entered if shown.</li>
+    <li>Photo was added for unknown location/SKU or label problems.</li>
+    <li>No pending error remains on the device.</li>
+  </ul>
+
+  <div class="footer">
+    WMS365 Mobile Inventory Count Worker Guide. Counts are reviewed on desktop before inventory is adjusted.
+  </div>
+</body>
+</html>
