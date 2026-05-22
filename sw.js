@@ -1,4 +1,8 @@
-const WMS365_CACHE = "wms365-mobile-shell-v1";
+const WMS365_CACHE = "wms365-mobile-shell-v2";
+const CRITICAL_NETWORK_FIRST = new Set([
+  "/mobile-bridge.js",
+  "/site.webmanifest"
+]);
 const SHELL_URLS = [
   "/login",
   "/login.html",
@@ -51,6 +55,21 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => caches.match(request).then((cached) => cached || caches.match("/mobile?mode=mobile") || offlinePage()))
+    );
+    return;
+  }
+
+  if (CRITICAL_NETWORK_FIRST.has(url.pathname)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (request.method === "GET" && response.ok) {
+            const copy = response.clone();
+            caches.open(WMS365_CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }

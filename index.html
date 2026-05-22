@@ -11199,7 +11199,11 @@
                     window.location.href = buildMobileRouteUrl(target);
                 }
             }));
-            ui.mobileActiveCompany?.addEventListener("change", () => updateMobileCompanyContextUi());
+            ui.mobileActiveCompany?.addEventListener("change", () => {
+                const company = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
+                if (company) setActiveCompany(company, { force: true });
+                else updateMobileCompanyContextUi();
+            });
             ui.mobileLockCompanyBtn?.addEventListener("click", lockMobileCompanyContext);
             ui.mobileSwitchCompanyBtn?.addEventListener("click", () => {
                 clearActiveCompany();
@@ -12278,9 +12282,17 @@
         function getActiveCompany() {
             const chipText = String(ui.workspaceCompanyChip?.textContent || "").replace(/^\s*(Company|Scope)\s*:\s*/i, "").trim();
             const displayText = String(ui.activeCompanyDisplay?.textContent || "").trim();
+            const mobileCompanyContext = window.WMS365Mobile?.getCompanyContext?.() || (() => {
+                try {
+                    return localStorage.getItem("wms365-mobile-company-context") || "";
+                } catch {
+                    return "";
+                }
+            })();
             const candidates = [
                 ui.activeCompany?.value,
                 state.preferences.activeCompany,
+                mobileCompanyContext,
                 chipText,
                 displayText
             ];
