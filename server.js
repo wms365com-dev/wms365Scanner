@@ -3068,6 +3068,24 @@ app.post("/api/admin/portal-orders/:id/reopen", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/portal-orders/:id/picked-quantity-correction", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+            return correctPortalOrderPickedQuantities(client, orderId, req.body || {}, req.appUser);
+        });
+        res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-orders/:id/archive", async (req, res, next) => {
     try {
         const orderId = toPositiveInt(req.params.id);
@@ -16942,6 +16960,138 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         `Marked portal order ${updatedOrder.orderCode} ${nextStatus.toLowerCase()}`,
         `${updatedOrder.accountName} | ${formatCount(updatedOrder.lines.length, "line")} | ${actor}`
     );
+    await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
+    return updatedOrder;
+}
+
+function sanitizePickedQuantityCorrections(input) {
+    const source = Array.isArray(input?.lines)
+        ? input.lines
+        : Array.isArray(input?.corrections)
+            ? input.corrections
+            : [];
+    const corrections = source.map((entry) => ({
+        orderLineId: toPositiveInt(entry?.orderLineId || entry?.order_line_id || entry?.lineId || entry?.id),
+        sku: normalizeText(entry?.sku),
+        quantity: toNonNegativeInt(entry?.quantity ?? entry?.pickedQuantity ?? entry?.picked_quantity ?? entry?.targetQuantity ?? entry?.target_quantity)
+    })).filter((entry) => entry.orderLineId || entry.sku || entry.quantity !== null);
+
+    if (!corrections.length) {
+        throw httpError(400, "At least one SKU and picked quantity correction is required.");
+    }
+    for (const correction of corrections) {
+        if (!correction.orderLineId && !correction.sku) {
+            throw httpError(400, "Each picked quantity correction needs an order line id or SKU.");
+        }
+        if (correction.quantity === null) {
+            throw httpError(400, "Each picked quantity correction needs a zero-or-greater quantity.");
+        }
+    }
+    return corrections;
+}
+
+async function correctPortalOrderPickedQuantities(client, orderId, rawInput = {}, appUser = null) {
+    const orderRowResult = await client.query("select * from portal_orders where id = $1 limit 1", [orderId]);
+    if (orderRowResult.rowCount !== 1) {
+        throw httpError(404, "That portal order could not be found.");
+    }
+    const accountName = normalizeText(orderRowResult.rows[0].account_name);
+    const order = await getPortalOrderById(client, orderId, accountName);
+    if (!order) {
+        throw httpError(404, "That portal order could not be found.");
+    }
+    if (!["PICKED", "STAGED"].includes(order.status)) {
+        throw httpError(400, `Picked quantities can only be corrected for picked or staged orders. This order is ${order.status}.`);
+    }
+
+    const corrections = sanitizePickedQuantityCorrections(rawInput);
+    const changes = [];
+
+    for (const correction of corrections) {
+        const matchingLines = order.lines.filter((line) => {
+            if (correction.orderLineId) return String(line.id) === String(correction.orderLineId);
+            return normalizeText(line.sku) === correction.sku;
+        });
+        if (!matchingLines.length) {
+            throw httpError(404, `Order ${order.orderCode} does not have line ${correction.sku || correction.orderLineId}.`);
+        }
+        if (matchingLines.length > 1 && !correction.orderLineId) {
+            throw httpError(400, `Order ${order.orderCode} has multiple lines for ${correction.sku}. Send the orderLineId to correct one line.`);
+        }
+
+        const line = matchingLines[0];
+        const orderedQuantity = Number(line.quantity) || 0;
+        const targetQuantity = Number(correction.quantity) || 0;
+        if (targetQuantity > orderedQuantity) {
+            throw httpError(400, `${line.sku} cannot be corrected above the ordered quantity of ${formatTrackedQuantity(orderedQuantity, line.trackingLevel)}.`);
+        }
+
+        const allocationResult = await client.query(
+            `
+                select *
+                from portal_order_allocations
+                where order_line_id = $1
+                order by
+                    case when expiration_date <> '' then 0 else 1 end asc,
+                    expiration_date asc,
+                    location asc,
+                    lot_number asc,
+                    id asc
+            `,
+            [line.id]
+        );
+        const allocations = allocationResult.rows;
+        const currentQuantity = allocations.reduce((sum, row) => sum + (Number(row.allocated_quantity) || 0), 0);
+        if (targetQuantity > currentQuantity) {
+            throw httpError(400, `${line.sku} is currently allocated for ${formatTrackedQuantity(currentQuantity, line.trackingLevel)}. This correction endpoint can reduce picked quantities, not increase them.`);
+        }
+        if (targetQuantity === currentQuantity) {
+            continue;
+        }
+
+        let remaining = targetQuantity;
+        for (const allocation of allocations) {
+            const existingQuantity = Number(allocation.allocated_quantity) || 0;
+            const nextQuantity = Math.min(existingQuantity, remaining);
+            remaining -= nextQuantity;
+
+            if (nextQuantity > 0 && nextQuantity !== existingQuantity) {
+                await client.query(
+                    "update portal_order_allocations set allocated_quantity = $2, updated_at = now() where id = $1",
+                    [allocation.id, nextQuantity]
+                );
+            } else if (nextQuantity <= 0) {
+                await client.query("delete from portal_order_allocations where id = $1", [allocation.id]);
+            }
+        }
+
+        changes.push({
+            sku: line.sku,
+            orderLineId: String(line.id),
+            fromQuantity: currentQuantity,
+            toQuantity: targetQuantity,
+            trackingLevel: line.trackingLevel || "UNIT"
+        });
+    }
+
+    if (changes.length) {
+        await client.query("update portal_orders set updated_at = now() where id = $1", [orderId]);
+        const actor = appUser?.full_name || appUser?.email || "Warehouse";
+        const note = normalizeFreeText(rawInput?.note || rawInput?.reason || "");
+        await insertActivity(
+            client,
+            "order",
+            `Corrected picked quantities for portal order ${order.orderCode}`,
+            [
+                order.accountName,
+                ...changes.map((change) => `${change.sku}: ${formatTrackedQuantity(change.fromQuantity, change.trackingLevel)} -> ${formatTrackedQuantity(change.toQuantity, change.trackingLevel)}`),
+                note,
+                actor
+            ].filter(Boolean).join(" | ")
+        );
+    }
+
+    const updatedOrder = await getPortalOrderById(client, orderId, accountName);
     await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
     return updatedOrder;
 }
