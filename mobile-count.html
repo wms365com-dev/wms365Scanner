@@ -134,6 +134,9 @@ function norm(v){return String(v||"").trim().replace(/\s+/g," ").toUpperCase()}
 function getGlobalCompany(){return norm(window.WMS365Mobile?.getCompanyContext?.()||localStorage.getItem(GLOBAL_COMPANY_KEY)||"")}
 function setGlobalCompany(account){const normalized=norm(account);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
 function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
+function requestedCompany(){const params=new URLSearchParams(location.search);return norm(params.get("accountName")||params.get("account")||"")}
+function stripCompanyFromUrl(){try{const url=new URL(location.href);url.searchParams.delete("accountName");url.searchParams.delete("account");history.replaceState(null,"",`${url.pathname}${url.search}${url.hash}`)}catch{}}
+function provisionalCompany(){return requestedCompany()||getGlobalCompany()||norm(localStorage.getItem(LOCKED_COMPANY_KEY)||"")}
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function trackingLabel(v){const t=norm(v);return t==="PALLET"?"Pallets":t==="CASE"?"Cases":"Units"}
 function qtyText(q,t){const n=Number(q)||0;return `${n} ${trackingLabel(t).toLowerCase()}`}
@@ -301,9 +304,12 @@ function switchCompany(){
   state.lockedAccount="";
   try{localStorage.removeItem(LOCKED_COMPANY_KEY)}catch{}
   clearGlobalCompany();
+  stripCompanyFromUrl();
   $("locationInput").value="";clearSku();renderCompanyStep();$("accountSelect").focus();
 }
 async function load(){
+  const provisional=provisionalCompany();
+  if(provisional&&!state.lockedAccount){state.lockedAccount=provisional;renderCompanyStep();$("message").className="status";$("message").textContent="Loading company data..."}
   let payload;
   try{
     payload=await requestJson("/api/state");
@@ -316,7 +322,7 @@ async function load(){
   }
   applyStatePayload(payload);
   $("accountSelect").innerHTML=state.owners.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
-  const params=new URLSearchParams(location.search);const requested=norm(params.get("accountName")||params.get("account")||"");
+  const requested=requestedCompany();
   if(requested&&state.owners.map(norm).includes(requested))$("accountSelect").value=state.owners.find(o=>norm(o)===requested);
   const globalCompany=getGlobalCompany();
   const saved=norm(localStorage.getItem(LOCKED_COMPANY_KEY)||"");const allowed=state.owners.map(norm);

@@ -11237,9 +11237,7 @@
                 }
             }));
             ui.mobileActiveCompany?.addEventListener("change", () => {
-                const company = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
-                if (company) setActiveCompany(company, { force: true });
-                else updateMobileCompanyContextUi();
+                updateMobileCompanyContextUi();
             });
             ui.mobileLockCompanyBtn?.addEventListener("click", lockMobileCompanyContext);
             ui.mobileSwitchCompanyBtn?.addEventListener("click", () => {

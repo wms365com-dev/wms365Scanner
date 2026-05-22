@@ -173,6 +173,9 @@ function normalize(v){return String(v||'').trim().toUpperCase()}
 function getGlobalCompany(){return normalize(window.WMS365Mobile?.getCompanyContext?.()||localStorage.getItem(GLOBAL_COMPANY_KEY)||'')}
 function setGlobalCompany(company){const normalized=normalize(company);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
 function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
+function requestedCompany(){const params=new URLSearchParams(location.search||'');return normalize(params.get('accountName')||params.get('account')||'')}
+function stripCompanyFromUrl(){try{const url=new URL(location.href);url.searchParams.delete('accountName');url.searchParams.delete('account');history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`)}catch{}}
+function provisionalCompany(){return requestedCompany()||getGlobalCompany()}
 function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
 function ageTime(value){
   const timestamp=Date.parse(String(value||''));
@@ -219,6 +222,8 @@ async function loadBuildLabel(){
 }
 
 async function loadCompanies(){
+  const provisional=provisionalCompany();
+  if(provisional&&!state.company){state.company=provisional;renderCompanyLock()}
   const payload=await requestJson('/api/state');
   const names=new Set();
   (payload.masters?.owners||[]).forEach(v=>names.add(String(v).trim()));
@@ -230,8 +235,7 @@ async function loadCompanies(){
   const sel=$('companySelect');
   const companyNames=[...names].filter(Boolean).sort();
   sel.innerHTML='<option value="">Choose company</option>'+companyNames.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-  const params=new URLSearchParams(location.search||'');
-  const requested=normalize(params.get('accountName')||params.get('account')||'');
+  const requested=requestedCompany();
   if(!state.company&&requested){
     const match=companyNames.find(name=>normalize(name)===requested);
     if(match) state.company=match;
@@ -242,6 +246,7 @@ async function loadCompanies(){
     if(match) state.company=match;
   }
   if(!state.company&&companyNames.length===1) state.company=companyNames[0];
+  if(state.company&&!companyNames.map(normalize).includes(normalize(state.company))) state.company='';
   if(state.company){sel.value=state.company;setGlobalCompany(state.company)}
   renderCompanyLock();
 }
@@ -449,6 +454,7 @@ $('lockCompanyBtn').addEventListener('click',async()=>{
 $('switchCompanyBtn').addEventListener('click',()=>{
   state.company='';state.selectedOrder=null;state.picks=[];state.index=0;
   clearGlobalCompany();
+  stripCompanyFromUrl();
   $('companySelect').value='';
   $('orderSelect').innerHTML='<option value="">Choose order</option>';
   renderCompanyLock();
