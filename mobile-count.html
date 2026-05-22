@@ -124,6 +124,7 @@ const LOCKED_COMPANY_KEY="wms365_inventory_count_company";
 const LOCAL_DB_NAME="wms365-mobile-count";
 const LOCAL_DB_VERSION=1;
 const state={inventory:[],items:[],locations:[],owners:[],session:null,lockedAccount:"",photoData:"",scanTarget:"",scannerStream:null,scannerTimer:null,offlineMode:false,pendingCount:0};
+function isAndroidShell(){return !!window.WMS365Android}
 function norm(v){return String(v||"").trim().replace(/\s+/g," ").toUpperCase()}
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function trackingLabel(v){const t=norm(v);return t==="PALLET"?"Pallets":t==="CASE"?"Cases":"Units"}
@@ -365,8 +366,22 @@ async function handlePhotoChange(event){
     $("message").className="status good";$("message").textContent="Photo attached for review.";
   }catch(error){$("message").className="status bad";$("message").textContent=error.message}
 }
+function acceptScanValue(targetId,value){
+  const target=$(targetId);if(!target)return;
+  target.value=norm(value);
+  renderItem();
+  try{window.WMS365Android?.vibrate?.(45)}catch{}
+  try{window.WMS365Android?.beep?.("success")}catch{}
+  const next=targetId==="locationInput"?$("skuInput"):$("casesInput");
+  next?.focus();
+}
 async function startScanner(targetId){
   state.scanTarget=targetId;
+  if(isAndroidShell()&&typeof window.WMS365Android.scanBarcode==="function"){
+    $("scannerOverlay").classList.add("hidden");
+    window.WMS365Android.scanBarcode(targetId);
+    return;
+  }
   $("scannerOverlay").classList.remove("hidden");
   $("scannerMessage").textContent="Starting camera...";
   if(!("BarcodeDetector" in window)){
@@ -385,11 +400,8 @@ async function startScanner(targetId){
         if(codes&&codes.length){
           const value=norm(codes[0].rawValue||"");
           if(value&&$(state.scanTarget)){
-            $(state.scanTarget).value=value;
+            acceptScanValue(state.scanTarget,value);
             stopScanner();
-            renderItem();
-            const next=state.scanTarget==="locationInput"?$("skuInput"):$("casesInput");
-            next.focus();
           }
         }
       }catch{}
@@ -406,6 +418,7 @@ function stopScanner(){
   $("scannerVideo").srcObject=null;
   $("scannerOverlay").classList.add("hidden");
 }
+window.wms365ReceiveAndroidScan=(targetId,value)=>acceptScanValue(targetId,value);
 $("accountSelect").addEventListener("input",renderCompanyStep);
 ["locationInput","skuInput","lotInput","expirationInput"].forEach(id=>$(id).addEventListener("input",renderItem));
 document.querySelectorAll("[data-scan-target]").forEach(button=>button.addEventListener("click",()=>startScanner(button.dataset.scanTarget)));

@@ -170,7 +170,15 @@ async function loadCompanies(){
   (payload.masters?.owners||[]).forEach(v=>names.add(String(v).trim()));
   (payload.inventory||[]).forEach(v=>{if(v.accountName) names.add(String(v.accountName).trim())});
   const sel=$('companySelect');
-  sel.innerHTML='<option value="">Choose company</option>'+[...names].filter(Boolean).sort().map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  const companyNames=[...names].filter(Boolean).sort();
+  sel.innerHTML='<option value="">Choose company</option>'+companyNames.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  const params=new URLSearchParams(location.search||'');
+  const requested=normalize(params.get('accountName')||params.get('account')||'');
+  if(!state.company&&requested){
+    const match=companyNames.find(name=>normalize(name)===requested);
+    if(match) state.company=match;
+  }
+  if(!state.company&&companyNames.length===1) state.company=companyNames[0];
   if(state.company) sel.value=state.company;
 }
 
@@ -315,6 +323,7 @@ $('resetFlowBtn').addEventListener('click',()=>{
     await loadBuildLabel();
     await requestJson('/api/app/me');
     await loadCompanies();
+    if(state.company) await loadOrders();
     renderSummary();
   }catch{
     location.href='/login';

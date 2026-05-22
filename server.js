@@ -4532,9 +4532,6 @@ app.get("/inventory-worksheet/", async (req, res) => {
 app.get("/mobile", async (req, res) => {
     try {
         await requireAppSession(req);
-        if (!isWarehouseMobileUserAgent(req) && String(req.query?.mode || req.query?.experience || "").toLowerCase() !== "mobile") {
-            return res.redirect("/desktop");
-        }
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);
@@ -4545,9 +4542,6 @@ app.get("/mobile", async (req, res) => {
 app.get("/mobile/", async (req, res) => {
     try {
         await requireAppSession(req);
-        if (!isWarehouseMobileUserAgent(req) && String(req.query?.mode || req.query?.experience || "").toLowerCase() !== "mobile") {
-            return res.redirect("/desktop");
-        }
         sendWarehouseApp(res);
     } catch (_error) {
         clearAppSessionCookie(res, req);

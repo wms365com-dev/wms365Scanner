@@ -139,10 +139,6 @@
       if(!text || !text.startsWith('/') || text.startsWith('//') || text === '/login' || text === '/login.html'){
         return '/app';
       }
-      const mobileUserAgent=/iphone|ipod|android.+mobile|windows phone|blackberry|opera mini|mobile/i.test(String(navigator.userAgent||'')) || navigator.userAgentData?.mobile === true;
-      if((text === '/mobile' || text.startsWith('/mobile?') || text.startsWith('/mobile/')) && !mobileUserAgent){
-        return '/desktop';
-      }
       return text;
     }
     const warehouseAppEntryPath=sanitizeNextWarehousePath(new URLSearchParams(window.location.search||'').get('next'));

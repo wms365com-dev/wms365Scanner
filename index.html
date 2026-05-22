@@ -5823,6 +5823,50 @@
             gap: 0.18rem;
         }
         body.device-mobile .menu-card-title { font-size: 0.98rem; }
+        body.device-mobile .mobile-company-card,
+        body.device-mobile .mobile-pending-panel {
+            display: grid;
+            gap: 0.55rem;
+            padding: 0.72rem 0.78rem;
+            border: 1px solid #d5e0ea;
+            border-radius: 12px;
+            background: #ffffff;
+        }
+        body.device-mobile .mobile-company-card.hidden,
+        body.device-mobile .mobile-pending-panel.hidden,
+        body.device-mobile .mobile-company-locked.hidden,
+        body.device-mobile #mobileCompanySelectWrap.hidden,
+        body.device-mobile #mobileLockCompanyBtn.hidden {
+            display: none !important;
+        }
+        body.device-mobile .mobile-company-locked {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.65rem;
+        }
+        body.device-mobile .mobile-company-locked div {
+            min-width: 0;
+            display: grid;
+            gap: 0.12rem;
+        }
+        body.device-mobile .mobile-company-locked span {
+            color: #66798b;
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        body.device-mobile .mobile-company-locked strong {
+            color: #12283b;
+            font-size: 0.98rem;
+            overflow-wrap: anywhere;
+        }
+        body.device-mobile .mobile-company-locked .btn {
+            width: auto;
+            min-width: 74px;
+            flex: 0 0 auto;
+        }
         body.device-mobile .mobile-task-picker .btn.active {
             color: white;
             background: var(--brand);
@@ -6424,7 +6468,26 @@
                         <h1>Choose Task</h1>
                         <div class="mobile-build-label" id="appBuildMobileLabel" style="font-size:12px;color:#64748b;margin-top:4px;">Build loading...</div>
                     </div>
+                    <div class="mobile-company-card" id="mobileCompanyCard">
+                        <div class="mobile-company-locked hidden" id="mobileCompanyLocked">
+                            <div>
+                                <span>Company Locked</span>
+                                <strong id="mobileCompanyLockedLabel">Choose company</strong>
+                            </div>
+                            <button class="btn ghost mini" id="mobileSwitchCompanyBtn" type="button">Back</button>
+                        </div>
+                        <label class="field" id="mobileCompanySelectWrap">
+                            <span>Company</span>
+                            <select id="mobileActiveCompany"><option value="">Choose company</option></select>
+                        </label>
+                        <button class="btn" id="mobileLockCompanyBtn" type="button">Continue</button>
+                        <div class="meta" id="mobileCompanyMeta">Choose the company once, then stay locked in while you work.</div>
+                    </div>
                     <div class="menu-stack">
+                        <button class="btn menu-card-btn" id="mobilePendingBtn" type="button">
+                            <span class="menu-card-title">Pending</span>
+                            <span class="menu-card-meta">View open work and orders by age, then jump into the right task.</span>
+                        </button>
                         <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
                             <span class="menu-card-title">Receive</span>
                             <span class="menu-card-meta">Stage new inventory quickly, then save the full batch.</span>
@@ -6454,7 +6517,14 @@
                             <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order on mobile.</span>
                         </button>
                     </div>
-                    <div class="mobile-task-queue" id="mobileWarehouseTaskQueue" aria-label="Open warehouse tasks"></div>
+                    <div class="mobile-pending-panel hidden" id="mobilePendingPanel">
+                        <div class="mobile-task-queue-head">
+                            <strong>Pending Work</strong>
+                            <span id="mobilePendingCount">0 active</span>
+                        </div>
+                        <div class="mobile-task-queue" id="mobileWarehouseTaskQueue" aria-label="Open warehouse tasks"></div>
+                        <button class="btn ghost" id="mobilePendingCloseBtn" type="button">Back To Tasks</button>
+                    </div>
                 </article>
             </div>
         </section>
@@ -10236,6 +10306,17 @@
             mobileBackButtons: [...document.querySelectorAll("[data-mobile-home]")],
             mobileSectionBackButtons: [...document.querySelectorAll("[data-mobile-section-back]")],
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
+            mobileActiveCompany: document.getElementById("mobileActiveCompany"),
+            mobileCompanyMeta: document.getElementById("mobileCompanyMeta"),
+            mobileCompanyLocked: document.getElementById("mobileCompanyLocked"),
+            mobileCompanyLockedLabel: document.getElementById("mobileCompanyLockedLabel"),
+            mobileCompanySelectWrap: document.getElementById("mobileCompanySelectWrap"),
+            mobileLockCompanyBtn: document.getElementById("mobileLockCompanyBtn"),
+            mobileSwitchCompanyBtn: document.getElementById("mobileSwitchCompanyBtn"),
+            mobilePendingBtn: document.getElementById("mobilePendingBtn"),
+            mobilePendingPanel: document.getElementById("mobilePendingPanel"),
+            mobilePendingCloseBtn: document.getElementById("mobilePendingCloseBtn"),
+            mobilePendingCount: document.getElementById("mobilePendingCount"),
             mobileWarehouseTaskQueue: document.getElementById("mobileWarehouseTaskQueue"),
             workspaceAnchorButtons: [...document.querySelectorAll("[data-workspace-anchor]")],
             saveBatchButtons: [...document.querySelectorAll("[data-save-batch]")],
@@ -11096,9 +11177,24 @@
             ui.mobileLinkButtons.forEach((button) => button.addEventListener("click", () => {
                 const target = button.dataset.mobileLink;
                 if (target) {
-                    window.location.href = target;
+                    window.location.href = buildMobileRouteUrl(target);
                 }
             }));
+            ui.mobileActiveCompany?.addEventListener("change", () => updateMobileCompanyContextUi());
+            ui.mobileLockCompanyBtn?.addEventListener("click", lockMobileCompanyContext);
+            ui.mobileSwitchCompanyBtn?.addEventListener("click", () => {
+                clearActiveCompany();
+                ui.mobileActiveCompany?.focus();
+            });
+            ui.mobilePendingBtn?.addEventListener("click", () => {
+                ui.mobilePendingPanel?.classList.remove("hidden");
+                renderMobileWarehouseTasks();
+                ui.mobilePendingPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+            ui.mobilePendingCloseBtn?.addEventListener("click", () => {
+                ui.mobilePendingPanel?.classList.add("hidden");
+                ui.mobilePendingBtn?.focus();
+            });
             ui.mobileWarehouseTaskQueue?.addEventListener("click", onMobileWarehouseTaskClick);
             ui.mobileBackButtons.forEach((button) => button.addEventListener("click", () => goBackMobileSection()));
             ui.mobileSectionBackButtons.forEach((button) => button.addEventListener("click", () => handleMobileSectionBack(button.dataset.mobileSectionBack)));
@@ -11931,14 +12027,12 @@
 
         function getForcedDeviceExperienceMode() {
             const pathName = String(window.location.pathname || "").trim().replace(/\/+$/, "").toLowerCase();
-            const isHandheld = isHandheldDeviceCandidate();
-            if (pathName === "/mobile") return isHandheld ? "mobile" : "desktop";
-            if (pathName === "/desktop") return isHandheld ? "" : "desktop";
             const params = new URLSearchParams(window.location.search || "");
             const explicitMode = String(params.get("experience") || params.get("mode") || "").trim().toLowerCase();
-            if (explicitMode === "desktop" && isHandheld) return "";
-            if (explicitMode === "mobile" && !isHandheld) return "desktop";
-            return explicitMode === "mobile" || explicitMode === "desktop" ? explicitMode : "";
+            if (explicitMode === "mobile" || explicitMode === "desktop") return explicitMode;
+            if (pathName === "/mobile") return "mobile";
+            if (pathName === "/desktop") return "desktop";
+            return "";
         }
 
         function syncDesktopPreviewToggle() {
@@ -12229,6 +12323,8 @@
             renderWarehouseInboundContext();
             updateWorkspaceCommandBar();
             syncFeedbackContext();
+            updateMobileCompanyContextUi();
+            renderMobileWarehouseTasks();
         }
 
         function updateCompanyBoundUi() {
@@ -13022,6 +13118,9 @@
             if (ui.activeCompany) {
                 ui.activeCompany.value = normalized;
             }
+            if (ui.mobileActiveCompany) {
+                ui.mobileActiveCompany.value = normalized;
+            }
             syncActiveCompanyFields(normalized, { force: force || normalized !== previous });
             updateActiveCompanyUi();
             if (persist) saveState();
@@ -13034,6 +13133,47 @@
 
         function clearActiveCompany() {
             setActiveCompany("", { force: true });
+        }
+
+        function updateMobileCompanyContextUi() {
+            const company = getActiveCompany();
+            const draftCompany = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
+            if (ui.mobileCompanyLocked) ui.mobileCompanyLocked.classList.toggle("hidden", !company);
+            if (ui.mobileCompanySelectWrap) ui.mobileCompanySelectWrap.classList.toggle("hidden", !!company);
+            if (ui.mobileLockCompanyBtn) {
+                ui.mobileLockCompanyBtn.classList.toggle("hidden", !!company);
+                ui.mobileLockCompanyBtn.disabled = !draftCompany;
+            }
+            if (ui.mobileCompanyLockedLabel) ui.mobileCompanyLockedLabel.textContent = company || "Choose company";
+            if (ui.mobileCompanyMeta) {
+                ui.mobileCompanyMeta.textContent = company
+                    ? "This device is locked to the selected company. Use Back to switch before starting another company's work."
+                    : "Choose the company once, then stay locked in while you work.";
+            }
+        }
+
+        function lockMobileCompanyContext() {
+            const company = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
+            if (!company) {
+                if (ui.mobileCompanyMeta) ui.mobileCompanyMeta.textContent = "Choose a company before starting mobile work.";
+                ui.mobileActiveCompany?.focus();
+                return;
+            }
+            setActiveCompany(company, { force: true });
+        }
+
+        function buildMobileRouteUrl(target = "") {
+            const text = String(target || "").trim();
+            if (!text) return "";
+            try {
+                const url = new URL(text, window.location.origin);
+                const company = getActiveCompany();
+                url.searchParams.set("mode", "mobile");
+                if (company) url.searchParams.set("accountName", company);
+                return `${url.pathname}${url.search}${url.hash}`;
+            } catch {
+                return text;
+            }
         }
 
         function commitCompanyContextInput(input) {
@@ -13174,7 +13314,12 @@
                 ? forcedDeviceExperienceMode
                 : (isDesktopMobilePreviewEnabled() ? "mobile" : detectedDeviceExperienceMode);
             const useMobileClass = deviceExperienceMode === "mobile";
+            const userAgent = String(navigator.userAgent || "");
             document.body.classList.toggle("device-mobile", useMobileClass);
+            document.body.classList.toggle("device-android", /android/i.test(userAgent));
+            document.body.classList.toggle("device-ios", /iphone|ipad|ipod/i.test(userAgent));
+            document.body.classList.toggle("device-webview", /; wv\)| wv\)|WMS365Android/i.test(userAgent) || !!window.WMS365Android);
+            document.body.classList.toggle("device-standalone", window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true);
             document.body.classList.toggle("preview-mobile-desktop", !forcedDeviceExperienceMode && isDesktopMobilePreviewEnabled());
             applyManagedInputLists();
             syncMobilePickerInputs();
@@ -14996,25 +15141,29 @@
         }
 
         function renderMobileWarehouseTasks() {
+            const tasks = getDashboardActiveTasks()
+                .slice()
+                .sort((a, b) =>
+                    dashboardDateSort(a.dueAt).localeCompare(dashboardDateSort(b.dueAt))
+                    || (Date.parse(a.createdAt || "") || 0) - (Date.parse(b.createdAt || "") || 0)
+                    || (a.sourceCode || a.taskCode || "").localeCompare(b.sourceCode || b.taskCode || "")
+                );
+            if (ui.mobilePendingCount) {
+                const priorityCount = tasks.filter((task) => ["RUSH", "HIGH"].includes(norm(task.priority)) || warehouseTaskSlaInfo(task).status === "OVERDUE").length;
+                ui.mobilePendingCount.textContent = `${num(tasks.length)} active${priorityCount ? ` | ${num(priorityCount)} priority` : ""}`;
+            }
+            if (ui.mobilePendingBtn) {
+                ui.mobilePendingBtn.querySelector(".menu-card-title").textContent = tasks.length ? `Pending (${num(tasks.length)})` : "Pending";
+            }
             if (!ui.mobileWarehouseTaskQueue) return;
-            const tasks = getDashboardActiveTasks();
             if (!tasks.length) {
                 ui.mobileWarehouseTaskQueue.innerHTML = `
-                    <div class="mobile-task-queue-head">
-                        <strong>Open Tasks</strong>
-                        <span>0 active</span>
-                    </div>
                     <p class="empty">No warehouse tasks are open for the current company.</p>
                 `;
                 return;
             }
-            const priorityCount = tasks.filter((task) => ["RUSH", "HIGH"].includes(norm(task.priority)) || warehouseTaskSlaInfo(task).status === "OVERDUE").length;
             ui.mobileWarehouseTaskQueue.innerHTML = `
-                <div class="mobile-task-queue-head">
-                    <strong>Open Tasks</strong>
-                    <span>${num(tasks.length)} active${priorityCount ? ` | ${num(priorityCount)} priority` : ""}</span>
-                </div>
-                ${tasks.slice(0, 6).map(mobileTaskRowMarkup).join("")}
+                ${tasks.slice(0, 12).map(mobileTaskRowMarkup).join("")}
             `;
         }
 
@@ -15479,14 +15628,23 @@
         }
 
         function renderActiveCompanyOptions(owners = []) {
-            if (!ui.activeCompany) return;
-            const current = norm(ui.activeCompany.value || state.preferences.activeCompany || "");
+            if (!ui.activeCompany && !ui.mobileActiveCompany) return;
+            const current = norm(ui.activeCompany?.value || state.preferences.activeCompany || "");
             const uniqueOwners = [...new Set((owners || []).map((owner) => norm(owner)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
             const options = ['<option value="">All Companies</option>']
                 .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(owner)}</option>`));
-            ui.activeCompany.innerHTML = options.join('');
-            ui.activeCompany.value = current && uniqueOwners.includes(current) ? current : '';
+            if (ui.activeCompany) {
+                ui.activeCompany.innerHTML = options.join('');
+                ui.activeCompany.value = current && uniqueOwners.includes(current) ? current : '';
+            }
+            if (ui.mobileActiveCompany) {
+                ui.mobileActiveCompany.innerHTML = ['<option value="">Choose company</option>']
+                    .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(owner)}</option>`))
+                    .join('');
+                ui.mobileActiveCompany.value = current && uniqueOwners.includes(current) ? current : '';
+            }
             renderCompanySwitcherList();
+            updateMobileCompanyContextUi();
         }
 
         function renderActionSkuDatalists() {

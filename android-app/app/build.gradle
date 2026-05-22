@@ -1,23 +1,24 @@
 plugins {
     id "com.android.application"
+    id "org.jetbrains.kotlin.android"
 }
 
 def configuredBaseUrl = (project.findProperty("WMS365_BASE_URL") ?: "https://your-live-wms365-domain.com").toString().replaceAll("/+\$", "")
-def configuredStartPath = (project.findProperty("WMS365_START_PATH") ?: "/mobile").toString()
+def configuredStartPath = (project.findProperty("WMS365_START_PATH") ?: "/mobile?mode=mobile").toString()
 if (!configuredStartPath.startsWith("/")) {
     configuredStartPath = "/" + configuredStartPath
 }
 
 android {
-    namespace "com.wms365.scanner"
+    namespace "com.wms365.app"
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.wms365.scanner"
+        applicationId "com.wms365.app"
         minSdk 26
         targetSdk 35
         versionCode 1
-        versionName "0.1.0"
+        versionName "0.2.0"
         buildConfigField "String", "WMS365_BASE_URL", "\"${configuredBaseUrl}\""
         buildConfigField "String", "WMS365_START_PATH", "\"${configuredStartPath}\""
     }
@@ -25,8 +26,18 @@ android {
     buildFeatures {
         buildConfig true
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 dependencies {
     implementation "androidx.core:core:1.13.1"
+    implementation "com.journeyapps:zxing-android-embedded:4.3.0"
 }
