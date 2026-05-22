@@ -15195,6 +15195,8 @@
                 const params = new URLSearchParams();
                 if (task.id) params.set("taskId", task.id);
                 if (task.sourceId) params.set("orderId", task.sourceId);
+                if (task.accountName) params.set("accountName", task.accountName);
+                params.set("mode", "mobile");
                 window.location.href = `/mobile-pick${params.toString() ? `?${params.toString()}` : ""}`;
                 return;
             }
@@ -15440,6 +15442,18 @@
                 const upcKey = `UPC::${line.accountName}::${line.upc}`;
                 if (!itemMap.has(skuKey)) itemMap.set(skuKey, { value: line.sku, label: [line.accountName, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ") });
                 if (line.upc && !itemMap.has(upcKey)) itemMap.set(upcKey, { value: line.upc, label: `${line.accountName} | ${line.sku}` });
+            });
+            state.inventoryCounts.forEach((count) => {
+                if (count.accountName && !ownerMap.has(count.accountName)) ownerMap.set(count.accountName, { value: count.accountName, label: "Count access" });
+            });
+            state.warehouseTasks.forEach((task) => {
+                if (task.accountName && !ownerMap.has(task.accountName)) ownerMap.set(task.accountName, { value: task.accountName, label: "Assigned work" });
+            });
+            portalOrderRecords.forEach((order) => {
+                if (order.accountName && !ownerMap.has(order.accountName)) ownerMap.set(order.accountName, { value: order.accountName, label: "Sales order access" });
+            });
+            portalInboundRecords.forEach((inbound) => {
+                if (inbound.accountName && !ownerMap.has(inbound.accountName)) ownerMap.set(inbound.accountName, { value: inbound.accountName, label: "Purchase order access" });
             });
 
             ui.locationList.innerHTML = [...locationMap.values()]
@@ -26335,6 +26349,11 @@
             (state.masters.companyFulfillmentLocations || []).forEach((assignment) => owners.add(assignment.accountName));
             state.masters.items.forEach((item) => owners.add(item.accountName));
             state.inventory.forEach((line) => owners.add(line.accountName));
+            state.inventoryCounts.forEach((count) => owners.add(count.accountName));
+            state.warehouseTasks.forEach((task) => owners.add(task.accountName));
+            portalOrderRecords.forEach((order) => owners.add(order.accountName));
+            portalInboundRecords.forEach((inbound) => owners.add(inbound.accountName));
+            portalKittingRecords.forEach((request) => owners.add(request.accountName));
             state.batch.forEach((line) => owners.add(line.accountName));
             return [...owners].filter(Boolean);
         }

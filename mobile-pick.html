@@ -9,7 +9,7 @@
 <link rel="manifest" href="/site.webmanifest">
 <title>WMS365 Mobile Picking</title>
 <style>
-:root{--bg:#eef2f5;--card:#fff;--line:#d9e1e8;--text:#1c2b39;--muted:#5f7082;--accent:#1768ff;--accent-2:#23394b;--success:#1f9d68;--warn:#b07d2b}
+:root{--bg:#eef2f5;--card:#fff;--line:#d9e1e8;--text:#1c2b39;--muted:#5f7082;--accent:#1768ff;--accent-2:#23394b;--success:#1f9d68;--warn:#b07d2b;--bad:#b42318}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bg);overflow:hidden}
 body{font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans-serif;color:var(--text)}
@@ -44,6 +44,20 @@ button:disabled{opacity:.45}
 .progress>div{height:100%;background:var(--accent)}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .status{padding:10px 12px;border-radius:12px;background:#edf3f6;color:#31495d;font-weight:600;border:1px solid var(--line)}
+.status.good{color:var(--success);background:#effaf4;border-color:#b7e4cf}
+.status.bad{color:var(--bad);background:#fff1f0;border-color:#ffd4d0}
+.scan-row{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
+.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f8fafc;padding:10px 12px}
+.locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.08em}
+.locked strong{font-size:16px;overflow-wrap:anywhere}
+.locked .btn{width:auto;min-height:38px;padding:9px 11px;flex:0 0 auto}
+.order-list{display:grid;gap:8px}
+.order-row{display:grid;gap:3px;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);text-align:left}
+.order-row strong{font-size:15px}
+.order-row span,.order-row small{font-size:12px;color:var(--muted);line-height:1.3}
+.order-row .pill{justify-self:start;margin-top:3px}
+.quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scanner{position:fixed;inset:0;background:rgba(9,22,35,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:12px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}
 .footer{padding:0 10px calc(12px + env(safe-area-inset-bottom));color:var(--muted);font-size:12px;text-align:center}
 </style>
 </head>
@@ -63,13 +77,24 @@ button:disabled{opacity:.45}
 </header>
 <main>
   <div class="card">
-    <label>Active Company<select id="companySelect"><option value="">Choose company</option></select></label>
-    <div style="height:10px"></div>
-    <label>Released Orders<select id="orderSelect"><option value="">Choose order</option></select></label>
-    <div style="height:10px"></div>
-    <div class="actions">
-      <button id="loadOrderBtn">Load Order</button>
-      <button class="secondary" id="refreshBtn">Refresh</button>
+    <div class="locked hidden" id="lockedCompanyWrap">
+      <div><span>Company Locked</span><strong id="lockedCompanyLabel">-</strong></div>
+      <button class="btn secondary" id="switchCompanyBtn" type="button">Back</button>
+    </div>
+    <div id="companyPickerWrap">
+      <label>Active Company<select id="companySelect"><option value="">Choose company</option></select></label>
+      <div style="height:10px"></div>
+      <button id="lockCompanyBtn" type="button">Continue</button>
+    </div>
+    <div id="orderPickerWrap" class="hidden">
+      <div style="height:10px"></div>
+      <label>Open Orders<select id="orderSelect"><option value="">Choose order</option></select></label>
+      <div style="height:10px"></div>
+      <div class="actions">
+        <button id="loadOrderBtn">Load Order</button>
+        <button class="secondary" id="refreshBtn">Refresh</button>
+      </div>
+      <div class="order-list" id="pendingOrderList" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -92,11 +117,15 @@ button:disabled{opacity:.45}
         <div><div class="kicker">Required</div><div class="big" id="pickQty">0</div></div>
         <div><div class="kicker">Available</div><div class="big" id="pickAvailable">0</div></div>
       </div>
-      <label>Confirm Location<input id="confirmLocation" placeholder="Scan or enter location"></label>
-      <label>Confirm SKU<input id="confirmSku" placeholder="Scan or enter SKU"></label>
-      <label>Confirm Lot (If Required)<input id="confirmLot" placeholder="Scan or enter lot"></label>
+      <label>Confirm Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan or enter location" autocomplete="off" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
+      <label>Confirm SKU<div class="scan-row"><input id="confirmSku" placeholder="Scan or enter SKU" autocomplete="off" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
+      <label id="confirmLotWrap">Confirm Lot (If Required)<div class="scan-row"><input id="confirmLot" placeholder="Scan or enter lot" autocomplete="off" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
       <label>Confirm Expiration (If Required)<input id="confirmExpiration" type="text" placeholder="YYYY-MM-DD"></label>
       <label>Picked Quantity<input id="confirmQty" type="number" min="1" step="1" placeholder="Enter picked qty"></label>
+      <div class="quick-actions">
+        <button class="secondary" id="fillExpectedBtn" type="button">Use Expected</button>
+        <button class="secondary" id="nextFieldBtn" type="button">Next Field</button>
+      </div>
       <div class="actions">
         <button class="success" id="confirmPickBtn">Confirm Pick</button>
         <button class="secondary" id="skipPickBtn">Skip</button>
@@ -117,8 +146,15 @@ button:disabled{opacity:.45}
 </main>
 <div class="footer" id="mobileBuildLabel">Deployment: loading...</div>
 </div>
+<div class="scanner hidden" id="scannerOverlay">
+  <div class="scanner-card">
+    <video id="scannerVideo" playsinline muted></video>
+    <div class="status" id="scannerMessage">Point the camera at the barcode.</div>
+    <button class="secondary" id="closeScannerBtn" type="button">Close Scanner</button>
+  </div>
+</div>
 <script>
-const state={orders:[],company:'',selectedOrder:null,picks:[],index:0};
+const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,scanTarget:'',scannerStream:null,scannerTimer:null,requestedOrderId:'',requestedTaskId:''};
 const $=id=>document.getElementById(id);
 
 async function requestJson(url,opt={}){
@@ -132,6 +168,19 @@ async function requestJson(url,opt={}){
 
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function normalize(v){return String(v||'').trim().toUpperCase()}
+function isAndroidShell(){return !!window.WMS365Android}
+function ageTime(value){
+  const timestamp=Date.parse(String(value||''));
+  return Number.isFinite(timestamp)?timestamp:Date.now();
+}
+function ageLabel(value){
+  const diff=Math.max(0,Date.now()-ageTime(value));
+  const hours=Math.floor(diff/36e5);
+  if(hours<1)return 'New';
+  if(hours<24)return `${hours}h old`;
+  const days=Math.floor(hours/24);
+  return `${days}d old`;
+}
 function normalizeDateInput(v){
   const text=String(v||'').trim();
   if(!text) return '';
@@ -169,6 +218,10 @@ async function loadCompanies(){
   const names=new Set();
   (payload.masters?.owners||[]).forEach(v=>names.add(String(v).trim()));
   (payload.inventory||[]).forEach(v=>{if(v.accountName) names.add(String(v.accountName).trim())});
+  (payload.inventoryCounts||[]).forEach(v=>{if(v.accountName) names.add(String(v.accountName).trim())});
+  (payload.warehouseTasks||[]).forEach(v=>{if(v.accountName) names.add(String(v.accountName).trim())});
+  (payload.session?.appUser?.assignedCompanies||[]).forEach(v=>names.add(String(v).trim()));
+  (payload.session?.appUser?.inheritedCompanies||[]).forEach(v=>names.add(String(v).trim()));
   const sel=$('companySelect');
   const companyNames=[...names].filter(Boolean).sort();
   sel.innerHTML='<option value="">Choose company</option>'+companyNames.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
@@ -180,14 +233,48 @@ async function loadCompanies(){
   }
   if(!state.company&&companyNames.length===1) state.company=companyNames[0];
   if(state.company) sel.value=state.company;
+  renderCompanyLock();
 }
 
 async function loadOrders(){
   const q=state.company?`?account_name=${encodeURIComponent(state.company)}&accountName=${encodeURIComponent(state.company)}`:'';
   const payload=await requestJson('/api/admin/portal-orders'+q);
-  state.orders=(payload.orders||[]).filter(o=>String(o.status||'').toUpperCase()==='RELEASED');
+  state.orders=(payload.orders||[]).filter(o=>['RELEASED','PICKED','STAGED'].includes(String(o.status||'').toUpperCase()));
   const sel=$('orderSelect');
-  sel.innerHTML='<option value="">Choose order</option>'+state.orders.map(o=>`<option value="${esc(o.id)}">${esc(o.orderCode)} | ${esc(o.shippingReference||o.poNumber||'')}</option>`).join('');
+  state.orders.sort((a,b)=>ageTime(a.createdAt)-ageTime(b.createdAt)||(a.orderCode||'').localeCompare(b.orderCode||''));
+  sel.innerHTML='<option value="">Choose order</option>'+state.orders.map(o=>`<option value="${esc(o.id)}">${esc(o.orderCode)} | ${esc(o.status)} | ${esc(o.shippingReference||o.poNumber||'')}</option>`).join('');
+  renderPendingOrders();
+  const requested=state.orders.find(o=>String(o.id)===String(state.requestedOrderId));
+  if(requested&&!state.selectedOrder) startOrder(requested);
+}
+
+function renderCompanyLock(){
+  const locked=!!state.company;
+  $('lockedCompanyWrap').classList.toggle('hidden',!locked);
+  $('companyPickerWrap').classList.toggle('hidden',locked);
+  $('orderPickerWrap').classList.toggle('hidden',!locked);
+  $('lockedCompanyLabel').textContent=state.company||'-';
+  $('lockCompanyBtn').disabled=!$('companySelect').value;
+}
+
+function orderRowMarkup(order){
+  const lines=Array.isArray(order.lines)?order.lines.length:0;
+  return `
+    <button class="order-row" type="button" data-order-id="${esc(order.id)}">
+      <strong>${esc(order.orderCode||'Order')}</strong>
+      <span>${esc(order.shippingReference||order.poNumber||order.shipToName||'No reference')}</span>
+      <small>${esc(ageLabel(order.createdAt||order.updatedAt))} | ${lines} line${lines===1?'':'s'}</small>
+      <span class="pill">${esc(order.status||'OPEN')}</span>
+    </button>
+  `;
+}
+
+function renderPendingOrders(){
+  const list=$('pendingOrderList');
+  if(!list)return;
+  list.innerHTML=state.orders.length
+    ? state.orders.slice(0,12).map(orderRowMarkup).join('')
+    : '<p class="muted">No released, picked, or staged orders for this company.</p>';
 }
 
 function currentPick(){return state.picks[state.index]||null}
@@ -225,7 +312,11 @@ function renderPick(){
   $('confirmLot').value='';
   $('confirmExpiration').value='';
   $('confirmQty').value=String(p.quantity||'');
-  $('pickMessage').textContent='Scan the location, confirm the SKU, then confirm the required lot and expiration details before saving the picked quantity.';
+  $('confirmLotWrap').classList.toggle('hidden',!p.lotNumber);
+  $('confirmExpiration').closest('label').classList.toggle('hidden',!p.expirationDate);
+  $('pickMessage').className='status';
+  $('pickMessage').textContent='Scan location, then SKU. Quantity is prefilled from the order.';
+  setTimeout(()=>($('confirmLocation').focus()),50);
 }
 
 function startOrder(order){
@@ -258,12 +349,97 @@ function startOrder(order){
   renderPick();
 }
 
+function fillExpectedPickValues(){
+  const p=currentPick();
+  if(!p)return;
+  $('confirmLocation').value=p.pickLocation||'';
+  $('confirmSku').value=p.sku||'';
+  $('confirmLot').value=p.lotNumber||'';
+  $('confirmExpiration').value=p.expirationDate||'';
+  $('confirmQty').value=String(p.quantity||'');
+  $('confirmPickBtn').focus();
+}
+
+function nextPickField(){
+  const order=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmQty','confirmPickBtn'];
+  const visible=order.map($).filter(el=>el&&!el.closest('.hidden'));
+  const current=visible.indexOf(document.activeElement);
+  const next=visible[Math.min(visible.length-1,current+1)]||visible[0];
+  next?.focus();
+}
+
+function acceptScanValue(targetId,value){
+  const target=$(targetId);if(!target)return;
+  target.value=String(value||'').trim();
+  try{window.WMS365Android?.vibrate?.(45)}catch{}
+  try{window.WMS365Android?.beep?.('success')}catch{}
+  nextPickField();
+}
+
+async function startScanner(targetId){
+  state.scanTarget=targetId;
+  if(isAndroidShell()&&typeof window.WMS365Android.scanBarcode==='function'){
+    window.WMS365Android.scanBarcode(targetId);
+    return;
+  }
+  $('scannerOverlay').classList.remove('hidden');
+  $('scannerMessage').textContent='Starting camera...';
+  if(!('BarcodeDetector' in window)){
+    $('scannerMessage').textContent='Camera barcode scan is not supported here. Key in the value instead.';
+    return;
+  }
+  try{
+    state.scannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    $('scannerVideo').srcObject=state.scannerStream;
+    await $('scannerVideo').play();
+    const detector=new BarcodeDetector({formats:['code_128','code_39','ean_13','ean_8','upc_a','upc_e','qr_code','data_matrix']});
+    $('scannerMessage').textContent='Point the camera at the barcode.';
+    state.scannerTimer=window.setInterval(async()=>{
+      try{
+        const codes=await detector.detect($('scannerVideo'));
+        if(codes&&codes.length){
+          const value=String(codes[0].rawValue||'').trim();
+          if(value){
+            acceptScanValue(state.scanTarget,value);
+            stopScanner();
+          }
+        }
+      }catch{}
+    },350);
+  }catch{
+    $('scannerMessage').textContent='Camera could not open. Key in the value instead.';
+  }
+}
+
+function stopScanner(){
+  if(state.scannerTimer)window.clearInterval(state.scannerTimer);
+  state.scannerTimer=null;
+  if(state.scannerStream)state.scannerStream.getTracks().forEach(track=>track.stop());
+  state.scannerStream=null;
+  $('scannerVideo').srcObject=null;
+  $('scannerOverlay').classList.add('hidden');
+}
+
+window.wms365ReceiveAndroidScan=(targetId,value)=>acceptScanValue(targetId,value);
+
 $('companySelect').addEventListener('change',async e=>{
-  state.company=e.target.value;
-  state.selectedOrder=null;
-  state.picks=[];
-  state.index=0;
+  renderCompanyLock();
+});
+
+$('lockCompanyBtn').addEventListener('click',async()=>{
+  state.company=$('companySelect').value;
+  state.selectedOrder=null;state.picks=[];state.index=0;
+  if(!state.company)return;
+  renderCompanyLock();
   await loadOrders();
+  renderPick();
+});
+
+$('switchCompanyBtn').addEventListener('click',()=>{
+  state.company='';state.selectedOrder=null;state.picks=[];state.index=0;
+  $('companySelect').value='';
+  $('orderSelect').innerHTML='<option value="">Choose order</option>';
+  renderCompanyLock();
   renderPick();
 });
 
@@ -279,6 +455,18 @@ $('loadOrderBtn').addEventListener('click',()=>{
   if(order) startOrder(order);
 });
 
+$('pendingOrderList').addEventListener('click',event=>{
+  const button=event.target.closest('[data-order-id]');
+  if(!button)return;
+  const order=state.orders.find(o=>String(o.id)===String(button.dataset.orderId));
+  if(order)startOrder(order);
+});
+
+document.querySelectorAll('[data-scan-target]').forEach(button=>button.addEventListener('click',()=>startScanner(button.dataset.scanTarget)));
+$('fillExpectedBtn').addEventListener('click',fillExpectedPickValues);
+$('nextFieldBtn').addEventListener('click',nextPickField);
+$('closeScannerBtn').addEventListener('click',stopScanner);
+
 $('confirmPickBtn').addEventListener('click',()=>{
   const p=currentPick();
   if(!p) return;
@@ -290,12 +478,15 @@ $('confirmPickBtn').addEventListener('click',()=>{
   const expectedLoc=normalize(p.pickLocation||'');
   const expectedLot=normalize(p.lotNumber||'');
   const expectedExpiration=normalizeDateInput(p.expirationDate||'');
-  if(expectedLoc && loc!==expectedLoc){$('pickMessage').textContent='Location does not match the required pick location.'; return;}
-  if(sku!==normalize(p.sku)){$('pickMessage').textContent='SKU does not match the current pick.'; return;}
-  if(expectedLot && lot!==expectedLot){$('pickMessage').textContent='Lot number does not match the required FEFO pick.'; return;}
-  if(expectedExpiration && expiration!==expectedExpiration){$('pickMessage').textContent='Expiration date does not match the required FEFO pick.'; return;}
-  if(qty!==Number(p.quantity||0)){$('pickMessage').textContent='Picked quantity must match the required quantity.'; return;}
+  const fail=(message,field)=>{$('pickMessage').className='status bad';$('pickMessage').textContent=message;field?.focus();try{window.WMS365Android?.beep?.('error')}catch{}};
+  if(expectedLoc && loc!==expectedLoc)return fail('Location does not match the required pick location.',$('confirmLocation'));
+  if(sku!==normalize(p.sku))return fail('SKU does not match the current pick.',$('confirmSku'));
+  if(expectedLot && lot!==expectedLot)return fail('Lot number does not match the required FEFO pick.',$('confirmLot'));
+  if(expectedExpiration && expiration!==expectedExpiration)return fail('Expiration date does not match the required FEFO pick.',$('confirmExpiration'));
+  if(qty!==Number(p.quantity||0))return fail('Picked quantity must match the required quantity.',$('confirmQty'));
   state.index+=1;
+  $('pickMessage').className='status good';
+  try{window.WMS365Android?.vibrate?.(70)}catch{}
   renderPick();
 });
 
@@ -320,6 +511,9 @@ $('resetFlowBtn').addEventListener('click',()=>{
 
 (async()=>{
   try{
+    const params=new URLSearchParams(location.search||'');
+    state.requestedOrderId=String(params.get('orderId')||'').trim();
+    state.requestedTaskId=String(params.get('taskId')||'').trim();
     await loadBuildLabel();
     await requestJson('/api/app/me');
     await loadCompanies();
@@ -329,6 +523,15 @@ $('resetFlowBtn').addEventListener('click',()=>{
     location.href='/login';
   }
 })();
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Enter')return;
+  const ids=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmQty'];
+  if(ids.includes(document.activeElement?.id)){
+    event.preventDefault();
+    if(document.activeElement?.id==='confirmQty')$('confirmPickBtn').click();
+    else nextPickField();
+  }
+});
 </script>
 </body>
 </html>
