@@ -5814,6 +5814,18 @@
         body.device-mobile .mobile-drill-menu.active,
         body.device-mobile .mobile-drill-card.active { display: block !important; }
         body.device-mobile .menu-stack { gap: 0.65rem; }
+        body.device-mobile .mobile-menu-group {
+            display: grid;
+            gap: 0.5rem;
+        }
+        body.device-mobile .mobile-menu-group-title {
+            margin: 0.25rem 0 0;
+            color: #66798b;
+            font-size: 0.68rem;
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
         body.device-mobile .menu-card-btn {
             min-height: 56px;
             padding: 0.75rem 0.85rem;
@@ -6506,39 +6518,56 @@
                         <button class="btn" id="mobileLockCompanyBtn" type="button">Continue</button>
                         <div class="meta" id="mobileCompanyMeta">Choose the company once, then stay locked in while you work.</div>
                     </div>
-                    <div class="menu-stack">
-                        <button class="btn menu-card-btn" id="mobilePendingBtn" type="button">
-                            <span class="menu-card-title">Pending</span>
-                            <span class="menu-card-meta">View open work and orders by age, then jump into the right task.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
-                            <span class="menu-card-title">Receive</span>
-                            <span class="menu-card-meta">Stage new inventory quickly, then save the full batch.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-nav="search">
-                            <span class="menu-card-title">Lookup</span>
-                            <span class="menu-card-meta">Search one item, one BIN, or multiple item codes.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-nav="actions">
-                            <span class="menu-card-title">Adjust</span>
-                            <span class="menu-card-meta">Handle stock corrections and BIN moves one task at a time.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-count">
-                            <span class="menu-card-title">Inventory Count</span>
-                            <span class="menu-card-meta">Submit pending location counts for desktop review before posting.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-nav="inbounds">
-                            <span class="menu-card-title">Inbound Arrival</span>
-                            <span class="menu-card-meta">Check in arriving purchase orders and notify the customer from the floor.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-nav="labels" data-mobile-label-mode="pallet">
-                            <span class="menu-card-title">Pallets</span>
-                            <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
-                        </button>
-                        <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-pick">
-                            <span class="menu-card-title">Picking</span>
-                            <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order on mobile.</span>
-                        </button>
+                    <div class="menu-stack" aria-label="Warehouse mobile activities">
+                        <div class="mobile-menu-group">
+                            <p class="mobile-menu-group-title">Today</p>
+                            <button class="btn menu-card-btn" id="mobilePendingBtn" type="button">
+                                <span class="menu-card-title">Pending Work</span>
+                                <span class="menu-card-meta">View open work by age and jump into the right task.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-pick">
+                                <span class="menu-card-title">Picking</span>
+                                <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
+                                <span class="menu-card-title">Receiving</span>
+                                <span class="menu-card-meta">Stage new inventory quickly, then save the full batch.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="actions" data-mobile-subview-group="actions" data-mobile-subview-target="putaway">
+                                <span class="menu-card-title">Putaway</span>
+                                <span class="menu-card-meta">Move received product into the right BIN or pallet location.</span>
+                            </button>
+                        </div>
+                        <div class="mobile-menu-group">
+                            <p class="mobile-menu-group-title">Inventory</p>
+                            <button class="btn menu-card-btn" type="button" data-mobile-link="/mobile-count">
+                                <span class="menu-card-title">Inventory Count</span>
+                                <span class="menu-card-meta">Count one location at a time for desktop review.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="search">
+                                <span class="menu-card-title">Lookup SKU / BIN</span>
+                                <span class="menu-card-meta">Search one item, one BIN, or multiple item codes.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="actions" data-mobile-subview-group="actions" data-mobile-subview-target="transfer">
+                                <span class="menu-card-title">Move / Transfer</span>
+                                <span class="menu-card-meta">Move stock between BINs or transfer product after a scan.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="actions" data-mobile-subview-group="actions" data-mobile-subview-target="adjust">
+                                <span class="menu-card-title">Adjust Stock</span>
+                                <span class="menu-card-meta">Handle stock corrections one task at a time.</span>
+                            </button>
+                        </div>
+                        <div class="mobile-menu-group">
+                            <p class="mobile-menu-group-title">Labels / Handling</p>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="labels" data-mobile-label-mode="pallet">
+                                <span class="menu-card-title">Pallets / Labels</span>
+                                <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
+                            </button>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="inbounds">
+                                <span class="menu-card-title">Inbound Arrival</span>
+                                <span class="menu-card-meta">Check in arriving purchase orders and notify the customer from the floor.</span>
+                            </button>
+                        </div>
                     </div>
                     <div class="mobile-pending-panel hidden" id="mobilePendingPanel">
                         <div class="mobile-task-queue-head">
@@ -11197,6 +11226,9 @@
                     setLabelToolMode(button.dataset.mobileLabelMode);
                 }
                 setSection(button.dataset.mobileNav);
+                if (button.dataset.mobileSubviewTarget) {
+                    setMobileSubview(button.dataset.mobileSubviewGroup || button.dataset.mobileNav, button.dataset.mobileSubviewTarget);
+                }
             }));
             ui.mobileLinkButtons.forEach((button) => button.addEventListener("click", () => {
                 const target = button.dataset.mobileLink;
