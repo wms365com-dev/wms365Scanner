@@ -19358,6 +19358,15 @@
                             `).join("")}
                         </div>
                     ` : `<div class="quick-meta">No order documents or labels saved yet.</div>`}
+                    <div class="form-grid compact-grid" style="margin-top:0.8rem;">
+                        <label class="field span-2">
+                            <span>Upload Missing Label / Docs</span>
+                            <input data-portal-order-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
+                        </label>
+                    </div>
+                    <div class="quick-row-actions">
+                        <button class="btn ghost" type="button" data-portal-order-documents-upload="${attr(order.id)}">Upload Label / Docs</button>
+                    </div>
                 </div>
             `;
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
@@ -21104,6 +21113,38 @@
             if (packingSlipButton) {
                 const order = getPortalOrderById(packingSlipButton.dataset.printPackingSlip || "");
                 if (order) printPortalOrderDocument(order, "packing", actionMessageElement);
+                return;
+            }
+
+            const orderDocumentsButton = event.target.closest("[data-portal-order-documents-upload]");
+            if (orderDocumentsButton) {
+                const orderId = orderDocumentsButton.dataset.portalOrderDocumentsUpload || "";
+                if (!orderId) return;
+                const currentOrder = getPortalOrderById(orderId);
+                try {
+                    await runActionWithFeedback({
+                        button: orderDocumentsButton,
+                        busyLabel: "Uploading...",
+                        messageElement: actionMessageElement,
+                        progressMessage: `Uploading label/documents for ${currentOrder?.orderCode || orderId}...`
+                    }, async () => {
+                        const orderCard = orderDocumentsButton.closest(".erp-document-shipping-panel") || orderDocumentsButton.closest(".quick-detail-stack") || orderDocumentsButton.closest(".quick-row");
+                        const fileInput = orderCard?.querySelector(`[data-portal-order-documents="${orderId}"]`);
+                        const documents = await readPortalShippingDocuments(fileInput?.files);
+                        if (!documents.length) {
+                            throw new Error("Choose at least one label or order document to upload.");
+                        }
+                        const response = await requestJson(`/api/admin/portal-orders/${orderId}/documents`, {
+                            method: "POST",
+                            body: JSON.stringify({ documents })
+                        });
+                        if (fileInput) fileInput.value = "";
+                        applyPortalOrderUpdate(response?.order, `Uploaded ${documents.length} label/document${documents.length === 1 ? "" : "s"} to ${response?.order?.orderCode || orderId}.`, actionMessageElement);
+                        queuePortalOrderRefresh();
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
                 return;
             }
 
