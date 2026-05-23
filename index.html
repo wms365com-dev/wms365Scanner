@@ -10083,7 +10083,7 @@
                     <input id="feedbackTitle" type="text" maxlength="180" placeholder="Issue summary">
                 </label>
                 <label class="field span-2">
-                    <span>What is wrong?</span>
+                    <span>Describe the issue</span>
                     <textarea id="feedbackDetails" rows="6" placeholder="Example: I scanned the SKU and the next button did not work."></textarea>
                 </label>
                 <label class="field span-2">
@@ -13076,7 +13076,7 @@
             event.preventDefault();
             const details = String(ui.feedbackDetails?.value || "").trim();
             if (!details) {
-                return fail(ui.feedbackMessage, "Tell us what went wrong.", ui.feedbackDetails);
+                return fail(ui.feedbackMessage, "Please describe the issue.", ui.feedbackDetails);
             }
             const title = String(ui.feedbackTitle?.value || "").trim() || buildFeedbackTitle(details);
 

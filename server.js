@@ -174,6 +174,8 @@ const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
+const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
 const PORTAL_KITTING_REQUEST_STATUSES = ["SUBMITTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
 const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT"];
 const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL", "INVENTORY"];
@@ -198,6 +200,56 @@ const APP_USER_ROLES = Object.freeze({
     WAREHOUSE_ADMIN: "warehouse_admin",
     WAREHOUSE_CUSTOMER_SERVICE: "warehouse_customer_service",
     WAREHOUSE_WORKER: "warehouse_worker"
+});
+const CUSTOMER_PORTAL_ROLE = "customer_portal_user";
+const RBAC_PERMISSIONS = Object.freeze({
+    SUPER_ADMIN: "super_admin",
+    WAREHOUSE_ADMIN: "warehouse_admin",
+    INVENTORY_COUNT_SUBMIT: "inventory_count_submit",
+    INVENTORY_COUNT_REVIEW: "inventory_count_review",
+    INVENTORY_ADJUST: "inventory_adjust",
+    MOBILE_WORKER_ACTION: "mobile_worker_action",
+    ORDER_STATUS_UPDATE: "order_status_update",
+    INBOUND_STATUS_UPDATE: "inbound_status_update",
+    INTEGRATION_MANAGE: "integration_manage",
+    DESTRUCTIVE_IMPORT: "destructive_import",
+    CUSTOMER_PORTAL_OWN_ACCOUNT: "customer_portal_own_account"
+});
+const ROLE_PERMISSION_MAP = Object.freeze({
+    [APP_USER_ROLES.SUPER_ADMIN]: Object.freeze(Object.values(RBAC_PERMISSIONS)),
+    [APP_USER_ROLES.ADMIN]: Object.freeze([
+        RBAC_PERMISSIONS.WAREHOUSE_ADMIN,
+        RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
+        RBAC_PERMISSIONS.INVENTORY_COUNT_REVIEW,
+        RBAC_PERMISSIONS.INVENTORY_ADJUST,
+        RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
+        RBAC_PERMISSIONS.ORDER_STATUS_UPDATE,
+        RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE,
+        RBAC_PERMISSIONS.INTEGRATION_MANAGE
+    ]),
+    [APP_USER_ROLES.WAREHOUSE_ADMIN]: Object.freeze([
+        RBAC_PERMISSIONS.WAREHOUSE_ADMIN,
+        RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
+        RBAC_PERMISSIONS.INVENTORY_COUNT_REVIEW,
+        RBAC_PERMISSIONS.INVENTORY_ADJUST,
+        RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
+        RBAC_PERMISSIONS.ORDER_STATUS_UPDATE,
+        RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE,
+        RBAC_PERMISSIONS.INTEGRATION_MANAGE
+    ]),
+    [APP_USER_ROLES.WAREHOUSE_CUSTOMER_SERVICE]: Object.freeze([
+        RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
+        RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
+        RBAC_PERMISSIONS.ORDER_STATUS_UPDATE,
+        RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE
+    ]),
+    [APP_USER_ROLES.WAREHOUSE_WORKER]: Object.freeze([
+        RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
+        RBAC_PERMISSIONS.MOBILE_WORKER_ACTION
+    ]),
+    [CUSTOMER_PORTAL_ROLE]: Object.freeze([
+        RBAC_PERMISSIONS.CUSTOMER_PORTAL_OWN_ACCOUNT
+    ])
 });
 const BILLING_FINANCE_ROLE_SET = new Set([
     APP_USER_ROLES.SUPER_ADMIN,
@@ -519,7 +571,9 @@ const pool = DATABASE_URL
 
 if (!DATABASE_URL) {
     databaseErrorMessage = "DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.";
-    console.error(databaseErrorMessage);
+    if (require.main === module) {
+        console.error(databaseErrorMessage);
+    }
 }
 
 pool.on("error", (error) => {
@@ -1098,7 +1152,16 @@ app.get("/api/state", async (req, res, next) => {
     }
 });
 
-app.post("/api/inventory-counts", async (req, res, next) => {
+app.get("/api/inventory-transactions", async (req, res, next) => {
+    try {
+        const result = await getInventoryTransactionHistory(pool, req.query || {}, req.appUser);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/inventory-counts", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const count = await withTransaction((client) => submitInventoryCount(client, req.body || {}, req.appUser));
         res.status(201).json({ success: true, count });
@@ -1107,7 +1170,7 @@ app.post("/api/inventory-counts", async (req, res, next) => {
     }
 });
 
-app.post("/api/inventory-counts/:id", async (req, res, next) => {
+app.post("/api/inventory-counts/:id", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const countId = toPositiveInt(req.params.id);
         if (!countId) throw httpError(400, "Inventory count id is required.");
@@ -1118,7 +1181,7 @@ app.post("/api/inventory-counts/:id", async (req, res, next) => {
     }
 });
 
-app.post("/api/inventory-counts/:id/reject", async (req, res, next) => {
+app.post("/api/inventory-counts/:id/reject", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const countId = toPositiveInt(req.params.id);
         if (!countId) throw httpError(400, "Inventory count id is required.");
@@ -1129,7 +1192,7 @@ app.post("/api/inventory-counts/:id/reject", async (req, res, next) => {
     }
 });
 
-app.post("/api/inventory-counts/:id/approve", async (req, res, next) => {
+app.post("/api/inventory-counts/:id/approve", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const countId = toPositiveInt(req.params.id);
         if (!countId) throw httpError(400, "Inventory count id is required.");
@@ -1140,7 +1203,7 @@ app.post("/api/inventory-counts/:id/approve", async (req, res, next) => {
     }
 });
 
-app.post("/api/inventory-counts/:id/post", async (req, res, next) => {
+app.post("/api/inventory-counts/:id/post", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const countId = toPositiveInt(req.params.id);
         if (!countId) throw httpError(400, "Inventory count id is required.");
@@ -1346,7 +1409,7 @@ app.post("/api/master-item/update", async (req, res, next) => {
 
         const updatedItem = await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, originalAccountName);
-            const mergedEntry = await updateItemMasterAndInventory(client, originalAccountName, originalSku, entry);
+            const mergedEntry = await updateItemMasterAndInventory(client, originalAccountName, originalSku, entry, req.appUser);
             await insertActivity(
                 client,
                 "setup",
@@ -1930,7 +1993,7 @@ app.post("/api/admin/company-features", async (req, res, next) => {
     }
 });
 
-app.post("/api/admin/app-users", async (req, res, next) => {
+app.post("/api/admin/app-users", requireSuperAdmin(), async (req, res, next) => {
     try {
         assertSuperAdminAccess(req.appUser);
             const user = await withTransaction(async (client) => {
@@ -2023,7 +2086,7 @@ app.post("/api/master-locations/import", async (req, res, next) => {
     }
 });
 
-app.post("/api/batch-save", async (req, res, next) => {
+app.post("/api/batch-save", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const inputItems = Array.isArray(req.body?.items) ? req.body.items : [];
         if (inputItems.length === 0) {
@@ -2036,6 +2099,11 @@ app.post("/api/batch-save", async (req, res, next) => {
         const billingContextItems = [];
 
         await withTransaction(async (client) => {
+            const ledgerContext = inventoryLedgerContextFromRequest(req, {
+                transactionType: "RECEIVING",
+                sourceType: "BATCH_SAVE",
+                sourceId: `BATCH-${Date.now()}`
+            });
             for (const rawItem of items) {
                 await assertAppUserCompanyAccess(client, req.appUser, rawItem.accountName);
                 const master = await findCatalogItem(client, rawItem.accountName, rawItem.sku, rawItem.upc);
@@ -2052,7 +2120,7 @@ app.post("/api/batch-save", async (req, res, next) => {
                 };
 
                 await upsertOwnerMaster(client, item.accountName);
-                await upsertInventoryLine(client, item);
+                await upsertInventoryLine(client, item, ledgerContext);
                 await upsertLocationMaster(client, item.location);
                 await upsertItemMaster(client, {
                     accountName: item.accountName,
@@ -2090,7 +2158,7 @@ app.post("/api/batch-save", async (req, res, next) => {
     }
 });
 
-app.post("/api/remove-quantity", async (req, res, next) => {
+app.post("/api/remove-quantity", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const location = normalizeText(req.body?.location);
@@ -2103,7 +2171,7 @@ app.post("/api/remove-quantity", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const line = await findInventoryLine(client, accountName, location, skuOrUpc);
+            const line = await findInventoryLine(client, accountName, location, skuOrUpc, { lock: true });
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
             }
@@ -2117,7 +2185,13 @@ app.post("/api/remove-quantity", async (req, res, next) => {
                 nextQuantity: remaining,
                 actionLabel: "remove that quantity"
             });
-            await setInventoryQuantity(client, line.id, remaining);
+            await safeDeductInventoryLineQuantity(client, line, quantity, {
+                actionLabel: "remove that quantity",
+                transactionType: "ADJUSTMENT",
+                sourceType: "REMOVE_QUANTITY",
+                sourceId: line.id,
+                ...inventoryLedgerContextFromRequest(req)
+            });
             await insertActivity(
                 client,
                 "delete",
@@ -2132,7 +2206,7 @@ app.post("/api/remove-quantity", async (req, res, next) => {
     }
 });
 
-app.post("/api/delete-line", async (req, res, next) => {
+app.post("/api/delete-line", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const location = normalizeText(req.body?.location);
@@ -2144,7 +2218,7 @@ app.post("/api/delete-line", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const line = await findInventoryLine(client, accountName, location, skuOrUpc);
+            const line = await findInventoryLine(client, accountName, location, skuOrUpc, { lock: true });
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, location, and SKU/UPC.");
             }
@@ -2153,7 +2227,13 @@ app.post("/api/delete-line", async (req, res, next) => {
                 nextQuantity: 0,
                 actionLabel: "delete this inventory line"
             });
-            await client.query("delete from inventory_lines where id = $1", [line.id]);
+            await setInventoryQuantity(client, line.id, 0, {
+                actionLabel: "delete this inventory line",
+                transactionType: "DELETE",
+                sourceType: "DELETE_LINE",
+                sourceId: line.id,
+                ...inventoryLedgerContextFromRequest(req)
+            });
             await insertActivity(
                 client,
                 "delete",
@@ -2168,7 +2248,7 @@ app.post("/api/delete-line", async (req, res, next) => {
     }
 });
 
-app.post("/api/transfer", async (req, res, next) => {
+app.post("/api/transfer", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const fromLocation = normalizeText(req.body?.fromLocation);
@@ -2185,7 +2265,7 @@ app.post("/api/transfer", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc);
+            const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc, { lock: true });
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, source location, and SKU/UPC.");
             }
@@ -2200,16 +2280,20 @@ app.post("/api/transfer", async (req, res, next) => {
                 nextQuantity: remaining,
                 actionLabel: "transfer that quantity"
             });
-            await setInventoryQuantity(client, line.id, remaining);
-            await upsertInventoryLine(client, {
+            await safeTransferInventoryQuantity(client, line, {
                 accountName,
                 location: toLocation,
                 sku: line.sku,
                 upc: line.upc,
                 lotNumber: line.lot_number || "",
                 expirationDate: normalizeDateOnly(line.expiration_date || ""),
-                quantity,
                 trackingLevel: line.tracking_level
+            }, quantity, {
+                actionLabel: "transfer that quantity",
+                transactionType: "TRANSFER",
+                sourceType: "TRANSFER",
+                sourceId: line.id,
+                ...inventoryLedgerContextFromRequest(req)
             });
             await upsertLocationMaster(client, fromLocation);
             await upsertLocationMaster(client, toLocation);
@@ -2235,7 +2319,7 @@ app.post("/api/transfer", async (req, res, next) => {
     }
 });
 
-app.post("/api/put-away", async (req, res, next) => {
+app.post("/api/put-away", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const fromLocation = normalizeText(req.body?.fromLocation);
@@ -2252,7 +2336,7 @@ app.post("/api/put-away", async (req, res, next) => {
 
         await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc);
+            const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc, { lock: true });
             if (!line) {
                 throw httpError(404, "No exact inventory line matched that company, source location, and SKU/UPC.");
             }
@@ -2267,16 +2351,20 @@ app.post("/api/put-away", async (req, res, next) => {
                 nextQuantity: remaining,
                 actionLabel: "put away that quantity"
             });
-            await setInventoryQuantity(client, line.id, remaining);
-            await upsertInventoryLine(client, {
+            await safeTransferInventoryQuantity(client, line, {
                 accountName,
                 location: toLocation,
                 sku: line.sku,
                 upc: line.upc,
                 lotNumber: line.lot_number || "",
                 expirationDate: normalizeDateOnly(line.expiration_date || ""),
-                quantity,
                 trackingLevel: line.tracking_level
+            }, quantity, {
+                actionLabel: "put away that quantity",
+                transactionType: "PUT_AWAY",
+                sourceType: "PUT_AWAY",
+                sourceId: line.id,
+                ...inventoryLedgerContextFromRequest(req)
             });
             await upsertLocationMaster(client, fromLocation);
             await upsertLocationMaster(client, toLocation);
@@ -2317,7 +2405,7 @@ app.post("/api/convert-item", async (req, res, next) => {
 
         const conversion = await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const sourceLine = await findInventoryLine(client, accountName, fromLocation, fromSkuOrUpc);
+            const sourceLine = await findInventoryLine(client, accountName, fromLocation, fromSkuOrUpc, { lock: true });
             if (!sourceLine) {
                 throw httpError(404, "No exact source inventory line matched that company, location, and SKU/UPC.");
             }
@@ -2354,7 +2442,13 @@ app.post("/api/convert-item", async (req, res, next) => {
                 nextQuantity: sourceRemaining,
                 actionLabel: "convert that quantity"
             });
-            await setInventoryQuantity(client, sourceLine.id, sourceRemaining);
+            await safeDeductInventoryLineQuantity(client, sourceLine, sourceQuantity, {
+                actionLabel: "convert that quantity",
+                transactionType: "CONVERSION",
+                sourceType: "CONVERT_ITEM",
+                sourceId: sourceLine.id,
+                ...inventoryLedgerContextFromRequest(req)
+            });
             await upsertInventoryLine(client, {
                 accountName,
                 location: toLocation,
@@ -2362,6 +2456,11 @@ app.post("/api/convert-item", async (req, res, next) => {
                 upc: plan.targetUpc,
                 quantity: plan.targetQuantity,
                 trackingLevel: plan.targetTrackingLevel
+            }, {
+                transactionType: "CONVERSION",
+                sourceType: "CONVERT_ITEM",
+                sourceId: sourceLine.id,
+                ...inventoryLedgerContextFromRequest(req)
             });
             await upsertLocationMaster(client, fromLocation);
             await upsertLocationMaster(client, toLocation);
@@ -2388,7 +2487,7 @@ app.post("/api/convert-item", async (req, res, next) => {
     }
 });
 
-app.post("/api/move-location", async (req, res, next) => {
+app.post("/api/move-location", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const fromLocation = normalizeText(req.body?.fromLocation);
@@ -2404,7 +2503,7 @@ app.post("/api/move-location", async (req, res, next) => {
         await withTransaction(async (client) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
             const linesResult = await client.query(
-                "select * from inventory_lines where account_name = $1 and location = $2 order by sku asc",
+                "select * from inventory_lines where account_name = $1 and location = $2 order by sku asc, lot_number asc, expiration_date asc, id asc for update",
                 [accountName, fromLocation]
             );
 
@@ -2418,13 +2517,24 @@ app.post("/api/move-location", async (req, res, next) => {
                     nextQuantity: 0,
                     actionLabel: "move this location"
                 });
+                const moveLedgerContext = inventoryLedgerContextFromRequest(req, {
+                    transactionType: "MOVE_LOCATION",
+                    sourceType: "MOVE_LOCATION",
+                    sourceId: line.id
+                });
                 await upsertInventoryLine(client, {
                     accountName,
                     location: toLocation,
                     sku: line.sku,
                     upc: line.upc,
+                    lotNumber: line.lot_number || "",
+                    expirationDate: normalizeDateOnly(line.expiration_date || ""),
                     quantity: Number(line.quantity),
                     trackingLevel: line.tracking_level
+                }, moveLedgerContext);
+                await setInventoryQuantity(client, line.id, 0, {
+                    actionLabel: "move this location",
+                    ...moveLedgerContext
                 });
                 await upsertItemMaster(client, {
                     accountName,
@@ -2436,7 +2546,6 @@ app.post("/api/move-location", async (req, res, next) => {
 
             await upsertLocationMaster(client, fromLocation);
             await upsertLocationMaster(client, toLocation);
-            await client.query("delete from inventory_lines where account_name = $1 and location = $2", [accountName, fromLocation]);
             await insertActivity(
                 client,
                 "move",
@@ -2451,7 +2560,7 @@ app.post("/api/move-location", async (req, res, next) => {
     }
 });
 
-app.post("/api/inventory/bulk-update", async (req, res, next) => {
+app.post("/api/inventory/bulk-update", requireInventoryAdjustPermission(), async (req, res, next) => {
     try {
         const accountName = normalizeText(req.body?.accountName || req.body?.owner);
         const summary = await withTransaction(async (client) => {
@@ -2464,7 +2573,7 @@ app.post("/api/inventory/bulk-update", async (req, res, next) => {
     }
 });
 
-app.post("/api/import", async (req, res, next) => {
+app.post("/api/import", requireSuperAdmin(), async (req, res, next) => {
     try {
         assertSuperAdminAccess(req.appUser);
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
@@ -2485,19 +2594,34 @@ app.post("/api/import", async (req, res, next) => {
                 : [];
 
         await withTransaction(async (client) => {
+            const existingInventoryBeforeImport = (await client.query("select * from inventory_lines order by account_name, location, sku, id for update")).rows;
             await client.query("truncate table warehouse_tasks, activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, app_user_fulfillment_location_access, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
+
+            for (const line of existingInventoryBeforeImport) {
+                await recordInventoryTransaction(client, {
+                    line,
+                    quantityBefore: Number(line.quantity) || 0,
+                    quantityAfter: 0,
+                    transactionType: "REVERSAL",
+                    sourceType: "IMPORT",
+                    sourceId: "FULL_IMPORT",
+                    appUser: req.appUser,
+                    source: "import"
+                });
+            }
 
             if (importedBillingFees.length) {
                 await client.query("truncate table billing_fee_catalog");
             }
 
             for (const line of importedInventory) {
-                await client.query(
+                const inserted = await client.query(
                     `
                         insert into inventory_lines (
                             account_name, location, sku, upc, lot_number, expiration_date, tracking_level, quantity, created_at, updated_at
                         )
                         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        returning *
                     `,
                     [
                         line.accountName,
@@ -2512,6 +2636,16 @@ app.post("/api/import", async (req, res, next) => {
                         line.updatedAt
                     ]
                 );
+                await recordInventoryTransaction(client, {
+                    line: inserted.rows[0],
+                    quantityBefore: 0,
+                    quantityAfter: line.quantity,
+                    transactionType: "IMPORT",
+                    sourceType: "IMPORT",
+                    sourceId: "FULL_IMPORT",
+                    appUser: req.appUser,
+                    source: "import"
+                });
             }
 
             for (const item of importedActivity) {
@@ -3283,7 +3417,7 @@ app.get("/api/admin/integrations", async (req, res, next) => {
     }
 });
 
-app.post("/api/admin/integrations", async (req, res, next) => {
+app.post("/api/admin/integrations", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const savedIntegration = await withTransaction(async (client) => {
             const integration = await saveStoreIntegration(client, req.body);
@@ -3323,7 +3457,7 @@ app.post("/api/admin/integrations", async (req, res, next) => {
     }
 });
 
-app.post("/api/admin/integrations/:id/sync", async (req, res, next) => {
+app.post("/api/admin/integrations/:id/sync", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const integrationId = toPositiveInt(req.params.id);
         if (!integrationId) {
@@ -3687,6 +3821,7 @@ app.post("/api/portal/inbounds", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const inbound = await withTransaction((client) => savePortalInbound(client, session.accessRow, req.body));
         res.status(201).json({ success: true, inbound });
     } catch (error) {
@@ -3735,6 +3870,7 @@ app.post("/api/portal/kitting-requests", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const request = await withTransaction((client) => savePortalKittingRequest(client, session.accessRow, req.body));
         res.status(201).json({ success: true, request, warehouseEmailQueued: true });
         queuePortalKittingRequestEmail(request, {
@@ -3766,6 +3902,7 @@ app.post("/api/portal/delivery-appointments", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const result = await withTransaction((client) => savePortalDeliveryAppointment(client, session.accessRow, req.body));
         const requestOrigin = getRequestOrigin(req);
         res.status(201).json({ success: true, appointment: result.appointment, warehouseEmailQueued: true });
@@ -3797,6 +3934,7 @@ app.post("/api/portal/items", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const item = await withTransaction(async (client) => savePortalCatalogItem(client, session.accessRow, req.body));
         res.status(201).json({ success: true, item });
     } catch (error) {
@@ -3811,6 +3949,7 @@ app.put("/api/portal/items/:sku", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const originalSku = normalizeText(req.params.sku);
         if (!originalSku) {
             throw httpError(400, "A valid original SKU is required.");
@@ -3829,6 +3968,7 @@ app.post("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const order = await withTransaction(async (client) => savePortalOrderDraft(client, session.accessRow, req.body));
         res.json({ success: true, order });
     } catch (error) {
@@ -3843,6 +3983,7 @@ app.put("/api/portal/orders/:id", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        assertPortalAccountAccess(session, req.body?.accountName || req.body?.account_name || req.body?.owner || req.body?.company || req.body?.customer);
         const orderId = toPositiveInt(req.params.id);
         if (!orderId) {
             throw httpError(400, "A valid order id is required.");
@@ -3958,7 +4099,7 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
     }
 });
 
-app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
+app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const orderId = toPositiveInt(req.params.id);
         const nextStatus = normalizePortalOrderStatus(req.body?.status);
@@ -3973,6 +4114,12 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
         const order = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            await assertAssignedMobileTaskForWorker(client, req, {
+                sourceType: "PORTAL_ORDER",
+                sourceId: orderId,
+                taskTypes: taskTypesForPortalOrderStatus(nextStatus),
+                permission: RBAC_PERMISSIONS.ORDER_STATUS_UPDATE
+            });
             if (nextStatus === "SHIPPED") {
                 const currentOrder = await getPortalOrderById(client, orderId, accountName);
                 previousOrderStatus = currentOrder?.status || "";
@@ -3992,7 +4139,7 @@ app.post("/api/admin/portal-orders/:id/status", async (req, res, next) => {
     }
 });
 
-app.post("/api/admin/portal-inbounds/:id/status", async (req, res, next) => {
+app.post("/api/admin/portal-inbounds/:id/status", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const inboundId = toPositiveInt(req.params.id);
         const nextStatus = normalizePortalInboundStatus(req.body?.status);
@@ -4011,6 +4158,12 @@ app.post("/api/admin/portal-inbounds/:id/status", async (req, res, next) => {
             }
             previousInboundStatus = currentInbound.status || "";
             await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
+            await assertAssignedMobileTaskForWorker(client, req, {
+                sourceType: "PORTAL_INBOUND",
+                sourceId: inboundId,
+                taskTypes: taskTypesForPortalInboundStatus(nextStatus),
+                permission: RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE
+            });
             return updateAdminPortalInboundStatus(client, inboundId, nextStatus, req.appUser, req.body || {});
         });
 
@@ -4764,10 +4917,12 @@ function renderDeliveryAppointmentActionPage(appointment, token = "", errorMessa
 </html>`;
 }
 
-start().catch((error) => {
-    console.error(error);
-    process.exit(1);
-});
+if (require.main === module) {
+    start().catch((error) => {
+        console.error(error);
+        process.exit(1);
+    });
+}
 
 async function start() {
     app.listen(PORT, () => {
@@ -4800,6 +4955,59 @@ async function initializeDatabase() {
     await pool.query("update inventory_lines set lot_number = '' where lot_number is null");
     await pool.query("update inventory_lines set expiration_date = '' where expiration_date is null");
     await pool.query("alter table inventory_lines drop constraint if exists inventory_lines_location_sku_unique");
+
+    await pool.query(`
+        create table if not exists inventory_transactions (
+            id bigserial primary key,
+            account_name text not null,
+            warehouse_id text not null default '',
+            fulfillment_location_id bigint,
+            location text not null default '',
+            sku text not null default '',
+            upc text not null default '',
+            lot_number text not null default '',
+            expiration_date text not null default '',
+            transaction_type text not null,
+            quantity_delta integer not null,
+            quantity_before integer not null check (quantity_before >= 0),
+            quantity_after integer not null check (quantity_after >= 0),
+            source_type text not null default '',
+            source_id text not null default '',
+            user_id bigint,
+            device_id text not null default '',
+            source text not null default '',
+            client_timestamp timestamptz,
+            server_timestamp timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table inventory_transactions add column if not exists warehouse_id text not null default '';");
+    await pool.query("alter table inventory_transactions add column if not exists fulfillment_location_id bigint;");
+    await pool.query("alter table inventory_transactions drop constraint if exists inventory_transactions_fulfillment_location_id_fkey;");
+    await pool.query("alter table inventory_transactions drop constraint if exists inventory_transactions_user_id_fkey;");
+    await pool.query("alter table inventory_transactions add column if not exists device_id text not null default '';");
+    await pool.query("alter table inventory_transactions add column if not exists source text not null default '';");
+    await pool.query("alter table inventory_transactions add column if not exists client_timestamp timestamptz;");
+    await pool.query("alter table inventory_transactions add column if not exists server_timestamp timestamptz not null default now();");
+    await pool.query(`
+        create or replace function prevent_inventory_transactions_mutation()
+        returns trigger as $$
+        begin
+            if current_setting('wms365.allow_inventory_transaction_archive', true) = 'on' then
+                if tg_op = 'UPDATE' then
+                    return new;
+                end if;
+                return old;
+            end if;
+            raise exception 'inventory_transactions is append-only';
+        end;
+        $$ language plpgsql;
+    `);
+    await pool.query("drop trigger if exists inventory_transactions_append_only on inventory_transactions;");
+    await pool.query(`
+        create trigger inventory_transactions_append_only
+        before update or delete on inventory_transactions
+        for each row execute function prevent_inventory_transactions_mutation();
+    `);
 
     await pool.query(`
         create table if not exists inventory_count_records (
@@ -5894,6 +6102,14 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_lines_expiration_date on inventory_lines (expiration_date);");
     await pool.query("create index if not exists idx_inventory_lines_upc on inventory_lines (upc);");
     await pool.query("create index if not exists idx_inventory_lines_tracking_level on inventory_lines (tracking_level);");
+    await pool.query("create index if not exists idx_inventory_transactions_account_time on inventory_transactions (account_name, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_location on inventory_transactions (account_name, location, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_sku on inventory_transactions (account_name, sku, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_lot on inventory_transactions (account_name, sku, lot_number, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_expiry on inventory_transactions (account_name, expiration_date, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_user on inventory_transactions (user_id, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_source_ref on inventory_transactions (source_type, source_id, server_timestamp desc);");
+    await pool.query("create index if not exists idx_inventory_transactions_type_time on inventory_transactions (transaction_type, server_timestamp desc);");
     await pool.query("create index if not exists idx_inventory_count_records_status_submitted on inventory_count_records (status, submitted_at desc);");
     await pool.query("create index if not exists idx_inventory_count_records_account_location_sku on inventory_count_records (account_name, location, sku);");
     await pool.query("create index if not exists idx_inventory_count_audit_count_id on inventory_count_audit (count_id, created_at desc);");
@@ -8099,6 +8315,69 @@ async function assertAppUserCompanyAccess(client, user, accountName, message = "
         throw httpError(403, message || `Warehouse access for ${normalizedAccount} is not assigned to your login.`);
     }
     return normalizedAccount;
+}
+
+function assertPortalAccountAccess(session, accountName, message = "") {
+    const sessionAccount = normalizeText(session?.access?.accountName || session?.accessRow?.account_name || session?.accountName || "");
+    const requestedAccount = normalizeText(accountName || sessionAccount);
+    if (!sessionAccount || !requestedAccount || sessionAccount !== requestedAccount) {
+        throw httpError(403, message || "Customer portal access is limited to your own company account.");
+    }
+    return sessionAccount;
+}
+
+function isWarehouseWorkerUser(user) {
+    return normalizeAppUserRole(user?.role || "") === APP_USER_ROLES.WAREHOUSE_WORKER;
+}
+
+async function assertAssignedMobileTaskForWorker(client, req, {
+    sourceType = "",
+    sourceId = "",
+    taskTypes = [],
+    permission = RBAC_PERMISSIONS.MOBILE_WORKER_ACTION
+} = {}) {
+    const user = req?.appUser;
+    if (!isWarehouseWorkerUser(user)) return;
+    const normalizedSourceType = normalizeText(sourceType);
+    const normalizedTaskTypes = [...new Set((Array.isArray(taskTypes) ? taskTypes : [taskTypes]).map((value) => normalizeText(value)).filter(Boolean))];
+    const numericSourceId = toPositiveInt(sourceId);
+    const userId = toPositiveInt(user?.id || user?.app_user_id);
+    if (!normalizedSourceType || !numericSourceId || !userId || !normalizedTaskTypes.length) {
+        void logPermissionDeniedAttempt(req, permission, { sourceType: normalizedSourceType, sourceId: numericSourceId });
+        throw httpError(403, "Warehouse workers can only complete assigned mobile tasks.");
+    }
+    const result = await client.query(
+        `
+            select id
+            from warehouse_tasks
+            where source_type = $1
+              and source_id = $2
+              and assigned_app_user_id = $3
+              and task_type = any($4::text[])
+              and status = any($5::text[])
+            limit 1
+        `,
+        [normalizedSourceType, numericSourceId, userId, normalizedTaskTypes, ACTIVE_WAREHOUSE_TASK_STATUSES]
+    );
+    if (result.rowCount !== 1) {
+        void logPermissionDeniedAttempt(req, permission, { sourceType: normalizedSourceType, sourceId: numericSourceId });
+        throw httpError(403, "Warehouse workers can only complete assigned mobile tasks.");
+    }
+}
+
+function taskTypesForPortalOrderStatus(status) {
+    const normalized = normalizeText(status);
+    if (normalized === "PICKED") return ["PICK"];
+    if (normalized === "STAGED") return ["PACK"];
+    if (normalized === "SHIPPED") return ["SHIP"];
+    return [];
+}
+
+function taskTypesForPortalInboundStatus(status) {
+    const normalized = normalizeText(status);
+    if (normalized === "ARRIVED") return ["INBOUND_ARRIVAL"];
+    if (normalized === "RECEIVED") return ["RECEIVING"];
+    return [];
 }
 
 function filterRowsByAllowedCompanies(rows, allowedCompanies, selector) {
@@ -11704,6 +11983,7 @@ async function allocatePortalOrderInventory(client, order) {
                 where i.account_name = $1
                   and i.sku = any($2::text[])
                 order by i.sku asc, i.location asc, i.id asc
+                for update of i
             `,
             [normalizedAccount, skus]
         )
@@ -11872,6 +12152,13 @@ async function releasePortalOrderForAccount(
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
+    const lockResult = await client.query(
+        "select id from portal_orders where id = $1 and account_name = $2 for update",
+        [orderId, normalizedAccount]
+    );
+    if (lockResult.rowCount !== 1) {
+        throw httpError(404, "That order could not be found.");
+    }
     const order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
     if (!order) {
         throw httpError(404, "That order could not be found.");
@@ -16342,7 +16629,12 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     await assertIntegratedStoreShipmentRequirements(client, order, { shippedCarrierName, shippedTrackingReference });
 
     if (transitionToShipped) {
-        await consumePortalOrderInventory(client, order);
+        await consumePortalOrderInventory(client, order, {
+            appUser,
+            source: "web_admin",
+            sourceType: "PORTAL_ORDER",
+            sourceId: order.id
+        });
     } else if (!confirmation.documents.length
         && confirmedShipDate === (order.confirmedShipDate || "")
         && shippedCarrierName === (order.shippedCarrierName || "")
@@ -17116,6 +17408,12 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
                 trackingLevel: line.trackingLevel || "UNIT",
                 quantity: line.receivedQuantity,
                 description: line.description || ""
+            }, {
+                transactionType: "RECEIVING",
+                sourceType: "PORTAL_INBOUND",
+                sourceId: inboundId,
+                appUser,
+                source: "web_admin"
             });
         }
     }
@@ -17159,7 +17457,7 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
 }
 
 async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details = {}, appUser = null) {
-    const orderResult = await client.query("select * from portal_orders where id = $1 limit 1", [orderId]);
+    const orderResult = await client.query("select * from portal_orders where id = $1 limit 1 for update", [orderId]);
     if (orderResult.rowCount !== 1) {
         throw httpError(404, "That portal order could not be found.");
     }
@@ -17250,6 +17548,9 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     );
 
     const updatedOrder = await getPortalOrderById(client, orderId, currentOrder.accountName);
+    if (nextStatus === "PICKED") {
+        await recordPortalOrderPickingTransactions(client, updatedOrder, appUser);
+    }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     await insertActivity(
         client,
@@ -17917,13 +18218,14 @@ async function updateWarehouseTaskStatus(client, taskId, rawInput = {}, appUser 
     return mapWarehouseTaskRow(refreshed || result.rows[0]);
 }
 
-async function consumePortalOrderInventory(client, order) {
+async function consumePortalOrderInventory(client, order, ledgerOptions = {}) {
     const allocationResult = await client.query(
         `
             select *
             from portal_order_allocations
             where order_id = $1
             order by order_line_id asc, id asc
+            for update
         `,
         [order.id]
     );
@@ -17934,7 +18236,7 @@ async function consumePortalOrderInventory(client, order) {
             const requiredQuantity = Number(allocation.allocated_quantity) || 0;
             if (!inventoryLineId || requiredQuantity <= 0) continue;
 
-            const inventoryResult = await client.query("select * from inventory_lines where id = $1 limit 1", [inventoryLineId]);
+            const inventoryResult = await client.query("select * from inventory_lines where id = $1 limit 1 for update", [inventoryLineId]);
             if (inventoryResult.rowCount !== 1) {
                 throw httpError(
                     409,
@@ -17951,7 +18253,13 @@ async function consumePortalOrderInventory(client, order) {
                 );
             }
 
-            await setInventoryQuantity(client, inventoryLine.id, currentQuantity - requiredQuantity);
+            await safeDeductInventoryLineQuantity(client, inventoryLine, requiredQuantity, {
+                actionLabel: `ship order ${order.orderCode}`,
+                transactionType: "SHIPPING",
+                sourceType: "PORTAL_ORDER",
+                sourceId: order.id,
+                ...ledgerOptions
+            });
         }
         return;
     }
@@ -17967,6 +18275,7 @@ async function consumePortalOrderInventory(client, order) {
                 where account_name = $1
                   and sku = $2
                 order by location asc, updated_at asc, id asc
+                for update
             `,
             [normalizeText(order.accountName), normalizeText(line.sku)]
         );
@@ -17994,9 +18303,48 @@ async function consumePortalOrderInventory(client, order) {
             if (availableQuantity <= 0) continue;
             const currentQuantity = Number(inventoryLine.quantity) || 0;
             const deduction = Math.min(availableQuantity, remaining);
-            await setInventoryQuantity(client, inventoryLine.id, currentQuantity - deduction);
+            await safeDeductInventoryLineQuantity(client, inventoryLine, deduction, {
+                actionLabel: `ship order ${order.orderCode}`,
+                transactionType: "SHIPPING",
+                sourceType: "PORTAL_ORDER",
+                sourceId: order.id,
+                ...ledgerOptions
+            });
             remaining -= deduction;
         }
+    }
+}
+
+async function recordPortalOrderPickingTransactions(client, order, appUser = null, ledgerOptions = {}) {
+    const allocationResult = await client.query(
+        `
+            select a.*, i.quantity as inventory_quantity, i.account_name, i.upc, i.tracking_level as inventory_tracking_level
+            from portal_order_allocations a
+            left join inventory_lines i on i.id = a.inventory_line_id
+            where a.order_id = $1
+            order by a.order_line_id asc, a.id asc
+        `,
+        [order.id]
+    );
+    for (const allocation of allocationResult.rows) {
+        const quantity = Number(allocation.inventory_quantity) || 0;
+        await recordInventoryTransaction(client, {
+            accountName: allocation.account_name || order.accountName,
+            location: allocation.location || "",
+            sku: allocation.sku || "",
+            upc: allocation.upc || "",
+            lotNumber: allocation.lot_number || "",
+            expirationDate: normalizeDateOnly(allocation.expiration_date || ""),
+            quantityBefore: quantity,
+            quantityAfter: quantity,
+            transactionType: "PICKING",
+            sourceType: "PORTAL_ORDER",
+            sourceId: order.id,
+            appUser,
+            source: "web_admin",
+            recordZeroDelta: true,
+            ...ledgerOptions
+        });
     }
 }
 
@@ -18036,19 +18384,78 @@ function mapPortalInbounds(inboundRows, lineRows, documentRows = [], downloadPat
     ));
 }
 
-async function withTransaction(handler) {
-    const client = await pool.connect();
+function isRetryableTransactionError(error) {
+    return INVENTORY_RETRYABLE_ERROR_CODES.has(String(error?.code || ""));
+}
+
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function logInventoryLockFailure(error, context = {}) {
+    const action = normalizeText(context.action || context.actionLabel || "inventory_lock").toLowerCase();
+    const title = `Inventory lock failed: ${action}`;
+    const details = [
+        context.accountName ? `Company ${context.accountName}` : "",
+        context.location ? `Location ${context.location}` : "",
+        context.sku ? `SKU ${context.sku}` : "",
+        context.lineId ? `Line ${context.lineId}` : "",
+        context.orderId ? `Order ${context.orderId}` : "",
+        context.countId ? `Count ${context.countId}` : "",
+        error?.code ? `Code ${error.code}` : "",
+        error?.message || ""
+    ].filter(Boolean).join(" | ");
+
     try {
-        await client.query("begin");
-        const result = await handler(client);
-        await client.query("commit");
-        return result;
-    } catch (error) {
-        await client.query("rollback");
-        throw error;
-    } finally {
-        client.release();
+        if (databaseReady) {
+            await insertActivity(pool, "security", title, details);
+        }
+    } catch (auditError) {
+        console.error("Unable to audit inventory lock failure:", auditError.message || auditError);
     }
+    console.warn(`${title}${details ? ` | ${details}` : ""}`);
+}
+
+async function withTransaction(handler, options = {}) {
+    const maxAttempts = Math.max(1, toPositiveInt(options.maxAttempts) || INVENTORY_TRANSACTION_MAX_RETRIES);
+    const isolationLevel = normalizeText(options.isolationLevel || "");
+    const context = options.context || {};
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const client = await pool.connect();
+        let transactionStarted = false;
+        try {
+            await client.query("begin");
+            transactionStarted = true;
+            if (isolationLevel) {
+                await client.query(`set transaction isolation level ${isolationLevel}`);
+            }
+            const result = await handler(client, { attempt });
+            await client.query("commit");
+            transactionStarted = false;
+            return result;
+        } catch (error) {
+            lastError = error;
+            if (transactionStarted) {
+                try {
+                    await client.query("rollback");
+                } catch (rollbackError) {
+                    console.error("Database rollback failed:", rollbackError.message || rollbackError);
+                }
+            }
+            if (isRetryableTransactionError(error) && attempt < maxAttempts) {
+                await logInventoryLockFailure(error, { ...context, attempt });
+                await wait(25 * attempt);
+                continue;
+            }
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    throw lastError || httpError(500, "Inventory transaction failed.");
 }
 
 async function savePalletRecord(client, palletInput) {
@@ -18080,6 +18487,11 @@ async function savePalletRecord(client, palletInput) {
                 upc: derived.upc,
                 quantity: derived.inventoryQuantity,
                 trackingLevel: derived.inventoryTrackingLevel
+            }, {
+                transactionType: "RECEIVING",
+                sourceType: "PALLET_RECORD",
+                sourceId: existing?.id || entry.palletCode || "",
+                source: "web_admin"
             });
             await upsertLocationMaster(client, entry.location);
         }
@@ -18153,49 +18565,26 @@ async function savePalletRecord(client, palletInput) {
     return mapPalletRecordRow(result.rows[0]);
 }
 
-async function upsertInventoryLine(client, item) {
+async function upsertInventoryLine(client, item, { recordLedger = true, ...ledgerOptions } = {}) {
     const entry = sanitizeInventoryLineInput(item);
     if (!entry) return;
 
-    const existing = await client.query(
-        `
-            select *
-            from inventory_lines
-            where account_name = $1
-              and location = $2
-              and sku = $3
-              and lot_number = $4
-              and expiration_date = $5
-            limit 1
-        `,
-        [entry.accountName, entry.location, entry.sku, entry.lotNumber || "", entry.expirationDate || ""]
-    );
-
-    if (existing.rowCount === 1) {
-        await client.query(
-            `
-                update inventory_lines
-                set
-                    upc = case
-                        when coalesce(upc, '') = '' and $2 <> '' then $2
-                        else upc
-                    end,
-                    tracking_level = $3,
-                    quantity = quantity + $4,
-                    updated_at = now()
-                where id = $1
-            `,
-            [existing.rows[0].id, entry.upc || "", entry.trackingLevel || "UNIT", entry.quantity]
-        );
-        return;
-    }
-
-    await client.query(
+    const result = await client.query(
         `
             insert into inventory_lines (
                 account_name, location, sku, upc, lot_number, expiration_date, tracking_level, quantity
             )
             values ($1, $2, $3, $4, $5, $6, $7, $8)
+            on conflict (account_name, location, sku, lot_number, expiration_date)
+            do update set
+                upc = case
+                    when coalesce(inventory_lines.upc, '') = '' and excluded.upc <> '' then excluded.upc
+                    else inventory_lines.upc
+                end,
+                tracking_level = excluded.tracking_level,
+                quantity = inventory_lines.quantity + excluded.quantity,
+                updated_at = now()
+            returning *
         `,
         [
             entry.accountName,
@@ -18208,6 +18597,21 @@ async function upsertInventoryLine(client, item) {
             entry.quantity
         ]
     );
+    const row = result.rows[0] || null;
+    if (row && recordLedger) {
+        const quantityAfter = Number(row.quantity) || 0;
+        const quantityBefore = Math.max(quantityAfter - entry.quantity, 0);
+        await recordInventoryTransaction(client, {
+            line: row,
+            quantityBefore,
+            quantityAfter,
+            transactionType: ledgerOptions.transactionType || "RECEIVING",
+            sourceType: ledgerOptions.sourceType || "INVENTORY_LINE",
+            sourceId: ledgerOptions.sourceId || row.id,
+            ...ledgerOptions
+        });
+    }
+    return row;
 }
 
 async function removeInventoryContribution(client, item) {
@@ -18229,6 +18633,7 @@ async function removeInventoryContribution(client, item) {
               and lot_number = $4
               and expiration_date = $5
             limit 1
+            for update
         `,
         [accountName, location, sku, lotNumber, expirationDate]
     );
@@ -18242,7 +18647,7 @@ async function removeInventoryContribution(client, item) {
         throw httpError(409, `Pallet inventory for ${accountName} / ${sku} at ${location} was changed separately and cannot be reduced by ${formatTrackedQuantity(quantity, line.tracking_level)} safely.`);
     }
 
-    await setInventoryQuantity(client, line.id, Number(line.quantity) - quantity);
+    await safeDeductInventoryLineQuantity(client, line, quantity, { actionLabel: "update pallet inventory" });
 }
 
 async function upsertLocationMaster(client, code, note = "") {
@@ -18809,12 +19214,12 @@ async function replaceItemMaster(client, item) {
     );
 }
 
-async function updateItemMasterAndInventory(client, originalAccountName, originalSku, item) {
+async function updateItemMasterAndInventory(client, originalAccountName, originalSku, item, appUser = null) {
     const normalizedAccountName = normalizeText(originalAccountName);
     const normalizedOriginalSku = normalizeText(originalSku);
     const currentMaster = await findCatalogItem(client, normalizedAccountName, normalizedOriginalSku);
     const originalLines = await client.query(
-        "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc",
+        "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc for update",
         [normalizedAccountName, normalizedOriginalSku]
     );
 
@@ -18918,7 +19323,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
         );
     } else {
         const targetLines = await client.query(
-            "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc",
+            "select * from inventory_lines where account_name = $1 and sku = $2 order by location asc, id asc for update",
             [normalizedAccountName, finalEntry.sku]
         );
         const targetByLocation = new Map(targetLines.rows.map((row) => [`${row.location}::${row.lot_number || ""}::${normalizeDateOnly(row.expiration_date)}`, row]));
@@ -18926,7 +19331,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
         for (const line of originalLines.rows) {
             const existingTarget = targetByLocation.get(`${line.location}::${line.lot_number || ""}::${normalizeDateOnly(line.expiration_date)}`);
             if (existingTarget) {
-                await client.query(
+                const targetUpdate = await client.query(
                     `
                         update inventory_lines
                         set
@@ -18935,6 +19340,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
                             tracking_level = $3,
                             updated_at = now()
                         where id = $4
+                        returning *
                     `,
                     [
                         Number(existingTarget.quantity) + Number(line.quantity),
@@ -18943,9 +19349,35 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
                         existingTarget.id
                     ]
                 );
-                await client.query("delete from inventory_lines where id = $1", [line.id]);
+                await recordInventoryTransaction(client, {
+                    line: targetUpdate.rows[0],
+                    quantityBefore: Number(existingTarget.quantity) || 0,
+                    quantityAfter: Number(targetUpdate.rows[0].quantity) || 0,
+                    transactionType: "ADJUSTMENT",
+                    sourceType: "ITEM_MASTER",
+                    sourceId: normalizedOriginalSku,
+                    appUser,
+                    source: "web_admin"
+                });
+                await setInventoryQuantity(client, line.id, 0, {
+                    transactionType: "ADJUSTMENT",
+                    sourceType: "ITEM_MASTER",
+                    sourceId: normalizedOriginalSku,
+                    appUser,
+                    source: "web_admin"
+                });
             } else {
-                await client.query(
+                await recordInventoryTransaction(client, {
+                    line,
+                    quantityBefore: Number(line.quantity) || 0,
+                    quantityAfter: 0,
+                    transactionType: "ADJUSTMENT",
+                    sourceType: "ITEM_MASTER",
+                    sourceId: normalizedOriginalSku,
+                    appUser,
+                    source: "web_admin"
+                });
+                const identityUpdate = await client.query(
                     `
                         update inventory_lines
                         set
@@ -18954,6 +19386,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
                             tracking_level = $3,
                             updated_at = now()
                         where id = $4
+                        returning *
                     `,
                     [
                         finalEntry.sku,
@@ -18962,6 +19395,16 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
                         line.id
                     ]
                 );
+                await recordInventoryTransaction(client, {
+                    line: identityUpdate.rows[0],
+                    quantityBefore: 0,
+                    quantityAfter: Number(identityUpdate.rows[0].quantity) || 0,
+                    transactionType: "ADJUSTMENT",
+                    sourceType: "ITEM_MASTER",
+                    sourceId: normalizedOriginalSku,
+                    appUser,
+                    source: "web_admin"
+                });
             }
         }
     }
@@ -18987,12 +19430,302 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
     return finalEntry;
 }
 
-async function setInventoryQuantity(client, lineId, quantity) {
-    if (quantity <= 0) {
-        await client.query("delete from inventory_lines where id = $1", [lineId]);
-        return;
+function assertNonNegativeInventoryQuantity(quantity, actionLabel = "change inventory") {
+    const normalizedQuantity = Number(quantity);
+    if (!Number.isFinite(normalizedQuantity) || normalizedQuantity < 0) {
+        throw httpError(400, `Cannot ${actionLabel} because inventory quantity cannot be negative.`);
     }
-    await client.query("update inventory_lines set quantity = $1, updated_at = now() where id = $2", [quantity, lineId]);
+    return Math.floor(normalizedQuantity);
+}
+
+async function lockInventoryLineById(client, lineId) {
+    const normalizedLineId = toPositiveInt(lineId);
+    if (!normalizedLineId) return null;
+    const result = await client.query(
+        "select * from inventory_lines where id = $1 for update",
+        [normalizedLineId]
+    );
+    return result.rows[0] || null;
+}
+
+function normalizeInventoryTransactionType(value) {
+    const normalized = normalizeText(value || "ADJUSTMENT").replace(/[\s-]+/g, "_");
+    const allowed = new Set(["RECEIVING", "PUT_AWAY", "PICKING", "SHIPPING", "TRANSFER", "ADJUSTMENT", "CYCLE_COUNT", "DELETE", "REVERSAL", "MOVE_LOCATION", "CONVERSION", "IMPORT"]);
+    return allowed.has(normalized) ? normalized : "ADJUSTMENT";
+}
+
+function normalizeInventoryTransactionSource(value) {
+    const normalized = normalizeText(value || "").toLowerCase();
+    if (["android_app", "mobile_web", "web_admin", "customer_portal", "system", "import"].includes(normalized)) return normalized;
+    return normalized || "system";
+}
+
+function normalizeInventoryTransactionSourceType(value) {
+    return normalizeText(value || "INVENTORY").replace(/[\s-]+/g, "_");
+}
+
+function normalizeLedgerTimestamp(value) {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function inventoryLineForLedger(line = {}, fallback = {}) {
+    return {
+        accountName: normalizeText(line.account_name || line.accountName || fallback.accountName || fallback.account_name || ""),
+        location: normalizeText(line.location || fallback.location || ""),
+        sku: normalizeText(line.sku || fallback.sku || ""),
+        upc: normalizeText(line.upc || fallback.upc || ""),
+        lotNumber: normalizeText(line.lot_number || line.lotNumber || fallback.lotNumber || fallback.lot_number || ""),
+        expirationDate: normalizeDateOnly(line.expiration_date || line.expirationDate || fallback.expirationDate || fallback.expiration_date || "")
+    };
+}
+
+function inventoryLedgerContextFromRequest(req, overrides = {}) {
+    return {
+        appUser: req?.appUser || null,
+        userId: req?.appUser?.id || req?.appUser?.app_user_id || null,
+        deviceId: req?.body?.device_id || req?.body?.deviceId || req?.headers?.["x-wms365-device-id"] || "",
+        source: req?.body?.source || req?.headers?.["x-wms365-source"] || "web_admin",
+        clientTimestamp: req?.body?.client_timestamp || req?.body?.clientTimestamp || "",
+        ...overrides
+    };
+}
+
+async function recordInventoryTransaction(client, input = {}) {
+    const lineIdentity = inventoryLineForLedger(input.line || {}, input);
+    const quantityBefore = toNonNegativeInt(input.quantityBefore ?? input.quantity_before);
+    const quantityAfter = toNonNegativeInt(input.quantityAfter ?? input.quantity_after);
+    if (!lineIdentity.accountName || !lineIdentity.location || !lineIdentity.sku) {
+        throw httpError(400, "Inventory ledger records require company, location, and SKU.");
+    }
+    if (quantityBefore == null || quantityAfter == null) {
+        throw httpError(400, "Inventory ledger records require before and after quantities.");
+    }
+    const quantityDelta = Number.isFinite(Number(input.quantityDelta ?? input.quantity_delta))
+        ? Number(input.quantityDelta ?? input.quantity_delta)
+        : quantityAfter - quantityBefore;
+    if (quantityDelta === 0 && input.recordZeroDelta !== true) {
+        return null;
+    }
+    const userId = toPositiveInt(input.userId || input.user_id || input.appUser?.id || input.appUser?.app_user_id);
+    const fulfillmentLocationId = toPositiveInt(input.fulfillmentLocationId || input.fulfillment_location_id);
+    const result = await client.query(
+        `
+            insert into inventory_transactions (
+                account_name, warehouse_id, fulfillment_location_id, location, sku, upc,
+                lot_number, expiration_date, transaction_type, quantity_delta,
+                quantity_before, quantity_after, source_type, source_id, user_id,
+                device_id, source, client_timestamp
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            returning *
+        `,
+        [
+            lineIdentity.accountName,
+            normalizeText(input.warehouseId || input.warehouse_id || ""),
+            fulfillmentLocationId || null,
+            lineIdentity.location,
+            lineIdentity.sku,
+            lineIdentity.upc,
+            lineIdentity.lotNumber,
+            lineIdentity.expirationDate,
+            normalizeInventoryTransactionType(input.transactionType || input.transaction_type),
+            quantityDelta,
+            quantityBefore,
+            quantityAfter,
+            normalizeInventoryTransactionSourceType(input.sourceType || input.source_type),
+            normalizeFreeText(input.sourceId || input.source_id || ""),
+            userId || null,
+            normalizeFreeText(input.deviceId || input.device_id || ""),
+            normalizeInventoryTransactionSource(input.source),
+            normalizeLedgerTimestamp(input.clientTimestamp || input.client_timestamp)
+        ]
+    );
+    return result.rows[0] ? mapInventoryTransactionRow(result.rows[0]) : null;
+}
+
+async function getInventoryTransactionHistory(client, query = {}, appUser = null) {
+    const params = [];
+    const clauses = [];
+    const accountName = normalizeText(query.accountName || query.account_name || query.owner || query.company || query.customer || "");
+
+    if (accountName) {
+        await assertAppUserCompanyAccess(client, appUser, accountName);
+        params.push(accountName);
+        clauses.push(`account_name = $${params.length}`);
+    } else if (!isSuperAdminUser(appUser)) {
+        const accessibleCompanies = await getAccessibleCompanyNamesForAppUser(client, appUser);
+        if (!accessibleCompanies.length) {
+            return { transactions: [], count: 0 };
+        }
+        params.push(accessibleCompanies);
+        clauses.push(`account_name = any($${params.length}::text[])`);
+    }
+
+    const filterMap = [
+        ["location", normalizeText(query.location)],
+        ["sku", normalizeText(query.sku || query.skuOrUpc || query.sku_or_upc)],
+        ["upc", normalizeText(query.upc)],
+        ["lot_number", normalizeText(query.lotNumber || query.lot_number || query.lot)],
+        ["expiration_date", normalizeDateOnly(query.expirationDate || query.expiration_date || query.expiryDate || query.expiry_date)],
+        ["transaction_type", normalizeText(query.transactionType || query.transaction_type || "").replace(/[\s-]+/g, "_")],
+        ["source_type", (query.sourceType || query.source_type) ? normalizeInventoryTransactionSourceType(query.sourceType || query.source_type) : ""]
+    ];
+    for (const [column, value] of filterMap) {
+        if (!value) continue;
+        params.push(value);
+        clauses.push(`${column} = $${params.length}`);
+    }
+
+    const userId = toPositiveInt(query.userId || query.user_id);
+    if (userId) {
+        params.push(userId);
+        clauses.push(`user_id = $${params.length}`);
+    }
+    const fromDate = normalizeLedgerTimestamp(query.from || query.dateFrom || query.date_from);
+    if (fromDate) {
+        params.push(fromDate);
+        clauses.push(`server_timestamp >= $${params.length}`);
+    }
+    const toDate = normalizeLedgerTimestamp(query.to || query.dateTo || query.date_to);
+    if (toDate) {
+        params.push(toDate);
+        clauses.push(`server_timestamp <= $${params.length}`);
+    }
+
+    const limit = Math.min(Math.max(toPositiveInt(query.limit) || 200, 1), 1000);
+    params.push(limit);
+    const whereSql = clauses.length ? `where ${clauses.join(" and ")}` : "";
+    const result = await client.query(
+        `
+            select *
+            from inventory_transactions
+            ${whereSql}
+            order by server_timestamp desc, id desc
+            limit $${params.length}
+        `,
+        params
+    );
+    return {
+        transactions: result.rows.map(mapInventoryTransactionRow),
+        count: result.rowCount
+    };
+}
+
+async function setInventoryQuantity(client, lineId, quantity, { actionLabel = "set inventory quantity", allowMissing = false, recordLedger = true, ...ledgerOptions } = {}) {
+    const normalizedQuantity = assertNonNegativeInventoryQuantity(quantity, actionLabel);
+    const normalizedLineId = toPositiveInt(lineId);
+    if (!normalizedLineId) {
+        throw httpError(400, "Inventory line id is required.");
+    }
+    const beforeLine = ledgerOptions.beforeLine || await lockInventoryLineById(client, normalizedLineId);
+    if (!beforeLine && !allowMissing) {
+        await logInventoryLockFailure(new Error("Inventory line vanished before quantity could be changed."), { action: actionLabel, lineId: normalizedLineId });
+        throw httpError(409, "Inventory changed while this request was processing. Refresh and try again.");
+    }
+
+    if (normalizedQuantity <= 0) {
+        const result = await client.query("delete from inventory_lines where id = $1 returning *", [normalizedLineId]);
+        if (result.rowCount !== 1 && !allowMissing) {
+            await logInventoryLockFailure(new Error("Inventory line vanished before quantity could be cleared."), { action: actionLabel, lineId: normalizedLineId });
+            throw httpError(409, "Inventory changed while this request was processing. Refresh and try again.");
+        }
+        if (recordLedger && (beforeLine || result.rows[0])) {
+            const line = beforeLine || result.rows[0];
+            await recordInventoryTransaction(client, {
+                line,
+                quantityBefore: Number(line.quantity) || 0,
+                quantityAfter: 0,
+                transactionType: ledgerOptions.transactionType || "DELETE",
+                sourceType: ledgerOptions.sourceType || "INVENTORY_LINE",
+                sourceId: ledgerOptions.sourceId || normalizedLineId,
+                ...ledgerOptions
+            });
+        }
+        return null;
+    }
+
+    const result = await client.query(
+        "update inventory_lines set quantity = $1, updated_at = now() where id = $2 returning *",
+        [normalizedQuantity, normalizedLineId]
+    );
+    if (result.rowCount !== 1) {
+        await logInventoryLockFailure(new Error("Inventory line vanished before quantity could be updated."), { action: actionLabel, lineId: normalizedLineId });
+        throw httpError(409, "Inventory changed while this request was processing. Refresh and try again.");
+    }
+    if (recordLedger && beforeLine) {
+        await recordInventoryTransaction(client, {
+            line: result.rows[0],
+            quantityBefore: Number(beforeLine.quantity) || 0,
+            quantityAfter: Number(result.rows[0].quantity) || 0,
+            transactionType: ledgerOptions.transactionType || "ADJUSTMENT",
+            sourceType: ledgerOptions.sourceType || "INVENTORY_LINE",
+            sourceId: ledgerOptions.sourceId || normalizedLineId,
+            ...ledgerOptions
+        });
+    }
+    return result.rows[0] || null;
+}
+
+async function safeDeductInventoryLineQuantity(client, lineOrId, quantity, { actionLabel = "deduct inventory", allowNegative = false, ...ledgerOptions } = {}) {
+    const deduction = toPositiveInt(quantity);
+    if (!deduction) {
+        throw httpError(400, "A positive quantity is required.");
+    }
+
+    const lineId = typeof lineOrId === "object" ? lineOrId?.id : lineOrId;
+    const lockedLine = await lockInventoryLineById(client, lineId);
+    if (!lockedLine) {
+        await logInventoryLockFailure(new Error("Inventory line was not found for deduction."), { action: actionLabel, lineId });
+        throw httpError(409, "Inventory changed while this request was processing. Refresh and try again.");
+    }
+
+    const currentQuantity = Number(lockedLine.quantity) || 0;
+    if (!allowNegative && currentQuantity < deduction) {
+        await logInventoryLockFailure(new Error("Insufficient locked inventory for deduction."), {
+            action: actionLabel,
+            lineId: lockedLine.id,
+            accountName: lockedLine.account_name,
+            location: lockedLine.location,
+            sku: lockedLine.sku
+        });
+        throw httpError(
+            409,
+            `Cannot ${actionLabel} because ${lockedLine.sku} only has ${formatTrackedQuantity(currentQuantity, lockedLine.tracking_level)} left on hand.`
+        );
+    }
+
+    const remaining = currentQuantity - deduction;
+    const updatedLine = await setInventoryQuantity(client, lockedLine.id, Math.max(remaining, 0), {
+        actionLabel,
+        beforeLine: lockedLine,
+        transactionType: ledgerOptions.transactionType || "ADJUSTMENT",
+        quantityDelta: -deduction,
+        ...ledgerOptions
+    });
+    return {
+        before: lockedLine,
+        after: updatedLine,
+        deductedQuantity: deduction,
+        remainingQuantity: Math.max(remaining, 0)
+    };
+}
+
+async function safeTransferInventoryQuantity(client, sourceLine, destinationItem, quantity, { actionLabel = "transfer inventory", ...ledgerOptions } = {}) {
+    const deduction = await safeDeductInventoryLineQuantity(client, sourceLine, quantity, {
+        actionLabel,
+        transactionType: ledgerOptions.transactionType || "TRANSFER",
+        ...ledgerOptions
+    });
+    await upsertInventoryLine(client, {
+        ...destinationItem,
+        quantity
+    }, {
+        transactionType: ledgerOptions.transactionType || "TRANSFER",
+        ...ledgerOptions
+    });
+    return deduction;
 }
 
 async function getInventoryLineCommitment(client, inventoryLineId) {
@@ -19138,7 +19871,7 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
     }
 
     const existingResult = await client.query(
-        "select * from inventory_lines where account_name = $1 order by location asc, sku asc, id asc",
+        "select * from inventory_lines where account_name = $1 order by location asc, sku asc, id asc for update",
         [normalizedAccount]
     );
     const existingById = new Map(existingResult.rows.map((row) => [String(row.id), row]));
@@ -19184,7 +19917,14 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
                         nextQuantity: 0,
                         actionLabel: "remove this worksheet line"
                     });
-                    await client.query("delete from inventory_lines where id = $1 and account_name = $2", [row.id, normalizedAccount]);
+                    await setInventoryQuantity(client, row.id, 0, {
+                        actionLabel: "remove this worksheet line",
+                        transactionType: "DELETE",
+                        sourceType: "BULK_INVENTORY",
+                        sourceId: row.id,
+                        appUser,
+                        source: "web_admin"
+                    });
                     deleted += 1;
                     continue;
                 }
@@ -19208,7 +19948,7 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
                     nextIdentity: row,
                     actionLabel: "update this worksheet line"
                 });
-                await client.query(
+                const updateResult = await client.query(
                     `
                         update inventory_lines
                         set
@@ -19222,6 +19962,7 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
                             updated_at = now()
                         where id = $1
                           and account_name = $9
+                        returning *
                     `,
                     [
                         row.id,
@@ -19235,26 +19976,45 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
                         normalizedAccount
                     ]
                 );
+                if (updateResult.rowCount !== 1) {
+                    await logInventoryLockFailure(new Error("Worksheet inventory row vanished before update."), {
+                        action: "bulk inventory update",
+                        lineId: row.id,
+                        accountName: normalizedAccount,
+                        location: row.location,
+                        sku: row.sku
+                    });
+                    throw httpError(409, "Inventory changed while the worksheet was saving. Refresh and try again.");
+                }
+                await recordInventoryTransaction(client, {
+                    line: updateResult.rows[0],
+                    quantityBefore: Number(existing.quantity) || 0,
+                    quantityAfter: Number(updateResult.rows[0].quantity) || 0,
+                    transactionType: "ADJUSTMENT",
+                    sourceType: "BULK_INVENTORY",
+                    sourceId: row.id,
+                    appUser,
+                    source: "web_admin",
+                    recordZeroDelta: true
+                });
                 updated += 1;
             } else {
-                await client.query(
-                    `
-                        insert into inventory_lines (
-                            account_name, location, sku, upc, lot_number, expiration_date, tracking_level, quantity
-                        )
-                        values ($1, $2, $3, $4, $5, $6, $7, $8)
-                    `,
-                    [
-                        normalizedAccount,
-                        row.location,
-                        row.sku,
-                        row.upc || "",
-                        row.lotNumber || "",
-                        row.expirationDate || "",
-                        row.trackingLevel || "UNIT",
-                        row.quantity
-                    ]
-                );
+                await upsertInventoryLine(client, {
+                    accountName: normalizedAccount,
+                    location: row.location,
+                    sku: row.sku,
+                    upc: row.upc || "",
+                    lotNumber: row.lotNumber || "",
+                    expirationDate: row.expirationDate || "",
+                    trackingLevel: row.trackingLevel || "UNIT",
+                    quantity: row.quantity
+                }, {
+                    transactionType: "ADJUSTMENT",
+                    sourceType: "BULK_INVENTORY",
+                    sourceId: row.id || "",
+                    appUser,
+                    source: "web_admin"
+                });
                 added += 1;
             }
         }
@@ -19301,8 +20061,8 @@ async function insertInventoryCountAudit(client, countId, action, appUser = null
     );
 }
 
-async function getInventoryCountById(client, countId) {
-    const result = await client.query("select * from inventory_count_records where id = $1", [countId]);
+async function getInventoryCountById(client, countId, { lock = false } = {}) {
+    const result = await client.query(`select * from inventory_count_records where id = $1${lock ? " for update" : ""}`, [countId]);
     return result.rows[0] || null;
 }
 
@@ -19495,7 +20255,7 @@ async function setInventoryCountStatus(client, countId, status, rawInput = {}, a
 }
 
 async function postInventoryCountAdjustment(client, countId, rawInput = {}, appUser = null) {
-    const existing = await getInventoryCountById(client, countId);
+    const existing = await getInventoryCountById(client, countId, { lock: true });
     if (!existing) throw httpError(404, "Inventory count was not found.");
     await assertAppUserCompanyAccess(client, appUser, existing.account_name);
     if (normalizeInventoryCountStatus(existing.status) === "REJECTED") {
@@ -19507,7 +20267,8 @@ async function postInventoryCountAdjustment(client, countId, rawInput = {}, appU
 
     const line = await findInventoryLine(client, existing.account_name, existing.location, existing.sku, {
         lotNumber: existing.lot_number || "",
-        expirationDate: existing.expiration_date || ""
+        expirationDate: existing.expiration_date || "",
+        lock: true
     });
     const countedQuantity = Number(existing.counted_quantity) || 0;
     if (line) {
@@ -19515,7 +20276,15 @@ async function postInventoryCountAdjustment(client, countId, rawInput = {}, appU
             nextQuantity: countedQuantity,
             actionLabel: "post this inventory count"
         });
-        await setInventoryQuantity(client, line.id, countedQuantity);
+        await setInventoryQuantity(client, line.id, countedQuantity, {
+            actionLabel: "post this inventory count",
+            transactionType: "CYCLE_COUNT",
+            sourceType: "INVENTORY_COUNT",
+            sourceId: countId,
+            appUser,
+            source: "web_admin",
+            recordZeroDelta: true
+        });
     } else if (countedQuantity > 0) {
         await assertLocationCompatibleForOwner(client, existing.account_name, existing.location);
         await upsertLocationMaster(client, existing.location);
@@ -19534,6 +20303,13 @@ async function postInventoryCountAdjustment(client, countId, rawInput = {}, appU
             expirationDate: normalizeDateOnly(existing.expiration_date || ""),
             quantity: countedQuantity,
             trackingLevel: existing.tracking_level
+        }, {
+            transactionType: "CYCLE_COUNT",
+            sourceType: "INVENTORY_COUNT",
+            sourceId: countId,
+            appUser,
+            source: "web_admin",
+            recordZeroDelta: true
         });
     }
 
@@ -19543,11 +20319,22 @@ async function postInventoryCountAdjustment(client, countId, rawInput = {}, appU
             set status='POSTED', reviewed_by=case when reviewed_by = '' then $2 else reviewed_by end,
                 reviewed_at=coalesce(reviewed_at, now()), posted_by=$2, posted_at=now(),
                 review_note=case when $3 = '' then review_note else $3 end, updated_at=now()
-            where id=$1
+            where id=$1 and status <> 'POSTED'
             returning *
         `,
         [countId, inventoryCountActor(appUser), normalizeFreeText(rawInput?.reviewNote || rawInput?.note || "")]
     );
+    if (result.rowCount !== 1) {
+        await logInventoryLockFailure(new Error("Inventory count was posted by another transaction."), {
+            action: "post inventory count",
+            countId,
+            accountName: existing.account_name,
+            location: existing.location,
+            sku: existing.sku
+        });
+        const posted = await getInventoryCountById(client, countId);
+        return mapInventoryCountRow(posted || existing);
+    }
     await insertInventoryCountAudit(client, countId, "POST", appUser, {
         previousQuantity: line ? Number(line.quantity) || 0 : 0,
         postedQuantity: countedQuantity,
@@ -19570,7 +20357,7 @@ async function insertActivity(client, type, title, details) {
     return result.rows[0] ? mapActivityRow(result.rows[0]) : null;
 }
 
-async function findInventoryLine(client, accountName, location, skuOrUpc, { lotNumber = "", expirationDate = "" } = {}) {
+async function findInventoryLine(client, accountName, location, skuOrUpc, { lotNumber = "", expirationDate = "", lock = false } = {}) {
     const normalizedLot = normalizeText(lotNumber || "");
     const normalizedExpirationDate = normalizeDateOnly(expirationDate || "");
     const skuParams = [accountName, location, skuOrUpc];
@@ -19581,8 +20368,9 @@ async function findInventoryLine(client, accountName, location, skuOrUpc, { lotN
         identitySql = ` and lot_number = $4 and expiration_date = $5`;
     }
 
+    const lockSql = lock ? " for update" : "";
     const skuMatch = await client.query(
-        `select * from inventory_lines where account_name = $1 and location = $2 and sku = $3${identitySql} order by lot_number asc, expiration_date asc, id asc limit 2`,
+        `select * from inventory_lines where account_name = $1 and location = $2 and sku = $3${identitySql} order by lot_number asc, expiration_date asc, id asc limit 2${lockSql}`,
         skuParams
     );
     if (skuMatch.rowCount === 1) {
@@ -19597,7 +20385,7 @@ async function findInventoryLine(client, accountName, location, skuOrUpc, { lotN
         upcParams.push(normalizedLot, normalizedExpirationDate);
     }
     const upcMatches = await client.query(
-        `select * from inventory_lines where account_name = $1 and location = $2 and upc = $3${identitySql} order by sku asc, lot_number asc, expiration_date asc limit 2`,
+        `select * from inventory_lines where account_name = $1 and location = $2 and upc = $3${identitySql} order by sku asc, lot_number asc, expiration_date asc limit 2${lockSql}`,
         upcParams
     );
 
@@ -20263,6 +21051,31 @@ function mapActivityRow(row) {
         title: row.title,
         details: row.details || "",
         timestamp: new Date(row.created_at).toISOString()
+    };
+}
+
+function mapInventoryTransactionRow(row) {
+    return {
+        id: row.id != null ? String(row.id) : "",
+        accountName: row.account_name || "",
+        warehouseId: row.warehouse_id || "",
+        fulfillmentLocationId: row.fulfillment_location_id != null ? String(row.fulfillment_location_id) : "",
+        location: row.location || "",
+        sku: row.sku || "",
+        upc: row.upc || "",
+        lotNumber: row.lot_number || "",
+        expirationDate: normalizeDateOnly(row.expiration_date || ""),
+        transactionType: normalizeInventoryTransactionType(row.transaction_type || ""),
+        quantityDelta: Number(row.quantity_delta) || 0,
+        quantityBefore: Number(row.quantity_before) || 0,
+        quantityAfter: Number(row.quantity_after) || 0,
+        sourceType: row.source_type || "",
+        sourceId: row.source_id || "",
+        userId: row.user_id != null ? String(row.user_id) : "",
+        deviceId: row.device_id || "",
+        source: row.source || "",
+        clientTimestamp: row.client_timestamp ? new Date(row.client_timestamp).toISOString() : "",
+        serverTimestamp: row.server_timestamp ? new Date(row.server_timestamp).toISOString() : ""
     };
 }
 
@@ -22618,6 +23431,100 @@ function isBillingFinanceUser(user) {
     return BILLING_FINANCE_ROLE_SET.has(normalizeAppUserRole(user?.role || ""));
 }
 
+function getRolePermissions(role) {
+    const normalized = normalizeText(role || "") === "CUSTOMER_PORTAL_USER"
+        ? CUSTOMER_PORTAL_ROLE
+        : normalizeAppUserRole(role);
+    return ROLE_PERMISSION_MAP[normalized] || [];
+}
+
+function roleHasPermission(roleOrUser, permission) {
+    const role = typeof roleOrUser === "string"
+        ? roleOrUser
+        : roleOrUser?.role;
+    const normalizedRole = normalizeText(role || "") === "CUSTOMER_PORTAL_USER"
+        ? CUSTOMER_PORTAL_ROLE
+        : normalizeAppUserRole(role || "");
+    if (normalizedRole === APP_USER_ROLES.SUPER_ADMIN) return true;
+    return getRolePermissions(normalizedRole).includes(permission);
+}
+
+function userHasPermission(user, permission) {
+    return !!user && roleHasPermission(user, permission);
+}
+
+function permissionDeniedMessage(permission) {
+    return `Permission denied for ${String(permission || "this action").replace(/_/g, " ")}.`;
+}
+
+async function logPermissionDeniedAttempt(req, permission, details = {}) {
+    if (!databaseReady) return;
+    try {
+        const user = req?.appUser || {};
+        await insertActivity(
+            pool,
+            "security",
+            `Permission denied: ${permission}`,
+            [
+                user.email || "unknown user",
+                user.role || "unknown role",
+                req?.method || "",
+                req?.originalUrl || req?.url || "",
+                details.accountName ? `Company ${details.accountName}` : "",
+                req?.ip ? `IP ${req.ip}` : ""
+            ].filter(Boolean).join(" | ")
+        );
+    } catch (error) {
+        console.error("Unable to audit permission denied attempt:", error.message || error);
+    }
+}
+
+function requirePermission(permission, { message = "" } = {}) {
+    return (req, _res, next) => {
+        if (userHasPermission(req.appUser, permission)) {
+            return next();
+        }
+        void logPermissionDeniedAttempt(req, permission);
+        return next(httpError(403, message || permissionDeniedMessage(permission)));
+    };
+}
+
+function requireRole(...roles) {
+    const allowedRoles = roles.map((role) => normalizeAppUserRole(role)).filter(Boolean);
+    return (req, _res, next) => {
+        const userRole = normalizeAppUserRole(req.appUser?.role || "");
+        if (userRole === APP_USER_ROLES.SUPER_ADMIN || allowedRoles.includes(userRole)) {
+            return next();
+        }
+        void logPermissionDeniedAttempt(req, "role_required", { allowedRoles: allowedRoles.join(",") });
+        return next(httpError(403, "Your warehouse role is not allowed to perform that action."));
+    };
+}
+
+function requireSuperAdmin() {
+    return requirePermission(RBAC_PERMISSIONS.SUPER_ADMIN, {
+        message: "Super user access is required for that action."
+    });
+}
+
+function requireWarehouseAdmin() {
+    return requirePermission(RBAC_PERMISSIONS.WAREHOUSE_ADMIN, {
+        message: "Warehouse admin access is required for that action."
+    });
+}
+
+function requireInventoryAdjustPermission() {
+    return requirePermission(RBAC_PERMISSIONS.INVENTORY_ADJUST, {
+        message: "Inventory adjustment access is required for that action."
+    });
+}
+
+function requireMobileWorkerAction() {
+    return requirePermission(RBAC_PERMISSIONS.MOBILE_WORKER_ACTION, {
+        message: "Mobile warehouse task access is required for that action."
+    });
+}
+
 function assertBillingFinanceAccess(user) {
     if (!isBillingFinanceUser(user)) {
         throw httpError(403, "Billing & Finance access is restricted to Super Admin, Admin, Accounting, and Finance Manager roles.");
@@ -22625,7 +23532,7 @@ function assertBillingFinanceAccess(user) {
 }
 
 function assertSuperAdminAccess(user) {
-    if (!isSuperAdminUser(user)) {
+    if (!userHasPermission(user, RBAC_PERMISSIONS.SUPER_ADMIN)) {
         throw httpError(403, "Super user access is required for that action.");
     }
 }
@@ -23364,4 +24271,37 @@ function delay(ms) {
     });
 }
 
+module.exports = {
+    app,
+    APP_USER_ROLES,
+    CUSTOMER_PORTAL_ROLE,
+    RBAC_PERMISSIONS,
+    ROLE_PERMISSION_MAP,
+    normalizeAppUserRole,
+    roleHasPermission,
+    userHasPermission,
+    requireRole,
+    requireSuperAdmin,
+    requireWarehouseAdmin,
+    requireInventoryAdjustPermission,
+    requireMobileWorkerAction,
+    assertPortalAccountAccess,
+    assertAssignedMobileTaskForWorker,
+    taskTypesForPortalOrderStatus,
+    taskTypesForPortalInboundStatus,
+    isRetryableTransactionError,
+    withTransaction,
+    logInventoryLockFailure,
+    lockInventoryLineById,
+    setInventoryQuantity,
+    safeDeductInventoryLineQuantity,
+    safeTransferInventoryQuantity,
+    recordInventoryTransaction,
+    getInventoryTransactionHistory,
+    findInventoryLine,
+    upsertInventoryLine,
+    consumePortalOrderInventory,
+    postInventoryCountAdjustment,
+    httpError
+};
 
