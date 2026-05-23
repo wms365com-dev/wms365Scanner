@@ -392,6 +392,13 @@ const COMPANY_FEATURE_KEYS = Object.freeze({
     SHOPIFY_INTEGRATION: "SHOPIFY_INTEGRATION",
     SFTP_INTEGRATION: "SFTP_INTEGRATION"
 });
+const PORTAL_PERMISSION_KEYS = Object.freeze({
+    INVENTORY: "inventory-only",
+    ORDER_ENTRY: "order-entry",
+    DOCUMENT_ACCESS: "document-access",
+    BILLING: "billing",
+    ADMIN: "admin"
+});
 const COMPANY_FEATURE_CATALOG = Object.freeze([
     {
         key: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL,
@@ -1328,6 +1335,20 @@ app.post("/api/mobile/pick-confirmations", requireMobileWorkerAction(), async (r
         res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
     } catch (error) {
         await auditMobileExecutionException(error, req, "PICK", req.body || {});
+        next(error);
+    }
+});
+
+app.get("/api/mobile/pick-orders", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || req.query?.company || "");
+        const orders = await withTransaction(async (client) => {
+            await syncWarehouseTasksFromOperationalRecords(client);
+            return getMobilePickOrdersForAppUser(client, req.appUser, { accountName: requestedAccount });
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ success: true, orders });
+    } catch (error) {
         next(error);
     }
 });
@@ -3469,6 +3490,7 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
         const password = typeof req.body?.password === "string" ? req.body.password : "";
         const isActive = req.body?.isActive !== false;
         const sendWelcomeEmail = req.body?.sendWelcomeEmail !== false;
+        const portalPermissions = req.body?.portalPermissions || req.body?.portal_permissions || req.body?.permissions || null;
 
         if (!accountName) {
             throw httpError(400, "Company is required.");
@@ -3481,7 +3503,7 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
             await upsertOwnerMaster(client, accountName);
-            const access = await savePortalAccess(client, { accessId, accountName, email, password, isActive });
+            const access = await savePortalAccess(client, { accessId, accountName, email, password, isActive, portalPermissions });
             await insertActivity(
                 client,
                 "setup",
@@ -3489,8 +3511,9 @@ app.post("/api/admin/portal-access", async (req, res, next) => {
                 [
                     `Company ${accountName}.`,
                     isActive ? "Portal access active." : "Portal access disabled.",
+                    portalPermissions ? "Portal permissions updated." : "",
                     password ? `Portal password ${access.wasCreated ? "created" : "reset"} by warehouse admin.` : "Portal user details updated."
-                ].join(" ")
+                ].filter(Boolean).join(" ")
             );
             return access;
         });
@@ -3709,6 +3732,8 @@ app.delete("/api/admin/sku-mappings/:id", async (req, res, next) => {
     }
 });
 
+app.use("/api/portal", portalAccountScopeMiddleware());
+
 app.post("/api/portal/login", async (req, res, next) => {
     try {
         const email = normalizeEmail(req.body?.email);
@@ -3839,7 +3864,13 @@ app.get("/api/portal/invoices/:id/pdf", async (req, res, next) => {
         const invoiceId = toPositiveInt(req.params.id);
         if (!invoiceId) throw httpError(400, "An invoice is required.");
         const invoice = await getBillingFinanceInvoiceById(pool, invoiceId);
-        if (!invoice || normalizeText(invoice.customerId) !== normalizeText(session.access.accountName) || invoice.status === "draft") {
+        if (invoice) {
+            await assertPortalResourceAccount(session, invoice.customerId, req, {
+                reason: "invoice_pdf_id_tampering",
+                message: "Invoice was not found."
+            });
+        }
+        if (!invoice || invoice.status === "draft") {
             throw httpError(404, "Invoice was not found.");
         }
         const pdf = buildInvoicePdfBuffer(invoice);
@@ -3859,7 +3890,13 @@ app.get("/api/portal/invoices/:id/attachments", async (req, res, next) => {
         const invoiceId = toPositiveInt(req.params.id);
         if (!invoiceId) throw httpError(400, "An invoice is required.");
         const invoice = await getBillingFinanceInvoiceById(pool, invoiceId);
-        if (!invoice || normalizeText(invoice.customerId) !== normalizeText(session.access.accountName) || invoice.status === "draft") {
+        if (invoice) {
+            await assertPortalResourceAccount(session, invoice.customerId, req, {
+                reason: "invoice_attachment_id_tampering",
+                message: "Invoice was not found."
+            });
+        }
+        if (!invoice || invoice.status === "draft") {
             throw httpError(404, "Invoice was not found.");
         }
         res.json({ success: true, attachments: await getBillingFinanceInvoiceAttachments(pool, invoiceId) });
@@ -4358,7 +4395,13 @@ app.get("/api/portal/order-documents/:id", async (req, res, next) => {
         }
 
         const document = await getPortalOrderDocumentById(documentId);
-        if (!document || normalizeText(document.account_name) !== normalizeText(session.access.accountName)) {
+        if (document) {
+            await assertPortalResourceAccount(session, document.account_name, req, {
+                reason: "order_document_id_tampering",
+                message: "That shipped document could not be found."
+            });
+        }
+        if (!document) {
             throw httpError(404, "That shipped document could not be found.");
         }
 
@@ -4399,7 +4442,13 @@ app.get("/api/portal/inbound-documents/:id", async (req, res, next) => {
         }
 
         const document = await getPortalInboundDocumentById(documentId);
-        if (!document || normalizeText(document.account_name) !== normalizeText(session.access.accountName)) {
+        if (document) {
+            await assertPortalResourceAccount(session, document.account_name, req, {
+                reason: "inbound_document_id_tampering",
+                message: "That purchase order document could not be found."
+            });
+        }
+        if (!document) {
             throw httpError(404, "That purchase order document could not be found.");
         }
 
@@ -5398,6 +5447,7 @@ async function initializeDatabase() {
             account_name text not null unique,
             email text,
             password_hash text not null,
+            portal_permissions jsonb,
             is_active boolean not null default true,
             last_login_at timestamptz,
             created_at timestamptz not null default now(),
@@ -5407,6 +5457,7 @@ async function initializeDatabase() {
 
     await pool.query("alter table portal_vendor_access drop constraint if exists portal_vendor_access_account_name_key");
     await pool.query("alter table portal_vendor_access add column if not exists email text;");
+    await pool.query("alter table portal_vendor_access add column if not exists portal_permissions jsonb;");
     await pool.query("update portal_vendor_access set email = lower(email) where email is not null and email <> lower(email)");
     await pool.query("create unique index if not exists idx_portal_vendor_access_email_unique on portal_vendor_access (email) where email is not null and btrim(email) <> ''");
 
@@ -8538,6 +8589,115 @@ function assertPortalAccountAccess(session, accountName, message = "") {
     return sessionAccount;
 }
 
+const PORTAL_PUBLIC_ENDPOINTS = new Set(["/login", "/recovery/username", "/recovery/password"]);
+
+function getPortalRouteRule(method, pathName) {
+    const methodName = normalizeText(method);
+    const pathOnly = String(pathName || "").split("?")[0];
+    if (PORTAL_PUBLIC_ENDPOINTS.has(pathOnly)) return null;
+    if (pathOnly === "/logout" || pathOnly === "/me" || pathOnly === "/feedback") {
+        return { featureKey: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, permission: "" };
+    }
+    if (pathOnly === "/inventory" || pathOnly === "/inventory/export.csv" || (methodName === "GET" && pathOnly === "/items")) {
+        return { featureKey: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, permission: PORTAL_PERMISSION_KEYS.INVENTORY };
+    }
+    if (pathOnly.startsWith("/invoices")) {
+        return { featureKey: COMPANY_FEATURE_KEYS.BILLING, permission: PORTAL_PERMISSION_KEYS.BILLING };
+    }
+    if (pathOnly.includes("documents") || pathOnly.includes("attachments")) {
+        return { featureKey: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, permission: PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS };
+    }
+    if (pathOnly.startsWith("/orders") || pathOnly === "/ship-to-addresses") {
+        return { featureKey: COMPANY_FEATURE_KEYS.ORDER_ENTRY, permission: PORTAL_PERMISSION_KEYS.ORDER_ENTRY };
+    }
+    if (pathOnly.startsWith("/inbounds") || pathOnly.startsWith("/delivery-appointments")) {
+        return { featureKey: COMPANY_FEATURE_KEYS.INBOUND_NOTICES, permission: PORTAL_PERMISSION_KEYS.ORDER_ENTRY };
+    }
+    if (pathOnly.startsWith("/kitting-requests")) {
+        return { featureKey: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, permission: PORTAL_PERMISSION_KEYS.ORDER_ENTRY };
+    }
+    if (methodName !== "GET" && pathOnly.startsWith("/items")) {
+        return { featureKey: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, permission: PORTAL_PERMISSION_KEYS.ADMIN };
+    }
+    return { featureKey: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL, permission: "" };
+}
+
+function collectPortalAccountHints(source, hints = []) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return hints;
+    ["accountName", "account_name", "owner", "company", "customer", "customerId", "customer_id"].forEach((key) => {
+        if (source[key] != null && typeof source[key] !== "object") hints.push({ key, value: source[key] });
+    });
+    return hints;
+}
+
+async function logPortalScopeViolation(req, session, reason, details = {}) {
+    try {
+        if (!databaseReady) return;
+        await insertActivity(
+            pool,
+            "security",
+            "Blocked customer portal cross-account access attempt",
+            [
+                `Account ${session?.access?.accountName || session?.accessRow?.account_name || ""}`,
+                `Email ${session?.access?.email || session?.accessRow?.email || ""}`,
+                `Route ${req?.method || ""} ${req?.originalUrl || req?.url || ""}`,
+                `Reason ${reason}`,
+                details.requestedAccount ? `Requested ${details.requestedAccount}` : "",
+                getClientIp(req) ? `IP ${getClientIp(req)}` : ""
+            ].filter(Boolean).join(" | ")
+        );
+    } catch (error) {
+        console.error("Unable to audit portal scope violation:", error.message || error);
+    }
+}
+
+async function assertPortalRequestAccountScope(req, session) {
+    const sessionAccount = normalizeText(session?.access?.accountName || session?.accessRow?.account_name || "");
+    const hints = [
+        ...collectPortalAccountHints(req.query || {}),
+        ...collectPortalAccountHints(req.body || {})
+    ];
+    for (const hint of hints) {
+        const requestedAccount = normalizeText(hint.value);
+        if (requestedAccount && requestedAccount !== sessionAccount) {
+            await logPortalScopeViolation(req, session, "account_parameter_tampering", { requestedAccount, field: hint.key });
+            throw httpError(403, "Customer portal access is limited to your own company account.");
+        }
+    }
+}
+
+async function assertPortalResourceAccount(session, resourceAccount, req, {
+    reason = "resource_account_mismatch",
+    message = "That customer portal record could not be found."
+} = {}) {
+    const sessionAccount = normalizeText(session?.access?.accountName || session?.accessRow?.account_name || "");
+    const requestedAccount = normalizeText(resourceAccount);
+    if (!sessionAccount || !requestedAccount || sessionAccount !== requestedAccount) {
+        await logPortalScopeViolation(req, session, reason, { requestedAccount });
+        throw httpError(404, message);
+    }
+    return sessionAccount;
+}
+
+function portalAccountScopeMiddleware() {
+    return async (req, res, next) => {
+        try {
+            const pathName = req.path || req.url || "";
+            const rule = getPortalRouteRule(req.method, pathName);
+            if (!rule) return next();
+            const session = await requirePortalSession(req);
+            assertCompanyFeatureEnabledForOwnerRow(session.accessRow, rule.featureKey);
+            if (rule.permission) assertPortalPermission(session, rule.permission);
+            await assertPortalRequestAccountScope(req, session);
+            req.portalSession = session;
+            return next();
+        } catch (error) {
+            if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+            return next(error);
+        }
+    };
+}
+
 function isWarehouseWorkerUser(user) {
     return normalizeAppUserRole(user?.role || "") === APP_USER_ROLES.WAREHOUSE_WORKER;
 }
@@ -8943,7 +9103,18 @@ async function assertCompanyFeatureEnabled(client, accountName, featureKey, mess
 }
 
 async function getPortalAccessList(client = pool) {
-    const result = await client.query("select * from portal_vendor_access order by account_name asc, email asc, id asc");
+    const result = await client.query(
+        `
+            select
+                a.*,
+                o.feature_flags,
+                o.feature_flags_updated_at,
+                o.feature_flags_updated_by
+            from portal_vendor_access a
+            left join owner_accounts o on o.name = a.account_name
+            order by a.account_name asc, a.email asc, a.id asc
+        `
+    );
     return result.rows.map(mapPortalAccessRow);
 }
 
@@ -11027,7 +11198,7 @@ async function getPortalAccessByEmail(client, email) {
     return result.rowCount === 1 ? result.rows[0] : null;
 }
 
-async function savePortalAccess(client, { accessId, accountName, email, password, isActive }) {
+async function savePortalAccess(client, { accessId, accountName, email, password, isActive, portalPermissions }) {
     const normalizedAccount = normalizeText(accountName);
     const normalizedEmail = normalizeEmail(email);
     const passwordText = typeof password === "string" ? password : "";
@@ -11049,6 +11220,15 @@ async function savePortalAccess(client, { accessId, accountName, email, password
         throw httpError(400, "That email address is already linked to another portal account.");
     }
 
+    const ownerRow = await getOwnerAccountRowByName(client, normalizedAccount);
+    const featureFlags = ownerRow
+        ? extractOwnerFeatureFlags(ownerRow).featureFlags
+        : buildDefaultNewCompanyFeatureFlags();
+    const hasPermissionInput = portalPermissions && typeof portalPermissions === "object" && !Array.isArray(portalPermissions);
+    const permissionsToSave = hasPermissionInput
+        ? sanitizePortalPermissionsInput(portalPermissions, featureFlags)
+        : null;
+
     if (existing) {
         const passwordHash = passwordText ? hashPortalPassword(passwordText) : existing.password_hash;
         const result = await client.query(
@@ -11059,11 +11239,19 @@ async function savePortalAccess(client, { accessId, accountName, email, password
                     email = $3,
                     password_hash = $4,
                     is_active = $5,
+                    portal_permissions = coalesce($6::jsonb, portal_permissions),
                     updated_at = now()
                 where id = $1
                 returning *
             `,
-            [existing.id, normalizedAccount, normalizedEmail, passwordHash, isActive !== false]
+            [
+                existing.id,
+                normalizedAccount,
+                normalizedEmail,
+                passwordHash,
+                isActive !== false,
+                permissionsToSave ? JSON.stringify(permissionsToSave) : null
+            ]
         );
         const row = result.rows[0];
         row.wasCreated = false;
@@ -11072,11 +11260,17 @@ async function savePortalAccess(client, { accessId, accountName, email, password
 
     const result = await client.query(
         `
-            insert into portal_vendor_access (account_name, email, password_hash, is_active)
-            values ($1, $2, $3, $4)
+            insert into portal_vendor_access (account_name, email, password_hash, is_active, portal_permissions)
+            values ($1, $2, $3, $4, $5::jsonb)
             returning *
         `,
-        [normalizedAccount, normalizedEmail, hashPortalPassword(passwordText), isActive !== false]
+        [
+            normalizedAccount,
+            normalizedEmail,
+            hashPortalPassword(passwordText),
+            isActive !== false,
+            JSON.stringify(permissionsToSave || sanitizePortalPermissionsInput(null, featureFlags))
+        ]
     );
     const row = result.rows[0];
     row.wasCreated = true;
@@ -11110,6 +11304,7 @@ async function deletePortalSessionByToken(token, client = pool) {
 }
 
 async function requirePortalSession(req, client = pool) {
+    if (req?.portalSession && client === pool) return req.portalSession;
     const token = getPortalSessionToken(req);
     if (!token) {
         throw httpError(401, "Portal login required.");
@@ -11142,6 +11337,9 @@ async function requirePortalSession(req, client = pool) {
     const row = result.rows[0];
     if (!row.is_active) {
         throw httpError(401, "That company portal login is no longer active.");
+    }
+    if (!normalizeText(row.account_name) || !normalizeEmail(row.email || "")) {
+        throw httpError(401, "Portal session is not linked to a valid customer account.");
     }
     await assertCompanyPaywallAccess(client, row.account_name);
 
@@ -11720,6 +11918,65 @@ async function getAdminPortalOrders(client = pool) {
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", locationSummaries, allocationSummaries);
+}
+
+function filterMobilePickOrdersForAppUser(orders, appUser, {
+    accessibleCompanies = [],
+    assignedOrderIds = [],
+    accountName = ""
+} = {}) {
+    const pickableStatuses = new Set(["RELEASED", "PICKED", "STAGED"]);
+    const requestedAccount = normalizeText(accountName);
+    const allowedCompanies = new Set((accessibleCompanies || []).map(normalizeText).filter(Boolean));
+    const assignedIds = new Set((assignedOrderIds || []).map((value) => String(value)).filter(Boolean));
+    return (orders || []).filter((order) => {
+        if (!pickableStatuses.has(normalizeText(order?.status))) return false;
+        const orderAccount = normalizeText(order?.accountName || order?.account_name || "");
+        if (requestedAccount && orderAccount !== requestedAccount) return false;
+        if (isSuperAdminUser(appUser)) return true;
+        return allowedCompanies.has(orderAccount) || assignedIds.has(String(order?.id || ""));
+    });
+}
+
+async function getAssignedMobilePickOrderIds(client, appUser, accountName = "") {
+    const userId = toPositiveInt(appUser?.id || appUser?.app_user_id);
+    if (!userId) return [];
+    const params = [userId, ["PICK", "PACK", "SHIP"], ACTIVE_WAREHOUSE_TASK_STATUSES];
+    const clauses = [
+        "wt.assigned_app_user_id = $1",
+        "wt.source_type = 'PORTAL_ORDER'",
+        "wt.task_type = any($2::text[])",
+        "wt.status = any($3::text[])"
+    ];
+    const normalizedAccount = normalizeText(accountName);
+    if (normalizedAccount) {
+        params.push(normalizedAccount);
+        clauses.push(`wt.account_name = $${params.length}`);
+    }
+    const result = await client.query(
+        `
+            select distinct wt.source_id
+            from warehouse_tasks wt
+            where ${clauses.join(" and ")}
+        `,
+        params
+    );
+    return result.rows.map((row) => String(row.source_id || "")).filter(Boolean);
+}
+
+async function getMobilePickOrdersForAppUser(client, appUser, { accountName = "" } = {}) {
+    const requestedAccount = normalizeText(accountName);
+    const [accessibleCompanies, assignedOrderIds] = await Promise.all([
+        appUser && !isSuperAdminUser(appUser) ? getAccessibleCompanyNamesForAppUser(client, appUser) : [],
+        getAssignedMobilePickOrderIds(client, appUser, requestedAccount)
+    ]);
+    if (requestedAccount && !isSuperAdminUser(appUser) && !accessibleCompanies.includes(requestedAccount) && !assignedOrderIds.length) {
+        return [];
+    }
+    const orders = requestedAccount
+        ? await getPortalOrdersForAccount(requestedAccount, client)
+        : await getAdminPortalOrders(client);
+    return filterMobilePickOrdersForAppUser(orders, appUser, { accessibleCompanies, assignedOrderIds, accountName: requestedAccount });
 }
 
 async function getPortalOrderById(client, orderId, accountName, downloadPathPrefix = "/api/admin/portal-order-documents") {
@@ -21963,6 +22220,7 @@ function mapBillingEventRow(row) {
 
 function mapPortalAccessRow(row) {
     const { featureFlags, legacyMode } = extractOwnerFeatureFlags(row);
+    const { portalPermissions } = resolvePortalPermissions(row);
     return {
         id: String(row.id),
         accountName: row.account_name,
@@ -21970,6 +22228,7 @@ function mapPortalAccessRow(row) {
         isActive: row.is_active === true,
         featureFlags,
         featureFlagsInherited: legacyMode,
+        portalPermissions,
         lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
@@ -24219,6 +24478,56 @@ function buildLegacyCompanyFeatureFlags() {
     return { ...LEGACY_COMPANY_FEATURE_FLAGS };
 }
 
+function buildDefaultPortalPermissions(featureFlags = buildLegacyCompanyFeatureFlags()) {
+    return {
+        [PORTAL_PERMISSION_KEYS.INVENTORY]: featureFlags[COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL] === true,
+        [PORTAL_PERMISSION_KEYS.ORDER_ENTRY]: featureFlags[COMPANY_FEATURE_KEYS.ORDER_ENTRY] === true || featureFlags[COMPANY_FEATURE_KEYS.INBOUND_NOTICES] === true,
+        [PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS]: featureFlags[COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL] === true,
+        [PORTAL_PERMISSION_KEYS.BILLING]: featureFlags[COMPANY_FEATURE_KEYS.BILLING] === true,
+        [PORTAL_PERMISSION_KEYS.ADMIN]: true
+    };
+}
+
+function sanitizePortalPermissionsInput(rawPermissions, featureFlags = buildLegacyCompanyFeatureFlags()) {
+    if (!rawPermissions || typeof rawPermissions !== "object" || Array.isArray(rawPermissions)) {
+        return buildDefaultPortalPermissions(featureFlags);
+    }
+    const defaults = buildDefaultPortalPermissions(featureFlags);
+    return Object.values(PORTAL_PERMISSION_KEYS).reduce((permissions, key) => {
+        permissions[key] = Object.prototype.hasOwnProperty.call(rawPermissions, key)
+            ? toBooleanFlag(rawPermissions[key], false)
+            : defaults[key] === true;
+        return permissions;
+    }, {});
+}
+
+function resolvePortalPermissions(row) {
+    const { featureFlags, legacyMode } = extractOwnerFeatureFlags(row);
+    const rawPermissions = row?.portal_permissions && typeof row.portal_permissions === "object" && !Array.isArray(row.portal_permissions)
+        ? row.portal_permissions
+        : row?.portalPermissions && typeof row.portalPermissions === "object" && !Array.isArray(row.portalPermissions)
+            ? row.portalPermissions
+            : null;
+    return {
+        legacyMode: rawPermissions == null || legacyMode,
+        portalPermissions: sanitizePortalPermissionsInput(rawPermissions, featureFlags)
+    };
+}
+
+function portalSessionHasPermission(sessionOrRow, permissionKey) {
+    const permission = normalizeFreeText(permissionKey || "");
+    if (!permission) return true;
+    const row = sessionOrRow?.accessRow || sessionOrRow;
+    const { portalPermissions } = resolvePortalPermissions(row);
+    return portalPermissions[permission] === true;
+}
+
+function assertPortalPermission(sessionOrRow, permissionKey) {
+    if (!portalSessionHasPermission(sessionOrRow, permissionKey)) {
+        throw httpError(403, "Your customer portal login is not allowed to access that area.");
+    }
+}
+
 function sanitizeCompanyFeatureFlagsInput(rawFlags) {
     if (!rawFlags || typeof rawFlags !== "object" || Array.isArray(rawFlags)) {
         return {};
@@ -24971,7 +25280,15 @@ module.exports = {
     encryptSecret,
     decryptSecret,
     assertDestructiveImportAllowed,
+    PORTAL_PERMISSION_KEYS,
     assertPortalAccountAccess,
+    assertPortalRequestAccountScope,
+    assertPortalResourceAccount,
+    getPortalRouteRule,
+    sanitizePortalPermissionsInput,
+    resolvePortalPermissions,
+    portalSessionHasPermission,
+    assertPortalPermission,
     assertAssignedMobileTaskForWorker,
     taskTypesForPortalOrderStatus,
     taskTypesForPortalInboundStatus,
@@ -24986,6 +25303,7 @@ module.exports = {
     getInventoryTransactionHistory,
     savePickConfirmation,
     saveMobileExecutionConfirmation,
+    filterMobilePickOrdersForAppUser,
     findInventoryLine,
     upsertInventoryLine,
     consumePortalOrderInventory,

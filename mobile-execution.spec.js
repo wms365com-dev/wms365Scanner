@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 const {
     APP_USER_ROLES,
     savePickConfirmation,
-    saveMobileExecutionConfirmation
+    saveMobileExecutionConfirmation,
+    filterMobilePickOrdersForAppUser
 } = require("./server.js");
 
 function clone(row) {
@@ -186,4 +187,21 @@ test("generic mobile confirmations are idempotent", async () => {
     assert.equal(first.duplicate, false);
     assert.equal(second.duplicate, true);
     assert.equal(client.mobileConfirmations.length, 1);
+});
+
+test("mobile pick order feed keeps workers scoped to accessible or assigned orders", () => {
+    const worker = { id: "7", role: "warehouse_worker" };
+    const orders = [
+        { id: "1", accountName: "HEALTEA", status: "RELEASED" },
+        { id: "2", accountName: "OTHER CUSTOMER", status: "RELEASED" },
+        { id: "3", accountName: "OTHER CUSTOMER", status: "DRAFT" },
+        { id: "4", accountName: "ASSIGNED CUSTOMER", status: "PICKED" }
+    ];
+
+    const visible = filterMobilePickOrdersForAppUser(orders, worker, {
+        accessibleCompanies: ["HEALTEA"],
+        assignedOrderIds: ["4"]
+    });
+
+    assert.deepEqual(visible.map((order) => order.id), ["1", "4"]);
 });

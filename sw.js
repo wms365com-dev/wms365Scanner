@@ -1,6 +1,10 @@
-const WMS365_CACHE = "wms365-mobile-shell-v2";
+const WMS365_CACHE = "wms365-mobile-shell-v3";
 const CRITICAL_NETWORK_FIRST = new Set([
   "/mobile-bridge.js",
+  "/mobile-pick",
+  "/mobile-pick.html",
+  "/mobile-count",
+  "/mobile-count.html",
   "/site.webmanifest"
 ]);
 const SHELL_URLS = [

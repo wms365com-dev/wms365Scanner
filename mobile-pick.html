@@ -371,7 +371,7 @@ function applyCompanyPayload(payload){
 
 async function loadOrders(){
   const q=state.company?`?account_name=${encodeURIComponent(state.company)}&accountName=${encodeURIComponent(state.company)}`:'';
-  const payload=await requestJson('/api/admin/portal-orders'+q);
+  const payload=await requestJson('/api/mobile/pick-orders'+q);
   state.orders=(payload.orders||[]).filter(o=>['RELEASED','PICKED','STAGED'].includes(String(o.status||'').toUpperCase()));
   const sel=$('orderSelect');
   state.orders.sort((a,b)=>ageTime(a.createdAt)-ageTime(b.createdAt)||(a.orderCode||'').localeCompare(b.orderCode||''));

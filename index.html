@@ -7949,6 +7949,14 @@
                                     <input id="portalAccessSendWelcome" type="checkbox" checked>
                                     <span>Email welcome/access details to this user when a new password is entered.</span>
                                 </label>
+                                <div class="field span-2">
+                                    <span>Portal Permissions</span>
+                                    <label class="checkbox-line"><input id="portalPermInventory" type="checkbox" checked><span>Inventory and exports</span></label>
+                                    <label class="checkbox-line"><input id="portalPermOrders" type="checkbox" checked><span>Orders, inbounds, appointments, and kitting</span></label>
+                                    <label class="checkbox-line"><input id="portalPermDocuments" type="checkbox" checked><span>Documents and attachments</span></label>
+                                    <label class="checkbox-line"><input id="portalPermBilling" type="checkbox"><span>Invoices and billing</span></label>
+                                    <label class="checkbox-line"><input id="portalPermAdmin" type="checkbox"><span>Portal item maintenance</span></label>
+                                </div>
                                 <div class="button-row span-2">
                                     <button class="btn secondary" type="submit">Save Portal User</button>
                                     <button class="btn ghost" id="portalAccessResetBtn" type="button">New User</button>
@@ -10161,6 +10169,13 @@
             SHOPIFY_INTEGRATION: "SHOPIFY_INTEGRATION",
             SFTP_INTEGRATION: "SFTP_INTEGRATION"
         });
+        const PORTAL_PERMISSION_KEYS = Object.freeze({
+            INVENTORY: "inventory-only",
+            ORDER_ENTRY: "order-entry",
+            DOCUMENT_ACCESS: "document-access",
+            BILLING: "billing",
+            ADMIN: "admin"
+        });
         const COMPANY_FEATURE_CATALOG = Object.freeze([
             {
                 key: COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL,
@@ -10787,6 +10802,11 @@
             portalAccessPassword: document.getElementById("portalAccessPassword"),
             portalAccessActive: document.getElementById("portalAccessActive"),
             portalAccessSendWelcome: document.getElementById("portalAccessSendWelcome"),
+            portalPermInventory: document.getElementById("portalPermInventory"),
+            portalPermOrders: document.getElementById("portalPermOrders"),
+            portalPermDocuments: document.getElementById("portalPermDocuments"),
+            portalPermBilling: document.getElementById("portalPermBilling"),
+            portalPermAdmin: document.getElementById("portalPermAdmin"),
             portalAccessResetBtn: document.getElementById("portalAccessResetBtn"),
             portalAccessMessage: document.getElementById("portalAccessMessage"),
             portalAccessList: document.getElementById("portalAccessList"),
@@ -17584,8 +17604,47 @@
             ui.portalAccessEmail.value = entry.portalLoginEmail || entry.email || "";
             ui.portalAccessActive.value = entry.isActive === false ? "false" : "true";
             if (ui.portalAccessSendWelcome) ui.portalAccessSendWelcome.checked = true;
+            setPortalAccessPermissionInputs(defaultPortalPermissionsForCompany(entry.name));
             ui.portalAccessPassword.focus();
             showMessage(ui.portalAccessMessage, `Loaded ${entry.name} into portal access.${ui.portalAccessEmail.value ? ` Linked email ${ui.portalAccessEmail.value}.` : " Add the login email and password."}`, "info");
+        }
+
+        function defaultPortalPermissionsForCompany(company) {
+            return {
+                [PORTAL_PERMISSION_KEYS.INVENTORY]: companyHasFeature(company, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL),
+                [PORTAL_PERMISSION_KEYS.ORDER_ENTRY]: companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY) || companyHasFeature(company, COMPANY_FEATURE_KEYS.INBOUND_NOTICES),
+                [PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS]: companyHasFeature(company, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL),
+                [PORTAL_PERMISSION_KEYS.BILLING]: companyHasFeature(company, COMPANY_FEATURE_KEYS.BILLING),
+                [PORTAL_PERMISSION_KEYS.ADMIN]: false
+            };
+        }
+
+        function setPortalAccessPermissionInputs(permissions = {}) {
+            if (ui.portalPermInventory) ui.portalPermInventory.checked = permissions[PORTAL_PERMISSION_KEYS.INVENTORY] !== false;
+            if (ui.portalPermOrders) ui.portalPermOrders.checked = permissions[PORTAL_PERMISSION_KEYS.ORDER_ENTRY] !== false;
+            if (ui.portalPermDocuments) ui.portalPermDocuments.checked = permissions[PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS] !== false;
+            if (ui.portalPermBilling) ui.portalPermBilling.checked = permissions[PORTAL_PERMISSION_KEYS.BILLING] === true;
+            if (ui.portalPermAdmin) ui.portalPermAdmin.checked = permissions[PORTAL_PERMISSION_KEYS.ADMIN] === true;
+        }
+
+        function readPortalAccessPermissions() {
+            return {
+                [PORTAL_PERMISSION_KEYS.INVENTORY]: ui.portalPermInventory?.checked === true,
+                [PORTAL_PERMISSION_KEYS.ORDER_ENTRY]: ui.portalPermOrders?.checked === true,
+                [PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS]: ui.portalPermDocuments?.checked === true,
+                [PORTAL_PERMISSION_KEYS.BILLING]: ui.portalPermBilling?.checked === true,
+                [PORTAL_PERMISSION_KEYS.ADMIN]: ui.portalPermAdmin?.checked === true
+            };
+        }
+
+        function portalPermissionSummary(permissions = {}) {
+            const labels = [];
+            if (permissions[PORTAL_PERMISSION_KEYS.INVENTORY]) labels.push("Inventory");
+            if (permissions[PORTAL_PERMISSION_KEYS.ORDER_ENTRY]) labels.push("Orders");
+            if (permissions[PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS]) labels.push("Docs");
+            if (permissions[PORTAL_PERMISSION_KEYS.BILLING]) labels.push("Billing");
+            if (permissions[PORTAL_PERMISSION_KEYS.ADMIN]) labels.push("Admin");
+            return labels.join(", ") || "No portal areas";
         }
 
         function resetPortalAccessForm({ keepCompany = false } = {}) {
@@ -17595,6 +17654,7 @@
             ui.portalAccessEmail.value = "";
             ui.portalAccessActive.value = "true";
             if (ui.portalAccessSendWelcome) ui.portalAccessSendWelcome.checked = true;
+            setPortalAccessPermissionInputs(defaultPortalPermissionsForCompany(company));
             if (keepCompany) {
                 ui.portalAccessAccount.value = company;
                 ui.portalAccessEmail.focus();
@@ -18574,6 +18634,7 @@
             const password = String(ui.portalAccessPassword.value || "");
             const isActive = ui.portalAccessActive.value !== "false";
             const sendWelcomeEmail = ui.portalAccessSendWelcome?.checked !== false;
+            const portalPermissions = readPortalAccessPermissions();
 
             if (!accountName) {
                 return fail(ui.portalAccessMessage, "Choose the company for this portal login.", ui.portalAccessAccount);
@@ -18599,7 +18660,7 @@
                 }, async () => {
                     const response = await requestJson("/api/admin/portal-access", {
                         method: "POST",
-                        body: JSON.stringify({ accessId, accountName, email, password, isActive, sendWelcomeEmail })
+                        body: JSON.stringify({ accessId, accountName, email, password, isActive, sendWelcomeEmail, portalPermissions })
                     });
                     setActiveCompany(accountName, { force: true, rerender: false });
                     ui.scanAccount.value = accountName;
@@ -18663,6 +18724,7 @@
                         <div class="quick-meta">
                             ${esc(entry.accountName)} | ${entry.isActive ? "Portal active" : "Portal disabled"}${entry.lastLoginAt ? ` | Last login ${esc(formatDate(entry.lastLoginAt))}` : " | No portal login yet"}
                         </div>
+                        <div class="quick-meta">Access: ${esc(portalPermissionSummary(entry.portalPermissions || {}))}</div>
                     </div>
                     <button class="btn ghost mini" type="button" data-edit-portal-access="${attr(entry.id)}">Load</button>
                 </div>
@@ -18684,6 +18746,7 @@
             ui.portalAccessActive.value = match?.isActive === false ? "false" : (owner?.isActive === false ? "false" : "true");
             ui.portalAccessPassword.value = "";
             if (ui.portalAccessSendWelcome) ui.portalAccessSendWelcome.checked = true;
+            setPortalAccessPermissionInputs(match?.portalPermissions || defaultPortalPermissionsForCompany(accountName));
             if (owner) loadOwnerProfile(owner);
             ui.portalAccessPassword.focus();
         }
