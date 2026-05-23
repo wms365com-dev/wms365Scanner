@@ -46,6 +46,10 @@ button:disabled{opacity:.45}
 .status{padding:10px 12px;border-radius:12px;background:var(--accent-soft);color:var(--accent-2);font-weight:600;border:1px solid var(--line)}
 .status.good{color:#3f6f4d;background:#f0f5f1;border-color:#c9d9cd}
 .status.bad{color:#9a4d4d;background:#fff4f4;border-color:#e9c7c7}
+.queue-status{padding:9px 10px;border-radius:12px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}
+.queue-status.warn{background:#fff8e8;border-color:#e6c983;color:#8a5d1f}
+.queue-status.bad{background:#fff4f4;border-color:#e9c7c7;color:#9a4d4d}
+.queue-status.good{background:#f0f5f1;border-color:#c9d9cd;color:#3f6f4d}
 .scan-row{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
 .locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:10px 12px}
 .locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.08em}
@@ -79,6 +83,7 @@ button:disabled{opacity:.45}
 </header>
 <main>
   <div class="card">
+    <div class="queue-status hidden" id="queueStatus"></div>
     <div class="locked hidden" id="lockedCompanyWrap">
       <div><span>Company Locked</span><strong id="lockedCompanyLabel">-</strong></div>
       <button class="btn secondary" id="switchCompanyBtn" type="button">Back</button>
@@ -184,7 +189,7 @@ button:disabled{opacity:.45}
 </div>
 <script src="/mobile-bridge.js"></script>
 <script>
-const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,scanTarget:'',scannerStream:null,scannerTimer:null,requestedOrderId:'',requestedTaskId:''};
+const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,scanTarget:'',scannerStream:null,scannerTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false};
 const $=id=>document.getElementById(id);
 const GLOBAL_COMPANY_KEY='wms365-mobile-company-context';
 const MOBILE_DEVICE_STATE_CACHE_KEY='warehouse-state-v1';
@@ -195,7 +200,7 @@ async function requestJson(url,opt={}){
   const t=await r.text();
   let d={};
   try{d=t?JSON.parse(t):{}}catch{throw new Error(t||'Request failed')}
-  if(!r.ok) throw new Error(d.error||`Request failed (${r.status})`);
+  if(!r.ok){const error=new Error(d.error||`Request failed (${r.status})`);error.status=r.status;error.data=d;throw error}
   return d;
 }
 
@@ -238,6 +243,20 @@ function formatDateOnly(v){
   const text=String(v||'').trim();
   if(!/^\d{4}-\d{2}-\d{2}$/.test(text)) return '';
   try{return new Intl.DateTimeFormat(undefined,{dateStyle:'medium'}).format(new Date(`${text}T00:00:00`))}catch{return text}
+}
+async function updateQueueStatus(){
+  const el=$('queueStatus');
+  if(!el)return;
+  const summary=window.WMS365Mobile?.getQueueSummary
+    ? await window.WMS365Mobile.getQueueSummary(['MOBILE_PICK_CONFIRM']).catch(()=>({pending:0,failed:0,total:0}))
+    : {pending:0,failed:0,total:0};
+  el.classList.toggle('hidden',!summary.total);
+  el.classList.toggle('bad',summary.failed>0);
+  el.classList.toggle('warn',summary.pending>0&&summary.failed===0);
+  el.classList.toggle('good',summary.total>0&&summary.pending===0&&summary.failed===0);
+  if(summary.failed>0)el.textContent=`${summary.failed} pick sync failed. Tap here to retry.`;
+  else if(summary.pending>0)el.textContent=`${summary.pending} pick${summary.pending===1?'':'s'} saved on this device and waiting to sync.`;
+  else el.textContent='';
 }
 function traceabilityText(p){
   return [p?.lotNumber?`Lot ${p.lotNumber}`:'',p?.expirationDate?`Exp ${formatDateOnly(p.expirationDate)}`:''].filter(Boolean).join(' | ')||'Standard stock rotation';
@@ -482,6 +501,7 @@ function startOrder(order){
       return picks.map((entry,index)=>({
         orderId:order.id,
         lineId:line.id||`${line.sku}-${index}`,
+        idempotencyKey:`pick-${order.id}-${line.id||line.sku}-${index}-${normalize(entry.location||'')}-${normalize(entry.lotNumber||'')}-${normalizeDateInput(entry.expirationDate||'')}-${Number(entry.quantity||line.quantity||0)||0}`,
         sku:line.sku,
         description:line.description||'',
         trackingLevel:entry.trackingLevel||line.trackingLevel,
@@ -519,6 +539,30 @@ function nextPickField(){
   const current=visible.indexOf(document.activeElement);
   const next=visible[Math.min(visible.length-1,current+1)]||visible[0];
   next?.focus();
+}
+
+async function sendPickConfirmation(p,{location,sku,lot,expiration,quantity}){
+  const payload={
+    orderId:p.orderId,
+    lineId:p.lineId,
+    location,
+    sku,
+    lot,
+    expiry:expiration,
+    quantity,
+    idempotencyKey:p.idempotencyKey,
+    accountName:state.selectedOrder?.accountName||state.company||''
+  };
+  if(window.WMS365Mobile?.queueOrSendTransaction){
+    return window.WMS365Mobile.queueOrSendTransaction({
+      url:'/api/mobile/pick-confirmations',
+      method:'POST',
+      payload,
+      actionType:'MOBILE_PICK_CONFIRM'
+    });
+  }
+  const data=await requestJson('/api/mobile/pick-confirmations',{method:'POST',body:JSON.stringify(window.WMS365Mobile?.envelope?.(payload,'MOBILE_PICK_CONFIRM')||payload)});
+  return {queued:false,data};
 }
 
 function acceptScanValue(targetId,value){
@@ -623,9 +667,9 @@ $('fillExpectedBtn').addEventListener('click',fillExpectedPickValues);
 $('nextFieldBtn').addEventListener('click',nextPickField);
 $('closeScannerBtn').addEventListener('click',stopScanner);
 
-$('confirmPickBtn').addEventListener('click',()=>{
+$('confirmPickBtn').addEventListener('click',async()=>{
   const p=currentPick();
-  if(!p) return;
+  if(!p||state.savingPick) return;
   const loc=normalize($('confirmLocation').value);
   const sku=normalize($('confirmSku').value);
   const lot=normalize($('confirmLot').value);
@@ -640,10 +684,27 @@ $('confirmPickBtn').addEventListener('click',()=>{
   if(expectedLot && lot!==expectedLot)return fail('Lot number does not match the required FEFO pick.',$('confirmLot'));
   if(expectedExpiration && expiration!==expectedExpiration)return fail('Expiration date does not match the required FEFO pick.',$('confirmExpiration'));
   if(qty!==Number(p.quantity||0))return fail('Picked quantity must match the required quantity.',$('confirmQty'));
-  state.index+=1;
-  $('pickMessage').className='status good';
-  window.WMS365Mobile?.vibrate?.(70);
-  renderPick();
+  state.savingPick=true;
+  $('confirmPickBtn').disabled=true;
+  $('pickMessage').className='status';
+  $('pickMessage').textContent='Saving pick confirmation...';
+  try{
+    const result=await sendPickConfirmation(p,{location:loc,sku,lot,expiration,quantity:qty});
+    state.index+=1;
+    $('pickMessage').className='status good';
+    $('pickMessage').textContent=result?.queued?'Pick saved on this device. It will sync when online.':'Pick confirmed.';
+    window.WMS365Mobile?.vibrate?.(70);
+    window.WMS365Mobile?.beep?.('success');
+    await updateQueueStatus();
+    renderPick();
+  }catch(error){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent=error.message||'Unable to save pick confirmation.';
+    window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingPick=false;
+    $('confirmPickBtn').disabled=false;
+  }
 });
 
 $('skipPickBtn').addEventListener('click',()=>{
@@ -653,6 +714,13 @@ $('skipPickBtn').addEventListener('click',()=>{
 
 $('markPickedBtn').addEventListener('click',async()=>{
   if(!state.selectedOrder) return;
+  const summary=window.WMS365Mobile?.getQueueSummary?await window.WMS365Mobile.getQueueSummary(['MOBILE_PICK_CONFIRM']).catch(()=>({total:0})): {total:0};
+  if(summary.total){
+    $('doneOrderMeta').textContent=`${summary.total} pick confirmation${summary.total===1?'':'s'} still need to sync before marking picked.`;
+    await window.WMS365Mobile?.syncQueue?.().catch(()=>{});
+    await updateQueueStatus();
+    return;
+  }
   const body=window.WMS365Mobile?.envelope?.({status:'PICKED'},'MOBILE_PICK_MARK_PICKED')||{status:'PICKED'};
   const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
   state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
@@ -773,6 +841,13 @@ document.addEventListener('keydown',event=>{
     else submitPickupProof();
   }
 });
+$('queueStatus')?.addEventListener('click',async()=>{
+  await window.WMS365Mobile?.retryFailedTransactions?.(['MOBILE_PICK_CONFIRM']).catch(()=>{});
+  await updateQueueStatus();
+});
+window.addEventListener('wms365:queue-changed',()=>updateQueueStatus());
+window.addEventListener('online',()=>updateQueueStatus());
+updateQueueStatus();
 window.addEventListener('beforeunload',()=>window.WMS365Mobile?.setKeepAwake?.(false));
 </script>
 </body>

@@ -1214,6 +1214,49 @@ app.post("/api/inventory-counts/:id/post", requireInventoryAdjustPermission(), a
     }
 });
 
+app.post("/api/mobile/pick-confirmations", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction(
+            (client) => savePickConfirmation(client, req.body || {}, req.appUser, req),
+            { context: { action: "mobile_pick_confirmation", orderId: req.body?.orderId || req.body?.order_id } }
+        );
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "PICK", req.body || {});
+        next(error);
+    }
+});
+
+app.post("/api/mobile/put-away-confirmations", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction((client) => saveMobileExecutionConfirmation(client, "PUT_AWAY", req.body || {}, req.appUser, req));
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "PUT_AWAY", req.body || {});
+        next(error);
+    }
+});
+
+app.post("/api/mobile/move-confirmations", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction((client) => saveMobileExecutionConfirmation(client, "MOVE", req.body || {}, req.appUser, req));
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "MOVE", req.body || {});
+        next(error);
+    }
+});
+
+app.post("/api/mobile/receiving-confirmations", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction((client) => saveMobileExecutionConfirmation(client, "RECEIVING", req.body || {}, req.appUser, req));
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "RECEIVING", req.body || {});
+        next(error);
+    }
+});
+
 app.get("/api/export", async (req, res, next) => {
     try {
         res.json({
@@ -5846,6 +5889,67 @@ async function initializeDatabase() {
             updated_at timestamptz not null default now()
         );
     `);
+    await pool.query(`
+        create table if not exists pick_confirmations (
+            id bigserial primary key,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            line_id bigint references portal_order_lines(id) on delete set null,
+            worker_id bigint references app_users(id) on delete set null,
+            device_id text not null default '',
+            location text not null default '',
+            sku text not null default '',
+            lot text not null default '',
+            expiry text not null default '',
+            quantity integer not null check (quantity > 0),
+            timestamp timestamptz not null default now(),
+            sync_status text not null default 'SYNCED',
+            idempotency_key text not null,
+            source text not null default 'mobile_web',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table pick_confirmations add column if not exists source text not null default 'mobile_web'");
+    await pool.query("alter table pick_confirmations add column if not exists created_at timestamptz not null default now()");
+    await pool.query("alter table pick_confirmations add column if not exists updated_at timestamptz not null default now()");
+    await pool.query("alter table pick_confirmations drop constraint if exists pick_confirmations_sync_status_check");
+    await pool.query("alter table pick_confirmations add constraint pick_confirmations_sync_status_check check (sync_status in ('PENDING', 'SYNCED', 'FAILED'))");
+    await pool.query("create unique index if not exists idx_pick_confirmations_idempotency on pick_confirmations (idempotency_key)");
+    await pool.query("create index if not exists idx_pick_confirmations_order_line on pick_confirmations (order_id, line_id)");
+    await pool.query("create index if not exists idx_pick_confirmations_worker_time on pick_confirmations (worker_id, timestamp desc)");
+    await pool.query("create index if not exists idx_pick_confirmations_location_sku on pick_confirmations (location, sku)");
+    await pool.query(`
+        create table if not exists mobile_execution_confirmations (
+            id bigserial primary key,
+            confirmation_type text not null,
+            source_type text not null default '',
+            source_id bigint,
+            worker_id bigint references app_users(id) on delete set null,
+            device_id text not null default '',
+            account_name text not null default '',
+            location text not null default '',
+            from_location text not null default '',
+            to_location text not null default '',
+            sku text not null default '',
+            lot text not null default '',
+            expiry text not null default '',
+            quantity integer not null default 0 check (quantity >= 0),
+            sync_status text not null default 'SYNCED',
+            idempotency_key text not null,
+            source text not null default 'mobile_web',
+            payload jsonb not null default '{}'::jsonb,
+            timestamp timestamptz not null default now(),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_sync_status_check");
+    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_sync_status_check check (sync_status in ('PENDING', 'SYNCED', 'FAILED'))");
+    await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_type_check");
+    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING'))");
+    await pool.query("create unique index if not exists idx_mobile_execution_confirmations_idempotency on mobile_execution_confirmations (idempotency_key)");
+    await pool.query("create index if not exists idx_mobile_execution_confirmations_source on mobile_execution_confirmations (source_type, source_id, confirmation_type)");
+    await pool.query("create index if not exists idx_mobile_execution_confirmations_worker_time on mobile_execution_confirmations (worker_id, timestamp desc)");
     await pool.query(`
         create table if not exists portal_order_documents (
             id bigserial primary key,
@@ -17562,6 +17666,332 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     return updatedOrder;
 }
 
+function mobileValidationError(statusCode, message, reason = "") {
+    const error = httpError(statusCode, message);
+    error.mobileAuditReason = reason || message;
+    return error;
+}
+
+function getMobileIdempotencyKey(input = {}) {
+    return normalizeFreeText(
+        input.idempotencyKey
+        || input.idempotency_key
+        || input.auditContext?.idempotencyKey
+        || input.auditContext?.idempotency_key
+        || ""
+    ).slice(0, 180);
+}
+
+function getMobileDeviceId(input = {}) {
+    return normalizeFreeText(
+        input.deviceId
+        || input.device_id
+        || input.auditContext?.device_id
+        || input.auditContext?.deviceId
+        || ""
+    ).slice(0, 120);
+}
+
+function getMobileSource(input = {}) {
+    const source = normalizeFreeText(input.source || input.auditContext?.source || "mobile_web").toLowerCase();
+    return ["android_app", "mobile_web"].includes(source) ? source : "mobile_web";
+}
+
+function mapPickConfirmationRow(row) {
+    return {
+        id: String(row.id),
+        orderId: String(row.order_id || ""),
+        lineId: row.line_id ? String(row.line_id) : "",
+        workerId: row.worker_id ? String(row.worker_id) : "",
+        deviceId: row.device_id || "",
+        location: row.location || "",
+        sku: row.sku || "",
+        lot: row.lot || "",
+        expiry: normalizeDateOnly(row.expiry),
+        quantity: Number(row.quantity) || 0,
+        timestamp: row.timestamp ? new Date(row.timestamp).toISOString() : null,
+        syncStatus: row.sync_status || "SYNCED",
+        idempotencyKey: row.idempotency_key || "",
+        source: row.source || "mobile_web"
+    };
+}
+
+function mapMobileExecutionConfirmationRow(row) {
+    return {
+        id: String(row.id),
+        confirmationType: row.confirmation_type || "",
+        sourceType: row.source_type || "",
+        sourceId: row.source_id ? String(row.source_id) : "",
+        workerId: row.worker_id ? String(row.worker_id) : "",
+        deviceId: row.device_id || "",
+        accountName: row.account_name || "",
+        location: row.location || "",
+        fromLocation: row.from_location || "",
+        toLocation: row.to_location || "",
+        sku: row.sku || "",
+        lot: row.lot || "",
+        expiry: normalizeDateOnly(row.expiry),
+        quantity: Number(row.quantity) || 0,
+        syncStatus: row.sync_status || "SYNCED",
+        idempotencyKey: row.idempotency_key || "",
+        source: row.source || "mobile_web",
+        timestamp: row.timestamp ? new Date(row.timestamp).toISOString() : null
+    };
+}
+
+async function auditMobileExecutionException(error, req, actionType, input = {}) {
+    if (!databaseReady || !error?.mobileAuditReason) return;
+    try {
+        const details = [
+            `Action ${normalizeText(actionType)}`,
+            input.orderId || input.order_id ? `Order ${input.orderId || input.order_id}` : "",
+            input.lineId || input.line_id ? `Line ${input.lineId || input.line_id}` : "",
+            input.sourceId || input.source_id ? `Source ${input.sourceId || input.source_id}` : "",
+            input.location ? `Location ${normalizeText(input.location)}` : "",
+            input.sku ? `SKU ${normalizeText(input.sku)}` : "",
+            getMobileDeviceId(input) ? `Device ${getMobileDeviceId(input)}` : "",
+            req?.appUser?.email || "",
+            error.mobileAuditReason
+        ].filter(Boolean).join(" | ");
+        await insertActivity(pool, "security", `Mobile ${normalizeText(actionType).toLowerCase()} confirmation rejected`, details);
+    } catch (auditError) {
+        console.error("Unable to audit mobile confirmation rejection:", auditError.message || auditError);
+    }
+}
+
+async function savePickConfirmation(client, input = {}, appUser = null, req = null) {
+    const idempotencyKey = getMobileIdempotencyKey(input);
+    if (!idempotencyKey) {
+        throw mobileValidationError(400, "A pick confirmation idempotency key is required.", "missing_idempotency_key");
+    }
+
+    const existing = await client.query("select * from pick_confirmations where idempotency_key = $1 limit 1", [idempotencyKey]);
+    if (existing.rowCount === 1) {
+        return { duplicate: true, confirmation: mapPickConfirmationRow(existing.rows[0]) };
+    }
+
+    const orderId = toPositiveInt(input.orderId || input.order_id);
+    const lineId = toPositiveInt(input.lineId || input.line_id);
+    const location = normalizeText(input.location);
+    const sku = normalizeText(input.sku || input.skuOrUpc || input.sku_or_upc);
+    const lot = normalizeText(input.lot || input.lotNumber || input.lot_number || "");
+    const expiry = normalizeDateOnly(input.expiry || input.expirationDate || input.expiration_date || "");
+    const quantity = toPositiveInt(input.quantity || input.qty || input.pickedQuantity || input.picked_quantity);
+    const deviceId = getMobileDeviceId(input);
+    const source = getMobileSource(input);
+    const workerId = toPositiveInt(appUser?.id || appUser?.app_user_id) || null;
+
+    if (!orderId) throw mobileValidationError(400, "A valid order is required for pick confirmation.", "missing_order_id");
+    if (!location) throw mobileValidationError(400, "Scan or key in the pick location.", "missing_location");
+    if (!sku) throw mobileValidationError(400, "Scan or key in the SKU.", "missing_sku");
+    if (!quantity) throw mobileValidationError(400, "Picked quantity must be greater than zero.", "missing_quantity");
+
+    const orderResult = await client.query("select * from portal_orders where id = $1 limit 1 for update", [orderId]);
+    if (orderResult.rowCount !== 1) {
+        throw mobileValidationError(404, "That order could not be found.", "missing_order");
+    }
+    const orderRow = orderResult.rows[0];
+    await assertAppUserCompanyAccess(client, appUser, orderRow.account_name);
+    await assertAssignedMobileTaskForWorker(client, req || { appUser }, {
+        sourceType: "PORTAL_ORDER",
+        sourceId: orderId,
+        taskTypes: ["PICK"],
+        permission: RBAC_PERMISSIONS.MOBILE_WORKER_ACTION
+    });
+    if (normalizeText(orderRow.status) !== "RELEASED") {
+        throw mobileValidationError(409, "This order is no longer in released picking status. Refresh before continuing.", "stale_order_status");
+    }
+
+    const lineResult = await client.query(
+        `
+            select
+                l.*,
+                c.lot_tracked as item_lot_tracked,
+                c.expiration_tracked as item_expiration_tracked
+            from portal_order_lines l
+            left join item_catalog c
+              on c.account_name = $1
+             and c.sku = l.sku
+            where l.order_id = $2
+              and (
+                ($3::bigint is not null and l.id = $3)
+                or ($3::bigint is null and l.sku = $4)
+              )
+            order by l.line_number asc, l.id asc
+            for update of l
+        `,
+        [orderRow.account_name, orderId, lineId || null, sku]
+    );
+    if (lineResult.rowCount !== 1) {
+        throw mobileValidationError(400, "That SKU does not match a single line on this order.", "wrong_sku_or_ambiguous_line");
+    }
+    const line = lineResult.rows[0];
+    if (normalizeText(line.sku) !== sku) {
+        throw mobileValidationError(400, "Scanned SKU does not match the current pick line.", "wrong_sku");
+    }
+
+    const allocations = (await client.query(
+        `
+            select *
+            from portal_order_allocations
+            where order_id = $1
+              and order_line_id = $2
+            order by location asc, lot_number asc, expiration_date asc, id asc
+            for update
+        `,
+        [orderId, line.id]
+    )).rows;
+
+    const locationMatches = allocations.filter((row) => normalizeText(row.location) === location && normalizeText(row.sku) === sku);
+    if (allocations.length && !locationMatches.length) {
+        throw mobileValidationError(400, "This SKU is not allocated to the scanned location.", "wrong_location");
+    }
+
+    const lotRequired = line.item_lot_tracked === true || locationMatches.some((row) => normalizeText(row.lot_number));
+    const expiryRequired = line.item_expiration_tracked === true || locationMatches.some((row) => normalizeDateOnly(row.expiration_date));
+    if (lotRequired && !lot) {
+        throw mobileValidationError(400, "Lot number is required for this pick.", "missing_lot");
+    }
+    if (expiryRequired && !expiry) {
+        throw mobileValidationError(400, "Expiration date is required for this pick.", "missing_expiry");
+    }
+
+    const identityMatches = locationMatches.length
+        ? locationMatches.filter((row) => (!normalizeText(row.lot_number) || normalizeText(row.lot_number) === lot)
+            && (!normalizeDateOnly(row.expiration_date) || normalizeDateOnly(row.expiration_date) === expiry))
+        : [];
+    if (locationMatches.length && !identityMatches.length) {
+        throw mobileValidationError(400, "Lot or expiration does not match the allocated pick.", "wrong_lot_or_expiry");
+    }
+
+    const identityLimit = (identityMatches.length ? identityMatches : locationMatches).reduce((sum, row) => sum + (Number(row.allocated_quantity) || 0), 0)
+        || Number(line.requested_quantity) || 0;
+    const lineLimit = Number(line.requested_quantity) || 0;
+    const identityConfirmed = await client.query(
+        `
+            select coalesce(sum(quantity), 0)::integer as quantity
+            from pick_confirmations
+            where order_id = $1
+              and line_id = $2
+              and location = $3
+              and sku = $4
+              and lot = $5
+              and expiry = $6
+              and sync_status <> 'FAILED'
+        `,
+        [orderId, line.id, location, sku, lot, expiry]
+    );
+    const lineConfirmed = await client.query(
+        `
+            select coalesce(sum(quantity), 0)::integer as quantity
+            from pick_confirmations
+            where order_id = $1
+              and line_id = $2
+              and sync_status <> 'FAILED'
+        `,
+        [orderId, line.id]
+    );
+    if ((Number(identityConfirmed.rows[0]?.quantity) || 0) + quantity > identityLimit) {
+        throw mobileValidationError(409, "This scan would exceed the allocated quantity for this location.", "quantity_exceeds_location_allocation");
+    }
+    if ((Number(lineConfirmed.rows[0]?.quantity) || 0) + quantity > lineLimit) {
+        throw mobileValidationError(409, "This scan would exceed the order line quantity.", "quantity_exceeds_line");
+    }
+
+    const insertResult = await client.query(
+        `
+            insert into pick_confirmations (
+                order_id, line_id, worker_id, device_id, location, sku, lot, expiry,
+                quantity, sync_status, idempotency_key, source, timestamp, created_at, updated_at
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'SYNCED', $10, $11, now(), now(), now())
+            returning *
+        `,
+        [orderId, line.id, workerId, deviceId, location, sku, lot, expiry, quantity, idempotencyKey, source]
+    );
+    await insertActivity(
+        client,
+        "order",
+        `Confirmed pick scan for order ${orderRow.order_code || makePortalOrderCode(orderId)}`,
+        `${orderRow.account_name} | ${location} | ${sku} | ${formatCount(quantity, "case")} | ${appUser?.email || "mobile worker"} | ${deviceId || "unknown device"}`
+    );
+    return { duplicate: false, confirmation: mapPickConfirmationRow(insertResult.rows[0]) };
+}
+
+async function saveMobileExecutionConfirmation(client, confirmationType, input = {}, appUser = null, req = null) {
+    const normalizedType = normalizeText(confirmationType);
+    if (!["PUT_AWAY", "MOVE", "RECEIVING"].includes(normalizedType)) {
+        throw mobileValidationError(400, "Unsupported mobile confirmation type.", "unsupported_confirmation_type");
+    }
+    const idempotencyKey = getMobileIdempotencyKey(input);
+    if (!idempotencyKey) {
+        throw mobileValidationError(400, "A mobile confirmation idempotency key is required.", "missing_idempotency_key");
+    }
+    const existing = await client.query("select * from mobile_execution_confirmations where idempotency_key = $1 limit 1", [idempotencyKey]);
+    if (existing.rowCount === 1) {
+        return { duplicate: true, confirmation: mapMobileExecutionConfirmationRow(existing.rows[0]) };
+    }
+
+    const sourceType = normalizeText(input.sourceType || input.source_type || (normalizedType === "MOVE" ? "INVENTORY" : "PORTAL_INBOUND"));
+    const sourceId = toPositiveInt(input.sourceId || input.source_id || input.inboundId || input.inbound_id || input.orderId || input.order_id);
+    const taskTypeMap = {
+        RECEIVING: ["RECEIVING"],
+        PUT_AWAY: ["PUT_AWAY"],
+        MOVE: ["REPLENISHMENT"]
+    };
+    if (sourceType && sourceId) {
+        await assertAssignedMobileTaskForWorker(client, req || { appUser }, {
+            sourceType,
+            sourceId,
+            taskTypes: taskTypeMap[normalizedType] || [],
+            permission: RBAC_PERMISSIONS.MOBILE_WORKER_ACTION
+        });
+    }
+
+    const quantity = toNonNegativeInt(input.quantity || input.qty || input.receivedQuantity || input.received_quantity || input.movedQuantity || input.moved_quantity) || 0;
+    const accountName = normalizeText(input.accountName || input.account_name || input.company || input.customer || "");
+    if (accountName) {
+        await assertAppUserCompanyAccess(client, appUser, accountName);
+    }
+
+    const insertResult = await client.query(
+        `
+            insert into mobile_execution_confirmations (
+                confirmation_type, source_type, source_id, worker_id, device_id, account_name,
+                location, from_location, to_location, sku, lot, expiry, quantity,
+                sync_status, idempotency_key, source, payload, timestamp, created_at, updated_at
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'SYNCED', $14, $15, $16::jsonb, now(), now(), now())
+            returning *
+        `,
+        [
+            normalizedType,
+            sourceType,
+            sourceId || null,
+            toPositiveInt(appUser?.id || appUser?.app_user_id) || null,
+            getMobileDeviceId(input),
+            accountName,
+            normalizeText(input.location || ""),
+            normalizeText(input.fromLocation || input.from_location || ""),
+            normalizeText(input.toLocation || input.to_location || ""),
+            normalizeText(input.sku || input.skuOrUpc || input.sku_or_upc || ""),
+            normalizeText(input.lot || input.lotNumber || input.lot_number || ""),
+            normalizeDateOnly(input.expiry || input.expirationDate || input.expiration_date || ""),
+            quantity,
+            idempotencyKey,
+            getMobileSource(input),
+            JSON.stringify(input || {})
+        ]
+    );
+    await insertActivity(
+        client,
+        "warehouse",
+        `Confirmed mobile ${normalizedType.toLowerCase().replace(/_/g, " ")}`,
+        [accountName, normalizeText(input.location || input.fromLocation || input.from_location || ""), normalizeText(input.sku || ""), appUser?.email || ""].filter(Boolean).join(" | ")
+    );
+    return { duplicate: false, confirmation: mapMobileExecutionConfirmationRow(insertResult.rows[0]) };
+}
+
 function sanitizePickedQuantityCorrections(input) {
     const source = Array.isArray(input?.lines)
         ? input.lines
@@ -24298,6 +24728,8 @@ module.exports = {
     safeTransferInventoryQuantity,
     recordInventoryTransaction,
     getInventoryTransactionHistory,
+    savePickConfirmation,
+    saveMobileExecutionConfirmation,
     findInventoryLine,
     upsertInventoryLine,
     consumePortalOrderInventory,

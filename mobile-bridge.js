@@ -114,9 +114,25 @@
     };
   }
 
+  function makeIdempotencyKey(actionType = "mobile") {
+    const prefix = String(actionType || "mobile").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "mobile";
+    if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+
+  function withIdempotency(payload, actionType) {
+    const next = { ...(payload || {}) };
+    const existing = next.idempotencyKey || next.idempotency_key || next.auditContext?.idempotencyKey || "";
+    const key = existing || makeIdempotencyKey(actionType);
+    next.idempotencyKey = key;
+    next.idempotency_key = key;
+    return next;
+  }
+
   function envelope(payload, actionType) {
+    const body = withIdempotency(payload, actionType);
     return {
-      ...(payload || {}),
+      ...body,
       ...getAuditContext(actionType)
     };
   }
@@ -186,14 +202,39 @@
     });
   }
 
+  async function putQueueRecord(record) {
+    const db = await openQueueDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(QUEUE_STORE, "readwrite");
+      tx.objectStore(QUEUE_STORE).put(record);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Unable to update offline queue."));
+    });
+    db.close();
+    return record;
+  }
+
+  async function deleteQueueRecord(localId) {
+    const db = await openQueueDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(QUEUE_STORE, "readwrite");
+      tx.objectStore(QUEUE_STORE).delete(localId);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Unable to clear synced transaction."));
+    });
+    db.close();
+  }
+
   async function queueTransaction({ url, method = "POST", payload = {}, actionType = "" }) {
+    const body = envelope(payload, actionType);
     const db = await openQueueDb();
     const record = {
       localId: `txn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       url,
       method,
-      payload: envelope(payload, actionType),
+      payload: body,
       actionType,
+      idempotencyKey: body.idempotencyKey || body.idempotency_key || "",
       status: "PENDING",
       attempts: 0,
       createdAt: new Date().toISOString(),
@@ -220,6 +261,19 @@
     });
     db.close();
     return records;
+  }
+
+  async function getQueueSummary(actionTypes = []) {
+    const filter = new Set((Array.isArray(actionTypes) ? actionTypes : [actionTypes]).filter(Boolean));
+    const records = await getQueuedTransactions();
+    return records
+      .filter((record) => !filter.size || filter.has(record.actionType))
+      .reduce((summary, record) => {
+        const status = record.status === "FAILED" ? "failed" : "pending";
+        summary[status] += 1;
+        summary.total += 1;
+        return summary;
+      }, { pending: 0, failed: 0, total: 0 });
   }
 
   async function cacheData(key, payload) {
@@ -273,36 +327,64 @@
           body: JSON.stringify(record.payload || {})
         });
         if (!response.ok) throw new Error(`Sync failed (${response.status})`);
-        const db = await openQueueDb();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(QUEUE_STORE, "readwrite");
-          tx.objectStore(QUEUE_STORE).delete(record.localId);
-          tx.oncomplete = resolve;
-          tx.onerror = () => reject(tx.error || new Error("Unable to clear synced transaction."));
-        });
-        db.close();
+        await deleteQueueRecord(record.localId);
         synced += 1;
       } catch (error) {
         failed += 1;
-        const db = await openQueueDb();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(QUEUE_STORE, "readwrite");
-          tx.objectStore(QUEUE_STORE).put({
-            ...record,
-            status: "FAILED",
-            attempts: (Number(record.attempts) || 0) + 1,
-            lastError: error.message || "Sync failed",
-            updatedAt: new Date().toISOString()
-          });
-          tx.oncomplete = resolve;
-          tx.onerror = () => reject(tx.error || new Error("Unable to update failed transaction."));
+        await putQueueRecord({
+          ...record,
+          status: "FAILED",
+          attempts: (Number(record.attempts) || 0) + 1,
+          lastError: error.message || "Sync failed",
+          updatedAt: new Date().toISOString()
         });
-        db.close();
         break;
       }
     }
     window.dispatchEvent(new CustomEvent("wms365:queue-changed", { detail: { synced, failed } }));
     return { synced, failed };
+  }
+
+  async function retryFailedTransactions(actionTypes = []) {
+    const filter = new Set((Array.isArray(actionTypes) ? actionTypes : [actionTypes]).filter(Boolean));
+    const failed = (await getQueuedTransactions()).filter((record) => record.status === "FAILED" && (!filter.size || filter.has(record.actionType)));
+    for (const record of failed) {
+      await putQueueRecord({ ...record, status: "PENDING", updatedAt: new Date().toISOString() });
+    }
+    window.dispatchEvent(new CustomEvent("wms365:queue-changed", { detail: { retrying: failed.length } }));
+    return syncQueue();
+  }
+
+  async function queueOrSendTransaction({ url, method = "POST", payload = {}, actionType = "", queueOnStatus = [0, 408, 429, 500, 502, 503, 504] }) {
+    const body = envelope(payload, actionType);
+    if (!isOnline()) {
+      const record = await queueTransaction({ url, method, payload: body, actionType });
+      return { queued: true, record };
+    }
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!response.ok) {
+        const error = new Error(data.error || `Request failed (${response.status})`);
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      window.dispatchEvent(new CustomEvent("wms365:queue-changed", { detail: { synced: 1 } }));
+      return { queued: false, data };
+    } catch (error) {
+      const status = Number(error.status) || 0;
+      if (!navigator.onLine || queueOnStatus.includes(status) || status >= 500) {
+        const record = await queueTransaction({ url, method, payload: body, actionType });
+        return { queued: true, record, error };
+      }
+      throw error;
+    }
   }
 
   async function registerServiceWorker() {
@@ -327,6 +409,7 @@
     getPlatform,
     getAppVersion,
     getAuditContext,
+    makeIdempotencyKey,
     envelope,
     vibrate,
     beep,
@@ -335,7 +418,10 @@
     clearWebData,
     scanBarcode,
     queueTransaction,
+    queueOrSendTransaction,
     getQueuedTransactions,
+    getQueueSummary,
+    retryFailedTransactions,
     cacheData,
     getCachedData,
     syncQueue,

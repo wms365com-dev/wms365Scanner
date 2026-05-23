@@ -189,22 +189,40 @@ async function readCachedStatePayload(){
   const shared=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData(MOBILE_DEVICE_STATE_CACHE_KEY,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
   return shared?.payload||null;
 }
-async function queuedCounts(){try{return await localAll("pendingCounts")}catch{return[]}}
+async function queuedCounts(){
+  if(window.WMS365Mobile?.getQueuedTransactions){
+    const queued=await window.WMS365Mobile.getQueuedTransactions().catch(()=>[]);
+    return queued.filter(record=>record.actionType==="INVENTORY_COUNT_SUBMIT");
+  }
+  try{return await localAll("pendingCounts")}catch{return[]}
+}
 async function updateQueueStatus(){
   const queued=await queuedCounts();state.pendingCount=queued.length;
   const el=$("queueStatus");if(!el)return;
-  el.className=`queue-status ${queued.length||state.offlineMode?"warn":"good"} ${queued.length||state.offlineMode?"":"hidden"}`;
-  if(queued.length)el.textContent=`${queued.length} count${queued.length===1?"":"s"} saved on this device and waiting to sync.`;
+  const failed=queued.filter(record=>record.status==="FAILED").length;
+  el.className=`queue-status ${failed?"warn":queued.length||state.offlineMode?"warn":"good"} ${queued.length||state.offlineMode?"":"hidden"}`;
+  if(failed)el.textContent=`${failed} count sync failed. Tap Retry to send again.`;
+  else if(queued.length)el.textContent=`${queued.length} count${queued.length===1?"":"s"} saved on this device and waiting to sync.`;
   else if(state.offlineMode)el.textContent="Offline mode: using the last saved company, location, and SKU data on this device.";
   else el.textContent="";
 }
 async function queuePendingCount(payload){
+  if(window.WMS365Mobile?.queueTransaction){
+    const record=await window.WMS365Mobile.queueTransaction({url:"/api/inventory-counts",method:"POST",payload,actionType:"INVENTORY_COUNT_SUBMIT"});
+    await updateQueueStatus();
+    return record;
+  }
   const record={localId:makeLocalId(),payload,createdAt:new Date().toISOString(),attempts:0};
   await localPut("pendingCounts",record);
   await updateQueueStatus();
   return record;
 }
 async function syncPendingCounts(){
+  if(window.WMS365Mobile?.syncQueue){
+    const result=await window.WMS365Mobile.syncQueue().catch(()=>({synced:0}));
+    await updateQueueStatus();
+    return Number(result?.synced)||0;
+  }
   const queued=await queuedCounts();
   if(!queued.length||!navigator.onLine){await updateQueueStatus();return 0}
   let synced=0;
@@ -467,6 +485,8 @@ $("photoBtn").addEventListener("click",()=>$("photoInput").click());
 $("photoInput").addEventListener("change",handlePhotoChange);
 $("clearPhotoBtn").addEventListener("click",clearPhoto);
 $("closeScannerBtn").addEventListener("click",stopScanner);
+$("queueStatus").addEventListener("click",()=>window.WMS365Mobile?.retryFailedTransactions?.(["INVENTORY_COUNT_SUBMIT"]).then(updateQueueStatus).catch(()=>updateQueueStatus()));
+window.addEventListener("wms365:queue-changed",()=>updateQueueStatus());
 window.addEventListener("online",()=>syncPendingCounts().then((synced)=>{if(synced){$("message").className="status good";$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;return load()}}).catch(()=>updateQueueStatus()));
 window.addEventListener("offline",()=>{state.offlineMode=true;updateQueueStatus()});
 window.addEventListener("beforeunload",()=>window.WMS365Mobile?.setKeepAwake?.(false));
