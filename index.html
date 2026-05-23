@@ -24911,14 +24911,20 @@
                 try {
                     const raw = JSON.parse(String(reader.result || ""));
                     const imported = sanitizeServerImport(raw.state || raw);
-                    if (!window.confirm("Importing this backup will replace the shared server inventory and recent activity. Continue?")) {
+                    if (!window.confirm("Importing this backup will replace the shared server inventory and recent activity. WMS365 will create a server-side backup before import. Continue?")) {
                         ui.importFileInput.value = "";
+                        return;
+                    }
+                    const confirmationToken = window.prompt('Type IMPORT WMS365 to confirm this destructive import.');
+                    if (confirmationToken !== "IMPORT WMS365") {
+                        ui.importFileInput.value = "";
+                        showMessage(ui.backupMessage, "Import cancelled. The confirmation text did not match.", "error");
                         return;
                     }
 
                     await requestJson("/api/import", {
                         method: "POST",
-                        body: JSON.stringify(imported)
+                        body: JSON.stringify({ ...imported, confirmationToken })
                     });
 
                     await syncServerState(true);

@@ -68,6 +68,11 @@ function readEnv(name, fallback = "") {
     return stripEnvWrappingQuotes(value);
 }
 
+function readBooleanEnv(name, fallback = false) {
+    const value = readEnv(name, fallback ? "true" : "false");
+    return /^(1|true|yes|on)$/i.test(value);
+}
+
 const normalizeEmail = bootstrapNormalizeEmail;
 const normalizeFreeText = bootstrapNormalizeFreeText;
 
@@ -135,9 +140,21 @@ const PORTAL_SESSION_TTL_DAYS = 14;
 const APP_SESSION_TTL_DAYS = 14;
 const PORTAL_SESSION_MAX_AGE = PORTAL_SESSION_TTL_DAYS * 24 * 60 * 60;
 const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
-const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(readEnv("APP_ADMIN_EMAIL", "admin@wms365.local"));
-const DEFAULT_ADMIN_PASSWORD = readEnv("APP_ADMIN_PASSWORD", "ChangeMeNow123!");
+const NODE_ENV = normalizeFreeText(readEnv("NODE_ENV", "development")).toLowerCase();
+const IS_PRODUCTION = NODE_ENV === "production";
+const DEFAULT_ADMIN_EMAIL = bootstrapNormalizeEmail(readEnv("APP_ADMIN_EMAIL", ""));
+const DEFAULT_ADMIN_PASSWORD = readEnv("APP_ADMIN_PASSWORD", "");
 const DEFAULT_ADMIN_NAME = bootstrapNormalizeFreeText(readEnv("APP_ADMIN_NAME", "Platform Owner"));
+const INTEGRATION_SECRET_KEY = readEnv("INTEGRATION_SECRET_KEY", "") || readEnv("APP_SECRET", "") || readEnv("SESSION_SECRET", "");
+const ALLOW_DESTRUCTIVE_IMPORTS = readBooleanEnv("ALLOW_DESTRUCTIVE_IMPORTS", !IS_PRODUCTION);
+const DESTRUCTIVE_IMPORT_CONFIRMATION = "IMPORT WMS365";
+const SAFE_UPLOAD_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const SAFE_UPLOAD_EXTENSIONS = new Map([
+    ["application/pdf", ".pdf"],
+    ["image/jpeg", ".jpg"],
+    ["image/png", ".png"],
+    ["image/webp", ".webp"]
+]);
 const DEMO_REQUEST_TO = bootstrapNormalizeEmail(readEnv("DEMO_REQUEST_TO", DEFAULT_ADMIN_EMAIL || ""));
 const ADMIN_ACTIVITY_SUMMARY_TO = bootstrapNormalizeEmail(readEnv("ADMIN_ACTIVITY_SUMMARY_TO", DEFAULT_ADMIN_EMAIL || ""));
 const DEFAULT_PUBLIC_SITE_URL = "https://wms365.co";
@@ -562,6 +579,41 @@ let adminActivityDigestSchedulerTimer = null;
 const storeIntegrationSyncLocks = new Set();
 const portalOrderPickTicketEmailLocks = new Set();
 
+function validateProductionEnvironment(env = process.env) {
+    const isProduction = normalizeFreeText(env.NODE_ENV || "").toLowerCase() === "production";
+    if (!isProduction) return [];
+    const missing = [];
+    if (!stripEnvWrappingQuotes(env.APP_ADMIN_EMAIL || "")) missing.push("APP_ADMIN_EMAIL");
+    if (!stripEnvWrappingQuotes(env.APP_ADMIN_PASSWORD || "")) missing.push("APP_ADMIN_PASSWORD");
+    if (!stripEnvWrappingQuotes(env.DATABASE_PRIVATE_URL || env.DATABASE_URL || "")) missing.push("DATABASE_URL or DATABASE_PRIVATE_URL");
+    if (!stripEnvWrappingQuotes(env.INTEGRATION_SECRET_KEY || env.APP_SECRET || env.SESSION_SECRET || "")) {
+        missing.push("INTEGRATION_SECRET_KEY or APP_SECRET");
+    }
+    return missing;
+}
+
+function sanitizeSensitiveLogMessage(value) {
+    return String(value || "")
+        .replace(/(access[_-]?token|api[_-]?key|client[_-]?secret|password|authorization)(=|:)\s*[^&\s|]+/gi, "$1$2 [redacted]")
+        .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]");
+}
+
+function assertProductionEnvironment(env = process.env) {
+    const missing = validateProductionEnvironment(env);
+    if (missing.length) {
+        throw new Error(`Production startup blocked. Missing required environment: ${missing.join(", ")}`);
+    }
+}
+
+try {
+    if (require.main === module) {
+        assertProductionEnvironment(process.env);
+    }
+} catch (error) {
+    console.error(error.message || error);
+    process.exit(1);
+}
+
 const pool = DATABASE_URL
     ? new Pool({
         connectionString: DATABASE_URL,
@@ -579,11 +631,61 @@ if (!DATABASE_URL) {
 pool.on("error", (error) => {
     databaseReady = false;
     databaseErrorMessage = error.message;
-    console.error("Unexpected PostgreSQL pool error:", error);
+    console.error("Unexpected PostgreSQL pool error:", sanitizeSensitiveLogMessage(error.message || "database error"));
 });
 
 const app = express();
 app.set("trust proxy", 1);
+
+const loginRateBuckets = new Map();
+
+function getClientIp(req) {
+    return String(req.headers["x-forwarded-for"] || req.ip || req.socket?.remoteAddress || "").split(",")[0].trim();
+}
+
+function applySecurityHeaders(_req, res, next) {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "same-origin");
+    res.setHeader("Permissions-Policy", "geolocation=(), microphone=()");
+    next();
+}
+
+function requireSameOriginForStateChanges(req, _res, next) {
+    if (!IS_PRODUCTION || !["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+    const origin = String(req.get("origin") || "").trim();
+    if (!origin) return next();
+    try {
+        const originHost = new URL(origin).host;
+        const requestHost = String(req.get("host") || "").trim();
+        const publicAppHost = APP_BASE_URL ? new URL(APP_BASE_URL).host : "";
+        const publicSiteHost = PUBLIC_SITE_URL ? new URL(PUBLIC_SITE_URL).host : "";
+        if ([requestHost, publicAppHost, publicSiteHost].filter(Boolean).includes(originHost)) return next();
+    } catch (_error) {
+        return next(httpError(403, "Invalid request origin."));
+    }
+    return next(httpError(403, "Cross-site state-changing requests are not allowed."));
+}
+
+function loginRateLimit(req, _res, next) {
+    if (!["/api/app/login", "/api/portal/login"].includes(req.path)) return next();
+    const now = Date.now();
+    const key = `${req.path}:${getClientIp(req)}:${normalizeEmail(req.body?.email || "")}`;
+    const bucket = loginRateBuckets.get(key) || { attempts: 0, resetAt: now + (15 * 60 * 1000) };
+    if (bucket.resetAt <= now) {
+        bucket.attempts = 0;
+        bucket.resetAt = now + (15 * 60 * 1000);
+    }
+    bucket.attempts += 1;
+    loginRateBuckets.set(key, bucket);
+    if (bucket.attempts > 10) {
+        return next(httpError(429, "Too many login attempts. Please wait and try again."));
+    }
+    return next();
+}
+
+app.use(applySecurityHeaders);
+app.use(requireSameOriginForStateChanges);
 
 app.use((req, res, next) => {
     const pathName = req.path || req.url || "";
@@ -613,6 +715,8 @@ app.use((req, res, next) => {
     }
     return jsonBodyParser(req, res, next);
 });
+
+app.use(loginRateLimit);
 
 app.use(async (req, res, next) => {
     try {
@@ -721,8 +825,9 @@ app.post("/api/app/feedback", async (req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) => {
-    res.status(200).json({
-        ok: true,
+    const healthy = DATABASE_URL && databaseReady && !databaseErrorMessage;
+    res.status(healthy ? 200 : 503).json({
+        ok: !!healthy,
         databaseReady,
         databaseError: databaseErrorMessage || null,
         startedInitializingAt: databaseInitStartedAt,
@@ -2619,6 +2724,7 @@ app.post("/api/inventory/bulk-update", requireInventoryAdjustPermission(), async
 app.post("/api/import", requireSuperAdmin(), async (req, res, next) => {
     try {
         assertSuperAdminAccess(req.appUser);
+        assertDestructiveImportAllowed(req);
         const importedInventory = Array.isArray(req.body?.inventory) ? req.body.inventory.map(sanitizeInventoryLineInput).filter(Boolean) : [];
         const importedActivity = Array.isArray(req.body?.activity) ? req.body.activity.map(sanitizeActivityInput).filter(Boolean) : [];
         const importedPallets = Array.isArray(req.body?.pallets) ? req.body.pallets.map(sanitizePalletRecordInput).filter(Boolean) : [];
@@ -2636,7 +2742,9 @@ app.post("/api/import", requireSuperAdmin(), async (req, res, next) => {
                 ? req.body.masters.owners.map((owner) => sanitizeOwnerMasterInput(owner)).filter(Boolean)
                 : [];
 
+        let backupId = null;
         await withTransaction(async (client) => {
+            backupId = await createImportBackup(client, req);
             const existingInventoryBeforeImport = (await client.query("select * from inventory_lines order by account_name, location, sku, id for update")).rows;
             await client.query("truncate table warehouse_tasks, activity_log, pallet_records, inventory_lines, billing_events, owner_billing_rates, app_user_fulfillment_location_access, company_fulfillment_locations, fulfillment_locations, company_partner_accounts, bin_locations, item_catalog, owner_accounts restart identity cascade");
 
@@ -2926,11 +3034,11 @@ app.post("/api/import", requireSuperAdmin(), async (req, res, next) => {
                 client,
                 "import",
                 "Imported JSON backup",
-                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedPartners.length, "partner")}, ${formatCount(importedFulfillmentLocations.length, "fulfillment location")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}.`
+                `${formatCount(importedInventory.length, "inventory line")} restored, ${formatCount(importedPallets.length, "pallet record")}, ${formatCount(importedBillingEvents.length, "billing line")}, plus ${formatCount(importedOwners.length, "owner")}, ${formatCount(importedPartners.length, "partner")}, ${formatCount(importedFulfillmentLocations.length, "fulfillment location")}, ${formatCount(importedLocations.length, "BIN")}, and ${formatCount(importedItems.length, "item master")}. Backup ${backupId || "created"}.`
             );
         });
 
-        res.json({ success: true });
+        res.json({ success: true, backupId });
     } catch (error) {
         next(error);
     }
@@ -4235,10 +4343,7 @@ app.get("/api/admin/portal-order-documents/:id", async (req, res, next) => {
         }
         await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
 
-        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
-        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
-        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
-        res.send(document.file_data);
+        sendSafeUploadedDocument(res, document);
     } catch (error) {
         next(error);
     }
@@ -4257,10 +4362,7 @@ app.get("/api/portal/order-documents/:id", async (req, res, next) => {
             throw httpError(404, "That shipped document could not be found.");
         }
 
-        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
-        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
-        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
-        res.send(document.file_data);
+        sendSafeUploadedDocument(res, document);
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -4282,10 +4384,7 @@ app.get("/api/admin/portal-inbound-documents/:id", async (req, res, next) => {
         }
         await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
 
-        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
-        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
-        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
-        res.send(document.file_data);
+        sendSafeUploadedDocument(res, document);
     } catch (error) {
         next(error);
     }
@@ -4304,10 +4403,7 @@ app.get("/api/portal/inbound-documents/:id", async (req, res, next) => {
             throw httpError(404, "That purchase order document could not be found.");
         }
 
-        res.setHeader("Content-Type", document.file_type || "application/octet-stream");
-        res.setHeader("Content-Length", String(document.file_data?.length || document.file_size || 0));
-        res.setHeader("Content-Disposition", `inline; filename="${normalizeUploadFileName(document.file_name || "document") || "document"}"`);
-        res.send(document.file_data);
+        sendSafeUploadedDocument(res, document);
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -5855,6 +5951,17 @@ async function initializeDatabase() {
     await pool.query("alter table feedback_submissions add column if not exists attachment_file_name text not null default '';");
     await pool.query("alter table feedback_submissions add column if not exists attachment_mime_type text not null default '';");
     await pool.query("alter table feedback_submissions add column if not exists attachment_data_url text not null default '';");
+    await pool.query(`
+        create table if not exists import_backups (
+            id bigserial primary key,
+            backup_type text not null default 'FULL_IMPORT',
+            created_by text not null default '',
+            source_ip text not null default '',
+            backup_payload jsonb not null,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create index if not exists idx_import_backups_created_at on import_backups (created_at desc)");
     await pool.query("alter table portal_kitting_requests alter column request_code drop not null");
     await pool.query("alter table portal_kitting_requests alter column request_code drop default");
     await pool.query("alter table portal_kitting_requests drop constraint if exists portal_kitting_requests_status_check");
@@ -7967,6 +8074,7 @@ async function createMonthlyStorageBillingEvents(client, accountName, month) {
 async function ensureDefaultAppAdmin() {
     const email = normalizeEmail(DEFAULT_ADMIN_EMAIL);
     if (!email) return;
+    if (!DEFAULT_ADMIN_PASSWORD) return;
     const existing = await pool.query("select id from app_users where email = $1 limit 1", [email]);
     if (existing.rowCount > 0) return;
     await pool.query(
@@ -8612,16 +8720,18 @@ function sanitizeFeedbackLongText(value, maxLength = 4000) {
 function sanitizeFeedbackAttachment(input) {
     const attachment = input && typeof input === "object" && !Array.isArray(input) ? input : null;
     if (!attachment) return { fileName: "", mimeType: "", dataUrl: "" };
-    const fileName = normalizeFreeText(attachment.fileName || attachment.file_name || "feedback-image").slice(0, 180);
-    const mimeType = normalizeFreeText(attachment.mimeType || attachment.mime_type || "").toLowerCase().slice(0, 80);
+    const fileName = normalizeUploadFileName(attachment.fileName || attachment.file_name || "feedback-image");
+    const mimeType = normalizeSafeUploadMimeType(attachment.mimeType || attachment.mime_type || "");
     const dataUrl = String(attachment.dataUrl || attachment.data_url || "").trim();
     if (!fileName || !mimeType || !dataUrl) return { fileName: "", mimeType: "", dataUrl: "" };
-    if (!/^image\/(png|jpe?g|webp|gif|heic|heif)$/i.test(mimeType)) return { fileName: "", mimeType: "", dataUrl: "" };
     if (!dataUrl.startsWith(`data:${mimeType};base64,`)) return { fileName: "", mimeType: "", dataUrl: "" };
     if (dataUrl.length > 6_000_000) {
-        throw httpError(400, "Attached image is too large.");
+        throw httpError(400, "Attached file is too large.");
     }
-    return { fileName, mimeType, dataUrl };
+    const base64 = dataUrl.slice(`data:${mimeType};base64,`.length).replace(/\s+/g, "");
+    const buffer = Buffer.from(base64, "base64");
+    assertSafeUploadContent(fileName, mimeType, buffer);
+    return { fileName: ensureSafeUploadFileExtension(fileName, mimeType), mimeType, dataUrl };
 }
 
 function sanitizeFeedbackSubmissionInput(input) {
@@ -8854,17 +8964,67 @@ async function getBillingEventAccountNamesByIds(client, ids) {
     return result.rows.map((row) => normalizeText(row.account_name)).filter(Boolean);
 }
 
+function getSecretCipherKey(secretKey = INTEGRATION_SECRET_KEY) {
+    const secret = String(secretKey || "").trim();
+    if (!secret) return null;
+    return crypto.createHash("sha256").update(secret).digest();
+}
+
+function encryptSecret(value, secretKey = INTEGRATION_SECRET_KEY) {
+    const plaintext = String(value || "");
+    if (!plaintext || plaintext.startsWith("enc:v1:")) return plaintext;
+    const key = getSecretCipherKey(secretKey);
+    if (!key) return plaintext;
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `enc:v1:${iv.toString("base64")}:${tag.toString("base64")}:${ciphertext.toString("base64")}`;
+}
+
+function decryptSecret(value, secretKey = INTEGRATION_SECRET_KEY) {
+    const text = String(value || "");
+    if (!text || !text.startsWith("enc:v1:")) return text;
+    const key = getSecretCipherKey(secretKey);
+    if (!key) {
+        throw httpError(500, "Integration secret encryption key is not configured.");
+    }
+    const [, version, ivText, tagText, ciphertextText] = text.split(":");
+    if (version !== "v1" || !ivText || !tagText || !ciphertextText) {
+        throw httpError(500, "Encrypted integration secret is malformed.");
+    }
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivText, "base64"));
+    decipher.setAuthTag(Buffer.from(tagText, "base64"));
+    return Buffer.concat([
+        decipher.update(Buffer.from(ciphertextText, "base64")),
+        decipher.final()
+    ]).toString("utf8");
+}
+
+function decryptStoreIntegrationRow(row) {
+    if (!row) return row;
+    const settings = row.settings && typeof row.settings === "object" && !Array.isArray(row.settings)
+        ? { ...row.settings }
+        : {};
+    return {
+        ...row,
+        access_token: decryptSecret(row.access_token || ""),
+        auth_client_secret: decryptSecret(row.auth_client_secret || ""),
+        settings
+    };
+}
+
 async function getStoreIntegrationList(client = pool, accountName = "") {
     const normalizedAccount = normalizeText(accountName);
     const result = normalizedAccount
         ? await client.query("select * from store_integrations where account_name = $1 order by account_name asc, provider asc, integration_name asc, id asc", [normalizedAccount])
         : await client.query("select * from store_integrations order by account_name asc, provider asc, integration_name asc, id asc");
-    return result.rows.map(mapStoreIntegrationRow);
+    return result.rows.map(decryptStoreIntegrationRow).map(mapStoreIntegrationRow);
 }
 
 async function getStoreIntegrationRowById(client, integrationId) {
     const result = await client.query("select * from store_integrations where id = $1 limit 1", [integrationId]);
-    return result.rowCount === 1 ? result.rows[0] : null;
+    return result.rowCount === 1 ? decryptStoreIntegrationRow(result.rows[0]) : null;
 }
 
 async function getStoreSkuMappings(client = pool, { accountName = "", localSku = "", integrationId = null } = {}) {
@@ -9084,6 +9244,8 @@ async function saveStoreIntegration(client, rawInput) {
     const nextScheduledSyncAt = entry.isActive
         ? computeNextStoreIntegrationSyncAt(entry.syncSchedule, { lastSyncedAt: preservedLastSyncedAt })
         : null;
+    const encryptedAccessToken = encryptSecret(storedAccessToken);
+    const encryptedAuthClientSecret = encryptSecret(authClientSecret);
 
     let savedRow;
     try {
@@ -9118,10 +9280,10 @@ async function saveStoreIntegration(client, rawInput) {
                     entry.provider,
                     normalizedName,
                     entry.storeIdentifier,
-                    storedAccessToken,
+                    encryptedAccessToken,
                     accessTokenExpiresAt,
                     authClientId,
-                    authClientSecret,
+                    encryptedAuthClientSecret,
                     entry.settings || {},
                     entry.importStatus,
                     entry.isActive,
@@ -9148,10 +9310,10 @@ async function saveStoreIntegration(client, rawInput) {
                     entry.provider,
                     normalizedName,
                     entry.storeIdentifier,
-                    storedAccessToken,
+                    encryptedAccessToken,
                     accessTokenExpiresAt,
                     authClientId,
-                    authClientSecret,
+                    encryptedAuthClientSecret,
                     entry.settings || {},
                     entry.importStatus,
                     entry.isActive,
@@ -9168,7 +9330,7 @@ async function saveStoreIntegration(client, rawInput) {
         throw error;
     }
 
-    const mapped = mapStoreIntegrationRow(savedRow);
+    const mapped = mapStoreIntegrationRow(decryptStoreIntegrationRow(savedRow));
     mapped.wasCreated = !existing;
     return mapped;
 }
@@ -9534,10 +9696,10 @@ async function refreshShopifyAccessTokenForIntegration(integrationRow) {
             where id = $1
             returning *
         `,
-        [integrationRow.id, accessToken, expiresAtIso]
+        [integrationRow.id, encryptSecret(accessToken), expiresAtIso]
     );
     return updateResult.rowCount === 1
-        ? updateResult.rows[0]
+        ? decryptStoreIntegrationRow(updateResult.rows[0])
         : { ...integrationRow, access_token: accessToken, access_token_expires_at: expiresAtIso };
 }
 
@@ -16545,7 +16707,7 @@ async function getStoreOrderIntegrationRowsForPortalOrder(client, orderId, accou
         `,
         [normalizedOrderId, normalizedAccount]
     );
-    return result.rows;
+    return result.rows.map(decryptStoreIntegrationRow);
 }
 
 async function assertIntegratedStoreShipmentRequirements(client, order, shipmentDetails) {
@@ -20787,6 +20949,33 @@ async function insertActivity(client, type, title, details) {
     return result.rows[0] ? mapActivityRow(result.rows[0]) : null;
 }
 
+function assertDestructiveImportAllowed(req = {}, { allow = ALLOW_DESTRUCTIVE_IMPORTS } = {}) {
+    if (!allow) {
+        throw httpError(403, "Destructive imports are disabled in this environment.");
+    }
+    const confirmation = normalizeFreeText(req.body?.confirmationToken || req.body?.confirmation || req.body?.confirmText || "");
+    if (confirmation !== DESTRUCTIVE_IMPORT_CONFIRMATION) {
+        throw httpError(400, `Type ${DESTRUCTIVE_IMPORT_CONFIRMATION} to confirm this destructive import.`);
+    }
+}
+
+async function createImportBackup(client, req = {}) {
+    const backupPayload = await getServerState(client, { billingEventLimit: null, appUser: req.appUser || null });
+    const result = await client.query(
+        `
+            insert into import_backups (backup_type, created_by, source_ip, backup_payload)
+            values ('FULL_IMPORT', $1, $2, $3::jsonb)
+            returning id
+        `,
+        [
+            normalizeFreeText(req.appUser?.email || req.appUser?.full_name || "unknown"),
+            normalizeFreeText(getClientIp(req)).slice(0, 120),
+            JSON.stringify(backupPayload || {})
+        ]
+    );
+    return result.rows[0]?.id ? String(result.rows[0].id) : "";
+}
+
 async function findInventoryLine(client, accountName, location, skuOrUpc, { lotNumber = "", expirationDate = "", lock = false } = {}) {
     const normalizedLot = normalizeText(lotNumber || "");
     const normalizedExpirationDate = normalizeDateOnly(expirationDate || "");
@@ -22250,10 +22439,8 @@ function sanitizePortalOrderDocumentInput(document) {
         throw httpError(400, `${fileName} could not be processed. Upload a PDF or image file.`);
     }
 
-    const fileType = String(document.fileType || match[1] || "application/octet-stream").trim().toLowerCase();
-    if (!(fileType === "application/pdf" || fileType.startsWith("image/"))) {
-        throw httpError(400, `${fileName} must be a PDF or image file.`);
-    }
+    const fileType = normalizeSafeUploadMimeType(document.fileType || match[1] || "");
+    if (!fileType) throw httpError(400, `${fileName} must be a PDF, JPEG, PNG, or WebP file.`);
 
     const base64 = match[2].replace(/\s+/g, "");
     if (!base64) {
@@ -22273,13 +22460,70 @@ function sanitizePortalOrderDocumentInput(document) {
     if (buffer.length > 4 * 1024 * 1024) {
         throw httpError(400, `${fileName} is too large. Keep each document under 4 MB.`);
     }
+    assertSafeUploadContent(fileName, fileType, buffer);
 
     return {
-        fileName,
+        fileName: ensureSafeUploadFileExtension(fileName, fileType),
         fileType,
         fileSize: buffer.length,
         fileBuffer: buffer
     };
+}
+
+function normalizeSafeUploadMimeType(value) {
+    const mimeType = normalizeFreeText(value || "").toLowerCase();
+    if (mimeType === "image/jpg") return "image/jpeg";
+    return SAFE_UPLOAD_MIME_TYPES.has(mimeType) ? mimeType : "";
+}
+
+function ensureSafeUploadFileExtension(fileName, mimeType) {
+    const safeName = normalizeUploadFileName(fileName) || "document";
+    const ext = path.extname(safeName).toLowerCase();
+    const expectedExt = SAFE_UPLOAD_EXTENSIONS.get(mimeType) || "";
+    if (!expectedExt) return safeName;
+    if (mimeType === "image/jpeg" && [".jpg", ".jpeg"].includes(ext)) return safeName;
+    return ext === expectedExt ? safeName : `${safeName.replace(/\.[^.]*$/, "")}${expectedExt}`;
+}
+
+function bufferStartsWith(buffer, signature) {
+    return Buffer.isBuffer(buffer) && buffer.length >= signature.length && signature.every((byte, index) => buffer[index] === byte);
+}
+
+function detectSafeUploadMimeType(buffer) {
+    if (!Buffer.isBuffer(buffer) || !buffer.length) return "";
+    if (bufferStartsWith(buffer, [0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
+    if (bufferStartsWith(buffer, [0xff, 0xd8, 0xff])) return "image/jpeg";
+    if (bufferStartsWith(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+    if (buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+    return "";
+}
+
+function assertSafeUploadContent(fileName, declaredMimeType, buffer) {
+    const detectedMimeType = detectSafeUploadMimeType(buffer);
+    if (!detectedMimeType || detectedMimeType !== declaredMimeType) {
+        throw httpError(400, `${fileName} could not be verified as a safe PDF, JPEG, PNG, or WebP file.`);
+    }
+    const sample = buffer.subarray(0, Math.min(buffer.length, 4096)).toString("utf8").toLowerCase();
+    if (sample.includes("<svg") || sample.includes("<script") || sample.includes("<?php") || bufferStartsWith(buffer, [0x4d, 0x5a])) {
+        throw httpError(400, `${fileName} contains executable or unsafe content.`);
+    }
+}
+
+function contentDispositionAttachment(fileName) {
+    const safeName = normalizeUploadFileName(fileName) || "document";
+    return `attachment; filename="${safeName.replace(/"/g, "")}"`;
+}
+
+function sendSafeUploadedDocument(res, document) {
+    const declaredMimeType = normalizeSafeUploadMimeType(document?.file_type || "");
+    const buffer = Buffer.isBuffer(document?.file_data) ? document.file_data : Buffer.from(document?.file_data || "");
+    const detectedMimeType = detectSafeUploadMimeType(buffer);
+    const mimeType = declaredMimeType && declaredMimeType === detectedMimeType ? declaredMimeType : "application/octet-stream";
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Length", String(buffer.length || document?.file_size || 0));
+    res.setHeader("Content-Disposition", contentDispositionAttachment(ensureSafeUploadFileExtension(document?.file_name || "document", mimeType)));
+    res.send(buffer);
 }
 
 function normalizeUploadFileName(value) {
@@ -24586,6 +24830,7 @@ function parseCookies(cookieHeader) {
 }
 
 function isSecureRequest(req) {
+    if (IS_PRODUCTION) return true;
     if (req.secure) return true;
     const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
     return forwardedProto === "https";
@@ -24715,6 +24960,17 @@ module.exports = {
     requireWarehouseAdmin,
     requireInventoryAdjustPermission,
     requireMobileWorkerAction,
+    validateProductionEnvironment,
+    assertProductionEnvironment,
+    sanitizeSensitiveLogMessage,
+    normalizeSafeUploadMimeType,
+    detectSafeUploadMimeType,
+    assertSafeUploadContent,
+    sanitizePortalOrderDocumentInput,
+    sendSafeUploadedDocument,
+    encryptSecret,
+    decryptSecret,
+    assertDestructiveImportAllowed,
     assertPortalAccountAccess,
     assertAssignedMobileTaskForWorker,
     taskTypesForPortalOrderStatus,
