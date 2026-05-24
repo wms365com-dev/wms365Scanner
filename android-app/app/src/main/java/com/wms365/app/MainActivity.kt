@@ -87,6 +87,7 @@ class MainActivity : Activity() {
     private val pageLoadTimeoutHandler = Handler(Looper.getMainLooper())
     private val hardwareScanFlushRunnable = Runnable { flushHardwareScanBuffer() }
     private var pageLoadToken = 0
+    private var blankWebViewRecoveryAttempted = false
     private val sonimSideKeyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == sonimSideKeyDownAction) {
@@ -253,6 +254,7 @@ class MainActivity : Activity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 pageLoadToken++
                 injectAndroidWebViewFixes()
+                scheduleBlankWebViewRecovery(url)
                 showLoading(false)
             }
 
@@ -312,6 +314,60 @@ class MainActivity : Activity() {
         schedulePageLoadTimeout()
     }
 
+    private fun scheduleBlankWebViewRecovery(url: String?) {
+        val currentUrl = url.orEmpty()
+        if (blankWebViewRecoveryAttempted) return
+        if (!currentUrl.contains("/mobile") && !currentUrl.contains("/login")) return
+
+        val token = pageLoadToken
+        val responded = booleanArrayOf(false)
+        pageLoadTimeoutHandler.postDelayed({
+            if (token != pageLoadToken || blankWebViewRecoveryAttempted) return@postDelayed
+            webView.evaluateJavascript(
+                """
+                (function () {
+                  var text = (document.body && document.body.innerText || '').trim();
+                  var hasUsableRoot = !!(document.getElementById('loginForm') || document.querySelector('.mobile-home-card') || document.querySelector('.app'));
+                  return String(text.length) + ':' + (hasUsableRoot ? '1' : '0') + ':' + document.readyState;
+                })();
+                """.trimIndent()
+            ) { result ->
+                responded[0] = true
+                if (token != pageLoadToken || blankWebViewRecoveryAttempted) return@evaluateJavascript
+                val looksBlank = result.isNullOrBlank() ||
+                    result == "null" ||
+                    result.contains("\"0:") ||
+                    result.contains(":0:")
+                if (looksBlank) recoverBlankWebView(currentUrl)
+            }
+            pageLoadTimeoutHandler.postDelayed({
+                if (token == pageLoadToken && !responded[0] && !blankWebViewRecoveryAttempted) {
+                    recoverBlankWebView(currentUrl)
+                }
+            }, 5000)
+        }, 2500)
+    }
+
+    private fun recoverBlankWebView(currentUrl: String) {
+        blankWebViewRecoveryAttempted = true
+        showLoading(true)
+        showError(false)
+        Toast.makeText(this, "Refreshing WMS365 mobile data...", Toast.LENGTH_SHORT).show()
+        try {
+            WebStorage.getInstance().deleteAllData()
+            webView.clearCache(true)
+            webView.clearHistory()
+        } catch (_: Exception) {
+        }
+        val fallbackUrl = if (currentUrl.startsWith("https://")) currentUrl else BuildConfig.WMS365_BASE_URL + BuildConfig.WMS365_START_PATH
+        val refreshUrl = Uri.parse(fallbackUrl).buildUpon()
+            .appendQueryParameter("_wms365_refresh", System.currentTimeMillis().toString())
+            .build()
+            .toString()
+        webView.loadUrl(refreshUrl)
+        schedulePageLoadTimeout()
+    }
+
     private fun schedulePageLoadTimeout() {
         val token = ++pageLoadToken
         pageLoadTimeoutHandler.postDelayed({
@@ -336,7 +392,7 @@ class MainActivity : Activity() {
     private fun injectAndroidWebViewFixes() {
         val script = """
             (function () {
-              var androidShellVersion = 'wms365-mobile-shell-v5';
+              var androidShellVersion = 'wms365-mobile-shell-v7';
               var androidRefreshKey = 'wms365-android-shell-refresh:' + androidShellVersion;
               function refreshAndroidShellOnce() {
                 try {
