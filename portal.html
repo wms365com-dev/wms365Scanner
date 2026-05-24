@@ -1004,6 +1004,12 @@
                 </div>
 
                 <form id="deliveryForm" class="form-grid" autocomplete="off">
+                    <label class="field span-2">
+                        <span>Inbound / Purchase Order</span>
+                        <select id="deliveryInboundId">
+                            <option value="">Select submitted inbound</option>
+                        </select>
+                    </label>
                     <label class="field"><span>Reference / PO #</span><input id="deliveryReferenceNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Requested Date</span><input id="deliveryRequestedDate" type="date"></label>
                     <label class="field"><span>Requested Time</span><input id="deliveryRequestedTime" type="text" placeholder="Example: 10:00 AM - 12:00 PM"></label>
@@ -1018,6 +1024,7 @@
                 </form>
 
                 <div class="order-actions">
+                    <button class="btn secondary" id="deliveryCreateInboundBtn" type="button">Create Inbound First</button>
                     <button class="btn" id="submitDeliveryBtn" type="button">Request Delivery Appointment</button>
                 </div>
                 <div id="deliveryMessage" class="status" style="margin-top: 1rem;"></div>
@@ -1338,6 +1345,7 @@
             submitInboundBtn: document.getElementById("submitInboundBtn"),
             inboundsList: document.getElementById("inboundsList"),
             deliveryForm: document.getElementById("deliveryForm"),
+            deliveryInboundId: document.getElementById("deliveryInboundId"),
             deliveryReferenceNumber: document.getElementById("deliveryReferenceNumber"),
             deliveryRequestedDate: document.getElementById("deliveryRequestedDate"),
             deliveryRequestedTime: document.getElementById("deliveryRequestedTime"),
@@ -1350,6 +1358,7 @@
             deliveryContactPhone: document.getElementById("deliveryContactPhone"),
             deliveryNotes: document.getElementById("deliveryNotes"),
             resetDeliveryBtn: document.getElementById("resetDeliveryBtn"),
+            deliveryCreateInboundBtn: document.getElementById("deliveryCreateInboundBtn"),
             submitDeliveryBtn: document.getElementById("submitDeliveryBtn"),
             deliveryMessage: document.getElementById("deliveryMessage"),
             portalFeedbackModal: document.getElementById("portalFeedbackModal"),
@@ -1416,6 +1425,8 @@
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
             ui.resetInboundBtn.addEventListener("click", () => resetInboundForm());
             ui.resetDeliveryBtn.addEventListener("click", () => resetDeliveryForm());
+            ui.deliveryCreateInboundBtn?.addEventListener("click", () => setView("inbound"));
+            ui.deliveryInboundId?.addEventListener("change", syncDeliveryInboundSelection);
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
@@ -1685,6 +1696,7 @@
             renderShippedOrders();
             renderInbounds();
             renderDeliveryAppointments();
+            renderDeliveryInboundOptions();
             if (!portalState.editingOrderId) {
                 resetOrderForm();
             }
@@ -1742,6 +1754,7 @@
             if (activeView === "orders") renderOrders();
             if (activeView === "addedServices") renderAddedServices();
             if (activeView === "kittingRequests") renderKittingRequests();
+            if (activeView === "delivery") renderDeliveryInboundOptions();
             if (activeView === "deliveries") renderDeliveryAppointments();
             syncPortalFeedbackContext();
         }
@@ -2399,6 +2412,14 @@
                         <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
                         <div>Notes: ${esc(inbound.notes || "None")}</div>
                     </div>
+                    ${getAppointmentsForInbound(inbound).length ? `
+                        <div class="order-documents">
+                            <strong>Delivery Appointment</strong>
+                            ${getAppointmentsForInbound(inbound).map((appointment) => `
+                                <span class="meta">${esc(appointment.appointmentCode)} | ${esc(appointment.status)} | ${esc(appointment.requestedDate || "No date")} ${esc(appointment.requestedTime || "")}</span>
+                            `).join("")}
+                        </div>
+                    ` : ""}
                     <div class="line-items">
                         ${inbound.lines.map((line) => `
                             <div class="line-card">
@@ -2435,6 +2456,7 @@
                                 <input data-inbound-documents="${attr(inbound.id)}" type="file" accept="application/pdf,image/*" multiple>
                             </label>
                             <div class="button-row">
+                                <button class="btn" type="button" data-book-inbound-appointment="${attr(inbound.id)}">Book Appointment</button>
                                 <button class="btn ghost" type="button" data-upload-inbound-documents="${attr(inbound.id)}">Upload PO Docs</button>
                                 <span class="meta">PDF or image files, up to 5 at a time.</span>
                             </div>
@@ -2514,8 +2536,10 @@
                     portalState.inbounds.unshift(savedInbound);
                     renderInbounds();
                     resetInboundForm();
-                    setView('inbounds');
-                    setMessage(`Submitted purchase order ${savedInbound.inboundCode}.`, 'success');
+                    renderDeliveryInboundOptions(savedInbound.id);
+                    prefillDeliveryFromInbound(savedInbound);
+                    setView("delivery");
+                    setMessage(`Submitted purchase order ${savedInbound.inboundCode}. Choose a delivery date and request the appointment.`, "success");
                 });
             } catch (error) {
                 setMessage(error.message, 'error');
@@ -2527,6 +2551,55 @@
             if (status === "DENIED") return "warn";
             if (status === "CANCELLED") return "error";
             return "info";
+        }
+
+        function getInboundById(inboundId) {
+            return portalState.inbounds.find((entry) => String(entry.id) === String(inboundId)) || null;
+        }
+
+        function getAppointmentsForInbound(inbound) {
+            if (!inbound) return [];
+            const inboundId = String(inbound.id || "");
+            const reference = norm(inbound.referenceNumber || "");
+            return portalState.deliveryAppointments.filter((appointment) => {
+                if (appointment.inboundId && inboundId && String(appointment.inboundId) === inboundId) return true;
+                return !appointment.inboundId && reference && norm(appointment.referenceNumber) === reference;
+            });
+        }
+
+        function renderDeliveryInboundOptions(selectedInboundId = "") {
+            if (!ui.deliveryInboundId) return;
+            const currentValue = String(selectedInboundId || ui.deliveryInboundId.value || "");
+            const openInbounds = portalState.inbounds.filter((inbound) => !["RECEIVED", "CANCELLED"].includes(String(inbound.status || "").toUpperCase()));
+            ui.deliveryInboundId.innerHTML = [
+                `<option value="">Select submitted inbound</option>`,
+                ...openInbounds.map((inbound) => {
+                    const label = `${inbound.inboundCode || "Inbound"} | Ref ${inbound.referenceNumber || "None"} | ${inbound.expectedDate || "No date"}`;
+                    return `<option value="${attr(inbound.id)}">${esc(label)}</option>`;
+                })
+            ].join("");
+            if (currentValue && [...ui.deliveryInboundId.options].some((option) => option.value === currentValue)) {
+                ui.deliveryInboundId.value = currentValue;
+            }
+        }
+
+        function prefillDeliveryFromInbound(inbound) {
+            if (!inbound) return;
+            renderDeliveryInboundOptions(inbound.id);
+            if (ui.deliveryInboundId) ui.deliveryInboundId.value = String(inbound.id || "");
+            ui.deliveryReferenceNumber.value = inbound.referenceNumber || inbound.inboundCode || "";
+            if (inbound.expectedDate && !ui.deliveryRequestedDate.value) ui.deliveryRequestedDate.value = inbound.expectedDate;
+            if (inbound.carrierName && !ui.deliveryCarrierName.value) ui.deliveryCarrierName.value = inbound.carrierName;
+            if (inbound.contactName && !ui.deliveryContactName.value) ui.deliveryContactName.value = inbound.contactName;
+            if (inbound.contactPhone && !ui.deliveryContactPhone.value) ui.deliveryContactPhone.value = inbound.contactPhone;
+            if (ui.deliveryContactEmail && !ui.deliveryContactEmail.value && portalState.account?.email) {
+                ui.deliveryContactEmail.value = portalState.account.email;
+            }
+        }
+
+        function syncDeliveryInboundSelection() {
+            const inbound = getInboundById(ui.deliveryInboundId?.value || "");
+            if (inbound) prefillDeliveryFromInbound(inbound);
         }
 
         function renderDeliveryAppointments() {
@@ -2546,6 +2619,7 @@
                         <span class="pill ${deliveryStatusPillClass(appointment.status)}">${esc(appointment.status)}</span>
                     </div>
                     <div class="order-meta">
+                        ${appointment.inboundCode ? `<div>Inbound: ${esc(appointment.inboundCode)}${appointment.inboundStatus ? ` | ${esc(appointment.inboundStatus === "ARRIVED" ? "CHECKED IN" : appointment.inboundStatus)}` : ""}</div>` : ""}
                         <div>Reference / PO: ${esc(appointment.referenceNumber || "None")}</div>
                         <div>Requested: ${esc(appointment.requestedDate || "Not set")} ${esc(appointment.requestedTime || "")}</div>
                         ${appointment.status === "APPROVED" ? `<div>Approved: ${esc(formatDate(appointment.approvedAt))}</div>` : ""}
@@ -2571,6 +2645,7 @@
 
         function resetDeliveryForm({ keepMessage = false } = {}) {
             ui.deliveryForm?.reset();
+            renderDeliveryInboundOptions();
             if (ui.deliveryContactEmail && portalState.account?.email) {
                 ui.deliveryContactEmail.value = portalState.account.email;
             }
@@ -2582,6 +2657,7 @@
 
         function collectDeliveryAppointmentForm() {
             return {
+                inboundId: ui.deliveryInboundId?.value || "",
                 referenceNumber: ui.deliveryReferenceNumber.value.trim(),
                 requestedDate: ui.deliveryRequestedDate.value,
                 requestedTime: ui.deliveryRequestedTime.value.trim(),
@@ -2597,6 +2673,7 @@
         }
 
         function validateDeliveryAppointmentPayload(payload) {
+            if (!payload.inboundId) return fail(ui.deliveryMessage, "Select the inbound for this appointment. Create the inbound first if it is not listed.", ui.deliveryInboundId);
             if (!payload.referenceNumber) return fail(ui.deliveryMessage, "Enter the reference or purchase order number.", ui.deliveryReferenceNumber);
             if (!payload.requestedDate) return fail(ui.deliveryMessage, "Choose the requested delivery date.", ui.deliveryRequestedDate);
             if (!payload.requestedTime) return fail(ui.deliveryMessage, "Enter the requested delivery time or window.", ui.deliveryRequestedTime);
@@ -2627,6 +2704,7 @@
                     }
                     portalState.deliveryAppointments.unshift(appointment);
                     renderDeliveryAppointments();
+                    renderInbounds();
                     resetDeliveryForm();
                     setView("deliveries");
                     setMessage(`Delivery appointment ${appointment.appointmentCode} requested. The warehouse approval email is being sent.`, "success");
@@ -3166,6 +3244,17 @@
         }
 
         async function onInboundsListClick(event) {
+            const appointmentButton = event.target.closest("[data-book-inbound-appointment]");
+            if (appointmentButton) {
+                const inbound = getInboundById(appointmentButton.dataset.bookInboundAppointment || "");
+                if (inbound) {
+                    resetDeliveryForm({ keepMessage: true });
+                    prefillDeliveryFromInbound(inbound);
+                    setView("delivery");
+                    setMessage(`Booking delivery appointment for ${inbound.inboundCode}.`, "info");
+                }
+                return;
+            }
             const uploadButton = event.target.closest("[data-upload-inbound-documents]");
             if (!uploadButton) return;
             await uploadInboundDocuments(uploadButton.dataset.uploadInboundDocuments, uploadButton);
@@ -3578,6 +3667,9 @@
                 id: String(appointment.id || ""),
                 appointmentCode,
                 accountName: norm(appointment.accountName || appointment.account_name || portalState.account?.accountName || ""),
+                inboundId: String(appointment.inboundId || appointment.inbound_id || ""),
+                inboundCode: String(appointment.inboundCode || appointment.inbound_code || ""),
+                inboundStatus: String(appointment.inboundStatus || appointment.inbound_status || "").trim().toUpperCase(),
                 status: String(appointment.status || "REQUESTED").trim().toUpperCase(),
                 requestedDate: String(appointment.requestedDate || appointment.requested_date || "").slice(0, 10),
                 requestedTime: String(appointment.requestedTime || appointment.requested_time || ""),

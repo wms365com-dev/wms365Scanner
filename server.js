@@ -5010,6 +5010,7 @@ function renderDeliveryAppointmentActionPage(appointment, token = "", errorMessa
     const detailRows = appointment ? [
         ["Appointment", appointment.appointmentCode],
         ["Company", appointment.accountName],
+        ["Inbound", appointment.inboundCode || "-"],
         ["Reference / PO", appointment.referenceNumber || "-"],
         ["Requested Date", appointment.requestedDate || "-"],
         ["Requested Time", appointment.requestedTime || "-"],
@@ -6180,6 +6181,7 @@ async function initializeDatabase() {
             appointment_code text,
             account_name text not null,
             portal_access_id bigint references portal_vendor_access(id) on delete set null,
+            inbound_id bigint references portal_inbounds(id) on delete set null,
             fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
             status text not null default 'REQUESTED',
             requested_date date not null,
@@ -6210,6 +6212,16 @@ async function initializeDatabase() {
     await pool.query("alter table portal_delivery_appointments add constraint portal_delivery_appointments_status_check check (status in ('REQUESTED', 'APPROVED', 'DENIED', 'CANCELLED'))");
     await pool.query("alter table portal_delivery_appointments alter column appointment_code drop not null");
     await pool.query("alter table portal_delivery_appointments alter column appointment_code drop default");
+    await pool.query("alter table portal_delivery_appointments add column if not exists inbound_id bigint references portal_inbounds(id) on delete set null");
+    await pool.query(`
+        update portal_delivery_appointments a
+        set inbound_id = i.id
+        from portal_inbounds i
+        where a.inbound_id is null
+          and i.account_name = a.account_name
+          and btrim(i.reference_number) <> ''
+          and upper(btrim(i.reference_number)) = upper(btrim(a.reference_number))
+    `);
     await pool.query("update portal_delivery_appointments set appointment_code = null where appointment_code = ''");
     await pool.query("update portal_delivery_appointments set appointment_code = concat('DEL-', lpad(id::text, 6, '0')) where appointment_code is null");
 
@@ -6447,6 +6459,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_inbound_documents_inbound_id on portal_inbound_documents (inbound_id);");
     await pool.query("create unique index if not exists idx_portal_delivery_appointments_code_unique on portal_delivery_appointments (appointment_code);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_account_name on portal_delivery_appointments (account_name);");
+    await pool.query("create index if not exists idx_portal_delivery_appointments_inbound_id on portal_delivery_appointments (inbound_id);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_status on portal_delivery_appointments (status);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_requested_date on portal_delivery_appointments (requested_date);");
     await pool.query("create unique index if not exists idx_portal_delivery_appointments_token_hash on portal_delivery_appointments (approval_token_hash);");
@@ -15521,6 +15534,7 @@ function buildDeliveryAppointmentWarehouseEmailText(appointment, actionUrl) {
         `Delivery appointment requested: ${appointment.appointmentCode}`,
         "",
         `Company: ${appointment.accountName}`,
+        appointment.inboundCode ? `Inbound: ${appointment.inboundCode}` : "",
         `Reference / PO: ${appointment.referenceNumber || "-"}`,
         `Requested Date: ${appointment.requestedDate || "-"}`,
         `Requested Time: ${appointment.requestedTime || "-"}`,
@@ -15542,6 +15556,7 @@ function buildDeliveryAppointmentWarehouseEmailText(appointment, actionUrl) {
 function buildDeliveryAppointmentWarehouseEmailHtml(appointment, actionUrl) {
     const detailRows = [
         ["Company", appointment.accountName],
+        ["Inbound", appointment.inboundCode || "-"],
         ["Reference / PO", appointment.referenceNumber || "-"],
         ["Requested Date", appointment.requestedDate || "-"],
         ["Requested Time", appointment.requestedTime || "-"],
@@ -15581,6 +15596,7 @@ function buildDeliveryAppointmentCustomerEmailText(appointment) {
         denied ? `Your delivery appointment ${appointment.appointmentCode} needs a new time.` : "",
         "",
         `Company: ${appointment.accountName}`,
+        appointment.inboundCode ? `Inbound: ${appointment.inboundCode}` : "",
         `Reference / PO: ${appointment.referenceNumber || "-"}`,
         `Requested Date: ${appointment.requestedDate || "-"}`,
         `Requested Time: ${appointment.requestedTime || "-"}`,
@@ -15602,6 +15618,7 @@ function buildDeliveryAppointmentCustomerEmailHtml(appointment) {
             <p style="margin:0 0 16px;">Appointment <strong>${escapeHtml(appointment.appointmentCode)}</strong> for <strong>${escapeHtml(appointment.accountName)}</strong> has been updated.</p>
             <table style="border-collapse:collapse;width:100%;max-width:680px;">
                 <tr><td style="padding:6px 0;font-weight:700;">Reference / PO</td><td style="padding:6px 0;">${escapeHtml(appointment.referenceNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Inbound</td><td style="padding:6px 0;">${escapeHtml(appointment.inboundCode || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:700;">Requested</td><td style="padding:6px 0;">${escapeHtml(`${appointment.requestedDate || "-"} ${appointment.requestedTime || "-"}`)}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:700;">Status</td><td style="padding:6px 0;">${escapeHtml(appointment.status)}</td></tr>
                 ${appointment.status === "DENIED" ? `<tr><td style="padding:6px 0;font-weight:700;">Suggested Alternative</td><td style="padding:6px 0;">${escapeHtml(`${appointment.alternativeDate || "-"} ${appointment.alternativeTime || "-"}`)}</td></tr>` : ""}
@@ -17371,6 +17388,9 @@ function mapPortalDeliveryAppointmentRow(row) {
         appointmentCode: row.appointment_code || makePortalDeliveryAppointmentCode(row.id),
         accountName: row.account_name || "",
         portalAccessId: row.portal_access_id ? String(row.portal_access_id) : "",
+        inboundId: row.inbound_id ? String(row.inbound_id) : "",
+        inboundCode: row.inbound_code || "",
+        inboundStatus: normalizePortalInboundStatus(row.inbound_status) || "",
         fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
         fulfillmentLocationCode: row.fulfillment_location_code || "",
         fulfillmentLocationName: row.fulfillment_location_name || "",
@@ -17406,12 +17426,14 @@ function mapPortalDeliveryAppointmentRow(row) {
 }
 
 function sanitizeDeliveryAppointmentInput(input, accountName, accessRow = null) {
+    const inboundId = toPositiveInt(input?.inboundId || input?.inbound_id || input?.portalInboundId || input?.portal_inbound_id);
     const requestedDate = normalizeDateInput(input?.requestedDate || input?.requested_date || input?.deliveryDate || input?.delivery_date);
     const requestedTime = normalizeFreeText(input?.requestedTime || input?.requested_time || input?.deliveryTime || input?.delivery_time);
     const referenceNumber = normalizeFreeText(input?.referenceNumber || input?.reference_number || input?.poNumber || input?.po_number || input?.reference);
     const contactEmail = normalizeEmail(input?.contactEmail || input?.contact_email || accessRow?.email || "");
     return {
         accountName: normalizeText(accountName),
+        inboundId,
         requestedDate,
         requestedTime,
         deliveryType: normalizeText(input?.deliveryType || input?.delivery_type || "INBOUND") || "INBOUND",
@@ -17442,9 +17464,12 @@ async function getPortalDeliveryAppointmentsForAccount(client, accountName) {
                 fl.city as fulfillment_city,
                 fl.state as fulfillment_state,
                 fl.postal_code as fulfillment_postal_code,
-                fl.country as fulfillment_country
+                fl.country as fulfillment_country,
+                i.inbound_code,
+                i.status as inbound_status
             from portal_delivery_appointments a
             left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            left join portal_inbounds i on i.id = a.inbound_id
             where a.account_name = $1
               and a.status <> 'CANCELLED'
             order by a.requested_date desc, a.created_at desc, a.id desc
@@ -17470,9 +17495,12 @@ async function getPortalDeliveryAppointmentByToken(client, token) {
                 fl.city as fulfillment_city,
                 fl.state as fulfillment_state,
                 fl.postal_code as fulfillment_postal_code,
-                fl.country as fulfillment_country
+                fl.country as fulfillment_country,
+                i.inbound_code,
+                i.status as inbound_status
             from portal_delivery_appointments a
             left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            left join portal_inbounds i on i.id = a.inbound_id
             where a.approval_token_hash = $1
             limit 1
         `,
@@ -17484,8 +17512,27 @@ async function getPortalDeliveryAppointmentByToken(client, token) {
 async function savePortalDeliveryAppointment(client, accessRow, input) {
     const access = mapPortalAccessRow(accessRow);
     const appointment = sanitizeDeliveryAppointmentInput(input, access.accountName, accessRow);
+    let linkedInbound = null;
+    if (!appointment.inboundId) {
+        throw httpError(400, "Select an existing inbound before booking a delivery appointment.");
+    }
+    if (appointment.inboundId) {
+        linkedInbound = await getPortalInboundById(client, appointment.inboundId);
+        if (!linkedInbound || normalizeText(linkedInbound.accountName) !== appointment.accountName) {
+            throw httpError(404, "The selected inbound was not found for this account.");
+        }
+        if (linkedInbound.status === "CANCELLED") {
+            throw httpError(400, "Cancelled purchase orders cannot be used for a delivery appointment.");
+        }
+        if (!appointment.referenceNumber) {
+            appointment.referenceNumber = linkedInbound.referenceNumber || linkedInbound.inboundCode || "";
+        }
+        if (!appointment.carrierName) appointment.carrierName = linkedInbound.carrierName || "";
+        if (!appointment.contactName) appointment.contactName = linkedInbound.contactName || accessRow?.contact_name || "";
+        if (!appointment.contactPhone) appointment.contactPhone = linkedInbound.contactPhone || "";
+    }
     if (!appointment.requestedDate || !appointment.requestedTime || !appointment.referenceNumber || !appointment.contactName) {
-        throw httpError(400, "Requested date, requested time, reference number, and contact name are required.");
+        throw httpError(400, "Requested date, requested time, purchase order/inbound, and contact name are required.");
     }
 
     const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, access.accountName);
@@ -17493,16 +17540,17 @@ async function savePortalDeliveryAppointment(client, accessRow, input) {
     const insertResult = await client.query(
         `
             insert into portal_delivery_appointments (
-                account_name, portal_access_id, fulfillment_location_id, requested_date, requested_time,
+                account_name, portal_access_id, inbound_id, fulfillment_location_id, requested_date, requested_time,
                 delivery_type, reference_number, carrier_name, trailer_number, pallet_count, carton_count,
                 contact_name, contact_email, contact_phone, notes, approval_token_hash
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             returning id
         `,
         [
             appointment.accountName,
             accessRow.id,
+            appointment.inboundId || null,
             fulfillmentLocation?.fulfillment_location_id || null,
             appointment.requestedDate,
             appointment.requestedTime,
@@ -17536,9 +17584,12 @@ async function savePortalDeliveryAppointment(client, accessRow, input) {
                 fl.city as fulfillment_city,
                 fl.state as fulfillment_state,
                 fl.postal_code as fulfillment_postal_code,
-                fl.country as fulfillment_country
+                fl.country as fulfillment_country,
+                i.inbound_code,
+                i.status as inbound_status
             from portal_delivery_appointments a
             left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            left join portal_inbounds i on i.id = a.inbound_id
             where a.id = $1
             limit 1
         `,
@@ -17618,9 +17669,12 @@ async function respondToDeliveryAppointment(client, token, input = {}) {
                 fl.city as fulfillment_city,
                 fl.state as fulfillment_state,
                 fl.postal_code as fulfillment_postal_code,
-                fl.country as fulfillment_country
+                fl.country as fulfillment_country,
+                i.inbound_code,
+                i.status as inbound_status
             from portal_delivery_appointments a
             left join fulfillment_locations fl on fl.id = a.fulfillment_location_id
+            left join portal_inbounds i on i.id = a.inbound_id
             where a.id = $1
             limit 1
         `,
