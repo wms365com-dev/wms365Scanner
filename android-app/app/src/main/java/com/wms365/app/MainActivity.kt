@@ -951,11 +951,34 @@ class MainActivity : Activity() {
               }
               function androidWarmWarehouseData(reason) {
                 if (!window.WMS365Mobile) return;
-                if (typeof window.WMS365Mobile.preloadWarehouseData === 'function') {
-                  window.WMS365Mobile.preloadWarehouseData({ reason: reason || 'android-page' }).catch(function () {});
-                }
                 if (window.__wms365AndroidWarmRunning) return;
                 window.__wms365AndroidWarmRunning = true;
+                var normalizeCompany = function (value) { return String(value || '').trim().replace(/\s+/g, ' ').toUpperCase(); };
+                var activeCompany = '';
+                try { activeCompany = normalizeCompany(window.WMS365Mobile.getCompanyContext && window.WMS365Mobile.getCompanyContext()); } catch (error) {}
+                var finishWarm = function () { window.__wms365AndroidWarmRunning = false; };
+                var cacheData = function (key, payload) {
+                  if (!window.WMS365Mobile || typeof window.WMS365Mobile.cacheData !== 'function') return Promise.resolve(null);
+                  return window.WMS365Mobile.cacheData(key, payload).catch(function () { return null; });
+                };
+                var fetchJson = function (url) {
+                  return fetch(url, { cache: 'no-store', headers: { 'Content-Type': 'application/json' } })
+                    .then(function (response) { return response.text().then(function (text) {
+                      var data = {};
+                      try { data = text ? JSON.parse(text) : {}; } catch (error) { data = {}; }
+                      if (!response.ok) throw new Error(data.error || ('Request failed (' + response.status + ')'));
+                      return data;
+                    }); });
+                };
+                var warmActivePickOrders = function () {
+                  if (!activeCompany) return Promise.resolve(null);
+                  var query = '?account_name=' + encodeURIComponent(activeCompany) + '&accountName=' + encodeURIComponent(activeCompany);
+                  return fetchJson('/api/mobile/pick-orders' + query).then(function (ordersPayload) {
+                    return cacheData('mobile-pick-orders:' + activeCompany, Object.assign({}, ordersPayload, { accountName: activeCompany, cachedAt: new Date().toISOString() }));
+                  }).catch(function () { return null; });
+                };
+                warmActivePickOrders().finally(finishWarm);
+                return;
                 var normalize = function (value) { return String(value || '').trim().replace(/\s+/g, ' ').toUpperCase(); };
                 var company = '';
                 try { company = normalize(window.WMS365Mobile.getCompanyContext && window.WMS365Mobile.getCompanyContext()); } catch (error) {}

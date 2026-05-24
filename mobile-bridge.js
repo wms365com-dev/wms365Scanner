@@ -20,6 +20,10 @@
   let activeDeviceProfile = null;
   let wakeLock = null;
 
+  function yieldToBrowser(delay = 0) {
+    return new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
   function isAndroidApp() {
     return !!window.WMS365Android;
   }
@@ -599,10 +603,12 @@
     };
   }
 
-  async function cacheCompanyFastSlices(compactState, companies) {
+  async function cacheCompanyFastSlices(compactState, companies, allCompanies = companies) {
     const normalizedCompanies = [...new Set((companies || []).map(normalizeCompany).filter(Boolean))];
+    const normalizedAllCompanies = [...new Set((allCompanies || []).map(normalizeCompany).filter(Boolean))];
     const slices = [];
     for (const company of normalizedCompanies) {
+      await yieldToBrowser();
       const slice = companySlice(compactState, company);
       await cacheData(companyFastCacheKey(company), slice);
       slices.push({
@@ -616,7 +622,7 @@
       });
     }
     await cacheData(COMPANY_INDEX_CACHE_KEY, {
-      companies: normalizedCompanies,
+      companies: normalizedAllCompanies,
       slices,
       cachedAt: new Date().toISOString()
     });
@@ -677,21 +683,47 @@
         errors: []
       };
       try {
+        const activeCompany = normalizeCompany(getCompanyContext());
+        if (isAndroidApp()) {
+          const companiesToWarm = activeCompany ? [activeCompany] : [""];
+          for (const company of companiesToWarm) {
+            try {
+              const ordersPayload = await fetchPickOrdersForCache(company);
+              await cacheData(pickOrdersCacheKey(company), {
+                ...(ordersPayload || {}),
+                accountName: company,
+                cachedAt: new Date().toISOString()
+              });
+              summary.pickOrdersCached += Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.length : 0;
+            } catch (error) {
+              summary.errors.push({ scope: `pick-orders:${company || "all"}`, message: error.message || "Unable to warm pick orders" });
+            }
+          }
+          summary.company = activeCompany;
+          summary.companies = activeCompany ? [activeCompany] : [];
+          summary.completedAt = new Date().toISOString();
+          await cacheData(MOBILE_PRELOAD_CACHE_KEY, summary).catch(() => {});
+          window.dispatchEvent(new CustomEvent("wms365:preload", { detail: summary }));
+          return summary;
+        }
         const statePayload = await fetchJsonForCache("/api/state");
         const compactState = compactStatePayload(statePayload);
+        await yieldToBrowser();
         await cacheData(WAREHOUSE_STATE_CACHE_KEY, compactState);
         summary.stateCached = true;
         summary.companies = deriveCompanies(compactState);
         summary.companySlicesCached = 0;
         summary.companySlices = [];
+        const companiesToSlice = activeCompany
+          ? [activeCompany]
+          : summary.companies.slice(0, isAndroidApp() ? 1 : 3);
         try {
-          summary.companySlices = await cacheCompanyFastSlices(compactState, summary.companies);
+          summary.companySlices = await cacheCompanyFastSlices(compactState, companiesToSlice, summary.companies);
           summary.companySlicesCached = summary.companySlices.length;
         } catch (error) {
           summary.errors.push({ scope: "company-fast-cache", message: error.message || "Unable to warm company fast cache" });
         }
 
-        const activeCompany = normalizeCompany(getCompanyContext());
         const companiesToWarm = activeCompany
           ? [activeCompany]
           : summary.companies.slice(0, 3);
