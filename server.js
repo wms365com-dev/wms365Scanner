@@ -17696,7 +17696,8 @@ async function savePortalInboundForAccount(
     {
         portalAccessId = null,
         activityTitlePrefix = "portal",
-        activityActor = ""
+        activityActor = "",
+        taskAppUser = null
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -17763,7 +17764,7 @@ async function savePortalInboundForAccount(
             activityActor || ""
         ].filter(Boolean).join(" | ")
     );
-    await syncWarehouseTasksForInbound(client, savedInbound);
+    await syncWarehouseTasksForInbound(client, savedInbound, taskAppUser);
     return savedInbound;
 }
 
@@ -17834,7 +17835,8 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
     return savePortalInboundForAccount(client, accountName, rawInbound, {
         portalAccessId: null,
         activityTitlePrefix: "warehouse purchase order",
-        activityActor: actor
+        activityActor: actor,
+        taskAppUser: appUser
     });
 }
 
@@ -18682,13 +18684,14 @@ async function upsertWarehouseTask(client, rawTask) {
     const metadata = rawTask?.metadata && typeof rawTask.metadata === "object" && !Array.isArray(rawTask.metadata)
         ? rawTask.metadata
         : {};
+    const assignedAppUserId = toPositiveInt(rawTask?.assignedAppUserId || rawTask?.assigned_app_user_id) || null;
     const result = await client.query(
         `
             insert into warehouse_tasks (
                 task_type, source_type, source_id, source_code, account_name,
-                fulfillment_location_id, status, priority, title, details, due_at, metadata, updated_at
+                fulfillment_location_id, status, priority, title, details, due_at, metadata, assigned_app_user_id, updated_at
             )
-            values ($1, $2, $3, $4, $5, nullif($6, 0), $7, $8, $9, $10, $11, $12::jsonb, now())
+            values ($1, $2, $3, $4, $5, nullif($6, 0), $7, $8, $9, $10, $11, $12::jsonb, $13, now())
             on conflict (source_type, source_id, task_type) where source_id is not null
             do update set
                 source_code = excluded.source_code,
@@ -18703,6 +18706,7 @@ async function upsertWarehouseTask(client, rawTask) {
                 details = excluded.details,
                 due_at = excluded.due_at,
                 metadata = warehouse_tasks.metadata || excluded.metadata,
+                assigned_app_user_id = coalesce(excluded.assigned_app_user_id, warehouse_tasks.assigned_app_user_id),
                 completed_at = null,
                 completed_by = '',
                 updated_at = now()
@@ -18720,7 +18724,8 @@ async function upsertWarehouseTask(client, rawTask) {
             normalizeFreeText(rawTask?.title || warehouseTaskTypeLabel(taskType)),
             normalizeFreeText(rawTask?.details || ""),
             rawTask?.dueAt || null,
-            JSON.stringify(metadata)
+            JSON.stringify(metadata),
+            assignedAppUserId
         ]
     );
     const row = result.rows[0];
@@ -18822,6 +18827,9 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
     const sourceType = "PORTAL_INBOUND";
     const allTaskTypes = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY"];
     const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, facts.accountName);
+    const assignedAppUserId = isWarehouseWorkerUser(appUser)
+        ? (toPositiveInt(appUser?.id || appUser?.app_user_id) || null)
+        : null;
     if (facts.status === "CANCELLED") {
         await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "CANCELLED", actor);
         return;
@@ -18839,6 +18847,7 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
             status: "OPEN",
             priority: classifyWarehouseTaskPriorityFromDate(facts.expectedDate),
             dueAt: warehouseTaskDueAtFromDate(facts.expectedDate),
+            assignedAppUserId,
             title: `Check in ${facts.code}`,
             details: [
                 facts.accountName,
@@ -18870,6 +18879,7 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
             status: "OPEN",
             priority: "HIGH",
             dueAt: warehouseTaskDueAtFromDate(facts.expectedDate),
+            assignedAppUserId,
             title: `Receive ${facts.code}`,
             details: [
                 facts.accountName,
@@ -18898,6 +18908,7 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
             fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
             status: "OPEN",
             priority: "NORMAL",
+            assignedAppUserId,
             title: `Put away ${facts.code}`,
             details: [
                 facts.accountName,
