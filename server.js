@@ -3376,6 +3376,32 @@ app.post("/api/admin/portal-orders/:id/documents", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/portal-inbounds/:id/documents", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const inboundId = toPositiveInt(req.params.id);
+        if (!inboundId) {
+            throw httpError(400, "A valid purchase order id is required.");
+        }
+        const inbound = await withTransaction(async (client) => {
+            const currentInbound = await getPortalInboundById(client, inboundId);
+            if (!currentInbound) {
+                throw httpError(404, "That purchase order could not be found.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
+            await assertCompanyFeatureEnabled(client, currentInbound.accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+            const actor = req.appUser?.full_name || req.appUser?.email || "Warehouse";
+            return savePortalInboundDocumentsForAccount(client, currentInbound.accountName, inboundId, req.body || {}, {
+                downloadPathPrefix: "/api/admin/portal-inbound-documents",
+                activityActor: actor,
+                uploadedBy: actor
+            });
+        });
+        res.json({ success: true, inbound });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-orders/:id/reopen", async (req, res, next) => {
     try {
         const orderId = toPositiveInt(req.params.id);

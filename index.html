@@ -6606,9 +6606,9 @@
                                 <span class="menu-card-title">Picking</span>
                                 <span class="menu-card-meta">Open released orders, go to the next location, confirm picks, and finish the order.</span>
                             </button>
-                            <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="inbounds">
                                 <span class="menu-card-title">Receiving</span>
-                                <span class="menu-card-meta">Stage new inventory quickly, then save the full batch.</span>
+                                <span class="menu-card-meta">Open a PO, capture BOL/photos, and receive the freight.</span>
                             </button>
                             <button class="btn menu-card-btn" type="button" data-mobile-nav="actions" data-mobile-subview-group="actions" data-mobile-subview-target="putaway">
                                 <span class="menu-card-title">Putaway</span>
@@ -6640,9 +6640,9 @@
                                 <span class="menu-card-title">Pallets / Labels</span>
                                 <span class="menu-card-meta">Scan pallet labels, assign BINs, adjust contents, and print again.</span>
                             </button>
-                            <button class="btn menu-card-btn" type="button" data-mobile-nav="inbounds">
-                                <span class="menu-card-title">Inbound Arrival</span>
-                                <span class="menu-card-meta">Check in arriving purchase orders and notify the customer from the floor.</span>
+                            <button class="btn menu-card-btn" type="button" data-mobile-nav="scan">
+                                <span class="menu-card-title">Receive Without PO</span>
+                                <span class="menu-card-meta">Stage inventory when the PO is not ready yet.</span>
                             </button>
                         </div>
                     </div>
@@ -7056,12 +7056,49 @@
                 <article class="card mobile-only mobile-task-picker" id="mobileInboundArrivalCard">
                     <div class="card-head" style="margin-bottom: 0.75rem;">
                         <div>
-                            <h2>Inbound Arrival Check-In</h2>
-                            <p class="lead">Tap Arrived at DC when freight reaches the dock. The customer gets an automatic arrival notice.</p>
+                            <h2>Receiving Workbench</h2>
+                            <p class="lead">Start with the PO. If none is available, create a quick inbound and attach proof from the dock.</p>
                         </div>
                         <button class="btn ghost mini" id="mobileInboundRefreshBtn" type="button">Refresh</button>
                     </div>
                     <div class="quick-meta" id="mobileInboundArrivalMeta">Loading purchase orders...</div>
+                    <div class="button-row" style="margin: 0.75rem 0;">
+                        <button class="btn ghost" id="mobileQuickInboundToggleBtn" type="button">Quick Inbound</button>
+                        <button class="btn ghost" id="mobileReceiveWithoutPoBtn" type="button">Stage Without PO</button>
+                    </div>
+                    <div class="quick-meta hidden" id="mobileQuickInboundForm" style="margin-bottom: 0.85rem;">
+                        <div class="form-grid">
+                            <label class="field">
+                                <span>BOL / PO Reference</span>
+                                <input id="mobileQuickInboundReference" type="text" placeholder="Scan or enter BOL" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Carrier</span>
+                                <input id="mobileQuickInboundCarrier" type="text" placeholder="Carrier name" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Pallets</span>
+                                <input id="mobileQuickInboundPallets" type="number" min="0" inputmode="numeric" placeholder="0" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Cases</span>
+                                <input id="mobileQuickInboundCases" type="number" min="0" inputmode="numeric" placeholder="0" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>SKU If Known</span>
+                                <input id="mobileQuickInboundSku" type="text" placeholder="Optional SKU" autocapitalize="characters" enterkeyhint="next">
+                            </label>
+                            <label class="field">
+                                <span>Qty If Known</span>
+                                <input id="mobileQuickInboundQty" type="number" min="1" inputmode="numeric" placeholder="Cases or units" enterkeyhint="done">
+                            </label>
+                            <label class="field span-2">
+                                <span>BOL / Freight Photo</span>
+                                <input id="mobileQuickInboundFiles" type="file" accept="application/pdf,image/*" capture="environment" multiple>
+                            </label>
+                        </div>
+                        <button class="btn" id="mobileQuickInboundCreateBtn" type="button">Create Inbound</button>
+                    </div>
                     <div id="mobileInboundArrivalList" class="orders-list">
                         <p class="empty">No open purchase orders loaded yet.</p>
                     </div>
@@ -11067,6 +11104,17 @@
             mobileInboundArrivalList: document.getElementById("mobileInboundArrivalList"),
             mobileInboundArrivalMessage: document.getElementById("mobileInboundArrivalMessage"),
             mobileInboundRefreshBtn: document.getElementById("mobileInboundRefreshBtn"),
+            mobileQuickInboundToggleBtn: document.getElementById("mobileQuickInboundToggleBtn"),
+            mobileReceiveWithoutPoBtn: document.getElementById("mobileReceiveWithoutPoBtn"),
+            mobileQuickInboundForm: document.getElementById("mobileQuickInboundForm"),
+            mobileQuickInboundReference: document.getElementById("mobileQuickInboundReference"),
+            mobileQuickInboundCarrier: document.getElementById("mobileQuickInboundCarrier"),
+            mobileQuickInboundPallets: document.getElementById("mobileQuickInboundPallets"),
+            mobileQuickInboundCases: document.getElementById("mobileQuickInboundCases"),
+            mobileQuickInboundSku: document.getElementById("mobileQuickInboundSku"),
+            mobileQuickInboundQty: document.getElementById("mobileQuickInboundQty"),
+            mobileQuickInboundFiles: document.getElementById("mobileQuickInboundFiles"),
+            mobileQuickInboundCreateBtn: document.getElementById("mobileQuickInboundCreateBtn"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
             warehouseInboundStatusChip: document.getElementById("warehouseInboundStatusChip"),
             warehouseInboundCompanyMeta: document.getElementById("warehouseInboundCompanyMeta"),
@@ -11582,6 +11630,12 @@
             ui.warehouseInboundWorkflowPanel?.addEventListener("click", onPortalInboundsListClick);
             ui.mobileInboundArrivalList?.addEventListener("click", onPortalInboundsListClick);
             ui.mobileInboundRefreshBtn?.addEventListener("click", (event) => refreshPortalInboundsList(false).catch((error) => showMessage(ui.mobileInboundArrivalMessage, error.message, "error")));
+            ui.mobileQuickInboundToggleBtn?.addEventListener("click", () => {
+                ui.mobileQuickInboundForm?.classList.toggle("hidden");
+                ui.mobileQuickInboundReference?.focus();
+            });
+            ui.mobileReceiveWithoutPoBtn?.addEventListener("click", () => setSection("scan"));
+            ui.mobileQuickInboundCreateBtn?.addEventListener("click", createMobileQuickInbound);
             ui.clearPortalOrderFiltersBtn?.addEventListener("click", () => {
                 if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = getPortalOrderDefaultStatusFilter();
                 if (ui.portalOrderSearch) ui.portalOrderSearch.value = "";
@@ -20735,6 +20789,132 @@
             }
         }
 
+        async function readDocumentsFromInputs(...inputs) {
+            const documentGroups = await Promise.all(inputs.filter(Boolean).map((input) => readPortalShippingDocuments(input.files)));
+            const documents = documentGroups.flat();
+            if (documents.length > 5) {
+                throw new Error("Upload up to 5 documents or photos at a time.");
+            }
+            return documents;
+        }
+
+        function mobileInboundProofSummary({ bolNumber = "", palletCount = "", caseCount = "" } = {}) {
+            return [
+                bolNumber ? `BOL/Ref ${bolNumber}` : "",
+                palletCount ? `${palletCount} pallet${String(palletCount) === "1" ? "" : "s"}` : "",
+                caseCount ? `${caseCount} case${String(caseCount) === "1" ? "" : "s"}` : ""
+            ].filter(Boolean).join(" | ");
+        }
+
+        async function uploadMobileInboundDocuments(inboundId, documents) {
+            if (!documents.length) return null;
+            return requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/documents`, {
+                method: "POST",
+                body: JSON.stringify({ documents })
+            });
+        }
+
+        async function createMobileQuickInbound(event) {
+            const button = resolveActionButton(event, ui.mobileQuickInboundCreateBtn);
+            const company = getActiveCompany();
+            if (!company) return showMessage(ui.mobileInboundArrivalMessage, "Choose a company before creating an inbound.", "error");
+            const referenceNumber = norm(ui.mobileQuickInboundReference?.value || "");
+            const carrierName = String(ui.mobileQuickInboundCarrier?.value || "").trim();
+            const palletCount = Number.parseInt(String(ui.mobileQuickInboundPallets?.value || "0"), 10) || 0;
+            const caseCount = Number.parseInt(String(ui.mobileQuickInboundCases?.value || "0"), 10) || 0;
+            const sku = norm(ui.mobileQuickInboundSku?.value || "") || "UNKNOWN";
+            const quantity = Number.parseInt(String(ui.mobileQuickInboundQty?.value || ""), 10) || caseCount || palletCount || 1;
+            if (!referenceNumber) return fail(ui.mobileInboundArrivalMessage, "Enter or scan the BOL / PO reference.", ui.mobileQuickInboundReference);
+            if (!palletCount && !caseCount && !quantity) return fail(ui.mobileInboundArrivalMessage, "Enter pallet count, case count, or received quantity.", ui.mobileQuickInboundCases);
+            try {
+                const documents = await readDocumentsFromInputs(ui.mobileQuickInboundFiles);
+                if (!documents.length) return fail(ui.mobileInboundArrivalMessage, "Take a BOL or freight photo before creating the inbound.", ui.mobileQuickInboundFiles);
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Creating...",
+                    messageElement: ui.mobileInboundArrivalMessage,
+                    progressMessage: "Creating quick inbound..."
+                }, async () => {
+                    const notes = [
+                        "Mobile quick inbound created at the dock.",
+                        mobileInboundProofSummary({ bolNumber: referenceNumber, palletCount, caseCount })
+                    ].filter(Boolean).join(" ");
+                    const response = await requestJson("/api/admin/portal-inbounds", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            accountName: company,
+                            referenceNumber,
+                            carrierName,
+                            expectedDate: todayInputValue(),
+                            contactName: "Dock receiving",
+                            contactPhone: "",
+                            notes,
+                            lines: [{ sku, quantity }]
+                        })
+                    });
+                    const inboundId = response?.inbound?.id;
+                    if (inboundId) {
+                        await uploadMobileInboundDocuments(inboundId, documents);
+                    }
+                    ui.mobileQuickInboundReference.value = "";
+                    ui.mobileQuickInboundCarrier.value = "";
+                    ui.mobileQuickInboundPallets.value = "";
+                    ui.mobileQuickInboundCases.value = "";
+                    ui.mobileQuickInboundSku.value = "";
+                    ui.mobileQuickInboundQty.value = "";
+                    ui.mobileQuickInboundFiles.value = "";
+                    ui.mobileQuickInboundForm?.classList.add("hidden");
+                    await refreshPortalInboundsList(true);
+                    showMessage(ui.mobileInboundArrivalMessage, `Created inbound ${response?.inbound?.inboundCode || referenceNumber}.`, "success");
+                });
+            } catch (error) {
+                showMessage(ui.mobileInboundArrivalMessage, error.message, "error");
+            }
+        }
+
+        async function receiveMobileInboundFromCard(inbound, card, button) {
+            if (!inbound?.id || !card) return;
+            const bolNumber = norm(card.querySelector("[data-mobile-inbound-bol]")?.value || "");
+            const palletCount = Number.parseInt(String(card.querySelector("[data-mobile-inbound-pallets]")?.value || ""), 10) || 0;
+            const caseCount = Number.parseInt(String(card.querySelector("[data-mobile-inbound-cases]")?.value || ""), 10) || 0;
+            const documents = await readDocumentsFromInputs(
+                card.querySelector("[data-mobile-inbound-proof]"),
+                card.querySelector("[data-mobile-inbound-photos]")
+            );
+            if (!documents.length) {
+                throw new Error("Take a BOL, POD, or freight photo before finishing receiving.");
+            }
+            const receivingLines = [...card.querySelectorAll("[data-mobile-inbound-line]")].map((row) => ({
+                id: row.dataset.mobileInboundLine || "",
+                sku: row.dataset.mobileInboundSku || "",
+                receivedQuantity: Number.parseInt(String(row.querySelector("[data-mobile-inbound-qty]")?.value || ""), 10),
+                receivedLocation: norm(row.querySelector("[data-mobile-inbound-location]")?.value || ""),
+                lotNumber: norm(row.querySelector("[data-mobile-inbound-lot]")?.value || ""),
+                expirationDate: String(row.querySelector("[data-mobile-inbound-expiration]")?.value || "").trim()
+            }));
+            const invalidLine = receivingLines.find((line) => !line.receivedQuantity || !line.receivedLocation);
+            if (invalidLine) {
+                throw new Error(`Enter received quantity and location for ${invalidLine.sku || "every line"}.`);
+            }
+            await runActionWithFeedback({
+                button,
+                busyLabel: "Receiving...",
+                messageElement: ui.mobileInboundArrivalMessage,
+                progressMessage: `Receiving ${inbound.inboundCode || inbound.id}...`
+            }, async () => {
+                await uploadMobileInboundDocuments(inbound.id, documents);
+                const note = mobileInboundProofSummary({ bolNumber, palletCount, caseCount });
+                await updatePortalInboundStatus(inbound.id, "RECEIVED", button, {
+                    receivingLines,
+                    bolNumber,
+                    palletCount,
+                    caseCount,
+                    note: note ? `Mobile receiving proof: ${note}` : "Mobile receiving proof attached."
+                });
+                showMessage(ui.mobileInboundArrivalMessage, `Received ${inbound.inboundCode || inbound.id}.`, "success");
+            });
+        }
+
         function renderMobileInboundArrivalList(inbounds = [], errorText = "") {
             if (!ui.mobileInboundArrivalList) return;
             const openInbounds = inbounds
@@ -20749,17 +20929,70 @@
             }
 
             if (!openInbounds.length) {
-                ui.mobileInboundArrivalList.innerHTML = `<p class="empty">${esc(errorText || "No open purchase orders are waiting for arrival check-in.")}</p>`;
+                ui.mobileInboundArrivalList.innerHTML = `<p class="empty">${esc(errorText || "No open purchase orders are waiting. Use Quick Inbound if freight is at the dock without a PO.")}</p>`;
                 return;
             }
 
             ui.mobileInboundArrivalList.innerHTML = openInbounds.map((inbound) => {
                 const lineTotals = summarizeTrackedTotals(inbound.lines || []);
                 const isSubmitted = inbound.status === "SUBMITTED";
-                const actionLabel = isSubmitted ? "Arrived at DC" : "Already Arrived";
+                const isArrived = inbound.status === "ARRIVED";
+                const actionLabel = isSubmitted ? "Arrive first, then receive." : "Capture proof and finish receiving.";
                 const arrivalText = inbound.arrivedAt ? `Arrived ${formatDate(inbound.arrivedAt)}` : "Not checked in yet";
+                const receiveLines = isArrived ? (inbound.lines || []).map((line) => `
+                    <div class="quick-meta" data-mobile-inbound-line="${attr(line.id || line.sku)}" data-mobile-inbound-sku="${attr(line.sku)}" style="display:grid;gap:0.45rem;margin-top:0.65rem;">
+                        <strong>${esc(line.sku || "SKU")}</strong>
+                        <span>Expected ${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                        <label class="field">
+                            <span>Received Qty</span>
+                            <input data-mobile-inbound-qty type="number" min="1" inputmode="numeric" value="${attr(line.receivedQuantity || line.quantity || 1)}">
+                        </label>
+                        <label class="field">
+                            <span>Location</span>
+                            <input data-mobile-inbound-location type="text" value="${attr(line.receivedLocation || "RECEIVING")}" placeholder="Scan or enter location" autocapitalize="characters">
+                        </label>
+                        ${(line.lotTracked || line.expirationTracked) ? `
+                            <label class="field">
+                                <span>Lot</span>
+                                <input data-mobile-inbound-lot type="text" value="${attr(line.lotNumber || "")}" placeholder="${line.lotTracked ? "Required" : "Optional"}">
+                            </label>
+                            <label class="field">
+                                <span>Expiry</span>
+                                <input data-mobile-inbound-expiration type="date" value="${attr(line.expirationDate || "")}">
+                            </label>
+                        ` : ""}
+                    </div>
+                `).join("") : "";
+                const receivePanel = isArrived ? `
+                    <div class="quick-meta" style="margin-top:0.75rem;display:grid;gap:0.65rem;">
+                        <label class="field">
+                            <span>BOL / PRO / Reference</span>
+                            <input data-mobile-inbound-bol type="text" placeholder="Scan or enter reference" autocapitalize="characters">
+                        </label>
+                        <div class="form-grid">
+                            <label class="field">
+                                <span>Pallets</span>
+                                <input data-mobile-inbound-pallets type="number" min="0" inputmode="numeric" placeholder="0">
+                            </label>
+                            <label class="field">
+                                <span>Cases</span>
+                                <input data-mobile-inbound-cases type="number" min="0" inputmode="numeric" placeholder="0">
+                            </label>
+                        </div>
+                        ${receiveLines || `<p class="empty">No PO lines found. Open the PO on desktop to add lines before receiving.</p>`}
+                        <label class="field">
+                            <span>Signed BOL / POD</span>
+                            <input data-mobile-inbound-proof type="file" accept="application/pdf,image/*" capture="environment" multiple>
+                        </label>
+                        <label class="field">
+                            <span>Freight Photos</span>
+                            <input data-mobile-inbound-photos type="file" accept="image/*" capture="environment" multiple>
+                        </label>
+                        <button class="btn" type="button" data-mobile-inbound-receive="${attr(inbound.id)}">Finish Receiving</button>
+                    </div>
+                ` : "";
                 return `
-                    <article class="order-card">
+                    <article class="order-card" data-mobile-inbound-card="${attr(inbound.id)}">
                         <div class="order-card-head">
                             <div>
                                 <strong>${esc(inbound.inboundCode || "Purchase Order")}</strong>
@@ -20776,9 +21009,10 @@
                         </div>
                         <div class="button-row" style="margin-top: 0.8rem;">
                             ${isSubmitted ? `<button class="btn" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Arrived at DC</button>` : ""}
-                            ${inbound.status === "ARRIVED" ? `<button class="btn ghost" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
+                            ${isArrived ? `<button class="btn ghost" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">Open PO Details</button>` : ""}
                         </div>
-                        <p class="meta">${esc(actionLabel)} sends the company arrival notice. Final receiving remains a separate step.</p>
+                        <p class="meta">${esc(actionLabel)}</p>
+                        ${receivePanel}
                     </article>
                 `;
             }).join("");
@@ -20862,6 +21096,19 @@
                 if (inbound) {
                     printPortalInboundReceivingDocument(inbound, ui.warehouseInboundMessage);
                     printReceivingButton.blur?.();
+                }
+                return;
+            }
+
+            const mobileReceiveButton = event.target.closest("[data-mobile-inbound-receive]");
+            if (mobileReceiveButton) {
+                const inboundId = mobileReceiveButton.dataset.mobileInboundReceive || "";
+                const inbound = getPortalInboundRecordById(inboundId);
+                const card = mobileReceiveButton.closest("[data-mobile-inbound-card]");
+                try {
+                    await receiveMobileInboundFromCard(inbound, card, mobileReceiveButton);
+                } catch (error) {
+                    showMessage(ui.mobileInboundArrivalMessage || ui.warehouseInboundMessage, error.message, "error");
                 }
                 return;
             }
@@ -25430,7 +25677,7 @@
             const files = Array.from(fileList || []).filter(Boolean);
             if (!files.length) return [];
             if (files.length > 5) {
-                throw new Error("Upload up to 5 shipped documents at a time.");
+                throw new Error("Upload up to 5 documents or photos at a time.");
             }
 
             const documents = [];
