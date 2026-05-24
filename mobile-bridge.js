@@ -685,7 +685,7 @@
       try {
         const activeCompany = normalizeCompany(getCompanyContext());
         if (isAndroidApp()) {
-          const companiesToWarm = activeCompany ? [activeCompany] : [""];
+          const companiesToWarm = activeCompany ? [activeCompany] : [];
           for (const company of companiesToWarm) {
             try {
               const ordersPayload = await fetchPickOrdersForCache(company);

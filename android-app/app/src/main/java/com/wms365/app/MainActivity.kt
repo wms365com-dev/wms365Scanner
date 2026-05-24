@@ -126,7 +126,7 @@ class MainActivity : Activity() {
         if (::webView.isInitialized) {
             hardwareScanHandler.postDelayed({
                 webView.evaluateJavascript(
-                    "(window.__wms365AndroidWarmData ? window.__wms365AndroidWarmData('android-resume') : (window.WMS365Mobile && window.WMS365Mobile.preloadWarehouseData && window.WMS365Mobile.preloadWarehouseData({reason:'android-resume'}).catch(function(){})));",
+                    "(window.__wms365AndroidWarmData ? window.__wms365AndroidWarmData('android-resume') : null);",
                     null
                 )
             }, 1000)
