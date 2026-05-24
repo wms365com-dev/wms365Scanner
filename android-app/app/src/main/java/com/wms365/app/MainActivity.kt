@@ -3,8 +3,10 @@ package com.wms365.app
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -69,7 +71,17 @@ class MainActivity : Activity() {
     private var pendingScanTargetId: String = ""
     private val hardwareScanBuffer = StringBuilder()
     private val hardwareScanHandler = Handler(Looper.getMainLooper())
+    private val pageLoadTimeoutHandler = Handler(Looper.getMainLooper())
     private val hardwareScanFlushRunnable = Runnable { flushHardwareScanBuffer() }
+    private var pageLoadToken = 0
+    private val sonimSideKeyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == sonimSideKeyDownAction) {
+                handleHardwareScanTrigger("sonim-side-key")
+            }
+        }
+    }
+    private var sonimSideKeyReceiverRegistered = false
 
     private val baseUri: Uri = Uri.parse(BuildConfig.WMS365_BASE_URL)
     private val allowedHosts: Set<String> = setOfNotNull(
@@ -86,17 +98,18 @@ class MainActivity : Activity() {
         configureFullscreen()
         buildLayout()
         configureWebView()
-        webView.loadUrl(resolveStartUrl(intent))
+        loadStartUrl(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        webView.loadUrl(resolveStartUrl(intent))
+        loadStartUrl(intent)
     }
 
     override fun onResume() {
         super.onResume()
+        registerSonimSideKeyReceiver()
         if (::webView.isInitialized) {
             hardwareScanHandler.postDelayed({
                 webView.evaluateJavascript(
@@ -105,6 +118,11 @@ class MainActivity : Activity() {
                 )
             }, 1000)
         }
+    }
+
+    override fun onPause() {
+        unregisterSonimSideKeyReceiver()
+        super.onPause()
     }
 
     private fun configureFullscreen() {
@@ -140,6 +158,7 @@ class MainActivity : Activity() {
                 showError(false)
                 showLoading(true)
                 webView.reload()
+                schedulePageLoadTimeout()
             }
         }
         errorOverlay.addView(retryButton)
@@ -213,20 +232,30 @@ class MainActivity : Activity() {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                schedulePageLoadTimeout()
                 showLoading(true)
                 showError(false)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                pageLoadToken++
                 injectAndroidWebViewFixes()
                 showLoading(false)
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
+                    pageLoadToken++
                     showLoading(false)
                     showError(true, if (isOnline()) "WMS365 could not load. Check the connection and retry." else "Offline. Reconnect and retry, or continue with cached web data if the page was already loaded.")
                 }
+            }
+
+            @Suppress("DEPRECATION")
+            override fun onReceivedError(view: WebView, errorCode: Int, description: String?, failingUrl: String?) {
+                pageLoadToken++
+                showLoading(false)
+                showError(true, if (isOnline()) "WMS365 could not load. Check the connection and retry." else "Offline. Reconnect and retry, or continue with cached web data if the page was already loaded.")
             }
         }
 
@@ -263,6 +292,23 @@ class MainActivity : Activity() {
         return BuildConfig.WMS365_BASE_URL + BuildConfig.WMS365_START_PATH
     }
 
+    private fun loadStartUrl(intent: Intent?) {
+        showLoading(true)
+        showError(false)
+        webView.loadUrl(resolveStartUrl(intent))
+        schedulePageLoadTimeout()
+    }
+
+    private fun schedulePageLoadTimeout() {
+        val token = ++pageLoadToken
+        pageLoadTimeoutHandler.postDelayed({
+            if (token == pageLoadToken && loadingOverlay.visibility == View.VISIBLE) {
+                showLoading(false)
+                showError(true, if (isOnline()) "WMS365 is taking too long to load. Check the connection and retry." else "Offline. Reconnect and tap Retry when the device is back online.")
+            }
+        }, 12000)
+    }
+
     private fun isApprovedUri(uri: Uri): Boolean {
         val scheme = uri.scheme?.lowercase() ?: return false
         val host = uri.host?.lowercase() ?: return false
@@ -271,6 +317,7 @@ class MainActivity : Activity() {
 
     private fun showLoading(show: Boolean) {
         loadingOverlay.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) loadingOverlay.bringToFront()
     }
 
     private fun injectAndroidWebViewFixes() {
@@ -447,6 +494,43 @@ class MainActivity : Activity() {
                   input.addEventListener('focus', startHardwareScan);
                 });
               }
+              function isVisibleScanElement(element) {
+                if (!element || !element.id) return false;
+                var rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+                var style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+                return (!style || (style.display !== 'none' && style.visibility !== 'hidden'))
+                  && (!rect || (rect.width > 0 && rect.height > 0))
+                  && !element.disabled;
+              }
+              function findAndroidSideScanTarget() {
+                var active = document.activeElement;
+                if (isVisibleScanElement(active) && (/input|textarea|select/i.test(active.tagName || '') || active.hasAttribute('data-scan-target'))) return active;
+                var preferredIds = [
+                  'confirmLocation', 'confirmSku', 'confirmLot',
+                  'locationInput', 'skuInput', 'lotInput',
+                  'orderSearch', 'mobileQuickInboundReference', 'mobileQuickInboundSku'
+                ];
+                for (var i = 0; i < preferredIds.length; i += 1) {
+                  var item = document.getElementById(preferredIds[i]);
+                  if (isVisibleScanElement(item)) return item;
+                }
+                var candidates = Array.prototype.slice.call(document.querySelectorAll('input[id], textarea[id], [data-scan-target]'));
+                return candidates.find(function (item) {
+                  var text = ((item.id || '') + ' ' + (item.placeholder || '') + ' ' + (item.getAttribute('aria-label') || '')).toLowerCase();
+                  return isVisibleScanElement(item) && /scan|sku|location|bin|lot|barcode|order|bol|reference/.test(text);
+                }) || null;
+              }
+              window.__wms365AndroidSideScanTrigger = function () {
+                if (!hasAndroidHardwareScanner() || typeof WMS365Android === 'undefined' || !WMS365Android.scanBarcode) return false;
+                var target = findAndroidSideScanTarget();
+                if (!target || !target.id) {
+                  if (WMS365Android.showToast) WMS365Android.showToast('Tap a scan field first.');
+                  return false;
+                }
+                try { target.focus({ preventScroll: false }); } catch (error) { try { target.focus(); } catch (ignored) {} }
+                WMS365Android.scanBarcode(target.id);
+                return true;
+              };
               function textContainsAny(text, values) {
                 var haystack = String(text || '').toLowerCase();
                 return Array.isArray(values) && values.some(function (value) { return haystack.indexOf(String(value || '').toLowerCase()) >= 0; });
@@ -977,6 +1061,7 @@ class MainActivity : Activity() {
     private fun showError(show: Boolean, message: String = "WMS365 could not load.") {
         errorText.text = message
         errorOverlay.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) errorOverlay.bringToFront()
     }
 
     private fun requestCameraPermissionIfNeeded() {
@@ -1140,6 +1225,39 @@ class MainActivity : Activity() {
         return if (hasHardwareScannerDevice()) "hardware_wedge" else "camera"
     }
 
+    private val sonimSideKeyDownAction = "com.sonim.intent.action.SIDE_KEY_DOWN"
+
+    private fun registerSonimSideKeyReceiver() {
+        if (sonimSideKeyReceiverRegistered || !hasHardwareScannerDevice()) return
+        val filter = IntentFilter(sonimSideKeyDownAction)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(sonimSideKeyReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(sonimSideKeyReceiver, filter)
+        }
+        sonimSideKeyReceiverRegistered = true
+    }
+
+    private fun unregisterSonimSideKeyReceiver() {
+        if (!sonimSideKeyReceiverRegistered) return
+        try {
+            unregisterReceiver(sonimSideKeyReceiver)
+        } catch (_: IllegalArgumentException) {
+        }
+        sonimSideKeyReceiverRegistered = false
+    }
+
+    private fun handleHardwareScanTrigger(source: String) {
+        if (!::webView.isInitialized) return
+        val safeSource = source.replace("\\", "\\\\").replace("'", "\\'")
+        webView.evaluateJavascript("(window.__wms365AndroidSideScanTrigger && window.__wms365AndroidSideScanTrigger('$safeSource')) === true;") { result ->
+            if (result != "true" && pendingScanTargetId.isBlank()) {
+                Toast.makeText(this, "Open a scan field, then press the scanner trigger.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun flushHardwareScanBuffer() {
         val value = hardwareScanBuffer.toString().trim()
         hardwareScanBuffer.setLength(0)
@@ -1224,6 +1342,11 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun setKeepScreenAwake(enabled: Boolean) {
             runOnUiThread { this@MainActivity.setKeepScreenAwake(enabled) }
+        }
+
+        @JavascriptInterface
+        fun showToast(message: String) {
+            runOnUiThread { Toast.makeText(this@MainActivity, message.take(80), Toast.LENGTH_SHORT).show() }
         }
 
         @JavascriptInterface
