@@ -26,6 +26,66 @@
   },
   "profiles": [
     {
+      "id": "alien-alr-h450",
+      "name": "Alien ALR-H450 / H460 RFID handheld",
+      "status": "planned",
+      "match": {
+        "manufacturerContains": [
+          "alien"
+        ],
+        "brandContains": [
+          "alien"
+        ],
+        "modelContains": [
+          "alr-h450",
+          "h450",
+          "alr-h460",
+          "h460"
+        ]
+      },
+      "scannerMode": "hardware_keyboard_wedge_or_alien_sdk",
+      "showSoftKeyboardForScanFields": false,
+      "hardwareScanTriggerRequired": true,
+      "recommendedInputBehavior": "Use keyboard wedge for barcode scans when configured. Use Alien SDK integration for UHF RFID tag reads.",
+      "androidOptimizations": {
+        "orientation": "portrait",
+        "keepScreenAwakeDuringWork": true,
+        "disableSoftKeyboardForScanFields": true,
+        "useHardwareScannerBeforeCamera": true,
+        "preloadCompanyDataOnStartup": true,
+        "cacheWarehouseDataLocally": true,
+        "compactWorkerScreens": true,
+        "largeButtonsForGloves": true
+      },
+      "rfid": {
+        "supported": "requires_native_sdk",
+        "standards": [
+          "UHF EPC Class 1 Gen 2",
+          "ISO 18000-6C"
+        ],
+        "sdk": "Alien ALR-H450/H460 Android Java SDK"
+      },
+      "deployment": {
+        "recommendedInstall": "Validate Android version first. H450 Android 4.4.2 devices may require a separate legacy/native build instead of the current WebView APK.",
+        "apkPackage": "com.wms365.app",
+        "minimumAndroidVersion": "Current APK: Android 8.0. Legacy H450 support requires feasibility testing.",
+        "requiredPermissions": [
+          "Internet",
+          "Camera or barcode scanner",
+          "File/photo upload",
+          "Vibration",
+          "Alien RFID SDK permissions if RFID is enabled"
+        ]
+      },
+      "setupChecklist": [
+        "Confirm Android version on the handheld.",
+        "Confirm whether barcode output is keyboard wedge, intent broadcast, or Alien SDK only.",
+        "Open WMS365 mobile web in the device browser and test login.",
+        "Tap a scan field and scan a barcode to confirm text lands in the field.",
+        "If RFID is required, install a test build with Alien SDK and verify EPC reads post to WMS365."
+      ]
+    },
+    {
       "id": "sonim-rs60",
       "name": "Sonim RS60",
       "status": "supported",

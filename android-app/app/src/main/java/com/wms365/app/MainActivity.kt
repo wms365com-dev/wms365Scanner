@@ -1216,7 +1216,10 @@ class MainActivity : Activity() {
             "point mobile",
             "mobilebase",
             "sunmi",
-            "scanpal"
+            "scanpal",
+            "alien",
+            "alr-h450",
+            "alr-h460"
         )
         return scannerMarkers.any { fingerprint.contains(it) }
     }
