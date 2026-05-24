@@ -1,11 +1,12 @@
-const WMS365_CACHE = "wms365-mobile-shell-v3";
+const WMS365_CACHE = "wms365-mobile-shell-v4";
 const CRITICAL_NETWORK_FIRST = new Set([
   "/mobile-bridge.js",
   "/mobile-pick",
   "/mobile-pick.html",
   "/mobile-count",
   "/mobile-count.html",
-  "/site.webmanifest"
+  "/site.webmanifest",
+  "/device-profiles.json"
 ]);
 const SHELL_URLS = [
   "/login",
@@ -18,7 +19,10 @@ const SHELL_URLS = [
   "/mobile-pick.html",
   "/mobile-bridge.js",
   "/site.webmanifest",
-  "/marketing-logo.svg"
+  "/marketing-logo.svg",
+  "/device-profiles.json",
+  "/device-resources",
+  "/device-resources.html"
 ];
 
 self.addEventListener("install", (event) => {

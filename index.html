@@ -5214,6 +5214,7 @@
                 --mobile-safe-right: max(5px, env(safe-area-inset-right));
                 --mobile-safe-bottom: max(5px, env(safe-area-inset-bottom));
                 --mobile-safe-left: max(5px, env(safe-area-inset-left));
+                min-height: 100vh;
                 min-height: 100dvh;
                 width: 100%;
                 overflow: hidden;
@@ -5249,6 +5250,9 @@
                 transform: translateX(-50%);
                 width: min(414px, calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right)));
                 max-width: calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right));
+                height: calc(100vh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+                min-height: calc(100vh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+                max-height: calc(100vh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
                 height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
                 min-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
                 max-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
@@ -5604,6 +5608,7 @@
             --mobile-safe-right: max(5px, env(safe-area-inset-right));
             --mobile-safe-bottom: max(5px, env(safe-area-inset-bottom));
             --mobile-safe-left: max(5px, env(safe-area-inset-left));
+            min-height: 100vh;
             min-height: 100dvh;
             width: 100%;
             overflow: hidden;
@@ -5623,6 +5628,9 @@
             transform: translateX(-50%);
             width: min(414px, calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right)));
             max-width: calc(100vw - var(--mobile-safe-left) - var(--mobile-safe-right));
+            height: calc(100vh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+            min-height: calc(100vh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+            max-height: calc(100vh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
             height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
             min-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
             max-height: calc(100dvh - var(--mobile-safe-top) - var(--mobile-safe-bottom));
@@ -5694,8 +5702,8 @@
             min-height: 100%;
             display: grid;
             align-content: start;
-            gap: 0.55rem;
-            padding: 0.55rem 0.55rem calc(0.9rem + env(safe-area-inset-bottom));
+            gap: 0.42rem;
+            padding: 0.42rem 0.48rem calc(0.7rem + env(safe-area-inset-bottom));
             background: var(--bg);
         }
         body.device-mobile .mobile-panel-head {
@@ -5709,17 +5717,33 @@
             border-bottom: 1px solid #dbe3ea;
         }
         body.device-mobile .mobile-appbar {
+            display: flex;
             align-items: center;
-            padding: 0.68rem 0.78rem;
+            gap: 0.55rem;
+            padding: 0.52rem 0.65rem;
             border: 1px solid var(--line);
             border-radius: 12px;
             background: #ffffff;
         }
+        body.device-mobile .mobile-appbar-logo {
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            object-fit: contain;
+        }
         body.device-mobile .mobile-appbar-copy {
+            min-width: 0;
+            flex: 1 1 auto;
+            display: grid;
             gap: 0.12rem;
         }
+        body.device-mobile .mobile-appbar-kicker { display: none; }
+        body.device-mobile .mobile-appbar-title { font-size: 1.12rem; line-height: 1.1; }
         body.device-mobile .mobile-appbar-badge {
             align-self: center;
+            flex: 0 0 auto;
+            font-size: 0.74rem;
+            padding: 0.32rem 0.55rem;
         }
         body.device-mobile .card {
             padding: 0.78rem 0.82rem;
@@ -5733,13 +5757,13 @@
             min-height: calc(100% - 0.1rem);
             display: grid;
             align-content: start;
-            gap: 0.45rem;
+            gap: 0.36rem;
         }
         body.device-mobile .mobile-home-card h1 {
-            margin-bottom: 0.2rem;
-            font-size: 1.45rem;
+            margin: 0 0 0.08rem;
+            font-size: 1.24rem;
             text-align: left;
-            letter-spacing: -0.02em;
+            letter-spacing: 0;
         }
         body.device-mobile .mobile-home-card .lead,
         body.device-mobile .mobile-home-card .meta,
@@ -5864,13 +5888,13 @@
         body.device-mobile .mobile-drill-card { display: none !important; }
         body.device-mobile .mobile-drill-menu.active,
         body.device-mobile .mobile-drill-card.active { display: block !important; }
-        body.device-mobile .menu-stack { gap: 0.65rem; }
+        body.device-mobile .menu-stack { gap: 0.48rem; }
         body.device-mobile .mobile-menu-group {
             display: grid;
-            gap: 0.5rem;
+            gap: 0.42rem;
         }
         body.device-mobile .mobile-menu-group-title {
-            margin: 0.25rem 0 0;
+            margin: 0.15rem 0 0;
             color: #66798b;
             font-size: 0.68rem;
             font-weight: 900;
@@ -5878,8 +5902,8 @@
             text-transform: uppercase;
         }
         body.device-mobile .menu-card-btn {
-            min-height: 56px;
-            padding: 0.75rem 0.85rem;
+            min-height: 48px;
+            padding: 0.62rem 0.78rem;
             border-radius: 10px;
             justify-items: start;
             grid-template-columns: 1fr;
@@ -5890,12 +5914,12 @@
             filter: grayscale(0.15);
             cursor: not-allowed;
         }
-        body.device-mobile .menu-card-title { font-size: 0.98rem; }
+        body.device-mobile .menu-card-title { font-size: 0.95rem; }
         body.device-mobile .mobile-company-card,
         body.device-mobile .mobile-pending-panel {
             display: grid;
-            gap: 0.55rem;
-            padding: 0.72rem 0.78rem;
+            gap: 0.42rem;
+            padding: 0.58rem 0.68rem;
             border: 1px solid #d5e0ea;
             border-radius: 12px;
             background: #ffffff;
@@ -5937,19 +5961,20 @@
         }
         body.device-mobile .feedback-launcher {
             left: auto;
-            right: calc(0.65rem + env(safe-area-inset-right));
-            bottom: calc(0.65rem + env(safe-area-inset-bottom));
-            width: 48px;
-            height: 48px;
-            min-height: 48px;
+            right: calc(0.5rem + env(safe-area-inset-right));
+            bottom: calc(0.5rem + env(safe-area-inset-bottom));
+            width: 42px;
+            height: 42px;
+            min-height: 42px;
             padding: 0;
-            border-radius: 999px;
+            border-radius: 14px;
             font-size: 0;
+            opacity: 0.92;
             box-shadow: 0 8px 18px rgba(15, 35, 55, 0.18);
         }
         body.device-mobile .feedback-launcher::before {
             content: "?";
-            font-size: 1.25rem;
+            font-size: 1.1rem;
             line-height: 1;
             font-weight: 900;
         }
@@ -6545,11 +6570,12 @@
                 <article class="card mobile-home-card">
                     <div class="mobile-home-topline">
                         <div class="mobile-appbar">
+                            <img class="mobile-appbar-logo" src="/marketing-logo.svg" alt="WMS365 logo" width="32" height="32">
                             <div class="mobile-appbar-copy">
                                 <span class="mobile-appbar-kicker">WMS365</span>
-                                <strong class="mobile-appbar-title">Warehouse Mobile</strong>
+                                <strong class="mobile-appbar-title">WMS365 Scanner</strong>
                             </div>
-                            <span class="mobile-appbar-badge">Scanner</span>
+                            <span class="mobile-appbar-badge">Menu</span>
                         </div>
                         <h1>Choose Task</h1>
                         <div class="mobile-build-label" id="appBuildMobileLabel" style="font-size:12px;color:#64748b;margin-top:4px;">Build loading...</div>
@@ -6560,7 +6586,7 @@
                                 <span>Company Locked</span>
                                 <strong id="mobileCompanyLockedLabel">Choose company</strong>
                             </div>
-                            <button class="btn ghost mini" id="mobileSwitchCompanyBtn" type="button">Back</button>
+                            <button class="btn ghost mini" id="mobileSwitchCompanyBtn" type="button">Switch</button>
                         </div>
                         <label class="field" id="mobileCompanySelectWrap">
                             <span>Company</span>
@@ -27261,6 +27287,22 @@
                 </table>
             `;
         }
+
+        function ensureMobileAppbarBranding() {
+            document.querySelectorAll(".mobile-appbar").forEach((appbar) => {
+                if (!appbar.querySelector(".mobile-appbar-logo")) {
+                    const logo = document.createElement("img");
+                    logo.className = "mobile-appbar-logo";
+                    logo.src = "/marketing-logo.svg";
+                    logo.alt = "WMS365 logo";
+                    logo.width = 32;
+                    logo.height = 32;
+                    appbar.insertBefore(logo, appbar.firstChild);
+                }
+            });
+        }
+        ensureMobileAppbarBranding();
+        new MutationObserver(ensureMobileAppbarBranding).observe(document.body, { childList: true, subtree: true });
 </script>
 </body>
 </html>

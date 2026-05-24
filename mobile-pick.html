@@ -13,15 +13,16 @@
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bg);overflow:hidden}
 body{font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans-serif;color:var(--text)}
-.app{width:min(414px,100%);min-height:100dvh;margin:0 auto;display:grid;grid-template-rows:auto 1fr auto;background:var(--bg)}
-header{padding:10px 10px 8px;background:var(--bg);border-bottom:1px solid var(--line)}
-.head-card{display:grid;gap:6px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.app{width:min(414px,100%);min-height:100vh;min-height:100dvh;margin:0 auto;display:grid;grid-template-rows:auto 1fr;background:var(--bg)}
+header{padding:8px 10px 6px;background:var(--bg);border-bottom:1px solid var(--line)}
+.head-card{display:grid;gap:4px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .brand{display:flex;align-items:center;gap:10px}
-.brand img{width:38px;height:38px;flex:0 0 38px;object-fit:contain}
-.brand-copy{display:grid;gap:2px}
-.brand-copy span{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.title{font-size:22px;font-weight:800;color:var(--text)}
-.sub{font-size:12px;color:var(--muted);margin-top:4px}
+.brand img{width:32px;height:32px;flex:0 0 32px;object-fit:contain}
+.brand-copy{display:grid;gap:2px;min-width:0;flex:1 1 auto}
+.brand-copy span{display:none}
+.title{font-size:19px;font-weight:800;color:var(--text);line-height:1.08}
+.sub{display:none}
+.module-badge{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:#fff;color:var(--accent-2);font-size:12px;font-weight:800}
 main{padding:10px;display:grid;gap:10px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:none}
 label{display:grid;gap:6px;font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--muted)}
@@ -51,20 +52,57 @@ button:disabled{opacity:.45}
 .queue-status.bad{background:#fff4f4;border-color:#e9c7c7;color:#9a4d4d}
 .queue-status.good{background:#f0f5f1;border-color:#c9d9cd;color:#3f6f4d}
 .scan-row{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
-.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:10px 12px}
+.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:9px 10px}
 .locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.08em}
 .locked strong{font-size:16px;overflow-wrap:anywhere}
 .locked .btn{width:auto;min-height:38px;padding:9px 11px;flex:0 0 auto}
+.locked-actions{display:flex;gap:6px;align-items:center;flex:0 0 auto}
 .order-list{display:grid;gap:8px}
-.order-row{display:grid;gap:3px;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);text-align:left}
+.order-row{display:grid;gap:3px;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);text-align:left}
 .order-row strong{font-size:15px}
 .order-row span,.order-row small{font-size:12px;color:var(--muted);line-height:1.3}
 .order-row .pill{justify-self:start;margin-top:3px}
-.quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.order-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.order-toolbar h2{margin:0;font-size:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.visually-hidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.quick-actions{display:none}
+.order-search{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px;margin-top:10px}
+.order-search input{min-height:44px}
+.order-counts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.order-counts .pill{font-size:11px}
+.order-row[data-action="pick"]{border-color:#b7c9d5;background:#fbfdfe}
+.order-row[data-action="stage"]{border-color:#c9d9cd;background:#fbfdfb}
+.order-row[data-action="ship"]{border-color:#e4d2a4;background:#fffdf7}
+.order-action{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-2)}
+.workbar{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:8px 9px}
+.workbar strong{display:block;font-size:15px}
+.workbar span{display:block;font-size:12px;color:var(--muted);font-weight:700}
+.workbar-actions{display:flex;gap:6px;flex:0 0 auto}
+.workbar-actions button{min-height:36px;padding:8px 10px}
+body.picking-active .app{grid-template-rows:1fr}
+body.picking-active header,body.picking-active main>.card:first-child,body.picking-active #orderSummaryCard,body.picking-active #lockedCompanyWrap{display:none!important}
+body.picking-active main{padding:6px;gap:6px}
+body.picking-active #pickCard{padding:9px}
+body.picking-active .pick-step{gap:7px}
+body.picking-active .kicker,body.picking-active #pickTraceability{display:none}
+body.picking-active .loc{font-size:30px;line-height:1}
+body.picking-active .big{font-size:20px;line-height:1.05}
+body.picking-active #pickDescription{font-size:13px;line-height:1.25}
+body.picking-active label{gap:4px}
+body.picking-active select,body.picking-active input{padding:10px 11px}
+body.picking-active button{padding:10px 12px}
+body.picking-active .status{padding:9px 10px}
 .proof-grid{display:grid;gap:10px}
 .proof-grid input[type=file]{padding:10px;background:#f8fafb}
 .scanner{position:fixed;inset:0;background:rgba(9,22,35,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:12px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}
-.footer{padding:0 10px calc(12px + env(safe-area-inset-bottom));color:var(--muted);font-size:12px;text-align:center}
+.footer{display:none}
+@media (max-height:700px){
+  header{padding-top:6px}
+  main{padding-top:8px;gap:8px}
+  .card{padding:10px}
+  button{padding:10px 12px}
+  select,input{padding:10px 11px}
+}
 </style>
 </head>
 <body>
@@ -74,11 +112,12 @@ button:disabled{opacity:.45}
     <div class="brand">
       <img src="/marketing-logo.svg" alt="WMS365 logo" width="38" height="38">
       <div class="brand-copy">
-        <span>Warehouse Software</span>
-        <div class="title">WMS365 Mobile Picking</div>
+        <span>WMS365</span>
+        <div class="title">WMS365 Scanner</div>
       </div>
+      <span class="module-badge">Picking</span>
     </div>
-    <div class="sub">Guided FEFO warehouse picking on mobile</div>
+    <div class="sub">Picking</div>
   </div>
 </header>
 <main>
@@ -86,21 +125,30 @@ button:disabled{opacity:.45}
     <div class="queue-status hidden" id="queueStatus"></div>
     <div class="locked hidden" id="lockedCompanyWrap">
       <div><span>Company Locked</span><strong id="lockedCompanyLabel">-</strong></div>
-      <button class="btn secondary" id="switchCompanyBtn" type="button">Back</button>
+      <div class="locked-actions">
+        <button class="btn secondary" id="menuBtn" type="button">Menu</button>
+        <button class="btn secondary" id="switchCompanyBtn" type="button">Switch</button>
+      </div>
     </div>
     <div id="companyPickerWrap">
       <label>Active Company<select id="companySelect"><option value="">Choose company</option></select></label>
       <div style="height:10px"></div>
-      <button id="lockCompanyBtn" type="button">Continue</button>
+      <div class="actions">
+        <button id="lockCompanyBtn" type="button">Continue</button>
+        <button class="secondary" id="companyMenuBtn" type="button">Menu</button>
+      </div>
     </div>
     <div id="orderPickerWrap" class="hidden">
-      <div style="height:10px"></div>
-      <label>Open Orders<select id="orderSelect"><option value="">Choose order</option></select></label>
-      <div style="height:10px"></div>
-      <div class="actions">
-        <button id="loadOrderBtn">Load Order</button>
+      <select class="visually-hidden" id="orderSelect" aria-label="Open orders"><option value="">Choose order</option></select>
+      <div class="order-toolbar">
+        <h2>Work Queue</h2>
         <button class="secondary" id="refreshBtn">Refresh</button>
       </div>
+      <div class="order-search">
+        <input id="orderSearch" type="text" placeholder="Scan/order/customer" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search">
+        <button class="secondary" type="button" data-scan-target="orderSearch">Scan</button>
+      </div>
+      <div class="order-counts" id="orderCounts"></div>
       <div class="order-list" id="pendingOrderList" style="margin-top:10px"></div>
     </div>
   </div>
@@ -114,8 +162,14 @@ button:disabled{opacity:.45}
   </div>
 
   <div class="card hidden" id="pickCard">
-    <div class="kicker">Current Pick</div>
     <div class="pick-step">
+      <div class="workbar">
+        <div><strong id="workOrderCode">Order</strong><span id="workOrderMeta">Pick</span></div>
+        <div class="workbar-actions">
+          <button class="secondary" id="workMenuBtn" type="button">Menu</button>
+          <button class="secondary" id="workListBtn" type="button">List</button>
+        </div>
+      </div>
       <div class="loc" id="pickLocation">-</div>
       <div class="big" id="pickSku">-</div>
       <div id="pickDescription" class="muted">-</div>
@@ -124,11 +178,11 @@ button:disabled{opacity:.45}
         <div><div class="kicker">Required</div><div class="big" id="pickQty">0</div></div>
         <div><div class="kicker">Available</div><div class="big" id="pickAvailable">0</div></div>
       </div>
-      <label>Confirm Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan or enter location" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
-      <label>Confirm SKU<div class="scan-row"><input id="confirmSku" placeholder="Scan or enter SKU" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
-      <label id="confirmLotWrap">Confirm Lot (If Required)<div class="scan-row"><input id="confirmLot" placeholder="Scan or enter lot" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
-      <label>Confirm Expiration (If Required)<input id="confirmExpiration" type="text" placeholder="YYYY-MM-DD"></label>
-      <label>Picked Quantity<input id="confirmQty" type="number" min="1" step="1" inputmode="numeric" placeholder="Enter picked qty" enterkeyhint="done"></label>
+      <label>Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan location" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
+      <label>SKU / UPC<div class="scan-row"><input id="confirmSku" placeholder="Scan SKU" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
+      <label id="confirmLotWrap">Lot<div class="scan-row"><input id="confirmLot" placeholder="Scan lot" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
+      <label>Expiry<input id="confirmExpiration" type="text" placeholder="YYYY-MM-DD"></label>
+      <label>Qty<input id="confirmQty" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" enterkeyhint="done"></label>
       <div class="quick-actions">
         <button class="secondary" id="fillExpectedBtn" type="button">Use Expected</button>
         <button class="secondary" id="nextFieldBtn" type="button">Next Field</button>
@@ -369,16 +423,72 @@ function applyCompanyPayload(payload){
   renderCompanyLock();
 }
 
-async function loadOrders(){
+async function loadOrders({force=false}={}){
   const q=state.company?`?account_name=${encodeURIComponent(state.company)}&accountName=${encodeURIComponent(state.company)}`:'';
-  const payload=await requestJson('/api/mobile/pick-orders'+q);
-  state.orders=(payload.orders||[]).filter(o=>['RELEASED','PICKED','STAGED'].includes(String(o.status||'').toUpperCase()));
-  const sel=$('orderSelect');
-  state.orders.sort((a,b)=>ageTime(a.createdAt)-ageTime(b.createdAt)||(a.orderCode||'').localeCompare(b.orderCode||''));
-  sel.innerHTML='<option value="">Choose order</option>'+state.orders.map(o=>`<option value="${esc(o.id)}">${esc(o.orderCode)} | ${esc(o.status)} | ${esc(o.shippingReference||o.poNumber||'')}</option>`).join('');
-  renderPendingOrders();
+  const cacheKey=window.WMS365Mobile?.pickOrdersCacheKey?.(state.company);
+  const cached=cacheKey&&window.WMS365Mobile?.getCachedData
+    ? await window.WMS365Mobile.getCachedData(cacheKey,{maxAgeMs:15*60*1000}).catch(()=>null)
+    : null;
+  if(cached?.payload?.orders&&!force){
+    applyOrdersPayload(cached.payload);
+    const requested=state.orders.find(o=>String(o.id)===String(state.requestedOrderId));
+    if(requested&&!state.selectedOrder) startOrder(requested);
+    refreshOrdersFromNetwork(q,cacheKey).catch(()=>{});
+    return;
+  }
+  await refreshOrdersFromNetwork(q,cacheKey);
+}
+
+async function refreshOrdersFromNetwork(q,cacheKey){
+  let payload;
+  try{
+    payload=await requestJson('/api/mobile/pick-orders'+q);
+  }catch(error){
+    if(Number(error.status)!==404) throw error;
+    const fallback=state.company?`?accountName=${encodeURIComponent(state.company)}&account_name=${encodeURIComponent(state.company)}`:'';
+    payload=await requestJson('/api/admin/portal-orders'+fallback);
+  }
+  if(cacheKey&&window.WMS365Mobile?.cacheData) window.WMS365Mobile.cacheData(cacheKey,{...payload,accountName:state.company,cachedAt:new Date().toISOString()}).catch(()=>{});
+  applyOrdersPayload(payload);
   const requested=state.orders.find(o=>String(o.id)===String(state.requestedOrderId));
   if(requested&&!state.selectedOrder) startOrder(requested);
+}
+
+function applyOrdersPayload(payload){
+  state.orders=(payload.orders||[]).filter(o=>['RELEASED','PICKED','STAGED'].includes(String(o.status||'').toUpperCase()));
+  const sel=$('orderSelect');
+  state.orders.sort((a,b)=>orderPriority(a)-orderPriority(b)||ageTime(a.createdAt)-ageTime(b.createdAt)||(a.orderCode||'').localeCompare(b.orderCode||''));
+  sel.innerHTML='<option value="">Choose order</option>'+state.orders.map(o=>`<option value="${esc(o.id)}">${esc(o.orderCode)} | ${esc(o.status)} | ${esc(o.shippingReference||o.poNumber||'')}</option>`).join('');
+  renderPendingOrders();
+}
+
+function orderPriority(order){
+  const status=normalize(order?.status);
+  if(status==='RELEASED')return 0;
+  if(status==='PICKED')return 1;
+  if(status==='STAGED')return 2;
+  return 9;
+}
+
+function orderAction(order){
+  const status=normalize(order?.status);
+  if(status==='RELEASED')return {key:'pick',label:'Pick'};
+  if(status==='PICKED')return {key:'stage',label:'Stage'};
+  if(status==='STAGED')return {key:'ship',label:'Ship'};
+  return {key:'open',label:'Open'};
+}
+
+function orderMatchesSearch(order,query){
+  const q=normalize(query);
+  if(!q)return true;
+  return normalize([
+    order.orderCode,
+    order.shippingReference,
+    order.poNumber,
+    order.shipToName,
+    order.contactName,
+    order.status
+  ].filter(Boolean).join(' ')).includes(q);
 }
 
 function renderCompanyLock(){
@@ -392,8 +502,10 @@ function renderCompanyLock(){
 
 function orderRowMarkup(order){
   const lines=Array.isArray(order.lines)?order.lines.length:0;
+  const action=orderAction(order);
   return `
-    <button class="order-row" type="button" data-order-id="${esc(order.id)}">
+    <button class="order-row" type="button" data-order-id="${esc(order.id)}" data-action="${esc(action.key)}">
+      <span class="order-action">${esc(action.label)}</span>
       <strong>${esc(order.orderCode||'Order')}</strong>
       <span>${esc(order.shippingReference||order.poNumber||order.shipToName||'No reference')}</span>
       <small>${esc(ageLabel(order.createdAt||order.updatedAt))} | ${lines} line${lines===1?'':'s'}</small>
@@ -405,8 +517,18 @@ function orderRowMarkup(order){
 function renderPendingOrders(){
   const list=$('pendingOrderList');
   if(!list)return;
-  list.innerHTML=state.orders.length
-    ? state.orders.slice(0,12).map(orderRowMarkup).join('')
+  const query=$('orderSearch')?.value||'';
+  const visible=state.orders.filter(order=>orderMatchesSearch(order,query));
+  const released=state.orders.filter(order=>normalize(order.status)==='RELEASED').length;
+  const picked=state.orders.filter(order=>normalize(order.status)==='PICKED').length;
+  const staged=state.orders.filter(order=>normalize(order.status)==='STAGED').length;
+  $('orderCounts').innerHTML=[
+    released?`<span class="pill">Pick ${released}</span>`:'',
+    picked?`<span class="pill">Stage ${picked}</span>`:'',
+    staged?`<span class="pill">Ship ${staged}</span>`:''
+  ].filter(Boolean).join('');
+  list.innerHTML=visible.length
+    ? visible.slice(0,12).map(orderRowMarkup).join('')
     : '<p class="muted">No released, picked, or staged orders for this company.</p>';
 }
 
@@ -415,6 +537,7 @@ function currentOrderStatus(){return normalize(state.selectedOrder?.status)}
 
 function renderSummary(){
   const o=state.selectedOrder;
+  $('orderSummaryCard').classList.toggle('hidden',!o);
   $('orderCode').textContent=o?o.orderCode:'No order loaded';
   $('orderStatus').textContent=o?o.status:'Waiting';
   $('orderMeta').textContent=o?`${o.accountName} | ${o.shippingReference||o.poNumber||''} | ${o.shipToName||o.contactName||''}`:'Select a released order to start guided picking.';
@@ -427,9 +550,11 @@ function renderSummary(){
 function renderPick(){
   window.WMS365Mobile?.setKeepAwake?.(!!state.selectedOrder);
   renderSummary();
+  $('orderPickerWrap').classList.toggle('hidden',!state.company||!!state.selectedOrder);
   const status=currentOrderStatus();
   const isStageStep=status==='PICKED';
   const isPickupProofStep=status==='STAGED';
+  document.body.classList.toggle('picking-active',!!state.selectedOrder&&!isStageStep&&!isPickupProofStep);
   $('stageCard').classList.toggle('hidden',!isStageStep);
   $('pickupProofCard').classList.toggle('hidden',!isPickupProofStep);
   if(!state.selectedOrder){
@@ -462,6 +587,8 @@ function renderPick(){
     $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} is ready to mark as picked.`;
     return;
   }
+  $('workOrderCode').textContent=state.selectedOrder.orderCode||'Order';
+  $('workOrderMeta').textContent=`${state.company||state.selectedOrder.accountName||''} | ${Math.min(state.index+1,state.picks.length)}/${state.picks.length}`;
   $('pickLocation').textContent=p.pickLocation||'NO BIN';
   $('pickSku').textContent=p.sku;
   $('pickDescription').textContent=p.description||'No description';
@@ -520,6 +647,7 @@ function startOrder(order){
     );
   state.index=0;
   renderPick();
+  setTimeout(()=>document.getElementById('pickCard')?.scrollIntoView({block:'start'}),50);
 }
 
 function fillExpectedPickValues(){
@@ -534,7 +662,7 @@ function fillExpectedPickValues(){
 }
 
 function nextPickField(){
-  const order=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmQty','confirmPickBtn'];
+  const order=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmPickBtn','confirmQty'];
   const visible=order.map($).filter(el=>el&&!el.closest('.hidden'));
   const current=visible.indexOf(document.activeElement);
   const next=visible[Math.min(visible.length-1,current+1)]||visible[0];
@@ -570,13 +698,22 @@ function acceptScanValue(targetId,value){
   target.value=String(value||'').trim();
   window.WMS365Mobile?.vibrate?.(45);
   window.WMS365Mobile?.beep?.('success');
-  if(String(targetId||'').startsWith('confirm'))nextPickField();
+  if(targetId==='orderSearch'){
+    openMatchingOrder();
+  }else if(String(targetId||'').startsWith('confirm')){
+    nextPickField();
+  }
   else target.focus();
 }
 
 async function startScanner(targetId){
   state.scanTarget=targetId;
   if(window.WMS365Mobile?.scanBarcode?.(targetId)){
+    if(window.WMS365Mobile?.hasHardwareScanner?.()){
+      const target=$(targetId);
+      $('pickMessage').className='status';
+      $('pickMessage').textContent=`Ready for hardware scanner${target?.placeholder?`: ${target.placeholder}`:''}.`;
+    }
     return;
   }
   $('scannerOverlay').classList.remove('hidden');
@@ -618,6 +755,14 @@ function stopScanner(){
 }
 
 window.wms365ReceiveAndroidScan=(targetId,value)=>acceptScanValue(targetId,value);
+function setupScanControls(){
+  const hasHardware=window.WMS365Mobile?.hasHardwareScanner?.();
+  document.querySelectorAll('[data-scan-target]').forEach(button=>{
+    button.textContent=hasHardware?'Trigger':'Scan';
+    button.title=hasHardware?'Press this, then use the physical scanner trigger.':'Open camera scanner.';
+  });
+}
+setupScanControls();
 
 $('companySelect').addEventListener('change',async e=>{
   renderCompanyLock();
@@ -643,13 +788,46 @@ $('switchCompanyBtn').addEventListener('click',()=>{
   renderPick();
 });
 
-$('refreshBtn').addEventListener('click',async()=>{
-  await loadCompanies();
-  await loadOrders();
+function goToMenu(){
+  const company=state.company||getGlobalCompany();
+  const query=company?`?mode=mobile&accountName=${encodeURIComponent(company)}`:'?mode=mobile';
+  location.href=`/mobile${query}`;
+}
+
+$('menuBtn').addEventListener('click',goToMenu);
+$('companyMenuBtn').addEventListener('click',goToMenu);
+$('workMenuBtn').addEventListener('click',goToMenu);
+$('workListBtn').addEventListener('click',()=>{
+  state.selectedOrder=null;
+  state.picks=[];
+  state.index=0;
+  document.body.classList.remove('picking-active');
+  renderCompanyLock();
   renderPick();
 });
 
-$('loadOrderBtn').addEventListener('click',()=>{
+$('refreshBtn').addEventListener('click',async()=>{
+  await loadCompanies();
+  await loadOrders({force:true});
+  renderPick();
+});
+
+function openMatchingOrder(){
+  const query=normalize($('orderSearch')?.value||'');
+  renderPendingOrders();
+  if(!query)return;
+  const exact=state.orders.find(order=>normalize(order.orderCode)===query || normalize(order.shippingReference)===query || normalize(order.poNumber)===query);
+  if(exact)startOrder(exact);
+}
+
+$('orderSearch').addEventListener('input',renderPendingOrders);
+$('orderSearch').addEventListener('keydown',event=>{
+  if(event.key!=='Enter')return;
+  event.preventDefault();
+  openMatchingOrder();
+});
+
+$('loadOrderBtn')?.addEventListener('click',()=>{
   const id=$('orderSelect').value;
   const order=state.orders.find(o=>String(o.id)===String(id));
   if(order) startOrder(order);

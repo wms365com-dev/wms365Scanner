@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Resources | WMS365 Scanner Setup</title>
+    <meta name="description" content="WMS365 device resources for Android scanner setup, RS60 optimization, scanner behavior, offline cache, and warehouse app deployment.">
+    <meta name="theme-color" content="#1767ff">
+    <link rel="canonical" href="https://wms365.co/device-resources">
+    <link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+    <link rel="shortcut icon" href="/marketing-logo.svg">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="preload" href="/marketing.css" as="style">
+    <link rel="stylesheet" href="/marketing.css">
+    <style>
+        .resource-hero{padding:5rem 0 2rem}
+        .resource-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(18rem,.95fr);gap:1rem;align-items:start}
+        .resource-panel,.device-card,.check-card{border:1px solid var(--line);border-radius:24px;background:var(--panel-strong);box-shadow:var(--shadow)}
+        .resource-panel{padding:1.25rem}
+        .resource-panel h2,.device-card h3,.check-card h3{font-family:"Space Grotesk","Segoe UI",sans-serif;letter-spacing:0;margin:0}
+        .device-list{display:grid;gap:.85rem;margin-top:1rem}
+        .device-card{padding:1rem;display:grid;gap:.7rem;box-shadow:none}
+        .device-card header{display:flex;justify-content:space-between;gap:.75rem;align-items:start}
+        .device-card strong{font-size:1.05rem}
+        .status-pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:.28rem .55rem;color:var(--muted);font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:#fff}
+        .status-pill.supported{color:#0f6f58;background:rgba(15,143,131,.08);border-color:rgba(15,143,131,.24)}
+        .status-pill.planned{color:#765416;background:rgba(214,164,74,.12);border-color:rgba(214,164,74,.34)}
+        .spec-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
+        .spec{border:1px solid var(--line);border-radius:16px;background:#fff;padding:.65rem}
+        .spec span{display:block;color:var(--muted);font-size:.8rem}
+        .spec b{display:block;margin-top:.15rem}
+        .resource-actions{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem}
+        .check-card{padding:1rem;box-shadow:none}
+        .check-card ol{margin:.8rem 0 0;padding-left:1.2rem;color:var(--muted);line-height:1.65}
+        .json-box{margin-top:1rem;border:1px solid var(--line);border-radius:16px;background:#0f172a;color:#e2e8f0;padding:1rem;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.86rem;overflow:auto}
+        @media (max-width:860px){.resource-grid{grid-template-columns:1fr}.resource-hero{padding-top:2.5rem}.spec-grid{grid-template-columns:1fr}}
+    </style>
+</head>
+<body>
+    <nav class="site-nav">
+        <div class="shell nav-row">
+            <a class="brand" href="/">
+                <img class="brand-logo" src="/marketing-logo.svg" alt="WMS365 logo" width="50" height="50">
+                <span><small>Warehouse Software</small><strong>WMS365</strong></span>
+            </a>
+            <div class="nav-links">
+                <a href="/">Platform</a>
+                <a href="/integrations">Integrations</a>
+                <a href="/industries">Industries</a>
+                <a class="is-active" href="/device-resources">Resources</a>
+                <a href="/pricing">Pricing</a>
+                <a href="/book-demo">Book Demo</a>
+            </div>
+            <div class="nav-actions">
+                <a class="btn btn-secondary" href="https://app.wms365.co/portal">Customer Portal</a>
+                <a class="btn btn-primary" href="https://app.wms365.co/">Warehouse Login</a>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <section class="resource-hero">
+            <div class="shell resource-grid">
+                <div class="resource-panel">
+                    <span class="eyebrow">Warehouse Device Resources</span>
+                    <h1>Keep scanner devices optimized for WMS365.</h1>
+                    <p class="lead">This page gives warehouse leads one place to check supported devices, required app settings, scanner behavior, offline cache expectations, and Android deployment notes.</p>
+                    <div class="resource-actions">
+                        <a class="btn btn-primary" href="/device-profiles.json">Open device profile feed</a>
+                        <a class="btn btn-secondary" href="https://app.wms365.co/mobile">Open mobile workspace</a>
+                    </div>
+                    <div class="json-box" id="detectedDevice">Detecting device profile...</div>
+                </div>
+                <div class="check-card">
+                    <h3>What WMS365 Optimizes</h3>
+                    <ol>
+                        <li>Scanner mode: hardware trigger first on scanner devices, camera on regular phones.</li>
+                        <li>Soft keyboard behavior: hidden for RS60 scan fields so workers are not blocked.</li>
+                        <li>Fast startup: company, locations, SKUs, orders, and counts preload in the background.</li>
+                        <li>Offline support: work queues stay local and sync when connectivity returns.</li>
+                        <li>Consistent UI: same logo, color, large buttons, and compact worker screens.</li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="shell">
+                <div class="section-head">
+                    <span class="eyebrow">Supported Profiles</span>
+                    <h2>Device setup profiles</h2>
+                    <p>Profiles are pulled from <code>/device-profiles.json</code> so the Android app and the setup guide can stay aligned.</p>
+                </div>
+                <div class="device-list" id="deviceList"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="shell footer-grid">
+            <div><strong>WMS365</strong><p>Warehouse management, customer portals, mobile execution, and device-ready scanner workflows.</p></div>
+            <div class="footer-links"><a href="/device-resources">Device Resources</a><a href="/implementation">Implementation</a><a href="/book-demo">Book Demo</a></div>
+        </div>
+    </footer>
+
+    <script>
+        function text(value){return String(value||"").replace(/[&<>"']/g, ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));}
+        function matchesProfile(profile){
+            const ua=navigator.userAgent.toLowerCase();
+            const fields=[navigator.platform||"", ua].join(" ").toLowerCase();
+            const match=profile.match||{};
+            return ["manufacturerContains","brandContains","modelContains","platformContains"].some(key=>
+                Array.isArray(match[key]) && match[key].some(value=>fields.includes(String(value).toLowerCase()))
+            );
+        }
+        function renderProfile(profile){
+            const opt=profile.androidOptimizations||{};
+            return `<article class="device-card">
+                <header><div><strong>${text(profile.name)}</strong><p>${text(profile.recommendedInputBehavior)}</p></div><span class="status-pill ${text(profile.status)}">${text(profile.status)}</span></header>
+                <div class="spec-grid">
+                    <div class="spec"><span>Scanner mode</span><b>${text(profile.scannerMode)}</b></div>
+                    <div class="spec"><span>Soft keyboard on scans</span><b>${profile.showSoftKeyboardForScanFields ? "Shown" : "Hidden"}</b></div>
+                    <div class="spec"><span>Preload data</span><b>${opt.preloadCompanyDataOnStartup ? "Enabled" : "Standard"}</b></div>
+                    <div class="spec"><span>Local cache</span><b>${opt.cacheWarehouseDataLocally ? "Enabled" : "Standard"}</b></div>
+                </div>
+            </article>`;
+        }
+        fetch("/device-profiles.json",{cache:"no-store"})
+            .then(response=>response.json())
+            .then(data=>{
+                const profiles=Array.isArray(data.profiles)?data.profiles:[];
+                document.getElementById("deviceList").innerHTML=profiles.map(renderProfile).join("");
+                const match=profiles.find(matchesProfile)||profiles.find(profile=>profile.id==="generic-android-phone");
+                document.getElementById("detectedDevice").textContent=[
+                    `App: ${data.app?.name||"WMS365 Scanner"}`,
+                    `Package: ${data.app?.packageName||"com.wms365.app"}`,
+                    `Recommended minimum: ${data.app?.recommendedMinimumVersion||"current"}`,
+                    `Detected profile: ${match?.name||"Generic browser"}`
+                ].join("\n");
+            })
+            .catch(()=>{document.getElementById("detectedDevice").textContent="Device profile feed is not available.";});
+    </script>
+</body>
+</html>

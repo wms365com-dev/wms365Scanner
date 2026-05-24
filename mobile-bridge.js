@@ -8,6 +8,17 @@
   const QUEUE_DB_VERSION = 2;
   const QUEUE_STORE = "transactions";
   const CACHE_STORE = "cache";
+  const WAREHOUSE_STATE_CACHE_KEY = "warehouse-state-v1";
+  const MOBILE_PRELOAD_CACHE_KEY = "warehouse-preload-v1";
+  const DEVICE_PROFILE_CACHE_KEY = "wms365-device-profiles-v1";
+  const DEVICE_PROFILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+  const PICK_ORDERS_CACHE_PREFIX = "mobile-pick-orders";
+  const COMPANY_FAST_CACHE_PREFIX = "warehouse-fast";
+  const COMPANY_INDEX_CACHE_KEY = "warehouse-company-index-v1";
+  let preloadPromise = null;
+  let deviceProfilesPromise = null;
+  let activeDeviceProfile = null;
+  let wakeLock = null;
 
   function isAndroidApp() {
     return !!window.WMS365Android;
@@ -95,6 +106,119 @@
     }
   }
 
+  function textContainsAny(text, values) {
+    const haystack = String(text || "").toLowerCase();
+    return Array.isArray(values) && values.some((value) => haystack.includes(String(value || "").toLowerCase()));
+  }
+
+  function getDeviceManufacturer() {
+    try {
+      return window.WMS365Android?.getDeviceManufacturer?.() || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function getDeviceBrand() {
+    try {
+      return window.WMS365Android?.getDeviceBrand?.() || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function getDeviceModel() {
+    try {
+      return window.WMS365Android?.getDeviceModel?.() || "";
+    } catch {}
+    return [navigator.platform || "", navigator.userAgent || ""].filter(Boolean).join(" ").trim();
+  }
+
+  function matchDeviceProfile(profile) {
+    const match = profile?.match || {};
+    return textContainsAny(getDeviceManufacturer(), match.manufacturerContains)
+      || textContainsAny(getDeviceBrand(), match.brandContains)
+      || textContainsAny(getDeviceModel(), match.modelContains)
+      || textContainsAny(navigator.userAgent || getPlatform(), match.platformContains);
+  }
+
+  function fallbackDeviceProfile() {
+    const android = /android/i.test(String(navigator.userAgent || "")) || getPlatform().startsWith("android");
+    return {
+      id: android ? "generic-android-phone" : "mobile-web",
+      name: android ? "Generic Android phone" : "Mobile browser",
+      status: "detected",
+      scannerMode: "camera",
+      showSoftKeyboardForScanFields: true,
+      androidOptimizations: {
+        useHardwareScannerBeforeCamera: false,
+        cacheWarehouseDataLocally: true,
+        preloadCompanyDataOnStartup: true,
+        largeButtonsForGloves: true
+      }
+    };
+  }
+
+  function selectDeviceProfile(profiles = []) {
+    const matched = profiles.find(matchDeviceProfile)
+      || profiles.find((profile) => profile.id === "generic-android-phone")
+      || fallbackDeviceProfile();
+    activeDeviceProfile = matched;
+    window.dispatchEvent(new CustomEvent("wms365:device-profile", { detail: { profile: matched } }));
+    applyDeviceProfileToPage();
+    return matched;
+  }
+
+  async function loadDeviceProfile({ force = false } = {}) {
+    if (activeDeviceProfile && !force) return activeDeviceProfile;
+    if (deviceProfilesPromise && !force) return deviceProfilesPromise;
+    deviceProfilesPromise = (async () => {
+      let payload = null;
+      if (!force) {
+        const cached = await getCachedData(DEVICE_PROFILE_CACHE_KEY, { maxAgeMs: DEVICE_PROFILE_MAX_AGE_MS }).catch(() => null);
+        payload = cached?.payload || null;
+      }
+      if (!payload && isOnline()) {
+        payload = await fetchJsonForCache("/device-profiles.json").catch(() => null);
+        if (payload) await cacheData(DEVICE_PROFILE_CACHE_KEY, payload).catch(() => {});
+      }
+      return selectDeviceProfile(Array.isArray(payload?.profiles) ? payload.profiles : []);
+    })().finally(() => {
+      deviceProfilesPromise = null;
+    });
+    return deviceProfilesPromise;
+  }
+
+  function getDeviceProfile() {
+    return activeDeviceProfile || fallbackDeviceProfile();
+  }
+
+  function getDeviceProfileId() {
+    return getDeviceProfile().id || "";
+  }
+
+  function hasHardwareScanner() {
+    try {
+      if (typeof window.WMS365Android?.hasHardwareScanner === "function") {
+        return !!window.WMS365Android.hasHardwareScanner();
+      }
+    } catch {}
+    const profile = getDeviceProfile();
+    if (profile?.showSoftKeyboardForScanFields === false && /hardware|wedge|datawedge/i.test(String(profile?.scannerMode || ""))) {
+      return true;
+    }
+    return false;
+  }
+
+  function getScannerProfile() {
+    try {
+      if (typeof window.WMS365Android?.getScannerProfile === "function") {
+        return window.WMS365Android.getScannerProfile() || (hasHardwareScanner() ? "hardware_wedge" : "camera");
+      }
+    } catch {}
+    return getDeviceProfile()?.scannerMode || (hasHardwareScanner() ? "hardware_wedge" : "camera");
+  }
+
   function getAuditContext(actionType) {
     const timestamp = new Date().toISOString();
     const deviceId = getDeviceId();
@@ -150,13 +274,47 @@
   function beep(type = "success") {
     try {
       window.WMS365Android?.beep?.(type);
+      return;
+    } catch {}
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = String(type).toLowerCase() === "error" ? 220 : 880;
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.06, context.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.12);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.13);
+      setTimeout(() => context.close?.(), 220);
     } catch {}
   }
 
   function setKeepAwake(enabled) {
     try {
       window.WMS365Android?.setKeepScreenAwake?.(!!enabled);
+      return;
     } catch {}
+    if (!("wakeLock" in navigator)) return;
+    if (enabled) {
+      if (wakeLock) return;
+      navigator.wakeLock.request("screen")
+        .then((lock) => {
+          wakeLock = lock;
+          wakeLock.addEventListener?.("release", () => { wakeLock = null; });
+        })
+        .catch(() => {});
+      return;
+    }
+    try {
+      wakeLock?.release?.();
+    } catch {}
+    wakeLock = null;
   }
 
   function isOnline() {
@@ -172,15 +330,63 @@
     } catch {}
   }
 
+  function prepareScanTarget(targetId) {
+    const target = document.getElementById(String(targetId || ""));
+    if (!target) return false;
+    try {
+      target.focus({ preventScroll: false });
+      if (typeof target.select === "function") target.select();
+    } catch {
+      try { target.focus(); } catch {}
+    }
+    return true;
+  }
+
   function scanBarcode(targetId, fallback) {
+    prepareScanTarget(targetId);
     try {
       if (window.WMS365Android?.scanBarcode) {
         window.WMS365Android.scanBarcode(String(targetId || ""));
         return true;
       }
     } catch {}
+    if (hasHardwareScanner()) return true;
     if (typeof fallback === "function") fallback();
     return false;
+  }
+
+  function scanPlaceholderFor(id) {
+    if (/location/i.test(id)) return "Scan location";
+    if (/sku|upc/i.test(id)) return "Scan SKU";
+    if (/lot/i.test(id)) return "Scan lot";
+    if (/order/i.test(id)) return "Scan order";
+    return "Scan barcode";
+  }
+
+  function applyDeviceProfileToPage() {
+    const profile = getDeviceProfile();
+    const hardware = hasHardwareScanner();
+    if (document.body) {
+      document.body.dataset.deviceProfile = profile.id || "";
+      document.body.classList.toggle("device-profile-hardware-scanner", hardware);
+      document.body.classList.toggle("device-profile-camera-scanner", !hardware);
+    }
+    document.querySelectorAll("[data-scan-target]").forEach((button) => {
+      const targetId = String(button.dataset.scanTarget || "");
+      button.textContent = hardware ? "Trigger" : "Scan";
+      button.title = hardware ? "Press the physical scanner trigger." : "Open camera scanner.";
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      if (hardware) {
+        target.placeholder = scanPlaceholderFor(targetId);
+        if (!isAndroidApp() && profile?.showSoftKeyboardForScanFields === false) {
+          target.setAttribute("inputmode", "none");
+          target.title = "Tap this field, then press the physical scanner trigger.";
+        }
+      } else if (!target.getAttribute("inputmode")) {
+        target.removeAttribute("inputmode");
+      }
+    });
   }
 
   function openQueueDb() {
@@ -314,6 +520,210 @@
     return record;
   }
 
+  function compactStatePayload(payload) {
+    return {
+      inventory: payload?.inventory || [],
+      inventoryCounts: payload?.inventoryCounts || [],
+      warehouseTasks: payload?.warehouseTasks || [],
+      pallets: payload?.pallets || [],
+      activity: payload?.activity || [],
+      masters: payload?.masters || {},
+      billing: payload?.billing || {},
+      session: payload?.session || {},
+      meta: payload?.meta || {}
+    };
+  }
+
+  function deriveCompanies(payload) {
+    const values = []
+      .concat(payload?.masters?.owners || [])
+      .concat((payload?.inventory || []).map((line) => line.accountName))
+      .concat((payload?.inventoryCounts || []).map((count) => count.accountName))
+      .concat((payload?.warehouseTasks || []).map((task) => task.accountName))
+      .concat(payload?.session?.appUser?.assignedCompanies || [])
+      .concat(payload?.session?.appUser?.inheritedCompanies || []);
+    return [...new Set(values.map(normalizeCompany).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  function pickOrdersCacheKey(company = "") {
+    const normalized = normalizeCompany(company);
+    return `${PICK_ORDERS_CACHE_PREFIX}:${normalized || "all"}`;
+  }
+
+  function companyFastCacheKey(company = "") {
+    const normalized = normalizeCompany(company);
+    return `${COMPANY_FAST_CACHE_PREFIX}:${normalized || "all"}`;
+  }
+
+  function matchesCompany(record, company) {
+    const normalized = normalizeCompany(company);
+    if (!normalized) return true;
+    const candidates = [
+      record?.accountName,
+      record?.account_name,
+      record?.owner,
+      record?.ownerName,
+      record?.company,
+      record?.companyName,
+      record?.customer,
+      record?.customerName
+    ].map(normalizeCompany).filter(Boolean);
+    return candidates.includes(normalized);
+  }
+
+  function companySlice(compactState, company) {
+    const normalized = normalizeCompany(company);
+    const masters = compactState?.masters || {};
+    const ownerRecords = Array.isArray(masters.ownerRecords) ? masters.ownerRecords : [];
+    const ownerRecord = ownerRecords.find((owner) => matchesCompany(owner, normalized)) || null;
+    const locations = Array.isArray(masters.locations)
+      ? masters.locations.filter((location) => !normalized || matchesCompany(location, normalized) || !normalizeCompany(location?.accountName || location?.owner || location?.companyName))
+      : [];
+    const companyFulfillmentLocations = Array.isArray(masters.companyFulfillmentLocations)
+      ? masters.companyFulfillmentLocations.filter((location) => matchesCompany(location, normalized))
+      : [];
+    return {
+      accountName: normalized,
+      cachedAt: new Date().toISOString(),
+      inventory: (compactState?.inventory || []).filter((line) => matchesCompany(line, normalized)),
+      inventoryCounts: (compactState?.inventoryCounts || []).filter((count) => matchesCompany(count, normalized)),
+      warehouseTasks: (compactState?.warehouseTasks || []).filter((task) => matchesCompany(task, normalized)),
+      pallets: (compactState?.pallets || []).filter((pallet) => matchesCompany(pallet, normalized)),
+      items: (masters.items || []).filter((item) => matchesCompany(item, normalized)),
+      locations,
+      ownerRecord,
+      fulfillmentLocations: companyFulfillmentLocations,
+      partners: masters.partners || [],
+      session: compactState?.session || {},
+      meta: compactState?.meta || {}
+    };
+  }
+
+  async function cacheCompanyFastSlices(compactState, companies) {
+    const normalizedCompanies = [...new Set((companies || []).map(normalizeCompany).filter(Boolean))];
+    const slices = [];
+    for (const company of normalizedCompanies) {
+      const slice = companySlice(compactState, company);
+      await cacheData(companyFastCacheKey(company), slice);
+      slices.push({
+        accountName: company,
+        inventory: slice.inventory.length,
+        counts: slice.inventoryCounts.length,
+        tasks: slice.warehouseTasks.length,
+        items: slice.items.length,
+        locations: slice.locations.length,
+        pallets: slice.pallets.length
+      });
+    }
+    await cacheData(COMPANY_INDEX_CACHE_KEY, {
+      companies: normalizedCompanies,
+      slices,
+      cachedAt: new Date().toISOString()
+    });
+    return slices;
+  }
+
+  async function getCompanyFastData(company, options = {}) {
+    const record = await getCachedData(companyFastCacheKey(company), options);
+    return record?.payload || null;
+  }
+
+  async function fetchJsonForCache(url) {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" }
+    });
+    const text = await response.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = {};
+    }
+    if (!response.ok) {
+      const error = new Error(data.error || `Request failed (${response.status})`);
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+
+  async function fetchPickOrdersForCache(company = "") {
+    const normalized = normalizeCompany(company);
+    const query = normalized ? `?account_name=${encodeURIComponent(normalized)}&accountName=${encodeURIComponent(normalized)}` : "";
+    try {
+      return await fetchJsonForCache(`/api/mobile/pick-orders${query}`);
+    } catch (error) {
+      if (Number(error.status) !== 404) throw error;
+      const fallbackQuery = normalized ? `?accountName=${encodeURIComponent(normalized)}&account_name=${encodeURIComponent(normalized)}` : "";
+      return fetchJsonForCache(`/api/admin/portal-orders${fallbackQuery}`);
+    }
+  }
+
+  async function preloadWarehouseData({ force = false, reason = "startup" } = {}) {
+    if (preloadPromise && !force) return preloadPromise;
+    preloadPromise = (async () => {
+      if (!isOnline()) return { ok: false, offline: true };
+      const startedAt = new Date().toISOString();
+      const summary = {
+        ok: true,
+        reason,
+        startedAt,
+        completedAt: "",
+        company: getCompanyContext(),
+        companies: [],
+        stateCached: false,
+        pickOrdersCached: 0,
+        errors: []
+      };
+      try {
+        const statePayload = await fetchJsonForCache("/api/state");
+        const compactState = compactStatePayload(statePayload);
+        await cacheData(WAREHOUSE_STATE_CACHE_KEY, compactState);
+        summary.stateCached = true;
+        summary.companies = deriveCompanies(compactState);
+        summary.companySlicesCached = 0;
+        summary.companySlices = [];
+        try {
+          summary.companySlices = await cacheCompanyFastSlices(compactState, summary.companies);
+          summary.companySlicesCached = summary.companySlices.length;
+        } catch (error) {
+          summary.errors.push({ scope: "company-fast-cache", message: error.message || "Unable to warm company fast cache" });
+        }
+
+        const activeCompany = normalizeCompany(getCompanyContext());
+        const companiesToWarm = activeCompany
+          ? [activeCompany]
+          : summary.companies.slice(0, 3);
+        for (const company of companiesToWarm) {
+          try {
+            const ordersPayload = await fetchPickOrdersForCache(company);
+            await cacheData(pickOrdersCacheKey(company), {
+              ...(ordersPayload || {}),
+              accountName: company,
+              cachedAt: new Date().toISOString()
+            });
+            summary.pickOrdersCached += Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.length : 0;
+          } catch (error) {
+            summary.errors.push({ scope: `pick-orders:${company || "all"}`, message: error.message || "Unable to warm pick orders" });
+          }
+        }
+      } catch (error) {
+        summary.ok = false;
+        summary.errors.push({ scope: "state", message: error.message || "Unable to warm warehouse data" });
+      }
+      summary.completedAt = new Date().toISOString();
+      try {
+        await cacheData(MOBILE_PRELOAD_CACHE_KEY, summary);
+      } catch {}
+      window.dispatchEvent(new CustomEvent("wms365:preload", { detail: summary }));
+      return summary;
+    })().finally(() => {
+      preloadPromise = null;
+    });
+    return preloadPromise;
+  }
+
   async function syncQueue() {
     if (!navigator.onLine) return { synced: 0, failed: 0 };
     const records = (await getQueuedTransactions()).filter((record) => record.status !== "SYNCED");
@@ -408,6 +818,14 @@
     clearCompanyContext,
     getPlatform,
     getAppVersion,
+    getDeviceManufacturer,
+    getDeviceBrand,
+    getDeviceProfile,
+    getDeviceProfileId,
+    loadDeviceProfile,
+    hasHardwareScanner,
+    getScannerProfile,
+    getDeviceModel,
     getAuditContext,
     makeIdempotencyKey,
     envelope,
@@ -416,7 +834,9 @@
     setKeepAwake,
     isOnline,
     clearWebData,
+    prepareScanTarget,
     scanBarcode,
+    applyDeviceProfileToPage,
     queueTransaction,
     queueOrSendTransaction,
     getQueuedTransactions,
@@ -424,10 +844,26 @@
     retryFailedTransactions,
     cacheData,
     getCachedData,
+    getCompanyFastData,
+    preloadWarehouseData,
+    pickOrdersCacheKey,
+    companyFastCacheKey,
     syncQueue,
     registerServiceWorker
   };
 
   window.addEventListener("online", () => syncQueue().catch(() => {}));
+  window.addEventListener("wms365:company-context", () => preloadWarehouseData({ force: true, reason: "company-context" }).catch(() => {}));
+  window.addEventListener("wms365:device-profile", () => applyDeviceProfileToPage());
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      applyDeviceProfileToPage();
+      loadDeviceProfile().catch(() => {});
+    }, { once: true });
+  } else {
+    applyDeviceProfileToPage();
+    loadDeviceProfile().catch(() => {});
+  }
   registerServiceWorker();
+  setTimeout(() => preloadWarehouseData({ reason: "startup" }).catch(() => {}), 600);
 })();

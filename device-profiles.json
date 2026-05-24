@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-05-23",
+  "app": {
+    "name": "WMS365 Scanner",
+    "packageName": "com.wms365.app",
+    "productionUrl": "https://app.wms365.co",
+    "recommendedMinimumVersion": "0.2.25"
+  },
+  "defaults": {
+    "orientation": "portrait",
+    "scannerMode": "camera_or_keyboard",
+    "keepScreenAwakeDuringWork": true,
+    "offlineQueue": true,
+    "preloadOnStartup": true,
+    "cacheRefreshMinutes": 15,
+    "largeTouchTargets": true,
+    "showSoftKeyboardForScanFields": true,
+    "workflows": [
+      "picking",
+      "receiving",
+      "putaway",
+      "moves",
+      "inventory_count"
+    ]
+  },
+  "profiles": [
+    {
+      "id": "sonim-rs60",
+      "name": "Sonim RS60",
+      "status": "supported",
+      "match": {
+        "manufacturerContains": [
+          "sonim"
+        ],
+        "brandContains": [
+          "sonim"
+        ],
+        "modelContains": [
+          "rs60"
+        ]
+      },
+      "scannerMode": "hardware_keyboard_wedge",
+      "showSoftKeyboardForScanFields": false,
+      "hardwareScanTriggerRequired": true,
+      "recommendedInputBehavior": "Tap a scan field or Trigger, then press the physical scan button.",
+      "androidOptimizations": {
+        "orientation": "portrait",
+        "keepScreenAwakeDuringWork": true,
+        "disableSoftKeyboardForScanFields": true,
+        "useHardwareScannerBeforeCamera": true,
+        "preloadCompanyDataOnStartup": true,
+        "preloadPickOrdersOnStartup": true,
+        "cacheWarehouseDataLocally": true,
+        "compactWorkerScreens": true,
+        "largeButtonsForGloves": true
+      },
+      "cacheTargets": [
+        "company_context",
+        "assigned_orders",
+        "pick_orders",
+        "locations",
+        "items",
+        "sku_upc_index",
+        "inventory_balances",
+        "inventory_count_state"
+      ],
+      "deployment": {
+        "recommendedInstall": "Android APK or managed MDM deployment",
+        "apkPackage": "com.wms365.app",
+        "startUrl": "https://app.wms365.co/mobile",
+        "minimumAndroidVersion": "Android 8.0",
+        "requiredPermissions": [
+          "Internet",
+          "Camera",
+          "File/photo upload",
+          "Vibration"
+        ]
+      },
+      "setupChecklist": [
+        "Connect device to Wi-Fi used in the warehouse.",
+        "Install or update WMS365 Scanner.",
+        "Open the app and sign in as a warehouse worker.",
+        "Select the company once and confirm it stays locked.",
+        "Open Picking and tap a Location or SKU scan field.",
+        "Confirm the soft keyboard stays hidden and the hardware scan prompt appears.",
+        "Scan a test barcode and confirm vibration/success feedback.",
+        "Open Inventory Count and confirm Location/SKU fields use the same scanner behavior."
+      ]
+    },
+    {
+      "id": "zebra-android",
+      "name": "Zebra Android scanner family",
+      "status": "planned",
+      "match": {
+        "manufacturerContains": [
+          "zebra",
+          "symbol"
+        ],
+        "modelContains": [
+          "tc",
+          "mc",
+          "et"
+        ]
+      },
+      "scannerMode": "hardware_keyboard_wedge_or_datawedge",
+      "showSoftKeyboardForScanFields": false,
+      "hardwareScanTriggerRequired": true,
+      "recommendedInputBehavior": "Use keyboard wedge first. Add DataWedge intent support when a customer standardizes on Zebra.",
+      "androidOptimizations": {
+        "orientation": "portrait",
+        "keepScreenAwakeDuringWork": true,
+        "disableSoftKeyboardForScanFields": true,
+        "useHardwareScannerBeforeCamera": true,
+        "preloadCompanyDataOnStartup": true,
+        "cacheWarehouseDataLocally": true,
+        "largeButtonsForGloves": true
+      }
+    },
+    {
+      "id": "generic-android-phone",
+      "name": "Generic Android phone",
+      "status": "supported",
+      "match": {
+        "platformContains": [
+          "android"
+        ]
+      },
+      "scannerMode": "camera",
+      "showSoftKeyboardForScanFields": true,
+      "hardwareScanTriggerRequired": false,
+      "recommendedInputBehavior": "Use camera scanning when no physical scanner is detected. Manual key-in remains available.",
+      "androidOptimizations": {
+        "orientation": "portrait",
+        "keepScreenAwakeDuringWork": true,
+        "disableSoftKeyboardForScanFields": false,
+        "useHardwareScannerBeforeCamera": false,
+        "preloadCompanyDataOnStartup": true,
+        "cacheWarehouseDataLocally": true,
+        "largeButtonsForGloves": true
+      }
+    }
+  ]
+}

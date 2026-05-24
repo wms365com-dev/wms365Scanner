@@ -4,21 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#e6edf0">
+<link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+<link rel="shortcut icon" href="/marketing-logo.svg">
+<link rel="manifest" href="/site.webmanifest">
 <title>WMS365 Mobile Inventory Count</title>
 <style>
 :root{--bg:#f3f5f6;--card:#fff;--text:#20303a;--muted:#657582;--line:#d5dde4;--brand:#5c7b92;--brand2:#3f5f76;--brandsoft:#edf3f6;--good:#5f8169;--bad:#b66363;--warn:#b08b47;--warnbg:#fff8e8}
-*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--text)}.app{min-height:100dvh;display:grid;grid-template-rows:auto 1fr auto;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}.top{padding:14px 4px 10px}.kicker{font-size:12px;text-transform:uppercase;color:var(--muted);font-weight:700;letter-spacing:.08em}.title{display:flex;justify-content:space-between;align-items:center;gap:10px}.title h1{margin:4px 0 0;font-size:24px}.badge{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:#fff;color:var(--brand2);font-weight:700;font-size:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 12px 30px rgba(32,48,58,.06)}.stack{display:grid;gap:12px;align-content:start}.field{display:grid;gap:7px}.field span{font-size:13px;font-weight:700;color:var(--text)}input,select,button{font:inherit}input,select{width:100%;border:1px solid var(--line);border-radius:8px;padding:13px 12px;font-size:16px;background:#fff;color:var(--text)}input:focus,select:focus{outline:3px solid rgba(92,123,146,.16);border-color:var(--brand)}.scan-row{display:grid;grid-template-columns:minmax(0,1fr) 86px;gap:8px}.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 140px}.btn{border:0;border-radius:8px;padding:13px 14px;background:var(--brand);color:#fff;font-weight:700;min-height:46px}.btn.secondary{background:var(--brand2)}.btn.ghost{background:#fff;color:var(--brand2);border:1px solid var(--line)}.btn.warn{background:#fff8e8;color:#8a5d1f;border:1px solid #ead39f}.btn:disabled{opacity:.55}.hidden{display:none!important}.meta,.status{font-size:13px;line-height:1.4;color:var(--muted)}.status{min-height:22px}.status.good{color:#3f6f4d}.status.bad{color:#9a4d4d}.queue-status{margin-top:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;font-size:13px;color:var(--muted)}.queue-status.warn{border-color:#e4c983;background:var(--warnbg);color:#8a5d1f}.queue-status.good{border-color:#c9d9cd;background:#f0f5f1;color:#3f6f4d}.prompt{border-top:1px solid var(--line);padding-top:12px;margin-top:4px}.summary{display:grid;grid-template-columns:1fr 1fr;gap:8px}.summary div{border:1px solid var(--line);border-radius:8px;padding:9px;background:#f7f9fa}.summary span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700}.summary strong{display:block;margin-top:3px}.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:8px;background:#f7f9fa;padding:10px 12px}.locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700}.locked strong{font-size:16px}.locked .btn{flex:0 0 auto;min-height:38px;padding:9px 11px}.warnbox{border:1px solid #e4c983;background:var(--warnbg);color:#8a5d1f;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.35}.photo-preview{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#f7f9fa}.photo-preview img{display:block;width:100%;max-height:220px;object-fit:cover}.scanner{position:fixed;inset:0;background:rgba(32,48,58,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:8px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}.footer{padding:10px 4px 14px;text-align:center;color:var(--muted);font-size:12px}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--text)}.app{min-height:100vh;min-height:100dvh;display:grid;grid-template-rows:auto 1fr;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}.top{padding:8px 4px}.appbar{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:#fff}.appbar img{width:32px;height:32px;flex:0 0 32px;object-fit:contain}.appbar-copy{display:grid;gap:2px;min-width:0;flex:1 1 auto}.kicker{display:none}.title-text{font-size:19px;font-weight:800;line-height:1.08}.badge{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:#fff;color:var(--brand2);font-weight:700;font-size:12px;flex:0 0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;box-shadow:none}.stack{display:grid;gap:10px;align-content:start}.field{display:grid;gap:6px}.field span{font-size:13px;font-weight:700;color:var(--text)}input,select,button{font:inherit}input,select{width:100%;border:1px solid var(--line);border-radius:8px;padding:12px 11px;font-size:16px;background:#fff;color:var(--text)}input:focus,select:focus{outline:3px solid rgba(92,123,146,.16);border-color:var(--brand)}.scan-row{display:grid;grid-template-columns:minmax(0,1fr) 86px;gap:8px}.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 140px}.btn{border:0;border-radius:8px;padding:12px 13px;background:var(--brand);color:#fff;font-weight:700;min-height:44px}.btn.secondary{background:var(--brand2)}.btn.ghost{background:#fff;color:var(--brand2);border:1px solid var(--line)}.btn.warn{background:#fff8e8;color:#8a5d1f;border:1px solid #ead39f}.btn:disabled{opacity:.55}.hidden{display:none!important}.meta,.status{font-size:13px;line-height:1.35;color:var(--muted)}.status{min-height:20px}.status.good{color:#3f6f4d}.status.bad{color:#9a4d4d}.queue-status{margin-top:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;font-size:13px;color:var(--muted)}.queue-status.warn{border-color:#e4c983;background:var(--warnbg);color:#8a5d1f}.queue-status.good{border-color:#c9d9cd;background:#f0f5f1;color:#3f6f4d}.prompt{border-top:1px solid var(--line);padding-top:12px;margin-top:4px}.summary{display:grid;grid-template-columns:1fr 1fr;gap:8px}.summary div{border:1px solid var(--line);border-radius:8px;padding:8px;background:#f7f9fa}.summary span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700}.summary strong{display:block;margin-top:3px}.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:8px;background:#f7f9fa;padding:9px 10px}.locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700}.locked strong{font-size:16px}.locked-actions{display:flex;gap:6px;align-items:center;flex:0 0 auto}.locked .btn{flex:0 0 auto;min-height:38px;padding:9px 11px}.warnbox{border:1px solid #e4c983;background:var(--warnbg);color:#8a5d1f;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.35}.photo-preview{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#f7f9fa}.photo-preview img{display:block;width:100%;max-height:220px;object-fit:cover}.scanner{position:fixed;inset:0;background:rgba(32,48,58,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:8px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}.footer{display:none}body.count-active .app{grid-template-rows:1fr;padding:6px}body.count-active .top{display:none}body.count-active .stack{gap:7px}body.count-active .card{padding:9px}body.count-active .locked{padding:8px 9px}body.count-active .field{gap:4px}body.count-active input,body.count-active select{padding:10px 11px}body.count-active .btn{padding:10px 12px}body.count-active .status{min-height:0}@media (max-height:700px){.top{padding-top:8px}.stack{gap:8px}.card{padding:10px}.btn{padding:10px 12px}input,select{padding:10px 11px}}
+body{font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans-serif}.card,.locked,.queue-status,.prompt,.summary div,.warnbox,.photo-preview,.scanner-card,input,select,.btn{border-radius:12px}.scan-row{grid-template-columns:minmax(0,1fr) 82px}.btn{font-weight:800}.btn.ghost{color:var(--brand2);background:#fff;border:1px solid var(--line)}.badge{font-weight:800}.field span,.locked span,.summary span{letter-spacing:.08em}
 </style>
 </head>
 <body>
 <div class="app">
   <header class="top">
-    <div class="title">
-      <div>
+    <div class="appbar">
+      <img src="/marketing-logo.svg" alt="WMS365 logo" width="32" height="32">
+      <div class="appbar-copy">
         <div class="kicker">WMS365</div>
-        <h1>Inventory Count</h1>
+        <div class="title-text">WMS365 Scanner</div>
       </div>
-      <span class="badge">Pending</span>
+      <span class="badge">Count</span>
     </div>
     <div class="meta" id="buildLabel">Loading...</div>
     <div class="queue-status hidden" id="queueStatus"></div>
@@ -30,20 +35,26 @@
         <span>Company</span>
         <select id="accountSelect"></select>
       </label>
-      <button class="btn" id="lockCompanyBtn" type="button">Continue To Count</button>
+      <div class="row">
+        <button class="btn" id="lockCompanyBtn" type="button">Continue To Count</button>
+        <button class="btn ghost" id="companyMenuBtn" type="button">Menu</button>
+      </div>
       <div class="status" id="companyMessage">Choose the company for this count.</div>
     </section>
 
     <section class="card stack hidden" id="countStep">
       <div class="locked">
         <div><span>Company Locked</span><strong id="lockedCompanyLabel">-</strong></div>
-        <button class="btn ghost" id="switchCompanyBtn" type="button">Back</button>
+        <div class="locked-actions">
+          <button class="btn ghost" id="menuBtn" type="button">Menu</button>
+          <button class="btn ghost" id="switchCompanyBtn" type="button">Switch</button>
+        </div>
       </div>
 
       <label class="field">
         <span>Location</span>
         <div class="scan-row">
-          <input id="locationInput" list="locationList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or key in location" enterkeyhint="next">
+          <input id="locationInput" list="locationList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or key location" enterkeyhint="next">
           <button class="btn ghost" type="button" data-scan-target="locationInput">Scan</button>
         </div>
       </label>
@@ -51,14 +62,14 @@
       <label class="field">
         <span>SKU / UPC</span>
         <div class="scan-row">
-          <input id="skuInput" list="skuList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan barcode or key in SKU" enterkeyhint="next">
+          <input id="skuInput" list="skuList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or key SKU" enterkeyhint="next">
           <button class="btn ghost" type="button" data-scan-target="skuInput">Scan</button>
         </div>
       </label>
 
       <label class="field">
         <span>Quantity In Cases</span>
-        <input id="casesInput" type="number" min="0" step="1" inputmode="numeric" placeholder="Enter counted cases" enterkeyhint="done">
+        <input id="casesInput" type="number" min="0" step="1" inputmode="numeric" placeholder="Counted cases" enterkeyhint="done">
       </label>
 
       <div class="row hidden" id="traceFields">
@@ -189,6 +200,30 @@ async function readCachedStatePayload(){
   const shared=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData(MOBILE_DEVICE_STATE_CACHE_KEY,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
   return shared?.payload||null;
 }
+async function hydrateFromFastCompany(company){
+  const account=norm(company);
+  if(!account||!window.WMS365Mobile?.getCompanyFastData)return false;
+  const fast=await window.WMS365Mobile.getCompanyFastData(account,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null);
+  if(!fast)return false;
+  const index=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData("warehouse-company-index-v1",{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
+  const owners=Array.isArray(index?.payload?.companies)&&index.payload.companies.length?index.payload.companies:[account];
+  applyStatePayload({
+    inventory:fast.inventory||[],
+    inventoryCounts:fast.inventoryCounts||[],
+    warehouseTasks:fast.warehouseTasks||[],
+    masters:{items:fast.items||[],locations:fast.locations||[],owners},
+    session:fast.session||{},
+    meta:fast.meta||{}
+  });
+  state.lockedAccount=account;
+  $("accountSelect").innerHTML=state.owners.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
+  $("accountSelect").value=state.owners.find(o=>norm(o)===account)||account;
+  renderOptions();
+  renderCompanyStep();
+  $("message").className="status good";
+  $("message").textContent="Ready to count.";
+  return true;
+}
 async function queuedCounts(){
   if(window.WMS365Mobile?.getQueuedTransactions){
     const queued=await window.WMS365Mobile.getQueuedTransactions().catch(()=>[]);
@@ -288,6 +323,8 @@ function renderWarnings(){
 }
 function renderItem(){
   renderOptions();
+  const hasSku=!!norm($("skuInput").value);
+  $("itemSummary").classList.toggle("hidden",!hasSku);
   const item=selectedItem();
   const needsLot=item?.lotTracked===true;const needsExp=item?.expirationTracked===true;
   $("traceFields").classList.toggle("hidden",!(needsLot||needsExp));
@@ -295,7 +332,7 @@ function renderItem(){
   $("expirationField").classList.toggle("hidden",!needsExp);
   $("trackingValue").textContent=item?trackingLabel(item.trackingLevel):"Cases";
   const total=matchingInventory().reduce((sum,line)=>sum+(Number(line.quantity)||0),0);
-  $("systemValue").textContent=norm($("skuInput").value)?qtyText(total,item?.trackingLevel||"CASE"):"-";
+  $("systemValue").textContent=hasSku?qtyText(total,item?.trackingLevel||"CASE"):"-";
   renderWarnings();
 }
 function clearPhoto(){
@@ -315,6 +352,7 @@ function nextLocation(){
 }
 function renderCompanyStep(){
   const locked=selectedAccount();
+  document.body.classList.toggle("count-active",!!locked);
   $("companyStep").classList.toggle("hidden",!!locked);
   $("countStep").classList.toggle("hidden",!locked);
   $("lockedCompanyLabel").textContent=locked||"-";
@@ -340,6 +378,7 @@ function switchCompany(){
 async function load(){
   const provisional=provisionalCompany();
   if(provisional&&!state.lockedAccount){state.lockedAccount=provisional;renderCompanyStep();$("message").className="status";$("message").textContent="Loading company data..."}
+  await hydrateFromFastCompany(provisional||getGlobalCompany()||state.lockedAccount).catch(()=>false);
   let payload;
   try{
     payload=await requestJson("/api/state");
@@ -367,6 +406,10 @@ async function load(){
   if(!state.offlineMode){
     const synced=await syncPendingCounts();
     if(synced)$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;
+  }
+  if(state.lockedAccount&&/Loading company data/i.test($("message").textContent||"")){
+    $("message").className="status good";
+    $("message").textContent="Ready to count.";
   }
 }
 async function saveCount(){
@@ -433,6 +476,10 @@ async function startScanner(targetId){
   state.scanTarget=targetId;
   if(window.WMS365Mobile?.scanBarcode?.(targetId)){
     $("scannerOverlay").classList.add("hidden");
+    if(window.WMS365Mobile?.hasHardwareScanner?.()){
+      $("message").className="status";
+      $("message").textContent="Ready for hardware scanner. Press the physical scan trigger.";
+    }
     return;
   }
   $("scannerOverlay").classList.remove("hidden");
@@ -472,11 +519,26 @@ function stopScanner(){
   $("scannerOverlay").classList.add("hidden");
 }
 window.wms365ReceiveAndroidScan=(targetId,value)=>acceptScanValue(targetId,value);
+function setupScanControls(){
+  const hasHardware=window.WMS365Mobile?.hasHardwareScanner?.();
+  document.querySelectorAll("[data-scan-target]").forEach(button=>{
+    button.textContent=hasHardware?"Trigger":"Scan";
+    button.title=hasHardware?"Press this, then use the physical scanner trigger.":"Open camera scanner.";
+  });
+}
+setupScanControls();
+function goToMenu(){
+  const company=selectedAccount()||getGlobalCompany();
+  const query=company?`?mode=mobile&accountName=${encodeURIComponent(company)}`:"?mode=mobile";
+  location.href=`/mobile${query}`;
+}
 $("accountSelect").addEventListener("input",renderCompanyStep);
 ["locationInput","skuInput","lotInput","expirationInput"].forEach(id=>$(id).addEventListener("input",renderItem));
 document.querySelectorAll("[data-scan-target]").forEach(button=>button.addEventListener("click",()=>startScanner(button.dataset.scanTarget)));
 $("lockCompanyBtn").addEventListener("click",lockCompany);
 $("switchCompanyBtn").addEventListener("click",switchCompany);
+$("menuBtn").addEventListener("click",goToMenu);
+$("companyMenuBtn").addEventListener("click",goToMenu);
 $("saveBtn").addEventListener("click",saveCount);
 $("clearBtn").addEventListener("click",clearSku);
 $("anotherSkuBtn").addEventListener("click",clearSku);

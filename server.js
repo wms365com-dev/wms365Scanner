@@ -117,6 +117,8 @@ const APP_BUILD_FILES = [
     "affiliate-program.html",
     "hiring.html",
     "implementation.html",
+    "device-resources.html",
+    "device-profiles.json",
     "3pl-warehouse-management-software.html",
     "shopify-warehouse-management-software.html",
     "lot-tracking-expiration-date-inventory-software.html",
@@ -4696,6 +4698,14 @@ app.get("/implementation.html", (req, res) => {
     sendMarketingPage(req, res, "implementation.html");
 });
 
+app.get("/device-resources", (req, res) => {
+    sendMarketingPage(req, res, "device-resources.html");
+});
+
+app.get("/device-resources.html", (req, res) => {
+    sendMarketingPage(req, res, "device-resources.html");
+});
+
 app.get("/3pl-warehouse-management-software", (req, res) => {
     sendMarketingPage(req, res, "3pl-warehouse-management-software.html");
 });
@@ -4763,6 +4773,11 @@ app.get("/marketing-logo.svg", (_req, res) => {
 
 app.get("/site.webmanifest", (_req, res) => {
     sendMarketingAsset(res, "site.webmanifest", "application/manifest+json; charset=utf-8");
+});
+
+app.get("/device-profiles.json", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    sendMarketingAsset(res, "device-profiles.json", "application/json; charset=utf-8");
 });
 
 app.get("/mobile-bridge.js", (_req, res) => {
@@ -25080,14 +25095,19 @@ function isPublicRequest(req) {
     if (pathName === "/affiliate-program" || pathName === "/affiliate-program.html") return true;
     if (pathName === "/hiring" || pathName === "/hiring.html") return true;
     if (pathName === "/implementation" || pathName === "/implementation.html") return true;
+    if (pathName === "/device-resources" || pathName === "/device-resources.html") return true;
     if (pathName === "/delivery-appointment-action") return true;
     if (pathName === "/robots.txt" || pathName === "/sitemap.xml") return true;
     if (pathName === "/marketing-logo.svg") return true;
+    if (pathName === "/site.webmanifest") return true;
+    if (pathName === "/mobile-bridge.js") return true;
+    if (pathName === "/sw.js") return true;
     if (pathName === "/hero-warehouse-scene.svg") return true;
     if (pathName === "/industry-3pl-scene.svg") return true;
     if (pathName === "/industry-ecommerce-scene.svg") return true;
     if (pathName === "/industry-lot-control-scene.svg") return true;
     if (pathName === "/marketing.css" || pathName === "/marketing.js") return true;
+    if (pathName === "/device-profiles.json") return true;
     if (pathName === "/login" || pathName === "/login.html") return true;
     if (pathName === "/portal" || pathName === "/portal.html") return true;
     if (pathName === "/favicon.ico") return true;
