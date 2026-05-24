@@ -7096,6 +7096,8 @@
                                 <span>BOL / Freight Photo</span>
                                 <input id="mobileQuickInboundFiles" type="file" accept="application/pdf,image/*" capture="environment" multiple>
                             </label>
+                            <button class="btn ghost span-2 hidden" id="mobileQuickInboundDocScanBtn" type="button">Scan Document</button>
+                            <div class="meta span-2" id="mobileQuickInboundDocScanMeta"></div>
                         </div>
                         <button class="btn" id="mobileQuickInboundCreateBtn" type="button">Create Inbound</button>
                     </div>
@@ -11114,6 +11116,8 @@
             mobileQuickInboundSku: document.getElementById("mobileQuickInboundSku"),
             mobileQuickInboundQty: document.getElementById("mobileQuickInboundQty"),
             mobileQuickInboundFiles: document.getElementById("mobileQuickInboundFiles"),
+            mobileQuickInboundDocScanBtn: document.getElementById("mobileQuickInboundDocScanBtn"),
+            mobileQuickInboundDocScanMeta: document.getElementById("mobileQuickInboundDocScanMeta"),
             mobileQuickInboundCreateBtn: document.getElementById("mobileQuickInboundCreateBtn"),
             warehouseInboundTitle: document.getElementById("warehouseInboundTitle"),
             warehouseInboundStatusChip: document.getElementById("warehouseInboundStatusChip"),
@@ -11636,6 +11640,13 @@
             });
             ui.mobileReceiveWithoutPoBtn?.addEventListener("click", () => setSection("scan"));
             ui.mobileQuickInboundCreateBtn?.addEventListener("click", createMobileQuickInbound);
+            ui.mobileQuickInboundDocScanBtn?.addEventListener("click", () => scanAndroidDocumentIntoInput(ui.mobileQuickInboundFiles, {
+                button: ui.mobileQuickInboundDocScanBtn,
+                messageElement: ui.mobileInboundArrivalMessage,
+                metaElement: ui.mobileQuickInboundDocScanMeta,
+                scopeElement: ui.mobileQuickInboundForm
+            }));
+            refreshAndroidDocumentScannerButtons();
             ui.clearPortalOrderFiltersBtn?.addEventListener("click", () => {
                 if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = getPortalOrderDefaultStatusFilter();
                 if (ui.portalOrderSearch) ui.portalOrderSearch.value = "";
@@ -20789,9 +20800,145 @@
             }
         }
 
+        const androidDocumentScanCallbacks = new Map();
+
+        function supportsAndroidDocumentScanner() {
+            return typeof window.WMS365Android?.scanDocument === "function";
+        }
+
+        function refreshAndroidDocumentScannerButtons() {
+            const showScanner = supportsAndroidDocumentScanner();
+            document.querySelectorAll("#mobileQuickInboundDocScanBtn, [data-mobile-inbound-document-scan]").forEach((button) => {
+                button.classList.toggle("hidden", !showScanner);
+            });
+        }
+
+        function getScannedDocumentsFromInput(input) {
+            return Array.isArray(input?.__wms365ScannedDocuments) ? input.__wms365ScannedDocuments : [];
+        }
+
+        function setScannedDocumentsForInput(input, documents) {
+            if (!input) return;
+            input.__wms365ScannedDocuments = documents.slice(0, 5);
+        }
+
+        function receiveAndroidDocumentScan(callbackId, payload) {
+            const callback = androidDocumentScanCallbacks.get(callbackId);
+            if (!callback) return;
+            androidDocumentScanCallbacks.delete(callbackId);
+            if (!payload?.success) {
+                callback.reject(new Error(payload?.message || "Document scan was cancelled."));
+                return;
+            }
+            callback.resolve(Array.isArray(payload.documents) ? payload.documents : []);
+        }
+
+        window.wms365ReceiveAndroidDocumentScan = receiveAndroidDocumentScan;
+
+        function scanAndroidDocument() {
+            return new Promise((resolve, reject) => {
+                if (!supportsAndroidDocumentScanner()) {
+                    reject(new Error("Document scanner is available in the Android app. Use the camera/file picker here."));
+                    return;
+                }
+                const callbackId = `doc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                androidDocumentScanCallbacks.set(callbackId, { resolve, reject });
+                try {
+                    window.WMS365Android.scanDocument(callbackId);
+                } catch (error) {
+                    androidDocumentScanCallbacks.delete(callbackId);
+                    reject(error);
+                }
+            });
+        }
+
+        function findOcrValue(text, patterns) {
+            for (const pattern of patterns) {
+                const match = String(text || "").match(pattern);
+                if (match?.[1]) return norm(match[1]);
+            }
+            return "";
+        }
+
+        function fillEmptyInput(input, value) {
+            if (!input || !value || String(input.value || "").trim()) return false;
+            input.value = value;
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            return true;
+        }
+
+        function applyDocumentOcrToReceivingFields(documents, scopeElement = document) {
+            const text = documents.map((doc) => doc.ocrText || doc.extractedText || "").filter(Boolean).join("\n");
+            if (!text) return 0;
+            const reference = findOcrValue(text, [
+                /\b(?:BOL|B\/L|BILL OF LADING|PRO|PRO NUMBER|REFERENCE|REF|PO)\s*(?:NO\.?|NUMBER|#|:|-)?\s*([A-Z0-9][A-Z0-9-]{3,})/i
+            ]);
+            const pallets = findOcrValue(text, [
+                /\b(\d{1,4})\s*(?:PALLETS?|PLTS?|SKIDS?)\b/i
+            ]);
+            const cases = findOcrValue(text, [
+                /\b(\d{1,5})\s*(?:CASES?|CTNS?|CARTONS?)\b/i
+            ]);
+            let filled = 0;
+            if (fillEmptyInput(scopeElement.querySelector?.("#mobileQuickInboundReference") || null, reference)) filled += 1;
+            if (fillEmptyInput(scopeElement.querySelector?.("#mobileQuickInboundPallets") || null, pallets)) filled += 1;
+            if (fillEmptyInput(scopeElement.querySelector?.("#mobileQuickInboundCases") || null, cases)) filled += 1;
+            if (fillEmptyInput(scopeElement.querySelector?.("[data-mobile-inbound-bol]") || null, reference)) filled += 1;
+            if (fillEmptyInput(scopeElement.querySelector?.("[data-mobile-inbound-pallets]") || null, pallets)) filled += 1;
+            if (fillEmptyInput(scopeElement.querySelector?.("[data-mobile-inbound-cases]") || null, cases)) filled += 1;
+            return filled;
+        }
+
+        function scannedDocumentSummary(documents, filledCount = 0) {
+            const pageCount = documents.length;
+            const ocrCount = documents.filter((doc) => String(doc.ocrText || doc.extractedText || "").trim()).length;
+            return [
+                `${pageCount} cleaned page${pageCount === 1 ? "" : "s"} captured`,
+                ocrCount ? `text found on ${ocrCount}` : "",
+                filledCount ? `${filledCount} field${filledCount === 1 ? "" : "s"} filled` : ""
+            ].filter(Boolean).join(" | ");
+        }
+
+        async function scanAndroidDocumentIntoInput(input, { button = null, messageElement = null, metaElement = null, scopeElement = document } = {}) {
+            if (!input) return;
+            if (!supportsAndroidDocumentScanner()) {
+                input.click?.();
+                return;
+            }
+            const previousText = button?.textContent || "";
+            if (button) {
+                button.disabled = true;
+                button.textContent = "Scanning...";
+            }
+            try {
+                const scannedDocuments = await scanAndroidDocument();
+                if (!scannedDocuments.length) {
+                    if (messageElement) showMessage(messageElement, "No document pages were captured.", "error");
+                    return;
+                }
+                const existingDocuments = getScannedDocumentsFromInput(input);
+                const nextDocuments = [...existingDocuments, ...scannedDocuments].slice(0, 5);
+                setScannedDocumentsForInput(input, nextDocuments);
+                const filledCount = applyDocumentOcrToReceivingFields(scannedDocuments, scopeElement);
+                const summary = scannedDocumentSummary(nextDocuments, filledCount);
+                if (metaElement) metaElement.textContent = summary;
+                if (messageElement) showMessage(messageElement, summary, "success");
+            } catch (error) {
+                if (messageElement) showMessage(messageElement, error.message || "Document scan failed.", "error");
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = previousText;
+                }
+            }
+        }
+
         async function readDocumentsFromInputs(...inputs) {
-            const documentGroups = await Promise.all(inputs.filter(Boolean).map((input) => readPortalShippingDocuments(input.files)));
-            const documents = documentGroups.flat();
+            const activeInputs = inputs.filter(Boolean);
+            const documentGroups = await Promise.all(activeInputs.map((input) => readPortalShippingDocuments(input.files)));
+            const scannedDocumentGroups = activeInputs.map((input) => getScannedDocumentsFromInput(input));
+            const documents = [...documentGroups.flat(), ...scannedDocumentGroups.flat()];
             if (documents.length > 5) {
                 throw new Error("Upload up to 5 documents or photos at a time.");
             }
@@ -20863,6 +21010,8 @@
                     ui.mobileQuickInboundSku.value = "";
                     ui.mobileQuickInboundQty.value = "";
                     ui.mobileQuickInboundFiles.value = "";
+                    setScannedDocumentsForInput(ui.mobileQuickInboundFiles, []);
+                    if (ui.mobileQuickInboundDocScanMeta) ui.mobileQuickInboundDocScanMeta.textContent = "";
                     ui.mobileQuickInboundForm?.classList.add("hidden");
                     await refreshPortalInboundsList(true);
                     showMessage(ui.mobileInboundArrivalMessage, `Created inbound ${response?.inbound?.inboundCode || referenceNumber}.`, "success");
@@ -20984,10 +21133,14 @@
                             <span>Signed BOL / POD</span>
                             <input data-mobile-inbound-proof type="file" accept="application/pdf,image/*" capture="environment" multiple>
                         </label>
+                        <button class="btn ghost hidden" type="button" data-mobile-inbound-document-scan="proof">Scan BOL / POD</button>
+                        <div class="meta" data-mobile-inbound-document-scan-meta="proof"></div>
                         <label class="field">
                             <span>Freight Photos</span>
                             <input data-mobile-inbound-photos type="file" accept="image/*" capture="environment" multiple>
                         </label>
+                        <button class="btn ghost hidden" type="button" data-mobile-inbound-document-scan="photos">Scan Freight Photo</button>
+                        <div class="meta" data-mobile-inbound-document-scan-meta="photos"></div>
                         <button class="btn" type="button" data-mobile-inbound-receive="${attr(inbound.id)}">Finish Receiving</button>
                     </div>
                 ` : "";
@@ -21016,6 +21169,7 @@
                     </article>
                 `;
             }).join("");
+            refreshAndroidDocumentScannerButtons();
         }
 
         function renderPortalInboundsList(errorText = "") {
@@ -21097,6 +21251,23 @@
                     printPortalInboundReceivingDocument(inbound, ui.warehouseInboundMessage);
                     printReceivingButton.blur?.();
                 }
+                return;
+            }
+
+            const mobileDocumentScanButton = event.target.closest("[data-mobile-inbound-document-scan]");
+            if (mobileDocumentScanButton) {
+                const scanType = mobileDocumentScanButton.dataset.mobileInboundDocumentScan || "proof";
+                const card = mobileDocumentScanButton.closest("[data-mobile-inbound-card]") || mobileDocumentScanButton.closest("#mobileQuickInboundForm") || document;
+                const input = scanType === "photos"
+                    ? card.querySelector("[data-mobile-inbound-photos]")
+                    : card.querySelector("[data-mobile-inbound-proof]");
+                const metaElement = card.querySelector(`[data-mobile-inbound-document-scan-meta="${scanType}"]`);
+                await scanAndroidDocumentIntoInput(input, {
+                    button: mobileDocumentScanButton,
+                    messageElement: ui.mobileInboundArrivalMessage || ui.warehouseInboundMessage,
+                    metaElement,
+                    scopeElement: card
+                });
                 return;
             }
 

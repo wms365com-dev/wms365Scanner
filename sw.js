@@ -1,4 +1,4 @@
-const WMS365_CACHE = "wms365-mobile-shell-v5";
+const WMS365_CACHE = "wms365-mobile-shell-v6";
 const CRITICAL_NETWORK_FIRST = new Set([
   "/mobile-bridge.js",
   "/mobile-pick",

@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -21,6 +22,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.util.Base64
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.Gravity
@@ -52,12 +54,22 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.google.zxing.integration.android.IntentIntegrator
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : Activity() {
     private val cameraPermissionRequest = 7
     private val fileChooserRequest = 8
+    private val documentScannerRequest = 9
 
     private lateinit var root: FrameLayout
     private lateinit var webView: WebView
@@ -69,6 +81,7 @@ class MainActivity : Activity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraPhotoUri: Uri? = null
     private var pendingScanTargetId: String = ""
+    private var pendingDocumentScanCallbackId: String = ""
     private val hardwareScanBuffer = StringBuilder()
     private val hardwareScanHandler = Handler(Looper.getMainLooper())
     private val pageLoadTimeoutHandler = Handler(Looper.getMainLooper())
@@ -1111,6 +1124,11 @@ class MainActivity : Activity() {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == documentScannerRequest) {
+            handleDocumentScannerResult(resultCode, data)
+            return
+        }
+
         val scanResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (scanResult != null) {
             val value = scanResult.contents ?: ""
@@ -1137,6 +1155,114 @@ class MainActivity : Activity() {
         filePathCallback?.onReceiveValue(results)
         filePathCallback = null
         cameraPhotoUri = null
+    }
+
+    private fun startDocumentScanner(callbackId: String) {
+        pendingDocumentScanCallbackId = callbackId
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit(3)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+        GmsDocumentScanning.getClient(options)
+            .getStartScanIntent(this)
+            .addOnSuccessListener { intentSender ->
+                try {
+                    startIntentSenderForResult(intentSender, documentScannerRequest, null, 0, 0, 0)
+                } catch (error: IntentSender.SendIntentException) {
+                    deliverDocumentScanError(callbackId, error.message ?: "Document scanner could not start.")
+                }
+            }
+            .addOnFailureListener { error ->
+                deliverDocumentScanError(callbackId, error.message ?: "Document scanner is not available on this device.")
+            }
+    }
+
+    private fun handleDocumentScannerResult(resultCode: Int, data: Intent?) {
+        val callbackId = pendingDocumentScanCallbackId
+        pendingDocumentScanCallbackId = ""
+        if (callbackId.isBlank()) return
+        if (resultCode != RESULT_OK) {
+            deliverDocumentScanError(callbackId, "Document scan cancelled.")
+            return
+        }
+        val result = GmsDocumentScanningResult.fromActivityResultIntent(data)
+        val pages = result?.pages ?: emptyList()
+        if (pages.isEmpty()) {
+            deliverDocumentScanError(callbackId, "No document pages were captured.")
+            return
+        }
+        val documents = JSONArray()
+        val remainingOcr = AtomicInteger(pages.size)
+        pages.forEachIndexed { index, page ->
+            val uri = page.imageUri
+            val document = buildScannedDocumentJson(uri, index)
+            documents.put(document)
+            recognizeDocumentText(uri) { text ->
+                if (text.isNotBlank()) {
+                    document.put("ocrText", text)
+                    document.put("extractedText", text)
+                }
+                if (remainingOcr.decrementAndGet() == 0) {
+                    deliverDocumentScanSuccess(callbackId, documents)
+                }
+            }
+        }
+    }
+
+    private fun buildScannedDocumentJson(uri: Uri, index: Int): JSONObject {
+        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val fileName = "wms365-scanned-document-${System.currentTimeMillis()}-${index + 1}.jpg"
+        return JSONObject().apply {
+            put("fileName", fileName)
+            put("fileType", "image/jpeg")
+            put("fileSize", bytes.size)
+            put("dataUrl", "data:image/jpeg;base64,$base64")
+            put("source", "android_document_scanner")
+            put("cleaned", true)
+            put("ocrText", "")
+            put("extractedText", "")
+        }
+    }
+
+    private fun recognizeDocumentText(uri: Uri, callback: (String) -> Unit) {
+        try {
+            val image = InputImage.fromFilePath(this, uri)
+            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                .process(image)
+                .addOnSuccessListener { result -> callback(result.text ?: "") }
+                .addOnFailureListener { callback("") }
+        } catch (_: Exception) {
+            callback("")
+        }
+    }
+
+    private fun deliverDocumentScanSuccess(callbackId: String, documents: JSONArray) {
+        val safeCallback = callbackId.replace("\\", "\\\\").replace("'", "\\'")
+        val payload = JSONObject().apply {
+            put("success", true)
+            put("documents", documents)
+        }
+        runOnUiThread {
+            webView.evaluateJavascript("window.wms365ReceiveAndroidDocumentScan && window.wms365ReceiveAndroidDocumentScan('$safeCallback', ${payload});", null)
+            vibrate(45)
+            beep("success")
+        }
+    }
+
+    private fun deliverDocumentScanError(callbackId: String, message: String) {
+        val safeCallback = callbackId.replace("\\", "\\\\").replace("'", "\\'")
+        val payload = JSONObject().apply {
+            put("success", false)
+            put("message", message)
+            put("error", message)
+        }
+        runOnUiThread {
+            webView.evaluateJavascript("window.wms365ReceiveAndroidDocumentScan && window.wms365ReceiveAndroidDocumentScan('$safeCallback', ${payload});", null)
+            if (!message.contains("cancel", ignoreCase = true)) beep("error")
+        }
     }
 
     override fun onBackPressed() {
@@ -1300,6 +1426,21 @@ class MainActivity : Activity() {
                     .setBeepEnabled(false)
                     .setOrientationLocked(true)
                     .initiateScan()
+            }
+        }
+
+        @JavascriptInterface
+        fun scanDocument(callbackId: String) {
+            runOnUiThread {
+                if (callbackId.isBlank()) return@runOnUiThread
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this@MainActivity, "Allow camera, then scan the document again.", Toast.LENGTH_SHORT).show()
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
+                    deliverDocumentScanError(callbackId, "Camera permission is required before scanning a document.")
+                    return@runOnUiThread
+                }
+                Toast.makeText(this@MainActivity, "Opening document scanner...", Toast.LENGTH_SHORT).show()
+                startDocumentScanner(callbackId)
             }
         }
 
