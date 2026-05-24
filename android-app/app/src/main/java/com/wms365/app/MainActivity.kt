@@ -898,7 +898,11 @@ class MainActivity : Activity() {
                 var switchButton = document.getElementById('switchCompanyBtn');
                 if (switchButton) switchButton.textContent = 'Switch';
                 var lock = document.getElementById('lockedCompanyWrap') || document.querySelector('.locked');
-                if (lock && !document.getElementById('wms365AndroidMenuBtn')) {
+                var pageMenuButton = document.getElementById('menuBtn');
+                if (document.getElementById('wms365AndroidMenuBtn') && pageMenuButton) {
+                  document.getElementById('wms365AndroidMenuBtn').remove();
+                }
+                if (lock && !pageMenuButton && !document.getElementById('wms365AndroidMenuBtn')) {
                   var menuButton = document.createElement('button');
                   menuButton.id = 'wms365AndroidMenuBtn';
                   menuButton.type = 'button';
