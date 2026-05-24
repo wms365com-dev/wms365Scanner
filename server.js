@@ -4618,6 +4618,7 @@ async function getAppDomainHomePath(req, res) {
 
 function sendWarehouseApp(res) {
     res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.sendFile(path.join(ROOT_DIR, "index.html"));
 }
 
