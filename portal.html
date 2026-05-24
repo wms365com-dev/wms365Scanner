@@ -2379,6 +2379,7 @@
                 if (status === "ARRIVED") return "info";
                 return "warn";
             };
+            const inboundStatusLabel = (status) => status === "ARRIVED" ? "CHECKED IN" : (status || "");
 
             ui.inboundsList.innerHTML = portalState.inbounds.map((inbound) => `
                 <article class="order-card">
@@ -2387,12 +2388,12 @@
                             <strong>${esc(inbound.inboundCode)}</strong>
                             <div class="meta">Submitted ${esc(formatDate(inbound.createdAt))}</div>
                         </div>
-                        <span class="pill ${inboundPillClass(inbound.status)}">${esc(inbound.status)}</span>
+                        <span class="pill ${inboundPillClass(inbound.status)}">${esc(inboundStatusLabel(inbound.status))}</span>
                     </div>
                     <div class="order-meta">
                         <div>Reference: ${esc(inbound.referenceNumber || "None")}</div>
                         <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
-                        ${inbound.arrivedAt ? `<div>Arrived at DC: ${esc(formatDate(inbound.arrivedAt))}</div>` : ""}
+                        ${inbound.arrivedAt ? `<div>Checked in: ${esc(formatDate(inbound.arrivedAt))}</div>` : ""}
                         ${inbound.receivedAt ? `<div>Received: ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
                         <div>Carrier: ${esc(inbound.carrierName || "Not provided")}</div>
                         <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>

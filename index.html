@@ -7134,7 +7134,7 @@
                         <div class="erp-command-strip">
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandPostBtn">Post...</button>
-                            <button class="erp-command-link" type="button" id="purchaseOrderCommandArriveBtn">Arrived at DC</button>
+                            <button class="erp-command-link" type="button" id="purchaseOrderCommandArriveBtn">Check In Freight</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandReceiveBtn">Receive</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandCancelBtn" hidden>Cancel PO</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandAddLineBtn">Select items...</button>
@@ -15329,7 +15329,7 @@
                 <button class="dashboard-work-row" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">
                     <strong>${esc(inbound.inboundCode || "Purchase Order")}</strong>
                     <span>${esc(inbound.accountName)} | ${esc(inbound.referenceNumber || "No reference")}<br><small>${esc(dateText)} | ${num(lines.length)} line${lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
-                    <span class="pill ${inboundStatusPillClass(inbound.status)}">${esc(inbound.status || "SUBMITTED")}</span>
+                    <span class="pill ${inboundStatusPillClass(inbound.status)}">${esc(inboundStatusDisplayLabel(inbound.status || "SUBMITTED"))}</span>
                 </button>
             `;
         }
@@ -20267,6 +20267,12 @@
             return "warn";
         }
 
+        function inboundStatusDisplayLabel(status = "") {
+            const normalized = norm(status);
+            if (normalized === "ARRIVED") return "CHECKED IN";
+            return normalized || status || "";
+        }
+
         function renderWarehouseInboundWorkflow(inbound = null) {
             if (!ui.warehouseInboundWorkflowPanel) return;
             if (!inbound?.id) {
@@ -20347,16 +20353,16 @@
                     </div>
                     <div class="erp-document-process-actions">
                         <button class="btn ghost mini" type="button" data-print-receiving-document="${attr(inbound.id)}">Print Receiving Document</button>
-                        ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Arrived at DC</button>` : ""}
+                        ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Check In Freight</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="CANCELLED">Cancel PO</button>` : ""}
                     </div>
                 </div>
                 <div class="quick-meta">
-                    Status <span class="pill ${statusClass}">${esc(inbound.status)}</span>
+                    Status <span class="pill ${statusClass}">${esc(inboundStatusDisplayLabel(inbound.status))}</span>
                     | Ref ${esc(inbound.referenceNumber || "None")}
                     | Expected ${esc(inbound.expectedDate || "Not set")}
-                    ${inbound.arrivedAt ? ` | Arrived ${esc(formatDate(inbound.arrivedAt))}` : ""}
+                    ${inbound.arrivedAt ? ` | Checked in ${esc(formatDate(inbound.arrivedAt))}` : ""}
                     ${inbound.receivedAt ? ` | Received ${esc(formatDate(inbound.receivedAt))}` : ""}
                 </div>
                 <table class="erp-document-process-table">
@@ -21000,8 +21006,19 @@
                         })
                     });
                     const inboundId = response?.inbound?.id;
+                    let checkInResponse = null;
                     if (inboundId) {
                         await uploadMobileInboundDocuments(inboundId, documents);
+                        checkInResponse = await requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/status`, {
+                            method: "POST",
+                            body: JSON.stringify({
+                                status: "ARRIVED",
+                                arrivalNote: [
+                                    "Mobile dock check-in completed before final receiving count.",
+                                    mobileInboundProofSummary({ bolNumber: referenceNumber, palletCount, caseCount })
+                                ].filter(Boolean).join(" ")
+                            })
+                        });
                     }
                     ui.mobileQuickInboundReference.value = "";
                     ui.mobileQuickInboundCarrier.value = "";
@@ -21014,7 +21031,8 @@
                     if (ui.mobileQuickInboundDocScanMeta) ui.mobileQuickInboundDocScanMeta.textContent = "";
                     ui.mobileQuickInboundForm?.classList.add("hidden");
                     await refreshPortalInboundsList(true);
-                    showMessage(ui.mobileInboundArrivalMessage, `Created inbound ${response?.inbound?.inboundCode || referenceNumber}.`, "success");
+                    const emailNote = checkInResponse?.arrivalEmailQueued ? " Customer arrival email is sending." : "";
+                    showMessage(ui.mobileInboundArrivalMessage, `Checked in inbound ${checkInResponse?.inbound?.inboundCode || response?.inbound?.inboundCode || referenceNumber}.${emailNote}`, "success");
                 });
             } catch (error) {
                 showMessage(ui.mobileInboundArrivalMessage, error.message, "error");
@@ -21086,8 +21104,10 @@
                 const lineTotals = summarizeTrackedTotals(inbound.lines || []);
                 const isSubmitted = inbound.status === "SUBMITTED";
                 const isArrived = inbound.status === "ARRIVED";
-                const actionLabel = isSubmitted ? "Arrive first, then receive." : "Capture proof and finish receiving.";
-                const arrivalText = inbound.arrivedAt ? `Arrived ${formatDate(inbound.arrivedAt)}` : "Not checked in yet";
+                const actionLabel = isSubmitted
+                    ? "Check in freight now to notify the customer. Count and receive when ready."
+                    : "Checked in. Capture proof and finish receiving when the count is complete.";
+                const arrivalText = inbound.arrivedAt ? `Checked in ${formatDate(inbound.arrivedAt)}` : "Not checked in yet";
                 const receiveLines = isArrived ? (inbound.lines || []).map((line) => `
                     <div class="quick-meta" data-mobile-inbound-line="${attr(line.id || line.sku)}" data-mobile-inbound-sku="${attr(line.sku)}" style="display:grid;gap:0.45rem;margin-top:0.65rem;">
                         <strong>${esc(line.sku || "SKU")}</strong>
@@ -21151,7 +21171,7 @@
                                 <strong>${esc(inbound.inboundCode || "Purchase Order")}</strong>
                                 <div class="meta">${esc(inbound.accountName || "")} | Ref ${esc(inbound.referenceNumber || "None")}</div>
                             </div>
-                            <span class="pill ${inboundStatusPillClass(inbound.status)}">${esc(inbound.status || "SUBMITTED")}</span>
+                            <span class="pill ${inboundStatusPillClass(inbound.status)}">${esc(inboundStatusDisplayLabel(inbound.status || "SUBMITTED"))}</span>
                         </div>
                         <div class="order-card-grid">
                             <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
@@ -21161,7 +21181,7 @@
                             <div>${esc(arrivalText)}</div>
                         </div>
                         <div class="button-row" style="margin-top: 0.8rem;">
-                            ${isSubmitted ? `<button class="btn" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Arrived at DC</button>` : ""}
+                            ${isSubmitted ? `<button class="btn" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Check In Freight</button>` : ""}
                             ${isArrived ? `<button class="btn ghost" type="button" data-open-warehouse-inbound="${attr(inbound.id)}">Open PO Details</button>` : ""}
                         </div>
                         <p class="meta">${esc(actionLabel)}</p>
@@ -21202,7 +21222,7 @@
                 const receivingState = inbound.status === "RECEIVED"
                     ? (inbound.receivedAt ? `Received ${formatDate(inbound.receivedAt)}` : "Received")
                     : inbound.status === "ARRIVED"
-                        ? (inbound.arrivedAt ? `Arrived ${formatDate(inbound.arrivedAt)}` : "Arrived at DC")
+                        ? (inbound.arrivedAt ? `Checked in ${formatDate(inbound.arrivedAt)}` : "Checked in")
                         : "Open receipt";
                 return `
                     <tr data-open-warehouse-inbound="${attr(inbound.id)}">
@@ -21214,7 +21234,7 @@
                         <td>${num(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"}</td>
                         <td>${esc(formatTrackedSummary(lineTotals))}</td>
                         <td>${inbound.documents?.length ? `${num(inbound.documents.length)} doc${inbound.documents.length === 1 ? "" : "s"}` : "-"}</td>
-                        <td><span class="pill ${inboundStatusPillClass(inbound.status)}">${esc(inbound.status)}</span></td>
+                        <td><span class="pill ${inboundStatusPillClass(inbound.status)}">${esc(inboundStatusDisplayLabel(inbound.status))}</span></td>
                         <td>${esc(receivingState)}</td>
                     </tr>
                 `;
@@ -21327,7 +21347,9 @@
                 button,
                 busyLabel: nextStatus === "ARRIVED" ? "Checking in..." : (nextStatus === "RECEIVED" ? "Receiving..." : (nextStatus === "CANCELLED" ? "Cancelling..." : "Updating...")),
                 messageElement,
-                progressMessage: `Updating purchase order ${inboundId} to ${nextStatus}...`
+                progressMessage: nextStatus === "ARRIVED"
+                    ? `Checking in purchase order ${inboundId} and notifying the customer...`
+                    : `Updating purchase order ${inboundId} to ${nextStatus}...`
             }, async () => {
                 const response = await requestJson(`/api/admin/portal-inbounds/${encodeURIComponent(inboundId)}/status`, {
                     method: "POST",
@@ -21339,18 +21361,19 @@
                     resetWarehouseInboundForm(savedInbound);
                 }
                 const emailNote = response?.arrivalEmailQueued ? " Customer arrival email is sending in the background." : "";
-                showMessage(messageElement, `Purchase order ${response?.inbound?.inboundCode || inboundId} marked ${nextStatus}.${emailNote}`, "success");
+                const statusLabel = nextStatus === "ARRIVED" ? "checked in" : `marked ${nextStatus}`;
+                showMessage(messageElement, `Purchase order ${response?.inbound?.inboundCode || inboundId} ${statusLabel}.${emailNote}`, "success");
                 return response;
             });
         }
 
         async function arriveCurrentWarehouseInbound(event) {
             if (!editingWarehouseInboundId) {
-                return showMessage(ui.warehouseInboundMessage, "Open a submitted purchase order before marking it arrived.", "error");
+                return showMessage(ui.warehouseInboundMessage, "Open a submitted purchase order before checking in freight.", "error");
             }
             const inbound = getPortalInboundRecordById(editingWarehouseInboundId);
             if (inbound && inbound.status !== "SUBMITTED") {
-                return showMessage(ui.warehouseInboundMessage, `Purchase order ${inbound.inboundCode} is already ${inbound.status}.`, "info");
+                return showMessage(ui.warehouseInboundMessage, `Purchase order ${inbound.inboundCode} is already ${inboundStatusDisplayLabel(inbound.status)}.`, "info");
             }
             try {
                 await updatePortalInboundStatus(editingWarehouseInboundId, "ARRIVED", resolveActionButton(event, ui.purchaseOrderCommandArriveBtn));
@@ -21361,11 +21384,11 @@
 
         async function receiveCurrentWarehouseInbound(event) {
             if (!editingWarehouseInboundId) {
-                return showMessage(ui.warehouseInboundMessage, "Open a submitted or arrived purchase order before marking it received.", "error");
+                return showMessage(ui.warehouseInboundMessage, "Open a submitted or checked-in purchase order before marking it received.", "error");
             }
             const inbound = getPortalInboundRecordById(editingWarehouseInboundId);
             if (inbound && !["SUBMITTED", "ARRIVED"].includes(inbound.status)) {
-                return showMessage(ui.warehouseInboundMessage, `Purchase order ${inbound.inboundCode} is already ${inbound.status}.`, "info");
+                return showMessage(ui.warehouseInboundMessage, `Purchase order ${inbound.inboundCode} is already ${inboundStatusDisplayLabel(inbound.status)}.`, "info");
             }
             const receivingPayload = inbound ? collectWarehouseInboundReceivingPayload(inbound) : null;
             if (!receivingPayload) return;
@@ -21378,14 +21401,14 @@
 
         async function cancelCurrentWarehouseInbound(event) {
             if (!editingWarehouseInboundId) {
-                return showMessage(ui.warehouseInboundMessage, "Open a submitted or arrived purchase order before cancelling it.", "error");
+                return showMessage(ui.warehouseInboundMessage, "Open a submitted or checked-in purchase order before cancelling it.", "error");
             }
             const inbound = getPortalInboundRecordById(editingWarehouseInboundId);
             if (!inbound?.id) {
                 return showMessage(ui.warehouseInboundMessage, "Open a saved purchase order before cancelling it.", "error");
             }
             if (!["SUBMITTED", "ARRIVED"].includes(inbound.status)) {
-                return showMessage(ui.warehouseInboundMessage, `Only submitted or arrived purchase orders can be cancelled. This PO is ${inbound.status}.`, "error");
+                return showMessage(ui.warehouseInboundMessage, `Only submitted or checked-in purchase orders can be cancelled. This PO is ${inboundStatusDisplayLabel(inbound.status)}.`, "error");
             }
             const inboundLabel = inbound.inboundCode || editingWarehouseInboundId;
             if (!window.confirm(`Cancel purchase order ${inboundLabel}? The PO number stays in WMS365 history, active receiving work is closed, and the number will not be reused.`)) {

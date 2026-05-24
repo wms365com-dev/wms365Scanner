@@ -15374,7 +15374,7 @@ function formatPortalInboundArrivalLines(inbound) {
 
 function buildPortalInboundArrivalEmailText(inbound, { warehouseLocation = "the warehouse / DC", actorLabel = "" } = {}) {
     return [
-        `Inbound ${inbound.inboundCode} has arrived at ${warehouseLocation}.`,
+        `Inbound ${inbound.inboundCode} has been checked in at ${warehouseLocation}.`,
         "",
         `Company: ${inbound.accountName}`,
         `Purchase Order / Reference: ${inbound.referenceNumber || "-"}`,
@@ -15386,7 +15386,7 @@ function buildPortalInboundArrivalEmailText(inbound, { warehouseLocation = "the 
         inbound.arrivalNote ? `Arrival Note: ${inbound.arrivalNote}` : "",
         "",
         "Status:",
-        "Your inbound shipment has arrived at the distribution center. Our receiving team will process it and send the final receiving report within 48-72 business hours.",
+        "Your inbound shipment has arrived and is checked in at the distribution center. Inventory has not been updated yet. Our receiving team will count, inspect, and send the final receiving report within 48-72 business hours.",
         "",
         "Expected Lines:",
         formatPortalInboundArrivalLines(inbound),
@@ -15406,9 +15406,9 @@ function buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation = "the 
 
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:760px;">
-            <h2 style="margin:0 0 12px;">Inbound Arrived at DC</h2>
-            <p style="margin:0 0 16px;">Inbound <strong>${escapeHtml(inbound.inboundCode)}</strong> for <strong>${escapeHtml(inbound.accountName)}</strong> has arrived at <strong>${escapeHtml(warehouseLocation)}</strong>.</p>
-            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Our receiving team will process it and send the final receiving report within <strong>48-72 business hours</strong>.</p>
+            <h2 style="margin:0 0 12px;">Inbound Checked In</h2>
+            <p style="margin:0 0 16px;">Inbound <strong>${escapeHtml(inbound.inboundCode)}</strong> for <strong>${escapeHtml(inbound.accountName)}</strong> has arrived and is checked in at <strong>${escapeHtml(warehouseLocation)}</strong>.</p>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Inventory has not been updated yet. Our receiving team will count, inspect, and send the final receiving report within <strong>48-72 business hours</strong>.</p>
             <table style="border-collapse:collapse;width:100%;max-width:720px;margin-bottom:18px;">
                 <tr><td style="padding:6px 0;font-weight:600;">Purchase Order / Reference</td><td style="padding:6px 0;">${escapeHtml(inbound.referenceNumber || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Expected Date</td><td style="padding:6px 0;">${escapeHtml(inbound.expectedDate || "-")}</td></tr>
@@ -15443,7 +15443,7 @@ async function sendPortalInboundArrivalEmail(client, inbound, { actorLabel = "" 
         from: SMTP_FROM,
         to: recipients.join(", "),
         replyTo: SMTP_REPLY_TO || undefined,
-        subject: `Inbound Arrived at DC - ${inbound.inboundCode}`,
+        subject: `Inbound Checked In - ${inbound.inboundCode}`,
         text: buildPortalInboundArrivalEmailText(inbound, { warehouseLocation, actorLabel }),
         html: buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation, actorLabel }),
         emailContext: {
