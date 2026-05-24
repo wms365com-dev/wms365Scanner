@@ -195,7 +195,7 @@ class MainActivity : Activity() {
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            cacheMode = WebSettings.LOAD_DEFAULT
+            cacheMode = WebSettings.LOAD_NO_CACHE
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             allowFileAccess = false
             allowContentAccess = true
@@ -276,6 +276,38 @@ class MainActivity : Activity() {
     private fun injectAndroidWebViewFixes() {
         val script = """
             (function () {
+              var androidShellVersion = 'wms365-mobile-shell-v5';
+              var androidRefreshKey = 'wms365-android-shell-refresh:' + androidShellVersion;
+              function refreshAndroidShellOnce() {
+                try {
+                  if (sessionStorage.getItem(androidRefreshKey) === 'done') return;
+                  var path = location.pathname || '';
+                  if (path.indexOf('/mobile') !== 0 && path.indexOf('/mobile-pick') !== 0 && path.indexOf('/mobile-count') !== 0) return;
+                  sessionStorage.setItem(androidRefreshKey, 'done');
+                  window.setTimeout(function () {
+                    location.replace(location.href);
+                  }, 120);
+                } catch (error) {}
+              }
+              if ('caches' in window) {
+                caches.keys().then(function (keys) {
+                  var oldShellCaches = keys.filter(function (key) {
+                    return key.indexOf('wms365-mobile-shell-') === 0 && key !== androidShellVersion;
+                  });
+                  if (!oldShellCaches.length) return false;
+                  return Promise.all(oldShellCaches.map(function (key) { return caches.delete(key); })).then(function () {
+                    refreshAndroidShellOnce();
+                    return true;
+                  });
+                }).catch(function () {});
+              }
+              if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                  registrations.forEach(function (registration) {
+                    if (registration && registration.update) registration.update().catch(function () {});
+                  });
+                }).catch(function () {});
+              }
               var id = 'wms365-android-webview-fixes';
               var style = document.getElementById(id);
               if (!style) {
