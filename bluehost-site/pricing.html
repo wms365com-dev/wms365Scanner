@@ -145,9 +145,9 @@
                     <article class="price-card featured" id="launch-plan">
                         <span class="price-badge">Self-Serve Core WMS</span>
                         <h3>Launch Warehouse</h3>
-                        <p class="price-meta">Best for single-site operations that want to test WMS365 quickly with a card-backed trial.</p>
+                        <p class="price-meta">Best for single-site operations that want to start quickly with a card-backed trial and a clean upgrade path.</p>
                         <strong class="price-label">$129 / month</strong>
-                        <p class="price-meta">14-day free trial with credit card required. Includes 1 warehouse and 3 users.</p>
+                        <p class="price-meta">14-day free trial with credit card required. Includes 1 warehouse, 3 users, and hosted Stripe subscription checkout.</p>
                         <ul>
                             <li>Inventory tracking and bin locations</li>
                             <li>Purchase orders, receiving, and sales orders</li>
@@ -157,22 +157,22 @@
                         <form class="demo-form price-signup" data-stripe-signup-form>
                             <div class="field">
                                 <span>Full Name</span>
-                                <input name="fullName" type="text" autocomplete="name" placeholder="Your name">
+                                <input name="fullName" type="text" autocomplete="name" placeholder="Your name" required>
                             </div>
                             <div class="field">
                                 <span>Work Email</span>
-                                <input name="workEmail" type="email" autocomplete="email" placeholder="you@company.com">
+                                <input name="workEmail" type="email" autocomplete="email" placeholder="you@company.com" required>
                             </div>
                             <div class="field">
                                 <span>Company</span>
-                                <input name="companyName" type="text" autocomplete="organization" placeholder="Your company">
+                                <input name="companyName" type="text" autocomplete="organization" placeholder="Your company" required>
                             </div>
                         </form>
                         <div class="inline-actions" style="margin-top:1rem;">
                             <a class="btn btn-primary" href="/book-demo" data-stripe-plan="LAUNCH_WAREHOUSE" data-stripe-requires-lead="true" data-stripe-label-enabled="Start 14-Day Trial" data-stripe-label-disabled="Talk to Sales">Start 14-Day Trial</a>
                             <a class="btn btn-secondary" href="/book-demo">Book Demo</a>
                         </div>
-                        <p class="note">Secure Stripe checkout collects the credit card now and starts the $129/month subscription after the 14-day trial unless canceled.</p>
+                        <p class="note">Secure hosted Stripe checkout collects the credit card now, starts the $129/month subscription after the 14-day trial unless canceled, and creates the WMS365 onboarding record.</p>
                         <div class="status" data-stripe-status="LAUNCH_WAREHOUSE"></div>
                     </article>
 

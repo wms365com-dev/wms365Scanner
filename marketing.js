@@ -2,6 +2,7 @@ const marketingUi = {
     buildLabels: [...document.querySelectorAll("[data-build-label]")],
     yearLabels: [...document.querySelectorAll("[data-site-year]")],
     forms: [...document.querySelectorAll("[data-demo-form]")],
+    stripeSignupForms: [...document.querySelectorAll("[data-stripe-signup-form]")],
     stripeButtons: [...document.querySelectorAll("[data-stripe-plan]")],
     stripeStatus: [...document.querySelectorAll("[data-stripe-status]")]
 };
@@ -21,6 +22,10 @@ refreshMarketingBuildLabel().catch(() => {
 
 marketingUi.forms.forEach((form) => {
     form.addEventListener("submit", (event) => onDemoRequestSubmit(event, form));
+});
+
+marketingUi.stripeSignupForms.forEach((form) => {
+    form.addEventListener("submit", (event) => onStripeSignupFormSubmit(event, form));
 });
 
 marketingUi.stripeButtons.forEach((button) => {
@@ -64,11 +69,12 @@ function applyStripeButtonState(button, config) {
     const enabledLabel = button.dataset.stripeLabelEnabled || "Start via Stripe";
     const disabledLabel = button.dataset.stripeLabelDisabled || "Book Demo";
     button.dataset.stripeEnabled = enabled ? "true" : "false";
+    button.setAttribute("aria-disabled", enabled ? "false" : "true");
     button.textContent = enabled ? enabledLabel : disabledLabel;
     if (!enabled) {
-        setStripeStatus(button.dataset.stripePlan || "", "Stripe checkout for this plan is not configured yet. Use Book Demo for guided pricing.", "info");
+        setStripeStatus(button.dataset.stripePlan || "", "Stripe checkout is waiting on live Stripe configuration. Use Book Demo for guided pricing.", "info");
     } else {
-        setStripeStatus(button.dataset.stripePlan || "", "Secure hosted Stripe checkout is available for this plan.", "info");
+        setStripeStatus(button.dataset.stripePlan || "", "Secure hosted Stripe checkout is ready for this plan.", "info");
     }
 }
 
@@ -88,7 +94,12 @@ async function requestMarketingJson(url, options = {}) {
         ...options
     });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
+    let data = {};
+    try {
+        data = text ? JSON.parse(text) : {};
+    } catch (_error) {
+        data = { error: text || "Request failed." };
+    }
     if (!response.ok) {
         throw new Error(data.error || "Request failed.");
     }
@@ -113,8 +124,13 @@ function getDefaultAppBaseUrl() {
 }
 
 function loadMarketingConfig() {
-    const appBaseUrl = normalizeBaseUrl(readMarketingMeta("wms365-app-url")) || getDefaultAppBaseUrl();
-    const apiBaseUrl = normalizeBaseUrl(readMarketingMeta("wms365-api-url")) || appBaseUrl;
+    const isLocal = ["localhost", "127.0.0.1", "::1"].includes(String(window.location.hostname || "").trim().toLowerCase());
+    const appBaseUrl = isLocal
+        ? window.location.origin
+        : (normalizeBaseUrl(readMarketingMeta("wms365-app-url")) || getDefaultAppBaseUrl());
+    const apiBaseUrl = isLocal
+        ? window.location.origin
+        : (normalizeBaseUrl(readMarketingMeta("wms365-api-url")) || appBaseUrl);
     return {
         appBaseUrl,
         apiBaseUrl
@@ -272,18 +288,34 @@ function validateStripeCheckoutPayload(button, payload) {
 }
 
 async function onStripeCheckoutClick(event, button) {
-    const planKey = button.dataset.stripePlan || "";
     if (button.dataset.stripeEnabled !== "true") {
         return;
     }
 
+    event.preventDefault();
+    await startStripeCheckout(button);
+}
+
+async function onStripeSignupFormSubmit(event, form) {
+    event.preventDefault();
+    const button = form.closest(".price-card")?.querySelector("[data-stripe-plan]") || null;
+    if (!button) {
+        return;
+    }
+    if (button.dataset.stripeEnabled !== "true") {
+        window.location.assign(button.getAttribute("href") || "/book-demo");
+        return;
+    }
+    await startStripeCheckout(button);
+}
+
+async function startStripeCheckout(button) {
+    const planKey = button.dataset.stripePlan || "";
     const payload = collectStripeCheckoutPayload(button);
     if (!validateStripeCheckoutPayload(button, payload)) {
-        event.preventDefault();
         return;
     }
 
-    event.preventDefault();
     const idleLabel = button.dataset.stripeLabelEnabled || "Start via Stripe";
     button.textContent = "Redirecting...";
     button.setAttribute("aria-busy", "true");

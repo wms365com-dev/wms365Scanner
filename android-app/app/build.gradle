@@ -3,7 +3,7 @@ plugins {
     id "org.jetbrains.kotlin.android"
 }
 
-def configuredBaseUrl = (project.findProperty("WMS365_BASE_URL") ?: "https://your-live-wms365-domain.com").toString().replaceAll("/+\$", "")
+def configuredBaseUrl = (project.findProperty("WMS365_BASE_URL") ?: "https://app.wms365.co").toString().replaceAll("/+\$", "")
 def configuredStartPath = (project.findProperty("WMS365_START_PATH") ?: "/mobile?mode=mobile").toString()
 if (!configuredStartPath.startsWith("/")) {
     configuredStartPath = "/" + configuredStartPath
@@ -17,8 +17,8 @@ android {
         applicationId "com.wms365.app"
         minSdk 26
         targetSdk 35
-        versionCode 32
-        versionName "0.2.31"
+        versionCode 33
+        versionName "0.2.32"
         buildConfigField "String", "WMS365_BASE_URL", "\"${configuredBaseUrl}\""
         buildConfigField "String", "WMS365_START_PATH", "\"${configuredStartPath}\""
     }

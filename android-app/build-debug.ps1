@@ -21,7 +21,7 @@ $env:ANDROID_HOME = $androidSdk
 $env:ANDROID_SDK_ROOT = $androidSdk
 $env:Path = "$jdkHome\bin;$androidSdk\platform-tools;$env:Path"
 
-$baseUrl = if ($args.Count -gt 0) { $args[0] } else { "https://your-live-wms365-domain.com" }
+$baseUrl = if ($args.Count -gt 0) { $args[0] } else { "https://app.wms365.co" }
 
 Push-Location $PSScriptRoot
 try {

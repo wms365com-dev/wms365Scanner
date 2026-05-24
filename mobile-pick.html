@@ -92,6 +92,29 @@ body.picking-active label{gap:4px}
 body.picking-active select,body.picking-active input{padding:10px 11px}
 body.picking-active button{padding:10px 12px}
 body.picking-active .status{padding:9px 10px}
+body.device-alien-legacy header{padding:6px 8px 4px}
+body.device-alien-legacy .head-card{padding:7px 9px;border-radius:10px}
+body.device-alien-legacy .brand img{width:28px;height:28px;flex-basis:28px}
+body.device-alien-legacy .title{font-size:20px}
+body.device-alien-legacy main{padding:7px;gap:7px}
+body.device-alien-legacy .card{padding:9px;border-radius:10px}
+body.device-alien-legacy .locked{display:block;padding:7px 9px}
+body.device-alien-legacy .locked-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
+body.device-alien-legacy .locked .btn{width:100%;min-height:42px}
+body.device-alien-legacy .order-toolbar{margin-top:5px}
+body.device-alien-legacy .order-toolbar h2{font-size:23px;line-height:1}
+body.device-alien-legacy .order-search{grid-template-columns:1fr;gap:6px;margin-top:7px}
+body.device-alien-legacy .order-search input{min-height:54px;font-size:22px}
+body.device-alien-legacy .order-search button{min-height:54px;font-size:22px}
+body.device-alien-legacy .order-row{min-height:82px;padding:10px 12px;border-width:2px;border-color:#b7c9d5}
+body.device-alien-legacy .order-row strong{font-size:23px;line-height:1.05}
+body.device-alien-legacy .order-row span,body.device-alien-legacy .order-row small{font-size:15px;line-height:1.15}
+body.device-alien-legacy .order-row .pill{display:none}
+body.device-alien-legacy.picking-active .loc{font-size:34px}
+body.device-alien-legacy.picking-active .big{font-size:23px}
+body.device-alien-legacy.picking-active input{min-height:58px;font-size:22px}
+body.device-alien-legacy.picking-active .scan-row{grid-template-columns:1fr}
+body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
 .proof-grid{display:grid;gap:10px}
 .proof-grid input[type=file]{padding:10px;background:#f8fafb}
 .scanner{position:fixed;inset:0;background:rgba(9,22,35,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:12px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}
@@ -260,10 +283,28 @@ async function requestJson(url,opt={}){
 
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function normalize(v){return String(v||'').trim().toUpperCase()}
+function getSearchParam(name){
+  const query=String(location.search||'').replace(/^\?/,'');
+  if(!query)return '';
+  for(const part of query.split('&')){
+    const pieces=part.split('=');
+    const key=decodeURIComponent(String(pieces.shift()||'').replace(/\+/g,' '));
+    if(key===name)return decodeURIComponent(String(pieces.join('=')||'').replace(/\+/g,' '));
+  }
+  return '';
+}
+function closestOrderRow(node){
+  while(node&&node!==document){
+    if(node.getAttribute&&node.getAttribute('data-order-id'))return node;
+    node=node.parentNode;
+  }
+  return null;
+}
+if(normalize(getSearchParam('device'))==='ALIEN')document.body.classList.add('device-alien-legacy');
 function getGlobalCompany(){return normalize(window.WMS365Mobile?.getCompanyContext?.()||localStorage.getItem(GLOBAL_COMPANY_KEY)||'')}
 function setGlobalCompany(company){const normalized=normalize(company);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
 function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
-function requestedCompany(){const params=new URLSearchParams(location.search||'');return normalize(params.get('accountName')||params.get('account')||'')}
+function requestedCompany(){return normalize(getSearchParam('accountName')||getSearchParam('account'))}
 function stripCompanyFromUrl(){try{const url=new URL(location.href);url.searchParams.delete('accountName');url.searchParams.delete('account');history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`)}catch{}}
 function provisionalCompany(){return requestedCompany()||getGlobalCompany()}
 function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
@@ -313,6 +354,7 @@ async function updateQueueStatus(){
   else el.textContent='';
 }
 function traceabilityText(p){
+  if(p?.manualLocationRequired)return 'No directed pick bin. Scan the actual source location so inventory history is correct.';
   return [p?.lotNumber?`Lot ${p.lotNumber}`:'',p?.expirationDate?`Exp ${formatDateOnly(p.expirationDate)}`:''].filter(Boolean).join(' | ')||'Standard stock rotation';
 }
 function todayIso(){return new Date().toISOString().slice(0,10)}
@@ -589,7 +631,7 @@ function renderPick(){
   }
   $('workOrderCode').textContent=state.selectedOrder.orderCode||'Order';
   $('workOrderMeta').textContent=`${state.company||state.selectedOrder.accountName||''} | ${Math.min(state.index+1,state.picks.length)}/${state.picks.length}`;
-  $('pickLocation').textContent=p.pickLocation||'NO BIN';
+  $('pickLocation').textContent=p.pickLocation||'SCAN SOURCE LOCATION';
   $('pickSku').textContent=p.sku;
   $('pickDescription').textContent=p.description||'No description';
   $('pickTraceability').textContent=traceabilityText(p);
@@ -603,7 +645,9 @@ function renderPick(){
   $('confirmLotWrap').classList.toggle('hidden',!p.lotNumber);
   $('confirmExpiration').closest('label').classList.toggle('hidden',!p.expirationDate);
   $('pickMessage').className='status';
-  $('pickMessage').textContent='Scan location, then SKU. Quantity is prefilled from the order.';
+  $('pickMessage').textContent=p.manualLocationRequired
+    ? 'No directed bin is available. Scan the actual location you are picking from, then scan the SKU.'
+    : 'Go to the directed location. Scan location, then SKU. Quantity is prefilled.';
   setTimeout(()=>($('confirmLocation').focus()),50);
 }
 
@@ -635,6 +679,7 @@ function startOrder(order){
         quantity:Number(entry.quantity||line.quantity||0)||0,
         availableQuantity:Number(entry.quantity||line.availableQuantity||0)||0,
         pickLocation:entry.location||'',
+        manualLocationRequired:!entry.location,
         lotNumber:entry.lotNumber||'',
         expirationDate:entry.expirationDate||''
       }));
@@ -834,11 +879,18 @@ $('loadOrderBtn')?.addEventListener('click',()=>{
 });
 
 $('pendingOrderList').addEventListener('click',event=>{
-  const button=event.target.closest('[data-order-id]');
+  const button=closestOrderRow(event.target);
   if(!button)return;
   const order=state.orders.find(o=>String(o.id)===String(button.dataset.orderId));
   if(order)startOrder(order);
 });
+$('pendingOrderList').addEventListener('touchend',event=>{
+  const button=closestOrderRow(event.target);
+  if(!button)return;
+  event.preventDefault();
+  const order=state.orders.find(o=>String(o.id)===String(button.dataset.orderId));
+  if(order)startOrder(order);
+},{passive:false});
 
 document.querySelectorAll('[data-scan-target]').forEach(button=>button.addEventListener('click',()=>startScanner(button.dataset.scanTarget)));
 $('fillExpectedBtn').addEventListener('click',fillExpectedPickValues);
@@ -990,9 +1042,8 @@ $('resetFlowBtn').addEventListener('click',()=>{
 
 (async()=>{
   try{
-    const params=new URLSearchParams(location.search||'');
-    state.requestedOrderId=String(params.get('orderId')||'').trim();
-    state.requestedTaskId=String(params.get('taskId')||'').trim();
+    state.requestedOrderId=String(getSearchParam('orderId')||'').trim();
+    state.requestedTaskId=String(getSearchParam('taskId')||'').trim();
     await loadBuildLabel();
     await requestJson('/api/app/me');
     await loadCompanies();

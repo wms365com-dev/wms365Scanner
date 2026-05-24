@@ -201,12 +201,13 @@ const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL",
 const WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
 const WAREHOUSE_TASK_PRIORITIES = ["LOW", "NORMAL", "HIGH", "RUSH"];
 const ACTIVE_WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED"];
-const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
+const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
 const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
 const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
 const SFTP_SYNC_PROVIDER = "SFTP";
+const BUSINESS_CENTRAL_SYNC_PROVIDER = "BUSINESS_CENTRAL";
 const SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE = "SHOPIFY_FULFILLMENT";
 const FEEDBACK_REQUEST_TYPES = ["BUG", "FEATURE", "OTHER"];
 const FEEDBACK_SOURCES = ["WAREHOUSE", "PORTAL"];
@@ -1160,9 +1161,12 @@ app.post("/api/site/demo-request", async (req, res, next) => {
 });
 
 app.get("/api/site/stripe-config", (_req, res) => {
+    const status = getStripeCheckoutConfigurationStatus();
     res.json({
         ok: true,
         enabled: hasStripeCheckoutConfig(),
+        configurationStatus: status.status,
+        configurationIssues: status.issues || [],
         plans: getStripeCheckoutPlanSummaries()
     });
 });
@@ -6301,7 +6305,7 @@ async function initializeDatabase() {
             last_sync_message text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API')),
+            constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'BUSINESS_CENTRAL', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API')),
             constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED')),
             constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'SUCCESS', 'WARNING', 'ERROR')),
             constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))
@@ -6322,7 +6326,7 @@ async function initializeDatabase() {
     await pool.query("alter table store_integrations add column if not exists last_sync_status text not null default 'IDLE'");
     await pool.query("alter table store_integrations add column if not exists last_sync_message text not null default ''");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_provider_check");
-    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API'))");
+    await pool.query("alter table store_integrations add constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'BUSINESS_CENTRAL', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_import_status_check");
     await pool.query("alter table store_integrations add constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_status_check");
@@ -9406,7 +9410,9 @@ async function saveStoreIntegration(client, rawInput) {
             ? "Enter the Shopify shop domain, such as your-store.myshopify.com."
             : (entry.provider === SFTP_SYNC_PROVIDER
                 ? "Enter the SFTP host name or IP address for this integration."
-                : "Enter the store identifier or URL for this integration."));
+                : (entry.provider === BUSINESS_CENTRAL_SYNC_PROVIDER
+                    ? "Enter the Business Central tenant ID."
+                    : "Enter the store identifier or URL for this integration.")));
     }
 
     const existing = entry.integrationId ? await getStoreIntegrationRowById(client, entry.integrationId) : null;
@@ -9416,10 +9422,10 @@ async function saveStoreIntegration(client, rawInput) {
 
     const normalizedName = entry.integrationName || `${describeStoreIntegrationProvider(entry.provider)} ${entry.storeIdentifier}`;
     const accessToken = entry.accessToken || existing?.access_token || "";
-    const authClientId = entry.provider === SHOPIFY_SYNC_PROVIDER
+    const authClientId = [SHOPIFY_SYNC_PROVIDER, BUSINESS_CENTRAL_SYNC_PROVIDER].includes(entry.provider)
         ? (entry.authClientId || existing?.auth_client_id || "")
         : "";
-    const authClientSecret = entry.provider === SHOPIFY_SYNC_PROVIDER
+    const authClientSecret = [SHOPIFY_SYNC_PROVIDER, BUSINESS_CENTRAL_SYNC_PROVIDER].includes(entry.provider)
         ? (entry.authClientSecret || existing?.auth_client_secret || "")
         : "";
     const replacingShopifyClientCredentials = entry.provider === SHOPIFY_SYNC_PROVIDER && !!entry.authClientId && !!entry.authClientSecret;
@@ -9460,6 +9466,23 @@ async function saveStoreIntegration(client, rawInput) {
             && !entry.settings?.receiptsFolder
             && !entry.settings?.inventoryFolder) {
             throw httpError(400, "Set at least one SFTP import or export folder before saving this connection.");
+        }
+    }
+    if (entry.provider === BUSINESS_CENTRAL_SYNC_PROVIDER) {
+        if (!entry.settings?.environment) {
+            throw httpError(400, "Business Central environment is required.");
+        }
+        if (!entry.settings?.companyName) {
+            throw httpError(400, "Business Central company name is required.");
+        }
+        if ((entry.authClientId && !entry.authClientSecret) || (!entry.authClientId && entry.authClientSecret)) {
+            throw httpError(400, "Enter both the Business Central client ID and client secret when updating credentials.");
+        }
+        if (!(authClientId && authClientSecret)) {
+            throw httpError(400, "Business Central requires a Microsoft Entra app client ID and client secret.");
+        }
+        if (!entry.settings.syncCustomers && !entry.settings.syncItems) {
+            throw httpError(400, "Turn on at least one Business Central sync lane.");
         }
     }
     if (entry.syncSchedule !== "MANUAL" && !storeIntegrationProviderSupportsAutoSync(entry.provider)) {
@@ -9588,6 +9611,9 @@ async function syncStoreIntegrationById(integrationId, appUser = null) {
         }
 
         try {
+            if (normalizeStoreIntegrationProvider(integrationRow.provider) === BUSINESS_CENTRAL_SYNC_PROVIDER) {
+                return await syncBusinessCentralIntegration(integrationRow, appUser);
+            }
             if (normalizeStoreIntegrationProvider(integrationRow.provider) === SFTP_SYNC_PROVIDER) {
                 return await syncSftpIntegration(integrationRow, appUser);
             }
@@ -10325,6 +10351,238 @@ function buildSftpConnectionConfig(integrationRow) {
         password,
         readyTimeout: 30000
     };
+}
+
+function buildBusinessCentralConfig(integrationRow) {
+    const settings = sanitizeStoreIntegrationSettingsInput(integrationRow.provider, integrationRow.settings || {});
+    const tenantId = normalizeFreeText(integrationRow.store_identifier || "");
+    const environment = normalizeFreeText(settings.environment || "Production") || "Production";
+    const companyName = normalizeFreeText(settings.companyName || "");
+    const clientId = normalizeFreeText(integrationRow.auth_client_id || "");
+    const clientSecret = String(integrationRow.auth_client_secret || "").trim();
+
+    if (!tenantId) {
+        throw httpError(400, "This Business Central connection is missing its tenant ID.");
+    }
+    if (!environment) {
+        throw httpError(400, "This Business Central connection is missing its environment name.");
+    }
+    if (!companyName) {
+        throw httpError(400, "This Business Central connection is missing its company name.");
+    }
+    if (!clientId || !clientSecret) {
+        throw httpError(400, "This Business Central connection is missing its Microsoft Entra client credentials.");
+    }
+
+    return {
+        tenantId,
+        environment,
+        companyName,
+        clientId,
+        clientSecret,
+        syncCustomers: settings.syncCustomers !== false,
+        syncItems: settings.syncItems !== false
+    };
+}
+
+async function fetchBusinessCentralAccessToken(config) {
+    const tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(config.tenantId)}/oauth2/v2.0/token`;
+    const body = new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        scope: "https://api.businesscentral.dynamics.com/.default"
+    });
+    const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json"
+        },
+        body
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.access_token) {
+        throw httpError(response.status || 502, `Business Central auth failed: ${payload?.error_description || payload?.error || response.statusText || "Unable to get access token."}`);
+    }
+    return payload.access_token;
+}
+
+function buildBusinessCentralApiBase(config) {
+    return `https://api.businesscentral.dynamics.com/v2.0/${encodeURIComponent(config.tenantId)}/${encodeURIComponent(config.environment)}/api/v2.0`;
+}
+
+async function businessCentralApiRequest(config, accessToken, resourcePath) {
+    const url = `${buildBusinessCentralApiBase(config)}${resourcePath}`;
+    const response = await fetch(url, {
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json"
+        }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw httpError(response.status || 502, `Business Central request failed: ${payload?.error?.message || payload?.message || response.statusText || resourcePath}`);
+    }
+    return payload;
+}
+
+function escapeBusinessCentralFilterText(value) {
+    return String(value || "").replace(/'/g, "''");
+}
+
+async function resolveBusinessCentralCompanyId(config, accessToken) {
+    const companyFilter = encodeURIComponent(`name eq '${escapeBusinessCentralFilterText(config.companyName)}'`);
+    const payload = await businessCentralApiRequest(config, accessToken, `/companies?$filter=${companyFilter}`);
+    const companies = Array.isArray(payload?.value) ? payload.value : [];
+    const exact = companies.find((company) => normalizeText(company?.name) === normalizeText(config.companyName)) || companies[0];
+    if (!exact?.id) {
+        throw httpError(404, `Business Central company ${config.companyName} was not found.`);
+    }
+    return exact.id;
+}
+
+async function fetchBusinessCentralCollection(config, accessToken, companyId, collectionName, selectFields = []) {
+    const encodedCompanyId = encodeURIComponent(companyId);
+    const selectQuery = selectFields.length ? `?$select=${selectFields.map(encodeURIComponent).join(",")}` : "";
+    let nextPath = `/companies(${encodedCompanyId})/${collectionName}${selectQuery}`;
+    const rows = [];
+
+    while (nextPath) {
+        const payload = await businessCentralApiRequest(config, accessToken, nextPath);
+        if (Array.isArray(payload?.value)) {
+            rows.push(...payload.value);
+        }
+        if (payload?.["@odata.nextLink"]) {
+            const nextUrl = new URL(payload["@odata.nextLink"]);
+            nextPath = `${nextUrl.pathname.split("/api/v2.0")[1] || ""}${nextUrl.search || ""}`;
+        } else {
+            nextPath = "";
+        }
+    }
+
+    return rows;
+}
+
+function mapBusinessCentralCustomerToPartner(accountName, customer) {
+    const name = normalizeFreeText(customer?.displayName || customer?.name || customer?.number || "");
+    if (!name) return null;
+    const address = customer?.address && typeof customer.address === "object" ? customer.address : {};
+    return {
+        accountName,
+        partnerType: "CUSTOMER",
+        name,
+        accountCode: normalizeText(customer?.number || customer?.id || ""),
+        contactName: normalizeFreeText(customer?.contact || customer?.contactName || ""),
+        email: normalizeEmail(customer?.email || ""),
+        phone: normalizeFreeText(customer?.phoneNumber || customer?.phone || ""),
+        address1: normalizeFreeText(address.street || address.addressLine1 || ""),
+        address2: normalizeFreeText(address.addressLine2 || ""),
+        city: normalizeFreeText(address.city || ""),
+        state: normalizeFreeText(address.state || address.countryLetterCode || ""),
+        postalCode: normalizeText(address.postalCode || ""),
+        country: normalizeFreeText(address.countryLetterCode || address.country || ""),
+        isActive: customer?.blocked ? false : true,
+        note: "Synced from Dynamics 365 Business Central."
+    };
+}
+
+function mapBusinessCentralItemToMaster(accountName, item) {
+    const sku = normalizeText(item?.number || item?.sku || item?.id || "");
+    if (!sku) return null;
+    return {
+        accountName,
+        sku,
+        upc: normalizeText(item?.gtin || item?.upc || ""),
+        description: normalizeFreeText(item?.displayName || item?.description || sku),
+        itemType: "INVENTORY",
+        blocked: item?.blocked === true,
+        costingMethod: "FIFO",
+        unitCost: toPositiveNumber(item?.unitCost),
+        unitPrice: toPositiveNumber(item?.unitPrice || item?.price),
+        replenishmentSystem: "PURCHASE",
+        trackingLevel: "CASE",
+        lotTracked: false,
+        expirationTracked: false
+    };
+}
+
+async function syncBusinessCentralIntegration(integrationRow, appUser = null) {
+    const config = buildBusinessCentralConfig(integrationRow);
+    const accessToken = await fetchBusinessCentralAccessToken(config);
+    const companyId = await resolveBusinessCentralCompanyId(config, accessToken);
+    const accountName = normalizeText(integrationRow.account_name);
+    let customerCount = 0;
+    let itemCount = 0;
+
+    const summary = await withTransaction(async (client) => {
+        await assertAppUserCompanyAccess(client, appUser, accountName);
+        await upsertOwnerMaster(client, accountName);
+
+        if (config.syncCustomers) {
+            const customers = await fetchBusinessCentralCollection(config, accessToken, companyId, "customers", [
+                "id", "number", "displayName", "type", "address", "phoneNumber", "email", "blocked"
+            ]);
+            for (const customer of customers) {
+                const partner = mapBusinessCentralCustomerToPartner(accountName, customer);
+                if (!partner) continue;
+                await upsertCompanyPartner(client, partner);
+                customerCount += 1;
+            }
+        }
+
+        if (config.syncItems) {
+            const items = await fetchBusinessCentralCollection(config, accessToken, companyId, "items", [
+                "id", "number", "displayName", "type", "itemCategoryCode", "gtin", "unitCost", "unitPrice", "blocked"
+            ]);
+            for (const item of items) {
+                const itemMaster = mapBusinessCentralItemToMaster(accountName, item);
+                if (!itemMaster) continue;
+                await upsertItemMaster(client, itemMaster);
+                itemCount += 1;
+            }
+        }
+
+        await insertActivity(
+            client,
+            "setup",
+            `Synced Business Central masters for ${accountName}`,
+            [
+                `BC company ${config.companyName}`,
+                config.syncCustomers ? `${formatCount(customerCount, "customer")} synced` : "",
+                config.syncItems ? `${formatCount(itemCount, "item")} synced` : ""
+            ].filter(Boolean).join(" | ")
+        );
+
+        const nextScheduledSyncAt = computeNextStoreIntegrationSyncAt(integrationRow.sync_schedule, { lastSyncedAt: new Date() });
+        const message = `Synced ${formatCount(customerCount, "customer")} and ${formatCount(itemCount, "item")} from ${config.companyName}.`;
+        const updatedResult = await client.query(
+            `
+                update store_integrations
+                set last_synced_at = now(),
+                    last_sync_status = 'SUCCESS',
+                    last_sync_message = $2,
+                    next_scheduled_sync_at = $3,
+                    updated_at = now()
+                where id = $1
+                returning *
+            `,
+            [integrationRow.id, truncateStoreSyncMessage(message), nextScheduledSyncAt]
+        );
+
+        return {
+            integration: mapStoreIntegrationRow(decryptStoreIntegrationRow(updatedResult.rows[0])),
+            discoveredCount: customerCount + itemCount,
+            importedCount: customerCount + itemCount,
+            skippedCount: 0,
+            failedCount: 0,
+            customerCount,
+            itemCount,
+            message
+        };
+    });
+
+    return summary;
 }
 
 async function connectSftpForIntegration(integrationRow) {
@@ -12537,6 +12795,140 @@ function sortInventoryRowsForAllocation(rows = [], { expirationTracked = false }
 
         return (Number(left.id) || 0) - (Number(right.id) || 0);
     });
+}
+
+async function buildAvailableInventoryRowsForManualPick(client, { accountName, sku }) {
+    const result = await client.query(
+        `
+            select
+                i.*,
+                c.lot_tracked as item_lot_tracked,
+                c.expiration_tracked as item_expiration_tracked
+            from inventory_lines i
+            left join item_catalog c
+              on c.account_name = i.account_name
+             and c.sku = i.sku
+            where i.account_name = $1
+              and i.sku = $2
+            order by i.location asc, i.expiration_date asc, i.updated_at asc, i.id asc
+            for update of i
+        `,
+        [normalizeText(accountName), normalizeText(sku)]
+    );
+
+    const rows = [];
+    for (const row of result.rows) {
+        const commitment = await getInventoryLineCommitment(client, row.id);
+        const availableQuantity = Math.max(0, (Number(row.quantity) || 0) - commitment.activeQuantity);
+        if (availableQuantity > 0) {
+            rows.push({ ...row, availableQuantity });
+        }
+    }
+    return rows;
+}
+
+async function createManualPickAllocationFromScan(client, { orderRow, line, location, sku, lot = "", expiry = "", quantity = 0 }) {
+    const accountName = normalizeText(orderRow?.account_name || orderRow?.accountName || "");
+    const normalizedSku = normalizeText(sku);
+    const normalizedLocation = normalizeText(location);
+    const normalizedLot = normalizeText(lot);
+    const normalizedExpiry = normalizeDateOnly(expiry);
+    const requiredQuantity = toPositiveInt(quantity);
+    const lotRequired = line.item_lot_tracked === true;
+    const expiryRequired = line.item_expiration_tracked === true;
+
+    if (!accountName || !normalizedSku || !normalizedLocation || !requiredQuantity) {
+        throw mobileValidationError(400, "Scan the source location, SKU, and quantity before confirming this pick.", "manual_pick_missing_required_field");
+    }
+    if (lotRequired && !normalizedLot) {
+        throw mobileValidationError(400, "Lot number is required for this manual pick.", "manual_pick_missing_lot");
+    }
+    if (expiryRequired && !normalizedExpiry) {
+        throw mobileValidationError(400, "Expiration date is required for this manual pick.", "manual_pick_missing_expiry");
+    }
+
+    const availableRows = await buildAvailableInventoryRowsForManualPick(client, { accountName, sku: normalizedSku });
+    if (!availableRows.length) {
+        throw mobileValidationError(409, "No available inventory exists for this SKU. Ask a lead to receive or adjust stock before picking.", "manual_pick_no_available_inventory");
+    }
+
+    if (expiryRequired) {
+        const earliestRow = sortInventoryRowsForAllocation(
+            availableRows.filter((row) => normalizeDateOnly(row.expiration_date)),
+            { expirationTracked: true }
+        )[0];
+        const earliestExpiry = normalizeDateOnly(earliestRow?.expiration_date || "");
+        if (earliestExpiry && normalizedExpiry !== earliestExpiry) {
+            throw mobileValidationError(409, `FEFO requires expiration ${earliestExpiry} before picking ${normalizedExpiry || "this stock"}.`, "manual_pick_fefo_violation");
+        }
+    }
+
+    const candidateRows = sortInventoryRowsForAllocation(
+        availableRows.filter((row) => {
+            if (normalizeText(row.location) !== normalizedLocation) return false;
+            if (lotRequired && normalizeText(row.lot_number) !== normalizedLot) return false;
+            if (normalizedLot && normalizeText(row.lot_number) !== normalizedLot) return false;
+            if (expiryRequired && normalizeDateOnly(row.expiration_date) !== normalizedExpiry) return false;
+            if (normalizedExpiry && normalizeDateOnly(row.expiration_date) !== normalizedExpiry) return false;
+            return true;
+        }),
+        { expirationTracked: expiryRequired || availableRows.some((row) => normalizeDateOnly(row.expiration_date)) }
+    );
+    const availableAtLocation = candidateRows.reduce((sum, row) => sum + (Number(row.availableQuantity) || 0), 0);
+    if (availableAtLocation < requiredQuantity) {
+        throw mobileValidationError(
+            409,
+            `${normalizedSku} only has ${formatTrackedQuantity(availableAtLocation, line.item_tracking_level || "UNIT")} available at ${normalizedLocation}.`,
+            "manual_pick_insufficient_location_inventory"
+        );
+    }
+
+    const inserted = [];
+    let remainingQuantity = requiredQuantity;
+    for (const row of candidateRows) {
+        if (remainingQuantity <= 0) break;
+        const allocatedQuantity = Math.min(Number(row.availableQuantity) || 0, remainingQuantity);
+        if (allocatedQuantity <= 0) continue;
+        const result = await client.query(
+            `
+                insert into portal_order_allocations (
+                    order_id, order_line_id, inventory_line_id, sku, location, lot_number,
+                    expiration_date, tracking_level, allocated_quantity
+                )
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                returning *
+            `,
+            [
+                orderRow.id,
+                line.id,
+                row.id,
+                normalizedSku,
+                normalizedLocation,
+                normalizeText(row.lot_number || normalizedLot),
+                normalizeDateOnly(row.expiration_date || normalizedExpiry),
+                normalizeTrackingLevel(row.tracking_level || line.item_tracking_level || "UNIT"),
+                allocatedQuantity
+            ]
+        );
+        inserted.push(result.rows[0]);
+        remainingQuantity -= allocatedQuantity;
+    }
+
+    await insertActivity(
+        client,
+        "order",
+        `Created scanned-location pick allocation for ${orderRow.order_code || makePortalOrderCode(orderRow.id)}`,
+        [
+            accountName,
+            normalizedLocation,
+            normalizedSku,
+            normalizedLot ? `Lot ${normalizedLot}` : "",
+            normalizedExpiry ? `Exp ${normalizedExpiry}` : "",
+            formatTrackedQuantity(requiredQuantity, line.item_tracking_level || "UNIT")
+        ].filter(Boolean).join(" | ")
+    );
+
+    return inserted;
 }
 
 async function allocatePortalOrderInventory(client, order) {
@@ -15152,12 +15544,50 @@ function getStripeCheckoutPlanSummaries() {
         trialDays: Number(plan.trialDays || 0) || 0,
         collectPaymentMethod: plan.collectPaymentMethod === true,
         selfServe: plan.selfServe === true,
-        enabled: !!Stripe && !!STRIPE_SECRET_KEY && !!plan.priceId
+        enabled: isStripeCheckoutPlanEnabled(plan),
+        configurationStatus: getStripeCheckoutConfigurationStatus(plan).status
     }));
 }
 
 function hasStripeCheckoutConfig() {
-    return !!Stripe && !!STRIPE_SECRET_KEY && Object.values(STRIPE_CHECKOUT_PLANS).some((plan) => !!plan.priceId);
+    return Object.values(STRIPE_CHECKOUT_PLANS).some((plan) => isStripeCheckoutPlanEnabled(plan));
+}
+
+function getStripeCheckoutConfigurationIssues(plan = null) {
+    const issues = [];
+    if (!Stripe) issues.push("STRIPE_PACKAGE");
+    if (!STRIPE_SECRET_KEY) issues.push("STRIPE_SECRET_KEY");
+    if (!STRIPE_WEBHOOK_SECRET) issues.push("STRIPE_WEBHOOK_SECRET");
+    if (IS_PRODUCTION && !PUBLIC_SITE_URL) issues.push("PUBLIC_SITE_URL");
+    if (plan && !plan.priceId) issues.push(`${plan.key}_PRICE_ID`);
+    if (!plan && !Object.values(STRIPE_CHECKOUT_PLANS).some((checkoutPlan) => !!checkoutPlan.priceId)) {
+        issues.push("STRIPE_PRICE_ID");
+    }
+    return issues;
+}
+
+function getStripeCheckoutConfigurationStatus(plan = null) {
+    const issues = getStripeCheckoutConfigurationIssues(plan);
+    if (!issues.length) {
+        return { ready: true, status: "READY" };
+    }
+    const publicIssues = issues.map((issue) => {
+        if (issue === "STRIPE_PACKAGE") return "Stripe package unavailable";
+        if (issue === "STRIPE_SECRET_KEY") return "Stripe secret key missing";
+        if (issue === "STRIPE_WEBHOOK_SECRET") return "Stripe webhook secret missing";
+        if (issue === "PUBLIC_SITE_URL") return "Public site URL missing";
+        if (issue.endsWith("_PRICE_ID")) return "Stripe price id missing";
+        return "Stripe configuration incomplete";
+    });
+    return {
+        ready: false,
+        status: "CONFIGURATION_REQUIRED",
+        issues: publicIssues
+    };
+}
+
+function isStripeCheckoutPlanEnabled(plan) {
+    return !!plan && getStripeCheckoutConfigurationIssues(plan).length === 0;
 }
 
 function getStripeClient() {
@@ -15190,6 +15620,10 @@ async function createStripeCheckoutSessionForSite(req, input) {
     }
     if (!plan.priceId) {
         throw httpError(503, `Stripe checkout is not configured for ${plan.label} yet.`);
+    }
+    if (!isStripeCheckoutPlanEnabled(plan)) {
+        const status = getStripeCheckoutConfigurationStatus(plan);
+        throw httpError(503, `${plan.label} checkout is not live yet: ${(status.issues || []).join(", ")}.`);
     }
 
     const stripe = getStripeClient();
@@ -18323,6 +18757,8 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
         `
             select
                 l.*,
+                c.upc as item_upc,
+                c.tracking_level as item_tracking_level,
                 c.lot_tracked as item_lot_tracked,
                 c.expiration_tracked as item_expiration_tracked
             from portal_order_lines l
@@ -18332,7 +18768,7 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
             where l.order_id = $2
               and (
                 ($3::bigint is not null and l.id = $3)
-                or ($3::bigint is null and l.sku = $4)
+                or ($3::bigint is null and (l.sku = $4 or c.upc = $4))
               )
             order by l.line_number asc, l.id asc
             for update of l
@@ -18343,7 +18779,9 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
         throw mobileValidationError(400, "That SKU does not match a single line on this order.", "wrong_sku_or_ambiguous_line");
     }
     const line = lineResult.rows[0];
-    if (normalizeText(line.sku) !== sku) {
+    const confirmedSku = normalizeText(line.sku);
+    const lineUpc = normalizeText(line.item_upc || "");
+    if (confirmedSku !== sku && lineUpc !== sku) {
         throw mobileValidationError(400, "Scanned SKU does not match the current pick line.", "wrong_sku");
     }
 
@@ -18358,8 +18796,19 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
         `,
         [orderId, line.id]
     )).rows;
+    if (!allocations.length) {
+        allocations.push(...await createManualPickAllocationFromScan(client, {
+            orderRow,
+            line,
+            location,
+            sku: confirmedSku,
+            lot,
+            expiry,
+            quantity
+        }));
+    }
 
-    const locationMatches = allocations.filter((row) => normalizeText(row.location) === location && normalizeText(row.sku) === sku);
+    const locationMatches = allocations.filter((row) => normalizeText(row.location) === location && normalizeText(row.sku) === confirmedSku);
     if (allocations.length && !locationMatches.length) {
         throw mobileValidationError(400, "This SKU is not allocated to the scanned location.", "wrong_location");
     }
@@ -18396,7 +18845,7 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
               and expiry = $6
               and sync_status <> 'FAILED'
         `,
-        [orderId, line.id, location, sku, lot, expiry]
+        [orderId, line.id, location, confirmedSku, lot, expiry]
     );
     const lineConfirmed = await client.query(
         `
@@ -18424,13 +18873,13 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'SYNCED', $10, $11, now(), now(), now())
             returning *
         `,
-        [orderId, line.id, workerId, deviceId, location, sku, lot, expiry, quantity, idempotencyKey, source]
+        [orderId, line.id, workerId, deviceId, location, confirmedSku, lot, expiry, quantity, idempotencyKey, source]
     );
     await insertActivity(
         client,
         "order",
         `Confirmed pick scan for order ${orderRow.order_code || makePortalOrderCode(orderId)}`,
-        `${orderRow.account_name} | ${location} | ${sku} | ${formatCount(quantity, "case")} | ${appUser?.email || "mobile worker"} | ${deviceId || "unknown device"}`
+        `${orderRow.account_name} | ${location} | ${confirmedSku} | ${formatCount(quantity, "case")} | ${appUser?.email || "mobile worker"} | ${deviceId || "unknown device"}`
     );
     return { duplicate: false, confirmation: mapPickConfirmationRow(insertResult.rows[0]) };
 }
@@ -21880,6 +22329,15 @@ function sanitizeStoreIntegrationSettingsInput(provider, settings = {}, rawInput
     const normalizedProvider = normalizeStoreIntegrationProvider(provider);
     const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
 
+    if (normalizedProvider === BUSINESS_CENTRAL_SYNC_PROVIDER) {
+        return {
+            environment: normalizeFreeText(source.environment || source.bcEnvironment || source.bc_environment || rawInput?.environment || rawInput?.bcEnvironment || rawInput?.bc_environment || "Production") || "Production",
+            companyName: normalizeFreeText(source.companyName || source.company_name || source.bcCompanyName || source.bc_company_name || rawInput?.companyName || rawInput?.company_name || rawInput?.bcCompanyName || rawInput?.bc_company_name || ""),
+            syncCustomers: toBooleanFlag(source.syncCustomers ?? source.sync_customers ?? rawInput?.syncCustomers ?? rawInput?.sync_customers, true),
+            syncItems: toBooleanFlag(source.syncItems ?? source.sync_items ?? rawInput?.syncItems ?? rawInput?.sync_items, true)
+        };
+    }
+
     if (normalizedProvider === SFTP_SYNC_PROVIDER) {
         const ordersFolder = normalizeRemoteFolderPath(source.ordersFolder || source.orders_folder || rawInput?.ordersFolder || rawInput?.orders_folder || "");
         const inboundsFolder = normalizeRemoteFolderPath(source.inboundsFolder || source.inbounds_folder || rawInput?.inboundsFolder || rawInput?.inbounds_folder || "");
@@ -21912,10 +22370,10 @@ function sanitizeStoreIntegrationInput(item) {
             item?.storeIdentifier || item?.store || item?.storeUrl || item?.url || item?.shopDomain || item?.shop_domain
         ),
         accessToken: typeof item?.accessToken === "string" ? item.accessToken.trim() : "",
-        authClientId: provider === SHOPIFY_SYNC_PROVIDER
+        authClientId: [SHOPIFY_SYNC_PROVIDER, BUSINESS_CENTRAL_SYNC_PROVIDER].includes(provider)
             ? normalizeFreeText(item?.authClientId || item?.clientId || item?.client_id || "")
             : "",
-        authClientSecret: provider === SHOPIFY_SYNC_PROVIDER
+        authClientSecret: [SHOPIFY_SYNC_PROVIDER, BUSINESS_CENTRAL_SYNC_PROVIDER].includes(provider)
             ? normalizeFreeText(item?.authClientSecret || item?.clientSecret || item?.client_secret || "")
             : "",
         settings,
@@ -24756,6 +25214,10 @@ function normalizeStoreIdentifierForProvider(provider, value) {
         }
     }
 
+    if (normalizeStoreIntegrationProvider(provider) === BUSINESS_CENTRAL_SYNC_PROVIDER) {
+        return text.replace(/^https?:\/\//i, "").split(/[/?#]/)[0];
+    }
+
     return text;
 }
 
@@ -24765,6 +25227,8 @@ function describeStoreIntegrationProvider(provider) {
             return "Shopify";
         case "SFTP":
             return "SFTP";
+        case "BUSINESS_CENTRAL":
+            return "Dynamics 365 Business Central";
         case "WOOCOMMERCE":
             return "WooCommerce";
         case "BIGCOMMERCE":
@@ -24807,12 +25271,16 @@ function describeStoreIntegrationSyncSchedule(schedule) {
 
 function storeIntegrationProviderSupportsSync(provider) {
     const normalizedProvider = normalizeStoreIntegrationProvider(provider);
-    return normalizedProvider === SHOPIFY_SYNC_PROVIDER || normalizedProvider === SFTP_SYNC_PROVIDER;
+    return normalizedProvider === SHOPIFY_SYNC_PROVIDER
+        || normalizedProvider === SFTP_SYNC_PROVIDER
+        || normalizedProvider === BUSINESS_CENTRAL_SYNC_PROVIDER;
 }
 
 function storeIntegrationProviderSupportsAutoSync(provider) {
     const normalizedProvider = normalizeStoreIntegrationProvider(provider);
-    return normalizedProvider === SHOPIFY_SYNC_PROVIDER || normalizedProvider === SFTP_SYNC_PROVIDER;
+    return normalizedProvider === SHOPIFY_SYNC_PROVIDER
+        || normalizedProvider === SFTP_SYNC_PROVIDER
+        || normalizedProvider === BUSINESS_CENTRAL_SYNC_PROVIDER;
 }
 
 function computeNextStoreIntegrationSyncAt(schedule, { lastSyncedAt = null, now = new Date() } = {}) {

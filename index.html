@@ -8072,6 +8072,7 @@
                                         <button class="marketplace-logo-tile" type="button" data-select-integration-provider="BIGCOMMERCE">BigCommerce<small>Storefront</small></button>
                                         <button class="marketplace-logo-tile" type="button" data-select-integration-provider="ETSY">Etsy<small>Marketplace</small></button>
                                         <button class="marketplace-logo-tile" type="button" data-select-integration-provider="SFTP">SFTP / XML<small>File Lane</small></button>
+                                        <button class="marketplace-logo-tile" type="button" data-select-integration-provider="BUSINESS_CENTRAL">Business Central<small>ERP</small></button>
                                         <button class="marketplace-logo-tile" type="button" data-select-integration-provider="CUSTOM_API">Custom API<small>Partner</small></button>
                                     </div>
                                 </div>
@@ -8080,6 +8081,7 @@
                                     <select id="integrationProvider">
                                         <option value="SHOPIFY">Shopify</option>
                                         <option value="SFTP">SFTP</option>
+                                        <option value="BUSINESS_CENTRAL">Dynamics 365 Business Central</option>
                                         <option value="WOOCOMMERCE">WooCommerce</option>
                                         <option value="BIGCOMMERCE">BigCommerce</option>
                                         <option value="AMAZON">Amazon</option>
@@ -8101,8 +8103,8 @@
                                     <input id="integrationAccessToken" type="password" placeholder="Required for Shopify sync. Leave blank on edit to keep the saved token." enterkeyhint="done">
                                 </label>
                                 <div class="helper span-2" id="integrationShopifyAuthFields">
-                                    <h3>Shopify Client Credentials</h3>
-                                    <p class="meta">Optional alternative to a direct Admin API token. Save the client ID and client secret here and WMS365 will fetch the short-lived Shopify access token automatically during sync.</p>
+                                    <h3 id="integrationClientCredentialsTitle">Shopify Client Credentials</h3>
+                                    <p class="meta" id="integrationClientCredentialsMeta">Optional alternative to a direct Admin API token. Save the client ID and client secret here and WMS365 will fetch the short-lived Shopify access token automatically during sync.</p>
                                     <div class="form-grid">
                                         <label class="field">
                                             <span>Client ID</span>
@@ -8149,6 +8151,28 @@
                                         <label class="field span-2">
                                             <span>Archive Folder</span>
                                             <input id="integrationArchiveFolder" type="text" placeholder="Example: /archive" enterkeyhint="next">
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="helper span-2 hidden" id="integrationBusinessCentralFields">
+                                    <h3>Business Central API</h3>
+                                    <p class="meta">Use a Microsoft Entra app registration with Business Central API permissions. Sync pulls master customers and item/SKU records into the active WMS365 company.</p>
+                                    <div class="form-grid">
+                                        <label class="field">
+                                            <span>Environment</span>
+                                            <input id="integrationBcEnvironment" type="text" placeholder="Production" enterkeyhint="next">
+                                        </label>
+                                        <label class="field">
+                                            <span>BC Company Name</span>
+                                            <input id="integrationBcCompanyName" type="text" placeholder="Example: Wellforia Health Inc" enterkeyhint="next">
+                                        </label>
+                                        <label class="check-row span-2">
+                                            <input id="integrationBcSyncCustomers" type="checkbox" checked>
+                                            <span>Sync customers from Business Central</span>
+                                        </label>
+                                        <label class="check-row span-2">
+                                            <input id="integrationBcSyncItems" type="checkbox" checked>
+                                            <span>Sync item/SKU masters from Business Central</span>
                                         </label>
                                     </div>
                                 </div>
@@ -10887,6 +10911,8 @@
             integrationAccessTokenLabel: document.getElementById("integrationAccessTokenLabel"),
             integrationAccessToken: document.getElementById("integrationAccessToken"),
             integrationShopifyAuthFields: document.getElementById("integrationShopifyAuthFields"),
+            integrationClientCredentialsTitle: document.getElementById("integrationClientCredentialsTitle"),
+            integrationClientCredentialsMeta: document.getElementById("integrationClientCredentialsMeta"),
             integrationShopifyClientId: document.getElementById("integrationShopifyClientId"),
             integrationShopifyClientSecret: document.getElementById("integrationShopifyClientSecret"),
             integrationSftpFields: document.getElementById("integrationSftpFields"),
@@ -10898,6 +10924,11 @@
             integrationReceiptsFolder: document.getElementById("integrationReceiptsFolder"),
             integrationInventoryFolder: document.getElementById("integrationInventoryFolder"),
             integrationArchiveFolder: document.getElementById("integrationArchiveFolder"),
+            integrationBusinessCentralFields: document.getElementById("integrationBusinessCentralFields"),
+            integrationBcEnvironment: document.getElementById("integrationBcEnvironment"),
+            integrationBcCompanyName: document.getElementById("integrationBcCompanyName"),
+            integrationBcSyncCustomers: document.getElementById("integrationBcSyncCustomers"),
+            integrationBcSyncItems: document.getElementById("integrationBcSyncItems"),
             integrationSchedule: document.getElementById("integrationSchedule"),
             integrationImportStatus: document.getElementById("integrationImportStatus"),
             integrationActive: document.getElementById("integrationActive"),
@@ -18843,7 +18874,16 @@
         }
 
         function buildIntegrationSettingsPayload(provider) {
-            if (norm(provider) !== "SFTP") {
+            const normalizedProvider = norm(provider);
+            if (normalizedProvider === "BUSINESS_CENTRAL") {
+                return {
+                    environment: String(ui.integrationBcEnvironment?.value || "Production").trim() || "Production",
+                    companyName: String(ui.integrationBcCompanyName?.value || "").trim(),
+                    syncCustomers: ui.integrationBcSyncCustomers?.checked !== false,
+                    syncItems: ui.integrationBcSyncItems?.checked !== false
+                };
+            }
+            if (normalizedProvider !== "SFTP") {
                 return {};
             }
             return {
@@ -18896,6 +18936,23 @@
             }
             if (provider === "SHOPIFY" && !integrationId && !accessToken && !(authClientId && authClientSecret)) {
                 return fail(ui.integrationMessage, "Enter either a Shopify Admin API access token or the Shopify client credentials for this connection.", ui.integrationAccessToken);
+            }
+            if (provider === "BUSINESS_CENTRAL") {
+                if (!settings.environment) {
+                    return fail(ui.integrationMessage, "Enter the Business Central environment name.", ui.integrationBcEnvironment);
+                }
+                if (!settings.companyName) {
+                    return fail(ui.integrationMessage, "Enter the Business Central company name.", ui.integrationBcCompanyName);
+                }
+                if ((authClientId && !authClientSecret) || (!authClientId && authClientSecret)) {
+                    return fail(ui.integrationMessage, "Enter both the Business Central client ID and client secret.", authClientId ? ui.integrationShopifyClientSecret : ui.integrationShopifyClientId);
+                }
+                if (!integrationId && !(authClientId && authClientSecret)) {
+                    return fail(ui.integrationMessage, "Enter the Business Central Microsoft Entra client ID and client secret.", ui.integrationShopifyClientId);
+                }
+                if (!settings.syncCustomers && !settings.syncItems) {
+                    return fail(ui.integrationMessage, "Turn on at least one Business Central sync lane.", ui.integrationBcSyncCustomers);
+                }
             }
             if (provider === "SFTP") {
                 if (!settings.username) {
@@ -19004,7 +19061,14 @@
                         entry.settings?.receiptsFolder ? `Receipts ${entry.settings.receiptsFolder}` : "",
                         entry.settings?.inventoryFolder ? `Inventory ${entry.settings.inventoryFolder}` : ""
                     ].filter(Boolean).join(" | ")
-                    : "";
+                    : (entry.provider === "BUSINESS_CENTRAL"
+                        ? [
+                            entry.settings?.environment ? `Environment ${entry.settings.environment}` : "",
+                            entry.settings?.companyName ? `BC company ${entry.settings.companyName}` : "",
+                            entry.settings?.syncCustomers !== false ? "Customers" : "",
+                            entry.settings?.syncItems !== false ? "Items/SKUs" : ""
+                        ].filter(Boolean).join(" | ")
+                        : "");
                 return `
                     <div class="quick-row">
                         <div class="quick-main">
@@ -19016,7 +19080,9 @@
                                         entry.hasAccessToken ? `Token ${esc(entry.accessTokenMasked)}` : "",
                                         entry.hasAuthClientCredentials ? `Client credentials ${esc(entry.authClientIdMasked || "saved")}` : ""
                                     ].filter(Boolean).join(" | ") || "No credential saved"
-                                    : (entry.hasAccessToken ? `Credential ${esc(entry.accessTokenMasked)}` : "No credential saved")}
+                                    : (entry.provider === "BUSINESS_CENTRAL"
+                                        ? (entry.hasAuthClientCredentials ? `Client credentials ${esc(entry.authClientIdMasked || "saved")}` : "No client credential saved")
+                                        : (entry.hasAccessToken ? `Credential ${esc(entry.accessTokenMasked)}` : "No credential saved"))}
                             </div>
                             ${laneText ? `<div class="quick-meta">${esc(laneText)}</div>` : ""}
                             <div class="quick-meta">${esc(scheduleText)}</div>
@@ -19228,6 +19294,10 @@
             if (ui.integrationReceiptsFolder) ui.integrationReceiptsFolder.value = "";
             if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.value = "";
             if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.value = "";
+            if (ui.integrationBcEnvironment) ui.integrationBcEnvironment.value = "Production";
+            if (ui.integrationBcCompanyName) ui.integrationBcCompanyName.value = getActiveCompany() || "";
+            if (ui.integrationBcSyncCustomers) ui.integrationBcSyncCustomers.checked = true;
+            if (ui.integrationBcSyncItems) ui.integrationBcSyncItems.checked = true;
             ui.integrationSchedule.value = "MANUAL";
             ui.integrationImportStatus.value = "DRAFT";
             ui.integrationActive.value = "true";
@@ -19256,12 +19326,16 @@
             if (ui.integrationReceiptsFolder) ui.integrationReceiptsFolder.value = entry.settings?.receiptsFolder || "";
             if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.value = entry.settings?.inventoryFolder || "";
             if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.value = entry.settings?.archiveFolder || "";
+            if (ui.integrationBcEnvironment) ui.integrationBcEnvironment.value = entry.settings?.environment || "Production";
+            if (ui.integrationBcCompanyName) ui.integrationBcCompanyName.value = entry.settings?.companyName || entry.accountName || "";
+            if (ui.integrationBcSyncCustomers) ui.integrationBcSyncCustomers.checked = entry.settings?.syncCustomers !== false;
+            if (ui.integrationBcSyncItems) ui.integrationBcSyncItems.checked = entry.settings?.syncItems !== false;
             ui.integrationSchedule.value = integrationScheduleValue(entry.syncSchedule || "MANUAL");
             ui.integrationImportStatus.value = entry.importStatus || "DRAFT";
             ui.integrationActive.value = entry.isActive === false ? "false" : "true";
             updateIntegrationCompanyMeta();
             updateIntegrationProviderNote();
-            if (entry.provider === "SHOPIFY" && ui.integrationShopifyClientId) {
+            if (["SHOPIFY", "BUSINESS_CENTRAL"].includes(entry.provider) && ui.integrationShopifyClientId) {
                 ui.integrationShopifyClientId.focus();
             } else {
                 ui.integrationAccessToken.focus();
@@ -19310,15 +19384,19 @@
             if (schedule === "MANUAL") {
                 ui.integrationScheduleMeta.textContent = provider === "SFTP"
                     ? "Manual sync is on. Use Run Sync Now to pull new order and purchase order files and push confirmations plus inventory snapshots."
-                    : "Manual sync is on. Use Run Sync Now whenever you want to import the latest orders.";
+                    : (provider === "BUSINESS_CENTRAL"
+                        ? "Manual sync is on. Use Run Sync Now to pull the latest Business Central customers and item masters."
+                        : "Manual sync is on. Use Run Sync Now whenever you want to import the latest orders.");
                 return;
             }
 
             const cadenceHint = provider === "SFTP"
                 ? "The server will pull new order and purchase order files, then push shipment confirmations, receipt confirmations, and inventory snapshots for this company on this cadence."
-                : (schedule === "EVERY_5_MINUTES"
+                : (provider === "BUSINESS_CENTRAL"
+                    ? "The server will pull Business Central customers and item masters for this company on this cadence."
+                    : (schedule === "EVERY_5_MINUTES"
                     ? "This is the closest option to near real-time Shopify order intake."
-                    : "The server will keep pulling only new orders for the active company on this cadence.");
+                    : "The server will keep pulling only new orders for the active company on this cadence."));
             const nextSyncText = nextScheduledSyncAt
                 ? `Next sync ${formatDate(nextScheduledSyncAt)}.`
                 : "Next sync time will be calculated when you save this connection.";
@@ -19337,27 +19415,46 @@
             if (ui.integrationSftpFields) {
                 ui.integrationSftpFields.classList.toggle("hidden", provider !== "SFTP");
             }
+            if (ui.integrationBusinessCentralFields) {
+                ui.integrationBusinessCentralFields.classList.toggle("hidden", provider !== "BUSINESS_CENTRAL");
+            }
             if (ui.integrationShopifyAuthFields) {
-                ui.integrationShopifyAuthFields.classList.toggle("hidden", provider !== "SHOPIFY");
+                ui.integrationShopifyAuthFields.classList.toggle("hidden", !["SHOPIFY", "BUSINESS_CENTRAL"].includes(provider));
+            }
+            if (ui.integrationClientCredentialsTitle) {
+                ui.integrationClientCredentialsTitle.textContent = provider === "BUSINESS_CENTRAL" ? "Microsoft Entra Client Credentials" : "Shopify Client Credentials";
+            }
+            if (ui.integrationClientCredentialsMeta) {
+                ui.integrationClientCredentialsMeta.textContent = provider === "BUSINESS_CENTRAL"
+                    ? "Save the Business Central app registration client ID and client secret here. WMS365 uses them server-side to request Microsoft Graph/Business Central API tokens during sync."
+                    : "Optional alternative to a direct Admin API token. Save the client ID and client secret here and WMS365 will fetch the short-lived Shopify access token automatically during sync.";
             }
             if (ui.integrationStoreIdentifierLabel) {
-                ui.integrationStoreIdentifierLabel.textContent = provider === "SFTP" ? "SFTP Host" : "Store / Marketplace ID";
+                ui.integrationStoreIdentifierLabel.textContent = provider === "SFTP"
+                    ? "SFTP Host"
+                    : (provider === "BUSINESS_CENTRAL" ? "Tenant ID" : "Store / Marketplace ID");
             }
             ui.integrationStoreIdentifier.placeholder = provider === "SHOPIFY"
                 ? "Example: your-store.myshopify.com"
                 : (provider === "SFTP"
                     ? "Example: sftp.customer.com"
-                    : (provider === "BEST_BUY" ? "Example: Best Buy seller ID or marketplace shop ID" : "Example: store URL, seller id, or platform domain"));
+                    : (provider === "BUSINESS_CENTRAL"
+                        ? "Example: f0acf0f7-a475-4f0d-bcdd-f75173a46ce3"
+                        : (provider === "BEST_BUY" ? "Example: Best Buy seller ID or marketplace shop ID" : "Example: store URL, seller id, or platform domain")));
             if (ui.integrationAccessTokenLabel) {
                 ui.integrationAccessTokenLabel.textContent = provider === "SFTP"
                     ? "SFTP Password"
-                    : (provider === "SHOPIFY" ? "Admin API Access Token" : (provider === "BEST_BUY" ? "Best Buy / Mirakl API Key" : "API Access Token"));
+                    : (provider === "SHOPIFY"
+                        ? "Admin API Access Token"
+                        : (provider === "BUSINESS_CENTRAL" ? "Access Token Override" : (provider === "BEST_BUY" ? "Best Buy / Mirakl API Key" : "API Access Token")));
             }
             ui.integrationAccessToken.placeholder = provider === "SHOPIFY"
                 ? "Optional if you are saving Shopify client credentials. Leave blank on edit to keep the saved token."
                 : (provider === "SFTP"
                     ? "Required SFTP password. Leave blank on edit to keep the saved password."
-                    : "Optional for now. Leave blank on edit to keep the saved token.");
+                    : (provider === "BUSINESS_CENTRAL"
+                        ? "Not required. Use client ID + client secret below."
+                        : "Optional for now. Leave blank on edit to keep the saved token."));
             if (ui.integrationSchedule) {
                 if (!supportsAutoSync) {
                     ui.integrationSchedule.value = "MANUAL";
@@ -19368,9 +19465,9 @@
             ui.integrationProvider.disabled = featureLocked;
             ui.integrationName.disabled = featureLocked;
             ui.integrationStoreIdentifier.disabled = featureLocked || providerLocked;
-            ui.integrationAccessToken.disabled = featureLocked || providerLocked;
-            if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.disabled = featureLocked || providerLocked || provider !== "SHOPIFY";
-            if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.disabled = featureLocked || providerLocked || provider !== "SHOPIFY";
+            ui.integrationAccessToken.disabled = featureLocked || providerLocked || provider === "BUSINESS_CENTRAL";
+            if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.disabled = featureLocked || providerLocked || !["SHOPIFY", "BUSINESS_CENTRAL"].includes(provider);
+            if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.disabled = featureLocked || providerLocked || !["SHOPIFY", "BUSINESS_CENTRAL"].includes(provider);
             ui.integrationImportStatus.disabled = featureLocked;
             ui.integrationActive.disabled = featureLocked;
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.disabled = featureLocked || providerLocked;
@@ -19381,13 +19478,19 @@
             if (ui.integrationReceiptsFolder) ui.integrationReceiptsFolder.disabled = featureLocked || providerLocked;
             if (ui.integrationInventoryFolder) ui.integrationInventoryFolder.disabled = featureLocked || providerLocked;
             if (ui.integrationArchiveFolder) ui.integrationArchiveFolder.disabled = featureLocked || providerLocked;
+            if (ui.integrationBcEnvironment) ui.integrationBcEnvironment.disabled = featureLocked || providerLocked;
+            if (ui.integrationBcCompanyName) ui.integrationBcCompanyName.disabled = featureLocked || providerLocked;
+            if (ui.integrationBcSyncCustomers) ui.integrationBcSyncCustomers.disabled = featureLocked || providerLocked;
+            if (ui.integrationBcSyncItems) ui.integrationBcSyncItems.disabled = featureLocked || providerLocked;
             ui.integrationProviderNote.innerHTML = provider === "SHOPIFY"
                 ? `Use the Shopify shop's <strong>.myshopify.com</strong> domain with either a direct <strong>Admin API access token</strong> or the app's <strong>client ID + client secret</strong>. When client credentials are saved, WMS365 will fetch the short-lived Shopify access token automatically during sync.${currentRecord?.hasAuthClientCredentials ? ` Saved client credentials are already on file${currentRecord.authClientIdMasked ? ` (${esc(currentRecord.authClientIdMasked)})` : ""}. Enter a new pair only when you want to replace them.` : ""} Run Sync only imports new open store orders for the selected customer, and Auto Pull Schedule keeps the sync scoped to that same company.`
                 : (provider === "SFTP"
                     ? 'SFTP uses the saved <strong>host, username, password, and folders</strong> under the active company. Order and purchase order folders are pulled in as JSON files, and shipped confirmations, receipt confirmations, and inventory snapshots are pushed back as JSON files to the folders you set here.'
-                    : (provider === "BEST_BUY"
+                    : (provider === "BUSINESS_CENTRAL"
+                        ? `Business Central sync uses the saved <strong>tenant, environment, company name, client ID, and client secret</strong>. Run Sync imports customers and item masters into the active WMS365 company.${currentRecord?.hasAuthClientCredentials ? ` Saved client credentials are already on file${currentRecord.authClientIdMasked ? ` (${esc(currentRecord.authClientIdMasked)})` : ""}. Enter a new pair only when you want to replace them.` : ""}`
+                        : (provider === "BEST_BUY"
                         ? "Best Buy Marketplace is staged as a marketplace connector. Save the seller/shop ID and API key here; order sync will be wired once the seller account credentials and API workflow are confirmed."
-                        : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify and SFTP first, and this provider is staged for the next pass.`));
+                        : `Save the ${esc(integrationProviderLabel(provider))} connection details now. Manual sync is wired in for Shopify, SFTP, and Business Central first, and this provider is staged for the next pass.`)));
             if (featureLocked) {
                 ui.integrationProviderNote.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
             } else if (providerLocked) {
@@ -19456,11 +19559,11 @@
         }
 
         function integrationSupportsSync(provider) {
-            return ["SHOPIFY", "SFTP"].includes(norm(provider));
+            return ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL"].includes(norm(provider));
         }
 
         function integrationSupportsAutoSync(provider) {
-            return ["SHOPIFY", "SFTP"].includes(norm(provider));
+            return ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL"].includes(norm(provider));
         }
 
         function integrationScheduleValue(value) {
@@ -19508,6 +19611,8 @@
                     return "Shopify";
                 case "SFTP":
                     return "SFTP";
+                case "BUSINESS_CENTRAL":
+                    return "Dynamics 365 Business Central";
                 case "WOOCOMMERCE":
                     return "WooCommerce";
                 case "BIGCOMMERCE":
@@ -26486,7 +26591,11 @@
                     shipmentsFolder: String(item.settings?.shipmentsFolder || item.settings?.shipments_folder || "").trim(),
                     receiptsFolder: String(item.settings?.receiptsFolder || item.settings?.receipts_folder || "").trim(),
                     inventoryFolder: String(item.settings?.inventoryFolder || item.settings?.inventory_folder || "").trim(),
-                    archiveFolder: String(item.settings?.archiveFolder || item.settings?.archive_folder || "").trim()
+                    archiveFolder: String(item.settings?.archiveFolder || item.settings?.archive_folder || "").trim(),
+                    environment: String(item.settings?.environment || item.settings?.bcEnvironment || item.settings?.bc_environment || "Production").trim() || "Production",
+                    companyName: String(item.settings?.companyName || item.settings?.company_name || item.settings?.bcCompanyName || item.settings?.bc_company_name || "").trim(),
+                    syncCustomers: item.settings?.syncCustomers !== false && item.settings?.sync_customers !== false,
+                    syncItems: item.settings?.syncItems !== false && item.settings?.sync_items !== false
                 } : {},
                 syncSchedule: integrationScheduleValue(item?.syncSchedule || item?.sync_schedule || item?.schedule || "MANUAL"),
                 nextScheduledSyncAt: typeof item?.nextScheduledSyncAt === "string"

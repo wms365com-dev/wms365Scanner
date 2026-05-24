@@ -392,7 +392,7 @@ class MainActivity : Activity() {
     private fun injectAndroidWebViewFixes() {
         val script = """
             (function () {
-              var androidShellVersion = 'wms365-mobile-shell-v7';
+              var androidShellVersion = 'wms365-mobile-shell-v8';
               var androidRefreshKey = 'wms365-android-shell-refresh:' + androidShellVersion;
               function refreshAndroidShellOnce() {
                 try {
@@ -500,22 +500,99 @@ class MainActivity : Activity() {
               function ensureLogoAppbar() {
                 document.querySelectorAll('.mobile-appbar').forEach(function (appbar) {
                   if (!appbar.querySelector('.mobile-appbar-logo')) {
-                  var logo = document.createElement('img');
-                  logo.className = 'mobile-appbar-logo';
-                  logo.src = '/marketing-logo.svg';
-                  logo.alt = 'WMS365 logo';
-                  logo.width = 32;
-                  logo.height = 32;
-                  appbar.insertBefore(logo, appbar.firstChild);
+                    var logo = document.createElement('img');
+                    logo.className = 'mobile-appbar-logo';
+                    logo.src = '/marketing-logo.svg';
+                    logo.alt = 'WMS365 logo';
+                    logo.width = 32;
+                    logo.height = 32;
+                    appbar.insertBefore(logo, appbar.firstChild);
                   }
                   var title = appbar.querySelector('.mobile-appbar-title');
-                  if (title && (location.pathname || '') === '/mobile') title.textContent = 'WMS365 Scanner';
+                  if (title && (location.pathname || '') === '/mobile' && title.textContent !== 'WMS365 Scanner') title.textContent = 'WMS365 Scanner';
                   var badge = appbar.querySelector('.mobile-appbar-badge');
-                  if (badge && (location.pathname || '') === '/mobile') badge.textContent = 'Menu';
+                  if (badge && (location.pathname || '') === '/mobile' && badge.textContent !== 'Menu') badge.textContent = 'Menu';
                 });
               }
               ensureLogoAppbar();
-              new MutationObserver(ensureLogoAppbar).observe(document.body, { childList: true, subtree: true });
+              if (!window.__wms365AndroidLogoObserverBound) {
+                window.__wms365AndroidLogoObserverBound = true;
+                var logoObserverScheduled = false;
+                new MutationObserver(function () {
+                  if (logoObserverScheduled) return;
+                  logoObserverScheduled = true;
+                  window.requestAnimationFrame(function () {
+                    logoObserverScheduled = false;
+                    ensureLogoAppbar();
+                  });
+                }).observe(document.body, { childList: true, subtree: true });
+              }
+              function androidLockedCompany() {
+                try {
+                  if (window.WMS365Mobile && window.WMS365Mobile.getCompanyContext) {
+                    var bridgeCompany = String(window.WMS365Mobile.getCompanyContext() || '').trim();
+                    if (bridgeCompany) return bridgeCompany;
+                  }
+                } catch (error) {}
+                var lockedLabel = document.getElementById('mobileCompanyLockedLabel') || document.getElementById('lockedCompanyLabel');
+                if (lockedLabel && String(lockedLabel.textContent || '').trim()) return String(lockedLabel.textContent || '').trim();
+                var activeCompany = document.getElementById('mobileActiveCompany');
+                if (activeCompany && String(activeCompany.value || '').trim()) return String(activeCompany.value || '').trim();
+                return '';
+              }
+              function androidShowMobileHome() {
+                var homePanel = document.getElementById('mobileHomePanel');
+                if (!homePanel) return false;
+                document.querySelectorAll('.panel').forEach(function (panel) { panel.classList.remove('active'); });
+                homePanel.classList.add('active');
+                try { homePanel.scrollTop = 0; document.documentElement.scrollTop = 0; document.body.scrollTop = 0; } catch (error) {}
+                return true;
+              }
+              window.__wms365AndroidBackPressed = function () {
+                try {
+                  var path = location.pathname || '';
+                  if (path.indexOf('/mobile-pick') === 0 || path.indexOf('/mobile-count') === 0) {
+                    var company = androidLockedCompany();
+                    location.href = '/mobile?mode=mobile' + (company ? '&accountName=' + encodeURIComponent(company) : '');
+                    return true;
+                  }
+                  var homePanel = document.getElementById('mobileHomePanel');
+                  if (homePanel && !homePanel.classList.contains('active')) return androidShowMobileHome();
+                  return false;
+                } catch (error) {
+                  return false;
+                }
+              };
+              if (!window.__wms365AndroidCoordinateTapShim) {
+                window.__wms365AndroidCoordinateTapShim = true;
+                window.__wms365AndroidCoordinateTapShimClicking = false;
+                function androidButtonAtPoint(x, y) {
+                  var buttons = Array.prototype.slice.call(document.querySelectorAll('button'));
+                  for (var i = buttons.length - 1; i >= 0; i -= 1) {
+                    var button = buttons[i];
+                    if (button.disabled) continue;
+                    var style = window.getComputedStyle(button);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
+                    var rect = button.getBoundingClientRect();
+                    if (rect.width <= 1 || rect.height <= 1) continue;
+                    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return button;
+                  }
+                  return null;
+                }
+                document.addEventListener('click', function (event) {
+                  if (window.__wms365AndroidCoordinateTapShimClicking) return;
+                  var target = event.target;
+                  if (target && target.closest && target.closest('button')) return;
+                  var button = androidButtonAtPoint(event.clientX, event.clientY);
+                  if (!button) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.__wms365AndroidCoordinateTapShimClicking = true;
+                  window.setTimeout(function () {
+                    try { button.click(); } finally { window.__wms365AndroidCoordinateTapShimClicking = false; }
+                  }, 0);
+                }, true);
+              }
               function ensureLoginBranding() {
                 var form = document.getElementById('loginForm');
                 if (!form || form.querySelector('.login-brand')) return;
@@ -1203,6 +1280,17 @@ class MainActivity : Activity() {
                 request.deny()
             }
             pendingPermissionRequest = null
+            return
+        }
+        if (requestCode == cameraPermissionRequest && pendingDocumentScanCallbackId.isNotBlank()) {
+            val callbackId = pendingDocumentScanCallbackId
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Opening document scanner...", Toast.LENGTH_SHORT).show()
+                startDocumentScanner(callbackId)
+            } else {
+                pendingDocumentScanCallbackId = ""
+                deliverDocumentScanError(callbackId, "Camera permission is required before scanning a document.")
+            }
         }
     }
 
@@ -1349,18 +1437,34 @@ class MainActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) {
-            webView.goBack()
-        } else {
+        if (!::webView.isInitialized) {
             super.onBackPressed()
+            return
+        }
+
+        webView.evaluateJavascript("(window.__wms365AndroidBackPressed && window.__wms365AndroidBackPressed()) === true;") { handled ->
+            runOnUiThread {
+                if (handled == "true") return@runOnUiThread
+                val currentUrl = webView.url.orEmpty()
+                if (currentUrl.contains("/mobile")) {
+                    Toast.makeText(this, "Task menu is open.", Toast.LENGTH_SHORT).show()
+                } else if (webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    super.onBackPressed()
+                }
+            }
         }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && pendingScanTargetId.isNotBlank() && hasHardwareScannerDevice()) {
+        if (event.action == KeyEvent.ACTION_DOWN && hasHardwareScannerDevice()) {
             if (event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_TAB) {
-                flushHardwareScanBuffer()
-                return true
+                if (hardwareScanBuffer.isNotEmpty()) {
+                    flushHardwareScanBuffer()
+                    return true
+                }
+                if (pendingScanTargetId.isNotBlank()) return true
             }
             val character = event.unicodeChar
             if (character >= 32) {
@@ -1473,7 +1577,7 @@ class MainActivity : Activity() {
     private fun flushHardwareScanBuffer() {
         val value = hardwareScanBuffer.toString().trim()
         hardwareScanBuffer.setLength(0)
-        if (value.isBlank() || pendingScanTargetId.isBlank()) return
+        if (value.isBlank()) return
         deliverScanToWeb(pendingScanTargetId, value)
         pendingScanTargetId = ""
     }
@@ -1517,9 +1621,9 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (callbackId.isBlank()) return@runOnUiThread
                 if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this@MainActivity, "Allow camera, then scan the document again.", Toast.LENGTH_SHORT).show()
+                    pendingDocumentScanCallbackId = callbackId
+                    Toast.makeText(this@MainActivity, "Allow camera to scan the document.", Toast.LENGTH_SHORT).show()
                     ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
-                    deliverDocumentScanError(callbackId, "Camera permission is required before scanning a document.")
                     return@runOnUiThread
                 }
                 Toast.makeText(this@MainActivity, "Opening document scanner...", Toast.LENGTH_SHORT).show()

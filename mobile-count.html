@@ -69,7 +69,7 @@ body{font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans
 
       <label class="field">
         <span>Quantity In Cases</span>
-        <input id="casesInput" type="number" min="0" step="1" inputmode="numeric" placeholder="Counted cases" enterkeyhint="done">
+        <input id="casesInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Counted cases" enterkeyhint="done" autocomplete="off">
       </label>
 
       <div class="row hidden" id="traceFields">
@@ -414,10 +414,11 @@ async function load(){
 }
 async function saveCount(){
   try{
-    const item=selectedItem();const account=selectedAccount();const locationValue=norm($("locationInput").value);const skuValue=norm($("skuInput").value);const cases=Number.parseInt($("casesInput").value,10);
+    const item=selectedItem();const account=selectedAccount();const locationValue=norm($("locationInput").value);const skuValue=norm($("skuInput").value);const casesRaw=cleanScanValue($("casesInput").value);const cases=Number.parseInt(casesRaw,10);
     if(!account)throw new Error("Choose a company.");
     if(!locationValue)throw new Error("Scan or key in a location.");
     if(!skuValue)throw new Error("Scan a product barcode or key in the SKU.");
+    if(!isLikelyCaseQuantity(casesRaw))throw new Error("Enter case quantity only. Barcode scans belong in Location or SKU.");
     if(!Number.isFinite(cases)||cases<0)throw new Error("Enter counted cases as zero or greater.");
     if(item?.lotTracked&&!norm($("lotInput").value))throw new Error("Lot is required for this SKU.");
     if(item?.expirationTracked&&!$("expirationInput").value)throw new Error("Expiry is required for this SKU.");
@@ -458,9 +459,45 @@ async function handlePhotoChange(event){
     $("message").className="status good";$("message").textContent="Photo attached for review.";
   }catch(error){$("message").className="status bad";$("message").textContent=error.message}
 }
+function cleanScanValue(value){
+  return norm(String(value||"").replace(/[\u0000-\u001f\u007f]/g,""));
+}
+function isLikelyCaseQuantity(value){
+  const text=cleanScanValue(value);
+  return /^\d{1,5}$/.test(text);
+}
+function resolveScanTarget(targetId,value){
+  const requested=String(targetId||"").trim();
+  const scanned=cleanScanValue(value);
+  const activeId=document.activeElement?.id||"";
+  const visible=id=>$(id)&&!$(id).closest(".hidden");
+  const scanFields=["locationInput","skuInput","lotInput","expirationInput"];
+  if(scanFields.includes(requested)&&visible(requested))return requested;
+  if(requested==="casesInput"&&!isLikelyCaseQuantity(scanned)){
+    if(!cleanScanValue($("locationInput").value))return"locationInput";
+    if(!cleanScanValue($("skuInput").value))return"skuInput";
+    return"skuInput";
+  }
+  if(scanFields.includes(activeId)&&visible(activeId))return activeId;
+  if(!cleanScanValue($("locationInput").value))return"locationInput";
+  if(!cleanScanValue($("skuInput").value))return"skuInput";
+  if(visible("lotInput")&&!cleanScanValue($("lotInput").value))return"lotInput";
+  if(visible("expirationInput")&&!cleanScanValue($("expirationInput").value))return"expirationInput";
+  if(isLikelyCaseQuantity(scanned))return"casesInput";
+  return"skuInput";
+}
 function acceptScanValue(targetId,value){
+  targetId=resolveScanTarget(targetId,value);
+  value=cleanScanValue(value);
   const target=$(targetId);if(!target)return;
-  target.value=norm(value);
+  if(targetId==="casesInput"&&!isLikelyCaseQuantity(value)){
+    $("message").className="status bad";
+    $("message").textContent="That scan looks like a barcode, not a case quantity. Scan Location or SKU first.";
+    window.WMS365Mobile?.beep?.("error");
+    (cleanScanValue($("locationInput").value)?$("skuInput"):$("locationInput"))?.focus();
+    return;
+  }
+  target.value=value;
   renderItem();
   window.WMS365Mobile?.vibrate?.(45);
   window.WMS365Mobile?.beep?.("success");
@@ -518,6 +555,7 @@ function stopScanner(){
   $("scannerVideo").srcObject=null;
   $("scannerOverlay").classList.add("hidden");
 }
+window.__wms365ResolveScanTarget=(targetId,value)=>resolveScanTarget(targetId,value);
 window.wms365ReceiveAndroidScan=(targetId,value)=>acceptScanValue(targetId,value);
 function setupScanControls(){
   const hasHardware=window.WMS365Mobile?.hasHardwareScanner?.();
@@ -552,7 +590,34 @@ window.addEventListener("wms365:queue-changed",()=>updateQueueStatus());
 window.addEventListener("online",()=>syncPendingCounts().then((synced)=>{if(synced){$("message").className="status good";$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;return load()}}).catch(()=>updateQueueStatus()));
 window.addEventListener("offline",()=>{state.offlineMode=true;updateQueueStatus()});
 window.addEventListener("beforeunload",()=>window.WMS365Mobile?.setKeepAwake?.(false));
-document.addEventListener("keydown",event=>{if(event.key!=="Enter")return;const order=["locationInput","skuInput","lotInput","expirationInput","casesInput"];const activeId=document.activeElement?.id;const index=order.indexOf(activeId);if(index>=0){event.preventDefault();if(activeId==="casesInput")$("saveBtn").focus();else(order.slice(index+1).map($).find(el=>el&&!el.closest(".hidden"))||$("casesInput")||$("saveBtn")).focus()}});
+let wedgeBuffer="";
+let wedgeTimer=null;
+function flushWedgeBuffer(){
+  const value=cleanScanValue(wedgeBuffer);
+  const activeId=document.activeElement?.id;
+  wedgeBuffer="";
+  if(wedgeTimer)window.clearTimeout(wedgeTimer);
+  wedgeTimer=null;
+  if(value.length>=3){
+    if(activeId==="casesInput"&&!isLikelyCaseQuantity(value))$("casesInput").value="";
+    acceptScanValue("",value);
+  }
+}
+document.addEventListener("keydown",event=>{
+  const activeId=document.activeElement?.id;
+  if(activeId==="casesInput"&&event.key&&event.key.length===1){
+    wedgeBuffer+=event.key;
+    if(wedgeTimer)window.clearTimeout(wedgeTimer);
+    wedgeTimer=window.setTimeout(flushWedgeBuffer,90);
+    if(wedgeBuffer.length>5||/[^\d]/.test(wedgeBuffer)){
+      event.preventDefault();
+      return;
+    }
+  }
+  if(event.key!=="Enter")return;
+  if(wedgeBuffer){event.preventDefault();flushWedgeBuffer();return;}
+  const order=["locationInput","skuInput","lotInput","expirationInput","casesInput"];const index=order.indexOf(activeId);if(index>=0){event.preventDefault();if(activeId==="casesInput")$("saveBtn").focus();else(order.slice(index+1).map($).find(el=>el&&!el.closest(".hidden"))||$("casesInput")||$("saveBtn")).focus()}
+});
 window.WMS365Mobile?.setKeepAwake?.(true);
 load().catch(error=>{$("message").className="status bad";$("message").textContent=error.message});
 </script>

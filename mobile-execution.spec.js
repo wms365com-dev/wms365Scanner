@@ -15,15 +15,20 @@ function clone(row) {
 class MobileExecutionClient {
     constructor() {
         this.orders = new Map([["31", { id: 31, account_name: "HEALTEA", status: "RELEASED", order_code: "ORD-000031" }]]);
-        this.lines = new Map([["101", { id: 101, order_id: 31, sku: "30627843973325", requested_quantity: 36, item_lot_tracked: false, item_expiration_tracked: false }]]);
+        this.lines = new Map([["101", { id: 101, order_id: 31, sku: "30627843973325", item_upc: "900000000125", requested_quantity: 36, item_lot_tracked: false, item_expiration_tracked: false }]]);
         this.allocations = [
-            { id: 1, order_id: 31, order_line_id: 101, sku: "30627843973325", location: "A-01", lot_number: "", expiration_date: "", allocated_quantity: 36 }
+            { id: 1, order_id: 31, order_line_id: 101, inventory_line_id: 1, sku: "30627843973325", location: "A-01", lot_number: "", expiration_date: "", tracking_level: "CASE", allocated_quantity: 36 }
+        ];
+        this.inventoryLines = [
+            { id: 1, account_name: "HEALTEA", sku: "30627843973325", upc: "", location: "A-01", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 36 },
+            { id: 2, account_name: "HEALTEA", sku: "30627843973325", upc: "", location: "B-02", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 12 }
         ];
         this.pickConfirmations = [];
         this.mobileConfirmations = [];
         this.activities = [];
         this.nextPickId = 1;
         this.nextMobileId = 1;
+        this.nextAllocationId = 2;
     }
 
     async query(sql, params = []) {
@@ -51,10 +56,42 @@ class MobileExecutionClient {
             return { rowCount: rows.length, rows: rows.map(clone) };
         }
 
+        if (normalizedSql.includes("coalesce(sum(case when o.status = 'released'")) {
+            const inventoryLineId = params[0];
+            const active = this.allocations
+                .filter((row) => Number(row.inventory_line_id) === Number(inventoryLineId))
+                .reduce((sum, row) => sum + Number(row.allocated_quantity || 0), 0);
+            return { rowCount: 1, rows: [{ released_quantity: active, picked_quantity: 0, staged_quantity: 0, active_quantity: active }] };
+        }
+
         if (normalizedSql.includes("from portal_order_allocations")) {
             const [orderId, lineId] = params;
             const rows = this.allocations.filter((row) => Number(row.order_id) === Number(orderId) && Number(row.order_line_id) === Number(lineId));
             return { rowCount: rows.length, rows: rows.map(clone) };
+        }
+
+        if (normalizedSql.includes("from inventory_lines i")) {
+            const [accountName, sku] = params;
+            const rows = this.inventoryLines.filter((row) => row.account_name === accountName && row.sku === sku);
+            return { rowCount: rows.length, rows: rows.map(clone) };
+        }
+
+        if (normalizedSql.startsWith("insert into portal_order_allocations")) {
+            const [orderId, orderLineId, inventoryLineId, sku, location, lotNumber, expirationDate, trackingLevel, allocatedQuantity] = params;
+            const row = {
+                id: this.nextAllocationId++,
+                order_id: orderId,
+                order_line_id: orderLineId,
+                inventory_line_id: inventoryLineId,
+                sku,
+                location,
+                lot_number: lotNumber,
+                expiration_date: expirationDate,
+                tracking_level: trackingLevel,
+                allocated_quantity: allocatedQuantity
+            };
+            this.allocations.push(row);
+            return { rowCount: 1, rows: [clone(row)] };
         }
 
         if (normalizedSql.includes("from pick_confirmations") && normalizedSql.includes("coalesce(sum(quantity)")) {
@@ -176,6 +213,43 @@ test("pick scan cannot exceed allocated quantity", async () => {
         () => savePickConfirmation(client, { orderId: 31, lineId: 101, location: "A-01", sku: "30627843973325", quantity: 2, idempotencyKey: "pick-over" }, superAdmin()),
         /exceed/
     );
+});
+
+test("pick scan accepts UPC and records canonical SKU", async () => {
+    const client = new MobileExecutionClient();
+    const result = await savePickConfirmation(client, {
+        orderId: 31,
+        lineId: 101,
+        location: "A-01",
+        sku: "900000000125",
+        quantity: 3,
+        idempotencyKey: "pick-upc",
+        deviceId: "android-test"
+    }, superAdmin());
+
+    assert.equal(result.duplicate, false);
+    assert.equal(result.confirmation.sku, "30627843973325");
+});
+
+test("pick scan without a directed allocation creates one from scanned location", async () => {
+    const client = new MobileExecutionClient();
+    client.allocations = [];
+
+    const result = await savePickConfirmation(client, {
+        orderId: 31,
+        lineId: 101,
+        location: "B-02",
+        sku: "30627843973325",
+        quantity: 6,
+        idempotencyKey: "manual-pick-b02",
+        deviceId: "android-test"
+    }, superAdmin());
+
+    assert.equal(result.duplicate, false);
+    assert.equal(client.pickConfirmations.length, 1);
+    assert.equal(client.allocations.length, 1);
+    assert.equal(client.allocations[0].location, "B-02");
+    assert.equal(client.allocations[0].allocated_quantity, 6);
 });
 
 test("generic mobile confirmations are idempotent", async () => {
