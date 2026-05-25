@@ -15179,7 +15179,7 @@
             const releasedCount = orders.filter((order) => norm(order.status) === "RELEASED").length;
             const pickedCount = orders.filter((order) => norm(order.status) === "PICKED").length;
             const stagedCount = orders.filter((order) => norm(order.status) === "STAGED").length;
-            const openInboundCount = inbounds.filter((inbound) => !["RECEIVED", "CANCELLED"].includes(norm(inbound.status))).length;
+            const openInboundCount = inbounds.filter((inbound) => !isInboundReceivingClosed(inbound.status)).length;
             if (ui.desktopAlertReleased) {
                 ui.desktopAlertReleased.textContent = num(releasedCount);
             }
@@ -15244,7 +15244,7 @@
                     { label: "Documents", value: num(docs) }
                 ];
             } else if (activeSection === "inbounds") {
-                const received = inbounds.filter((inbound) => norm(inbound.status) === "RECEIVED").length;
+                const received = inbounds.filter((inbound) => isInboundReceivedStatus(inbound.status)).length;
                 const docs = inbounds.reduce((sum, inbound) => sum + (Array.isArray(inbound.documents) ? inbound.documents.length : 0), 0);
                 const expectedToday = inbounds.filter((inbound) => dashboardDateKey(inbound.expectedDate) === todayInputValue()).length;
                 title = "Purchase Orders";
@@ -15334,9 +15334,17 @@
             return records.flatMap((record) => Array.isArray(record.lines) ? record.lines : []);
         }
 
+        function isInboundReceivingClosed(status = "") {
+            return ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE", "CANCELLED"].includes(norm(status));
+        }
+
+        function isInboundReceivedStatus(status = "") {
+            return ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"].includes(norm(status));
+        }
+
         function getDashboardOpenInbounds() {
             return getCompanyScopedPortalInbounds()
-                .filter((inbound) => !["RECEIVED", "CANCELLED"].includes(norm(inbound.status)))
+                .filter((inbound) => !isInboundReceivingClosed(inbound.status))
                 .sort((a, b) => dashboardDateSort(a.expectedDate).localeCompare(dashboardDateSort(b.expectedDate)) || (a.inboundCode || "").localeCompare(b.inboundCode || ""));
         }
 
@@ -20401,7 +20409,7 @@
 
         function inboundStatusPillClass(status = "") {
             const normalized = norm(status);
-            if (normalized === "RECEIVED") return "success";
+            if (["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"].includes(normalized)) return "success";
             if (normalized === "ARRIVED") return "info";
             if (normalized === "CANCELLED") return "error";
             return "warn";
@@ -20410,6 +20418,9 @@
         function inboundStatusDisplayLabel(status = "") {
             const normalized = norm(status);
             if (normalized === "ARRIVED") return "CHECKED IN";
+            if (normalized === "RECEIVED_PENDING_PUTAWAY") return "RECEIVED - PUTAWAY NEEDED";
+            if (normalized === "PARTIALLY_PUTAWAY") return "PARTIALLY PUT AWAY";
+            if (normalized === "PUTAWAY_COMPLETE") return "PUTAWAY COMPLETE";
             return normalized || status || "";
         }
 
@@ -20423,7 +20434,8 @@
 
             const isSubmitted = inbound.status === "SUBMITTED";
             const isArrived = inbound.status === "ARRIVED";
-            const isReceived = inbound.status === "RECEIVED";
+            const isReceived = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"].includes(inbound.status);
+            const needsPutaway = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY"].includes(inbound.status);
             const isCancelled = inbound.status === "CANCELLED";
             const statusClass = inboundStatusPillClass(inbound.status);
             const lineRows = inbound.lines.map((line) => `
@@ -20440,7 +20452,7 @@
             `).join("");
             const receivingRows = inbound.lines.map((line) => {
                 const receivedQuantity = line.receivedQuantity || line.quantity || 1;
-                const receivedLocation = line.receivedLocation || "BULK";
+                const receivedLocation = line.receivedLocation || "RECEIVING-STAGE";
                 const lotRequired = line.lotTracked ? "required" : "";
                 const expirationRequired = line.expirationTracked ? "required" : "";
                 const locked = (isReceived || isCancelled) ? "disabled" : "";
@@ -20455,7 +20467,7 @@
                             <input data-inbound-receive-qty type="number" min="1" inputmode="numeric" value="${attr(receivedQuantity)}" ${locked}>
                         </td>
                         <td>
-                            <input data-inbound-receive-location type="text" value="${attr(receivedLocation)}" placeholder="BULK" ${locked}>
+                            <input data-inbound-receive-location type="text" value="${attr(receivedLocation)}" placeholder="RECEIVING-STAGE" ${locked}>
                         </td>
                         <td>
                             <input data-inbound-receive-lot type="text" value="${attr(line.lotNumber || "")}" placeholder="${line.lotTracked ? "Required lot" : "Optional lot"}" ${lotRequired} ${locked}>
@@ -20495,6 +20507,7 @@
                         <button class="btn ghost mini" type="button" data-print-receiving-document="${attr(inbound.id)}">Print Receiving Document</button>
                         ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Check In Freight</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
+                        ${needsPutaway ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="PUTAWAY_COMPLETE">Mark Putaway Complete</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="CANCELLED">Cancel PO</button>` : ""}
                     </div>
                 </div>
@@ -20554,7 +20567,7 @@
                         id: line.id || "",
                         sku: line.sku,
                         receivedQuantity: line.receivedQuantity || line.quantity || 1,
-                        receivedLocation: line.receivedLocation || "BULK",
+                        receivedLocation: line.receivedLocation || "RECEIVING-STAGE",
                         lotNumber: line.lotNumber || "",
                         expirationDate: line.expirationDate || ""
                     }))
@@ -20592,7 +20605,7 @@
                     id: line.id || lineKey,
                     sku: line.sku || "",
                     receivedQuantity: Number.isFinite(receivedQuantity) && receivedQuantity > 0 ? receivedQuantity : (line.receivedQuantity || line.quantity || 1),
-                    receivedLocation: receivedLocation || line.receivedLocation || "BULK",
+                    receivedLocation: receivedLocation || line.receivedLocation || "RECEIVING-STAGE",
                     lotNumber: lotNumber || line.lotNumber || "",
                     expirationDate: expirationDate || line.expirationDate || ""
                 });
@@ -20607,7 +20620,7 @@
             const lineRows = (inbound.lines || []).map((line) => {
                 const payloadLine = payloadById.get(String(line.id || line.sku)) || {};
                 const receivedQuantity = payloadLine.receivedQuantity || line.receivedQuantity || line.quantity || 0;
-                const receivedLocation = payloadLine.receivedLocation || line.receivedLocation || "BULK";
+                const receivedLocation = payloadLine.receivedLocation || line.receivedLocation || "RECEIVING-STAGE";
                 const lotNumber = payloadLine.lotNumber || line.lotNumber || "";
                 const expirationDate = payloadLine.expirationDate || line.expirationDate || "";
                 return `
@@ -21218,14 +21231,14 @@
                     caseCount,
                     note: note ? `Mobile receiving proof: ${note}` : "Mobile receiving proof attached."
                 });
-                showMessage(ui.mobileInboundArrivalMessage, `Received ${inbound.inboundCode || inbound.id}.`, "success");
+                showMessage(ui.mobileInboundArrivalMessage, `Received ${inbound.inboundCode || inbound.id} into staging. Use Put Away Stock to move it to a pickable bin.`, "success");
             });
         }
 
         function renderMobileInboundArrivalList(inbounds = [], errorText = "") {
             if (!ui.mobileInboundArrivalList) return;
             const openInbounds = inbounds
-                .filter((inbound) => !["RECEIVED", "CANCELLED"].includes(norm(inbound.status)))
+                .filter((inbound) => !isInboundReceivingClosed(inbound.status))
                 .sort((a, b) => dashboardDateSort(a.expectedDate).localeCompare(dashboardDateSort(b.expectedDate)) || (a.inboundCode || "").localeCompare(b.inboundCode || ""));
 
             if (ui.mobileInboundArrivalMeta) {
@@ -21258,7 +21271,7 @@
                         </label>
                         <label class="field">
                             <span>Location</span>
-                            <input data-mobile-inbound-location type="text" value="${attr(line.receivedLocation || "RECEIVING")}" placeholder="Scan or enter location" autocapitalize="characters">
+                            <input data-mobile-inbound-location type="text" value="${attr(line.receivedLocation || "RECEIVING-STAGE")}" placeholder="Scan or enter staging location" autocapitalize="characters">
                         </label>
                         ${(line.lotTracked || line.expirationTracked) ? `
                             <label class="field">
@@ -21301,7 +21314,7 @@
                         </label>
                         <button class="btn ghost hidden" type="button" data-mobile-inbound-document-scan="photos">Scan Freight Photo</button>
                         <div class="meta" data-mobile-inbound-document-scan-meta="photos"></div>
-                        <button class="btn" type="button" data-mobile-inbound-receive="${attr(inbound.id)}">Finish Receiving</button>
+                        <button class="btn" type="button" data-mobile-inbound-receive="${attr(inbound.id)}">Finish Receiving to Staging</button>
                     </div>
                 ` : "";
                 return `
@@ -21359,8 +21372,10 @@
                     inbound.contactName || "",
                     inbound.carrierName ? `Carrier ${inbound.carrierName}` : ""
                 ].filter(Boolean).join(" | ") || "-";
-                const receivingState = inbound.status === "RECEIVED"
-                    ? (inbound.receivedAt ? `Received ${formatDate(inbound.receivedAt)}` : "Received")
+                const receivingState = isInboundReceivedStatus(inbound.status)
+                    ? (inbound.status === "PUTAWAY_COMPLETE"
+                        ? "Putaway complete"
+                        : (inbound.receivedAt ? `Received ${formatDate(inbound.receivedAt)} | Putaway needed` : "Received | Putaway needed"))
                     : inbound.status === "ARRIVED"
                         ? (inbound.arrivedAt ? `Checked in ${formatDate(inbound.arrivedAt)}` : "Checked in")
                         : "Open receipt";

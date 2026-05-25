@@ -193,6 +193,9 @@ const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const DEFAULT_RECEIVING_STAGE_LOCATION = "RECEIVING-STAGE";
+const NON_PICKABLE_LOCATION_TYPES = new Set(["RECEIVING_STAGE", "DOCK", "QA_HOLD", "STAGING"]);
+const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"];
 const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
 const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
 const PORTAL_KITTING_REQUEST_STATUSES = ["SUBMITTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
@@ -5432,6 +5435,9 @@ async function initializeDatabase() {
             updated_at timestamptz not null default now()
         );
     `);
+    await pool.query("alter table bin_locations add column if not exists location_type text not null default 'STORAGE';");
+    await pool.query("alter table bin_locations add column if not exists is_pickable boolean not null default true;");
+    await pool.query("alter table bin_locations add column if not exists equipment_type text not null default '';");
 
     await pool.query(`
         create table if not exists owner_accounts (
@@ -6051,7 +6057,7 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("alter table portal_inbounds drop constraint if exists portal_inbounds_status_check");
-    await pool.query("alter table portal_inbounds add constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED'))");
+    await pool.query("alter table portal_inbounds add constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE', 'CANCELLED'))");
     await pool.query("alter table portal_inbounds alter column inbound_code drop not null");
     await pool.query("alter table portal_inbounds alter column inbound_code drop default");
     await pool.query("alter table portal_inbounds add column if not exists arrived_at timestamptz");
@@ -6490,6 +6496,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_count_records_account_location_sku on inventory_count_records (account_name, location, sku);");
     await pool.query("create index if not exists idx_inventory_count_audit_count_id on inventory_count_audit (count_id, created_at desc);");
     await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
+    await pool.query("create index if not exists idx_bin_locations_pickable on bin_locations (is_pickable, location_type);");
     await pool.query("create index if not exists idx_owner_accounts_name on owner_accounts (name);");
     await pool.query("create index if not exists idx_fulfillment_locations_code on fulfillment_locations (code);");
     await pool.query("create index if not exists idx_company_fulfillment_locations_account on company_fulfillment_locations (account_name);");
@@ -6612,6 +6619,7 @@ async function initializeDatabase() {
         where location <> ''
         on conflict (code) do nothing
     `);
+    await ensureReceivingStageLocation(pool, DEFAULT_RECEIVING_STAGE_LOCATION);
 
     await pool.query(`
         insert into item_catalog (account_name, sku, upc, tracking_level)
@@ -7570,8 +7578,16 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce(a.picked_quantity, 0)::integer as picked_quantity,
                     coalesce(a.staged_quantity, 0)::integer as staged_quantity,
                     coalesce(a.active_quantity, 0)::integer as reserved_quantity,
-                    greatest((coalesce(i.quantity, 0) - coalesce(a.active_quantity, 0)), 0)::integer as available_quantity
+                    case
+                        when coalesce(bl.is_pickable, true) = true
+                         and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
+                        then greatest((coalesce(i.quantity, 0) - coalesce(a.active_quantity, 0)), 0)::integer
+                        else 0
+                    end as available_quantity,
+                    coalesce(bl.is_pickable, true) as is_pickable_location,
+                    coalesce(bl.location_type, 'STORAGE') as location_type
                 from inventory_lines i
+                left join bin_locations bl on bl.code = i.location
                 left join (
                     select
                         a.inventory_line_id,
@@ -7587,7 +7603,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                 ) a on a.inventory_line_id = i.id
                 order by i.account_name asc, i.location asc, i.sku asc
             `,
-            [ACTIVE_PORTAL_ORDER_STATUSES]
+            [ACTIVE_PORTAL_ORDER_STATUSES, [...NON_PICKABLE_LOCATION_TYPES]]
         ),
         client.query(`
             select *
@@ -8863,7 +8879,9 @@ function taskTypesForPortalOrderStatus(status) {
 function taskTypesForPortalInboundStatus(status) {
     const normalized = normalizeText(status);
     if (normalized === "ARRIVED") return ["INBOUND_ARRIVAL"];
-    if (normalized === "RECEIVED") return ["RECEIVING"];
+    if (normalized === "RECEIVED") return ["RECEIVING", "PUT_AWAY"];
+    if (["RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY"].includes(normalized)) return ["PUT_AWAY"];
+    if (normalized === "PUTAWAY_COMPLETE") return ["PUT_AWAY"];
     return [];
 }
 
@@ -11287,10 +11305,10 @@ async function exportSftpReceiptConfirmations(client, sftpClient, integrationRow
             from portal_inbounds i
             join store_inbound_imports m on m.portal_inbound_id = i.id
             where m.integration_id = $1
-              and i.status = 'RECEIVED'
+              and i.status = any($2::text[])
             order by coalesce(i.received_at, i.updated_at) asc, i.id asc
         `,
-        [integrationRow.id]
+        [integrationRow.id, RECEIVED_INBOUND_STATUSES]
     );
 
     for (const row of result.rows) {
@@ -11733,9 +11751,16 @@ async function getPortalInventorySummary(accountName, client = pool) {
                     coalesce(max(nullif(c.image_url, '')), '') as image_url,
                     coalesce(max(nullif(c.tracking_level, '')), max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
                     sum(i.quantity)::integer as on_hand_quantity,
+                    sum(case
+                        when coalesce(bl.is_pickable, true) = true
+                         and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+                        then i.quantity
+                        else 0
+                    end)::integer as pickable_quantity,
                     count(distinct i.location)::integer as location_count,
                     array_remove(array_agg(distinct i.location order by i.location), null) as locations
                 from inventory_lines i
+                left join bin_locations bl on bl.code = i.location
                 left join item_catalog c
                   on c.account_name = i.account_name
                  and c.sku = i.sku
@@ -11763,7 +11788,7 @@ async function getPortalInventorySummary(accountName, client = pool) {
                 h.on_hand_quantity as total_quantity,
                 h.on_hand_quantity,
                 coalesce(r.reserved_quantity, 0)::integer as reserved_quantity,
-                greatest(h.on_hand_quantity - coalesce(r.reserved_quantity, 0), 0)::integer as available_quantity,
+                greatest(h.pickable_quantity - coalesce(r.reserved_quantity, 0), 0)::integer as available_quantity,
                 h.location_count,
                 h.locations
             from on_hand h
@@ -11772,7 +11797,7 @@ async function getPortalInventorySummary(accountName, client = pool) {
              and r.sku = h.sku
             order by h.sku asc
         `,
-        [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES]
+        [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, [...NON_PICKABLE_LOCATION_TYPES]]
     );
     return result.rows.map(mapPortalInventoryRow);
 }
@@ -12079,8 +12104,14 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
                 i.expiration_date,
                 coalesce(max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
                 sum(i.quantity)::integer as quantity,
-                sum(greatest(coalesce(i.quantity, 0) - coalesce(c.allocated_quantity, 0), 0))::integer as available_quantity
+                sum(case
+                    when coalesce(bl.is_pickable, true) = true
+                     and coalesce(bl.location_type, 'STORAGE') <> all($4::text[])
+                    then greatest(coalesce(i.quantity, 0) - coalesce(c.allocated_quantity, 0), 0)
+                    else 0
+                end)::integer as available_quantity
             from inventory_lines i
+            left join bin_locations bl on bl.code = i.location
             left join (
                 select
                     a.inventory_line_id,
@@ -12104,7 +12135,7 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
                 i.location asc,
                 i.lot_number asc
         `,
-        [accounts, skus, ACTIVE_PORTAL_ORDER_STATUSES]
+        [accounts, skus, ACTIVE_PORTAL_ORDER_STATUSES, [...NON_PICKABLE_LOCATION_TYPES]]
     );
 
     const byKey = new Map();
@@ -12875,15 +12906,18 @@ async function buildAvailableInventoryRowsForManualPick(client, { accountName, s
                 c.lot_tracked as item_lot_tracked,
                 c.expiration_tracked as item_expiration_tracked
             from inventory_lines i
+            left join bin_locations bl on bl.code = i.location
             left join item_catalog c
               on c.account_name = i.account_name
              and c.sku = i.sku
             where i.account_name = $1
               and i.sku = $2
+              and coalesce(bl.is_pickable, true) = true
+              and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
             order by i.location asc, i.expiration_date asc, i.updated_at asc, i.id asc
             for update of i
         `,
-        [normalizeText(accountName), normalizeText(sku)]
+        [normalizeText(accountName), normalizeText(sku), [...NON_PICKABLE_LOCATION_TYPES]]
     );
 
     const rows = [];
@@ -13017,15 +13051,18 @@ async function allocatePortalOrderInventory(client, order) {
                     c.lot_tracked as item_lot_tracked,
                     c.expiration_tracked as item_expiration_tracked
                 from inventory_lines i
+                left join bin_locations bl on bl.code = i.location
                 left join item_catalog c
                   on c.account_name = i.account_name
                  and c.sku = i.sku
                 where i.account_name = $1
                   and i.sku = any($2::text[])
+                  and coalesce(bl.is_pickable, true) = true
+                  and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
                 order by i.sku asc, i.location asc, i.id asc
                 for update of i
             `,
-            [normalizedAccount, skus]
+            [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]]
         )
         : { rows: [] };
 
@@ -18478,6 +18515,7 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
 }
 
 async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null, details = {}) {
+    nextStatus = normalizePortalInboundStatus(nextStatus);
     const inboundResult = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
     if (inboundResult.rowCount !== 1) {
         throw httpError(404, "That purchase order could not be found.");
@@ -18494,16 +18532,23 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
 
     const allowedTransitions = {
         SUBMITTED: ["ARRIVED", "RECEIVED", "CANCELLED"],
-        ARRIVED: ["RECEIVED", "CANCELLED"]
+        ARRIVED: ["RECEIVED", "CANCELLED"],
+        RECEIVED: ["PUTAWAY_COMPLETE"],
+        RECEIVED_PENDING_PUTAWAY: ["PUTAWAY_COMPLETE"],
+        PARTIALLY_PUTAWAY: ["PUTAWAY_COMPLETE"]
     };
     const allowedNext = allowedTransitions[currentInbound.status] || [];
     if (!allowedNext.includes(nextStatus)) {
         throw httpError(400, `Purchase orders in ${currentInbound.status} can only move to ${allowedNext.join(" or ") || "their next allowed status"}.`);
     }
 
+    let storedStatus = nextStatus;
     if (nextStatus === "RECEIVED") {
+        storedStatus = "RECEIVED_PENDING_PUTAWAY";
+        await ensureReceivingStageLocation(client, details?.receivingLocation || details?.location || DEFAULT_RECEIVING_STAGE_LOCATION);
         const receivedLines = sanitizePortalInboundReceivingInput(details, currentInbound);
         for (const line of receivedLines) {
+            await ensureReceivingStageLocation(client, line.receivedLocation);
             await client.query(
                 `
                     update portal_inbound_lines
@@ -18548,16 +18593,16 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
             update portal_inbounds
             set
                 status = $2,
-                arrived_at = case when $2 in ('ARRIVED', 'RECEIVED') then coalesce(arrived_at, now()) else arrived_at end,
-                arrived_by = case when $2 in ('ARRIVED', 'RECEIVED') and btrim(coalesce(arrived_by, '')) = '' then $3 else arrived_by end,
+                arrived_at = case when $2 in ('ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE') then coalesce(arrived_at, now()) else arrived_at end,
+                arrived_by = case when $2 in ('ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE') and btrim(coalesce(arrived_by, '')) = '' then $3 else arrived_by end,
                 arrival_note = case when $2 = 'ARRIVED' and btrim($4) <> '' then $4 else arrival_note end,
-                received_at = case when $2 = 'RECEIVED' then coalesce(received_at, now()) else received_at end,
+                received_at = case when $2 in ('RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE') then coalesce(received_at, now()) else received_at end,
                 updated_at = now()
             where id = $1
         `,
         [
             inboundId,
-            nextStatus,
+            storedStatus,
             appUser?.full_name || appUser?.email || "Warehouse",
             normalizeFreeText(details?.arrivalNote || details?.note || "")
         ]
@@ -18569,7 +18614,7 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     await insertActivity(
         client,
         "receipt",
-        `Marked purchase order ${updatedInbound.inboundCode} ${nextStatus.toLowerCase()}`,
+        `Marked purchase order ${updatedInbound.inboundCode} ${storedStatus.toLowerCase()}`,
         [
             updatedInbound.accountName,
             `${formatCount(updatedInbound.lines.length, "line")}`,
@@ -19731,7 +19776,7 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
         return;
     }
 
-    if (facts.status === "RECEIVED") {
+    if (facts.status === "RECEIVED" || facts.status === "RECEIVED_PENDING_PUTAWAY" || facts.status === "PARTIALLY_PUTAWAY") {
         await closeWarehouseTasksForSource(client, sourceType, facts.id, ["INBOUND_ARRIVAL", "RECEIVING"], "DONE", actor);
         await upsertWarehouseTask(client, {
             taskType: "PUT_AWAY",
@@ -19757,6 +19802,11 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
                 totalQuantity: facts.totalQuantity
             }
         });
+        return;
+    }
+
+    if (facts.status === "PUTAWAY_COMPLETE") {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "DONE", actor);
     }
 }
 
@@ -19802,7 +19852,7 @@ async function syncWarehouseTasksFromOperationalRecords(client = pool) {
                 from portal_inbound_lines
                 group by inbound_id
             ) l on l.inbound_id = i.id
-            where i.status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED')
+            where i.status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE', 'CANCELLED')
                or exists (
                     select 1
                     from warehouse_tasks wt
@@ -20403,6 +20453,26 @@ async function upsertLocationMaster(client, code, note = "") {
                 updated_at = now()
         `,
         [normalizedCode, normalizedNote]
+    );
+}
+
+async function ensureReceivingStageLocation(client, code = DEFAULT_RECEIVING_STAGE_LOCATION) {
+    const normalizedCode = normalizeText(code) || DEFAULT_RECEIVING_STAGE_LOCATION;
+    await upsertLocationMaster(client, normalizedCode, "Receiving staging - not pickable until putaway is complete.");
+    await client.query(
+        `
+            update bin_locations
+            set
+                location_type = 'RECEIVING_STAGE',
+                is_pickable = false,
+                note = case
+                    when btrim(coalesce(note, '')) = '' then 'Receiving staging - not pickable until putaway is complete.'
+                    else note
+                end,
+                updated_at = now()
+            where code = $1
+        `,
+        [normalizedCode]
     );
 }
 
@@ -22810,6 +22880,8 @@ function mapInventoryRow(row) {
         stagedQuantity,
         reservedQuantity,
         availableQuantity,
+        isPickableLocation: row.is_pickable_location !== false,
+        locationType: row.location_type || "STORAGE",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };
@@ -22886,6 +22958,9 @@ function mapLocationMasterRow(row) {
         id: String(row.id),
         code: row.code,
         note: row.note || "",
+        locationType: row.location_type || "STORAGE",
+        isPickable: row.is_pickable !== false,
+        equipmentType: row.equipment_type || "",
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
     };
@@ -23187,7 +23262,7 @@ function mapPortalInventoryRow(row) {
         totalQuantity: Number(row.total_quantity) || 0,
         onHandQuantity: Number(row.on_hand_quantity) || Number(row.total_quantity) || 0,
         reservedQuantity: Number(row.reserved_quantity) || 0,
-        availableQuantity: Number(row.available_quantity) || Number(row.total_quantity) || 0,
+        availableQuantity: row.available_quantity == null ? (Number(row.total_quantity) || 0) : (Number(row.available_quantity) || 0),
         locationCount: Number(row.location_count) || 0,
         locations: Array.isArray(row.locations) ? row.locations.filter(Boolean) : []
     };
@@ -23504,7 +23579,7 @@ function sanitizePortalInboundReceivingInput(payload, inbound) {
         if (sku && !bySku.has(sku)) bySku.set(sku, line);
     });
 
-    const defaultLocation = normalizeText(payload?.receivingLocation || payload?.location || "BULK") || "BULK";
+    const defaultLocation = normalizeText(payload?.receivingLocation || payload?.location || DEFAULT_RECEIVING_STAGE_LOCATION) || DEFAULT_RECEIVING_STAGE_LOCATION;
     return (Array.isArray(inbound?.lines) ? inbound.lines : []).map((line) => {
         const rawLine = byId.get(String(line.id || "")) || bySku.get(normalizeText(line.sku || "")) || {};
         const receivedQuantity = toPositiveInt(rawLine?.receivedQuantity ?? rawLine?.received_quantity ?? rawLine?.quantity ?? line.quantity);
@@ -23695,7 +23770,7 @@ function normalizePortalOrderStatus(value) {
 
 function normalizePortalInboundStatus(value) {
     const normalized = normalizeText(value);
-    return ["SUBMITTED", "ARRIVED", "RECEIVED", "CANCELLED"].includes(normalized) ? normalized : "";
+    return ["SUBMITTED", "ARRIVED", "RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE", "CANCELLED"].includes(normalized) ? normalized : "";
 }
 
 function categoryAccountCode(category) {

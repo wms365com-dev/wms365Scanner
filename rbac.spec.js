@@ -9,6 +9,7 @@ const {
     requireWarehouseAdmin,
     requireInventoryAdjustPermission,
     requireMobileWorkerAction,
+    taskTypesForPortalInboundStatus,
     assertPortalAccountAccess
 } = require("./server");
 
@@ -88,4 +89,11 @@ test("mobile worker action permission is limited to worker-safe actions", async 
 
     assert.equal(allowed, null);
     assert.equal(denied?.statusCode, 403);
+});
+
+test("inbound mobile status gates keep receiving and putaway assigned-task safe", () => {
+    assert.deepEqual(taskTypesForPortalInboundStatus("ARRIVED"), ["INBOUND_ARRIVAL"]);
+    assert.deepEqual(taskTypesForPortalInboundStatus("RECEIVED"), ["RECEIVING", "PUT_AWAY"]);
+    assert.deepEqual(taskTypesForPortalInboundStatus("RECEIVED_PENDING_PUTAWAY"), ["PUT_AWAY"]);
+    assert.deepEqual(taskTypesForPortalInboundStatus("PUTAWAY_COMPLETE"), ["PUT_AWAY"]);
 });
