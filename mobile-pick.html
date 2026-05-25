@@ -337,6 +337,7 @@ const PICK_STATES=Object.freeze({
   NEEDS_REVIEW:'NEEDS_REVIEW'
 });
 const PICK_PROGRESS_PREFIX='wms365-mobile-pick-progress:';
+const ACTIVE_PICK_ORDER_KEY='wms365-mobile-active-pick-order';
 const PROBLEM_REASONS={
   NOT_ENOUGH_STOCK:'Not enough stock',
   LOCATION_EMPTY:'Location empty',
@@ -448,6 +449,21 @@ function pickKey(p){
 function progressStorageKey(order=state.selectedOrder){
   return order?.id?`${PICK_PROGRESS_PREFIX}${order.id}`:'';
 }
+function getActivePickOrderId(){
+  try{return String(localStorage.getItem(ACTIVE_PICK_ORDER_KEY)||'')}catch{return ''}
+}
+function setActivePickOrder(order=state.selectedOrder){
+  try{
+    const orderId=String(order?.id||'');
+    if(orderId)localStorage.setItem(ACTIVE_PICK_ORDER_KEY,orderId);
+  }catch{}
+}
+function clearActivePickOrder(order=state.selectedOrder){
+  try{
+    const orderId=String(order?.id||'');
+    if(!orderId||localStorage.getItem(ACTIVE_PICK_ORDER_KEY)===orderId)localStorage.removeItem(ACTIVE_PICK_ORDER_KEY);
+  }catch{}
+}
 function loadPickProgress(order){
   const key=progressStorageKey(order);
   if(!key)return null;
@@ -457,6 +473,7 @@ function savePickProgress(){
   const key=progressStorageKey();
   if(!key)return;
   try{
+    setActivePickOrder();
     localStorage.setItem(key,JSON.stringify({
       orderId:state.selectedOrder?.id||'',
       index:state.index,
@@ -472,7 +489,7 @@ function savePickProgress(){
 function clearPickProgress(order=state.selectedOrder){
   const key=progressStorageKey(order);
   if(!key)return;
-  try{localStorage.removeItem(key)}catch{}
+  try{localStorage.removeItem(key);clearActivePickOrder(order)}catch{}
 }
 function setPickState(nextState,{message='',tone=''}={}){
   state.pickState=nextState;
@@ -608,8 +625,7 @@ async function loadOrders({force=false}={}){
     : null;
   if(cached?.payload?.orders&&!force){
     applyOrdersPayload(cached.payload);
-    const requested=state.orders.find(o=>String(o.id)===String(state.requestedOrderId));
-    if(requested&&!state.selectedOrder) startOrder(requested);
+    resumeActivePickFromOrders();
     refreshOrdersFromNetwork(q,cacheKey).catch(()=>{});
     return;
   }
@@ -627,8 +643,7 @@ async function refreshOrdersFromNetwork(q,cacheKey){
   }
   if(cacheKey&&window.WMS365Mobile?.cacheData) window.WMS365Mobile.cacheData(cacheKey,{...payload,accountName:state.company,cachedAt:new Date().toISOString()}).catch(()=>{});
   applyOrdersPayload(payload);
-  const requested=state.orders.find(o=>String(o.id)===String(state.requestedOrderId));
-  if(requested&&!state.selectedOrder) startOrder(requested);
+  resumeActivePickFromOrders();
 }
 
 function applyOrdersPayload(payload){
@@ -637,6 +652,15 @@ function applyOrdersPayload(payload){
   state.orders.sort((a,b)=>orderPriority(a)-orderPriority(b)||ageTime(a.createdAt)-ageTime(b.createdAt)||(a.orderCode||'').localeCompare(b.orderCode||''));
   sel.innerHTML='<option value="">Choose order</option>'+state.orders.map(o=>`<option value="${esc(o.id)}">${esc(o.orderCode)} | ${esc(o.status)} | ${esc(o.shippingReference||o.poNumber||'')}</option>`).join('');
   renderPendingOrders();
+}
+
+function resumeActivePickFromOrders(){
+  if(state.selectedOrder)return;
+  const resumeId=String(state.requestedOrderId||getActivePickOrderId()||'');
+  if(!resumeId)return;
+  const order=state.orders.find(o=>String(o.id)===resumeId);
+  if(order)startOrder(order);
+  else if(!state.requestedOrderId)clearActivePickOrder({id:resumeId});
 }
 
 function orderPriority(order){
@@ -890,6 +914,7 @@ function startOrder(order){
     return;
   }
   state.selectedOrder=order;
+  setActivePickOrder(order);
   state.picks=(order.lines||[])
     .flatMap(line=>{
       const picks=Array.isArray(line.pickLocations)&&line.pickLocations.length
