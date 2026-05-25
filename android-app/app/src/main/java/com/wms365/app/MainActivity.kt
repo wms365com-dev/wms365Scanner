@@ -373,10 +373,41 @@ class MainActivity : Activity() {
         val token = ++pageLoadToken
         pageLoadTimeoutHandler.postDelayed({
             if (token == pageLoadToken && loadingOverlay.visibility == View.VISIBLE) {
-                showLoading(false)
-                showError(true, if (isOnline()) "WMS365 is taking too long to load. Check the connection and retry." else "Offline. Reconnect and tap Retry when the device is back online.")
+                val responded = booleanArrayOf(false)
+                webView.evaluateJavascript(
+                    """
+                    (function () {
+                      var text = (document.body && document.body.innerText || '').trim();
+                      var hasUsableRoot = !!(
+                        document.getElementById('loginForm') ||
+                        document.getElementById('mobileCountApp') ||
+                        document.querySelector('.mobile-home-card') ||
+                        document.querySelector('.mobile-appbar') ||
+                        document.querySelector('.app')
+                      );
+                      return String(text.length) + ':' + (hasUsableRoot ? '1' : '0') + ':' + document.readyState;
+                    })();
+                    """.trimIndent()
+                ) { result ->
+                    responded[0] = true
+                    if (token != pageLoadToken || loadingOverlay.visibility != View.VISIBLE) return@evaluateJavascript
+                    val hasUsableContent = result?.contains(":1:") == true && !result.contains("\"0:")
+                    if (hasUsableContent) {
+                        pageLoadToken++
+                        showLoading(false)
+                    } else {
+                        showLoading(false)
+                        showError(true, if (isOnline()) "WMS365 is taking too long to load. Check the connection and retry." else "Offline. Reconnect and tap Retry when the device is back online.")
+                    }
+                }
+                pageLoadTimeoutHandler.postDelayed({
+                    if (token == pageLoadToken && loadingOverlay.visibility == View.VISIBLE && !responded[0]) {
+                        showLoading(false)
+                        showError(true, if (isOnline()) "WMS365 is taking too long to load. Check the connection and retry." else "Offline. Reconnect and tap Retry when the device is back online.")
+                    }
+                }, 5000)
             }
-        }, 12000)
+        }, 25000)
     }
 
     private fun isApprovedUri(uri: Uri): Boolean {

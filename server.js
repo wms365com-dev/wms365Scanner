@@ -653,6 +653,7 @@ const app = express();
 app.set("trust proxy", 1);
 
 const loginRateBuckets = new Map();
+let lastAppSessionCleanupAt = 0;
 
 function getClientIp(req) {
     return String(req.headers["x-forwarded-for"] || req.ip || req.socket?.remoteAddress || "").split(",")[0].trim();
@@ -773,6 +774,7 @@ app.post("/api/app/login", async (req, res, next) => {
 
         setAppSessionCookie(res, session.token, req);
         res.json({ success: true, user: mapAppUserRow(session.user) });
+        queueExpiredAppSessionCleanup();
     } catch (error) {
         next(error);
     }
@@ -6472,6 +6474,8 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_site_subscriptions_created_at on site_subscriptions (created_at desc);");
     await pool.query("create index if not exists idx_site_subscriptions_work_email on site_subscriptions (work_email);");
     await pool.query("create index if not exists idx_site_subscriptions_company_account_name on site_subscriptions (company_account_name);");
+    await pool.query("create index if not exists idx_app_sessions_expires_at on app_sessions (expires_at);");
+    await pool.query("create index if not exists idx_app_sessions_app_user_id on app_sessions (app_user_id);");
     await pool.query("create index if not exists idx_feedback_submissions_created_at on feedback_submissions (created_at desc);");
     await pool.query("create index if not exists idx_feedback_submissions_status on feedback_submissions (status);");
     await pool.query("create index if not exists idx_feedback_submissions_account_name on feedback_submissions (account_name);");
@@ -8575,7 +8579,6 @@ async function createAppSession(client, userId) {
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashPortalSessionToken(token);
     const expiresAt = new Date(Date.now() + (APP_SESSION_MAX_AGE * 1000)).toISOString();
-    await client.query("delete from app_sessions where expires_at <= now()");
     await client.query(
         `
             insert into app_sessions (app_user_id, token_hash, expires_at)
@@ -8584,6 +8587,30 @@ async function createAppSession(client, userId) {
         [userId, tokenHash, expiresAt]
     );
     return token;
+}
+
+function queueExpiredAppSessionCleanup() {
+    const now = Date.now();
+    if (now - lastAppSessionCleanupAt < 10 * 60 * 1000) return;
+    lastAppSessionCleanupAt = now;
+    setImmediate(async () => {
+        try {
+            await pool.query(`
+                with expired as (
+                    select id
+                    from app_sessions
+                    where expires_at <= now()
+                    order by expires_at asc
+                    limit 500
+                )
+                delete from app_sessions s
+                using expired
+                where s.id = expired.id
+            `);
+        } catch (error) {
+            console.warn("Expired app session cleanup failed:", error.message || error);
+        }
+    });
 }
 
 async function deleteAppSessionByToken(token, client = pool) {
