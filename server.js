@@ -4398,6 +4398,23 @@ app.post("/api/admin/portal-orders/:id/short-pick/approve", requireWarehouseAdmi
     }
 });
 
+app.post("/api/admin/portal-orders/:id/partial-pick/approve", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const result = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            return approvePortalOrderShortPick(client, orderId, req.body || {}, req.appUser);
+        });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-inbounds/:id/status", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const inboundId = toPositiveInt(req.params.id);

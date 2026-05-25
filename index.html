@@ -19901,16 +19901,21 @@
                     </div>
                 </div>
             ` : "";
+            const shortPickReviewTitle = norm(shortPickException?.reason || "") === "PARTIAL_PICK" ? "Partial Pick Review" : "Short Pick Review";
+            const shortPickApproveLabel = norm(shortPickException?.reason || "") === "PARTIAL_PICK" ? "Approve Partial Pick" : "Approve Short Pick";
+            const shortPickReasonText = norm(shortPickException?.reason || "") === "PARTIAL_PICK"
+                ? "Partial pick"
+                : String(shortPickException?.reason || "").replace(/_/g, " ").toLowerCase();
             const shortPickPanel = shortPickTask ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="header-copy" style="margin-bottom: 0.8rem;">
-                        <h3>Short Pick Review</h3>
-                        <p class="meta">A worker reported a shortage. Approving records the found quantity, closes the blocked pick task, and moves the order to picked for packing.</p>
+                        <h3>${esc(shortPickReviewTitle)}</h3>
+                        <p class="meta">A worker reported less than the required pick quantity. Approving records the found quantity, closes the blocked pick task, and moves the order to picked for packing.</p>
                     </div>
                     <div class="quick-meta">
                         ${esc(shortPickException?.sku || "")}
                         ${shortPickException?.location ? ` | Location ${esc(shortPickException.location)}` : ""}
-                        ${shortPickException?.reason ? ` | ${esc(shortPickException.reason)}` : ""}
+                        ${shortPickException?.reason ? ` | ${esc(shortPickReasonText)}` : ""}
                         ${shortPickException?.note ? ` | ${esc(shortPickException.note)}` : ""}
                     </div>
                     <div class="form-grid compact-grid" style="margin-top:0.8rem;">
@@ -19924,7 +19929,7 @@
                         </label>
                     </div>
                     <div class="quick-row-actions">
-                        <button class="btn" type="button" data-short-pick-approve="${attr(order.id)}">Approve Short Pick</button>
+                        <button class="btn" type="button" data-short-pick-approve="${attr(order.id)}">${esc(shortPickApproveLabel)}</button>
                     </div>
                 </div>
             ` : "";
@@ -22202,7 +22207,8 @@
                     return;
                 }
                 const label = currentOrder?.orderCode || orderId;
-                if (!window.confirm(`Approve short pick for ${label} at quantity ${approvedQuantity}? This moves the order to picked with the reduced quantity.`)) {
+                const reviewLabel = norm(pickException.reason || "") === "PARTIAL_PICK" ? "partial pick" : "short pick";
+                if (!window.confirm(`Approve ${reviewLabel} for ${label} at quantity ${approvedQuantity}? This moves the order to picked with the reduced quantity.`)) {
                     return;
                 }
                 try {
@@ -22210,9 +22216,9 @@
                         button: shortPickApproveButton,
                         busyLabel: "Approving...",
                         messageElement: actionMessageElement,
-                        progressMessage: `Approving short pick for ${label}...`
+                        progressMessage: `Approving ${reviewLabel} for ${label}...`
                     }, async () => {
-                        const response = await requestJson(`/api/admin/portal-orders/${orderId}/short-pick/approve`, {
+                        const response = await requestJson(`/api/admin/portal-orders/${orderId}/partial-pick/approve`, {
                             method: "POST",
                             body: JSON.stringify({
                                 approvedQuantity,
@@ -22221,7 +22227,7 @@
                                 location: pickException.location || ""
                             })
                         });
-                        applyPortalOrderUpdate(response?.order, `Short pick approved for ${response?.order?.orderCode || label}.`, actionMessageElement);
+                        applyPortalOrderUpdate(response?.order, `${reviewLabel.charAt(0).toUpperCase()}${reviewLabel.slice(1)} approved for ${response?.order?.orderCode || label}.`, actionMessageElement);
                         await syncServerState(true).catch(() => {});
                         queuePortalOrderRefresh();
                     });

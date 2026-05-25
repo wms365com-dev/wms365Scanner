@@ -65,6 +65,8 @@ button:disabled{opacity:.45}
 .problem-panel textarea{width:100%;min-height:72px;padding:10px;border:1px solid var(--line);border-radius:12px;font:inherit;resize:vertical}
 .guided-actions{display:grid;grid-template-columns:1fr;gap:8px}
 .guided-actions.two{grid-template-columns:1fr 1fr}
+.guided-actions.three{grid-template-columns:1fr}
+@media (min-width:380px){.guided-actions.three{grid-template-columns:1fr 1fr 1fr}}
 .queue-status{padding:9px 10px;border-radius:12px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}
 .queue-status.warn{background:#fff8e8;border-color:#e6c983;color:#8a5d1f}
 .queue-status.bad{background:#fff4f4;border-color:#e9c7c7;color:#9a4d4d}
@@ -244,8 +246,9 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
           <div><div class="kicker">Available</div><div class="big" id="pickAvailable">0</div></div>
         </div>
         <label>Picked Qty<input id="confirmQty" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" enterkeyhint="done"></label>
-        <div class="guided-actions two">
+        <div class="guided-actions three">
           <button class="success" id="confirmPickBtn">Confirm Pick</button>
+          <button class="warn" id="partialPickBtn" type="button">Partial Pick</button>
           <button class="warn" id="problemPickBtn" type="button">Problem</button>
         </div>
       </section>
@@ -339,6 +342,7 @@ const PICK_STATES=Object.freeze({
 const PICK_PROGRESS_PREFIX='wms365-mobile-pick-progress:';
 const ACTIVE_PICK_ORDER_KEY='wms365-mobile-active-pick-order';
 const PROBLEM_REASONS={
+  PARTIAL_PICK:'Partial pick',
   NOT_ENOUGH_STOCK:'Not enough stock',
   LOCATION_EMPTY:'Location empty',
   DAMAGED_ITEM:'Damaged item',
@@ -853,7 +857,7 @@ function renderGuidedPickStep(p,{arrived=false,skuReady=false}={}){
     : isPickConfirmed
       ? 'Saved. Moving to the next location.'
       : showQuantity
-        ? `Enter Qty ${p.quantity}, then confirm the pick.`
+        ? `Enter Qty ${p.quantity}. Use Partial Pick if you found less.`
         : showItem
           ? `Scan SKU or UPC for ${p.sku}${p.lotNumber?' and confirm lot':''}${p.expirationDate?' and expiry':''}.`
       : p.manualLocationRequired
@@ -882,6 +886,7 @@ function renderGuidedPickStep(p,{arrived=false,skuReady=false}={}){
   $('confirmSkuBtn').disabled=!showItem;
   $('confirmQty').disabled=!showQuantity;
   $('confirmPickBtn').disabled=!showQuantity||state.savingPick;
+  $('partialPickBtn').disabled=!showQuantity||state.savingProblem;
   $('problemPickBtn').disabled=isException||isPickConfirmed||state.savingProblem;
   $('pickMessage').className=`status ${isException?'warn':''}`.trim();
   $('pickMessage').textContent=isException
@@ -889,7 +894,7 @@ function renderGuidedPickStep(p,{arrived=false,skuReady=false}={}){
     : isPickConfirmed
       ? 'Saved. The next task will load automatically.'
       : showQuantity
-        ? 'Quantity is unlocked. Confirm the required quantity or use Problem for a shortage.'
+        ? 'Quantity is unlocked. Confirm full quantity or use Partial Pick when some stock is missing.'
         : showItem
           ? 'Location confirmed. Scan the item before quantity unlocks.'
       : 'Confirm arrival before the item pick step unlocks.';
@@ -1321,6 +1326,43 @@ $('cancelProblemBtn').addEventListener('click',()=>{
   $('problemPanel').classList.add('hidden');
 });
 
+async function savePickReviewException(p,{reason,quantity,note='',location='',progressMessage='Saving pick exception for supervisor review.',successMessage='Pick exception saved. This order now needs supervisor review.'}={}){
+  if(!p||state.savingProblem)return;
+  if(!reason){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Choose a review reason.';
+    return;
+  }
+  if(quantity>Number(p.quantity||0)){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Review quantity cannot be more than required.';
+    return;
+  }
+  state.savingProblem=true;
+  $('saveProblemBtn').disabled=true;
+  $('partialPickBtn').disabled=true;
+  $('pickMessage').className='status warn';
+  $('pickMessage').textContent=progressMessage;
+  try{
+    const loc=normalize(location)||state.arrivals[pickKey(p)]?.location||normalize(p.pickLocation||'');
+    await sendPickException(p,{location:loc,reason,quantity,note});
+    const entry={key:pickKey(p),reason,quantity,note,location:loc,timestamp:new Date().toISOString()};
+    state.exceptions=state.exceptions.filter(item=>item.key!==entry.key).concat(entry);
+    setPickState(PICK_STATES.NEEDS_REVIEW,{message:successMessage,tone:'warn'});
+    $('problemPanel').classList.add('hidden');
+    savePickProgress();
+    renderPick();
+  }catch(error){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent=error.message||'Unable to save pick review.';
+    window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingProblem=false;
+    $('saveProblemBtn').disabled=false;
+    $('partialPickBtn').disabled=false;
+  }
+}
+
 $('saveProblemBtn').addEventListener('click',async()=>{
   const p=currentPick();
   if(!p||state.savingProblem)return;
@@ -1328,36 +1370,39 @@ $('saveProblemBtn').addEventListener('click',async()=>{
   const loc=normalize($('confirmLocation').value)||state.arrivals[pickKey(p)]?.location||normalize(p.pickLocation||'');
   const quantity=Math.max(0,Number($('exceptionQty').value||0)||0);
   const note=$('exceptionNote').value.trim();
-  if(!reason){
-    $('pickMessage').className='status bad';
-    $('pickMessage').textContent='Choose a problem reason.';
-    return;
-  }
-  if(quantity>Number(p.quantity||0)){
-    $('pickMessage').className='status bad';
-    $('pickMessage').textContent='Problem picked quantity cannot be more than required.';
-    return;
-  }
-  state.savingProblem=true;
-  $('saveProblemBtn').disabled=true;
-  $('pickMessage').className='status warn';
-  $('pickMessage').textContent='Saving pick problem for supervisor review...';
-  try{
-    await sendPickException(p,{location:loc,reason,quantity,note});
-    const entry={key:pickKey(p),reason,quantity,note,location:loc,timestamp:new Date().toISOString()};
-    state.exceptions=state.exceptions.filter(item=>item.key!==entry.key).concat(entry);
-    setPickState(PICK_STATES.NEEDS_REVIEW,{message:'Problem saved. This order now needs supervisor review.',tone:'warn'});
-    $('problemPanel').classList.add('hidden');
-    savePickProgress();
-    renderPick();
-  }catch(error){
-    $('pickMessage').className='status bad';
-    $('pickMessage').textContent=error.message||'Unable to save pick problem.';
-    window.WMS365Mobile?.beep?.('error');
-  }finally{
-    state.savingProblem=false;
-    $('saveProblemBtn').disabled=false;
-  }
+  await savePickReviewException(p,{
+    reason,
+    quantity,
+    note,
+    location:loc,
+    progressMessage:'Saving pick problem for supervisor review...',
+    successMessage:'Problem saved. This order now needs supervisor review.'
+  });
+});
+
+$('partialPickBtn').addEventListener('click',async()=>{
+  const p=currentPick();
+  if(!p||state.savingProblem)return;
+  const key=pickKey(p);
+  const qty=Math.max(0,Number($('confirmQty').value||0)||0);
+  const required=Number(p.quantity||0)||0;
+  const available=Number(p.availableQuantity||0)||0;
+  const loc=normalize($('confirmLocation').value)||state.arrivals[key]?.location||normalize(p.pickLocation||'');
+  const fail=(message,field)=>{$('pickMessage').className='status bad';$('pickMessage').textContent=message;field?.focus();window.WMS365Mobile?.beep?.('error')};
+  if(!state.arrivals[key])return fail('Confirm arrival at the location before submitting a partial pick.',$('confirmLocation'));
+  if(!state.skuConfirmed[key])return fail('Scan and confirm the SKU before submitting a partial pick.',$('confirmSku'));
+  if(!qty)return fail('Enter the quantity actually picked. Use Problem if none were found.',$('confirmQty'));
+  if(qty>=required)return fail('Partial pick is only for less than the required quantity. Use Confirm Pick for the full quantity.',$('confirmQty'));
+  if(available && qty>available)return fail('Picked quantity cannot be more than available.',$('confirmQty'));
+  const note=`Worker picked ${qty} of ${required}; supervisor approval required.`;
+  await savePickReviewException(p,{
+    reason:'PARTIAL_PICK',
+    quantity:qty,
+    note,
+    location:loc,
+    progressMessage:'Saving partial pick for supervisor review...',
+    successMessage:'Partial pick saved. This order now needs supervisor approval.'
+  });
 });
 
 $('confirmPickBtn').addEventListener('click',async()=>{
@@ -1392,7 +1437,7 @@ $('confirmPickBtn').addEventListener('click',async()=>{
   if(expectedExpiration && expiration!==expectedExpiration)return fail('Expiration date does not match the required FEFO pick.',$('confirmExpiration'));
   if(qty>Number(p.availableQuantity||0))return fail('Picked quantity cannot be more than available.',$('confirmQty'));
   if(qty>Number(p.quantity||0))return fail('Picked quantity cannot be more than required.',$('confirmQty'));
-  if(qty<Number(p.quantity||0))return fail('Use Problem for a shortage so a supervisor can review.',$('confirmQty'));
+  if(qty<Number(p.quantity||0))return fail('Use Partial Pick so a supervisor can approve the shortage.',$('confirmQty'));
   if(qty!==Number(p.quantity||0))return fail('Picked quantity must match the required quantity.',$('confirmQty'));
   state.savingPick=true;
   $('confirmPickBtn').disabled=true;

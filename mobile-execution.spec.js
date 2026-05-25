@@ -306,6 +306,32 @@ test("pick arrival and exception confirmations are audited", async () => {
     assert.equal(client.lastWarehouseTaskUpdate.params[2], "NOT_ENOUGH_STOCK");
 });
 
+test("partial pick is recorded as supervisor-review pick exception", async () => {
+    const client = new MobileExecutionClient();
+    const partial = await saveMobileExecutionConfirmation(client, "PICK_EXCEPTION", {
+        accountName: "HEALTEA",
+        sourceType: "PORTAL_ORDER",
+        sourceId: 31,
+        orderId: 31,
+        lineId: 101,
+        location: "A-01",
+        sku: "30627843973325",
+        quantity: 5,
+        reason: "PARTIAL_PICK",
+        note: "Worker picked 5 of 36; supervisor approval required.",
+        idempotencyKey: "partial-pick-1",
+        source: "android_app"
+    }, superAdmin());
+
+    assert.equal(partial.duplicate, false);
+    assert.equal(client.mobileConfirmations[0].confirmation_type, "PICK_EXCEPTION");
+    assert.equal(client.lastWarehouseTaskUpdate.params[2], "PARTIAL_PICK");
+    const metadata = JSON.parse(client.lastWarehouseTaskUpdate.params[3]);
+    assert.equal(metadata.pickException.reason, "PARTIAL_PICK");
+    assert.equal(metadata.pickException.lineId, 101);
+    assert.equal(metadata.pickException.quantity, 5);
+});
+
 test("mobile pick order feed keeps workers scoped to assigned orders only", () => {
     const worker = { id: "7", role: "warehouse_worker" };
     const orders = [
