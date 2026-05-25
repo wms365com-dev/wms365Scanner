@@ -11,4 +11,5 @@ android-app/.gradle/
 android-app/build/
 android-app/app/build/
 android-app/alienLegacy/build/
+android-app/nativeScanner/build/
 android-app/local.properties

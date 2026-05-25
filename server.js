@@ -18996,6 +18996,30 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
         `Confirmed pick scan for order ${orderRow.order_code || makePortalOrderCode(orderId)}`,
         `${orderRow.account_name} | ${location} | ${confirmedSku} | ${formatCount(quantity, "case")} | ${appUser?.email || "mobile worker"} | ${deviceId || "unknown device"}`
     );
+    const completionResult = await client.query(
+        `
+            select
+                count(*)::integer as line_count,
+                bool_and(coalesce(confirmed.confirmed_quantity, 0) >= coalesce(l.requested_quantity, 0)) as all_confirmed
+            from portal_order_lines l
+            left join (
+                select line_id, coalesce(sum(quantity), 0)::integer as confirmed_quantity
+                from pick_confirmations
+                where order_id = $1
+                  and sync_status <> 'FAILED'
+                group by line_id
+            ) confirmed on confirmed.line_id = l.id
+            where l.order_id = $1
+        `,
+        [orderId]
+    );
+    const lineCount = Number(completionResult.rows[0]?.line_count) || 0;
+    const allConfirmed = completionResult.rows[0]?.all_confirmed === true;
+    if (lineCount > 0 && allConfirmed) {
+        await updateAdminPortalOrderStatus(client, orderId, "PICKED", {
+            note: "All mobile pick confirmations were received."
+        }, appUser);
+    }
     return { duplicate: false, confirmation: mapPickConfirmationRow(insertResult.rows[0]) };
 }
 
