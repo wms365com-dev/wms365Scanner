@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
     private static final String APPROVED_HOST = "app.wms365.co";
     private static final String SCAN_RESULT_ACTION = "com.wms365.alien.SCAN_RESULT";
     private static final String SCAN_RESULT_EXTRA = "barcode";
+    private static final String ANDROID_SCAN_RESULT_ACTION = "android.intent.action.SCAN_RESULT";
+    private static final String DATAWEDGE_SCAN_ACTION = "com.symbol.datawedge.api.RESULT_ACTION";
     private static final String RSCJA_KEY_DOWN_ACTION = "com.rscja.android.KEY_DOWN";
     private static final String PREFS_NAME = "wms365_alien_private";
     private static final String PREF_EMAIL = "saved_email";
@@ -67,7 +69,7 @@ public class MainActivity extends Activity {
     private final BroadcastReceiver scannerResultReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String value = intent == null ? "" : intent.getStringExtra(SCAN_RESULT_EXTRA);
+            String value = extractScannerValue(intent);
             if ((value == null || value.length() == 0) && intent != null && intent.getExtras() != null) {
                 for (String key : intent.getExtras().keySet()) {
                     Object extra = intent.getExtras().get(key);
@@ -126,7 +128,14 @@ public class MainActivity extends Activity {
 
     private void registerScannerReceivers() {
         if (scannerReceiversRegistered) return;
-        registerReceiver(scannerResultReceiver, new IntentFilter(SCAN_RESULT_ACTION));
+        IntentFilter scanFilter = new IntentFilter();
+        scanFilter.addAction(SCAN_RESULT_ACTION);
+        scanFilter.addAction(ANDROID_SCAN_RESULT_ACTION);
+        scanFilter.addAction(DATAWEDGE_SCAN_ACTION);
+        scanFilter.addAction("android.intent.action.SCANRESULT");
+        scanFilter.addAction("com.scanner.broadcast");
+        scanFilter.addAction("scan.rcv.message");
+        registerReceiver(scannerResultReceiver, scanFilter);
         registerReceiver(rscjaKeyReceiver, new IntentFilter(RSCJA_KEY_DOWN_ACTION));
         scannerReceiversRegistered = true;
     }
@@ -505,6 +514,7 @@ public class MainActivity extends Activity {
             BarcodeUtility utility = BarcodeUtility.getInstance();
             Context context = getApplicationContext();
             utility.open(context, ModuleType.AUTOMATIC_ADAPTATION);
+            utility.openKeyboardHelper(context);
             utility.setScanOutTime(context, 8000);
             utility.enablePlaySuccessSound(context, true);
             utility.enablePlayFailureSound(context, true);
@@ -512,7 +522,7 @@ public class MainActivity extends Activity {
             utility.enableEnter(context, true);
             utility.enableTAB(context, false);
             utility.setScanResultBroadcast(context, SCAN_RESULT_ACTION, SCAN_RESULT_EXTRA);
-            utility.setOutputMode(context, 0);
+            utility.setOutputMode(context, 1);
             Log.d(TAG, "Barcode utility configured for keyboard-wedge scan results.");
         } catch (Throwable error) {
             Log.e(TAG, "Barcode utility configuration failed.", error);
@@ -546,8 +556,45 @@ public class MainActivity extends Activity {
         handler.postDelayed(this::hideSoftKeyboard, 350);
     }
 
+    private String extractScannerValue(Intent intent) {
+        if (intent == null) return "";
+        String[] keys = {
+            SCAN_RESULT_EXTRA,
+            "data",
+            "barcode",
+            "barocode",
+            "value",
+            "scan_result",
+            "SCAN_RESULT",
+            "SCAN_BARCODE1",
+            "scannerdata",
+            "com.symbol.datawedge.data_string"
+        };
+        for (String key : keys) {
+            String value = intent.getStringExtra(key);
+            if (value != null && value.trim().length() > 0) return value;
+        }
+        return "";
+    }
+
+    private boolean looksLikeBadScan(String value) {
+        if (value == null) return true;
+        String clean = value.trim();
+        if (clean.length() == 0) return true;
+        int lettersOrNumbers = 0;
+        for (int i = 0; i < clean.length(); i++) {
+            if (Character.isLetterOrDigit(clean.charAt(i))) lettersOrNumbers++;
+        }
+        return lettersOrNumbers < 2;
+    }
+
     private void handleNativeBarcode(String barcode) {
         final String value = barcode == null ? "" : barcode.trim();
+        if (looksLikeBadScan(value)) {
+            Log.w(TAG, "Ignoring invalid scanner output length=" + value.length());
+            Toast.makeText(this, "Bad scan. Aim at the barcode and try again.", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (!value.isEmpty()) {
             try {
                 Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);

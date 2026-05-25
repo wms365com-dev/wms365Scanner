@@ -90,8 +90,9 @@ class MainActivity : Activity() {
     private var blankWebViewRecoveryAttempted = false
     private val sonimSideKeyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == sonimSideKeyDownAction) {
-                handleHardwareScanTrigger("sonim-side-key")
+            val action = intent?.action.orEmpty()
+            if (sonimScanKeyActions.contains(action)) {
+                handleHardwareScanTrigger(action.substringAfterLast('.').lowercase())
             }
         }
     }
@@ -632,8 +633,8 @@ class MainActivity : Activity() {
                   else if (/lot/i.test(id)) input.placeholder = 'Scan lot';
                   if (input.__wms365HardwareScannerInput) return;
                   input.__wms365HardwareScannerInput = true;
-                  input.setAttribute('inputmode', 'none');
-                  input.setAttribute('readonly', 'readonly');
+                  input.setAttribute('inputmode', 'text');
+                  input.removeAttribute('readonly');
                   input.title = 'Tap, then press the scanner trigger.';
                   var lastStarted = 0;
                   var startHardwareScan = function (event) {
@@ -641,7 +642,9 @@ class MainActivity : Activity() {
                     var now = Date.now();
                     if (now - lastStarted < 700) return;
                     lastStarted = now;
-                    input.blur();
+                    input.removeAttribute('readonly');
+                    try { input.focus({ preventScroll: false }); } catch (error) { input.focus(); }
+                    if (input.select) input.select();
                     WMS365Android.scanBarcode(id);
                   };
                   input.addEventListener('click', startHardwareScan);
@@ -1624,11 +1627,17 @@ class MainActivity : Activity() {
         return if (hasHardwareScannerDevice()) "hardware_wedge" else "camera"
     }
 
-    private val sonimSideKeyDownAction = "com.sonim.intent.action.SIDE_KEY_DOWN"
+    private val sonimScanKeyActions = setOf(
+        "com.sonim.intent.action.SIDE_KEY_DOWN",
+        "com.sonim.intent.action.F1_KEY_DOWN",
+        "com.sonim.intent.action.F2_KEY_DOWN",
+        "com.sonim.intent.action.Fn_KEY_DOWN"
+    )
 
     private fun registerSonimSideKeyReceiver() {
         if (sonimSideKeyReceiverRegistered || !hasHardwareScannerDevice()) return
-        val filter = IntentFilter(sonimSideKeyDownAction)
+        val filter = IntentFilter()
+        sonimScanKeyActions.forEach { filter.addAction(it) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(sonimSideKeyReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -1657,6 +1666,25 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun focusDomScanTarget(targetId: String) {
+        if (targetId.isBlank() || !::webView.isInitialized) return
+        val safeTarget = targetId.replace("\\", "\\\\").replace("'", "\\'")
+        webView.evaluateJavascript(
+            """
+            (function(){
+              var el=document.getElementById('$safeTarget');
+              if(!el)return false;
+              el.removeAttribute('readonly');
+              el.setAttribute('inputmode','text');
+              try{el.focus({preventScroll:false});}catch(e){el.focus();}
+              if(el.select)el.select();
+              return true;
+            })();
+            """.trimIndent(),
+            null
+        )
+    }
+
     private fun flushHardwareScanBuffer() {
         val value = hardwareScanBuffer.toString().trim()
         hardwareScanBuffer.setLength(0)
@@ -1680,6 +1708,7 @@ class MainActivity : Activity() {
                 pendingScanTargetId = targetId
                 hardwareScanBuffer.setLength(0)
                 if (hasHardwareScannerDevice()) {
+                    focusDomScanTarget(targetId)
                     webView.requestFocus()
                     Toast.makeText(this@MainActivity, "Press the hardware scan trigger.", Toast.LENGTH_SHORT).show()
                     return@runOnUiThread

@@ -462,6 +462,12 @@ async function handlePhotoChange(event){
 function cleanScanValue(value){
   return norm(String(value||"").replace(/[\u0000-\u001f\u007f]/g,""));
 }
+function looksLikeBadScan(value){
+  const text=cleanScanValue(value);
+  if(!text)return true;
+  const alnum=(text.match(/[A-Z0-9]/g)||[]).length;
+  return alnum<2;
+}
 function isLikelyCaseQuantity(value){
   const text=cleanScanValue(value);
   return /^\d{1,5}$/.test(text);
@@ -490,6 +496,13 @@ function acceptScanValue(targetId,value){
   targetId=resolveScanTarget(targetId,value);
   value=cleanScanValue(value);
   const target=$(targetId);if(!target)return;
+  if(looksLikeBadScan(value)){
+    $("message").className="status bad";
+    $("message").textContent="Bad scan. Aim at the barcode and try again.";
+    window.WMS365Mobile?.beep?.("error");
+    target.focus();
+    return;
+  }
   if(targetId==="casesInput"&&!isLikelyCaseQuantity(value)){
     $("message").className="status bad";
     $("message").textContent="That scan looks like a barcode, not a case quantity. Scan Location or SKU first.";
@@ -601,8 +614,23 @@ function flushWedgeBuffer(){
   if(value.length>=3){
     if(activeId==="casesInput"&&!isLikelyCaseQuantity(value))$("casesInput").value="";
     acceptScanValue("",value);
+  }else if(value&&looksLikeBadScan(value)){
+    $("message").className="status bad";
+    $("message").textContent="Bad scan. Aim at the barcode and try again.";
+    window.WMS365Mobile?.beep?.("error");
   }
 }
+["locationInput","skuInput","lotInput","expirationInput"].forEach(id=>{
+  $(id)?.addEventListener("input",event=>{
+    const value=cleanScanValue(event.target.value);
+    if(value&&looksLikeBadScan(value)){
+      event.target.value="";
+      $("message").className="status bad";
+      $("message").textContent="Bad scan. Aim at the barcode and try again.";
+      window.WMS365Mobile?.beep?.("error");
+    }
+  });
+});
 document.addEventListener("keydown",event=>{
   const activeId=document.activeElement?.id;
   if(activeId==="casesInput"&&event.key&&event.key.length===1){
