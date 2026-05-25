@@ -5,7 +5,9 @@ const {
     APP_USER_ROLES,
     savePickConfirmation,
     saveMobileExecutionConfirmation,
-    filterMobilePickOrdersForAppUser
+    filterMobilePickOrdersForAppUser,
+    getAssignedMobilePickOrderIds,
+    MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES
 } = require("./server.js");
 
 function clone(row) {
@@ -319,6 +321,22 @@ test("mobile pick order feed keeps workers scoped to assigned orders only", () =
     });
 
     assert.deepEqual(visible.map((order) => order.id), ["4"]);
+});
+
+test("assigned mobile pick query excludes blocked supervisor-review work", async () => {
+    const calls = [];
+    const client = {
+        async query(sql, params = []) {
+            calls.push({ sql: String(sql), params });
+            return { rowCount: 1, rows: [{ source_id: 123 }] };
+        }
+    };
+
+    const ids = await getAssignedMobilePickOrderIds(client, { id: "7", role: APP_USER_ROLES.WAREHOUSE_WORKER }, "HEALTEA");
+
+    assert.deepEqual(ids, ["123"]);
+    assert.deepEqual(calls[0].params[2], MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES);
+    assert.equal(calls[0].params[2].includes("BLOCKED"), false);
 });
 
 test("mobile pick order feed lets warehouse admins see accessible company orders", () => {

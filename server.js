@@ -201,6 +201,8 @@ const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL",
 const WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
 const WAREHOUSE_TASK_PRIORITIES = ["LOW", "NORMAL", "HIGH", "RUSH"];
 const ACTIVE_WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED"];
+const MOBILE_WORKER_ACTION_TASK_STATUSES = ["OPEN", "IN_PROGRESS"];
+const MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES = MOBILE_WORKER_ACTION_TASK_STATUSES;
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
@@ -4374,6 +4376,23 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
             queuePortalShipmentConfirmationEmail(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
             queueStoreShipmentConfirmation(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
         }
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-orders/:id/short-pick/approve", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const result = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            return approvePortalOrderShortPick(client, orderId, req.body || {}, req.appUser);
+        });
+        res.json({ success: true, ...result });
     } catch (error) {
         next(error);
     }
@@ -8808,7 +8827,7 @@ async function assertAssignedMobileTaskForWorker(client, req, {
               and status = any($5::text[])
             limit 1
         `,
-        [normalizedSourceType, numericSourceId, userId, normalizedTaskTypes, ACTIVE_WAREHOUSE_TASK_STATUSES]
+        [normalizedSourceType, numericSourceId, userId, normalizedTaskTypes, MOBILE_WORKER_ACTION_TASK_STATUSES]
     );
     if (result.rowCount !== 1) {
         void logPermissionDeniedAttempt(req, permission, { sourceType: normalizedSourceType, sourceId: numericSourceId });
@@ -12275,7 +12294,7 @@ function filterMobilePickOrdersForAppUser(orders, appUser, {
 async function getAssignedMobilePickOrderIds(client, appUser, accountName = "") {
     const userId = toPositiveInt(appUser?.id || appUser?.app_user_id);
     if (!userId) return [];
-    const params = [userId, ["PICK", "PACK", "SHIP"], ACTIVE_WAREHOUSE_TASK_STATUSES];
+    const params = [userId, ["PICK", "PACK", "SHIP"], MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES];
     const clauses = [
         "wt.assigned_app_user_id = $1",
         "wt.source_type = 'PORTAL_ORDER'",
@@ -19000,6 +19019,7 @@ async function saveMobileExecutionConfirmation(client, confirmationType, input =
                     pickException: {
                         reason: normalizeText(input.reason || ""),
                         note: normalizeFreeText(input.note || ""),
+                        lineId: toPositiveInt(input.lineId || input.line_id) || null,
                         location: normalizeText(input.location || ""),
                         sku: normalizeText(input.sku || input.skuOrUpc || input.sku_or_upc || ""),
                         quantity
@@ -19009,6 +19029,233 @@ async function saveMobileExecutionConfirmation(client, confirmationType, input =
         );
     }
     return { duplicate: false, confirmation: mapMobileExecutionConfirmationRow(insertResult.rows[0]) };
+}
+
+function getTaskMetadataObject(task) {
+    if (task?.metadata && typeof task.metadata === "object" && !Array.isArray(task.metadata)) {
+        return task.metadata;
+    }
+    if (typeof task?.metadata === "string" && task.metadata.trim()) {
+        try {
+            const parsed = JSON.parse(task.metadata);
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+    return {};
+}
+
+async function approvePortalOrderShortPick(client, orderId, rawInput = {}, appUser = null) {
+    const approvedQuantity = toPositiveInt(rawInput.approvedQuantity || rawInput.approved_quantity || rawInput.quantity || rawInput.qty);
+    if (!approvedQuantity) {
+        throw httpError(400, "Enter the approved short-pick quantity.");
+    }
+
+    const orderResult = await client.query("select * from portal_orders where id = $1 limit 1 for update", [orderId]);
+    if (orderResult.rowCount !== 1) {
+        throw httpError(404, "That portal order could not be found.");
+    }
+    const orderRow = orderResult.rows[0];
+    if (normalizePortalOrderStatus(orderRow.status) !== "RELEASED") {
+        throw httpError(400, `Short-pick approval is only available while the order is released. This order is ${normalizePortalOrderStatus(orderRow.status)}.`);
+    }
+
+    const taskResult = await client.query(
+        `
+            select *
+            from warehouse_tasks
+            where source_type = 'PORTAL_ORDER'
+              and source_id = $1
+              and task_type = 'PICK'
+              and status = 'BLOCKED'
+            order by updated_at desc, id desc
+            limit 1
+            for update
+        `,
+        [orderId]
+    );
+    if (taskResult.rowCount !== 1) {
+        throw httpError(404, "No blocked pick shortage is waiting for approval on this order.");
+    }
+
+    const task = taskResult.rows[0];
+    const metadata = getTaskMetadataObject(task);
+    const pickException = metadata.pickException && typeof metadata.pickException === "object" ? metadata.pickException : {};
+    const exceptionLineId = toPositiveInt(rawInput.lineId || rawInput.line_id || pickException.lineId || pickException.line_id);
+    const sku = normalizeText(rawInput.sku || pickException.sku || "");
+    const location = normalizeText(rawInput.location || pickException.location || "");
+    if (!sku) {
+        throw httpError(400, "The blocked pick shortage does not include a SKU. Reopen the order or report the shortage again.");
+    }
+
+    const lineResult = await client.query(
+        `
+            select *
+            from portal_order_lines
+            where order_id = $1
+              and sku = $2
+              and ($3::bigint is null or id = $3)
+            order by line_number asc, id asc
+            for update
+        `,
+        [orderId, sku, exceptionLineId || null]
+    );
+    if (lineResult.rowCount !== 1) {
+        throw httpError(400, "The short-picked SKU does not match a single order line. Review the order before approving.");
+    }
+    const line = lineResult.rows[0];
+    const orderedQuantity = Number(line.requested_quantity) || 0;
+    if (approvedQuantity > orderedQuantity) {
+        throw httpError(400, `${line.sku} cannot be approved above the ordered quantity of ${orderedQuantity}.`);
+    }
+
+    const allocationResult = await client.query(
+        `
+            select *
+            from portal_order_allocations
+            where order_id = $1
+              and order_line_id = $2
+              and sku = $3
+              and ($4::text = '' or location = $4)
+            order by
+                case when expiration_date <> '' then 0 else 1 end asc,
+                expiration_date asc,
+                location asc,
+                lot_number asc,
+                id asc
+            for update
+        `,
+        [orderId, line.id, sku, location]
+    );
+    if (allocationResult.rowCount < 1) {
+        throw httpError(409, "The original pick allocation is no longer available. Reopen or re-release the order before approving this shortage.");
+    }
+    const allocations = allocationResult.rows;
+    const currentAllocated = allocations.reduce((sum, row) => sum + (Number(row.allocated_quantity) || 0), 0);
+    if (approvedQuantity > currentAllocated) {
+        throw httpError(400, `${line.sku} is currently allocated for ${currentAllocated}. Short-pick approval can reduce the picked quantity, not increase it.`);
+    }
+
+    let remaining = approvedQuantity;
+    for (const allocation of allocations) {
+        const existingQuantity = Number(allocation.allocated_quantity) || 0;
+        const nextQuantity = Math.min(existingQuantity, remaining);
+        remaining -= nextQuantity;
+        if (nextQuantity > 0 && nextQuantity !== existingQuantity) {
+            await client.query(
+                "update portal_order_allocations set allocated_quantity = $2, updated_at = now() where id = $1",
+                [allocation.id, nextQuantity]
+            );
+        } else if (nextQuantity <= 0) {
+            await client.query("delete from portal_order_allocations where id = $1", [allocation.id]);
+        }
+    }
+
+    const confirmedResult = await client.query(
+        `
+            select coalesce(sum(quantity), 0)::integer as quantity
+            from pick_confirmations
+            where order_id = $1
+              and line_id = $2
+              and sync_status <> 'FAILED'
+        `,
+        [orderId, line.id]
+    );
+    const alreadyConfirmed = Number(confirmedResult.rows[0]?.quantity) || 0;
+    if (alreadyConfirmed > approvedQuantity) {
+        throw httpError(409, `${line.sku} already has ${alreadyConfirmed} picked in scan history. Review the scans before approving ${approvedQuantity}.`);
+    }
+
+    let confirmation = null;
+    const quantityToConfirm = approvedQuantity - alreadyConfirmed;
+    if (quantityToConfirm > 0) {
+        const firstAllocation = allocations[0] || {};
+        const confirmationLocation = location || normalizeText(firstAllocation.location || "");
+        const lot = normalizeText(rawInput.lot || rawInput.lotNumber || rawInput.lot_number || pickException.lot || firstAllocation.lot_number || "");
+        const expiry = normalizeDateOnly(rawInput.expiry || rawInput.expirationDate || rawInput.expiration_date || pickException.expiry || firstAllocation.expiration_date || "");
+        const idempotencyKey = normalizeFreeText(rawInput.idempotencyKey || rawInput.idempotency_key || `short-pick-approval-${orderId}-${line.id}-${sku}-${confirmationLocation}-${approvedQuantity}`).slice(0, 180);
+        const existingConfirmation = await client.query("select * from pick_confirmations where idempotency_key = $1 limit 1", [idempotencyKey]);
+        if (existingConfirmation.rowCount === 1) {
+            confirmation = mapPickConfirmationRow(existingConfirmation.rows[0]);
+        } else {
+            const inserted = await client.query(
+                `
+                    insert into pick_confirmations (
+                        order_id, line_id, worker_id, device_id, location, sku, lot, expiry,
+                        quantity, sync_status, idempotency_key, source, timestamp, created_at, updated_at
+                    )
+                    values ($1, $2, $3, '', $4, $5, $6, $7, $8, 'SYNCED', $9, 'web_admin', now(), now(), now())
+                    returning *
+                `,
+                [
+                    orderId,
+                    line.id,
+                    toPositiveInt(task.assigned_app_user_id) || null,
+                    confirmationLocation,
+                    sku,
+                    lot,
+                    expiry,
+                    quantityToConfirm,
+                    idempotencyKey
+                ]
+            );
+            confirmation = mapPickConfirmationRow(inserted.rows[0]);
+        }
+    }
+
+    const actor = appUser?.full_name || appUser?.email || "Warehouse admin";
+    const note = normalizeFreeText(rawInput.note || rawInput.reason || "");
+    const updatedOrder = await updateAdminPortalOrderStatus(client, orderId, "PICKED", {
+        note: note || "Short pick approved by supervisor."
+    }, appUser);
+    await client.query(
+        `
+            update warehouse_tasks
+            set
+                status = 'DONE',
+                completed_at = coalesce(completed_at, now()),
+                completed_by = $2,
+                blocked_reason = '',
+                metadata = coalesce(metadata, '{}'::jsonb) || $3::jsonb,
+                updated_at = now()
+            where id = $1
+        `,
+        [
+            task.id,
+            normalizeFreeText(actor),
+            JSON.stringify({
+                shortPickApproval: {
+                    approvedQuantity,
+                    previousAllocatedQuantity: currentAllocated,
+                    approvedBy: actor,
+                    approvedAt: new Date().toISOString(),
+                    note
+                }
+            })
+        ]
+    );
+    await insertActivity(
+        client,
+        "order",
+        `Approved short pick for portal order ${updatedOrder.orderCode}`,
+        [
+            updatedOrder.accountName,
+            `${line.sku}: ${currentAllocated} -> ${approvedQuantity}`,
+            location ? `Location ${location}` : "",
+            note,
+            actor
+        ].filter(Boolean).join(" | ")
+    );
+
+    const refreshedTask = await getWarehouseTaskById(client, task.id);
+    return {
+        order: updatedOrder,
+        task: refreshedTask ? mapWarehouseTaskRow(refreshedTask) : null,
+        approvedQuantity,
+        previousAllocatedQuantity: currentAllocated,
+        confirmation
+    };
 }
 
 function sanitizePickedQuantityCorrections(input) {
@@ -25936,7 +26183,11 @@ module.exports = {
     getInventoryTransactionHistory,
     savePickConfirmation,
     saveMobileExecutionConfirmation,
+    approvePortalOrderShortPick,
     filterMobilePickOrdersForAppUser,
+    getAssignedMobilePickOrderIds,
+    MOBILE_WORKER_ACTION_TASK_STATUSES,
+    MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES,
     findInventoryLine,
     upsertInventoryLine,
     consumePortalOrderInventory,

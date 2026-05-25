@@ -19805,6 +19805,8 @@
             const canManageOrderDocuments = !["CANCELLED", "ARCHIVED"].includes(order.status);
             const nextStatus = nextPortalOrderStatus(order.status);
             const shipDateValue = order.confirmedShipDate || (order.shippedAt ? String(order.shippedAt).slice(0, 10) : todayIso());
+            const shortPickTask = getShortPickBlockedTaskForOrder(order);
+            const shortPickException = shortPickTask?.metadata?.pickException || null;
             const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
             const totalAvailable = order.lines.reduce((sum, line) => {
                 const ordered = Number(line.quantity) || 0;
@@ -19899,6 +19901,33 @@
                     </div>
                 </div>
             ` : "";
+            const shortPickPanel = shortPickTask ? `
+                <div class="portal-order-shipping-box erp-document-shipping-panel">
+                    <div class="header-copy" style="margin-bottom: 0.8rem;">
+                        <h3>Short Pick Review</h3>
+                        <p class="meta">A worker reported a shortage. Approving records the found quantity, closes the blocked pick task, and moves the order to picked for packing.</p>
+                    </div>
+                    <div class="quick-meta">
+                        ${esc(shortPickException?.sku || "")}
+                        ${shortPickException?.location ? ` | Location ${esc(shortPickException.location)}` : ""}
+                        ${shortPickException?.reason ? ` | ${esc(shortPickException.reason)}` : ""}
+                        ${shortPickException?.note ? ` | ${esc(shortPickException.note)}` : ""}
+                    </div>
+                    <div class="form-grid compact-grid" style="margin-top:0.8rem;">
+                        <label class="field">
+                            <span>Approved Qty</span>
+                            <input data-short-pick-qty="${attr(order.id)}" type="number" min="1" step="1" value="${attr(shortPickException?.quantity || 1)}">
+                        </label>
+                        <label class="field span-2">
+                            <span>Supervisor Note</span>
+                            <input data-short-pick-note="${attr(order.id)}" type="text" placeholder="Optional note for audit">
+                        </label>
+                    </div>
+                    <div class="quick-row-actions">
+                        <button class="btn" type="button" data-short-pick-approve="${attr(order.id)}">Approve Short Pick</button>
+                    </div>
+                </div>
+            ` : "";
 
             ui.warehouseOrderWorkflowPanel.classList.remove("hidden");
             ui.warehouseOrderWorkflowPanel.innerHTML = `
@@ -19933,6 +19962,7 @@
                     </thead>
                     <tbody>${lineRows || `<tr><td colspan="6">No lines saved yet.</td></tr>`}</tbody>
                 </table>
+                ${shortPickPanel}
                 ${documentsPanel}
                 ${shippingPanel}
             `;
@@ -21985,6 +22015,17 @@
             </body></html>`;
         }
 
+        function getShortPickBlockedTaskForOrder(order) {
+            if (!order?.id) return null;
+            return (state.warehouseTasks || []).find((task) =>
+                norm(task.sourceType) === "PORTAL_ORDER"
+                && String(task.sourceId || "") === String(order.id)
+                && norm(task.taskType) === "PICK"
+                && norm(task.status) === "BLOCKED"
+                && task.metadata?.pickException
+            ) || null;
+        }
+
         function printPortalOrderDocument(order, type, messageElement = ui.portalOrdersMessage) {
             const html = type === "pick" ? buildPickTicketHtml(order) : buildPackingSlipHtml(order);
             const printWindow = window.open("", "_blank", "width=900,height=700");
@@ -22138,6 +22179,50 @@
                         if (savedOrder?.status === "SHIPPED") {
                             fileInputs.forEach((input) => { input.value = ""; });
                         }
+                        queuePortalOrderRefresh();
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
+                return;
+            }
+
+            const shortPickApproveButton = event.target.closest("[data-short-pick-approve]");
+            if (shortPickApproveButton) {
+                const orderId = shortPickApproveButton.dataset.shortPickApprove || "";
+                if (!orderId) return;
+                const currentOrder = getPortalOrderById(orderId);
+                const task = currentOrder ? getShortPickBlockedTaskForOrder(currentOrder) : null;
+                const pickException = task?.metadata?.pickException || {};
+                const panel = shortPickApproveButton.closest(".erp-document-shipping-panel") || shortPickApproveButton.closest(".quick-detail-stack") || shortPickApproveButton.closest(".quick-row");
+                const approvedQuantity = Number(panel?.querySelector(`[data-short-pick-qty="${orderId}"]`)?.value || pickException.quantity || 0);
+                const note = panel?.querySelector(`[data-short-pick-note="${orderId}"]`)?.value || "";
+                if (!approvedQuantity || approvedQuantity < 1) {
+                    showMessage(actionMessageElement, "Enter the quantity the supervisor is approving for this short pick.", "error");
+                    return;
+                }
+                const label = currentOrder?.orderCode || orderId;
+                if (!window.confirm(`Approve short pick for ${label} at quantity ${approvedQuantity}? This moves the order to picked with the reduced quantity.`)) {
+                    return;
+                }
+                try {
+                    await runActionWithFeedback({
+                        button: shortPickApproveButton,
+                        busyLabel: "Approving...",
+                        messageElement: actionMessageElement,
+                        progressMessage: `Approving short pick for ${label}...`
+                    }, async () => {
+                        const response = await requestJson(`/api/admin/portal-orders/${orderId}/short-pick/approve`, {
+                            method: "POST",
+                            body: JSON.stringify({
+                                approvedQuantity,
+                                note,
+                                sku: pickException.sku || "",
+                                location: pickException.location || ""
+                            })
+                        });
+                        applyPortalOrderUpdate(response?.order, `Short pick approved for ${response?.order?.orderCode || label}.`, actionMessageElement);
+                        await syncServerState(true).catch(() => {});
                         queuePortalOrderRefresh();
                     });
                 } catch (error) {
