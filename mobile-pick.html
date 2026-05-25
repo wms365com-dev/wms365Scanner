@@ -46,7 +46,25 @@ button:disabled{opacity:.45}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .status{padding:10px 12px;border-radius:12px;background:var(--accent-soft);color:var(--accent-2);font-weight:600;border:1px solid var(--line)}
 .status.good{color:#3f6f4d;background:#f0f5f1;border-color:#c9d9cd}
+.status.warn{color:#8a5d1f;background:#fff8e8;border-color:#e6c983}
 .status.bad{color:#9a4d4d;background:#fff4f4;border-color:#e9c7c7}
+.guide-banner{display:grid;gap:4px;padding:12px;border:2px solid #b7c9d5;border-radius:12px;background:#f8fbfd;color:var(--accent-2)}
+.guide-banner.good{border-color:#c9d9cd;background:#f0f5f1;color:#3f6f4d}
+.guide-banner.warn{border-color:#e6c983;background:#fff8e8;color:#8a5d1f}
+.guide-banner.bad{border-color:#e9c7c7;background:#fff4f4;color:#9a4d4d}
+.guide-banner .guide-title{font-size:24px;font-weight:900;line-height:1.05}
+.guide-banner .guide-sub{font-size:13px;font-weight:700;color:inherit}
+.step-chip{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:4px 9px;border-radius:999px;background:#fff;border:1px solid var(--line);color:var(--accent-2);font-size:12px;font-weight:900}
+.task-card{display:grid;gap:8px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
+.task-card.locked-step{opacity:.55}
+.task-card h3{margin:0;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.task-value{font-size:26px;font-weight:900;line-height:1.05;color:var(--text);overflow-wrap:anywhere}
+.problem-grid{display:grid;grid-template-columns:1fr;gap:7px}
+.problem-grid button{background:#fff;color:var(--accent-2);border-color:var(--line);text-align:left}
+.problem-panel{display:grid;gap:8px;border:1px solid #e6c983;border-radius:12px;background:#fffdf7;padding:10px}
+.problem-panel textarea{width:100%;min-height:72px;padding:10px;border:1px solid var(--line);border-radius:12px;font:inherit;resize:vertical}
+.guided-actions{display:grid;grid-template-columns:1fr;gap:8px}
+.guided-actions.two{grid-template-columns:1fr 1fr}
 .queue-status{padding:9px 10px;border-radius:12px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}
 .queue-status.warn{background:#fff8e8;border-color:#e6c983;color:#8a5d1f}
 .queue-status.bad{background:#fff4f4;border-color:#e9c7c7;color:#9a4d4d}
@@ -84,7 +102,7 @@ body.picking-active header,body.picking-active main>.card:first-child,body.picki
 body.picking-active main{padding:6px;gap:6px}
 body.picking-active #pickCard{padding:9px}
 body.picking-active .pick-step{gap:7px}
-body.picking-active .kicker,body.picking-active #pickTraceability{display:none}
+body.picking-active .kicker{display:none}
 body.picking-active .loc{font-size:30px;line-height:1}
 body.picking-active .big{font-size:20px;line-height:1.05}
 body.picking-active #pickDescription{font-size:13px;line-height:1.25}
@@ -112,6 +130,8 @@ body.device-alien-legacy .order-row span,body.device-alien-legacy .order-row sma
 body.device-alien-legacy .order-row .pill{display:none}
 body.device-alien-legacy.picking-active .loc{font-size:34px}
 body.device-alien-legacy.picking-active .big{font-size:23px}
+body.device-alien-legacy.picking-active .guide-banner .guide-title{font-size:28px}
+body.device-alien-legacy.picking-active .task-value{font-size:31px}
 body.device-alien-legacy.picking-active input{min-height:58px;font-size:22px}
 body.device-alien-legacy.picking-active .scan-row{grid-template-columns:1fr}
 body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
@@ -193,26 +213,62 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
           <button class="secondary" id="workListBtn" type="button">List</button>
         </div>
       </div>
-      <div class="loc" id="pickLocation">-</div>
-      <div class="big" id="pickSku">-</div>
-      <div id="pickDescription" class="muted">-</div>
-      <div id="pickTraceability" class="muted">Standard stock rotation</div>
-      <div class="row">
-        <div><div class="kicker">Required</div><div class="big" id="pickQty">0</div></div>
-        <div><div class="kicker">Available</div><div class="big" id="pickAvailable">0</div></div>
+      <div class="guide-banner" id="guideBanner">
+        <div class="row">
+          <span class="step-chip" id="guideStep">Step 0 of 0</span>
+          <span class="pill" id="guideState">ORDER_SELECTED</span>
+        </div>
+        <div class="guide-title" id="guideTitle">Select an order</div>
+        <div class="guide-sub" id="guideSubtitle">The app will guide each pick.</div>
       </div>
-      <label>Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan location" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
-      <label>SKU / UPC<div class="scan-row"><input id="confirmSku" placeholder="Scan SKU" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
-      <label id="confirmLotWrap">Lot<div class="scan-row"><input id="confirmLot" placeholder="Scan lot" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
-      <label>Expiry<input id="confirmExpiration" type="text" placeholder="YYYY-MM-DD"></label>
-      <label>Qty<input id="confirmQty" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" enterkeyhint="done"></label>
+      <section class="task-card" id="locationCard">
+        <h3>Location</h3>
+        <div class="task-value" id="pickLocation">-</div>
+        <label>Confirm Location<div class="scan-row"><input id="confirmLocation" placeholder="Scan location" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLocation">Scan</button></div></label>
+        <button class="success" id="confirmArrivedBtn" type="button">Confirm Arrived</button>
+      </section>
+      <section class="task-card locked-step" id="itemCard">
+        <h3>Item</h3>
+        <div class="task-value" id="pickSku">-</div>
+        <div id="pickDescription" class="muted">-</div>
+        <div id="pickTraceability" class="muted">Standard stock rotation</div>
+        <label>SKU / UPC<div class="scan-row"><input id="confirmSku" placeholder="Scan SKU" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmSku">Scan</button></div></label>
+        <label id="confirmLotWrap">Lot<div class="scan-row"><input id="confirmLot" placeholder="Scan lot" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="confirmLot">Scan</button></div></label>
+        <label>Expiry<input id="confirmExpiration" type="text" placeholder="YYYY-MM-DD"></label>
+        <button class="success" id="confirmSkuBtn" type="button">Confirm SKU</button>
+      </section>
+      <section class="task-card locked-step hidden" id="quantityCard">
+        <h3>Quantity</h3>
+        <div class="row">
+          <div><div class="kicker">Required</div><div class="big" id="pickQty">0</div></div>
+          <div><div class="kicker">Available</div><div class="big" id="pickAvailable">0</div></div>
+        </div>
+        <label>Picked Qty<input id="confirmQty" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" enterkeyhint="done"></label>
+        <div class="guided-actions two">
+          <button class="success" id="confirmPickBtn">Confirm Pick</button>
+          <button class="warn" id="problemPickBtn" type="button">Problem</button>
+        </div>
+      </section>
       <div class="quick-actions">
         <button class="secondary" id="fillExpectedBtn" type="button">Use Expected</button>
         <button class="secondary" id="nextFieldBtn" type="button">Next Field</button>
       </div>
-      <div class="actions">
-        <button class="success" id="confirmPickBtn">Confirm Pick</button>
-        <button class="secondary" id="skipPickBtn">Skip</button>
+      <div class="problem-panel hidden" id="problemPanel">
+        <div class="kicker">Report Problem</div>
+        <div class="problem-grid" id="problemReasons">
+          <button type="button" data-problem-reason="NOT_ENOUGH_STOCK">Not enough stock</button>
+          <button type="button" data-problem-reason="LOCATION_EMPTY">Location empty</button>
+          <button type="button" data-problem-reason="DAMAGED_ITEM">Damaged item</button>
+          <button type="button" data-problem-reason="WRONG_ITEM">Wrong item at location</button>
+          <button type="button" data-problem-reason="BARCODE_MISMATCH">Barcode mismatch</button>
+          <button type="button" data-problem-reason="OTHER">Other</button>
+        </div>
+        <label>Picked Qty<input id="exceptionQty" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+        <label>Note<textarea id="exceptionNote" placeholder="Brief note for supervisor"></textarea></label>
+        <div class="guided-actions two">
+          <button class="warn" id="saveProblemBtn" type="button">Save Problem</button>
+          <button class="secondary" id="cancelProblemBtn" type="button">Cancel</button>
+        </div>
       </div>
       <div class="status" id="pickMessage">Follow the prompts to confirm each pick step.</div>
     </div>
@@ -266,7 +322,30 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
 </div>
 <script src="/mobile-bridge.js"></script>
 <script>
-const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,scanTarget:'',scannerStream:null,scannerTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false};
+const PICK_STATES=Object.freeze({
+  ORDER_SELECTED:'ORDER_SELECTED',
+  ROUTE_CREATED:'ROUTE_CREATED',
+  GO_TO_LOCATION:'GO_TO_LOCATION',
+  ARRIVAL_CONFIRM_REQUIRED:'ARRIVAL_CONFIRM_REQUIRED',
+  ARRIVAL_CONFIRMED:'ARRIVAL_CONFIRMED',
+  PICK_SKU_REQUIRED:'PICK_SKU_REQUIRED',
+  PICK_QTY_REQUIRED:'PICK_QTY_REQUIRED',
+  PICK_CONFIRMED:'PICK_CONFIRMED',
+  NEXT_TASK:'NEXT_TASK',
+  COMPLETE:'COMPLETE',
+  EXCEPTION_REPORTED:'EXCEPTION_REPORTED',
+  NEEDS_REVIEW:'NEEDS_REVIEW'
+});
+const PICK_PROGRESS_PREFIX='wms365-mobile-pick-progress:';
+const PROBLEM_REASONS={
+  NOT_ENOUGH_STOCK:'Not enough stock',
+  LOCATION_EMPTY:'Location empty',
+  DAMAGED_ITEM:'Damaged item',
+  WRONG_ITEM:'Wrong item at location',
+  BARCODE_MISMATCH:'Barcode mismatch',
+  OTHER:'Other'
+};
+const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,pickState:PICK_STATES.ORDER_SELECTED,arrivals:{},skuConfirmed:{},confirmed:{},exceptions:[],selectedProblemReason:'',scanTarget:'',scannerStream:null,scannerTimer:null,advanceTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false,savingArrival:false,savingProblem:false};
 const $=id=>document.getElementById(id);
 const GLOBAL_COMPANY_KEY='wms365-mobile-company-context';
 const MOBILE_DEVICE_STATE_CACHE_KEY='warehouse-state-v1';
@@ -356,6 +435,62 @@ async function updateQueueStatus(){
 function traceabilityText(p){
   if(p?.manualLocationRequired)return 'No directed pick bin. Scan the actual source location so inventory history is correct.';
   return [p?.lotNumber?`Lot ${p.lotNumber}`:'',p?.expirationDate?`Exp ${formatDateOnly(p.expirationDate)}`:''].filter(Boolean).join(' | ')||'Standard stock rotation';
+}
+function pickKey(p){
+  return [
+    p?.orderId||'',
+    p?.lineId||p?.sku||'',
+    p?.pickLocation||'',
+    p?.lotNumber||'',
+    normalizeDateInput(p?.expirationDate||'')
+  ].map(normalize).join('|');
+}
+function progressStorageKey(order=state.selectedOrder){
+  return order?.id?`${PICK_PROGRESS_PREFIX}${order.id}`:'';
+}
+function loadPickProgress(order){
+  const key=progressStorageKey(order);
+  if(!key)return null;
+  try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}
+}
+function savePickProgress(){
+  const key=progressStorageKey();
+  if(!key)return;
+  try{
+    localStorage.setItem(key,JSON.stringify({
+      orderId:state.selectedOrder?.id||'',
+      index:state.index,
+      pickState:state.pickState,
+      arrivals:state.arrivals,
+      skuConfirmed:state.skuConfirmed,
+      confirmed:state.confirmed,
+      exceptions:state.exceptions,
+      savedAt:new Date().toISOString()
+    }));
+  }catch{}
+}
+function clearPickProgress(order=state.selectedOrder){
+  const key=progressStorageKey(order);
+  if(!key)return;
+  try{localStorage.removeItem(key)}catch{}
+}
+function setPickState(nextState,{message='',tone=''}={}){
+  state.pickState=nextState;
+  if(message&&$('pickMessage')){
+    $('pickMessage').className=`status ${tone||''}`.trim();
+    $('pickMessage').textContent=message;
+  }
+  savePickProgress();
+}
+function scheduleNextPickTask(delay=650){
+  if(state.advanceTimer)window.clearTimeout(state.advanceTimer);
+  state.advanceTimer=window.setTimeout(()=>{
+    state.advanceTimer=null;
+    if(state.pickState!==PICK_STATES.PICK_CONFIRMED)return;
+    state.index+=1;
+    setPickState(state.index>=state.picks.length?PICK_STATES.COMPLETE:PICK_STATES.NEXT_TASK);
+    renderPick();
+  },delay);
 }
 function todayIso(){return new Date().toISOString().slice(0,10)}
 function readFileAsDataUrl(file){
@@ -584,9 +719,11 @@ function renderSummary(){
   $('orderStatus').textContent=o?o.status:'Waiting';
   $('orderMeta').textContent=o?`${o.accountName} | ${o.shippingReference||o.poNumber||''} | ${o.shipToName||o.contactName||''}`:'Select a released order to start guided picking.';
   const total=state.picks.length;
-  const done=Math.min(state.index,total);
+  const done=state.picks.filter(p=>state.confirmed[pickKey(p)]).length;
   $('progressBar').style.width=total?`${(done/total)*100}%`:'0%';
-  $('progressText').textContent=`${done} of ${total} picks confirmed`;
+  $('progressText').textContent=state.exceptions.length
+    ? `${done} of ${total} picks confirmed | ${state.exceptions.length} exception${state.exceptions.length===1?'':'s'}`
+    : `${done} of ${total} picks confirmed`;
 }
 
 function renderPick(){
@@ -624,31 +761,114 @@ function renderPick(){
   const p=currentPick();
   $('pickCard').classList.toggle('hidden',!p);
   $('doneCard').classList.toggle('hidden',!!p || !state.selectedOrder);
+  $('problemPanel').classList.add('hidden');
   if(!p){
+    setPickState(state.exceptions.length?PICK_STATES.NEEDS_REVIEW:PICK_STATES.COMPLETE);
     $('doneCard').classList.remove('hidden');
-    $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} is ready to mark as picked.`;
+    $('doneOrderMeta').textContent=state.exceptions.length
+      ? `${state.selectedOrder.orderCode} has ${state.exceptions.length} exception${state.exceptions.length===1?'':'s'} and needs supervisor review.`
+      : `${state.selectedOrder.orderCode} is ready to mark as picked.`;
+    $('markPickedBtn').disabled=state.exceptions.length>0;
     return;
   }
+  const key=pickKey(p);
+  if(state.confirmed[key]&&state.pickState!==PICK_STATES.PICK_CONFIRMED){
+    state.index+=1;
+    renderPick();
+    return;
+  }
+  const arrived=!!state.arrivals[key];
+  const skuReady=!!state.skuConfirmed[key];
+  if(state.pickState===PICK_STATES.ORDER_SELECTED||state.pickState===PICK_STATES.ROUTE_CREATED||state.pickState===PICK_STATES.NEXT_TASK){
+    state.pickState=arrived?(skuReady?PICK_STATES.PICK_QTY_REQUIRED:PICK_STATES.PICK_SKU_REQUIRED):PICK_STATES.GO_TO_LOCATION;
+  }
+  savePickProgress();
   $('workOrderCode').textContent=state.selectedOrder.orderCode||'Order';
-  $('workOrderMeta').textContent=`${state.company||state.selectedOrder.accountName||''} | ${Math.min(state.index+1,state.picks.length)}/${state.picks.length}`;
+  $('workOrderMeta').textContent=`${state.company||state.selectedOrder.accountName||''} | Step ${Math.min(state.index+1,state.picks.length)} of ${state.picks.length}`;
   $('pickLocation').textContent=p.pickLocation||'SCAN SOURCE LOCATION';
   $('pickSku').textContent=p.sku;
   $('pickDescription').textContent=p.description||'No description';
   $('pickTraceability').textContent=traceabilityText(p);
   $('pickQty').textContent=`${p.quantity} ${String(p.trackingLevel||'').toLowerCase()||'units'}`;
   $('pickAvailable').textContent=p.availableQuantity||0;
-  $('confirmLocation').value='';
-  $('confirmSku').value='';
-  $('confirmLot').value='';
-  $('confirmExpiration').value='';
+  $('confirmLocation').value=state.arrivals[key]?.location||'';
+  $('confirmSku').value=state.skuConfirmed[key]?.sku||'';
+  $('confirmLot').value=state.skuConfirmed[key]?.lot||'';
+  $('confirmExpiration').value=state.skuConfirmed[key]?.expiration||'';
   $('confirmQty').value=String(p.quantity||'');
   $('confirmLotWrap').classList.toggle('hidden',!p.lotNumber);
   $('confirmExpiration').closest('label').classList.toggle('hidden',!p.expirationDate);
-  $('pickMessage').className='status';
-  $('pickMessage').textContent=p.manualLocationRequired
-    ? 'No directed bin is available. Scan the actual location you are picking from, then scan the SKU.'
-    : 'Go to the directed location. Scan location, then SKU. Quantity is prefilled.';
-  setTimeout(()=>($('confirmLocation').focus()),50);
+  renderGuidedPickStep(p,{arrived,skuReady});
+  if(state.pickState===PICK_STATES.PICK_CONFIRMED&&!state.advanceTimer)scheduleNextPickTask();
+  setTimeout(()=>{
+    if(state.pickState===PICK_STATES.PICK_QTY_REQUIRED)$('confirmQty')?.focus();
+    else $(arrived?'confirmSku':'confirmLocation')?.focus();
+  },50);
+}
+
+function renderGuidedPickStep(p,{arrived=false,skuReady=false}={}){
+  const locationValue=p.pickLocation||'actual pick location';
+  const key=pickKey(p);
+  const exception=state.exceptions.find(entry=>entry.key===key);
+  const isException=!!exception;
+  const isPickConfirmed=state.pickState===PICK_STATES.PICK_CONFIRMED;
+  const showLocation=!arrived&&!skuReady&&!isPickConfirmed&&!isException;
+  const showItem=arrived&&!skuReady&&!isPickConfirmed&&!isException;
+  const showQuantity=arrived&&skuReady&&!isPickConfirmed&&!isException;
+  const title=isException
+    ? 'Problem reported'
+    : isPickConfirmed
+      ? 'Pick confirmed'
+      : showQuantity
+        ? 'Confirm picked quantity'
+        : showItem
+          ? 'Scan this SKU'
+          : 'Go to this location';
+  const subtitle=isException
+    ? `${PROBLEM_REASONS[exception.reason]||exception.reason||'Problem'} saved. Supervisor review required.`
+    : isPickConfirmed
+      ? 'Saved. Moving to the next location.'
+      : showQuantity
+        ? `Enter Qty ${p.quantity}, then confirm the pick.`
+        : showItem
+          ? `Scan SKU or UPC for ${p.sku}${p.lotNumber?' and confirm lot':''}${p.expirationDate?' and expiry':''}.`
+      : p.manualLocationRequired
+        ? 'No directed bin is available. Scan the actual source location before picking.'
+        : `Go to Location: ${locationValue}. Scan it or press Confirm Arrived.`;
+  const tone=isException?'warn':(showQuantity||isPickConfirmed)?'good':'';
+  $('guideBanner').className=`guide-banner ${tone}`.trim();
+  $('guideStep').textContent=`Step ${Math.min(state.index+1,state.picks.length)} of ${state.picks.length}`;
+  $('guideState').textContent=isException?PICK_STATES.NEEDS_REVIEW:(isPickConfirmed?PICK_STATES.PICK_CONFIRMED:(showQuantity?PICK_STATES.PICK_QTY_REQUIRED:(showItem?PICK_STATES.PICK_SKU_REQUIRED:PICK_STATES.ARRIVAL_CONFIRM_REQUIRED)));
+  $('guideTitle').textContent=title;
+  $('guideSubtitle').textContent=subtitle;
+  $('locationCard').classList.toggle('hidden',!showLocation);
+  $('itemCard').classList.toggle('hidden',!showItem);
+  $('quantityCard').classList.toggle('hidden',!showQuantity);
+  $('locationCard').classList.toggle('locked-step',!showLocation);
+  $('itemCard').classList.toggle('locked-step',!showItem);
+  $('quantityCard').classList.toggle('locked-step',!showQuantity);
+  $('confirmLocation').disabled=!showLocation||state.savingArrival;
+  document.querySelector('[data-scan-target="confirmLocation"]').disabled=!showLocation||state.savingArrival;
+  $('confirmArrivedBtn').disabled=!showLocation||state.savingArrival;
+  $('confirmSku').disabled=!showItem;
+  document.querySelector('[data-scan-target="confirmSku"]').disabled=!showItem;
+  $('confirmLot').disabled=!showItem;
+  document.querySelector('[data-scan-target="confirmLot"]').disabled=!showItem||!p.lotNumber;
+  $('confirmExpiration').disabled=!showItem;
+  $('confirmSkuBtn').disabled=!showItem;
+  $('confirmQty').disabled=!showQuantity;
+  $('confirmPickBtn').disabled=!showQuantity||state.savingPick;
+  $('problemPickBtn').disabled=isException||isPickConfirmed||state.savingProblem;
+  $('pickMessage').className=`status ${isException?'warn':''}`.trim();
+  $('pickMessage').textContent=isException
+    ? 'This pick is blocked for review. Choose another order or continue after a supervisor resolves it.'
+    : isPickConfirmed
+      ? 'Saved. The next task will load automatically.'
+      : showQuantity
+        ? 'Quantity is unlocked. Confirm the required quantity or use Problem for a shortage.'
+        : showItem
+          ? 'Location confirmed. Scan the item before quantity unlocks.'
+      : 'Confirm arrival before the item pick step unlocks.';
 }
 
 function renderPickupProof(){
@@ -663,6 +883,12 @@ function renderPickupProof(){
 }
 
 function startOrder(order){
+  if(!['RELEASED','PICKED','STAGED'].includes(normalize(order?.status))){
+    state.selectedOrder=null;
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='This order is not available for mobile picking.';
+    return;
+  }
   state.selectedOrder=order;
   state.picks=(order.lines||[])
     .flatMap(line=>{
@@ -674,6 +900,7 @@ function startOrder(order){
         lineId:line.id||`${line.sku}-${index}`,
         idempotencyKey:`pick-${order.id}-${line.id||line.sku}-${index}-${normalize(entry.location||'')}-${normalize(entry.lotNumber||'')}-${normalizeDateInput(entry.expirationDate||'')}-${Number(entry.quantity||line.quantity||0)||0}`,
         sku:line.sku,
+        upc:line.upc||entry.upc||'',
         description:line.description||'',
         trackingLevel:entry.trackingLevel||line.trackingLevel,
         quantity:Number(entry.quantity||line.quantity||0)||0,
@@ -690,7 +917,21 @@ function startOrder(order){
       String(a.pickLocation||'').localeCompare(String(b.pickLocation||'')) ||
       String(a.lotNumber||'').localeCompare(String(b.lotNumber||''))
     );
-  state.index=0;
+  const saved=loadPickProgress(order);
+  const savedConfirmed=saved?.confirmed&&typeof saved.confirmed==='object'?saved.confirmed:{};
+  const savedArrivals=saved?.arrivals&&typeof saved.arrivals==='object'?saved.arrivals:{};
+  const savedSkuConfirmed=saved?.skuConfirmed&&typeof saved.skuConfirmed==='object'?saved.skuConfirmed:{};
+  const savedExceptions=Array.isArray(saved?.exceptions)?saved.exceptions:[];
+  state.confirmed=savedConfirmed;
+  state.arrivals=savedArrivals;
+  state.skuConfirmed=savedSkuConfirmed;
+  state.exceptions=savedExceptions;
+  const firstOpen=state.picks.findIndex(p=>!state.confirmed[pickKey(p)]&&!state.exceptions.some(entry=>entry.key===pickKey(p)));
+  state.index=Math.max(0,Math.min(Number(saved?.index)||0,state.picks.length));
+  if(firstOpen>=0&&state.index>firstOpen)state.index=firstOpen;
+  const currentKey=pickKey(currentPick());
+  state.pickState=state.arrivals[currentKey]?(state.skuConfirmed[currentKey]?PICK_STATES.PICK_QTY_REQUIRED:PICK_STATES.PICK_SKU_REQUIRED):PICK_STATES.GO_TO_LOCATION;
+  savePickProgress();
   renderPick();
   setTimeout(()=>document.getElementById('pickCard')?.scrollIntoView({block:'start'}),50);
 }
@@ -703,11 +944,12 @@ function fillExpectedPickValues(){
   $('confirmLot').value=p.lotNumber||'';
   $('confirmExpiration').value=p.expirationDate||'';
   $('confirmQty').value=String(p.quantity||'');
-  $('confirmPickBtn').focus();
+  if(state.pickState===PICK_STATES.PICK_SKU_REQUIRED)$('confirmSkuBtn').focus();
+  else $('confirmPickBtn').focus();
 }
 
 function nextPickField(){
-  const order=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmPickBtn','confirmQty'];
+  const order=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmSkuBtn','confirmQty','confirmPickBtn'];
   const visible=order.map($).filter(el=>el&&!el.closest('.hidden'));
   const current=visible.indexOf(document.activeElement);
   const next=visible[Math.min(visible.length-1,current+1)]||visible[0];
@@ -738,6 +980,130 @@ async function sendPickConfirmation(p,{location,sku,lot,expiration,quantity}){
   return {queued:false,data};
 }
 
+async function sendPickArrival(p,{location}){
+  const payload={
+    orderId:p.orderId,
+    lineId:p.lineId,
+    sourceType:'PORTAL_ORDER',
+    sourceId:p.orderId,
+    accountName:state.selectedOrder?.accountName||state.company||'',
+    location,
+    sku:p.sku,
+    quantity:0,
+    idempotencyKey:`arrival-${p.idempotencyKey}`,
+    source:'mobile_web'
+  };
+  if(window.WMS365Mobile?.queueOrSendTransaction){
+    return window.WMS365Mobile.queueOrSendTransaction({
+      url:'/api/mobile/pick-arrivals',
+      method:'POST',
+      payload,
+      actionType:'MOBILE_PICK_ARRIVAL'
+    });
+  }
+  const data=await requestJson('/api/mobile/pick-arrivals',{method:'POST',body:JSON.stringify(window.WMS365Mobile?.envelope?.(payload,'MOBILE_PICK_ARRIVAL')||payload)});
+  return {queued:false,data};
+}
+
+async function sendPickException(p,{location,reason,quantity,note}){
+  const payload={
+    orderId:p.orderId,
+    lineId:p.lineId,
+    sourceType:'PORTAL_ORDER',
+    sourceId:p.orderId,
+    accountName:state.selectedOrder?.accountName||state.company||'',
+    location,
+    sku:p.sku,
+    quantity,
+    reason,
+    note,
+    idempotencyKey:`exception-${p.idempotencyKey}-${normalize(reason)}`,
+    source:'mobile_web'
+  };
+  if(window.WMS365Mobile?.queueOrSendTransaction){
+    return window.WMS365Mobile.queueOrSendTransaction({
+      url:'/api/mobile/pick-exceptions',
+      method:'POST',
+      payload,
+      actionType:'MOBILE_PICK_EXCEPTION'
+    });
+  }
+  const data=await requestJson('/api/mobile/pick-exceptions',{method:'POST',body:JSON.stringify(window.WMS365Mobile?.envelope?.(payload,'MOBILE_PICK_EXCEPTION')||payload)});
+  return {queued:false,data};
+}
+
+async function confirmArrived({fromScan=false}={}){
+  const p=currentPick();
+  if(!p||state.savingArrival)return;
+  const loc=normalize($('confirmLocation').value);
+  const expectedLoc=normalize(p.pickLocation||'');
+  const fail=(message)=>{$('pickMessage').className='status bad';$('pickMessage').textContent=message;$('confirmLocation').focus();window.WMS365Mobile?.beep?.('error')};
+  if(!loc)return fail('Scan or key in the location before confirming arrival.');
+  if(expectedLoc&&loc!==expectedLoc)return fail(`Wrong location. Go to ${p.pickLocation}.`);
+  state.savingArrival=true;
+  $('confirmArrivedBtn').disabled=true;
+  $('pickMessage').className='status';
+  $('pickMessage').textContent=fromScan?'Location scanned. Saving arrival...':'Saving arrival confirmation...';
+  try{
+    const result=await sendPickArrival(p,{location:loc});
+    state.arrivals[pickKey(p)]={location:loc,timestamp:new Date().toISOString(),queued:!!result?.queued};
+    setPickState(PICK_STATES.PICK_SKU_REQUIRED,{message:'Arrival confirmed. Scan the item next.',tone:'good'});
+    window.WMS365Mobile?.vibrate?.(55);
+    window.WMS365Mobile?.beep?.('success');
+    renderPick();
+  }catch(error){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent=error.message||'Unable to save arrival confirmation.';
+    window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingArrival=false;
+    const key=pickKey(p);
+    renderGuidedPickStep(p,{arrived:!!state.arrivals[key],skuReady:!!state.skuConfirmed[key]});
+  }
+}
+
+function validatePickIdentity(p){
+  const sku=normalize($('confirmSku').value);
+  const lot=normalize($('confirmLot').value);
+  const expiration=normalizeDateInput($('confirmExpiration').value);
+  const expectedSku=normalize(p.sku||'');
+  const expectedUpc=normalize(p.upc||'');
+  const expectedLot=normalize(p.lotNumber||'');
+  const expectedExpiration=normalizeDateInput(p.expirationDate||'');
+  const fail=(message,field)=>{
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent=message;
+    field?.focus();
+    window.WMS365Mobile?.beep?.('error');
+    return null;
+  };
+  if(!sku)return fail('Scan or key in the SKU / UPC before continuing.',$('confirmSku'));
+  if(sku!==expectedSku && (!expectedUpc || sku!==expectedUpc))return fail('SKU / UPC does not match the current pick.',$('confirmSku'));
+  if(expectedLot && lot!==expectedLot)return fail('Lot number does not match the required FEFO pick.',$('confirmLot'));
+  if(expectedExpiration && expiration!==expectedExpiration)return fail('Expiration date does not match the required FEFO pick.',$('confirmExpiration'));
+  return {sku,lot,expiration};
+}
+
+function confirmSkuStep({fromScan=false}={}){
+  const p=currentPick();
+  if(!p)return;
+  const key=pickKey(p);
+  if(!state.arrivals[key]){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Confirm arrival at the location before scanning the SKU.';
+    $('confirmLocation').focus();
+    window.WMS365Mobile?.beep?.('error');
+    return;
+  }
+  const identity=validatePickIdentity(p);
+  if(!identity)return;
+  state.skuConfirmed[key]={...identity,timestamp:new Date().toISOString(),fromScan:!!fromScan};
+  setPickState(PICK_STATES.PICK_QTY_REQUIRED,{message:'SKU confirmed. Enter the picked quantity.',tone:'good'});
+  window.WMS365Mobile?.vibrate?.(45);
+  window.WMS365Mobile?.beep?.('success');
+  renderPick();
+}
+
 function acceptScanValue(targetId,value){
   const target=$(targetId);if(!target)return;
   target.value=String(value||'').trim();
@@ -745,6 +1111,14 @@ function acceptScanValue(targetId,value){
   window.WMS365Mobile?.beep?.('success');
   if(targetId==='orderSearch'){
     openMatchingOrder();
+  }else if(targetId==='confirmLocation'){
+    confirmArrived({fromScan:true});
+  }else if(targetId==='confirmSku'){
+    confirmSkuStep({fromScan:true});
+  }else if(targetId==='confirmLot'&&state.pickState===PICK_STATES.PICK_SKU_REQUIRED&&!currentPick()?.expirationDate){
+    confirmSkuStep({fromScan:true});
+  }else if(targetId==='confirmExpiration'&&state.pickState===PICK_STATES.PICK_SKU_REQUIRED){
+    confirmSkuStep({fromScan:true});
   }else if(String(targetId||'').startsWith('confirm')){
     nextPickField();
   }
@@ -815,7 +1189,7 @@ $('companySelect').addEventListener('change',async e=>{
 
 $('lockCompanyBtn').addEventListener('click',async()=>{
   state.company=$('companySelect').value;
-  state.selectedOrder=null;state.picks=[];state.index=0;
+  state.selectedOrder=null;state.picks=[];state.index=0;state.arrivals={};state.skuConfirmed={};state.confirmed={};state.exceptions=[];
   if(!state.company)return;
   setGlobalCompany(state.company);
   renderCompanyLock();
@@ -824,7 +1198,7 @@ $('lockCompanyBtn').addEventListener('click',async()=>{
 });
 
 $('switchCompanyBtn').addEventListener('click',()=>{
-  state.company='';state.selectedOrder=null;state.picks=[];state.index=0;
+  state.company='';state.selectedOrder=null;state.picks=[];state.index=0;state.arrivals={};state.skuConfirmed={};state.confirmed={};state.exceptions=[];
   clearGlobalCompany();
   stripCompanyFromUrl();
   $('companySelect').value='';
@@ -846,6 +1220,7 @@ $('workListBtn').addEventListener('click',()=>{
   state.selectedOrder=null;
   state.picks=[];
   state.index=0;
+  state.arrivals={};state.skuConfirmed={};state.confirmed={};state.exceptions=[];
   document.body.classList.remove('picking-active');
   renderCompanyLock();
   renderPick();
@@ -896,23 +1271,102 @@ document.querySelectorAll('[data-scan-target]').forEach(button=>button.addEventL
 $('fillExpectedBtn').addEventListener('click',fillExpectedPickValues);
 $('nextFieldBtn').addEventListener('click',nextPickField);
 $('closeScannerBtn').addEventListener('click',stopScanner);
+$('confirmArrivedBtn').addEventListener('click',()=>confirmArrived());
+$('confirmSkuBtn').addEventListener('click',()=>confirmSkuStep());
+
+$('problemPickBtn').addEventListener('click',()=>{
+  const p=currentPick();
+  if(!p)return;
+  $('problemPanel').classList.toggle('hidden');
+  $('exceptionQty').value=$('confirmQty').value||'0';
+  $('exceptionNote').value='';
+  state.selectedProblemReason='';
+});
+
+$('problemReasons').addEventListener('click',event=>{
+  const button=event.target.closest('[data-problem-reason]');
+  if(!button)return;
+  state.selectedProblemReason=button.dataset.problemReason||'';
+  [...$('problemReasons').querySelectorAll('button')].forEach(btn=>btn.classList.toggle('success',btn===button));
+});
+
+$('cancelProblemBtn').addEventListener('click',()=>{
+  state.selectedProblemReason='';
+  $('problemPanel').classList.add('hidden');
+});
+
+$('saveProblemBtn').addEventListener('click',async()=>{
+  const p=currentPick();
+  if(!p||state.savingProblem)return;
+  const reason=state.selectedProblemReason||'';
+  const loc=normalize($('confirmLocation').value)||state.arrivals[pickKey(p)]?.location||normalize(p.pickLocation||'');
+  const quantity=Math.max(0,Number($('exceptionQty').value||0)||0);
+  const note=$('exceptionNote').value.trim();
+  if(!reason){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Choose a problem reason.';
+    return;
+  }
+  if(quantity>Number(p.quantity||0)){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Problem picked quantity cannot be more than required.';
+    return;
+  }
+  state.savingProblem=true;
+  $('saveProblemBtn').disabled=true;
+  $('pickMessage').className='status warn';
+  $('pickMessage').textContent='Saving pick problem for supervisor review...';
+  try{
+    await sendPickException(p,{location:loc,reason,quantity,note});
+    const entry={key:pickKey(p),reason,quantity,note,location:loc,timestamp:new Date().toISOString()};
+    state.exceptions=state.exceptions.filter(item=>item.key!==entry.key).concat(entry);
+    setPickState(PICK_STATES.NEEDS_REVIEW,{message:'Problem saved. This order now needs supervisor review.',tone:'warn'});
+    $('problemPanel').classList.add('hidden');
+    savePickProgress();
+    renderPick();
+  }catch(error){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent=error.message||'Unable to save pick problem.';
+    window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingProblem=false;
+    $('saveProblemBtn').disabled=false;
+  }
+});
 
 $('confirmPickBtn').addEventListener('click',async()=>{
   const p=currentPick();
   if(!p||state.savingPick) return;
+  if(!state.arrivals[pickKey(p)]){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Confirm arrival at the location before picking.';
+    $('confirmLocation').focus();
+    return;
+  }
+  if(!state.skuConfirmed[pickKey(p)]){
+    $('pickMessage').className='status bad';
+    $('pickMessage').textContent='Scan and confirm the SKU before entering quantity.';
+    $('confirmSku').focus();
+    return;
+  }
   const loc=normalize($('confirmLocation').value);
   const sku=normalize($('confirmSku').value);
   const lot=normalize($('confirmLot').value);
   const expiration=normalizeDateInput($('confirmExpiration').value);
   const qty=Number($('confirmQty').value||0);
   const expectedLoc=normalize(p.pickLocation||'');
+  const expectedSku=normalize(p.sku||'');
+  const expectedUpc=normalize(p.upc||'');
   const expectedLot=normalize(p.lotNumber||'');
   const expectedExpiration=normalizeDateInput(p.expirationDate||'');
   const fail=(message,field)=>{$('pickMessage').className='status bad';$('pickMessage').textContent=message;field?.focus();window.WMS365Mobile?.beep?.('error')};
   if(expectedLoc && loc!==expectedLoc)return fail('Location does not match the required pick location.',$('confirmLocation'));
-  if(sku!==normalize(p.sku))return fail('SKU does not match the current pick.',$('confirmSku'));
+  if(sku!==expectedSku && (!expectedUpc || sku!==expectedUpc))return fail('SKU / UPC does not match the current pick.',$('confirmSku'));
   if(expectedLot && lot!==expectedLot)return fail('Lot number does not match the required FEFO pick.',$('confirmLot'));
   if(expectedExpiration && expiration!==expectedExpiration)return fail('Expiration date does not match the required FEFO pick.',$('confirmExpiration'));
+  if(qty>Number(p.availableQuantity||0))return fail('Picked quantity cannot be more than available.',$('confirmQty'));
+  if(qty>Number(p.quantity||0))return fail('Picked quantity cannot be more than required.',$('confirmQty'));
+  if(qty<Number(p.quantity||0))return fail('Use Problem for a shortage so a supervisor can review.',$('confirmQty'));
   if(qty!==Number(p.quantity||0))return fail('Picked quantity must match the required quantity.',$('confirmQty'));
   state.savingPick=true;
   $('confirmPickBtn').disabled=true;
@@ -920,13 +1374,16 @@ $('confirmPickBtn').addEventListener('click',async()=>{
   $('pickMessage').textContent='Saving pick confirmation...';
   try{
     const result=await sendPickConfirmation(p,{location:loc,sku,lot,expiration,quantity:qty});
-    state.index+=1;
-    $('pickMessage').className='status good';
-    $('pickMessage').textContent=result?.queued?'Pick saved on this device. It will sync when online.':'Pick confirmed.';
+    state.confirmed[pickKey(p)]={quantity:qty,timestamp:new Date().toISOString(),queued:!!result?.queued};
+    setPickState(PICK_STATES.PICK_CONFIRMED,{
+      message:result?.queued?'Pick saved on this device. Moving to next task.':'Pick confirmed. Moving to next task.',
+      tone:'good'
+    });
     window.WMS365Mobile?.vibrate?.(70);
     window.WMS365Mobile?.beep?.('success');
     await updateQueueStatus();
     renderPick();
+    scheduleNextPickTask();
   }catch(error){
     $('pickMessage').className='status bad';
     $('pickMessage').textContent=error.message||'Unable to save pick confirmation.';
@@ -937,13 +1394,12 @@ $('confirmPickBtn').addEventListener('click',async()=>{
   }
 });
 
-$('skipPickBtn').addEventListener('click',()=>{
-  state.index+=1;
-  renderPick();
-});
-
 $('markPickedBtn').addEventListener('click',async()=>{
   if(!state.selectedOrder) return;
+  if(state.exceptions.length){
+    $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} has unresolved pick exceptions and cannot be marked picked.`;
+    return;
+  }
   const summary=window.WMS365Mobile?.getQueueSummary?await window.WMS365Mobile.getQueueSummary(['MOBILE_PICK_CONFIRM']).catch(()=>({total:0})): {total:0};
   if(summary.total){
     $('doneOrderMeta').textContent=`${summary.total} pick confirmation${summary.total===1?'':'s'} still need to sync before marking picked.`;
@@ -953,6 +1409,7 @@ $('markPickedBtn').addEventListener('click',async()=>{
   }
   const body=window.WMS365Mobile?.envelope?.({status:'PICKED'},'MOBILE_PICK_MARK_PICKED')||{status:'PICKED'};
   const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
+  clearPickProgress();
   state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
   $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} marked as PICKED.`;
   await loadOrders();
@@ -1021,22 +1478,28 @@ async function submitPickupProof(){
 
 $('submitPickupProofBtn').addEventListener('click',submitPickupProof);
 $('stageChooseAnotherBtn').addEventListener('click',()=>{
+  clearPickProgress();
   state.selectedOrder=null;
   state.picks=[];
   state.index=0;
+  state.arrivals={};state.skuConfirmed={};state.confirmed={};state.exceptions=[];
   renderPick();
 });
 $('pickupChooseAnotherBtn').addEventListener('click',()=>{
+  clearPickProgress();
   state.selectedOrder=null;
   state.picks=[];
   state.index=0;
+  state.arrivals={};state.skuConfirmed={};state.confirmed={};state.exceptions=[];
   renderPick();
 });
 
 $('resetFlowBtn').addEventListener('click',()=>{
+  clearPickProgress();
   state.selectedOrder=null;
   state.picks=[];
   state.index=0;
+  state.arrivals={};state.skuConfirmed={};state.confirmed={};state.exceptions=[];
   renderPick();
 });
 
@@ -1058,7 +1521,9 @@ document.addEventListener('keydown',event=>{
   const ids=['confirmLocation','confirmSku','confirmLot','confirmExpiration','confirmQty'];
   if(ids.includes(document.activeElement?.id)){
     event.preventDefault();
-    if(document.activeElement?.id==='confirmQty')$('confirmPickBtn').click();
+    if(document.activeElement?.id==='confirmLocation')confirmArrived();
+    else if(['confirmSku','confirmLot','confirmExpiration'].includes(document.activeElement?.id)&&state.pickState===PICK_STATES.PICK_SKU_REQUIRED)confirmSkuStep();
+    else if(document.activeElement?.id==='confirmQty')$('confirmPickBtn').click();
     else nextPickField();
     return;
   }

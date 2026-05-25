@@ -158,6 +158,11 @@ class MobileExecutionClient {
             return { rowCount: 1, rows: [clone(row)] };
         }
 
+        if (normalizedSql.startsWith("update warehouse_tasks")) {
+            this.lastWarehouseTaskUpdate = { params, sql: normalizedSql };
+            return { rowCount: 1, rows: [] };
+        }
+
         throw new Error(`Unhandled SQL in mobile execution test: ${normalizedSql}`);
     }
 }
@@ -261,6 +266,42 @@ test("generic mobile confirmations are idempotent", async () => {
     assert.equal(first.duplicate, false);
     assert.equal(second.duplicate, true);
     assert.equal(client.mobileConfirmations.length, 1);
+});
+
+test("pick arrival and exception confirmations are audited", async () => {
+    const client = new MobileExecutionClient();
+    const arrival = await saveMobileExecutionConfirmation(client, "PICK_ARRIVAL", {
+        accountName: "HEALTEA",
+        sourceType: "PORTAL_ORDER",
+        sourceId: 31,
+        orderId: 31,
+        lineId: 101,
+        location: "A-01",
+        sku: "30627843973325",
+        idempotencyKey: "arrival-1",
+        source: "android_app"
+    }, superAdmin());
+    const exception = await saveMobileExecutionConfirmation(client, "PICK_EXCEPTION", {
+        accountName: "HEALTEA",
+        sourceType: "PORTAL_ORDER",
+        sourceId: 31,
+        orderId: 31,
+        lineId: 101,
+        location: "A-01",
+        sku: "30627843973325",
+        quantity: 2,
+        reason: "NOT_ENOUGH_STOCK",
+        note: "Only two cases found.",
+        idempotencyKey: "exception-1",
+        source: "android_app"
+    }, superAdmin());
+
+    assert.equal(arrival.duplicate, false);
+    assert.equal(exception.duplicate, false);
+    assert.equal(client.mobileConfirmations.length, 2);
+    assert.equal(client.mobileConfirmations[0].confirmation_type, "PICK_ARRIVAL");
+    assert.equal(client.mobileConfirmations[1].confirmation_type, "PICK_EXCEPTION");
+    assert.equal(client.lastWarehouseTaskUpdate.params[2], "NOT_ENOUGH_STOCK");
 });
 
 test("mobile pick order feed keeps workers scoped to accessible or assigned orders", () => {

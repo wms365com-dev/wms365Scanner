@@ -1345,6 +1345,26 @@ app.post("/api/mobile/pick-confirmations", requireMobileWorkerAction(), async (r
     }
 });
 
+app.post("/api/mobile/pick-arrivals", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction((client) => saveMobileExecutionConfirmation(client, "PICK_ARRIVAL", req.body || {}, req.appUser, req));
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "PICK_ARRIVAL", req.body || {});
+        next(error);
+    }
+});
+
+app.post("/api/mobile/pick-exceptions", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction((client) => saveMobileExecutionConfirmation(client, "PICK_EXCEPTION", req.body || {}, req.appUser, req));
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "PICK_EXCEPTION", req.body || {});
+        next(error);
+    }
+});
+
 app.get("/api/mobile/pick-orders", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || req.query?.company || "");
@@ -6151,7 +6171,7 @@ async function initializeDatabase() {
     await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_sync_status_check");
     await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_sync_status_check check (sync_status in ('PENDING', 'SYNCED', 'FAILED'))");
     await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_type_check");
-    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING'))");
+    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING', 'PICK_ARRIVAL', 'PICK_EXCEPTION'))");
     await pool.query("create unique index if not exists idx_mobile_execution_confirmations_idempotency on mobile_execution_confirmations (idempotency_key)");
     await pool.query("create index if not exists idx_mobile_execution_confirmations_source on mobile_execution_confirmations (source_type, source_id, confirmation_type)");
     await pool.query("create index if not exists idx_mobile_execution_confirmations_worker_time on mobile_execution_confirmations (worker_id, timestamp desc)");
@@ -18886,7 +18906,7 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
 
 async function saveMobileExecutionConfirmation(client, confirmationType, input = {}, appUser = null, req = null) {
     const normalizedType = normalizeText(confirmationType);
-    if (!["PUT_AWAY", "MOVE", "RECEIVING"].includes(normalizedType)) {
+    if (!["PUT_AWAY", "MOVE", "RECEIVING", "PICK_ARRIVAL", "PICK_EXCEPTION"].includes(normalizedType)) {
         throw mobileValidationError(400, "Unsupported mobile confirmation type.", "unsupported_confirmation_type");
     }
     const idempotencyKey = getMobileIdempotencyKey(input);
@@ -18903,7 +18923,9 @@ async function saveMobileExecutionConfirmation(client, confirmationType, input =
     const taskTypeMap = {
         RECEIVING: ["RECEIVING"],
         PUT_AWAY: ["PUT_AWAY"],
-        MOVE: ["REPLENISHMENT"]
+        MOVE: ["REPLENISHMENT"],
+        PICK_ARRIVAL: ["PICK"],
+        PICK_EXCEPTION: ["PICK"]
     };
     if (sourceType && sourceId) {
         await assertAssignedMobileTaskForWorker(client, req || { appUser }, {
@@ -18955,6 +18977,36 @@ async function saveMobileExecutionConfirmation(client, confirmationType, input =
         `Confirmed mobile ${normalizedType.toLowerCase().replace(/_/g, " ")}`,
         [accountName, normalizeText(input.location || input.fromLocation || input.from_location || ""), normalizeText(input.sku || ""), appUser?.email || ""].filter(Boolean).join(" | ")
     );
+    if (normalizedType === "PICK_EXCEPTION" && sourceType === "PORTAL_ORDER" && sourceId) {
+        await client.query(
+            `
+                update warehouse_tasks
+                set
+                    status = 'BLOCKED',
+                    blocked_reason = $3,
+                    updated_at = now(),
+                    metadata = coalesce(metadata, '{}'::jsonb) || $4::jsonb
+                where source_type = $1
+                  and source_id = $2
+                  and task_type = 'PICK'
+                  and status in ('OPEN', 'IN_PROGRESS')
+            `,
+            [
+                sourceType,
+                sourceId,
+                normalizeFreeText(input.reason || input.note || "Pick exception reported"),
+                JSON.stringify({
+                    pickException: {
+                        reason: normalizeText(input.reason || ""),
+                        note: normalizeFreeText(input.note || ""),
+                        location: normalizeText(input.location || ""),
+                        sku: normalizeText(input.sku || input.skuOrUpc || input.sku_or_upc || ""),
+                        quantity
+                    }
+                })
+            ]
+        );
+    }
     return { duplicate: false, confirmation: mapMobileExecutionConfirmationRow(insertResult.rows[0]) };
 }
 

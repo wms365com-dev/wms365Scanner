@@ -16,8 +16,8 @@ android {
         applicationId "com.wms365.alien"
         minSdk 19
         targetSdk 19
-        versionCode 19
-        versionName "0.1.18-alien"
+        versionCode 25
+        versionName "0.1.24-alien"
         buildConfigField "String", "WMS365_BASE_URL", "\"${configuredBaseUrl}\""
         buildConfigField "String", "WMS365_START_PATH", "\"${configuredStartPath}\""
     }
