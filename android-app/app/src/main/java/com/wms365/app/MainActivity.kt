@@ -888,7 +888,34 @@ class MainActivity : Activity() {
                 }
                 var originalReceiveScan = window.wms365ReceiveAndroidScan;
                 window.wms365ReceiveAndroidScan = function (targetId, value) {
-                  if (targetId === 'orderSearch') {
+                  function cleanScanValue(input) {
+                    return String(input || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().toUpperCase();
+                  }
+                  function isVisibleScanInput(id) {
+                    var el = document.getElementById(id);
+                    if (!el || el.disabled) return false;
+                    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                    return (!style || (style.display !== 'none' && style.visibility !== 'hidden')) && !el.closest('.hidden');
+                  }
+                  function resolveAndroidPickScanTarget(requested, scanned) {
+                    requested = String(requested || '').trim();
+                    var activeId = (document.activeElement && document.activeElement.id) || '';
+                    var fields = ['orderSearch', 'confirmLocation', 'confirmSku', 'confirmLot', 'confirmExpiration'];
+                    if (fields.indexOf(requested) >= 0 && isVisibleScanInput(requested)) return requested;
+                    if (fields.indexOf(activeId) >= 0 && isVisibleScanInput(activeId)) return activeId;
+                    var pickCard = document.getElementById('pickCard');
+                    var hasActivePick = pickCard && !pickCard.classList.contains('hidden');
+                    if (!hasActivePick) return 'orderSearch';
+                    var confirmLocation = document.getElementById('confirmLocation');
+                    var confirmSku = document.getElementById('confirmSku');
+                    if (isVisibleScanInput('confirmLocation') && !cleanScanValue(confirmLocation && confirmLocation.value)) return 'confirmLocation';
+                    if (isVisibleScanInput('confirmSku') && !cleanScanValue(confirmSku && confirmSku.value)) return 'confirmSku';
+                    if (isVisibleScanInput('confirmLot') && !cleanScanValue((document.getElementById('confirmLot') || {}).value)) return 'confirmLot';
+                    if (isVisibleScanInput('confirmExpiration') && !cleanScanValue((document.getElementById('confirmExpiration') || {}).value)) return 'confirmExpiration';
+                    return isVisibleScanInput('confirmSku') ? 'confirmSku' : 'confirmLocation';
+                  }
+                  var resolvedTarget = resolveAndroidPickScanTarget(targetId, value);
+                  if (resolvedTarget === 'orderSearch') {
                     var input = document.getElementById('orderSearch');
                     if (input) {
                       input.value = String(value || '').trim();
@@ -897,7 +924,16 @@ class MainActivity : Activity() {
                       return;
                     }
                   }
-                  if (typeof originalReceiveScan === 'function') originalReceiveScan(targetId, value);
+                  if (typeof originalReceiveScan === 'function') {
+                    originalReceiveScan(resolvedTarget, value);
+                    return;
+                  }
+                  var target = document.getElementById(resolvedTarget);
+                  if (target) {
+                    target.value = String(value || '').trim();
+                    target.dispatchEvent(new Event('input', { bubbles: true }));
+                    target.dispatchEvent(new Event('change', { bubbles: true }));
+                  }
                 };
                 window.setTimeout(enhancePickQueue, 700);
                 window.setTimeout(enhancePickQueue, 2200);

@@ -558,6 +558,11 @@ public class MainActivity extends Activity {
         evaluate(
             "(function(){var target=" + jsString(pendingScanTargetId) + ";" +
             "var value=" + jsString(value) + ";" +
+            "function clean(v){return String(v||'').replace(/[\\u0000-\\u001f\\u007f]/g,'').replace(/^\\s+|\\s+$/g,'').toUpperCase();}" +
+            "function visibleId(id){var n=document.getElementById(id);return !!(n&&!n.disabled&&!n.closest('.hidden')&&n.offsetParent!==null);}" +
+            "function resolveTarget(requested){requested=String(requested||'').replace(/^\\s+|\\s+$/g,'');var active=(document.activeElement&&document.activeElement.id)||'';var fields=['orderSearch','confirmLocation','confirmSku','confirmLot','confirmExpiration','locationInput','skuInput','lotInput','expirationInput','mobileQuickInboundReference','mobileQuickInboundSku'];if(fields.indexOf(requested)>=0&&visibleId(requested))return requested;if(fields.indexOf(active)>=0&&visibleId(active))return active;var pick=document.getElementById('pickCard');var activePick=pick&&!pick.classList.contains('hidden');if(activePick){if(visibleId('confirmLocation')&&!clean((document.getElementById('confirmLocation')||{}).value))return 'confirmLocation';if(visibleId('confirmSku')&&!clean((document.getElementById('confirmSku')||{}).value))return 'confirmSku';if(visibleId('confirmLot')&&!clean((document.getElementById('confirmLot')||{}).value))return 'confirmLot';if(visibleId('confirmExpiration')&&!clean((document.getElementById('confirmExpiration')||{}).value))return 'confirmExpiration';return visibleId('confirmSku')?'confirmSku':'confirmLocation';}if(visibleId('locationInput')&&!clean((document.getElementById('locationInput')||{}).value))return 'locationInput';if(visibleId('skuInput')&&!clean((document.getElementById('skuInput')||{}).value))return 'skuInput';if(visibleId('orderSearch'))return 'orderSearch';return requested;}" +
+            "target=resolveTarget(target);" +
+            "if(window.wms365ReceiveAndroidScan&&(location.pathname||'').indexOf('/mobile-')===0){window.wms365ReceiveAndroidScan(target,value);return;}" +
             "var el=target?document.getElementById(target):null;" +
             "if(!el){var e=document.activeElement;if(e&&/input|textarea/i.test(e.tagName||''))el=e;}" +
             "if(el){el.removeAttribute('readonly');el.focus();el.value=value;" +
