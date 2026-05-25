@@ -1,21 +1,16 @@
 package com.wms365.alien;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Vibrator;
-import android.util.Log;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -23,17 +18,11 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
-import android.webkit.JavascriptInterface;
-import android.webkit.SslErrorHandler;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.net.http.SslError;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,54 +32,64 @@ import com.alien.common.KeyCode;
 import com.barcode.BarcodeUtility;
 import com.barcode.BarcodeUtility.ModuleType;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URLEncoder;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class MainActivity extends Activity {
-    private static final String TAG = "WMS365Alien";
-    private static final String APPROVED_HOST = "app.wms365.co";
-    private static final String SCAN_RESULT_ACTION = "com.wms365.alien.SCAN_RESULT";
-    private static final String SCAN_RESULT_EXTRA = "barcode";
-    private static final String ANDROID_SCAN_RESULT_ACTION = "android.intent.action.SCAN_RESULT";
-    private static final String DATAWEDGE_SCAN_ACTION = "com.symbol.datawedge.api.RESULT_ACTION";
-    private static final String RSCJA_KEY_DOWN_ACTION = "com.rscja.android.KEY_DOWN";
-    private static final String PREFS_NAME = "wms365_alien_private";
-    private static final String PREF_EMAIL = "saved_email";
-    private static final String PREF_PASSWORD = "saved_password";
+    private static final String PREFS = "wms365_alien_native";
+    private static final String KEY_EMAIL = "email";
+    private static final String KEY_COOKIE = "cookie";
+    private static final String KEY_COMPANY = "company";
+    private static final String KEY_DEVICE_ID = "deviceId";
+    private static final String KEY_COMPANIES = "companies";
+    private static final String KEY_OUTBOX = "outbox";
+
+    private static final int BG = Color.rgb(244, 247, 249);
+    private static final int TEXT = Color.rgb(15, 23, 42);
+    private static final int MUTED = Color.rgb(71, 85, 105);
+    private static final int GREEN = Color.rgb(15, 118, 110);
+    private static final int BLUE = Color.rgb(37, 99, 235);
+    private static final int YELLOW = Color.rgb(202, 138, 4);
+    private static final int DARK = Color.rgb(15, 23, 42);
 
     private FrameLayout root;
-    private WebView webView;
-    private View loadingOverlay;
-    private LinearLayout errorOverlay;
-    private TextView errorText;
-    private BarcodeReader barcodeReader;
-    private String pendingScanTargetId = "";
-    private boolean barcodeScanActive = false;
-    private boolean scannerReceiversRegistered = false;
+    private SharedPreferences prefs;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler();
-    private long lastScannerKeyAt = 0L;
-    private final BroadcastReceiver scannerResultReceiver = new BroadcastReceiver() {
+    private BarcodeReader barcodeReader;
+    private boolean receiversRegistered = false;
+    private boolean actionLocked = false;
+    private EditText activeInput;
+    private String activeInputLabel = "";
+    private String screen = "login";
+    private String activeOrderId = "";
+    private List<PickTask> activeTasks = new ArrayList<>();
+    private PickTask activeTask;
+    private String pickState = "";
+
+    private final BroadcastReceiver scannerReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String value = extractScannerValue(intent);
-            if ((value == null || value.length() == 0) && intent != null && intent.getExtras() != null) {
-                for (String key : intent.getExtras().keySet()) {
-                    Object extra = intent.getExtras().get(key);
-                    if (extra instanceof String && ((String) extra).trim().length() > 0) {
-                        value = (String) extra;
-                        break;
-                    }
-                }
-            }
-            Log.d(TAG, "Scanner broadcast received. hasValue=" + (value != null && value.trim().length() > 0));
-            handleNativeBarcode(value);
-        }
-    };
-    private final BroadcastReceiver rscjaKeyReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            long now = System.currentTimeMillis();
-            if (now - lastScannerKeyAt < 500L) return;
-            lastScannerKeyAt = now;
-            Log.d(TAG, "RSCJA scanner key broadcast received.");
-            startNativeBarcodeScan("");
+            handleScan(extractScan(intent));
         }
     };
 
@@ -100,655 +99,1393 @@ public class MainActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        buildLayout();
-        configureWebView();
-        loadStartUrl(getIntent());
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        root = new FrameLayout(this);
+        setContentView(root);
+        configureScanner();
+
+        if (cookie().length() == 0) {
+            showLogin();
+        } else if (company().length() == 0) {
+            showCompanySelect(true);
+        } else {
+            showHome();
+            syncQueue(false);
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        registerScannerReceivers();
-        configureBarcodeUtility();
+        registerReceivers();
+        configureScanner();
     }
 
     @Override
     protected void onPause() {
-        stopNativeBarcodeScan();
-        unregisterScannerReceivers();
+        stopBarcodeScan();
+        unregisterReceivers();
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
-        stopNativeBarcodeScan();
-        unregisterScannerReceivers();
+        stopBarcodeScan();
+        executor.shutdownNow();
         super.onDestroy();
-    }
-
-    private void registerScannerReceivers() {
-        if (scannerReceiversRegistered) return;
-        IntentFilter scanFilter = new IntentFilter();
-        scanFilter.addAction(SCAN_RESULT_ACTION);
-        scanFilter.addAction(ANDROID_SCAN_RESULT_ACTION);
-        scanFilter.addAction(DATAWEDGE_SCAN_ACTION);
-        scanFilter.addAction("android.intent.action.SCANRESULT");
-        scanFilter.addAction("com.scanner.broadcast");
-        scanFilter.addAction("scan.rcv.message");
-        registerReceiver(scannerResultReceiver, scanFilter);
-        registerReceiver(rscjaKeyReceiver, new IntentFilter(RSCJA_KEY_DOWN_ACTION));
-        scannerReceiversRegistered = true;
-    }
-
-    private void unregisterScannerReceivers() {
-        if (!scannerReceiversRegistered) return;
-        try {
-            unregisterReceiver(scannerResultReceiver);
-        } catch (Throwable ignored) {
-        }
-        try {
-            unregisterReceiver(rscjaKeyReceiver);
-        } catch (Throwable ignored) {
-        }
-        scannerReceiversRegistered = false;
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        loadStartUrl(intent);
     }
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-            return;
+        if ("home".equals(screen)) {
+            super.onBackPressed();
+        } else if ("pick".equals(screen)) {
+            showOrderList();
+        } else if ("company".equals(screen)) {
+            showLogin();
+        } else {
+            showHome();
         }
-        super.onBackPressed();
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (isAlienScanKey(event.getKeyCode())) {
-            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-                Log.d(TAG, "Physical Alien scan key pressed: " + event.getKeyCode());
-                startNativeBarcodeScan("");
-            }
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0 && isScanKey(event.getKeyCode())) {
+            startBarcodeScan();
             return true;
         }
-        if (event.getAction() == KeyEvent.ACTION_UP && event.getKeyCode() == KeyEvent.KEYCODE_F5) {
-            startNativeBarcodeScan("");
-            return true;
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int unicode = event.getUnicodeChar();
+            if (unicode > 0 && activeInput != null && !"pick".equals(screen)) {
+                activeInput.requestFocus();
+            }
         }
         return super.dispatchKeyEvent(event);
     }
 
-    private boolean isAlienScanKey(int keyCode) {
+    private boolean isScanKey(int keyCode) {
         return keyCode == KeyCode.ALR_H450.SCAN
             || keyCode == KeyCode.ALR_H450.SIDE_LEFT
             || keyCode == KeyCode.ALR_H450.SIDE_RIGHT
             || keyCode == KeyCode.ALR_H460.SCAN
             || keyCode == KeyCode.ALR_H460.SIDE_LEFT_FUNC
             || keyCode == KeyCode.ALR_H460.HANDLE_TRIGGER
+            || keyCode == KeyEvent.KEYCODE_F5
             || keyCode == 119;
     }
 
-    private void buildLayout() {
-        root = new FrameLayout(this);
-        webView = new WebView(this);
-        root.addView(webView, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ));
-
-        loadingOverlay = buildOverlay("WMS365 Scanner", "Loading Alien handheld mode...");
-        root.addView(loadingOverlay);
-
-        errorOverlay = buildOverlay("Connection Issue", "WMS365 could not load.");
-        errorText = (TextView) errorOverlay.getChildAt(1);
-        Button retry = new Button(this);
-        retry.setText("Retry");
-        retry.setOnClickListener(v -> {
-            showError(false, "");
-            showLoading(true);
-            webView.reload();
-        });
-        errorOverlay.addView(retry);
-        errorOverlay.setVisibility(View.GONE);
-        root.addView(errorOverlay);
-        setContentView(root);
+    private void showLogin() {
+        screen = "login";
+        activeInput = null;
+        root.removeAllViews();
+        final EditText email = input("Warehouse email", InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        final EditText password = input("Password", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        email.setText(prefs.getString(KEY_EMAIL, ""));
+        root.addView(screenLayout(new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(header("WMS365 Scanner", "Alien native terminal"));
+                l.addView(email);
+                l.addView(password);
+                l.addView(primaryButton("Sign In", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        final String e = email.getText().toString().trim();
+                        final String p = password.getText().toString();
+                        if (e.length() == 0 || p.length() == 0) {
+                            toast("Email and password are required.", true);
+                            return;
+                        }
+                        runAsync("Signing in...", new Runnable() {
+                            @Override public void run() {
+                                try {
+                                    JSONObject body = new JSONObject()
+                                        .put("email", e)
+                                        .put("password", p)
+                                        .put("source", "alien_native")
+                                        .put("deviceId", deviceId());
+                                    ApiResult result = request("/api/app/login", "POST", body);
+                                    if (result.cookie.length() == 0) throw new Exception("No session returned.");
+                                    prefs.edit()
+                                        .putString(KEY_EMAIL, e)
+                                        .putString(KEY_COOKIE, result.cookie)
+                                        .putString(KEY_COMPANY, "")
+                                        .apply();
+                                    runOnUiThread(new Runnable() {
+                                        @Override public void run() {
+                                            showCompanySelect(true);
+                                        }
+                                    });
+                                } catch (final Exception ex) {
+                                    fail(ex);
+                                }
+                            }
+                        });
+                    }
+                }));
+                l.addView(status("Sign in first. Next screen selects the company."));
+                l.addView(status("Native app. Hardware scanner ready."));
+            }
+        }));
+        email.requestFocus();
     }
 
-    private LinearLayout buildOverlay(String title, String message) {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setGravity(Gravity.CENTER);
-        layout.setPadding(36, 36, 36, 36);
-        layout.setBackgroundColor(Color.rgb(244, 247, 249));
-        layout.setLayoutParams(new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ));
-
-        TextView titleView = new TextView(this);
-        titleView.setText(title);
-        titleView.setTextSize(24);
-        titleView.setTextColor(Color.rgb(16, 32, 51));
-        titleView.setGravity(Gravity.CENTER);
-        layout.addView(titleView);
-
-        TextView messageView = new TextView(this);
-        messageView.setText(message);
-        messageView.setTextSize(14);
-        messageView.setTextColor(Color.rgb(100, 116, 139));
-        messageView.setGravity(Gravity.CENTER);
-        messageView.setPadding(0, 12, 0, 20);
-        layout.addView(messageView);
-
-        layout.addView(new ProgressBar(this));
-
-        TextView versionView = new TextView(this);
-        versionView.setText("Alien Legacy " + BuildConfig.VERSION_NAME);
-        versionView.setTextSize(12);
-        versionView.setTextColor(Color.rgb(100, 116, 139));
-        versionView.setGravity(Gravity.CENTER);
-        versionView.setPadding(0, 20, 0, 0);
-        layout.addView(versionView);
-        return layout;
+    private void showCompanySelect(boolean refresh) {
+        screen = "company";
+        activeInput = null;
+        renderCompanySelect(loadCompanies(), refresh ? "Loading companies..." : "Choose a company.");
+        if (refresh || loadCompanies().isEmpty()) fetchCompanies();
     }
 
-    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
-    private void configureWebView() {
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setLoadWithOverviewMode(false);
-        settings.setUseWideViewPort(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setSupportZoom(false);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " WMS365Alien/0.1 ALR-H450");
+    private void renderCompanySelect(final List<String> companies, String message) {
+        root.removeAllViews();
+        final EditText manual = input("Type company if not listed", InputType.TYPE_CLASS_TEXT);
+        root.addView(screenLayout(new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(header("WMS365 Scanner", "Select company"));
+                l.addView(banner("Choose Company", "This locks the work area", BLUE));
+                if (companies.isEmpty()) {
+                    l.addView(status("No companies loaded yet. Tap Refresh or type the company."));
+                } else {
+                    for (final String c : companies) {
+                        l.addView(blockButton(c, "Select", new View.OnClickListener() {
+                            @Override public void onClick(View v) { lockCompany(c); }
+                        }));
+                    }
+                }
+                l.addView(status("Manual fallback"));
+                l.addView(manual);
+                l.addView(primaryButton("Use This Company", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        String c = manual.getText().toString().trim();
+                        if (c.length() == 0) toast("Choose or enter a company.", true);
+                        else lockCompany(c);
+                    }
+                }));
+                l.addView(secondaryButton("Refresh Companies", new View.OnClickListener() {
+                    @Override public void onClick(View v) { fetchCompanies(); }
+                }));
+                l.addView(secondaryButton("Logout", new View.OnClickListener() {
+                    @Override public void onClick(View v) { logout(); }
+                }));
+                l.addView(status(message));
+            }
+        }));
+    }
 
-        webView.addJavascriptInterface(new AlienBridge(), "WMS365Android");
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                Uri uri = Uri.parse(url);
-                if (isApprovedUri(uri)) return false;
+    private void fetchCompanies() {
+        runAsync("Loading companies...", new Runnable() {
+            @Override public void run() {
                 try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                } catch (ActivityNotFoundException ignored) {
+                    ApiResult result = request("/api/app/companies", "GET", null);
+                    JSONArray arr = result.json.optJSONArray("companies");
+                    List<String> companies = new ArrayList<>();
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length(); i++) {
+                            String c = arr.optString(i, "").trim();
+                            if (c.length() > 0) companies.add(c);
+                        }
+                    }
+                    saveCompanies(companies);
+                    final List<String> finalCompanies = companies;
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            renderCompanySelect(finalCompanies, "Loaded " + finalCompanies.size() + " company option(s).");
+                        }
+                    });
+                } catch (final Exception ex) {
+                    fail(ex);
                 }
-                return true;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                injectAlienMode();
-                injectAlienLegacyPageShims();
-                showLoading(false);
-                showError(false, "");
-            }
-
-            @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                showLoading(false);
-                showError(true, isOnline() ? "WMS365 could not load. Check Wi-Fi and retry." : "Offline. Reconnect Wi-Fi and retry.");
-            }
-
-            @Override
-            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                String url = error == null ? "" : error.getUrl();
-                Uri uri = url == null ? null : Uri.parse(url);
-                if (isApprovedUri(uri)) {
-                    handler.proceed();
-                    return;
-                }
-                handler.cancel();
-                showLoading(false);
-                showError(true, "WMS365 secure connection failed.");
             }
         });
     }
 
-    private boolean isApprovedUri(Uri uri) {
-        if (uri == null) return false;
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        return "https".equalsIgnoreCase(scheme) && APPROVED_HOST.equalsIgnoreCase(host);
+    private void lockCompany(String company) {
+        prefs.edit().putString(KEY_COMPANY, company.trim()).apply();
+        success();
+        showHome();
+        syncQueue(false);
     }
 
-    private void loadStartUrl(Intent intent) {
-        showLoading(true);
-        showError(false, "");
-        String url = resolveStartUrl(intent);
-        webView.loadUrl(url);
+    private void showHome() {
+        screen = "home";
+        activeInput = null;
+        activeOrderId = "";
+        activeTask = null;
+        root.removeAllViews();
+        root.addView(screenLayout(new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(header("WMS365 Scanner", "Alien work area"));
+                l.addView(banner("Company Locked", company(), BLUE));
+                l.addView(status("Work"));
+                l.addView(primaryButton("Picking", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showOrderList(); }
+                }));
+                l.addView(secondaryButton("Receiving", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showReceiving(false); }
+                }));
+                l.addView(secondaryButton("Putaway", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showMoveForm("Putaway", "Move stock into BIN", "RECEIVING-STAGE", true); }
+                }));
+                l.addView(secondaryButton("Inventory Count", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showInventoryCount(); }
+                }));
+                l.addView(secondaryButton("Lookup SKU / BIN", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showLookup(); }
+                }));
+                l.addView(secondaryButton("Move Item", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showMoveForm("Move Item", "Transfer stock location to location", "", false); }
+                }));
+                l.addView(secondaryButton("Receive Without PO", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showReceiving(true); }
+                }));
+                l.addView(secondaryButton("Pallets / Labels", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showPallets(); }
+                }));
+                l.addView(status("Device"));
+                l.addView(secondaryButton("Sync Now", new View.OnClickListener() {
+                    @Override public void onClick(View v) { syncQueue(true); }
+                }));
+                l.addView(secondaryButton("Report Issue", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showReportIssue(); }
+                }));
+                l.addView(secondaryButton("Switch Company", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        prefs.edit().putString(KEY_COMPANY, "").apply();
+                        showCompanySelect(false);
+                    }
+                }));
+                l.addView(secondaryButton("Logout", new View.OnClickListener() {
+                    @Override public void onClick(View v) { logout(); }
+                }));
+                l.addView(status("Sync queue: " + pendingCount() + " pending. App " + BuildConfig.VERSION_NAME));
+            }
+        }));
     }
 
-    private String resolveStartUrl(Intent intent) {
-        Uri deepLink = intent == null ? null : intent.getData();
-        if (deepLink != null && isApprovedUri(deepLink)) {
-            Uri.Builder builder = deepLink.buildUpon();
-            if (deepLink.getQueryParameter("mode") == null) builder.appendQueryParameter("mode", "mobile");
-            if (deepLink.getQueryParameter("device") == null) builder.appendQueryParameter("device", "alien");
-            return builder.build().toString();
+    private void showReceiving(final boolean withoutPo) {
+        screen = "form";
+        final EditText ref = input(withoutPo ? "BOL / Reference" : "Inbound / PO reference", InputType.TYPE_CLASS_TEXT);
+        final EditText sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT);
+        final EditText qty = input("Qty received", InputType.TYPE_CLASS_NUMBER);
+        final EditText loc = input("Staging location", InputType.TYPE_CLASS_TEXT);
+        final EditText pallets = input("Pallet count", InputType.TYPE_CLASS_NUMBER);
+        final EditText cases = input("Case count", InputType.TYPE_CLASS_NUMBER);
+        final EditText note = input("Note", InputType.TYPE_CLASS_TEXT);
+        loc.setText("RECEIVING-STAGE");
+        root.removeAllViews();
+        root.addView(formLayout(withoutPo ? "Quick Check-In" : "Receiving", withoutPo ? "No PO available" : "Receive against inbound / PO", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(ref); l.addView(scanButton("Scan Ref", ref, "reference"));
+                l.addView(sku); l.addView(scanButton("Scan SKU / UPC", sku, "sku"));
+                l.addView(qty);
+                l.addView(loc); l.addView(scanButton("Scan Location", loc, "location"));
+                l.addView(pallets); l.addView(cases); l.addView(note);
+                l.addView(primaryButton("Save Receiving", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        int q = intValue(qty);
+                        if (sku.getText().toString().trim().length() == 0 || q <= 0) {
+                            toast("SKU and received qty are required.", true);
+                            return;
+                        }
+                        queue("RECEIVING", basePayload()
+                            .put("accountName", company())
+                            .put("sourceType", withoutPo ? "MANUAL" : "PORTAL_INBOUND")
+                            .put("referenceNumber", ref.getText().toString().trim())
+                            .put("sku", sku.getText().toString().trim())
+                            .put("skuOrUpc", sku.getText().toString().trim())
+                            .put("quantity", q)
+                            .put("receivedQuantity", q)
+                            .put("location", loc.getText().toString().trim())
+                            .put("palletCount", intValue(pallets))
+                            .put("caseCount", intValue(cases))
+                            .put("note", note.getText().toString().trim()), "Receiving saved");
+                    }
+                }));
+                l.addView(backButton());
+            }
+        }));
+        activeInput = ref;
+        ref.requestFocus();
+    }
+
+    private void showMoveForm(final String title, String instruction, String defaultFrom, final boolean putaway) {
+        screen = "form";
+        final EditText from = input("From location", InputType.TYPE_CLASS_TEXT);
+        final EditText to = input(putaway ? "To BIN" : "To location", InputType.TYPE_CLASS_TEXT);
+        final EditText sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT);
+        final EditText qty = input("Qty", InputType.TYPE_CLASS_NUMBER);
+        from.setText(defaultFrom);
+        root.removeAllViews();
+        root.addView(formLayout(title, instruction, new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(from); l.addView(scanButton("Scan From", from, "from location"));
+                l.addView(to); l.addView(scanButton(putaway ? "Scan To BIN" : "Scan To", to, "to location"));
+                l.addView(sku); l.addView(scanButton("Scan SKU / UPC", sku, "sku"));
+                l.addView(qty);
+                l.addView(primaryButton(putaway ? "Confirm Putaway" : "Confirm Move", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        int q = intValue(qty);
+                        if (from.getText().length() == 0 || to.getText().length() == 0 || sku.getText().length() == 0 || q <= 0) {
+                            toast("From, To, SKU, and Qty are required.", true);
+                            return;
+                        }
+                        queue(putaway ? "PUT_AWAY" : "MOVE", basePayload()
+                            .put("accountName", company())
+                            .put("sourceType", "INVENTORY")
+                            .put("fromLocation", from.getText().toString().trim())
+                            .put("toLocation", to.getText().toString().trim())
+                            .put("location", to.getText().toString().trim())
+                            .put("sku", sku.getText().toString().trim())
+                            .put("skuOrUpc", sku.getText().toString().trim())
+                            .put("quantity", q), putaway ? "Putaway queued" : "Move queued");
+                    }
+                }));
+                l.addView(backButton());
+            }
+        }));
+        activeInput = to;
+        to.requestFocus();
+    }
+
+    private void showInventoryCount() {
+        screen = "form";
+        final EditText loc = input("Location", InputType.TYPE_CLASS_TEXT);
+        final EditText sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT);
+        final EditText cases = input("Cases counted", InputType.TYPE_CLASS_NUMBER);
+        final EditText lot = input("Lot, if required", InputType.TYPE_CLASS_TEXT);
+        final EditText expiry = input("Expiry YYYY-MM-DD, if required", InputType.TYPE_CLASS_TEXT);
+        root.removeAllViews();
+        root.addView(formLayout("Inventory Count", "Count one SKU in one location", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(loc); l.addView(scanButton("Scan Location", loc, "location"));
+                l.addView(sku); l.addView(scanButton("Scan SKU / UPC", sku, "sku"));
+                l.addView(cases); l.addView(lot); l.addView(expiry);
+                l.addView(primaryButton("Submit Count", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        int q = intValue(cases);
+                        if (loc.getText().length() == 0 || sku.getText().length() == 0 || q < 0) {
+                            toast("Location, SKU, and cases are required.", true);
+                            return;
+                        }
+                        queue("INVENTORY_COUNT", basePayload()
+                            .put("accountName", company())
+                            .put("location", loc.getText().toString().trim())
+                            .put("skuOrUpc", sku.getText().toString().trim())
+                            .put("countedCases", q)
+                            .put("lotNumber", lot.getText().toString().trim())
+                            .put("expirationDate", expiry.getText().toString().trim()), "Count submitted for review");
+                    }
+                }));
+                l.addView(backButton());
+            }
+        }));
+        activeInput = loc;
+        loc.requestFocus();
+    }
+
+    private void showPallets() {
+        screen = "form";
+        final EditText pallet = input("Pallet ID, optional", InputType.TYPE_CLASS_TEXT);
+        final EditText sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT);
+        final EditText cases = input("Cases on pallet", InputType.TYPE_CLASS_NUMBER);
+        final EditText loc = input("Location", InputType.TYPE_CLASS_TEXT);
+        root.removeAllViews();
+        root.addView(formLayout("Pallets / Labels", "Save pallet record", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(pallet); l.addView(scanButton("Scan Pallet", pallet, "pallet"));
+                l.addView(sku); l.addView(scanButton("Scan SKU / UPC", sku, "sku"));
+                l.addView(cases); l.addView(loc); l.addView(scanButton("Scan Location", loc, "location"));
+                l.addView(primaryButton("Save Pallet", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        int q = intValue(cases);
+                        if (sku.getText().length() == 0 || q <= 0) {
+                            toast("SKU and cases are required.", true);
+                            return;
+                        }
+                        queue("PALLET_LABEL", basePayload()
+                            .put("accountName", company())
+                            .put("palletCode", pallet.getText().toString().trim())
+                            .put("sku", sku.getText().toString().trim())
+                            .put("cases", q)
+                            .put("date", today())
+                            .put("location", loc.getText().toString().trim()), "Pallet saved");
+                    }
+                }));
+                l.addView(backButton());
+            }
+        }));
+        activeInput = pallet;
+        pallet.requestFocus();
+    }
+
+    private void showLookup() {
+        screen = "form";
+        final EditText query = input("Scan SKU, UPC, or BIN", InputType.TYPE_CLASS_TEXT);
+        final TextView results = status("Enter or scan a value, then tap Search.");
+        root.removeAllViews();
+        root.addView(formLayout("Lookup", "Find item or BIN", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(query); l.addView(scanButton("Scan Value", query, "lookup"));
+                l.addView(primaryButton("Search", new View.OnClickListener() {
+                    @Override public void onClick(View v) { runLookup(query.getText().toString(), results); }
+                }));
+                l.addView(results);
+                l.addView(backButton());
+            }
+        }));
+        activeInput = query;
+        query.requestFocus();
+    }
+
+    private void runLookup(final String raw, final TextView results) {
+        final String search = normalize(raw);
+        if (search.length() == 0) {
+            toast("Scan or enter a SKU, UPC, or BIN.", true);
+            return;
         }
-        return BuildConfig.WMS365_BASE_URL + BuildConfig.WMS365_START_PATH;
+        results.setText("Searching...");
+        runAsync("Searching...", new Runnable() {
+            @Override public void run() {
+                try {
+                    ApiResult result = request("/api/state", "GET", null);
+                    JSONArray inv = result.json.optJSONArray("inventory");
+                    List<String> rows = new ArrayList<>();
+                    if (inv != null) {
+                        for (int i = 0; i < inv.length() && rows.size() < 12; i++) {
+                            JSONObject row = inv.optJSONObject(i);
+                            if (row == null || !company().equalsIgnoreCase(row.optString("accountName"))) continue;
+                            String loc = row.optString("location");
+                            String sku = row.optString("sku");
+                            String upc = row.optString("upc");
+                            if (normalize(loc).equals(search) || normalize(sku).equals(search) || normalize(upc).equals(search)) {
+                                rows.add((loc.length() == 0 ? "-" : loc) + " | " + (sku.length() == 0 ? "-" : sku) + " | Qty " + row.optInt("quantity", row.optInt("onHandQuantity", 0)));
+                            }
+                        }
+                    }
+                    final String text = rows.isEmpty() ? "No exact match found. Verify before posting." : join(rows, "\n");
+                    runOnUiThread(new Runnable() { @Override public void run() { results.setText(text); } });
+                } catch (final Exception ex) {
+                    runOnUiThread(new Runnable() { @Override public void run() { results.setText(ex.getMessage()); } });
+                }
+            }
+        });
     }
 
-    private void injectAlienMode() {
-        String script =
-            "(function(){" +
-            "document.body.classList.add('device-mobile','device-android','device-webview','device-profile-hardware-scanner','device-alien-legacy');" +
-            "document.body.dataset.deviceProfile='alien-alr-h450';" +
-            "var s=document.getElementById('wms365-alien-legacy-style');" +
-            "if(!s){s=document.createElement('style');s.id='wms365-alien-legacy-style';document.head.appendChild(s);}" +
-            "s.textContent=[" +
-            "'body.device-alien-legacy button[data-scan-target]{font-weight:800!important}'," +
-            "'body.device-alien-legacy input,body.device-alien-legacy select,body.device-alien-legacy textarea{font-size:18px!important}'," +
-            "'body.device-alien-legacy .shell{width:100%!important;max-width:none!important;display:block!important;padding:0!important}'," +
-            "'body.device-alien-legacy{margin:0!important;padding:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#f4f7f9!important;color:#20303a!important}'," +
-            "'body.device-alien-legacy .app{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;max-width:none!important;min-height:0!important;transform:none!important;overflow:hidden!important;background:#f4f7f9!important;border:0!important;border-radius:0!important;box-shadow:none!important}'," +
-            "'body.device-alien-legacy .mobile-only{display:block!important}'," +
-            "'body.device-alien-legacy .desktop-only,body.device-alien-legacy .desktop-complex,body.device-alien-legacy .hero,body.device-alien-legacy .tabbar,body.device-alien-legacy .desktop-nav,body.device-alien-legacy .desktop-factbox,body.device-alien-legacy .feedback-launcher{display:none!important}'," +
-            "'body.device-alien-legacy .panel{display:none!important;position:absolute!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;overflow:auto!important;background:#f4f7f9!important;padding:0!important;margin:0!important}'," +
-            "'body.device-alien-legacy .panel.active{display:block!important}'," +
-            "'body.device-alien-legacy .mobile-screen-body,body.device-alien-legacy .mobile-home-card,body.device-alien-legacy .menu-stack,body.device-alien-legacy .mobile-menu-group,body.device-alien-legacy .form-grid,body.device-alien-legacy .action-grid,body.device-alien-legacy .search-grid,body.device-alien-legacy .section-grid,body.device-alien-legacy .inventory-grid,body.device-alien-legacy .backup-grid,body.device-alien-legacy .labels-tool-grid{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important}'," +
-            "'body.device-alien-legacy .mobile-screen-body{padding:8px!important}'," +
-            "'body.device-alien-legacy .card,body.device-alien-legacy .helper,body.device-alien-legacy .summary,body.device-alien-legacy .table-wrap,body.device-alien-legacy .quick-row{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;margin:0 0 8px 0!important;padding:10px!important;border:1px solid #d5dde4!important;border-radius:10px!important;background:#ffffff!important;box-shadow:none!important}'," +
-            "'body.device-alien-legacy .mobile-appbar{display:block!important;padding:8px!important;margin:0 0 8px 0!important;border:1px solid #d5dde4!important;border-radius:10px!important;background:#ffffff!important}'," +
-            "'body.device-alien-legacy .mobile-appbar-logo{width:28px!important;height:28px!important;vertical-align:middle!important;margin-right:8px!important}'," +
-            "'body.device-alien-legacy .mobile-appbar-copy{display:inline-block!important;vertical-align:middle!important}'," +
-            "'body.device-alien-legacy .mobile-appbar-badge{float:right!important;font-size:12px!important;margin-top:4px!important}'," +
-            "'body.device-alien-legacy h1,body.device-alien-legacy h2,body.device-alien-legacy h3{margin:6px 0!important;color:#20303a!important;letter-spacing:0!important}'," +
-            "'body.device-alien-legacy .lead,body.device-alien-legacy .meta,body.device-alien-legacy .menu-card-meta,body.device-alien-legacy .mobile-build-label{display:none!important}'," +
-            "'body.device-alien-legacy .mobile-menu-group-title{margin:10px 0 4px!important;color:#657582!important;font-size:12px!important;font-weight:bold!important;text-transform:uppercase!important}'," +
-            "'body.device-alien-legacy .btn,body.device-alien-legacy button{display:block!important;width:100%!important;min-height:48px!important;margin:0 0 8px 0!important;padding:10px!important;border-radius:10px!important;border:1px solid #48687d!important;background:#5c7b92!important;color:#ffffff!important;font-size:18px!important;font-weight:bold!important;text-align:left!important;box-sizing:border-box!important}'," +
-            "'body.device-alien-legacy .btn.ghost,body.device-alien-legacy button.ghost{background:#ffffff!important;color:#20303a!important;border-color:#d5dde4!important}'," +
-            "'body.device-alien-legacy .field,body.device-alien-legacy label{display:block!important;margin:0 0 8px 0!important;color:#20303a!important;font-weight:bold!important}'," +
-            "'body.device-alien-legacy input,body.device-alien-legacy select,body.device-alien-legacy textarea{display:block!important;width:100%!important;max-width:100%!important;min-height:46px!important;margin:4px 0 8px 0!important;padding:8px!important;border:2px solid #d5dde4!important;border-radius:9px!important;background:#ffffff!important;color:#20303a!important;box-sizing:border-box!important}'," +
-            "'body.device-alien-legacy .mobile-drill-menu,body.device-alien-legacy .mobile-drill-card,body.device-alien-legacy .mobile-subview{display:none!important}'," +
-            "'body.device-alien-legacy .mobile-drill-menu.active,body.device-alien-legacy .mobile-drill-card.active,body.device-alien-legacy .mobile-subview.active{display:block!important}'," +
-            "'body.device-alien-legacy .mobile-company-locked.hidden,body.device-alien-legacy #mobileCompanySelectWrap.hidden,body.device-alien-legacy #mobileLockCompanyBtn.hidden,body.device-alien-legacy .mobile-pending-panel.hidden{display:none!important}'," +
-            "'html{height:auto!important;min-height:100%!important;overflow:auto!important}'," +
-            "'body.device-alien-legacy:not(.alien-login-mode){height:auto!important;min-height:100%!important;overflow:auto!important;-webkit-overflow-scrolling:touch!important}'," +
-            "'body.device-alien-legacy:not(.alien-login-mode) .app{position:static!important;left:auto!important;top:auto!important;right:auto!important;bottom:auto!important;height:auto!important;min-height:100%!important;overflow:visible!important}'," +
-            "'body.device-alien-legacy:not(.alien-login-mode) .panel.active{position:static!important;height:auto!important;min-height:100%!important;overflow:visible!important}'," +
-            "'body.device-alien-legacy .mobile-home-card,body.device-alien-legacy .mobile-screen-body{height:auto!important;min-height:0!important;overflow:visible!important}'," +
-            "'body.device-alien-legacy .mobile-company-locked{display:block!important}'," +
-            "'body.device-alien-legacy .mobile-company-locked .btn{display:block!important;width:100%!important;margin:8px 0 0 0!important;text-align:center!important}'," +
-            "'body.device-alien-legacy .mobile-company-locked strong{display:block!important;font-size:18px!important;line-height:1.2!important;word-break:break-word!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-screen-body{padding:5px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar{padding:5px!important;margin:0 0 3px 0!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar-logo{width:22px!important;height:22px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar-copy h1{font-size:20px!important;margin:0!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-home-card{padding:5px!important;margin:0!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel h1,body.device-alien-legacy #mobileHomePanel h2{display:none!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked{padding:5px!important;margin:0 0 3px 0!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked span{display:none!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked strong{font-size:14px!important;line-height:1.1!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel #mobileSwitchCompanyBtn{min-height:28px!important;margin:3px 0 0 0!important;padding:3px 8px!important;font-size:13px!important;text-align:center!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-menu-group-title{display:none!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .menu-card-btn{min-height:35px!important;margin:0 0 3px 0!important;padding:5px 9px!important;font-size:15px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .menu-card-title{display:block!important;line-height:1.15!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel button[data-mobile-subview-target=\"adjust\"],body.device-alien-legacy #mobileHomePanel button[data-mobile-nav=\"labels\"],body.device-alien-legacy #mobileHomePanel button[data-mobile-nav=\"scan\"]{display:none!important}'," +
-            "'body.device-alien-legacy .footer,body.device-alien-legacy .footer-build,body.device-alien-legacy #appBuildFooter{display:none!important}'," +
-            "'body.device-alien-legacy .mobile-panel-head{display:block!important;padding:5px 6px 0!important;margin:0!important}'," +
-            "'body.device-alien-legacy .mobile-appbar{min-height:42px!important;padding:6px 8px!important;margin:0 0 6px 0!important;border-radius:8px!important}'," +
-            "'body.device-alien-legacy .mobile-appbar-title,body.device-alien-legacy .mobile-appbar-copy strong{font-size:21px!important;line-height:1.1!important}'," +
-            "'body.device-alien-legacy .mobile-appbar-kicker,body.device-alien-legacy .mobile-appbar-badge{display:none!important}'," +
-            "'body.device-alien-legacy .mobile-screen-body{padding:6px!important}'," +
-            "'body.device-alien-legacy .card{border-radius:8px!important;margin:0 0 7px 0!important;padding:10px 12px!important}'," +
-            "'body.device-alien-legacy h1,body.device-alien-legacy h2{font-size:28px!important;line-height:1.1!important;margin:4px 0 10px!important}'," +
-            "'body.device-alien-legacy h3{font-size:22px!important;line-height:1.1!important}'," +
-            "'body.device-alien-legacy .btn,body.device-alien-legacy button{min-height:64px!important;padding:13px 16px!important;margin:0 0 9px 0!important;border-radius:8px!important;font-size:24px!important;line-height:1.15!important;text-align:left!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .menu-card-btn{min-height:64px!important;margin:0 0 6px 0!important;padding:13px 15px!important;font-size:24px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-screen-body{padding:6px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar{min-height:34px!important;padding:5px 8px!important;margin:0 0 4px 0!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar-logo{width:26px!important;height:26px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar-copy h1{font-size:22px!important;line-height:1.05!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-home-card{padding:6px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked{padding:6px 10px!important;margin:0 0 6px 0!important;border-radius:8px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked strong{font-size:18px!important;line-height:1.15!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel #mobileSwitchCompanyBtn,body.device-alien-legacy #mobileHomePanel .mobile-company-locked .btn{min-height:38px!important;padding:7px 10px!important;margin:5px 0 0 0!important;font-size:17px!important;text-align:center!important}'," +
-            "'body.device-alien-legacy .mobile-company-locked .btn,body.device-alien-legacy #menuBtn,body.device-alien-legacy #companyMenuBtn,body.device-alien-legacy #workMenuBtn,body.device-alien-legacy [data-mobile-home],body.device-alien-legacy [data-mobile-section-back]{min-height:44px!important;padding:8px 12px!important;font-size:19px!important;text-align:center!important}'," +
-            "'body.device-alien-legacy .locked,body.device-alien-legacy #mobileCompanyLocked{padding:8px!important;margin:0 0 6px 0!important;border-radius:8px!important}'," +
-            "'body.device-alien-legacy .locked strong,body.device-alien-legacy #mobileCompanyLockedLabel,body.device-alien-legacy #lockedCompanyLabel{font-size:20px!important;line-height:1.15!important;word-break:break-word!important}'," +
-            "'body.device-alien-legacy label span,body.device-alien-legacy .field span{display:block!important;font-size:18px!important;letter-spacing:1px!important;text-transform:uppercase!important;color:#657582!important;margin:0 0 4px 0!important}'," +
-            "'body.device-alien-legacy input,body.device-alien-legacy select,body.device-alien-legacy textarea{min-height:64px!important;padding:12px 14px!important;font-size:24px!important;border-radius:8px!important}'," +
-            "'body.device-alien-legacy textarea{min-height:150px!important}'," +
-            "'body.device-alien-legacy .action-scan-row{display:block!important}'," +
-            "'body.device-alien-legacy #transferInventoryCard form>label:first-child,body.device-alien-legacy #putAwayInventoryCard form>label:first-child,body.device-alien-legacy #adjustInventoryCard form>label:first-child,body.device-alien-legacy #moveInventoryCard form>label:first-child,body.device-alien-legacy #searchFormCard form>label:first-child{display:none!important}'," +
-            "'body.device-alien-legacy button[data-scan-target],body.device-alien-legacy button[data-action-scan-target],body.device-alien-legacy #mobileQuickInboundDocScanBtn{min-height:66px!important;background:#5c7b92!important;color:#fff!important;border-color:#48687d!important;font-size:25px!important}'," +
-            "'body.device-alien-legacy #saveBtn,body.device-alien-legacy #mobileQuickInboundCreateBtn,body.device-alien-legacy button[type=\"submit\"]{min-height:70px!important;background:#255f46!important;border-color:#1d4f39!important;color:#fff!important;text-align:center!important}'," +
-            "'body.device-alien-legacy #anotherSkuBtn,body.device-alien-legacy #nextLocationBtn{min-height:70px!important;text-align:center!important}'," +
-            "'body.device-alien-legacy .status,body.device-alien-legacy .msg{display:block!important;min-height:44px!important;padding:10px 12px!important;margin:7px 0!important;border-radius:8px!important;font-size:20px!important;font-weight:bold!important}'," +
-            "'body.device-alien-legacy .status.good,body.device-alien-legacy .msg.ok{background:#dcfce7!important;color:#14532d!important;border:2px solid #22c55e!important}'," +
-            "'body.device-alien-legacy .status.bad,body.device-alien-legacy .msg.err{background:#fee2e2!important;color:#7f1d1d!important;border:2px solid #ef4444!important}'," +
-            "'body.device-alien-legacy input[hidden],body.device-alien-legacy select[hidden],body.device-alien-legacy textarea[hidden]{display:none!important}'," +
-            "'body.device-alien-legacy button.active,body.device-alien-legacy .menu-card-btn.active,body.device-alien-legacy input:focus,body.device-alien-legacy textarea:focus{box-shadow:inset 0 0 0 3px #f59e0b!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar{min-height:30px!important;padding:4px 8px!important;margin:0 0 3px 0!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar-logo{width:22px!important;height:22px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-appbar-copy h1{font-size:21px!important;line-height:1!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel h2{display:none!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked{padding:4px 8px!important;margin:0 0 5px 0!important;border-radius:8px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .mobile-company-locked strong{font-size:16px!important;line-height:1.08!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel #mobileSwitchCompanyBtn{height:32px!important;min-height:32px!important;max-height:32px!important;padding:0 8px!important;margin:4px 0 0 0!important;font-size:16px!important;text-align:center!important;line-height:32px!important}'," +
-            "'body.device-alien-legacy #mobileHomePanel .menu-card-btn{display:flex!important;align-items:center!important;height:52px!important;min-height:52px!important;max-height:52px!important;margin:0 0 5px 0!important;padding:0 14px!important;font-size:21px!important;line-height:1.05!important}'," +
-            "'body.device-alien-legacy #menuBtn,body.device-alien-legacy #companyMenuBtn,body.device-alien-legacy #workMenuBtn,body.device-alien-legacy #switchCompanyBtn,body.device-alien-legacy [data-mobile-home],body.device-alien-legacy [data-mobile-section-back]{min-height:42px!important;padding:7px 12px!important;font-size:18px!important;text-align:center!important}'," +
-            "'body.device-alien-legacy .locked-actions button,body.device-alien-legacy .locked-actions .btn{min-height:42px!important;padding:7px 12px!important;font-size:18px!important;margin:0 0 6px 0!important;text-align:center!important}'," +
-            "'body.device-alien-legacy.alien-login-mode{display:block!important;padding:8px!important;place-items:initial!important;overflow:auto!important}'," +
-            "'body.device-alien-legacy.alien-login-mode .intro{display:none!important}'," +
-            "'body.device-alien-legacy.alien-login-mode .card{display:block!important;width:100%!important;min-width:0!important;padding:14px!important;border-radius:12px!important}'," +
-            "'body.device-alien-legacy.alien-login-mode .recovery-box,body.device-alien-legacy.alien-login-mode .card-links{display:none!important}'," +
-            "'body.device-alien-legacy.alien-login-mode .card-head p{display:none!important}'," +
-            "'body.device-alien-legacy.alien-login-mode button{min-height:48px!important}'" +
-            "].join('\\n');" +
-            "if(document.getElementById('loginForm')){document.body.classList.add('alien-login-mode');document.getElementById('loginForm').scrollIntoView(true);installAlienLegacyLoginShim();}" +
-            "function installAlienLegacyLoginShim(){var f=document.getElementById('loginForm');if(!f||f.__alienShim)return;f.__alienShim=true;try{var savedEmail=window.WMS365Android&&window.WMS365Android.getSavedEmail?window.WMS365Android.getSavedEmail():'';var savedPassword=window.WMS365Android&&window.WMS365Android.getSavedPassword?window.WMS365Android.getSavedPassword():'';if(savedEmail&&f.email&&!f.email.value)f.email.value=savedEmail;if(savedPassword&&f.password&&!f.password.value)f.password.value=savedPassword;}catch(prefEx){}f.onsubmit=function(e){if(e&&e.preventDefault)e.preventDefault();var m=document.getElementById('message');var b=f.querySelector('button[type=submit]');var email=(f.email&&f.email.value||'').replace(/^\\s+|\\s+$/g,'');var password=f.password&&f.password.value||'';if(!email||!password){if(m){m.className='msg err';m.innerHTML='Email and password are required.';}return false;}if(m){m.className='msg';m.innerHTML='Signing in...';}if(b){b.disabled=true;b.innerHTML='Signing in...';}var xhr=new XMLHttpRequest();xhr.open('POST','/api/app/login',true);xhr.setRequestHeader('Content-Type','application/json');xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;var ok=xhr.status>=200&&xhr.status<300;if(!ok){var err='Login failed.';try{var data=JSON.parse(xhr.responseText||'{}');if(data&&data.error)err=data.error;}catch(ex){}if(m){m.className='msg err';m.innerHTML=err;}if(b){b.disabled=false;b.innerHTML='Sign in';}return;}try{if(window.WMS365Android&&window.WMS365Android.saveLogin)window.WMS365Android.saveLogin(email,password);}catch(saveEx){}if(m){m.className='msg ok';m.innerHTML='Login accepted. Opening warehouse app...';}var next='/mobile?mode=mobile&device=alien';try{var q=window.location.search||'';var match=q.match(/[?&]next=([^&]+)/);if(match&&match[1])next=decodeURIComponent(match[1]);}catch(ex2){}if(next.indexOf('?')===-1)next+='?mode=mobile&device=alien';else if(next.indexOf('device=')===-1)next+='&device=alien';window.location.href=next;};xhr.send(JSON.stringify({email:email,password:password}));return false;};}" +
-            "installAlienLegacyMobileShim();" +
-            "document.querySelectorAll('[data-scan-target]').forEach(function(b){b.textContent='Trigger';b.title='Tap, then press the Alien scanner trigger.';});" +
-            "function hideAlienAccountLabels(){['transferAccount','putAwayAccount','adjustAccount','moveAccount','searchAccount','convertAccount','fullBinMoveAccount'].forEach(function(id){try{var input=document.getElementById(id);var p=input&&input.parentNode;if(p&&p.tagName&&p.tagName.toLowerCase()==='label')p.style.display='none';}catch(e){}});document.querySelectorAll('input[hidden]').forEach(function(input){try{var p=input.parentNode;if(p&&p.tagName&&p.tagName.toLowerCase()==='label')p.style.display='none';}catch(e){}});}" +
-            "hideAlienAccountLabels();" +
-            "document.querySelectorAll('input[id]').forEach(function(input){var text=(input.id+' '+(input.placeholder||'')).toLowerCase();if(/scan|sku|upc|location|bin|lot|order|reference/.test(text)){input.removeAttribute('readonly');input.setAttribute('autocomplete','off');input.setAttribute('autocorrect','off');input.setAttribute('spellcheck','false');}});" +
-            "window.__wms365AlienLegacy=true;" +
-            "function installAlienLegacyMobileShim(){if(window.__wms365AlienMobileShim)return;window.__wms365AlienMobileShim=true;var contextKey='wms365-mobile-company-context';function byId(id){return document.getElementById(id);}function qs(sel){return document.querySelector(sel);}function qsa(sel){return Array.prototype.slice.call(document.querySelectorAll(sel));}function urlCompany(){try{var m=(window.location.search||'').match(/[?&](accountName|account_name)=([^&]+)/);return m&&m[2]?decodeURIComponent(m[2].replace(/\\+/g,' ')):'';}catch(ex){return '';}}function getCompany(){try{var c=localStorage.getItem(contextKey)||urlCompany()||'';if(c)localStorage.setItem(contextKey,c);return c;}catch(ex){return urlCompany()||'';}}function setCompany(v){try{if(v)localStorage.setItem(contextKey,v);else localStorage.removeItem(contextKey);}catch(ex){}}function showPanel(name){qsa('.panel').forEach(function(p){p.classList.remove('active');});var panel=qs('[data-panel=\"'+name+'\"]')||byId('mobileHomePanel');if(panel){panel.classList.add('active');panel.scrollTop=0;}return panel;}function jumpTo(el){if(!el)return;setTimeout(function(){try{el.scrollIntoView(true);window.scrollBy(0,-6);}catch(e){}},80);}function setSubview(group,target){qsa('[data-mobile-subview-group=\"'+group+'\"]').forEach(function(el){el.classList.remove('active');});qsa('[data-mobile-subview-card-group=\"'+group+'\"],[data-mobile-subview-menu-group=\"'+group+'\"]').forEach(function(el){el.classList.add('active');});qsa('[data-mobile-subview=\"'+target+'\"]').forEach(function(el){if(el.getAttribute('data-mobile-subview-group')===group)el.classList.add('active');});qsa('[data-mobile-subview-btn-group=\"'+group+'\"]').forEach(function(btn){if(btn.getAttribute('data-mobile-subview-target')===target)btn.classList.add('active');else btn.classList.remove('active');});var active=qs('[data-mobile-subview-group=\"'+group+'\"][data-mobile-subview=\"'+target+'\"]');if(group==='actions'&&active){var menu=qs('[data-mobile-subview-menu-group=\"actions\"]');if(menu&&menu.parentNode&&active.parentNode!==menu.parentNode)menu.parentNode.insertBefore(active,menu);}jumpTo(active);}function updateCompanyUi(){var company=getCompany();var select=byId('mobileActiveCompany');if(select&&company)select.value=company;var locked=byId('mobileCompanyLocked');var wrap=byId('mobileCompanySelectWrap');var lock=byId('mobileLockCompanyBtn');var label=byId('mobileCompanyLockedLabel');if(locked){if(company)locked.classList.remove('hidden');else locked.classList.add('hidden');}if(wrap){if(company)wrap.classList.add('hidden');else wrap.classList.remove('hidden');}if(lock){if(company)lock.classList.add('hidden');else lock.classList.remove('hidden');}if(label)label.innerHTML=company||'Choose company';qsa('[data-mobile-nav],[data-mobile-link],#mobilePendingBtn').forEach(function(btn){if(company){btn.disabled=false;btn.removeAttribute('disabled');}else{btn.disabled=true;btn.setAttribute('disabled','disabled');}});qsa('input[id$=\"Account\"]').forEach(function(input){input.value=company;});}function loadCompanies(){var select=byId('mobileActiveCompany');if(!select||select.__alienLoaded)return;select.__alienLoaded=true;var xhr=new XMLHttpRequest();xhr.open('GET','/api/app/me',true);xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;try{var data=JSON.parse(xhr.responseText||'{}');var user=data.user||{};var list=(user.assignedCompanies||[]).concat(user.inheritedCompanies||[]);var seen={};for(var i=0;i<list.length;i++){var name=String(list[i]||'').replace(/^\\s+|\\s+$/g,'');if(!name||seen[name])continue;seen[name]=true;var opt=document.createElement('option');opt.value=name;opt.text=name;select.appendChild(opt);}var saved=getCompany();if(saved)select.value=saved;updateCompanyUi();}catch(ex){updateCompanyUi();}};xhr.send();}function handleButton(btn){if(!btn)return false;if(btn.id==='mobileLockCompanyBtn'){var select=byId('mobileActiveCompany');setCompany(select?select.value:'');updateCompanyUi();return true;}if(btn.id==='mobileSwitchCompanyBtn'){setCompany('');updateCompanyUi();return true;}if(btn.id==='mobilePendingBtn'){var pp=byId('mobilePendingPanel');if(pp)pp.classList.remove('hidden');return true;}if(btn.id==='mobilePendingCloseBtn'){var pc=byId('mobilePendingPanel');if(pc)pc.classList.add('hidden');return true;}if(btn.getAttribute('data-mobile-home')!==null||btn.getAttribute('data-mobile-section-back')!==null){showPanel('mobile-home');return true;}var section=btn.getAttribute('data-mobile-nav');if(section){showPanel(section);var group=btn.getAttribute('data-mobile-subview-group');var target=btn.getAttribute('data-mobile-subview-target');if(group&&target)setSubview(group,target);return true;}var sub=btn.getAttribute('data-mobile-subview-target');if(sub){setSubview(btn.getAttribute('data-mobile-subview-btn-group')||btn.getAttribute('data-mobile-subview-group')||'actions',sub);return true;}var href=btn.getAttribute('data-mobile-link');if(href){var company=getCompany();var sep=href.indexOf('?')===-1?'?':'&';window.location.href=href+sep+'mode=mobile&device=alien'+(company?'&accountName='+encodeURIComponent(company):'');return true;}var scan=btn.getAttribute('data-action-scan-target')||btn.getAttribute('data-scan-target');if(scan){var input=byId(scan);if(input){input.removeAttribute('readonly');input.focus();if(input.select)input.select();}try{if(window.WMS365Android&&window.WMS365Android.scanBarcode){window.WMS365Android.scanBarcode(scan);return true;}}catch(ex){}return true;}return false;}var touchStartX=0,touchStartY=0,touchMoved=false,suppressNextClick=false;function rememberTouch(ev){var t=ev.touches&&ev.touches[0];if(t){touchStartX=t.clientX;touchStartY=t.clientY;touchMoved=false;}}function markTouchMove(ev){var t=ev.touches&&ev.touches[0];if(t&&(Math.abs(t.clientX-touchStartX)>12||Math.abs(t.clientY-touchStartY)>12))touchMoved=true;}function nearestButton(node){while(node&&node!==document){if(node.tagName&&node.tagName.toLowerCase()==='button')return node;node=node.parentNode;}return null;}function delegated(ev){if(ev&&ev.type==='touchend'&&touchMoved){touchMoved=false;suppressNextClick=true;setTimeout(function(){suppressNextClick=false;},350);return true;}if(ev&&ev.type==='click'&&suppressNextClick){suppressNextClick=false;return true;}var btn=nearestButton(ev.target);if(handleButton(btn)){if(ev.preventDefault)ev.preventDefault();if(ev.stopPropagation)ev.stopPropagation();return false;}return true;}showPanel('mobile-home');loadCompanies();updateCompanyUi();if(!document.__alienDelegate){document.__alienDelegate=true;document.addEventListener('touchstart',rememberTouch,true);document.addEventListener('touchmove',markTouchMove,true);document.addEventListener('click',delegated,true);document.addEventListener('touchend',delegated,true);}}" +
-            "})();";
-        evaluate(script);
+    private void showReportIssue() {
+        screen = "form";
+        final EditText details = input("Describe the issue", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        details.setMinLines(4);
+        root.removeAllViews();
+        root.addView(formLayout("Report Issue", "Tell support what happened", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(details);
+                l.addView(primaryButton("Submit Issue", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        String text = details.getText().toString().trim();
+                        if (text.length() == 0) {
+                            toast("Enter the issue details.", true);
+                            return;
+                        }
+                        queue("FEEDBACK", basePayload()
+                            .put("requestType", "BUG")
+                            .put("source", "WAREHOUSE")
+                            .put("accountName", company())
+                            .put("title", text.length() > 120 ? text.substring(0, 120) : text)
+                            .put("details", text)
+                            .put("pageName", "Alien Native Scanner")
+                            .put("appSection", "WAREHOUSE")
+                            .put("buildLabel", BuildConfig.VERSION_NAME), "Issue submitted");
+                    }
+                }));
+                l.addView(backButton());
+            }
+        }));
+        details.requestFocus();
     }
 
-    private void focusLikelyScanField() {
-        evaluate("(function(){var e=document.activeElement;if(e&&/input|textarea/i.test(e.tagName||'')){e.focus();return true;}var ids=['confirmLocation','confirmSku','locationInput','skuInput','orderSearch','scanLocation','scanUpc','scanSku','transferFrom','transferTo','transferSku','putAwayFrom','putAwayTo','putAwaySku'];for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);if(el&&el.offsetParent!==null&&!el.disabled){el.removeAttribute('readonly');el.focus();if(el.select)el.select();return true;}}return false;})();");
+    private void showOrderList() {
+        screen = "orders";
+        activeInput = null;
+        root.removeAllViews();
+        root.addView(screenLayout(new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(header("Pick Orders", "Select released work"));
+                l.addView(backButton());
+                l.addView(primaryButton("Refresh Orders", new View.OnClickListener() {
+                    @Override public void onClick(View v) { fetchOrders(); }
+                }));
+                l.addView(status("Loading released orders..."));
+            }
+        }));
+        fetchOrders();
     }
 
-    private void startNativeBarcodeScan(String targetId) {
-        pendingScanTargetId = targetId == null ? "" : targetId;
-        focusScanTarget(pendingScanTargetId);
-        hideSoftKeyboard();
-        stopNativeBarcodeScan();
+    private void fetchOrders() {
+        runAsync("Loading orders...", new Runnable() {
+            @Override public void run() {
+                try {
+                    ApiResult result = request("/api/mobile/pick-orders?accountName=" + url(company()), "GET", null);
+                    final JSONArray orders = result.json.optJSONArray("orders") == null ? new JSONArray() : result.json.optJSONArray("orders");
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { renderOrders(orders); }
+                    });
+                } catch (final Exception ex) {
+                    fail(ex);
+                }
+            }
+        });
+    }
+
+    private void renderOrders(final JSONArray orders) {
+        root.removeAllViews();
+        root.addView(screenLayout(new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(header("Pick Orders", "Select released work"));
+                l.addView(backButton());
+                l.addView(primaryButton("Refresh Orders", new View.OnClickListener() {
+                    @Override public void onClick(View v) { fetchOrders(); }
+                }));
+                if (orders.length() == 0) {
+                    l.addView(status("No released pick orders for this company."));
+                }
+                for (int i = 0; i < orders.length(); i++) {
+                    final JSONObject order = orders.optJSONObject(i);
+                    if (order == null) continue;
+                    String code = order.optString("orderCode", "Order " + order.optString("id"));
+                    l.addView(blockButton(code + "\n" + order.optString("accountName"), "Start", new View.OnClickListener() {
+                        @Override public void onClick(View v) { startOrder(order); }
+                    }));
+                }
+            }
+        }));
+    }
+
+    private void startOrder(JSONObject order) {
+        activeOrderId = order.optString("id");
+        activeTasks = buildTasks(order);
+        openNextTask();
+    }
+
+    private List<PickTask> buildTasks(JSONObject order) {
+        List<PickTask> out = new ArrayList<>();
+        JSONArray lines = order.optJSONArray("lines");
+        if (lines == null) return out;
+        int seq = 0;
+        for (int i = 0; i < lines.length(); i++) {
+            JSONObject line = lines.optJSONObject(i);
+            if (line == null) continue;
+            JSONArray locs = line.optJSONArray("pickLocations");
+            if (locs == null || locs.length() == 0) {
+                out.add(PickTask.from(order, line, null, ++seq));
+            } else {
+                for (int j = 0; j < locs.length(); j++) out.add(PickTask.from(order, line, locs.optJSONObject(j), ++seq));
+            }
+        }
+        Collections.sort(out, new Comparator<PickTask>() {
+            @Override public int compare(PickTask a, PickTask b) {
+                int loc = a.location.compareTo(b.location);
+                if (loc != 0) return loc;
+                return a.expiry.compareTo(b.expiry);
+            }
+        });
+        for (int i = 0; i < out.size(); i++) out.get(i).sequence = i + 1;
+        return out;
+    }
+
+    private void openNextTask() {
+        for (PickTask task : activeTasks) {
+            if (!task.done && !task.exception) {
+                showGoToLocation(task);
+                return;
+            }
+        }
+        showPickComplete();
+    }
+
+    private void showGoToLocation(final PickTask task) {
+        screen = "pick";
+        activeTask = task;
+        pickState = "location";
+        activeInput = null;
+        root.removeAllViews();
+        root.addView(taskLayout(task, "Go to this location", task.location.length() == 0 ? "Scan source location" : task.location, new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(primaryButton("I Am At Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        if (task.location.length() == 0) showScanLocation(task);
+                        else confirmLocation(task.location);
+                    }
+                }));
+                l.addView(secondaryButton("Scan Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showScanLocation(task); }
+                }));
+                addProblemButtons(l, task);
+            }
+        }));
+    }
+
+    private void showScanLocation(final PickTask task) {
+        screen = "pick";
+        activeTask = task;
+        pickState = "location";
+        final EditText scan = input("Scan or key location", InputType.TYPE_CLASS_TEXT);
+        root.removeAllViews();
+        root.addView(taskLayout(task, "Confirm you arrived", task.location.length() == 0 ? "Actual pick location required" : task.location, new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(scan);
+                l.addView(primaryButton("Confirm Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) { confirmLocation(scan.getText().toString()); }
+                }));
+                addProblemButtons(l, task);
+            }
+        }));
+        activeInput = scan;
+        activeInputLabel = "location";
+        scan.requestFocus();
+    }
+
+    private void showScanSku(final PickTask task) {
+        screen = "pick";
+        activeTask = task;
+        pickState = "sku";
+        final EditText scan = input("Scan SKU / UPC", InputType.TYPE_CLASS_TEXT);
+        root.removeAllViews();
+        root.addView(taskLayout(task, "Pick this item", task.sku, new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(field("Description", task.description.length() == 0 ? "No description" : task.description));
+                l.addView(scan);
+                l.addView(primaryButton("Confirm SKU", new View.OnClickListener() {
+                    @Override public void onClick(View v) { confirmSku(scan.getText().toString()); }
+                }));
+                addProblemButtons(l, task);
+            }
+        }));
+        activeInput = scan;
+        activeInputLabel = "sku";
+        scan.requestFocus();
+    }
+
+    private void showQty(final PickTask task) {
+        screen = "pick";
+        activeTask = task;
+        pickState = "qty";
+        activeInput = null;
+        final EditText qty = input("Picked Qty", InputType.TYPE_CLASS_NUMBER);
+        qty.setText(String.valueOf(task.remaining()));
+        qty.setGravity(Gravity.CENTER);
+        qty.setTextSize(28);
+        root.removeAllViews();
+        root.addView(taskLayout(task, "Confirm picked quantity", task.remaining() + " required", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(field("Available", String.valueOf(task.availableQty)));
+                l.addView(qty);
+                l.addView(primaryButton("Confirm Pick", new View.OnClickListener() {
+                    @Override public void onClick(View v) { confirmPick(intValue(qty), false); }
+                }));
+                l.addView(secondaryButton("Short Pick / Not Enough Stock", new View.OnClickListener() {
+                    @Override public void onClick(View v) { confirmPick(intValue(qty), true); }
+                }));
+                addProblemButtons(l, task);
+            }
+        }));
+        qty.requestFocus();
+    }
+
+    private void confirmLocation(String value) {
+        if (activeTask == null) return;
+        String scanned = normalize(value);
+        String expected = normalize(activeTask.location);
+        if (expected.length() > 0 && !expected.equals(scanned)) {
+            error();
+            toast("Wrong location. Expected " + activeTask.location, true);
+            return;
+        }
+        String key = key("arrival");
+        queueOnly("PICK_ARRIVAL", basePayload()
+            .put("orderId", activeTask.orderId)
+            .put("sourceType", "PORTAL_ORDER")
+            .put("sourceId", activeTask.orderId)
+            .put("lineId", activeTask.lineId)
+            .put("accountName", activeTask.accountName)
+            .put("location", activeTask.location.length() == 0 ? value.trim() : activeTask.location)
+            .put("idempotencyKey", key));
+        showScanSku(activeTask);
+        syncQueue(false);
+    }
+
+    private void confirmSku(String value) {
+        if (activeTask == null) return;
+        String scanned = normalize(value);
+        if (!normalize(activeTask.sku).equals(scanned) && (activeTask.upc.length() == 0 || !normalize(activeTask.upc).equals(scanned))) {
+            error();
+            toast("Wrong item. Expected " + activeTask.sku, true);
+            return;
+        }
+        showQty(activeTask);
+    }
+
+    private void confirmPick(int qty, boolean shortPick) {
+        if (activeTask == null) return;
+        if (qty <= 0 || qty > activeTask.remaining()) {
+            error();
+            toast("Check picked quantity.", true);
+            return;
+        }
+        queueOnly("PICK_CONFIRMATION", basePayload()
+            .put("orderId", activeTask.orderId)
+            .put("sourceType", "PORTAL_ORDER")
+            .put("sourceId", activeTask.orderId)
+            .put("lineId", activeTask.lineId)
+            .put("accountName", activeTask.accountName)
+            .put("location", activeTask.location)
+            .put("sku", activeTask.sku)
+            .put("skuOrUpc", activeTask.sku)
+            .put("quantity", qty)
+            .put("lot", activeTask.lot)
+            .put("expiry", activeTask.expiry)
+            .put("idempotencyKey", key("pick")));
+        activeTask.pickedQty += qty;
+        if (shortPick || activeTask.pickedQty < activeTask.requiredQty) {
+            activeTask.exception = true;
+            queueOnly("PICK_EXCEPTION", basePayload()
+                .put("orderId", activeTask.orderId)
+                .put("sourceType", "PORTAL_ORDER")
+                .put("sourceId", activeTask.orderId)
+                .put("lineId", activeTask.lineId)
+                .put("accountName", activeTask.accountName)
+                .put("location", activeTask.location)
+                .put("sku", activeTask.sku)
+                .put("quantity", qty)
+                .put("reason", "SHORT_PICK")
+                .put("note", "Alien worker short picked " + qty + " of " + activeTask.requiredQty)
+                .put("idempotencyKey", key("short-pick")));
+        } else {
+            activeTask.done = true;
+        }
+        success();
+        syncQueue(false);
+        openNextTask();
+    }
+
+    private void reportException(PickTask task, String reason) {
+        task.exception = true;
+        queueOnly("PICK_EXCEPTION", basePayload()
+            .put("orderId", task.orderId)
+            .put("sourceType", "PORTAL_ORDER")
+            .put("sourceId", task.orderId)
+            .put("lineId", task.lineId)
+            .put("accountName", task.accountName)
+            .put("location", task.location)
+            .put("sku", task.sku)
+            .put("quantity", task.remaining())
+            .put("reason", reason)
+            .put("idempotencyKey", key("exception")));
+        syncQueue(false);
+        openNextTask();
+    }
+
+    private void showPickComplete() {
+        screen = "complete";
+        int exceptions = 0;
+        for (PickTask task : activeTasks) if (task.exception) exceptions++;
+        final int finalExceptions = exceptions;
+        root.removeAllViews();
+        root.addView(screenLayout(new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(header("Picking Complete", activeOrderId));
+                l.addView(banner(finalExceptions > 0 ? "Needs Review" : "Ready to Pack", finalExceptions > 0 ? finalExceptions + " exception(s)" : "All picks confirmed", finalExceptions > 0 ? YELLOW : GREEN));
+                l.addView(primaryButton("Sync Now", new View.OnClickListener() {
+                    @Override public void onClick(View v) { syncQueue(true); }
+                }));
+                l.addView(secondaryButton("Choose Another Order", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showOrderList(); }
+                }));
+                l.addView(secondaryButton("Home", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showHome(); }
+                }));
+            }
+        }));
+    }
+
+    private void handleScan(String value) {
+        if (value == null || value.trim().length() == 0) return;
+        value = value.trim();
+        if ("pick".equals(screen)) {
+            if ("location".equals(pickState)) confirmLocation(value);
+            else if ("sku".equals(pickState)) confirmSku(value);
+            else toast("Scan received: " + value, false);
+            return;
+        }
+        if (activeInput != null) {
+            activeInput.setText(value);
+            activeInput.setSelection(activeInput.getText().length());
+            toast("Scanned " + (activeInputLabel.length() == 0 ? "value" : activeInputLabel), false);
+        } else {
+            toast("Scan received: " + value, false);
+        }
+    }
+
+    private void queue(String type, JSONObject payload, String message) {
+        queueOnly(type, payload);
+        success();
+        toast(message + ". Syncing...", false);
+        syncQueue(false);
+        showHome();
+    }
+
+    private void queueOnly(String type, JSONObject payload) {
+        try {
+            if (!payload.has("idempotencyKey")) payload.put("idempotencyKey", key(type.toLowerCase(Locale.US)));
+            payload.put("deviceId", deviceId());
+            payload.put("source", "alien_native");
+            payload.put("clientTimestamp", System.currentTimeMillis());
+            JSONObject item = new JSONObject()
+                .put("type", type)
+                .put("payload", payload)
+                .put("createdAt", System.currentTimeMillis());
+            JSONArray arr = outbox();
+            arr.put(item);
+            prefs.edit().putString(KEY_OUTBOX, arr.toString()).apply();
+        } catch (Exception ex) {
+            toast(ex.getMessage(), true);
+        }
+    }
+
+    private void syncQueue(final boolean announce) {
+        if (cookie().length() == 0) return;
+        runAsync(announce ? "Syncing..." : "", new Runnable() {
+            @Override public void run() {
+                try {
+                    JSONArray arr = outbox();
+                    JSONArray remaining = new JSONArray();
+                    int sent = 0;
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject item = arr.optJSONObject(i);
+                        if (item == null) continue;
+                        try {
+                            request(apiPath(item.optString("type")), "POST", item.optJSONObject("payload"));
+                            sent++;
+                        } catch (Exception ex) {
+                            remaining.put(item);
+                        }
+                    }
+                    prefs.edit().putString(KEY_OUTBOX, remaining.toString()).apply();
+                    if (announce) {
+                        final String msg = "Sent " + sent + ", pending " + remaining.length();
+                        runOnUiThread(new Runnable() { @Override public void run() { toast(msg, false); showHome(); } });
+                    }
+                } catch (Exception ex) {
+                    if (announce) fail(ex);
+                }
+            }
+        });
+    }
+
+    private String apiPath(String type) {
+        if ("PICK_ARRIVAL".equals(type)) return "/api/mobile/pick-arrivals";
+        if ("PICK_CONFIRMATION".equals(type)) return "/api/mobile/pick-confirmations";
+        if ("PICK_EXCEPTION".equals(type)) return "/api/mobile/pick-exceptions";
+        if ("PUT_AWAY".equals(type)) return "/api/mobile/put-away-confirmations";
+        if ("MOVE".equals(type)) return "/api/mobile/move-confirmations";
+        if ("RECEIVING".equals(type)) return "/api/mobile/receiving-confirmations";
+        if ("INVENTORY_COUNT".equals(type)) return "/api/inventory-counts";
+        if ("PALLET_LABEL".equals(type)) return "/api/pallets/save";
+        if ("FEEDBACK".equals(type)) return "/api/app/feedback";
+        return "/api/app/feedback";
+    }
+
+    private J basePayload() {
+        return new J()
+            .put("accountName", company())
+            .put("deviceId", deviceId())
+            .put("source", "alien_native");
+    }
+
+    private ApiResult request(String path, String method, JSONObject body) throws Exception {
+        HttpURLConnection con = (HttpURLConnection) new URL(BuildConfig.WMS365_BASE_URL + path).openConnection();
+        con.setRequestMethod(method);
+        con.setConnectTimeout(15000);
+        con.setReadTimeout(90000);
+        con.setRequestProperty("Accept", "application/json");
+        con.setRequestProperty("Content-Type", "application/json");
+        con.setRequestProperty("X-WMS365-Mobile-Source", "alien_native");
+        if (cookie().length() > 0) con.setRequestProperty("Cookie", cookie());
+        if (body != null) {
+            con.setDoOutput(true);
+            OutputStream os = con.getOutputStream();
+            os.write(body.toString().getBytes("UTF-8"));
+            os.close();
+        }
+        int status = con.getResponseCode();
+        BufferedReader br = new BufferedReader(new InputStreamReader(status >= 200 && status < 300 ? con.getInputStream() : con.getErrorStream(), "UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = br.readLine()) != null) sb.append(line);
+        br.close();
+        JSONObject json = sb.length() == 0 ? new JSONObject() : new JSONObject(sb.toString());
+        String cookie = "";
+        List<String> cookies = con.getHeaderFields().get("Set-Cookie");
+        if (cookies != null) {
+            List<String> parts = new ArrayList<>();
+            for (String c : cookies) {
+                if (c != null && c.indexOf(';') > 0) parts.add(c.substring(0, c.indexOf(';')));
+            }
+            cookie = join(parts, "; ");
+        }
+        if (status < 200 || status >= 300) {
+            throw new Exception(json.optString("error", json.optString("message", "HTTP " + status)));
+        }
+        return new ApiResult(json, cookie);
+    }
+
+    private void configureScanner() {
+        try {
+            BarcodeUtility.getInstance().open(this, ModuleType.BARCODE_2D);
+        } catch (Throwable ignored) {
+        }
         try {
             if (barcodeReader == null) barcodeReader = new BarcodeReader(this);
-            barcodeReader.setAllSymbologies(true);
-            barcodeScanActive = true;
-            barcodeReader.start(new BarcodeCallback() {
-                @Override
-                public void onBarcodeRead(String barcode) {
-                    Log.d(TAG, "Direct SDK barcode callback received.");
-                    handleNativeBarcode(barcode);
-                }
-            });
-            triggerBarcodeUtilityScan();
-            handler.postDelayed(() -> {
-                if (barcodeScanActive) {
-                    stopNativeBarcodeScan();
-                    Toast.makeText(MainActivity.this, "Scan timed out.", Toast.LENGTH_SHORT).show();
-                }
-            }, 12000);
-            Log.d(TAG, "Native scanner started for target=" + pendingScanTargetId);
-            Toast.makeText(this, "Scanning...", Toast.LENGTH_SHORT).show();
-        } catch (Throwable scannerError) {
-            Log.e(TAG, "Native scanner failed.", scannerError);
-            barcodeScanActive = false;
-            Toast.makeText(this, "Scanner unavailable. Use trigger/key in.", Toast.LENGTH_LONG).show();
+        } catch (Throwable ignored) {
         }
     }
 
-    private void stopNativeBarcodeScan() {
-        barcodeScanActive = false;
+    private void startBarcodeScan() {
+        hideKeyboard();
+        try {
+            configureScanner();
+            if (barcodeReader == null) throw new IllegalStateException("Scanner not available.");
+            barcodeReader.start(new BarcodeCallback() {
+                @Override public void onBarcodeRead(String value) { handleScan(value); }
+            });
+        } catch (Throwable ex) {
+            toast("Scanner trigger ready. Scan or key in value.", false);
+        }
+    }
+
+    private void stopBarcodeScan() {
         try {
             if (barcodeReader != null) barcodeReader.stop();
         } catch (Throwable ignored) {
         }
-        try {
-            BarcodeUtility.getInstance().stopScan(getApplicationContext(), ModuleType.AUTOMATIC_ADAPTATION);
-        } catch (Throwable ignored) {
-        }
     }
 
-    private void configureBarcodeUtility() {
-        try {
-            BarcodeUtility utility = BarcodeUtility.getInstance();
-            Context context = getApplicationContext();
-            utility.open(context, ModuleType.AUTOMATIC_ADAPTATION);
-            utility.openKeyboardHelper(context);
-            utility.setScanOutTime(context, 8000);
-            utility.enablePlaySuccessSound(context, true);
-            utility.enablePlayFailureSound(context, true);
-            utility.enableVibrate(context, true);
-            utility.enableEnter(context, true);
-            utility.enableTAB(context, false);
-            utility.setScanResultBroadcast(context, SCAN_RESULT_ACTION, SCAN_RESULT_EXTRA);
-            utility.setOutputMode(context, 1);
-            Log.d(TAG, "Barcode utility configured for keyboard-wedge scan results.");
-        } catch (Throwable error) {
-            Log.e(TAG, "Barcode utility configuration failed.", error);
-        }
+    private void registerReceivers() {
+        if (receiversRegistered) return;
+        IntentFilter f = new IntentFilter();
+        f.addAction("com.wms365.alien.SCAN_RESULT");
+        f.addAction("android.intent.action.SCAN_RESULT");
+        f.addAction("android.intent.action.SCANRESULT");
+        f.addAction("com.scanner.broadcast");
+        f.addAction("scan.rcv.message");
+        f.addAction("com.symbol.datawedge.api.RESULT_ACTION");
+        registerReceiver(scannerReceiver, f);
+        receiversRegistered = true;
     }
 
-    private void triggerBarcodeUtilityScan() {
-        try {
-            configureBarcodeUtility();
-            BarcodeUtility.getInstance().startScan(getApplicationContext(), ModuleType.AUTOMATIC_ADAPTATION);
-            Log.d(TAG, "Barcode utility startScan sent.");
-        } catch (Throwable error) {
-            Log.e(TAG, "Barcode utility startScan failed.", error);
-        }
+    private void unregisterReceivers() {
+        if (!receiversRegistered) return;
+        try { unregisterReceiver(scannerReceiver); } catch (Throwable ignored) {}
+        receiversRegistered = false;
     }
 
-    private void hideSoftKeyboard() {
-        try {
-            InputMethodManager inputMethodManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            View view = getCurrentFocus();
-            if (inputMethodManager != null && view != null) {
-                inputMethodManager.hideSoftInputFromWindow(view.getWindowToken(), 0);
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void focusScanTarget(String targetId) {
-        final String id = targetId == null ? "" : targetId;
-        evaluate("(function(){var el=document.getElementById(" + jsString(id) + ");if(!el){var e=document.activeElement;if(e&&/input|textarea/i.test(e.tagName||''))el=e;}if(el){el.removeAttribute('readonly');el.focus();if(el.select)el.select();}return true;})();");
-        handler.postDelayed(this::hideSoftKeyboard, 350);
-    }
-
-    private String extractScannerValue(Intent intent) {
+    private String extractScan(Intent intent) {
         if (intent == null) return "";
-        String[] keys = {
-            SCAN_RESULT_EXTRA,
-            "data",
-            "barcode",
-            "barocode",
-            "value",
-            "scan_result",
-            "SCAN_RESULT",
-            "SCAN_BARCODE1",
-            "scannerdata",
-            "com.symbol.datawedge.data_string"
-        };
-        for (String key : keys) {
-            String value = intent.getStringExtra(key);
-            if (value != null && value.trim().length() > 0) return value;
+        String[] keys = new String[] {"barcode", "data", "value", "scan_result", "barcode_string", "com.symbol.datawedge.data_string"};
+        for (String k : keys) {
+            String v = intent.getStringExtra(k);
+            if (v != null && v.trim().length() > 0) return v.trim();
+        }
+        Bundle extras = intent.getExtras();
+        if (extras != null) {
+            for (String k : extras.keySet()) {
+                Object raw = extras.get(k);
+                if (raw instanceof String && ((String) raw).trim().length() > 0) return ((String) raw).trim();
+                if (raw instanceof byte[]) return new String((byte[]) raw).trim();
+            }
         }
         return "";
     }
 
-    private boolean looksLikeBadScan(String value) {
-        if (value == null) return true;
-        String clean = value.trim();
-        if (clean.length() == 0) return true;
-        int lettersOrNumbers = 0;
-        for (int i = 0; i < clean.length(); i++) {
-            if (Character.isLetterOrDigit(clean.charAt(i))) lettersOrNumbers++;
-        }
-        return lettersOrNumbers < 2;
+    private ScrollView screenLayout(Builder builder) {
+        LinearLayout l = baseLinear();
+        builder.build(l);
+        ScrollView s = new ScrollView(this);
+        s.addView(l, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return s;
     }
 
-    private void handleNativeBarcode(String barcode) {
-        final String value = barcode == null ? "" : barcode.trim();
-        if (looksLikeBadScan(value)) {
-            Log.w(TAG, "Ignoring invalid scanner output length=" + value.length());
-            Toast.makeText(this, "Bad scan. Aim at the barcode and try again.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (!value.isEmpty()) {
-            try {
-                Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-                if (vibrator != null) vibrator.vibrate(60);
-            } catch (Throwable ignored) {
+    private ScrollView formLayout(String title, String instruction, Builder builder) {
+        LinearLayout l = baseLinear();
+        l.addView(header(title, "Native Alien workflow"));
+        l.addView(banner(instruction, company(), BLUE));
+        builder.build(l);
+        ScrollView s = new ScrollView(this);
+        s.addView(l, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return s;
+    }
+
+    private ScrollView taskLayout(PickTask task, String instruction, String focus, Builder builder) {
+        LinearLayout l = baseLinear();
+        int done = 0;
+        for (PickTask t : activeTasks) if (t.done || t.exception) done++;
+        l.addView(header(task.orderCode, "Step " + task.sequence + " of " + activeTasks.size() + " | " + done + " done"));
+        l.addView(banner(instruction, focus, BLUE));
+        l.addView(field("Required", String.valueOf(task.requiredQty)));
+        builder.build(l);
+        l.addView(secondaryButton("Back to Orders", new View.OnClickListener() {
+            @Override public void onClick(View v) { showOrderList(); }
+        }));
+        ScrollView s = new ScrollView(this);
+        s.addView(l, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return s;
+    }
+
+    private LinearLayout baseLinear() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(12, 12, 12, 12);
+        l.setBackgroundColor(BG);
+        return l;
+    }
+
+    private View header(String title, String sub) {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(0, 0, 0, 10);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(22);
+        t.setTextColor(TEXT);
+        t.setTypeface(null, 1);
+        l.addView(t);
+        TextView s = new TextView(this);
+        s.setText(sub);
+        s.setTextSize(13);
+        s.setTextColor(MUTED);
+        l.addView(s);
+        return l;
+    }
+
+    private View banner(String title, String value, int color) {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(14, 12, 14, 12);
+        l.setBackgroundColor(color);
+        l.setLayoutParams(margins());
+        TextView t = new TextView(this);
+        t.setText(title.toUpperCase(Locale.US));
+        t.setTextSize(15);
+        t.setTextColor(Color.WHITE);
+        t.setTypeface(null, 1);
+        l.addView(t);
+        TextView v = new TextView(this);
+        v.setText(value);
+        v.setTextSize(value.length() <= 16 ? 34 : 24);
+        v.setTextColor(Color.WHITE);
+        v.setTypeface(null, 1);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(0, 10, 0, 4);
+        l.addView(v);
+        return l;
+    }
+
+    private EditText input(String hint, int type) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setInputType(type);
+        e.setTextSize(18);
+        e.setSingleLine((type & InputType.TYPE_TEXT_FLAG_MULTI_LINE) == 0);
+        e.setMinHeight(60);
+        e.setPadding(14, 8, 14, 8);
+        e.setLayoutParams(margins());
+        return e;
+    }
+
+    private Button primaryButton(String text, View.OnClickListener listener) {
+        return button(text, GREEN, Color.WHITE, listener);
+    }
+
+    private Button secondaryButton(String text, View.OnClickListener listener) {
+        return button(text, Color.WHITE, TEXT, listener);
+    }
+
+    private Button backButton() {
+        return secondaryButton("Back", new View.OnClickListener() {
+            @Override public void onClick(View v) { showHome(); }
+        });
+    }
+
+    private Button blockButton(String title, String action, View.OnClickListener listener) {
+        Button b = button(title + "\n" + action, Color.WHITE, TEXT, listener);
+        b.setMinHeight(96);
+        b.setGravity(Gravity.CENTER_VERTICAL);
+        return b;
+    }
+
+    private Button scanButton(String text, final EditText target, final String label) {
+        return secondaryButton(text, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                activeInput = target;
+                activeInputLabel = label;
+                target.requestFocus();
+                startBarcodeScan();
             }
-        }
-        evaluate(
-            "(function(){var target=" + jsString(pendingScanTargetId) + ";" +
-            "var value=" + jsString(value) + ";" +
-            "function clean(v){return String(v||'').replace(/[\\u0000-\\u001f\\u007f]/g,'').replace(/^\\s+|\\s+$/g,'').toUpperCase();}" +
-            "function visibleId(id){var n=document.getElementById(id);return !!(n&&!n.disabled&&!n.closest('.hidden')&&n.offsetParent!==null);}" +
-            "function resolveTarget(requested){requested=String(requested||'').replace(/^\\s+|\\s+$/g,'');var active=(document.activeElement&&document.activeElement.id)||'';var fields=['orderSearch','confirmLocation','confirmSku','confirmLot','confirmExpiration','locationInput','skuInput','lotInput','expirationInput','mobileQuickInboundReference','mobileQuickInboundSku'];if(fields.indexOf(requested)>=0&&visibleId(requested))return requested;if(fields.indexOf(active)>=0&&visibleId(active))return active;var pick=document.getElementById('pickCard');var activePick=pick&&!pick.classList.contains('hidden');if(activePick){if(visibleId('confirmLocation')&&!clean((document.getElementById('confirmLocation')||{}).value))return 'confirmLocation';if(visibleId('confirmSku')&&!clean((document.getElementById('confirmSku')||{}).value))return 'confirmSku';if(visibleId('confirmLot')&&!clean((document.getElementById('confirmLot')||{}).value))return 'confirmLot';if(visibleId('confirmExpiration')&&!clean((document.getElementById('confirmExpiration')||{}).value))return 'confirmExpiration';return visibleId('confirmSku')?'confirmSku':'confirmLocation';}if(visibleId('locationInput')&&!clean((document.getElementById('locationInput')||{}).value))return 'locationInput';if(visibleId('skuInput')&&!clean((document.getElementById('skuInput')||{}).value))return 'skuInput';if(visibleId('orderSearch'))return 'orderSearch';return requested;}" +
-            "target=resolveTarget(target);" +
-            "if(window.wms365ReceiveAndroidScan&&(location.pathname||'').indexOf('/mobile-')===0){window.wms365ReceiveAndroidScan(target,value);return;}" +
-            "var el=target?document.getElementById(target):null;" +
-            "if(!el){var e=document.activeElement;if(e&&/input|textarea/i.test(e.tagName||''))el=e;}" +
-            "if(el){el.removeAttribute('readonly');el.focus();el.value=value;" +
-            "['input','change'].forEach(function(name){var ev=document.createEvent('HTMLEvents');ev.initEvent(name,true,false);el.dispatchEvent(ev);});" +
-            "try{var kev;if(typeof KeyboardEvent==='function'){kev=new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true});}else{kev=document.createEvent('HTMLEvents');kev.initEvent('keydown',true,true);kev.keyCode=13;kev.which=13;}el.dispatchEvent(kev);}catch(enterEx){}" +
-            "var id=el.id||'';function visible(next){return next&&next.offsetParent!==null&&!next.disabled;}function firstVisible(ids){for(var i=0;i<ids.length;i++){var n=document.getElementById(ids[i]);if(visible(n))return n;}return null;}function go(next){if(visible(next)){setTimeout(function(){next.focus();if(next.scrollIntoView)next.scrollIntoView(true);},60);}}" +
-            "if(id==='confirmLocation')go(document.getElementById('confirmSku'));" +
-            "else if(id==='confirmSku')go(firstVisible(['confirmLot','confirmExpiration','confirmQty','confirmPickBtn']));" +
-            "else if(id==='confirmLot')go(firstVisible(['confirmExpiration','confirmQty','confirmPickBtn']));" +
-            "else if(id==='confirmExpiration')go(document.getElementById('confirmQty'));" +
-            "else if(id==='confirmQty'){var btn=document.getElementById('confirmPickBtn');if(btn)setTimeout(function(){btn.click();},80);}" +
-            "}" +
-            "if(window.WMS365Android&&window.WMS365Android.vibrate)window.WMS365Android.vibrate(60);" +
-            "})();"
-        );
-        stopNativeBarcodeScan();
+        });
     }
 
-    private void injectAlienLegacyPageShims() {
-        String script =
-            "(function(){" +
-            "var s=document.getElementById('wms365-alien-final-style');if(!s){s=document.createElement('style');s.id='wms365-alien-final-style';document.head.appendChild(s);}" +
-            "s.textContent='body.device-alien-legacy .hidden,body.device-alien-legacy .desktop-only,body.device-alien-legacy .desktop-complex,body.device-alien-legacy .hero,body.device-alien-legacy .tabbar,body.device-alien-legacy .desktop-nav,body.device-alien-legacy .desktop-factbox{display:none!important}body.device-alien-legacy .mobile-drill-menu:not(.active),body.device-alien-legacy .mobile-drill-card:not(.active),body.device-alien-legacy .mobile-subview:not(.active){display:none!important}body.device-alien-legacy .mobile-subview.active,body.device-alien-legacy .mobile-drill-card.active{display:block!important}body.device-alien-legacy .locked{display:block!important}body.device-alien-legacy .locked.hidden{display:none!important}body.device-alien-legacy .locked-actions{display:block!important;margin-top:8px!important}body.device-alien-legacy .locked-actions button,body.device-alien-legacy .locked-actions .btn{display:block!important;width:100%!important;margin:0 0 8px 0!important;text-align:center!important}body.device-alien-legacy .scan-row{display:block!important}body.device-alien-legacy #orderPickerWrap .order-toolbar{margin-top:4px!important}body.device-alien-legacy #orderPickerWrap .order-toolbar h2{font-size:24px!important;line-height:1!important}body.device-alien-legacy #orderPickerWrap #refreshBtn{min-height:48px!important;font-size:22px!important;padding:8px 14px!important}body.device-alien-legacy #orderPickerWrap .order-search{display:grid!important;grid-template-columns:1fr!important;gap:6px!important;margin-top:6px!important}body.device-alien-legacy #orderPickerWrap #orderSearch{min-height:54px!important;font-size:22px!important;margin:0!important}body.device-alien-legacy #orderPickerWrap .order-search button{min-height:54px!important;margin:0!important}body.device-alien-legacy #orderPickerWrap #orderCounts{margin-top:6px!important;font-size:18px!important}body.device-alien-legacy #orderPickerWrap #pendingOrderList{margin-top:6px!important}body.device-alien-legacy #orderPickerWrap .order-row,body.device-alien-legacy #orderPickerWrap a.order-row,body.device-alien-legacy #orderPickerWrap button[data-alien-order]{display:block!important;text-decoration:none!important;width:100%!important;min-height:82px!important;margin:0 0 7px 0!important;padding:10px 12px!important;font-size:19px!important;text-align:left!important;background:#fff!important;color:#20303a!important;border:2px solid #b7c9d5!important;border-radius:8px!important}body.device-alien-legacy #orderPickerWrap .order-row strong,body.device-alien-legacy #orderPickerWrap button[data-alien-order] strong{display:block!important;font-size:23px!important;line-height:1.05!important}body.device-alien-legacy #orderPickerWrap .order-row span,body.device-alien-legacy #orderPickerWrap .order-row small{display:block!important;font-size:15px!important;line-height:1.15!important}body.device-alien-legacy #lockedCompanyWrap{padding:6px 8px!important;margin:0 0 6px 0!important}body.device-alien-legacy #lockedCompanyWrap strong{font-size:22px!important}body.device-alien-legacy #lockedCompanyWrap span{font-size:12px!important}body.device-alien-legacy #lockedCompanyWrap .locked-actions button{min-height:42px!important;font-size:18px!important;margin:0 0 5px 0!important;padding:6px 10px!important}';" +
-            "function id(x){return document.getElementById(x);}function qs(x){return document.querySelector(x);}function qsa(x){return Array.prototype.slice.call(document.querySelectorAll(x));}function norm(v){return String(v||'').replace(/^\\s+|\\s+$/g,'');}function esc(v){return String(v||'').replace(/[&<>\\\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'}[c];});}" +
-            "function urlCompany(){try{var m=(location.search||'').match(/[?&](accountName|account_name)=([^&]+)/);return m&&m[2]?decodeURIComponent(m[2].replace(/\\+/g,' ')):'';}catch(e){return '';}}" +
-            "function getCompany(){try{var c=localStorage.getItem('wms365-mobile-company-context')||localStorage.getItem('wms365_inventory_count_company')||urlCompany()||'';if(c){localStorage.setItem('wms365-mobile-company-context',c);localStorage.setItem('wms365_inventory_count_company',c);}return c;}catch(e){return urlCompany()||'';}}" +
-            "function setCompany(v){v=norm(v);try{if(v){localStorage.setItem('wms365-mobile-company-context',v);localStorage.setItem('wms365_inventory_count_company',v);}else{localStorage.removeItem('wms365-mobile-company-context');localStorage.removeItem('wms365_inventory_count_company');}}catch(e){}return v;}" +
-            "function xhr(method,url,body,cb){var r=new XMLHttpRequest();r.open(method,url,true);r.setRequestHeader('Content-Type','application/json');r.onreadystatechange=function(){if(r.readyState!==4)return;var data={};try{data=JSON.parse(r.responseText||'{}');}catch(e){}cb(r.status>=200&&r.status<300,data,r.status);};r.send(body?JSON.stringify(body):null);}" +
-            "function goMenu(){var c=getCompany();location.href='/mobile?mode=mobile&device=alien'+(c?'&accountName='+encodeURIComponent(c):'');}" +
-            "function bindButton(el,fn){if(!el||el.__alienBound)return;el.__alienBound=true;el.onclick=function(e){if(e&&e.preventDefault)e.preventDefault();fn();return false;};el.ontouchend=function(e){if(e&&e.preventDefault)e.preventDefault();fn();return false;};}" +
-            "function bindScans(){qsa('[data-scan-target],[data-action-scan-target]').forEach(function(b){bindButton(b,function(){var target=b.getAttribute('data-scan-target')||b.getAttribute('data-action-scan-target');var input=id(target);if(input){input.removeAttribute('readonly');input.focus();if(input.select)input.select();}try{if(window.WMS365Android&&window.WMS365Android.scanBarcode){window.WMS365Android.scanBarcode(target);return;}}catch(ex){}});b.innerHTML='Scan';});}" +
-            "function loadCompanyOptions(select,done){if(!select){if(done)done([]);return;}xhr('GET','/api/app/me',null,function(ok,data){var user=data.user||{};var list=(user.assignedCompanies||[]).concat(user.inheritedCompanies||[]);var seen={},names=[];for(var i=0;i<list.length;i++){var n=norm(list[i]);if(n&&!seen[n]){seen[n]=true;names.push(n);}}names.sort();var html='<option value=\"\">Choose company</option>';for(var j=0;j<names.length;j++)html+='<option value=\"'+esc(names[j])+'\">'+esc(names[j])+'</option>';select.innerHTML=html;var saved=getCompany();if(saved)select.value=saved;if(done)done(names);});}" +
-            "function customizeAlienMenu(){var stack=qs('#mobileHomePanel .menu-stack');if(!stack||stack.__alienCustom)return;stack.__alienCustom=true;stack.innerHTML='<div class=\"mobile-menu-group alien-worker-menu\"><p class=\"mobile-menu-group-title\">Alien Scanner Tasks</p><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-link=\"/mobile-pick\"><span class=\"menu-card-title\">Pending Work</span></button><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-link=\"/mobile-pick\"><span class=\"menu-card-title\">Picking</span></button><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-nav=\"inbounds\"><span class=\"menu-card-title\">Receiving</span></button><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-nav=\"actions\" data-mobile-subview-group=\"actions\" data-mobile-subview-target=\"putaway\"><span class=\"menu-card-title\">Putaway</span></button><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-link=\"/mobile-count\"><span class=\"menu-card-title\">Inventory Count</span></button><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-nav=\"search\"><span class=\"menu-card-title\">Lookup SKU / BIN</span></button><button class=\"btn menu-card-btn\" type=\"button\" data-mobile-nav=\"actions\" data-mobile-subview-group=\"actions\" data-mobile-subview-target=\"transfer\"><span class=\"menu-card-title\">Move Item</span></button></div>';}" +
-            "function installCount(){if(!id('companyStep')||!id('countStep')||window.__alienCountShim)return;window.__alienCountShim=true;document.body.classList.add('device-alien-legacy');var account=id('accountSelect'),companyStep=id('companyStep'),countStep=id('countStep'),locked=id('lockedCompanyLabel'),msg=id('message'),companyMsg=id('companyMessage');function render(){var c=getCompany();if(locked)locked.innerHTML=c||'-';if(companyStep)companyStep.className=c?'card stack hidden':'card stack';if(countStep)countStep.className=c?'card stack':'card stack hidden';if(account&&c)account.value=c;if(c&&id('locationInput')&&(!document.activeElement||document.activeElement===document.body))setTimeout(function(){id('locationInput').focus();},250);}function nextField(){var active=document.activeElement&&document.activeElement.id;if(active==='locationInput'&&id('skuInput'))id('skuInput').focus();else if(active==='skuInput'&&id('casesInput'))id('casesInput').focus();else if(active==='lotInput'&&id('expirationInput'))id('expirationInput').focus();else if(active==='expirationInput'&&id('casesInput'))id('casesInput').focus();else if(active==='casesInput'&&id('saveBtn'))id('saveBtn').focus();}loadCompanyOptions(account,render);bindButton(id('lockCompanyBtn'),function(){var c=setCompany(account?account.value:'');if(!c&&companyMsg){companyMsg.className='status bad';companyMsg.innerHTML='Choose a company first.';}render();});bindButton(id('switchCompanyBtn'),function(){setCompany('');render();});bindButton(id('menuBtn'),goMenu);bindButton(id('companyMenuBtn'),goMenu);bindButton(id('clearBtn'),function(){if(id('skuInput'))id('skuInput').value='';if(id('casesInput'))id('casesInput').value='';if(msg)msg.innerHTML='Ready for next SKU.';if(id('skuInput'))id('skuInput').focus();});bindButton(id('anotherSkuBtn'),function(){if(id('skuInput'))id('skuInput').value='';if(id('casesInput'))id('casesInput').value='';if(id('skuInput'))id('skuInput').focus();});bindButton(id('nextLocationBtn'),function(){if(id('locationInput'))id('locationInput').value='';if(id('skuInput'))id('skuInput').value='';if(id('casesInput'))id('casesInput').value='';if(id('locationInput'))id('locationInput').focus();});bindButton(id('saveBtn'),function(){var body={accountName:getCompany(),location:norm(id('locationInput')&&id('locationInput').value),sku:norm(id('skuInput')&&id('skuInput').value),countedCases:parseInt(id('casesInput')&&id('casesInput').value,10)||0,lotNumber:norm(id('lotInput')&&id('lotInput').value),expirationDate:norm(id('expirationInput')&&id('expirationInput').value),source:'android_app'};if(!body.accountName||!body.location||!body.sku||body.countedCases<0){if(msg){msg.className='status bad';msg.innerHTML='Company, location, SKU, and quantity are required.';}return;}if(msg){msg.className='status';msg.innerHTML='Saving count...';}xhr('POST','/api/inventory-counts',body,function(ok,data){if(msg){msg.className=ok?'status good':'status bad';msg.innerHTML=ok?'Count saved.':(data.error||'Count save failed.');}var p=id('afterSavePrompt');if(p&&ok)p.className='prompt';});});if(!document.__alienCountEnter){document.__alienCountEnter=true;document.addEventListener('keydown',function(e){var key=e.keyCode||e.which;if(key===13){if(e.preventDefault)e.preventDefault();nextField();return false;}},true);}bindScans();render();}" +
-            "function installPick(){if(!id('companyPickerWrap')||!id('orderPickerWrap')||window.__alienPickShim)return;window.__alienPickShim=true;document.body.classList.add('device-alien-legacy');var select=id('companySelect'),locked=id('lockedCompanyWrap'),label=id('lockedCompanyLabel'),picker=id('companyPickerWrap'),orders=id('orderPickerWrap'),list=id('pendingOrderList'),counts=id('orderCounts');function render(){var c=getCompany();if(label)label.innerHTML=c||'-';if(locked)locked.className=c?'locked':'locked hidden';if(picker)picker.className=c?'hidden':'';if(orders)orders.className=c?'':'hidden';if(select&&c)select.value=c;}function requestedOrderId(){try{return String(new URLSearchParams(location.search||'').get('orderId')||'').replace(/^\\s+|\\s+$/g,'');}catch(e){var m=(location.search||'').match(/[?&]orderId=([^&]+)/);return m?decodeURIComponent(m[1]):'';}}function orderHref(order){return '/mobile-pick?mode=mobile&device=alien&orderId='+encodeURIComponent(order.id)+(getCompany()?'&accountName='+encodeURIComponent(getCompany()):'');}function buildAlienPicks(order){var out=[];var lines=order.lines||[];for(var i=0;i<lines.length;i++){var line=lines[i];var picks=line.pickLocations&&line.pickLocations.length?line.pickLocations:[{location:'',quantity:line.quantity,trackingLevel:line.trackingLevel,lotNumber:'',expirationDate:''}];for(var j=0;j<picks.length;j++){var p=picks[j];out.push({orderId:order.id,lineId:line.id||line.sku,sku:line.sku,upc:line.upc||p.upc||'',description:line.description||'',location:p.location||'',manualLocationRequired:!p.location,quantity:parseInt(p.quantity||line.quantity||0,10)||0,available:parseInt(p.quantity||line.availableQuantity||0,10)||0,lot:p.lotNumber||'',expiry:p.expirationDate||'',tracking:p.trackingLevel||line.trackingLevel||'UNIT',key:'alien-'+order.id+'-'+(line.id||line.sku)+'-'+j+'-'+Date.now()});}}return out;}function showAlienPick(order){window.__alienActiveOrder=order;window.__alienPicks=buildAlienPicks(order);window.__alienPickIndex=0;function show(){var p=(window.__alienPicks||[])[window.__alienPickIndex];document.body.classList.add('picking-active');if(orders)orders.className='hidden';if(locked)locked.className='locked hidden';var summary=id('orderSummaryCard');if(summary)summary.className='card hidden';var done=id('doneCard'),pick=id('pickCard');if(done)done.className='card hidden';if(!p){if(pick)pick.className='card hidden';if(done){done.className='card';var meta=id('doneOrderMeta');if(meta)meta.innerHTML=(order.orderCode||'Order')+' ready to mark picked.';}return;}if(pick)pick.className='card';if(id('workOrderCode'))id('workOrderCode').innerHTML=order.orderCode||'Order';if(id('workOrderMeta'))id('workOrderMeta').innerHTML=(getCompany()||order.accountName||'')+' | '+(window.__alienPickIndex+1)+'/'+window.__alienPicks.length;if(id('pickLocation'))id('pickLocation').innerHTML=p.location||'SCAN SOURCE LOCATION';if(id('pickSku'))id('pickSku').innerHTML=p.sku||'';if(id('pickDescription'))id('pickDescription').innerHTML=p.description||'';if(id('pickTraceability'))id('pickTraceability').innerHTML=p.manualLocationRequired?'No directed bin. Scan actual pick location.':((p.lot?'Lot '+esc(p.lot):'')+(p.expiry?' Exp '+esc(p.expiry):''));if(id('pickQty'))id('pickQty').innerHTML=p.quantity+' '+String(p.tracking||'unit').toLowerCase();if(id('pickAvailable'))id('pickAvailable').innerHTML=p.available;if(id('confirmLocation'))id('confirmLocation').value='';if(id('confirmSku'))id('confirmSku').value='';if(id('confirmLot'))id('confirmLot').value='';if(id('confirmExpiration'))id('confirmExpiration').value=p.expiry||'';var lotWrap=id('confirmLotWrap');if(lotWrap)lotWrap.className=p.lot?'':'hidden';var expEl=id('confirmExpiration'),expWrap=expEl&&expEl.parentNode;if(expWrap)expWrap.className=p.expiry?'':'hidden';if(id('confirmQty'))id('confirmQty').value=p.quantity||'';if(id('pickMessage')){id('pickMessage').className='status';id('pickMessage').innerHTML=p.manualLocationRequired?'No directed bin. Scan actual source location, then SKU.':'Go to the directed location. Scan location, then SKU.';}setTimeout(function(){if(id('confirmLocation'))id('confirmLocation').focus();},150);}show();bindButton(id('workListBtn'),function(){document.body.classList.remove('picking-active');if(locked)locked.className='locked';if(orders)orders.className='';if(id('pickCard'))id('pickCard').className='card hidden';});bindButton(id('confirmPickBtn'),function(){var p=(window.__alienPicks||[])[window.__alienPickIndex];if(!p)return;var loc=norm(id('confirmLocation')&&id('confirmLocation').value),sku=norm(id('confirmSku')&&id('confirmSku').value),qty=parseInt(id('confirmQty')&&id('confirmQty').value,10)||0,msg=id('pickMessage');if(p.location&&loc!==norm(p.location)){if(msg){msg.className='status bad';msg.innerHTML='Wrong location. Scan '+esc(p.location)+'.';}return;}if(sku!==norm(p.sku)&&(!p.upc||sku!==norm(p.upc))){if(msg){msg.className='status bad';msg.innerHTML='Wrong SKU / UPC. Scan '+esc(p.sku)+(p.upc?' or '+esc(p.upc):'')+'.';}return;}if(qty<1||qty>p.quantity){if(msg){msg.className='status bad';msg.innerHTML='Check quantity.';}return;}if(msg){msg.className='status';msg.innerHTML='Saving pick...';}xhr('POST','/api/mobile/pick-confirmations',{orderId:p.orderId,lineId:p.lineId,location:loc,sku:sku,lot:norm(id('confirmLot')&&id('confirmLot').value),expiry:norm(id('confirmExpiration')&&id('confirmExpiration').value),quantity:qty,deviceId:'ALIEN-LEGACY',source:'android_app',idempotencyKey:p.key},function(ok,data){if(!ok){if(msg){msg.className='status bad';msg.innerHTML=data.error||'Pick save failed.';}return;}if(msg){msg.className='status good';msg.innerHTML='Pick saved.';}window.__alienPickIndex++;setTimeout(show,450);});});}function startAlienOrder(order){if(!order)return;try{if(typeof startOrder==='function'){startOrder(order);return;}}catch(startEx){}if(typeof window.startOrder==='function'){window.startOrder(order);return;}showAlienPick(order);}function closestOrderNode(node){while(node&&node!==document){if(node.getAttribute&&(node.getAttribute('data-alien-order')||node.getAttribute('data-order-id')))return node;node=node.parentNode;}return null;}function bindOrderList(){if(!list||list.__alienOrderBound)return;list.__alienOrderBound=true;list.onclick=function(e){var b=closestOrderNode(e&&e.target);if(!b)return;var oid=b.getAttribute('data-alien-order')||b.getAttribute('data-order-id');var rows=window.__alienPickOrders||[];for(var i=0;i<rows.length;i++){if(String(rows[i].id)===String(oid)){if(e&&e.preventDefault)e.preventDefault();startAlienOrder(rows[i]);break;}}};list.ontouchend=function(e){var b=closestOrderNode(e&&e.target);if(!b)return true;if(e&&e.preventDefault)e.preventDefault();list.onclick(e);return false;};}function loadOrders(){var c=getCompany();if(!c||!list)return;list.innerHTML='<p class=\"muted\">Loading orders...</p>';xhr('GET','/api/mobile/pick-orders?account_name='+encodeURIComponent(c)+'&accountName='+encodeURIComponent(c),null,function(ok,data){var rows=data.orders||[];window.__alienPickOrders=rows;if(counts)counts.innerHTML=rows.length+' open order'+(rows.length===1?'':'s');if(!ok){list.innerHTML='<p class=\"muted\">Orders could not load.</p>';return;}if(!rows.length){list.innerHTML='<p class=\"muted\">No released picking orders for this company.</p>';return;}var html='';for(var i=0;i<rows.length;i++){var o=rows[i];var ref=o.shippingReference||o.poNumber||o.shipToName||'No reference';var lines=o.lines&&o.lines.length?o.lines.length:0;html+='<a href=\"'+esc(orderHref(o))+'\" class=\"order-row\" data-alien-order=\"'+esc(o.id)+'\" data-order-id=\"'+esc(o.id)+'\"><span class=\"order-action\">'+esc(String(o.status||'OPEN').toUpperCase()==='RELEASED'?'Pick':String(o.status||'OPEN'))+'</span><strong>'+esc(o.orderCode||o.id)+'</strong><span>'+esc(ref)+'</span><small>'+lines+' line'+(lines===1?'':'s')+'</small></a>'; }list.innerHTML=html;bindOrderList();var wanted=requestedOrderId();if(wanted){for(var j=0;j<rows.length;j++){if(String(rows[j].id)===String(wanted)){setTimeout(function(order){return function(){startAlienOrder(order);};}(rows[j]),150);break;}}}});}loadCompanyOptions(select,function(){render();if(getCompany())loadOrders();});bindButton(id('lockCompanyBtn'),function(){setCompany(select?select.value:'');render();loadOrders();});bindButton(id('switchCompanyBtn'),function(){setCompany('');render();});bindButton(id('menuBtn'),goMenu);bindButton(id('companyMenuBtn'),goMenu);bindButton(id('workMenuBtn'),goMenu);bindButton(id('refreshBtn'),loadOrders);bindOrderList();bindScans();render();}" +
-            "function scrollToEl(el){if(!el)return;setTimeout(function(){try{el.scrollIntoView(true);window.scrollBy(0,-6);}catch(e){}},80);}" +
-            "function setSub(group,target){qsa('[data-mobile-subview-group=\"'+group+'\"]').forEach(function(el){el.classList.remove('active');});qsa('[data-mobile-subview-card-group=\"'+group+'\"],[data-mobile-subview-menu-group=\"'+group+'\"]').forEach(function(el){el.classList.add('active');});qsa('[data-mobile-subview=\"'+target+'\"]').forEach(function(el){if(el.getAttribute('data-mobile-subview-group')===group)el.classList.add('active');});qsa('[data-mobile-subview-btn-group=\"'+group+'\"]').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-mobile-subview-target')===target);});var active=qs('[data-mobile-subview-group=\"'+group+'\"][data-mobile-subview=\"'+target+'\"]');if(group==='actions'&&active){var menu=qs('[data-mobile-subview-menu-group=\"actions\"]');if(menu&&menu.parentNode&&active.parentNode!==menu.parentNode){menu.parentNode.insertBefore(active,menu);}}scrollToEl(active);}" +
-            "function hideAccountLabels(){var company=getCompany();['transferAccount','putAwayAccount','adjustAccount','moveAccount','searchAccount','convertAccount','fullBinMoveAccount'].forEach(function(n){try{var input=id(n),p=input&&input.parentNode;if(input&&company)input.value=company;if(p&&p.tagName&&p.tagName.toLowerCase()==='label')p.style.display='none';}catch(e){}});[['transferFrom','Scan FROM'],['putAwayFrom','Scan FROM'],['transferTo','Scan TO'],['putAwayTo','Scan TO BIN'],['transferSku','Scan SKU / UPC'],['putAwaySku','Scan SKU / UPC'],['adjustLocation','Scan LOCATION'],['adjustSku','Scan SKU / UPC'],['moveFrom','Scan FROM BIN'],['moveTo','Scan TO BIN']].forEach(function(pair){var el=id(pair[0]);if(el)el.setAttribute('placeholder',pair[1]);});}" +
-            "function installSubJump(){hideAccountLabels();qsa('[data-mobile-subview-btn-group]').forEach(function(btn){if(btn.__alienSubJump)return;btn.__alienSubJump=true;bindButton(btn,function(){var group=btn.getAttribute('data-mobile-subview-btn-group')||btn.getAttribute('data-mobile-subview-group')||'actions';var target=btn.getAttribute('data-mobile-subview-target')||'';if(group&&target)setSub(group,target);hideAccountLabels();});});}" +
-            "function installInbound(){var form=id('mobileQuickInboundForm'),quick=id('mobileQuickInboundToggleBtn'),stage=id('mobileReceiveWithoutPoBtn'),refresh=id('mobileInboundRefreshBtn'),list=id('mobileInboundArrivalList'),meta=id('mobileInboundArrivalMeta'),msg=id('mobileInboundArrivalMessage'),create=id('mobileQuickInboundCreateBtn');if(!quick||quick.__alienInbound)return;quick.__alienInbound=true;function setMsg(text,good){if(msg){msg.className=good?'status good':'status';msg.innerHTML=text||'';}}function isOpen(s){s=norm(s).toUpperCase();return s==='SUBMITTED'||s==='ARRIVED';}function closestAttr(node,attr){while(node&&node!==document){if(node.getAttribute&&node.getAttribute(attr)!==null)return node;node=node.parentNode;}return null;}function lineHtml(line){var q=parseInt(line.quantity||line.expectedQuantity||line.receivedQuantity||1,10)||1;var sku=line.sku||'';return '<div class=\"quick-meta\" data-alien-inbound-line=\"'+esc(line.id||line.lineId||sku)+'\" data-alien-sku=\"'+esc(sku)+'\"><strong>'+esc(sku||'SKU')+'</strong><label class=\"field\"><span>Received Qty</span><input data-alien-receive-qty type=\"number\" min=\"1\" value=\"'+q+'\"></label><label class=\"field\"><span>Stage Location</span><input data-alien-receive-location type=\"text\" value=\"RECEIVING-STAGE\"></label></div>';}" +
-            "function renderInbounds(rows){if(!list)return;var open=[];for(var i=0;i<(rows||[]).length;i++){if(isOpen(rows[i].status))open.push(rows[i]);}if(meta)meta.innerHTML=(getCompany()?esc(getCompany())+' | ':'')+open.length+' open PO'+(open.length===1?'':'s');if(!open.length){list.innerHTML='<p class=\"empty\">No open purchase orders are waiting.</p>';return;}var html='';for(var j=0;j<open.length;j++){var inb=open[j],status=norm(inb.status).toUpperCase(),lines=inb.lines||[];html+='<article class=\"order-card\" data-alien-inbound-card=\"'+esc(inb.id)+'\"><div class=\"order-card-head\"><div><strong>'+esc(inb.inboundCode||('INB-'+inb.id))+'</strong><div class=\"quick-meta\">Ref '+esc(inb.referenceNumber||'None')+'</div></div><span class=\"pill\">'+esc(status)+'</span></div><div class=\"order-card-grid\"><div>Carrier: '+esc(inb.carrierName||'Not provided')+'</div><div>'+lines.length+' line'+(lines.length===1?'':'s')+'</div></div>';if(status==='SUBMITTED'){html+='<button class=\"btn\" type=\"button\" data-alien-inbound-arrive=\"'+esc(inb.id)+'\">Check In Freight</button>';}if(status==='ARRIVED'){html+='<div class=\"quick-meta\"><label class=\"field\"><span>BOL / Reference</span><input data-alien-bol type=\"text\" placeholder=\"Scan or enter BOL\"></label><label class=\"field\"><span>Pallets</span><input data-alien-pallets type=\"number\" min=\"0\" placeholder=\"0\"></label><label class=\"field\"><span>Cases</span><input data-alien-cases type=\"number\" min=\"0\" placeholder=\"0\"></label>'+lines.map(lineHtml).join('')+'<button class=\"btn\" type=\"button\" data-alien-inbound-receive=\"'+esc(inb.id)+'\">Finish Receiving to Staging</button></div>';}html+='</article>';}list.innerHTML=html;installInboundStagingFlow();qsa('[data-alien-inbound-arrive]').forEach(function(btn){bindButton(btn,function(){arriveInbound(btn.getAttribute('data-alien-inbound-arrive'));});});qsa('[data-alien-inbound-receive]').forEach(function(btn){bindButton(btn,function(){receiveInbound(btn.getAttribute('data-alien-inbound-receive'),closestAttr(btn,'data-alien-inbound-card'));});});}" +
-            "function loadInbounds(){var c=getCompany();if(!c){if(meta)meta.innerHTML='Choose company before receiving.';return;}if(meta)meta.innerHTML='Loading purchase orders...';if(list)list.innerHTML='<p class=\"empty\">Loading purchase orders...</p>';xhr('GET','/api/admin/portal-inbounds?accountName='+encodeURIComponent(c),null,function(ok,data){if(!ok){if(list)list.innerHTML='<p class=\"empty\">Purchase orders could not load.</p>';if(meta)meta.innerHTML='Load failed.';return;}renderInbounds(data.inbounds||[]);});}" +
-            "function arriveInbound(inboundId){setMsg('Checking in freight...',false);xhr('POST','/api/admin/portal-inbounds/'+encodeURIComponent(inboundId)+'/status',{status:'ARRIVED',arrivalNote:'Alien scanner check-in completed at the dock.'},function(ok,data){if(!ok){if(msg){msg.className='status bad';msg.innerHTML=data.error||'Check-in failed.';}return;}setMsg('Freight checked in.',true);loadInbounds();});}" +
-            "function receiveInbound(inboundId,card){var rows=qsa('[data-alien-inbound-line]').filter(function(el){return card&&card.contains(el);});var receiving=[];for(var i=0;i<rows.length;i++){var row=rows[i],qty=parseInt((row.querySelector('[data-alien-receive-qty]')||{}).value,10)||0,loc=norm((row.querySelector('[data-alien-receive-location]')||{}).value);if(!qty||!loc){if(msg){msg.className='status bad';msg.innerHTML='Enter quantity and staging location for every line.';}return;}receiving.push({id:row.getAttribute('data-alien-inbound-line')||'',sku:row.getAttribute('data-alien-sku')||'',receivedQuantity:qty,receivedLocation:loc});}setMsg('Receiving to staging...',false);xhr('POST','/api/admin/portal-inbounds/'+encodeURIComponent(inboundId)+'/status',{status:'RECEIVED',receivingLines:receiving,bolNumber:norm((card.querySelector('[data-alien-bol]')||{}).value),palletCount:parseInt((card.querySelector('[data-alien-pallets]')||{}).value,10)||0,caseCount:parseInt((card.querySelector('[data-alien-cases]')||{}).value,10)||0,note:'Alien scanner receiving completed to RECEIVING-STAGE.'},function(ok,data){if(!ok){if(msg){msg.className='status bad';msg.innerHTML=data.error||'Receiving failed.';}return;}setMsg('Received to staging. Putaway is next.',true);loadInbounds();});}" +
-            "if(list&&!list.__alienInboundList){list.__alienInboundList=true;list.onclick=function(e){var a=closestAttr(e&&e.target,'data-alien-inbound-arrive'),r=closestAttr(e&&e.target,'data-alien-inbound-receive');if(a){if(e&&e.preventDefault)e.preventDefault();arriveInbound(a.getAttribute('data-alien-inbound-arrive'));return false;}if(r){if(e&&e.preventDefault)e.preventDefault();receiveInbound(r.getAttribute('data-alien-inbound-receive'),closestAttr(r,'data-alien-inbound-card'));return false;}return true;};list.ontouchend=function(e){var a=closestAttr(e&&e.target,'data-alien-inbound-arrive'),r=closestAttr(e&&e.target,'data-alien-inbound-receive');if(a||r){if(e&&e.preventDefault)e.preventDefault();list.onclick(e);return false;}return true;};}" +
-            "bindButton(quick,function(){if(!form)return;form.classList.toggle('hidden');if(!form.classList.contains('hidden')){var ref=id('mobileQuickInboundReference');if(ref)ref.focus();scrollToEl(form);}});bindButton(stage,function(){if(form)form.classList.remove('hidden');var ref=id('mobileQuickInboundReference');if(ref)ref.focus();setMsg('Stage freight without a PO: enter the BOL/reference and counts.',false);scrollToEl(form);});bindButton(refresh,loadInbounds);bindButton(create,function(){var c=getCompany(),ref=norm(id('mobileQuickInboundReference')&&id('mobileQuickInboundReference').value),sku=norm(id('mobileQuickInboundSku')&&id('mobileQuickInboundSku').value)||'UNKNOWN',qty=parseInt(id('mobileQuickInboundQty')&&id('mobileQuickInboundQty').value,10)||parseInt(id('mobileQuickInboundCases')&&id('mobileQuickInboundCases').value,10)||1;if(!c||!ref){if(msg){msg.className='status bad';msg.innerHTML='Company and reference are required.';}return;}setMsg('Creating quick inbound...',false);xhr('POST','/api/admin/portal-inbounds',{accountName:c,referenceNumber:ref,carrierName:norm(id('mobileQuickInboundCarrier')&&id('mobileQuickInboundCarrier').value),expectedDate:new Date().toISOString().slice(0,10),contactName:'Dock receiving',notes:'Alien scanner quick inbound.',lines:[{sku:sku,quantity:qty}]},function(ok,data){if(!ok){if(msg){msg.className='status bad';msg.innerHTML=data.error||'Quick inbound failed.';}return;}setMsg('Quick inbound created.',true);if(form)form.classList.add('hidden');loadInbounds();});});setTimeout(loadInbounds,350);}" +
-            "function installInboundStagingFlow(){var stageLoc='RECEIVING-STAGE';function up(v){return String(v||'').replace(/^\\s+|\\s+$/g,'').toUpperCase();}qsa('[data-mobile-inbound-location],[data-inbound-receive-location]').forEach(function(input){if(!input||input.disabled)return;var current=up(input.value);if(!current||current==='RECEIVING'||current==='BULK')input.value=stageLoc;input.setAttribute('placeholder','Scan staging location');input.setAttribute('autocomplete','off');});qsa('[data-mobile-inbound-receive]').forEach(function(btn){if(btn)btn.innerHTML='Finish Receiving to Staging';});var from=id('putAwayFrom');if(from){if(!up(from.value))from.value=stageLoc;from.setAttribute('placeholder','Scan FROM staging');}var to=id('putAwayTo');if(to)to.setAttribute('placeholder','Scan TO pickable bin');qsa('.pill').forEach(function(p){if(up(p.innerHTML)==='RECEIVED_PENDING_PUTAWAY')p.innerHTML='RECEIVED - PUTAWAY NEEDED';});}" +
-            "customizeAlienMenu();installCount();installPick();installInbound();installInboundStagingFlow();setTimeout(installInboundStagingFlow,800);setTimeout(installInboundStagingFlow,2200);installSubJump();bindScans();" +
-            "})();";
-        evaluate(script);
-    }
-
-    private void evaluate(String script) {
-        webView.post(() -> webView.evaluateJavascript(script, null));
-    }
-
-    private void showLoading(boolean show) {
-        loadingOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) loadingOverlay.bringToFront();
-    }
-
-    private void showError(boolean show, String message) {
-        errorText.setText(message == null || message.length() == 0 ? "WMS365 could not load." : message);
-        errorOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) errorOverlay.bringToFront();
-    }
-
-    private boolean isOnline() {
-        ConnectivityManager manager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (manager == null) return false;
-        NetworkInfo info = manager.getActiveNetworkInfo();
-        return info != null && info.isConnected();
-    }
-
-    private String jsString(String value) {
-        if (value == null) return "''";
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r") + "'";
-    }
-
-    public class AlienBridge {
-        @JavascriptInterface public boolean isAndroidApp() { return true; }
-        @JavascriptInterface public boolean hasHardwareScanner() { return true; }
-        @JavascriptInterface public String getScannerProfile() { return "alien_native_barcode"; }
-        @JavascriptInterface public String getPlatform() { return "android-alien-legacy"; }
-        @JavascriptInterface public String getAppVersion() { return BuildConfig.VERSION_NAME; }
-        @JavascriptInterface public String getDeviceManufacturer() { return "Alien"; }
-        @JavascriptInterface public String getDeviceBrand() { return "Alien"; }
-        @JavascriptInterface public String getDeviceModel() { return "ALR-H450"; }
-        @JavascriptInterface public boolean isOnline() { return MainActivity.this.isOnline(); }
-
-        @JavascriptInterface
-        public String getSavedEmail() {
-            return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_EMAIL, "");
-        }
-
-        @JavascriptInterface
-        public String getSavedPassword() {
-            return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_PASSWORD, "");
-        }
-
-        @JavascriptInterface
-        public void saveLogin(String email, String password) {
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .edit()
-                .putString(PREF_EMAIL, email == null ? "" : email)
-                .putString(PREF_PASSWORD, password == null ? "" : password)
-                .apply();
-        }
-
-        @JavascriptInterface
-        public void clearSavedLogin() {
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .edit()
-                .remove(PREF_EMAIL)
-                .remove(PREF_PASSWORD)
-                .apply();
-        }
-
-        @JavascriptInterface
-        public void scanBarcode(String targetId) {
-            runOnUiThread(() -> startNativeBarcodeScan(targetId));
-        }
-
-        @JavascriptInterface
-        public void vibrate(int durationMs) {
-            try {
-                Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-                if (vibrator != null) vibrator.vibrate(Math.max(20, Math.min(durationMs, 250)));
-            } catch (Throwable ignored) {
+    private Button button(String text, int bg, int fg, final View.OnClickListener listener) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(18);
+        b.setTextColor(fg);
+        b.setBackgroundColor(bg);
+        b.setAllCaps(false);
+        b.setMinHeight(64);
+        b.setLayoutParams(margins());
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (actionLocked) return;
+                actionLocked = true;
+                handler.postDelayed(new Runnable() { @Override public void run() { actionLocked = false; } }, 450);
+                listener.onClick(v);
             }
+        });
+        return b;
+    }
+
+    private TextView field(String label, String value) {
+        TextView t = status(label + ": " + value);
+        t.setTextSize(19);
+        t.setTextColor(TEXT);
+        return t;
+    }
+
+    private TextView status(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(15);
+        t.setTextColor(MUTED);
+        t.setPadding(8, 10, 8, 10);
+        t.setLayoutParams(margins());
+        return t;
+    }
+
+    private LinearLayout.LayoutParams margins() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(0, 6, 0, 6);
+        return p;
+    }
+
+    private void addProblemButtons(LinearLayout l, final PickTask task) {
+        l.addView(secondaryButton("Location Empty", new View.OnClickListener() {
+            @Override public void onClick(View v) { reportException(task, "LOCATION_EMPTY"); }
+        }));
+        l.addView(secondaryButton("Damaged / Blocked / Wrong Item", new View.OnClickListener() {
+            @Override public void onClick(View v) { reportException(task, "PICK_EXCEPTION"); }
+        }));
+    }
+
+    private void runAsync(final String message, final Runnable action) {
+        if (message != null && message.length() > 0) toast(message, false);
+        executor.execute(action);
+    }
+
+    private void fail(final Exception ex) {
+        runOnUiThread(new Runnable() { @Override public void run() { toast(ex.getMessage() == null ? "Action failed" : ex.getMessage(), true); } });
+    }
+
+    private void toast(String msg, boolean bad) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        if (bad) error();
+    }
+
+    private void success() {
+        try {
+            ((Vibrator) getSystemService(VIBRATOR_SERVICE)).vibrate(40);
+        } catch (Throwable ignored) {}
+    }
+
+    private void error() {
+        try {
+            ((Vibrator) getSystemService(VIBRATOR_SERVICE)).vibrate(140);
+        } catch (Throwable ignored) {}
+    }
+
+    private void hideKeyboard() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            imm.hideSoftInputFromWindow(root.getWindowToken(), 0);
+        } catch (Throwable ignored) {}
+    }
+
+    private String cookie() { return prefs.getString(KEY_COOKIE, ""); }
+    private String company() { return prefs.getString(KEY_COMPANY, ""); }
+
+    private String deviceId() {
+        String id = prefs.getString(KEY_DEVICE_ID, "");
+        if (id.length() == 0) {
+            id = UUID.randomUUID().toString();
+            prefs.edit().putString(KEY_DEVICE_ID, id).apply();
+        }
+        return id;
+    }
+
+    private void logout() {
+        prefs.edit().putString(KEY_COOKIE, "").putString(KEY_COMPANY, "").apply();
+        showLogin();
+    }
+
+    private void saveCompanies(List<String> companies) {
+        Set<String> set = new LinkedHashSet<>(companies);
+        JSONArray arr = new JSONArray();
+        for (String c : set) if (c != null && c.trim().length() > 0) arr.put(c.trim());
+        prefs.edit().putString(KEY_COMPANIES, arr.toString()).apply();
+    }
+
+    private List<String> loadCompanies() {
+        List<String> out = new ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(prefs.getString(KEY_COMPANIES, "[]"));
+            for (int i = 0; i < arr.length(); i++) {
+                String c = arr.optString(i, "").trim();
+                if (c.length() > 0) out.add(c);
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    private JSONArray outbox() {
+        try { return new JSONArray(prefs.getString(KEY_OUTBOX, "[]")); }
+        catch (Exception ex) { return new JSONArray(); }
+    }
+
+    private int pendingCount() { return outbox().length(); }
+
+    private int intValue(EditText e) {
+        try { return Integer.parseInt(e.getText().toString().trim()); }
+        catch (Exception ex) { return 0; }
+    }
+
+    private String key(String prefix) {
+        return "alien-" + prefix + "-" + deviceId() + "-" + System.currentTimeMillis();
+    }
+
+    private String today() {
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+    }
+
+    private String normalize(String v) {
+        if (v == null) return "";
+        return v.trim().toUpperCase(Locale.US).replaceAll("[^A-Z0-9]", "");
+    }
+
+    private String url(String v) throws Exception {
+        return URLEncoder.encode(v, "UTF-8");
+    }
+
+    private String join(List<String> parts, String sep) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) out.append(sep);
+            out.append(parts.get(i));
+        }
+        return out.toString();
+    }
+
+    private interface Builder { void build(LinearLayout l); }
+
+    private static class ApiResult {
+        final JSONObject json;
+        final String cookie;
+        ApiResult(JSONObject json, String cookie) {
+            this.json = json;
+            this.cookie = cookie == null ? "" : cookie;
+        }
+    }
+
+    private static class J extends JSONObject {
+        @Override
+        public J put(String name, Object value) {
+            try {
+                super.put(name, value);
+            } catch (Exception ignored) {
+            }
+            return this;
         }
 
-        @JavascriptInterface public void beep(String type) { }
-        @JavascriptInterface public void setKeepScreenAwake(boolean enabled) {
-            if (enabled) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        @Override
+        public J put(String name, int value) {
+            try {
+                super.put(name, value);
+            } catch (Exception ignored) {
+            }
+            return this;
         }
-        @JavascriptInterface public void showToast(String message) {
-            Toast.makeText(MainActivity.this, message == null ? "" : message, Toast.LENGTH_SHORT).show();
+
+        @Override
+        public J put(String name, long value) {
+            try {
+                super.put(name, value);
+            } catch (Exception ignored) {
+            }
+            return this;
+        }
+
+        @Override
+        public J put(String name, boolean value) {
+            try {
+                super.put(name, value);
+            } catch (Exception ignored) {
+            }
+            return this;
+        }
+
+        @Override
+        public J put(String name, double value) {
+            try {
+                super.put(name, value);
+            } catch (Exception ignored) {
+            }
+            return this;
+        }
+    }
+
+    private static class PickTask {
+        String orderId = "";
+        String lineId = "";
+        String orderCode = "";
+        String accountName = "";
+        String location = "";
+        String sku = "";
+        String upc = "";
+        String description = "";
+        int requiredQty = 0;
+        int availableQty = 0;
+        int pickedQty = 0;
+        String lot = "";
+        String expiry = "";
+        int sequence = 0;
+        boolean done = false;
+        boolean exception = false;
+
+        int remaining() { return Math.max(requiredQty - pickedQty, 0); }
+
+        static PickTask from(JSONObject order, JSONObject line, JSONObject loc, int seq) {
+            PickTask task = new PickTask();
+            task.orderId = order.optString("id");
+            task.orderCode = order.optString("orderCode", "Order " + task.orderId);
+            task.accountName = order.optString("accountName");
+            task.lineId = line.optString("id", String.valueOf(seq));
+            task.sku = line.optString("sku");
+            task.upc = line.optString("upc");
+            task.description = line.optString("description");
+            task.location = loc == null ? "" : loc.optString("location");
+            task.lot = loc == null ? "" : loc.optString("lotNumber");
+            task.expiry = loc == null ? "" : loc.optString("expirationDate");
+            int locQty = loc == null ? 0 : loc.optInt("quantity", 0);
+            task.requiredQty = locQty > 0 ? locQty : line.optInt("quantity", 0);
+            task.availableQty = line.optInt("availableQuantity", task.requiredQty);
+            task.sequence = seq;
+            return task;
         }
     }
 }

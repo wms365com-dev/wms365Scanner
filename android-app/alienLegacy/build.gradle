@@ -3,10 +3,6 @@ plugins {
 }
 
 def configuredBaseUrl = (project.findProperty("WMS365_BASE_URL") ?: "https://app.wms365.co").toString().replaceAll("/+\$", "")
-def configuredStartPath = (project.findProperty("WMS365_START_PATH") ?: "/mobile?mode=mobile&device=alien").toString()
-if (!configuredStartPath.startsWith("/")) {
-    configuredStartPath = "/" + configuredStartPath
-}
 
 android {
     namespace "com.wms365.alien"
@@ -16,10 +12,9 @@ android {
         applicationId "com.wms365.alien"
         minSdk 19
         targetSdk 19
-        versionCode 26
-        versionName "0.1.25-alien"
+        versionCode 27
+        versionName "0.2.0-alien-native"
         buildConfigField "String", "WMS365_BASE_URL", "\"${configuredBaseUrl}\""
-        buildConfigField "String", "WMS365_START_PATH", "\"${configuredStartPath}\""
     }
 
     buildFeatures {
