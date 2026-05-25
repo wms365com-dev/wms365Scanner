@@ -12267,6 +12267,7 @@ function filterMobilePickOrdersForAppUser(orders, appUser, {
         const orderAccount = normalizeText(order?.accountName || order?.account_name || "");
         if (requestedAccount && orderAccount !== requestedAccount) return false;
         if (isSuperAdminUser(appUser)) return true;
+        if (isWarehouseWorkerUser(appUser)) return assignedIds.has(String(order?.id || ""));
         return allowedCompanies.has(orderAccount) || assignedIds.has(String(order?.id || ""));
     });
 }

@@ -1044,9 +1044,11 @@ async function confirmArrived({fromScan=false}={}){
   $('confirmArrivedBtn').disabled=true;
   $('pickMessage').className='status';
   $('pickMessage').textContent=fromScan?'Location scanned. Saving arrival...':'Saving arrival confirmation...';
+  let saved=false;
   try{
     const result=await sendPickArrival(p,{location:loc});
     state.arrivals[pickKey(p)]={location:loc,timestamp:new Date().toISOString(),queued:!!result?.queued};
+    saved=true;
     setPickState(PICK_STATES.PICK_SKU_REQUIRED,{message:'Arrival confirmed. Scan the item next.',tone:'good'});
     window.WMS365Mobile?.vibrate?.(55);
     window.WMS365Mobile?.beep?.('success');
@@ -1057,8 +1059,7 @@ async function confirmArrived({fromScan=false}={}){
     window.WMS365Mobile?.beep?.('error');
   }finally{
     state.savingArrival=false;
-    const key=pickKey(p);
-    renderGuidedPickStep(p,{arrived:!!state.arrivals[key],skuReady:!!state.skuConfirmed[key]});
+    if(!saved)$('confirmArrivedBtn').disabled=false;
   }
 }
 

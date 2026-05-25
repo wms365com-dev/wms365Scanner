@@ -304,7 +304,7 @@ test("pick arrival and exception confirmations are audited", async () => {
     assert.equal(client.lastWarehouseTaskUpdate.params[2], "NOT_ENOUGH_STOCK");
 });
 
-test("mobile pick order feed keeps workers scoped to accessible or assigned orders", () => {
+test("mobile pick order feed keeps workers scoped to assigned orders only", () => {
     const worker = { id: "7", role: "warehouse_worker" };
     const orders = [
         { id: "1", accountName: "HEALTEA", status: "RELEASED" },
@@ -318,5 +318,21 @@ test("mobile pick order feed keeps workers scoped to accessible or assigned orde
         assignedOrderIds: ["4"]
     });
 
-    assert.deepEqual(visible.map((order) => order.id), ["1", "4"]);
+    assert.deepEqual(visible.map((order) => order.id), ["4"]);
+});
+
+test("mobile pick order feed lets warehouse admins see accessible company orders", () => {
+    const admin = { id: "8", role: "warehouse_admin" };
+    const orders = [
+        { id: "1", accountName: "HEALTEA", status: "RELEASED" },
+        { id: "2", accountName: "OTHER CUSTOMER", status: "RELEASED" },
+        { id: "3", accountName: "HEALTEA", status: "DRAFT" }
+    ];
+
+    const visible = filterMobilePickOrdersForAppUser(orders, admin, {
+        accessibleCompanies: ["HEALTEA"],
+        assignedOrderIds: []
+    });
+
+    assert.deepEqual(visible.map((order) => order.id), ["1"]);
 });
