@@ -392,7 +392,7 @@ class MainActivity : Activity() {
     private fun injectAndroidWebViewFixes() {
         val script = """
             (function () {
-              var androidShellVersion = 'wms365-mobile-shell-v8';
+              var androidShellVersion = 'wms365-mobile-shell-v9';
               var androidRefreshKey = 'wms365-android-shell-refresh:' + androidShellVersion;
               function refreshAndroidShellOnce() {
                 try {
@@ -1078,6 +1078,45 @@ class MainActivity : Activity() {
               clearStaleCountLoading();
               window.setTimeout(clearStaleCountLoading, 1200);
               window.setTimeout(clearStaleCountLoading, 3500);
+              function installAndroidInboundStagingFlow() {
+                var stage = 'RECEIVING-STAGE';
+                var normalize = function (value) { return String(value || '').trim().toUpperCase(); };
+                document.querySelectorAll('[data-mobile-inbound-location],[data-inbound-receive-location]').forEach(function (input) {
+                  if (!input || input.disabled) return;
+                  var current = normalize(input.value);
+                  if (!current || current === 'RECEIVING' || current === 'BULK') input.value = stage;
+                  input.placeholder = 'Scan or enter staging location';
+                  input.setAttribute('autocomplete', 'off');
+                  input.setAttribute('autocorrect', 'off');
+                  input.setAttribute('spellcheck', 'false');
+                });
+                document.querySelectorAll('[data-mobile-inbound-receive]').forEach(function (button) {
+                  if (button && button.textContent !== 'Finish Receiving to Staging') button.textContent = 'Finish Receiving to Staging';
+                });
+                var putAwayFrom = document.getElementById('putAwayFrom');
+                if (putAwayFrom) {
+                  if (!normalize(putAwayFrom.value)) putAwayFrom.value = stage;
+                  putAwayFrom.placeholder = 'Scan FROM staging';
+                }
+                var putAwayTo = document.getElementById('putAwayTo');
+                if (putAwayTo) putAwayTo.placeholder = 'Scan TO pickable bin';
+                document.querySelectorAll('.pill').forEach(function (pill) {
+                  if (/^RECEIVED_PENDING_PUTAWAY$/i.test((pill.textContent || '').trim())) pill.textContent = 'RECEIVED - PUTAWAY NEEDED';
+                });
+              }
+              installAndroidInboundStagingFlow();
+              if (!window.__wms365AndroidInboundObserverBound) {
+                window.__wms365AndroidInboundObserverBound = true;
+                var inboundObserverScheduled = false;
+                new MutationObserver(function () {
+                  if (inboundObserverScheduled) return;
+                  inboundObserverScheduled = true;
+                  window.requestAnimationFrame(function () {
+                    inboundObserverScheduled = false;
+                    installAndroidInboundStagingFlow();
+                  });
+                }).observe(document.body, { childList: true, subtree: true });
+              }
               if (path.indexOf('/mobile-count') === 0 || path.indexOf('/mobile-pick') === 0) {
                 setHardwareScannerButtons();
                 armHardwareScannerInputs(['confirmLocation', 'confirmSku', 'confirmLot', 'locationInput', 'skuInput', 'lotInput']);
