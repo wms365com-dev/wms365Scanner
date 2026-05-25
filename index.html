@@ -11879,6 +11879,7 @@
             ui.billingOwner.value = state.preferences.activeCompany || "";
             ui.billingStorageMonth.value = new Date().toISOString().slice(0, 7);
             ui.billingManualDate.value = todayInputValue();
+            applyInitialCompanyFromUrl();
             syncActiveCompanyFields(getActiveCompany(), { force: true });
             updateActiveCompanyUi();
             setSearchMode("sku");
@@ -11895,6 +11896,7 @@
             resetStoreIntegrationForm({ keepCompany: true });
             renderAll();
             setSection(getInitialSectionFromUrl() || (isMobileView() ? "mobile-home" : "home"), { recordHistory: false, syncOnSectionChange: false });
+            applyInitialMobileRouteParams();
             focusInitialLinkTarget();
             hydrateMobileDeviceCache().catch(() => {});
             preloadMobileCompanyOptions().catch(() => {});
@@ -12040,6 +12042,30 @@
             return Object.prototype.hasOwnProperty.call(DESKTOP_SECTION_META, requestedSection)
                 ? normalizeSectionForCurrentDevice(requestedSection)
                 : "";
+        }
+
+        function applyInitialCompanyFromUrl() {
+            const params = new URLSearchParams(window.location.search || "");
+            const requestedCompany = normalizeCompanyContextValue(params.get("accountName") || "");
+            if (!requestedCompany) return;
+            setActiveCompany(requestedCompany, { force: true, persist: true, rerender: false });
+        }
+
+        function applyInitialMobileRouteParams() {
+            if (!isMobileView()) return;
+            const params = new URLSearchParams(window.location.search || "");
+            const labelMode = String(params.get("labelMode") || "").trim().toLowerCase();
+            const subviewGroup = String(params.get("subviewGroup") || "").trim().toLowerCase();
+            const subviewTarget = String(params.get("subviewTarget") || params.get("subview") || "").trim().toLowerCase();
+            if (labelMode) {
+                window.setTimeout(() => setLabelToolMode(labelMode), 80);
+            }
+            if (subviewGroup && subviewTarget) {
+                window.setTimeout(() => setMobileSubview(subviewGroup, subviewTarget), 120);
+            }
+            if (params.get("reportIssue") === "1") {
+                window.setTimeout(() => openFeedbackModal(), 250);
+            }
         }
 
         function normalizeSectionForCurrentDevice(section) {

@@ -160,15 +160,15 @@ class MainActivity : Activity() {
             addView(statusView("Work"))
             addView(primaryButton("Picking") { showOrderList() })
             addView(secondaryButton("Receiving") { openMobileSection("inbounds") })
-            addView(secondaryButton("Putaway") { openMobileSection("actions") })
+            addView(secondaryButton("Putaway") { openMobileSection("actions", subviewGroup = "actions", subviewTarget = "putaway") })
             addView(secondaryButton("Inventory Count") { openMobileRoute("/mobile-count") })
             addView(secondaryButton("Lookup SKU / BIN") { openMobileSection("search") })
-            addView(secondaryButton("Move Item") { openMobileSection("actions") })
+            addView(secondaryButton("Move Item") { openMobileSection("actions", subviewGroup = "actions", subviewTarget = "transfer") })
             addView(secondaryButton("Receive Without PO") { openMobileSection("scan") })
-            addView(secondaryButton("Pallets / Labels") { openMobileSection("labels") })
+            addView(secondaryButton("Pallets / Labels") { openMobileSection("labels", labelMode = "pallet") })
             addView(statusView("Device"))
             addView(secondaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
-            addView(secondaryButton("Report Issue") { openMobileRoute("/mobile") })
+            addView(secondaryButton("Report Issue") { openMobileRoute("/mobile", reportIssue = true) })
             addView(secondaryButton("Logout / Switch Company") {
                 store.clearSession()
                 showLogin()
@@ -177,17 +177,35 @@ class MainActivity : Activity() {
         })
     }
 
-    private fun openMobileSection(section: String) {
-        openMobileRoute("/mobile", section)
+    private fun openMobileSection(
+        section: String,
+        subviewGroup: String = "",
+        subviewTarget: String = "",
+        labelMode: String = ""
+    ) {
+        openMobileRoute("/mobile", section, subviewGroup, subviewTarget, labelMode)
     }
 
-    private fun openMobileRoute(path: String, section: String = "") {
+    private fun openMobileRoute(
+        path: String,
+        section: String = "",
+        subviewGroup: String = "",
+        subviewTarget: String = "",
+        labelMode: String = "",
+        reportIssue: Boolean = false
+    ) {
         val session = store.getSession()
         val uri = Uri.parse(BuildConfig.WMS365_BASE_URL.trimEnd('/') + path).buildUpon()
             .appendQueryParameter("mode", "mobile")
+            .appendQueryParameter("source", "native_scanner")
+            .appendQueryParameter("nativeTs", System.currentTimeMillis().toString())
             .apply {
                 if (session?.company?.isNotBlank() == true) appendQueryParameter("accountName", session.company)
                 if (section.isNotBlank()) appendQueryParameter("section", section)
+                if (subviewGroup.isNotBlank()) appendQueryParameter("subviewGroup", subviewGroup)
+                if (subviewTarget.isNotBlank()) appendQueryParameter("subviewTarget", subviewTarget)
+                if (labelMode.isNotBlank()) appendQueryParameter("labelMode", labelMode)
+                if (reportIssue) appendQueryParameter("reportIssue", "1")
             }
             .build()
         val targetPackage = when {
