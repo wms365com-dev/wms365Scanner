@@ -12072,28 +12072,39 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
     const result = await client.query(
         `
             select
-                account_name,
-                sku,
-                location,
-                lot_number,
-                expiration_date,
-                coalesce(max(nullif(tracking_level, '')), 'UNIT') as tracking_level,
-                sum(quantity)::integer as quantity
-            from inventory_lines
-            where (account_name, sku) in (
+                i.account_name,
+                i.sku,
+                i.location,
+                i.lot_number,
+                i.expiration_date,
+                coalesce(max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
+                sum(i.quantity)::integer as quantity,
+                sum(greatest(coalesce(i.quantity, 0) - coalesce(c.allocated_quantity, 0), 0))::integer as available_quantity
+            from inventory_lines i
+            left join (
+                select
+                    a.inventory_line_id,
+                    coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
+                from portal_order_allocations a
+                join portal_orders o on o.id = a.order_id
+                where o.status = any($3::text[])
+                  and a.inventory_line_id is not null
+                group by a.inventory_line_id
+            ) c on c.inventory_line_id = i.id
+            where (i.account_name, i.sku) in (
                 select *
                 from unnest($1::text[], $2::text[])
             )
-            group by account_name, sku, location, lot_number, expiration_date
+            group by i.account_name, i.sku, i.location, i.lot_number, i.expiration_date
             order by
-                account_name asc,
-                sku asc,
+                i.account_name asc,
+                i.sku asc,
                 case when expiration_date <> '' then 0 else 1 end asc,
-                expiration_date asc,
-                location asc,
-                lot_number asc
+                i.expiration_date asc,
+                i.location asc,
+                i.lot_number asc
         `,
-        [accounts, skus]
+        [accounts, skus, ACTIVE_PORTAL_ORDER_STATUSES]
     );
 
     const byKey = new Map();
@@ -12109,11 +12120,13 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
         }
         const summary = byKey.get(key);
         const quantity = Number(row.quantity) || 0;
+        const availableQuantity = Number(row.available_quantity) || 0;
         summary.onHandQuantity += quantity;
-        summary.availableQuantity += quantity;
+        summary.availableQuantity += availableQuantity;
         summary.locations.push({
             location: row.location || '',
             quantity,
+            availableQuantity,
             trackingLevel: normalizeTrackingLevel(row.tracking_level || summary.trackingLevel || 'UNIT'),
             lotNumber: row.lot_number || "",
             expirationDate: normalizeDateOnly(row.expiration_date)
