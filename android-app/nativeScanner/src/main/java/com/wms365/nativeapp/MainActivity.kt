@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -156,17 +157,56 @@ class MainActivity : Activity() {
         root.addView(screen {
             addView(header("WMS365", "Scanner Terminal"))
             addView(banner("Company Locked", session?.company?.ifBlank { "All assigned companies" } ?: "Not signed in", BLUE))
+            addView(statusView("Work"))
             addView(primaryButton("Picking") { showOrderList() })
+            addView(secondaryButton("Receiving") { openMobileSection("inbounds") })
+            addView(secondaryButton("Putaway") { openMobileSection("actions") })
+            addView(secondaryButton("Inventory Count") { openMobileRoute("/mobile-count") })
+            addView(secondaryButton("Lookup SKU / BIN") { openMobileSection("search") })
+            addView(secondaryButton("Move Item") { openMobileSection("actions") })
+            addView(secondaryButton("Receive Without PO") { openMobileSection("scan") })
+            addView(secondaryButton("Pallets / Labels") { openMobileSection("labels") })
+            addView(statusView("Device"))
             addView(secondaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
-            addView(secondaryButton("Receiving / Putaway / Moves", disabled = false) {
-                toastStatus("Native modules are staged next. Current production-native workflow is Picking.", false)
-            })
+            addView(secondaryButton("Report Issue") { openMobileRoute("/mobile") })
             addView(secondaryButton("Logout / Switch Company") {
                 store.clearSession()
                 showLogin()
             })
             addView(statusView("Sync queue: ${summary.first} pending, ${summary.second} failed. App ${BuildConfig.VERSION_NAME}"))
         })
+    }
+
+    private fun openMobileSection(section: String) {
+        openMobileRoute("/mobile", section)
+    }
+
+    private fun openMobileRoute(path: String, section: String = "") {
+        val session = store.getSession()
+        val uri = Uri.parse(BuildConfig.WMS365_BASE_URL.trimEnd('/') + path).buildUpon()
+            .appendQueryParameter("mode", "mobile")
+            .apply {
+                if (session?.company?.isNotBlank() == true) appendQueryParameter("accountName", session.company)
+                if (section.isNotBlank()) appendQueryParameter("section", section)
+            }
+            .build()
+        val targetPackage = when {
+            isPackageInstalled("com.wms365.app") -> "com.wms365.app"
+            isPackageInstalled("com.android.chrome") -> "com.android.chrome"
+            else -> ""
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        if (targetPackage.isNotBlank()) intent.setPackage(targetPackage)
+        startActivity(intent)
+    }
+
+    private fun isPackageInstalled(packageName: String): Boolean {
+        return try {
+            packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
     }
 
     private fun showOrderList() {
