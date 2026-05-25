@@ -12,7 +12,7 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 class WmsApiClient(private val baseUrl: String = BuildConfig.WMS365_BASE_URL.trimEnd('/')) {
-    fun login(email: String, password: String, company: String, deviceId: String): AppSession {
+    fun login(email: String, password: String, deviceId: String): AppSession {
         val result = request(
             path = "/api/app/login",
             method = "POST",
@@ -24,7 +24,7 @@ class WmsApiClient(private val baseUrl: String = BuildConfig.WMS365_BASE_URL.tri
             cookieHeader = ""
         )
         val cookie = result.cookieHeader.ifBlank { throw ApiException(401, "Login succeeded but no session cookie was returned.") }
-        return AppSession(email = email, cookieHeader = cookie, company = company, warehouseId = "", deviceId = deviceId)
+        return AppSession(email = email, cookieHeader = cookie, company = "", warehouseId = "", deviceId = deviceId)
     }
 
     fun fetchPickOrders(session: AppSession): JSONArray {
@@ -35,6 +35,17 @@ class WmsApiClient(private val baseUrl: String = BuildConfig.WMS365_BASE_URL.tri
 
     fun fetchState(session: AppSession): JSONObject {
         return request("/api/state", "GET", null, session.cookieHeader).json
+    }
+
+    fun fetchCompanies(session: AppSession): List<String> {
+        val result = request("/api/app/companies", "GET", null, session.cookieHeader)
+        val companies = result.json.optJSONArray("companies") ?: JSONArray()
+        val rows = mutableListOf<String>()
+        for (i in 0 until companies.length()) {
+            val company = companies.optString(i).trim()
+            if (company.isNotBlank()) rows += company
+        }
+        return rows.distinct().sorted()
     }
 
     fun submitOutbox(session: AppSession, item: OutboxItem) {

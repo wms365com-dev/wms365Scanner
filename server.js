@@ -823,6 +823,20 @@ app.get("/api/app/me", async (req, res, next) => {
     }
 });
 
+app.get("/api/app/companies", async (req, res, next) => {
+    try {
+        const session = await requireAppSession(req);
+        const user = session.user;
+        const companies = isSuperAdminUser(user)
+            ? (await pool.query("select name from owner_accounts where is_active = true order by name asc")).rows.map((row) => normalizeText(row.name)).filter(Boolean)
+            : await getAccessibleCompanyNamesForAppUser(pool, user);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ success: true, companies: [...new Set(companies)].sort() });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/app/feedback", async (req, res, next) => {
     try {
         assertDatabaseAvailable();

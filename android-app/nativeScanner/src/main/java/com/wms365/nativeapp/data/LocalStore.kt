@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import org.json.JSONArray
 import org.json.JSONObject
 
 class LocalStore(context: Context) : SQLiteOpenHelper(context, "wms365_native_scanner.db", null, 1) {
@@ -126,6 +127,34 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, "wms365_native_sc
 
     fun clearSession() {
         listOf("email", "cookie", "company", "warehouseId").forEach { setSetting(it, "") }
+    }
+
+    fun setLockedCompany(company: String) {
+        setSetting("company", company.trim())
+    }
+
+    fun clearLockedCompany() {
+        setSetting("company", "")
+    }
+
+    fun saveCompanyList(companies: List<String>) {
+        val payload = JSONArray()
+        companies.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted().forEach { payload.put(it) }
+        setSetting("companyList", payload.toString())
+    }
+
+    fun getCompanyList(): List<String> {
+        val raw = getSetting("companyList")
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val payload = JSONArray(raw)
+            buildList {
+                for (i in 0 until payload.length()) {
+                    val value = payload.optString(i).trim()
+                    if (value.isNotBlank()) add(value)
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 
     fun upsertPickOrders(orders: List<JSONObject>) {

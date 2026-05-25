@@ -82,9 +82,14 @@ class MainActivity : Activity() {
         }
         SyncJobService.schedule(this)
 
-        if (store.getSession() == null) showLogin() else {
-            showHome()
-            sync.syncNow(downloadOrders = true)
+        val session = store.getSession()
+        when {
+            session == null -> showLogin()
+            session.company.isBlank() -> showCompanySelect()
+            else -> {
+                showHome()
+                sync.syncNow(downloadOrders = true)
+            }
         }
     }
 
@@ -115,6 +120,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         when (currentScreen) {
             Screen.FORM, Screen.ORDER_LIST, Screen.COMPLETE -> showHome()
+            Screen.COMPANY_SELECT -> showLogin()
             Screen.PICKING -> showOrderList()
             Screen.LOGIN -> super.onBackPressed()
             Screen.HOME -> super.onBackPressed()
@@ -127,27 +133,22 @@ class MainActivity : Activity() {
         root.removeAllViews()
         val email = input("Warehouse email", InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
         val password = input("Password", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
-        val company = input("Company to lock, optional", InputType.TYPE_CLASS_TEXT)
-        val savedCompany = store.getSetting("company")
-        if (savedCompany.isNotBlank()) company.setText(savedCompany)
-        val status = statusView("Sign in once. The device remembers the session and company lock.")
+        val status = statusView("Sign in first. Next screen selects the company for this work session.")
         messageText = status
 
         root.addView(screen {
             addView(header("WMS365 Scanner", "Warehouse terminal"))
             addView(email)
             addView(password)
-            addView(company)
             addView(primaryButton("Sign In") {
                 val deviceId = store.getSetting("deviceId").ifBlank {
                     UUID.randomUUID().toString().also { store.setSetting("deviceId", it) }
                 }
                 runAsync("Signing in...") {
-                    val session = api.login(email.text.toString(), password.text.toString(), company.text.toString().trim(), deviceId)
+                    val session = api.login(email.text.toString(), password.text.toString(), deviceId)
                     store.saveSession(session)
                     runOnUiThread {
-                        showHome()
-                        sync.syncNow(downloadOrders = true)
+                        showCompanySelect(forceRefresh = true)
                     }
                 }
             })
@@ -155,6 +156,102 @@ class MainActivity : Activity() {
             addView(footer())
         })
         email.requestFocus()
+    }
+
+    private fun showCompanySelect(forceRefresh: Boolean = false) {
+        clearNativeScan()
+        currentScreen = Screen.COMPANY_SELECT
+        val cachedCompanies = store.getCompanyList()
+        renderCompanySelect(cachedCompanies, if (cachedCompanies.isEmpty()) "Loading companies..." else "Choose the company to work on.")
+        if (forceRefresh || cachedCompanies.isEmpty()) fetchCompanyList()
+    }
+
+    private fun renderCompanySelect(companies: List<String>, statusMessage: String) {
+        root.removeAllViews()
+        val manualCompany = input("Type company if not listed", InputType.TYPE_CLASS_TEXT)
+        val status = statusView(statusMessage)
+        messageText = status
+        root.addView(screen {
+            addView(header("WMS365 Scanner", "Select company"))
+            addView(banner("Choose Company", "This locks the work area", BLUE))
+            if (companies.isEmpty()) {
+                addView(statusView("No companies loaded yet. Use Refresh or enter the company manually."))
+            } else {
+                companies.forEach { company ->
+                    addView(blockButton(company, "Select") { lockCompanyAndOpen(company) })
+                }
+            }
+            addView(statusView("Manual fallback"))
+            addView(manualCompany)
+            addView(primaryButton("Use This Company") {
+                val company = manualCompany.text.toString().trim()
+                if (company.isBlank()) {
+                    toastStatus("Choose or enter a company.", true)
+                } else {
+                    lockCompanyAndOpen(company)
+                }
+            })
+            addView(secondaryButton("Refresh Companies") { fetchCompanyList() })
+            addView(secondaryButton("Logout") {
+                store.clearSession()
+                showLogin()
+            })
+            addView(status)
+        })
+    }
+
+    private fun fetchCompanyList() {
+        val session = store.getSession()
+        if (session == null) {
+            showLogin()
+            return
+        }
+        toastStatus("Loading companies...", false)
+        executor.execute {
+            try {
+                val companies = api.fetchCompanies(session)
+                store.saveCompanyList(companies)
+                runOnUiThread {
+                    renderCompanySelect(companies, if (companies.isEmpty()) "No companies returned for this login." else "Loaded ${companies.size} company option(s).")
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    renderCompanySelect(store.getCompanyList(), error.message ?: "Company list could not load.")
+                }
+            }
+        }
+    }
+
+    private fun extractCompaniesFromState(state: JSONObject): List<String> {
+        val names = linkedSetOf<String>()
+        val ownerRecords = state.optJSONArray("ownerRecords") ?: org.json.JSONArray()
+        for (i in 0 until ownerRecords.length()) {
+            val row = ownerRecords.optJSONObject(i) ?: continue
+            row.optString("name").trim().takeIf { it.isNotBlank() }?.let(names::add)
+        }
+        val ownerNames = state.optJSONArray("owners") ?: org.json.JSONArray()
+        for (i in 0 until ownerNames.length()) {
+            val raw = ownerNames.opt(i)
+            val value = when (raw) {
+                is String -> raw
+                is JSONObject -> raw.optString("name")
+                else -> ""
+            }.trim()
+            if (value.isNotBlank()) names.add(value)
+        }
+        val inventory = state.optJSONArray("inventory") ?: org.json.JSONArray()
+        for (i in 0 until inventory.length()) {
+            val value = inventory.optJSONObject(i)?.optString("accountName").orEmpty().trim()
+            if (value.isNotBlank()) names.add(value)
+        }
+        return names.toList().sorted()
+    }
+
+    private fun lockCompanyAndOpen(company: String) {
+        store.setLockedCompany(company)
+        scanner.success()
+        showHome()
+        sync.syncNow(downloadOrders = true)
     }
 
     private fun showHome() {
@@ -166,7 +263,7 @@ class MainActivity : Activity() {
         val summary = store.outboxSummary()
         root.removeAllViews()
         root.addView(screen {
-            addView(header("WMS365", "Scanner Terminal"))
+            addView(header("WMS365 Scanner", "Work area"))
             addView(banner("Company Locked", session?.company?.ifBlank { "All assigned companies" } ?: "Not signed in", BLUE))
             addView(statusView("Work"))
             addView(primaryButton("Picking") { showOrderList() })
@@ -180,7 +277,11 @@ class MainActivity : Activity() {
             addView(statusView("Device"))
             addView(secondaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
             addView(secondaryButton("Report Issue") { showReportIssue() })
-            addView(secondaryButton("Logout / Switch Company") {
+            addView(secondaryButton("Switch Company") {
+                store.clearLockedCompany()
+                showCompanySelect(forceRefresh = false)
+            })
+            addView(secondaryButton("Logout") {
                 store.clearSession()
                 showLogin()
             })
@@ -1031,7 +1132,7 @@ class MainActivity : Activity() {
     }
 
     private enum class ScanTarget { NONE, LOCATION, SKU }
-    private enum class Screen { LOGIN, HOME, ORDER_LIST, PICKING, COMPLETE, FORM }
+    private enum class Screen { LOGIN, COMPANY_SELECT, HOME, ORDER_LIST, PICKING, COMPLETE, FORM }
 
     companion object {
         private val BG = Color.rgb(244, 247, 249)
