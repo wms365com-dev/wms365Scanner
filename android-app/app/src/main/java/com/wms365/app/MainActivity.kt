@@ -452,14 +452,22 @@ class MainActivity : Activity() {
                 'body.device-webview.picking-active .app { grid-template-rows: 1fr !important; }',
                 'body.device-webview.picking-active header, body.device-webview.picking-active main > .card:first-child, body.device-webview.picking-active #orderSummaryCard, body.device-webview.picking-active #lockedCompanyWrap { display: none !important; }',
                 'body.device-webview.picking-active main { padding: 6px !important; gap: 6px !important; }',
-                'body.device-webview.picking-active #pickCard { padding: 9px !important; }',
-                'body.device-webview.picking-active .pick-step { gap: 7px !important; }',
+                'body.device-webview.picking-active #pickCard { padding: 9px !important; min-height: calc(100dvh - 12px) !important; }',
+                'body.device-webview.picking-active .pick-step { gap: 8px !important; }',
                 'body.device-webview.picking-active .kicker, body.device-webview.picking-active #pickTraceability { display: none !important; }',
-                'body.device-webview.picking-active .loc { font-size: 30px !important; line-height: 1 !important; }',
-                'body.device-webview.picking-active .big { font-size: 20px !important; line-height: 1.05 !important; }',
+                'body.device-webview.picking-active .guide-banner { padding: 13px !important; border-width: 2px !important; }',
+                'body.device-webview.picking-active .guide-banner .guide-title { font-size: 30px !important; line-height: 1.02 !important; }',
+                'body.device-webview.picking-active .guide-banner .guide-sub { font-size: 14px !important; line-height: 1.25 !important; }',
+                'body.device-webview.picking-active .task-card { padding: 12px !important; border-width: 2px !important; }',
+                'body.device-webview.picking-active #locationCard { background: #fbfdfe !important; border-color: #9fb8c8 !important; }',
+                'body.device-webview.picking-active #pickLocation { font-size: clamp(44px, 13vw, 64px) !important; line-height: .95 !important; letter-spacing: 0 !important; color: #20303a !important; text-align: center !important; padding: 8px 4px 10px !important; overflow-wrap: anywhere !important; }',
+                'body.device-webview.picking-active .loc { font-size: 44px !important; line-height: .95 !important; }',
+                'body.device-webview.picking-active .big { font-size: 22px !important; line-height: 1.05 !important; }',
                 'body.device-webview.picking-active #pickDescription { font-size: 13px !important; line-height: 1.25 !important; }',
-                'body.device-webview.picking-active input, body.device-webview.picking-active select { padding: 10px 11px !important; }',
-                'body.device-webview.picking-active button { padding: 10px 12px !important; }',
+                'body.device-webview.picking-active input, body.device-webview.picking-active select { min-height: 56px !important; padding: 12px 13px !important; font-size: 20px !important; }',
+                'body.device-webview.picking-active button { min-height: 56px !important; padding: 12px 14px !important; font-size: 18px !important; }',
+                'body.device-webview.picking-active .scan-row { grid-template-columns: minmax(0,1fr) 96px !important; }',
+                'body.device-webview.picking-active .guided-actions button { min-height: 62px !important; }',
                 'body.device-webview.count-active .app { grid-template-rows: 1fr !important; padding: 6px !important; }',
                 'body.device-webview.count-active .top { display: none !important; }',
                 'body.device-webview.count-active .stack { gap: 7px !important; }',
@@ -781,7 +789,7 @@ class MainActivity : Activity() {
                   var active = pickCard && !pickCard.classList.contains('hidden');
                   document.body.classList.toggle('picking-active', !!active);
                   if (orderPicker) orderPicker.classList.toggle('hidden', !!active);
-                  if (active && pickCard && !document.getElementById('wms365Workbar')) {
+                  if (active && pickCard && !pickCard.querySelector('.workbar') && !document.getElementById('wms365Workbar')) {
                     var step = pickCard.querySelector('.pick-step') || pickCard;
                     var bar = document.createElement('div');
                     bar.id = 'wms365Workbar';

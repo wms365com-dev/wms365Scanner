@@ -102,15 +102,24 @@ button:disabled{opacity:.45}
 body.picking-active .app{grid-template-rows:1fr}
 body.picking-active header,body.picking-active main>.card:first-child,body.picking-active #orderSummaryCard,body.picking-active #lockedCompanyWrap{display:none!important}
 body.picking-active main{padding:6px;gap:6px}
-body.picking-active #pickCard{padding:9px}
-body.picking-active .pick-step{gap:7px}
+body.picking-active #pickCard{padding:9px;min-height:calc(100dvh - 12px)}
+body.picking-active .pick-step{gap:8px}
 body.picking-active .kicker{display:none}
-body.picking-active .loc{font-size:30px;line-height:1}
-body.picking-active .big{font-size:20px;line-height:1.05}
+body.picking-active .guide-banner{padding:13px;border-width:2px}
+body.picking-active .guide-banner .guide-title{font-size:30px;line-height:1.02}
+body.picking-active .guide-banner .guide-sub{font-size:14px;line-height:1.25}
+body.picking-active .task-card{padding:12px;border-width:2px}
+body.picking-active #locationCard{background:#fbfdfe;border-color:#9fb8c8}
+body.picking-active #locationCard h3{font-size:14px;color:var(--accent-2)}
+body.picking-active #pickLocation{font-size:clamp(44px,13vw,64px);line-height:.95;letter-spacing:0;color:var(--text);text-align:center;padding:8px 4px 10px;overflow-wrap:anywhere}
+body.picking-active .loc{font-size:44px;line-height:.95}
+body.picking-active .big{font-size:22px;line-height:1.05}
 body.picking-active #pickDescription{font-size:13px;line-height:1.25}
 body.picking-active label{gap:4px}
-body.picking-active select,body.picking-active input{padding:10px 11px}
-body.picking-active button{padding:10px 12px}
+body.picking-active select,body.picking-active input{min-height:56px;padding:12px 13px;font-size:20px}
+body.picking-active button{min-height:56px;padding:12px 14px;font-size:18px}
+body.picking-active .scan-row{grid-template-columns:minmax(0,1fr) 96px}
+body.picking-active .guided-actions button{min-height:62px}
 body.picking-active .status{padding:9px 10px}
 body.device-alien-legacy header{padding:6px 8px 4px}
 body.device-alien-legacy .head-card{padding:7px 9px;border-radius:10px}
@@ -1069,7 +1078,7 @@ async function confirmArrived({fromScan=false}={}){
   const expectedLoc=normalize(p.pickLocation||'');
   const fail=(message)=>{$('pickMessage').className='status bad';$('pickMessage').textContent=message;$('confirmLocation').focus();window.WMS365Mobile?.beep?.('error')};
   if(!loc)return fail('Scan or key in the location before confirming arrival.');
-  if(expectedLoc&&loc!==expectedLoc)return fail(`Wrong location. Go to ${p.pickLocation}.`);
+  if(expectedLoc&&loc!==expectedLoc)return fail(`Scanned ${loc||'blank'}. Go to ${p.pickLocation}.`);
   state.savingArrival=true;
   $('confirmArrivedBtn').disabled=true;
   $('pickMessage').className='status';
@@ -1109,10 +1118,39 @@ function validatePickIdentity(p){
     return null;
   };
   if(!sku)return fail('Scan or key in the SKU / UPC before continuing.',$('confirmSku'));
-  if(sku!==expectedSku && (!expectedUpc || sku!==expectedUpc))return fail('SKU / UPC does not match the current pick.',$('confirmSku'));
-  if(expectedLot && lot!==expectedLot)return fail('Lot number does not match the required FEFO pick.',$('confirmLot'));
-  if(expectedExpiration && expiration!==expectedExpiration)return fail('Expiration date does not match the required FEFO pick.',$('confirmExpiration'));
+  if(sku!==expectedSku && (!expectedUpc || sku!==expectedUpc))return fail(`Scanned ${sku||'blank'}. Expected ${p.sku}${p.upc?` or ${p.upc}`:''}.`,$('confirmSku'));
+  if(expectedLot && lot!==expectedLot)return fail(`Scanned lot ${lot||'blank'}. Expected ${p.lotNumber}.`,$('confirmLot'));
+  if(expectedExpiration && expiration!==expectedExpiration)return fail(`Scanned expiry ${expiration||'blank'}. Expected ${p.expirationDate}.`,$('confirmExpiration'));
   return {sku,lot,expiration};
+}
+
+function cleanScanValue(value){
+  return normalize(String(value||'').replace(/[\u0000-\u001f\u007f]/g,''));
+}
+
+function isVisibleScanInput(id){
+  const el=$(id);
+  return !!el&&!el.closest('.hidden');
+}
+
+function resolveScanTarget(targetId,value){
+  const requested=String(targetId||'').trim();
+  const activeId=document.activeElement?.id||'';
+  const p=currentPick();
+  const key=p?pickKey(p):'';
+  const arrived=!!(key&&state.arrivals[key]);
+  const skuReady=!!(key&&state.skuConfirmed[key]);
+  const scanFields=['orderSearch','confirmLocation','confirmSku','confirmLot','confirmExpiration'];
+  if(scanFields.includes(requested)&&isVisibleScanInput(requested))return requested;
+  if(scanFields.includes(activeId)&&isVisibleScanInput(activeId))return activeId;
+  if(!p)return 'orderSearch';
+  if(!arrived)return 'confirmLocation';
+  if(!skuReady){
+    if(p.lotNumber&&isVisibleScanInput('confirmLot')&&cleanScanValue(value)===cleanScanValue(p.lotNumber))return 'confirmLot';
+    if(p.expirationDate&&isVisibleScanInput('confirmExpiration')&&cleanScanValue(value)===cleanScanValue(p.expirationDate))return 'confirmExpiration';
+    return 'confirmSku';
+  }
+  return 'confirmQty';
 }
 
 function confirmSkuStep({fromScan=false}={}){
@@ -1136,8 +1174,10 @@ function confirmSkuStep({fromScan=false}={}){
 }
 
 function acceptScanValue(targetId,value){
+  const scanned=cleanScanValue(value);
+  targetId=resolveScanTarget(targetId,scanned);
   const target=$(targetId);if(!target)return;
-  target.value=String(value||'').trim();
+  target.value=scanned;
   window.WMS365Mobile?.vibrate?.(45);
   window.WMS365Mobile?.beep?.('success');
   if(targetId==='orderSearch'){
