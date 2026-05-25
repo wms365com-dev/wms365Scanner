@@ -33,6 +33,10 @@ class WmsApiClient(private val baseUrl: String = BuildConfig.WMS365_BASE_URL.tri
         return result.json.optJSONArray("orders") ?: JSONArray()
     }
 
+    fun fetchState(session: AppSession): JSONObject {
+        return request("/api/state", "GET", null, session.cookieHeader).json
+    }
+
     fun submitOutbox(session: AppSession, item: OutboxItem) {
         request(item.type.apiPath, "POST", JSONObject(item.payload), session.cookieHeader)
     }

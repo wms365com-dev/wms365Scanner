@@ -61,7 +61,10 @@ enum class OutboxType(val apiPath: String) {
     PICK_EXCEPTION("/api/mobile/pick-exceptions"),
     PUT_AWAY("/api/mobile/put-away-confirmations"),
     MOVE("/api/mobile/move-confirmations"),
-    RECEIVING("/api/mobile/receiving-confirmations")
+    RECEIVING("/api/mobile/receiving-confirmations"),
+    INVENTORY_COUNT("/api/inventory-counts"),
+    PALLET_LABEL("/api/pallets/save"),
+    FEEDBACK("/api/app/feedback")
 }
 
 data class OutboxItem(

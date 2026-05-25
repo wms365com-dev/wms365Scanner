@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -54,6 +53,8 @@ class MainActivity : Activity() {
     private var currentScreen = Screen.LOGIN
     private var scanReceiverRegistered = false
     private var actionLockedUntil = 0L
+    private var activeTextInput: EditText? = null
+    private var activeTextInputTarget = ""
     private val scanReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val value = extractScanFromIntent(intent)
@@ -110,6 +111,16 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    @Deprecated("Deprecated in Android platform API; kept for rugged devices on older Android builds.")
+    override fun onBackPressed() {
+        when (currentScreen) {
+            Screen.FORM, Screen.ORDER_LIST, Screen.COMPLETE -> showHome()
+            Screen.PICKING -> showOrderList()
+            Screen.LOGIN -> super.onBackPressed()
+            Screen.HOME -> super.onBackPressed()
+        }
+    }
+
     private fun showLogin() {
         activeScanTarget = ScanTarget.NONE
         currentScreen = Screen.LOGIN
@@ -159,16 +170,16 @@ class MainActivity : Activity() {
             addView(banner("Company Locked", session?.company?.ifBlank { "All assigned companies" } ?: "Not signed in", BLUE))
             addView(statusView("Work"))
             addView(primaryButton("Picking") { showOrderList() })
-            addView(secondaryButton("Receiving") { openMobileSection("inbounds") })
-            addView(secondaryButton("Putaway") { openMobileSection("actions", subviewGroup = "actions", subviewTarget = "putaway") })
-            addView(secondaryButton("Inventory Count") { openMobileRoute("/mobile-count") })
-            addView(secondaryButton("Lookup SKU / BIN") { openMobileSection("search") })
-            addView(secondaryButton("Move Item") { openMobileSection("actions", subviewGroup = "actions", subviewTarget = "transfer") })
-            addView(secondaryButton("Receive Without PO") { openMobileSection("scan") })
-            addView(secondaryButton("Pallets / Labels") { openMobileSection("labels", labelMode = "pallet") })
+            addView(secondaryButton("Receiving") { showReceiving() })
+            addView(secondaryButton("Putaway") { showPutaway() })
+            addView(secondaryButton("Inventory Count") { showInventoryCount() })
+            addView(secondaryButton("Lookup SKU / BIN") { showLookup() })
+            addView(secondaryButton("Move Item") { showMoveItem() })
+            addView(secondaryButton("Receive Without PO") { showReceiveWithoutPo() })
+            addView(secondaryButton("Pallets / Labels") { showPalletsLabels() })
             addView(statusView("Device"))
             addView(secondaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
-            addView(secondaryButton("Report Issue") { openMobileRoute("/mobile", reportIssue = true) })
+            addView(secondaryButton("Report Issue") { showReportIssue() })
             addView(secondaryButton("Logout / Switch Company") {
                 store.clearSession()
                 showLogin()
@@ -177,54 +188,380 @@ class MainActivity : Activity() {
         })
     }
 
-    private fun openMobileSection(
-        section: String,
-        subviewGroup: String = "",
-        subviewTarget: String = "",
-        labelMode: String = ""
-    ) {
-        openMobileRoute("/mobile", section, subviewGroup, subviewTarget, labelMode)
+    private fun showReceiving() {
+        showReceivingForm("Receiving", "Receive against inbound / PO", false)
     }
 
-    private fun openMobileRoute(
-        path: String,
-        section: String = "",
-        subviewGroup: String = "",
-        subviewTarget: String = "",
-        labelMode: String = "",
-        reportIssue: Boolean = false
-    ) {
-        val session = store.getSession()
-        val uri = Uri.parse(BuildConfig.WMS365_BASE_URL.trimEnd('/') + path).buildUpon()
-            .appendQueryParameter("mode", "mobile")
-            .appendQueryParameter("source", "native_scanner")
-            .appendQueryParameter("nativeTs", System.currentTimeMillis().toString())
-            .apply {
-                if (session?.company?.isNotBlank() == true) appendQueryParameter("accountName", session.company)
-                if (section.isNotBlank()) appendQueryParameter("section", section)
-                if (subviewGroup.isNotBlank()) appendQueryParameter("subviewGroup", subviewGroup)
-                if (subviewTarget.isNotBlank()) appendQueryParameter("subviewTarget", subviewTarget)
-                if (labelMode.isNotBlank()) appendQueryParameter("labelMode", labelMode)
-                if (reportIssue) appendQueryParameter("reportIssue", "1")
+    private fun showReceiveWithoutPo() {
+        showReceivingForm("Quick Check-In", "No PO available", true)
+    }
+
+    private fun showReceivingForm(title: String, instruction: String, withoutPo: Boolean) {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val ref = input(if (withoutPo) "BOL / Reference" else "Inbound / PO reference", InputType.TYPE_CLASS_TEXT)
+        val sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT)
+        val qty = input("Qty received", InputType.TYPE_CLASS_NUMBER)
+        val location = input("Staging location", InputType.TYPE_CLASS_TEXT).apply { setText("RECEIVING-STAGE") }
+        val pallets = input("Pallet count", InputType.TYPE_CLASS_NUMBER)
+        val cases = input("Case count", InputType.TYPE_CLASS_NUMBER)
+        val note = input("Note", InputType.TYPE_CLASS_TEXT)
+        root.removeAllViews()
+        root.addView(nativeFormScreen(title, instruction) {
+            addView(ref)
+            addView(scanToButton("Scan Ref", ref, "reference"))
+            addView(sku)
+            addView(scanToButton("Scan SKU / UPC", sku, "sku"))
+            addView(qty)
+            addView(location)
+            addView(scanToButton("Scan Location", location, "location"))
+            addView(pallets)
+            addView(cases)
+            addView(note)
+            addView(primaryButton("Save Receiving") {
+                val company = lockedCompanyOrStop() ?: return@primaryButton
+                val receivedQty = qty.text.toString().toIntOrNull() ?: 0
+                if (sku.text.isBlank() || receivedQty <= 0) {
+                    toastStatus("SKU and received qty are required.", true)
+                    return@primaryButton
+                }
+                queueNativeWork(
+                    OutboxType.RECEIVING,
+                    JSONObject()
+                        .put("accountName", company)
+                        .put("sourceType", if (withoutPo) "MANUAL" else "PORTAL_INBOUND")
+                        .put("referenceNumber", ref.text.toString().trim())
+                        .put("sku", sku.text.toString().trim())
+                        .put("skuOrUpc", sku.text.toString().trim())
+                        .put("quantity", receivedQty)
+                        .put("receivedQuantity", receivedQty)
+                        .put("location", location.text.toString().trim())
+                        .put("palletCount", pallets.text.toString().toIntOrNull() ?: 0)
+                        .put("caseCount", cases.text.toString().toIntOrNull() ?: 0)
+                        .put("note", note.text.toString().trim()),
+                    "Receiving saved"
+                )
+            })
+            addView(secondaryButton("Back") { showHome() })
+        })
+        ref.requestFocus()
+        activeTextInput = ref
+    }
+
+    private fun showPutaway() {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val from = input("From location", InputType.TYPE_CLASS_TEXT).apply { setText("RECEIVING-STAGE") }
+        val to = input("To BIN", InputType.TYPE_CLASS_TEXT)
+        val sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT)
+        val qty = input("Qty", InputType.TYPE_CLASS_NUMBER)
+        root.removeAllViews()
+        root.addView(nativeFormScreen("Putaway", "Move stock into BIN") {
+            addView(from)
+            addView(scanToButton("Scan From", from, "from location"))
+            addView(to)
+            addView(scanToButton("Scan To BIN", to, "to location"))
+            addView(sku)
+            addView(scanToButton("Scan SKU / UPC", sku, "sku"))
+            addView(qty)
+            addView(primaryButton("Confirm Putaway") {
+                val company = lockedCompanyOrStop() ?: return@primaryButton
+                val movedQty = qty.text.toString().toIntOrNull() ?: 0
+                if (from.text.isBlank() || to.text.isBlank() || sku.text.isBlank() || movedQty <= 0) {
+                    toastStatus("From, To, SKU, and Qty are required.", true)
+                    return@primaryButton
+                }
+                queueNativeWork(
+                    OutboxType.PUT_AWAY,
+                    JSONObject()
+                        .put("accountName", company)
+                        .put("sourceType", "INVENTORY")
+                        .put("fromLocation", from.text.toString().trim())
+                        .put("toLocation", to.text.toString().trim())
+                        .put("location", to.text.toString().trim())
+                        .put("sku", sku.text.toString().trim())
+                        .put("skuOrUpc", sku.text.toString().trim())
+                        .put("quantity", movedQty),
+                    "Putaway queued"
+                )
+            })
+            addView(secondaryButton("Back") { showHome() })
+        })
+        to.requestFocus()
+        activeTextInput = to
+    }
+
+    private fun showMoveItem() {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val from = input("From location", InputType.TYPE_CLASS_TEXT)
+        val to = input("To location", InputType.TYPE_CLASS_TEXT)
+        val sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT)
+        val qty = input("Qty", InputType.TYPE_CLASS_NUMBER)
+        root.removeAllViews()
+        root.addView(nativeFormScreen("Move Item", "Transfer stock location to location") {
+            addView(from)
+            addView(scanToButton("Scan From", from, "from location"))
+            addView(to)
+            addView(scanToButton("Scan To", to, "to location"))
+            addView(sku)
+            addView(scanToButton("Scan SKU / UPC", sku, "sku"))
+            addView(qty)
+            addView(primaryButton("Confirm Move") {
+                val company = lockedCompanyOrStop() ?: return@primaryButton
+                val movedQty = qty.text.toString().toIntOrNull() ?: 0
+                if (from.text.isBlank() || to.text.isBlank() || sku.text.isBlank() || movedQty <= 0) {
+                    toastStatus("From, To, SKU, and Qty are required.", true)
+                    return@primaryButton
+                }
+                queueNativeWork(
+                    OutboxType.MOVE,
+                    JSONObject()
+                        .put("accountName", company)
+                        .put("sourceType", "INVENTORY")
+                        .put("fromLocation", from.text.toString().trim())
+                        .put("toLocation", to.text.toString().trim())
+                        .put("location", to.text.toString().trim())
+                        .put("sku", sku.text.toString().trim())
+                        .put("skuOrUpc", sku.text.toString().trim())
+                        .put("quantity", movedQty),
+                    "Move queued"
+                )
+            })
+            addView(secondaryButton("Back") { showHome() })
+        })
+        from.requestFocus()
+        activeTextInput = from
+    }
+
+    private fun showInventoryCount() {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val location = input("Location", InputType.TYPE_CLASS_TEXT)
+        val sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT)
+        val cases = input("Cases counted", InputType.TYPE_CLASS_NUMBER)
+        val lot = input("Lot, if required", InputType.TYPE_CLASS_TEXT)
+        val expiry = input("Expiry YYYY-MM-DD, if required", InputType.TYPE_CLASS_TEXT)
+        root.removeAllViews()
+        root.addView(nativeFormScreen("Inventory Count", "Count one SKU in one location") {
+            addView(location)
+            addView(scanToButton("Scan Location", location, "location"))
+            addView(sku)
+            addView(scanToButton("Scan SKU / UPC", sku, "sku"))
+            addView(cases)
+            addView(lot)
+            addView(expiry)
+            addView(primaryButton("Submit Count") {
+                val company = lockedCompanyOrStop() ?: return@primaryButton
+                val counted = cases.text.toString().toIntOrNull()
+                if (location.text.isBlank() || sku.text.isBlank() || counted == null || counted < 0) {
+                    toastStatus("Location, SKU, and cases are required.", true)
+                    return@primaryButton
+                }
+                queueNativeWork(
+                    OutboxType.INVENTORY_COUNT,
+                    JSONObject()
+                        .put("accountName", company)
+                        .put("location", location.text.toString().trim())
+                        .put("skuOrUpc", sku.text.toString().trim())
+                        .put("countedCases", counted)
+                        .put("lotNumber", lot.text.toString().trim())
+                        .put("expirationDate", expiry.text.toString().trim())
+                        .put("source", "android_app"),
+                    "Count submitted for review"
+                )
+            })
+            addView(secondaryButton("Back") { showHome() })
+        })
+        location.requestFocus()
+        activeTextInput = location
+    }
+
+    private fun showPalletsLabels() {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val pallet = input("Pallet ID, optional", InputType.TYPE_CLASS_TEXT)
+        val sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT)
+        val cases = input("Cases on pallet", InputType.TYPE_CLASS_NUMBER)
+        val location = input("Location", InputType.TYPE_CLASS_TEXT)
+        root.removeAllViews()
+        root.addView(nativeFormScreen("Pallets / Labels", "Save pallet record") {
+            addView(pallet)
+            addView(scanToButton("Scan Pallet", pallet, "pallet"))
+            addView(sku)
+            addView(scanToButton("Scan SKU / UPC", sku, "sku"))
+            addView(cases)
+            addView(location)
+            addView(scanToButton("Scan Location", location, "location"))
+            addView(primaryButton("Save Pallet") {
+                val company = lockedCompanyOrStop() ?: return@primaryButton
+                val caseQty = cases.text.toString().toIntOrNull() ?: 0
+                if (sku.text.isBlank() || caseQty <= 0) {
+                    toastStatus("SKU and cases are required.", true)
+                    return@primaryButton
+                }
+                queueNativeWork(
+                    OutboxType.PALLET_LABEL,
+                    JSONObject()
+                        .put("accountName", company)
+                        .put("palletCode", pallet.text.toString().trim())
+                        .put("sku", sku.text.toString().trim())
+                        .put("cases", caseQty)
+                        .put("date", todayDate())
+                        .put("location", location.text.toString().trim())
+                        .put("source", "android_app"),
+                    "Pallet saved"
+                )
+            })
+            addView(secondaryButton("Back") { showHome() })
+        })
+        pallet.requestFocus()
+        activeTextInput = pallet
+    }
+
+    private fun showLookup() {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val query = input("Scan SKU, UPC, or BIN", InputType.TYPE_CLASS_TEXT)
+        val results = statusView("Enter or scan a value, then tap Search.")
+        messageText = results
+        root.removeAllViews()
+        root.addView(nativeFormScreen("Lookup", "Find item or BIN") {
+            addView(query)
+            addView(scanToButton("Scan Value", query, "lookup"))
+            addView(primaryButton("Search") { runLookup(query.text.toString(), results) })
+            addView(results)
+            addView(secondaryButton("Back") { showHome() })
+        })
+        query.requestFocus()
+        activeTextInput = query
+    }
+
+    private fun runLookup(raw: String, results: TextView) {
+        val search = normalizeScan(raw)
+        if (search.isBlank()) {
+            toastStatus("Scan or enter a SKU, UPC, or BIN.", true)
+            return
+        }
+        val session = store.getSession() ?: return toastStatus("Sign in first.", true)
+        results.text = "Searching..."
+        executor.execute {
+            try {
+                val state = api.fetchState(session)
+                val company = session.company
+                val inventory = state.optJSONArray("inventory") ?: org.json.JSONArray()
+                val matches = mutableListOf<String>()
+                for (i in 0 until inventory.length()) {
+                    val row = inventory.optJSONObject(i) ?: continue
+                    if (company.isNotBlank() && !row.optString("accountName").equals(company, true)) continue
+                    val location = row.optString("location")
+                    val sku = row.optString("sku")
+                    val upc = row.optString("upc")
+                    if (listOf(location, sku, upc).any { normalizeScan(it) == search }) {
+                        matches += "${location.ifBlank { "-" }} | ${sku.ifBlank { "-" }} | Qty ${row.optInt("quantity", row.optInt("onHandQuantity", 0))}"
+                    }
+                    if (matches.size >= 12) break
+                }
+                runOnUiThread {
+                    results.text = if (matches.isEmpty()) "No exact match found. Worker may continue, but verify before posting." else matches.joinToString("\n")
+                }
+            } catch (error: Exception) {
+                runOnUiThread { results.text = error.message ?: "Lookup failed" }
             }
-            .build()
-        val targetPackage = when {
-            isPackageInstalled("com.wms365.app") -> "com.wms365.app"
-            isPackageInstalled("com.android.chrome") -> "com.android.chrome"
-            else -> ""
         }
-        val intent = Intent(Intent.ACTION_VIEW, uri)
-        if (targetPackage.isNotBlank()) intent.setPackage(targetPackage)
-        startActivity(intent)
     }
 
-    private fun isPackageInstalled(packageName: String): Boolean {
-        return try {
-            packageManager.getPackageInfo(packageName, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
+    private fun showReportIssue() {
+        clearNativeScan()
+        currentScreen = Screen.FORM
+        val details = EditText(this).apply {
+            hint = "Describe the issue"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 4
+            textSize = 18f
+            setPadding(18, 12, 18, 12)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).withMargins()
         }
+        root.removeAllViews()
+        root.addView(nativeFormScreen("Report Issue", "Tell support what happened") {
+            addView(details)
+            addView(primaryButton("Submit Issue") {
+                val text = details.text.toString().trim()
+                if (text.isBlank()) {
+                    toastStatus("Enter the issue details.", true)
+                    return@primaryButton
+                }
+                queueNativeWork(
+                    OutboxType.FEEDBACK,
+                    JSONObject()
+                        .put("requestType", "BUG")
+                        .put("source", "WAREHOUSE")
+                        .put("accountName", store.getSession()?.company.orEmpty())
+                        .put("title", text.take(120))
+                        .put("details", text)
+                        .put("pageName", "Native Android Scanner")
+                        .put("appSection", "WAREHOUSE")
+                        .put("buildLabel", BuildConfig.VERSION_NAME),
+                    "Issue submitted"
+                )
+            })
+            addView(secondaryButton("Back") { showHome() })
+        })
+        details.requestFocus()
+    }
+
+    private fun clearNativeScan() {
+        activeTask = null
+        activeOrderId = ""
+        activeScanTarget = ScanTarget.NONE
+        activeTextInput = null
+        activeTextInputTarget = ""
+    }
+
+    private fun nativeFormScreen(title: String, instruction: String, body: LinearLayout.() -> Unit): ScrollView {
+        return screen {
+            addView(header(title, "Native Android workflow"))
+            addView(banner(instruction, store.getSession()?.company?.ifBlank { "No company locked" } ?: "Not signed in", BLUE))
+            body()
+        }
+    }
+
+    private fun scanToButton(text: String, target: EditText, targetLabel: String): Button {
+        return cameraButton(text) {
+            activeTextInput = target
+            activeTextInputTarget = targetLabel
+            target.requestFocus()
+            startCameraScan()
+        }
+    }
+
+    private fun lockedCompanyOrStop(): String? {
+        val company = store.getSession()?.company.orEmpty()
+        if (company.isBlank()) {
+            toastStatus("Select and lock a company at login first.", true)
+            return null
+        }
+        return company
+    }
+
+    private fun queueNativeWork(type: OutboxType, payload: JSONObject, successMessage: String) {
+        val session = store.getSession()
+        val key = "android-${type.name.lowercase()}-${session?.deviceId}-${System.currentTimeMillis()}"
+        val enriched = JSONObject(payload.toString())
+            .put("deviceId", session?.deviceId.orEmpty())
+            .put("warehouseId", session?.warehouseId.orEmpty())
+            .put("source", "android_app")
+            .put("idempotencyKey", key)
+            .put("clientTimestamp", System.currentTimeMillis())
+        store.enqueue(type, key, enriched)
+        scanner.success()
+        toastStatus("$successMessage. Syncing...", false)
+        sync.syncNow(downloadOrders = false)
+        showHome()
+    }
+
+    private fun todayDate(): String {
+        return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
     }
 
     private fun showOrderList() {
@@ -451,11 +788,20 @@ class MainActivity : Activity() {
     }
 
     private fun handleScan(value: String) {
+        val cleanValue = value.trim()
+        if (activeTask == null && activeTextInput != null) {
+            activeTextInput?.setText(cleanValue)
+            activeTextInput?.setSelection(activeTextInput?.text?.length ?: 0)
+            store.recordScan(cleanValue, activeTextInputTarget.ifBlank { "field" }, "captured")
+            scanner.success()
+            toastStatus("Scanned ${activeTextInputTarget.ifBlank { "value" }}", false)
+            return
+        }
         val task = activeTask ?: return
         when (activeScanTarget) {
-            ScanTarget.LOCATION -> confirmLocation(task, value)
-            ScanTarget.SKU -> confirmSku(task, value)
-            ScanTarget.NONE -> toastStatus("Scan received: $value", false)
+            ScanTarget.LOCATION -> confirmLocation(task, cleanValue)
+            ScanTarget.SKU -> confirmSku(task, cleanValue)
+            ScanTarget.NONE -> toastStatus("Scan received: $cleanValue", false)
         }
     }
 
@@ -673,6 +1019,8 @@ class MainActivity : Activity() {
         intent.extras?.keySet()?.forEach { key ->
             val raw = intent.extras?.get(key)
             if (raw is String && raw.isNotBlank() && key.contains("data", ignoreCase = true)) return raw.trim()
+            if (raw is ByteArray && raw.isNotEmpty()) return String(raw).trim()
+            if (raw is CharSequence && raw.isNotBlank() && key.contains("barcode", ignoreCase = true)) return raw.toString().trim()
         }
         return ""
     }
@@ -683,7 +1031,7 @@ class MainActivity : Activity() {
     }
 
     private enum class ScanTarget { NONE, LOCATION, SKU }
-    private enum class Screen { LOGIN, HOME, ORDER_LIST, PICKING, COMPLETE }
+    private enum class Screen { LOGIN, HOME, ORDER_LIST, PICKING, COMPLETE, FORM }
 
     companion object {
         private val BG = Color.rgb(244, 247, 249)
