@@ -929,8 +929,8 @@ class MainActivity : Activity() {
         activeScanTarget = ScanTarget.NONE
         currentScreen = Screen.PICKING
         root.removeAllViews()
-        root.addView(taskScreen(task, tasks, "Go to this location", task.location.ifBlank { "Scan source location" }) {
-            addView(primaryButton("I Am At Location") {
+        root.addView(taskScreen(task, tasks, "Go to assigned location", task.location.ifBlank { "Scan source location" }) {
+            addView(primaryButton("Confirm Arrival") {
                 store.updateTaskState(task.id, PickState.SCAN_LOCATION)
                 openNextTask()
             })
@@ -947,7 +947,7 @@ class MainActivity : Activity() {
         currentScreen = Screen.PICKING
         val scan = input("Scan or key location", InputType.TYPE_CLASS_TEXT)
         root.removeAllViews()
-        root.addView(taskScreen(task, tasks, "Confirm you arrived", task.location.ifBlank { "Actual pick location required" }) {
+        root.addView(taskScreen(task, tasks, "Confirm pick location", task.location.ifBlank { "Actual pick location required" }) {
             addView(scan)
             addView(primaryButton("Confirm Location") { confirmLocation(task, scan.text.toString()) })
             addView(cameraButton("Camera Scan") { startCameraScan() })
@@ -961,7 +961,7 @@ class MainActivity : Activity() {
         currentScreen = Screen.PICKING
         val scan = input("Scan SKU / UPC", InputType.TYPE_CLASS_TEXT)
         root.removeAllViews()
-        root.addView(taskScreen(task, tasks, "Pick this item", task.sku) {
+        root.addView(taskScreen(task, tasks, "Confirm item", task.sku) {
             addView(fieldLabel("Description", task.description.ifBlank { "No description" }))
             if (task.lotNumber.isNotBlank()) addView(fieldLabel("Lot", task.lotNumber))
             if (task.expiry.isNotBlank()) addView(fieldLabel("Expiry", task.expiry))
@@ -977,9 +977,9 @@ class MainActivity : Activity() {
         activeTask = task
         activeScanTarget = ScanTarget.SKU
         currentScreen = Screen.PICKING
-        val scan = input("Scan each unit / case", InputType.TYPE_CLASS_TEXT)
+        val scan = input("Scan item or case barcode", InputType.TYPE_CLASS_TEXT)
         root.removeAllViews()
-        root.addView(taskScreen(task, tasks, "Scan each unit", task.sku) {
+        root.addView(taskScreen(task, tasks, "Scan each item/case", task.sku) {
             addView(fieldLabel("Picked", "${task.pickedQty} of ${task.requiredQty}"))
             addView(fieldLabel("Remaining", task.remainingQty.toString()))
             addView(fieldLabel("Available", task.availableQty.toString()))
@@ -987,9 +987,10 @@ class MainActivity : Activity() {
             if (task.lotNumber.isNotBlank()) addView(fieldLabel("Lot", task.lotNumber))
             if (task.expiry.isNotBlank()) addView(fieldLabel("Expiry", task.expiry))
             addView(scan)
-            addView(primaryButton("Confirm This Scan") { confirmSku(task, scan.text.toString()) })
+            addView(primaryButton("Confirm Scanned Unit") { confirmSku(task, scan.text.toString()) })
             addView(cameraButton("Camera Scan") { startCameraScan() })
-            addView(secondaryButton("Short Pick / Not Enough Stock") { reportException(task, "SHORT_PICK") })
+            addView(warningButton("No Barcode - Confirm Unit") { confirmPickScan(task, "NO_BARCODE", barcodeOverride = true) })
+            addView(secondaryButton("Report Short Pick") { reportException(task, "SHORT_PICK") })
             addProblemButtons(task)
         })
         scan.requestFocus()
@@ -1010,7 +1011,7 @@ class MainActivity : Activity() {
             addView(primaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
             if (syncSummary.second > 0) {
                 addView(dangerButton("Review Sync Issues") { showSyncIssues() })
-                addView(secondaryButton("Resolve Sync First", disabled = true) {})
+                addView(secondaryButton("Resolve Sync Issues First", disabled = true) {})
             } else {
                 addView(secondaryButton("Choose Another Order") { showOrderList() })
             }
@@ -1043,13 +1044,13 @@ class MainActivity : Activity() {
         if (!skuOk && !upcOk) {
             store.recordScan(value, "sku", "wrong_sku", task.orderId, task.id)
             scanner.error()
-            toastStatus("Wrong item. Expected ${task.sku}", true)
+            toastStatus("Barcode does not match. Expected ${task.sku}", true)
             return
         }
-        confirmPickScan(task, value)
+        confirmPickScan(task, value, barcodeOverride = false)
     }
 
-    private fun confirmPickScan(task: PickTask, scannedValue: String) {
+    private fun confirmPickScan(task: PickTask, scannedValue: String, barcodeOverride: Boolean) {
         val current = store.getPickTask(task.id) ?: task
         if (current.remainingQty <= 0) {
             scanner.error()
@@ -1066,6 +1067,7 @@ class MainActivity : Activity() {
                 .put("sku", current.sku)
                 .put("skuOrUpc", current.sku)
                 .put("scannedValue", scannedValue.trim())
+                .put("barcodeOverride", barcodeOverride)
                 .put("quantity", 1)
                 .put("lot", current.lotNumber)
                 .put("expiry", current.expiry)
@@ -1073,11 +1075,11 @@ class MainActivity : Activity() {
 
         val newPicked = current.pickedQty + 1
         val nextState = if (newPicked >= current.requiredQty) PickState.COMPLETE else PickState.ENTER_QTY
-        store.recordScan(scannedValue, "sku", "picked_unit", current.orderId, current.id)
+        store.recordScan(scannedValue, "sku", if (barcodeOverride) "barcode_override_unit" else "picked_unit", current.orderId, current.id)
         store.updateTaskState(current.id, nextState, newPicked)
 
         scanner.success()
-        toastStatus("Picked $newPicked of ${current.requiredQty}", false)
+        toastStatus(if (barcodeOverride) "Unit confirmed without barcode: $newPicked of ${current.requiredQty}" else "Unit confirmed: $newPicked of ${current.requiredQty}", false)
         sync.syncNow(downloadOrders = false)
         if (nextState == PickState.COMPLETE) {
             openNextTask()
@@ -1188,8 +1190,8 @@ class MainActivity : Activity() {
     }
 
     private fun LinearLayout.addProblemButtons(task: PickTask) {
-        addView(secondaryButton("Location Empty") { reportException(task, "LOCATION_EMPTY") })
-        addView(secondaryButton("Damaged / Blocked / Wrong Item") { reportException(task, "PICK_EXCEPTION") })
+        addView(secondaryButton("Report Empty Location") { reportException(task, "LOCATION_EMPTY") })
+        addView(secondaryButton("Report Pick Issue") { reportException(task, "PICK_EXCEPTION") })
     }
 
     private fun screen(body: LinearLayout.() -> Unit): ScrollView {
