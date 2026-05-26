@@ -694,7 +694,12 @@ class MainActivity : Activity() {
             return
         }
         val session = store.getSession() ?: return toastStatus("Sign in first.", true)
-        results.text = "Searching..."
+        val localMatches = store.localLookup(search, session.company)
+        results.text = if (localMatches.isNotEmpty()) {
+            "Device cache:\n${localMatches.joinToString("\n")}\n\nChecking live inventory..."
+        } else {
+            "Checking live inventory..."
+        }
         executor.execute {
             try {
                 val state = api.fetchState(session)
@@ -713,10 +718,20 @@ class MainActivity : Activity() {
                     if (matches.size >= 12) break
                 }
                 runOnUiThread {
-                    results.text = if (matches.isEmpty()) "No exact match found. Worker may continue, but verify before posting." else matches.joinToString("\n")
+                    results.text = when {
+                        matches.isNotEmpty() -> "Live inventory:\n${matches.joinToString("\n")}"
+                        localMatches.isNotEmpty() -> "Device cache:\n${localMatches.joinToString("\n")}\n\nLive inventory: no exact match found."
+                        else -> "No exact match found. Worker may continue, but verify before posting."
+                    }
                 }
             } catch (error: Exception) {
-                runOnUiThread { results.text = error.message ?: "Lookup failed" }
+                runOnUiThread {
+                    results.text = if (localMatches.isNotEmpty()) {
+                        "Device cache:\n${localMatches.joinToString("\n")}\n\nLive lookup failed: ${error.message ?: "unknown error"}"
+                    } else {
+                        error.message ?: "Lookup failed"
+                    }
+                }
             }
         }
     }
@@ -927,9 +942,13 @@ class MainActivity : Activity() {
         currentScreen = Screen.COMPLETE
         root.removeAllViews()
         val exceptions = tasks.count { it.state == PickState.EXCEPTION }
+        val syncSummary = store.outboxSummary()
         root.addView(screen {
             addView(header("Picking Complete", activeOrderId))
             addView(banner(if (exceptions > 0) "Needs Review" else "Ready to Pack", if (exceptions > 0) "$exceptions exception(s) reported" else "All picks confirmed", if (exceptions > 0) YELLOW else GREEN))
+            if (syncSummary.first > 0 || syncSummary.second > 0) {
+                addView(statusView("Sync queue: ${syncSummary.first} pending, ${syncSummary.second} failed. Tap Sync Now and tell a supervisor if failed remains."))
+            }
             addView(primaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
             addView(secondaryButton("Choose Another Order") { showOrderList() })
             addView(secondaryButton("Home") { showHome() })

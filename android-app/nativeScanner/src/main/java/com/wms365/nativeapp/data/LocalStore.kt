@@ -283,6 +283,56 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, "wms365_native_sc
         }
     }
 
+    fun localLookup(rawSearch: String, company: String = "", limit: Int = 12): List<String> {
+        val search = normalizeLookup(rawSearch)
+        if (search.isBlank()) return emptyList()
+        val matches = linkedSetOf<String>()
+        val taskWhere = if (company.isBlank()) "" else " where account_name = ?"
+        val taskArgs = if (company.isBlank()) emptyArray() else arrayOf(company)
+        readableDatabase.rawQuery(
+            "select location, sku, upc, required_qty, available_qty, order_code from pick_tasks$taskWhere order by order_code asc, sequence asc",
+            taskArgs
+        ).use { cursor ->
+            while (cursor.moveToNext() && matches.size < limit) {
+                val location = cursor.getString(0)
+                val sku = cursor.getString(1)
+                val upc = cursor.getString(2)
+                if (listOf(location, sku, upc).any { normalizeLookup(it) == search }) {
+                    matches += "Pick work: ${location.ifBlank { "-" }} | ${sku.ifBlank { "-" }} | Required ${cursor.getInt(3)} | Avail ${cursor.getInt(4)} | ${cursor.getString(5)}"
+                }
+            }
+        }
+        readableDatabase.rawQuery(
+            "select type, status, payload from outbox order by id desc limit 250",
+            emptyArray()
+        ).use { cursor ->
+            while (cursor.moveToNext() && matches.size < limit) {
+                val type = cursor.getString(0)
+                val status = cursor.getString(1)
+                val payload = runCatching { JSONObject(cursor.getString(2)) }.getOrNull() ?: continue
+                val account = payload.optString("accountName")
+                if (company.isNotBlank() && account.isNotBlank() && !account.equals(company, true)) continue
+                val values = listOf(
+                    payload.optString("location"),
+                    payload.optString("fromLocation"),
+                    payload.optString("toLocation"),
+                    payload.optString("sku"),
+                    payload.optString("skuOrUpc"),
+                    payload.optString("upc"),
+                    payload.optString("palletCode"),
+                    payload.optString("referenceNumber")
+                )
+                if (values.any { normalizeLookup(it) == search }) {
+                    val location = payload.optString("location").ifBlank { payload.optString("toLocation") }.ifBlank { payload.optString("fromLocation") }
+                    val sku = payload.optString("sku").ifBlank { payload.optString("skuOrUpc") }
+                    val qty = payload.optInt("quantity", payload.optInt("countedCases", payload.optInt("cases", 0)))
+                    matches += "Recent $type ($status): ${location.ifBlank { "-" }} | ${sku.ifBlank { "-" }} | Qty $qty"
+                }
+            }
+        }
+        return matches.toList()
+    }
+
     fun recordScan(value: String, target: String, result: String, orderId: String = "", taskId: String = "") {
         writableDatabase.insert("scan_history", null, ContentValues().apply {
             put("value", value)
@@ -293,6 +343,8 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, "wms365_native_sc
             put("created_at", nowMillis())
         })
     }
+
+    private fun normalizeLookup(value: String): String = value.trim().uppercase().replace(Regex("[^A-Z0-9]"), "")
 
     private fun PickTask.toValues(stateOverride: PickState, pickedOverride: Int): ContentValues = ContentValues().apply {
         put("id", id)
