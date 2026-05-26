@@ -136,6 +136,7 @@ class MainActivity : Activity() {
                 CountStep.TRACE -> showCountQty()
             }
             Screen.PICKING -> showOrderList()
+            Screen.SYNC_ISSUES -> showHome()
             Screen.LOGIN -> super.onBackPressed()
             Screen.HOME -> super.onBackPressed()
         }
@@ -279,16 +280,24 @@ class MainActivity : Activity() {
         root.addView(screen {
             addView(header("WMS365 Scanner", "Work area"))
             addView(banner("Company Locked", session?.company?.ifBlank { "All assigned companies" } ?: "Not signed in", BLUE))
-            addView(statusView("Work"))
+            if (summary.second > 0) {
+                addView(banner("Sync Issues", "${summary.second} failed transaction(s) need review", RED))
+                addView(dangerButton("Review Sync Issues") { showSyncIssues() })
+            } else if (summary.first > 0) {
+                addView(banner("Sync Pending", "${summary.first} transaction(s) waiting to send", YELLOW))
+            }
+            addView(statusView("Outbound"))
             addView(primaryButton("Picking") { showOrderList() })
+            addView(statusView("Inbound"))
             addView(secondaryButton("Receiving") { showReceiving() })
-            addView(secondaryButton("Putaway") { showPutaway() })
-            addView(secondaryButton("Inventory Count") { showInventoryCount() })
-            addView(secondaryButton("Lookup SKU / BIN") { showLookup() })
-            addView(secondaryButton("Move Item") { showMoveItem() })
             addView(secondaryButton("Receive Without PO") { showReceiveWithoutPo() })
+            addView(secondaryButton("Putaway") { showPutaway() })
+            addView(statusView("Inventory"))
+            addView(secondaryButton("Inventory Count") { showInventoryCount() })
+            addView(secondaryButton("Move Item") { showMoveItem() })
+            addView(secondaryButton("Lookup SKU / BIN") { showLookup() })
             addView(secondaryButton("Pallets / Labels") { showPalletsLabels() })
-            addView(statusView("Device"))
+            addView(statusView("Device Tools"))
             addView(secondaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
             addView(secondaryButton("Report Issue") { showReportIssue() })
             addView(secondaryButton("Switch Company") {
@@ -301,6 +310,51 @@ class MainActivity : Activity() {
             })
             addView(statusView("Sync queue: ${summary.first} pending, ${summary.second} failed. App ${BuildConfig.VERSION_NAME}"))
         })
+    }
+
+    private fun showSyncIssues() {
+        currentScreen = Screen.SYNC_ISSUES
+        val failed = store.pendingOutbox(100).filter { it.status == "FAILED" }
+        val pending = store.pendingOutbox(100).filter { it.status == "PENDING" }
+        root.removeAllViews()
+        root.addView(screen {
+            addView(header("Sync Issues", "Device queue"))
+            when {
+                failed.isNotEmpty() -> addView(banner("Failed Sync", "${failed.size} transaction(s) need supervisor review", RED))
+                pending.isNotEmpty() -> addView(banner("Sync Pending", "${pending.size} transaction(s) waiting to send", YELLOW))
+                else -> addView(banner("All Synced", "No pending or failed transactions", GREEN))
+            }
+            addView(primaryButton("Retry Sync Now") {
+                sync.syncNow(downloadOrders = true)
+                showSyncIssues()
+            })
+            if (failed.isNotEmpty()) {
+                failed.take(20).forEach { item ->
+                    addView(statusView(syncIssueText(item.type.name, item.payload, item.lastError)))
+                }
+            } else if (pending.isNotEmpty()) {
+                pending.take(20).forEach { item ->
+                    addView(statusView(syncIssueText(item.type.name, item.payload, "Pending sync")))
+                }
+            } else {
+                addView(statusView("The device queue is clear."))
+            }
+            addView(secondaryButton("Home") { showHome() })
+        })
+    }
+
+    private fun syncIssueText(type: String, payloadRaw: String, error: String): String {
+        val payload = runCatching { JSONObject(payloadRaw) }.getOrNull() ?: JSONObject()
+        val order = payload.optString("sourceId").ifBlank { payload.optString("orderId") }.ifBlank { payload.optString("referenceNumber") }
+        val sku = payload.optString("sku").ifBlank { payload.optString("skuOrUpc") }
+        val location = payload.optString("location").ifBlank { payload.optString("toLocation") }.ifBlank { payload.optString("fromLocation") }
+        val parts = listOf(
+            type,
+            if (order.isNotBlank()) "Order/Ref $order" else "",
+            if (sku.isNotBlank()) "SKU $sku" else "",
+            if (location.isNotBlank()) "Loc $location" else ""
+        ).filter { it.isNotBlank() }
+        return "${parts.joinToString(" | ")}\n${error.ifBlank { "Unknown sync error" }.take(170)}"
     }
 
     private fun showReceiving() {
@@ -951,7 +1005,12 @@ class MainActivity : Activity() {
                 addView(statusView("Sync queue: ${syncSummary.first} pending, ${syncSummary.second} failed. Tap Sync Now and tell a supervisor if failed remains."))
             }
             addView(primaryButton("Sync Now") { sync.syncNow(downloadOrders = true) })
-            addView(secondaryButton("Choose Another Order") { showOrderList() })
+            if (syncSummary.second > 0) {
+                addView(dangerButton("Review Sync Issues") { showSyncIssues() })
+                addView(secondaryButton("Resolve Sync First", disabled = true) {})
+            } else {
+                addView(secondaryButton("Choose Another Order") { showOrderList() })
+            }
             addView(secondaryButton("Home") { showHome() })
         })
     }
@@ -1249,6 +1308,8 @@ class MainActivity : Activity() {
     private fun primaryButton(text: String, onClick: () -> Unit): Button = button(text, GREEN, Color.WHITE, false, onClick)
     private fun cameraButton(text: String, onClick: () -> Unit): Button = button(text, DARK, Color.WHITE, false, onClick)
     private fun secondaryButton(text: String, disabled: Boolean = false, onClick: () -> Unit): Button = button(text, Color.WHITE, TEXT, disabled, onClick)
+    private fun dangerButton(text: String, onClick: () -> Unit): Button = button(text, RED, Color.WHITE, false, onClick)
+    private fun warningButton(text: String, onClick: () -> Unit): Button = button(text, YELLOW, Color.WHITE, false, onClick)
 
     private fun blockButton(title: String, action: String, onClick: () -> Unit): Button = button("$title\n$action", Color.WHITE, TEXT, false, onClick).apply {
         gravity = Gravity.CENTER_VERTICAL
@@ -1367,7 +1428,7 @@ class MainActivity : Activity() {
 
     private enum class ScanTarget { NONE, LOCATION, SKU }
     private enum class CountStep { NONE, LOCATION, SKU, QTY, TRACE }
-    private enum class Screen { LOGIN, COMPANY_SELECT, HOME, ORDER_LIST, PICKING, COMPLETE, FORM, COUNT }
+    private enum class Screen { LOGIN, COMPANY_SELECT, HOME, ORDER_LIST, PICKING, COMPLETE, FORM, COUNT, SYNC_ISSUES }
 
     companion object {
         private val BG = Color.rgb(244, 247, 249)
@@ -1376,6 +1437,7 @@ class MainActivity : Activity() {
         private val GREEN = Color.rgb(15, 118, 110)
         private val BLUE = Color.rgb(37, 99, 235)
         private val YELLOW = Color.rgb(202, 138, 4)
+        private val RED = Color.rgb(185, 28, 28)
         private val DARK = Color.rgb(15, 23, 42)
     }
 }
