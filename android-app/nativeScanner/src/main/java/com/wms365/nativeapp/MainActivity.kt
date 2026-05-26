@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -55,6 +56,12 @@ class MainActivity : Activity() {
     private var actionLockedUntil = 0L
     private var activeTextInput: EditText? = null
     private var activeTextInputTarget = ""
+    private var activeCountStep = CountStep.NONE
+    private var countLocation = ""
+    private var countSkuOrUpc = ""
+    private var countCases = ""
+    private var countLot = ""
+    private var countExpiry = ""
     private val scanReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val value = extractScanFromIntent(intent)
@@ -121,6 +128,12 @@ class MainActivity : Activity() {
         when (currentScreen) {
             Screen.FORM, Screen.ORDER_LIST, Screen.COMPLETE -> showHome()
             Screen.COMPANY_SELECT -> showLogin()
+            Screen.COUNT -> when (activeCountStep) {
+                CountStep.LOCATION, CountStep.NONE -> showHome()
+                CountStep.SKU -> showCountLocation()
+                CountStep.QTY -> showCountSku()
+                CountStep.TRACE -> showCountQty()
+            }
             Screen.PICKING -> showOrderList()
             Screen.LOGIN -> super.onBackPressed()
             Screen.HOME -> super.onBackPressed()
@@ -437,45 +450,181 @@ class MainActivity : Activity() {
 
     private fun showInventoryCount() {
         clearNativeScan()
-        currentScreen = Screen.FORM
-        val location = input("Location", InputType.TYPE_CLASS_TEXT)
-        val sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT)
-        val cases = input("Cases counted", InputType.TYPE_CLASS_NUMBER)
-        val lot = input("Lot, if required", InputType.TYPE_CLASS_TEXT)
-        val expiry = input("Expiry YYYY-MM-DD, if required", InputType.TYPE_CLASS_TEXT)
+        countLocation = ""
+        countSkuOrUpc = ""
+        countCases = ""
+        countLot = ""
+        countExpiry = ""
+        showCountLocation()
+    }
+
+    private fun showCountLocation() {
+        currentScreen = Screen.COUNT
+        activeCountStep = CountStep.LOCATION
+        val location = countInput("Location", InputType.TYPE_CLASS_TEXT).apply { setText(countLocation) }
         root.removeAllViews()
-        root.addView(nativeFormScreen("Inventory Count", "Count one SKU in one location") {
+        root.addView(countScreen("Step 1 of 4", "Scan Location", "Go to the bin and scan the location label.") {
             addView(location)
-            addView(scanToButton("Scan Location", location, "location"))
-            addView(sku)
-            addView(scanToButton("Scan SKU / UPC", sku, "sku"))
-            addView(cases)
-            addView(lot)
-            addView(expiry)
-            addView(primaryButton("Submit Count") {
-                val company = lockedCompanyOrStop() ?: return@primaryButton
-                val counted = cases.text.toString().toIntOrNull()
-                if (location.text.isBlank() || sku.text.isBlank() || counted == null || counted < 0) {
-                    toastStatus("Location, SKU, and cases are required.", true)
+            addView(primaryButton("Confirm Location") {
+                val value = location.text.toString().trim()
+                if (value.isBlank()) {
+                    toastStatus("Scan or enter the location.", true)
+                    showKeyboard(location)
                     return@primaryButton
                 }
-                queueNativeWork(
-                    OutboxType.INVENTORY_COUNT,
-                    JSONObject()
-                        .put("accountName", company)
-                        .put("location", location.text.toString().trim())
-                        .put("skuOrUpc", sku.text.toString().trim())
-                        .put("countedCases", counted)
-                        .put("lotNumber", lot.text.toString().trim())
-                        .put("expirationDate", expiry.text.toString().trim())
-                        .put("source", "android_app"),
-                    "Count submitted for review"
-                )
+                countLocation = value
+                showCountSku()
+            })
+            addView(secondaryButton("Key In Location") { showKeyboard(location) })
+            addView(cameraButton("Camera Scan") {
+                activeTextInput = location
+                activeTextInputTarget = "location"
+                startCameraScan()
             })
             addView(secondaryButton("Back") { showHome() })
         })
-        location.requestFocus()
-        activeTextInput = location
+        activateInput(location, "location", showKeyboard = false)
+    }
+
+    private fun showCountSku() {
+        currentScreen = Screen.COUNT
+        activeCountStep = CountStep.SKU
+        val sku = countInput("SKU / UPC", InputType.TYPE_CLASS_TEXT).apply { setText(countSkuOrUpc) }
+        root.removeAllViews()
+        root.addView(countScreen("Step 2 of 4", "Scan SKU / UPC", countLocation) {
+            addView(fieldLabel("Location", countLocation))
+            addView(sku)
+            addView(primaryButton("Confirm SKU / UPC") {
+                val value = sku.text.toString().trim()
+                if (value.isBlank()) {
+                    toastStatus("Scan or enter the SKU / UPC.", true)
+                    showKeyboard(sku)
+                    return@primaryButton
+                }
+                countSkuOrUpc = value
+                showCountQty()
+            })
+            addView(secondaryButton("Key In SKU") { showKeyboard(sku) })
+            addView(cameraButton("Camera Scan") {
+                activeTextInput = sku
+                activeTextInputTarget = "sku"
+                startCameraScan()
+            })
+            addView(secondaryButton("Back to Location") { showCountLocation() })
+        })
+        activateInput(sku, "sku", showKeyboard = false)
+    }
+
+    private fun showCountQty() {
+        currentScreen = Screen.COUNT
+        activeCountStep = CountStep.QTY
+        val cases = countInput("Cases counted", InputType.TYPE_CLASS_NUMBER).apply {
+            setText(countCases)
+            textSize = 32f
+            gravity = Gravity.CENTER
+            minHeight = 92
+        }
+        root.removeAllViews()
+        root.addView(countScreen("Step 3 of 4", "Enter Cases", countSkuOrUpc) {
+            addView(fieldLabel("Location", countLocation))
+            addView(fieldLabel("SKU / UPC", countSkuOrUpc))
+            addView(cases)
+            addView(primaryButton("Confirm Cases") {
+                val value = cases.text.toString().trim()
+                val counted = value.toIntOrNull()
+                if (counted == null || counted < 0) {
+                    toastStatus("Enter cases counted. Use 0 if empty.", true)
+                    showKeyboard(cases)
+                    return@primaryButton
+                }
+                countCases = value
+                showCountTraceability()
+            })
+            addView(secondaryButton("Empty / Zero Cases") {
+                countCases = "0"
+                showCountTraceability()
+            })
+            addView(secondaryButton("Back to SKU") { showCountSku() })
+        })
+        activateInput(cases, "cases", showKeyboard = true)
+    }
+
+    private fun showCountTraceability() {
+        currentScreen = Screen.COUNT
+        activeCountStep = CountStep.TRACE
+        val lot = countInput("Lot if required", InputType.TYPE_CLASS_TEXT).apply { setText(countLot) }
+        val expiry = countInput("Expiry YYYY-MM-DD if required", InputType.TYPE_CLASS_TEXT).apply { setText(countExpiry) }
+        root.removeAllViews()
+        root.addView(countScreen("Step 4 of 4", "Lot / Expiry", "Skip when not required.") {
+            addView(fieldLabel("Location", countLocation))
+            addView(fieldLabel("SKU / UPC", countSkuOrUpc))
+            addView(fieldLabel("Cases", countCases))
+            addView(lot)
+            addView(scanToButton("Scan Lot", lot, "lot"))
+            addView(expiry)
+            addView(primaryButton("Submit Count") {
+                countLot = lot.text.toString().trim()
+                countExpiry = expiry.text.toString().trim()
+                submitGuidedInventoryCount()
+            })
+            addView(secondaryButton("Skip Lot / Expiry") {
+                countLot = ""
+                countExpiry = ""
+                submitGuidedInventoryCount()
+            })
+            addView(secondaryButton("Back to Qty") { showCountQty() })
+        })
+        activateInput(lot, "lot", showKeyboard = false)
+    }
+
+    private fun submitGuidedInventoryCount() {
+        val company = lockedCompanyOrStop() ?: return
+        val counted = countCases.toIntOrNull()
+        if (countLocation.isBlank() || countSkuOrUpc.isBlank() || counted == null || counted < 0) {
+            toastStatus("Count is missing location, SKU, or cases.", true)
+            showCountLocation()
+            return
+        }
+        queueNativeWork(
+            OutboxType.INVENTORY_COUNT,
+            JSONObject()
+                .put("accountName", company)
+                .put("location", countLocation)
+                .put("skuOrUpc", countSkuOrUpc)
+                .put("countedCases", counted)
+                .put("lotNumber", countLot)
+                .put("expirationDate", countExpiry)
+                .put("source", "android_app"),
+            "Count submitted for review",
+            returnHome = false
+        )
+        showCountSaved()
+    }
+
+    private fun showCountSaved() {
+        currentScreen = Screen.COUNT
+        activeCountStep = CountStep.NONE
+        root.removeAllViews()
+        root.addView(countScreen("Saved", "Count Saved", "$countSkuOrUpc at $countLocation") {
+            addView(fieldLabel("Cases", countCases))
+            addView(primaryButton("Add Another SKU Here") {
+                countSkuOrUpc = ""
+                countCases = ""
+                countLot = ""
+                countExpiry = ""
+                showCountSku()
+            })
+            addView(primaryButton("Next Location") { showInventoryCount() })
+            addView(secondaryButton("Home") { showHome() })
+        })
+    }
+
+    private fun countScreen(step: String, action: String, detail: String, body: LinearLayout.() -> Unit): ScrollView {
+        return screen {
+            addView(header("Inventory Count", step))
+            addView(banner(action, detail, BLUE))
+            body()
+        }
     }
 
     private fun showPalletsLabels() {
@@ -617,6 +766,7 @@ class MainActivity : Activity() {
         activeScanTarget = ScanTarget.NONE
         activeTextInput = null
         activeTextInputTarget = ""
+        activeCountStep = CountStep.NONE
     }
 
     private fun nativeFormScreen(title: String, instruction: String, body: LinearLayout.() -> Unit): ScrollView {
@@ -645,7 +795,7 @@ class MainActivity : Activity() {
         return company
     }
 
-    private fun queueNativeWork(type: OutboxType, payload: JSONObject, successMessage: String) {
+    private fun queueNativeWork(type: OutboxType, payload: JSONObject, successMessage: String, returnHome: Boolean = true) {
         val session = store.getSession()
         val key = "android-${type.name.lowercase()}-${session?.deviceId}-${System.currentTimeMillis()}"
         val enriched = JSONObject(payload.toString())
@@ -658,7 +808,7 @@ class MainActivity : Activity() {
         scanner.success()
         toastStatus("$successMessage. Syncing...", false)
         sync.syncNow(downloadOrders = false)
-        showHome()
+        if (returnHome) showHome()
     }
 
     private fun todayDate(): String {
@@ -896,6 +1046,29 @@ class MainActivity : Activity() {
             store.recordScan(cleanValue, activeTextInputTarget.ifBlank { "field" }, "captured")
             scanner.success()
             toastStatus("Scanned ${activeTextInputTarget.ifBlank { "value" }}", false)
+            if (currentScreen == Screen.COUNT) {
+                when (activeCountStep) {
+                    CountStep.LOCATION -> {
+                        countLocation = cleanValue
+                        showCountSku()
+                    }
+                    CountStep.SKU -> {
+                        countSkuOrUpc = cleanValue
+                        showCountQty()
+                    }
+                    CountStep.QTY -> {
+                        val digits = cleanValue.filter(Char::isDigit)
+                        if (digits.isBlank()) {
+                            scanner.error()
+                            toastStatus("Qty scan did not include a number.", true)
+                            return
+                        }
+                        countCases = digits
+                        showCountTraceability()
+                    }
+                    CountStep.TRACE, CountStep.NONE -> Unit
+                }
+            }
             return
         }
         val task = activeTask ?: return
@@ -1009,7 +1182,38 @@ class MainActivity : Activity() {
         setPadding(18, 8, 18, 8)
         minHeight = 64
         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            showSoftInputOnFocus = true
+        }
+        setOnClickListener { showKeyboard(this) }
+        setOnFocusChangeListener { view, hasFocus ->
+            if (hasFocus && view is EditText) {
+                activeTextInput = view
+            }
+        }
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).withMargins()
+    }
+
+    private fun countInput(hint: String, inputTypeValue: Int): EditText = input(hint, inputTypeValue).apply {
+        textSize = 22f
+        minHeight = 78
+        setPadding(20, 12, 20, 12)
+    }
+
+    private fun activateInput(input: EditText, target: String, showKeyboard: Boolean) {
+        activeTextInput = input
+        activeTextInputTarget = target
+        input.requestFocus()
+        if (showKeyboard) showKeyboard(input)
+    }
+
+    private fun showKeyboard(input: EditText) {
+        input.requestFocus()
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        input.postDelayed({
+            val manager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            manager.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }, 120)
     }
 
     private fun primaryButton(text: String, onClick: () -> Unit): Button = button(text, GREEN, Color.WHITE, false, onClick)
@@ -1132,7 +1336,8 @@ class MainActivity : Activity() {
     }
 
     private enum class ScanTarget { NONE, LOCATION, SKU }
-    private enum class Screen { LOGIN, COMPANY_SELECT, HOME, ORDER_LIST, PICKING, COMPLETE, FORM }
+    private enum class CountStep { NONE, LOCATION, SKU, QTY, TRACE }
+    private enum class Screen { LOGIN, COMPANY_SELECT, HOME, ORDER_LIST, PICKING, COMPLETE, FORM, COUNT }
 
     companion object {
         private val BG = Color.rgb(244, 247, 249)

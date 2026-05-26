@@ -81,6 +81,12 @@ public class MainActivity extends Activity {
     private EditText activeInput;
     private String activeInputLabel = "";
     private String screen = "login";
+    private String countStep = "";
+    private String countLocation = "";
+    private String countSku = "";
+    private String countCases = "";
+    private String countLot = "";
+    private String countExpiry = "";
     private String activeOrderId = "";
     private List<PickTask> activeTasks = new ArrayList<>();
     private PickTask activeTask;
@@ -141,6 +147,11 @@ public class MainActivity extends Activity {
             super.onBackPressed();
         } else if ("pick".equals(screen)) {
             showOrderList();
+        } else if ("count".equals(screen)) {
+            if ("trace".equals(countStep)) showCountQty();
+            else if ("qty".equals(countStep)) showCountSku();
+            else if ("sku".equals(countStep)) showCountLocation();
+            else showHome();
         } else if ("company".equals(screen)) {
             showLogin();
         } else {
@@ -447,39 +458,203 @@ public class MainActivity extends Activity {
     }
 
     private void showInventoryCount() {
-        screen = "form";
+        countLocation = "";
+        countSku = "";
+        countCases = "";
+        countLot = "";
+        countExpiry = "";
+        showCountLocation();
+    }
+
+    private void showCountLocation() {
+        screen = "count";
+        countStep = "location";
         final EditText loc = input("Location", InputType.TYPE_CLASS_TEXT);
-        final EditText sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT);
-        final EditText cases = input("Cases counted", InputType.TYPE_CLASS_NUMBER);
-        final EditText lot = input("Lot, if required", InputType.TYPE_CLASS_TEXT);
-        final EditText expiry = input("Expiry YYYY-MM-DD, if required", InputType.TYPE_CLASS_TEXT);
+        loc.setText(countLocation);
         root.removeAllViews();
-        root.addView(formLayout("Inventory Count", "Count one SKU in one location", new Builder() {
+        root.addView(formLayout("Inventory Count", "Step 1 of 4", new Builder() {
             @Override public void build(LinearLayout l) {
-                l.addView(loc); l.addView(scanButton("Scan Location", loc, "location"));
-                l.addView(sku); l.addView(scanButton("Scan SKU / UPC", sku, "sku"));
-                l.addView(cases); l.addView(lot); l.addView(expiry);
-                l.addView(primaryButton("Submit Count", new View.OnClickListener() {
+                l.addView(banner("Go to this location", "Scan Location", BLUE));
+                l.addView(loc);
+                l.addView(primaryButton("Confirm Location", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        int q = intValue(cases);
-                        if (loc.getText().length() == 0 || sku.getText().length() == 0 || q < 0) {
-                            toast("Location, SKU, and cases are required.", true);
+                        String value = loc.getText().toString().trim();
+                        if (value.length() == 0) {
+                            toast("Scan or enter the location.", true);
+                            showKeyboard(loc);
                             return;
                         }
-                        queue("INVENTORY_COUNT", basePayload()
-                            .put("accountName", company())
-                            .put("location", loc.getText().toString().trim())
-                            .put("skuOrUpc", sku.getText().toString().trim())
-                            .put("countedCases", q)
-                            .put("lotNumber", lot.getText().toString().trim())
-                            .put("expirationDate", expiry.getText().toString().trim()), "Count submitted for review");
+                        countLocation = value;
+                        showCountSku();
                     }
                 }));
+                l.addView(secondaryButton("Key In Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showKeyboard(loc); }
+                }));
+                l.addView(scanButton("Scan Location", loc, "location"));
                 l.addView(backButton());
             }
         }));
-        activeInput = loc;
-        loc.requestFocus();
+        activateInput(loc, "location", false);
+    }
+
+    private void showCountSku() {
+        screen = "count";
+        countStep = "sku";
+        final EditText sku = input("SKU / UPC", InputType.TYPE_CLASS_TEXT);
+        sku.setText(countSku);
+        root.removeAllViews();
+        root.addView(formLayout("Inventory Count", "Step 2 of 4", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(banner("Scan SKU / UPC", countLocation, BLUE));
+                l.addView(field("Location", countLocation));
+                l.addView(sku);
+                l.addView(primaryButton("Confirm SKU / UPC", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        String value = sku.getText().toString().trim();
+                        if (value.length() == 0) {
+                            toast("Scan or enter the SKU / UPC.", true);
+                            showKeyboard(sku);
+                            return;
+                        }
+                        countSku = value;
+                        showCountQty();
+                    }
+                }));
+                l.addView(secondaryButton("Key In SKU", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showKeyboard(sku); }
+                }));
+                l.addView(scanButton("Scan SKU / UPC", sku, "sku"));
+                l.addView(secondaryButton("Back to Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showCountLocation(); }
+                }));
+            }
+        }));
+        activateInput(sku, "sku", false);
+    }
+
+    private void showCountQty() {
+        screen = "count";
+        countStep = "qty";
+        final EditText cases = input("Cases counted", InputType.TYPE_CLASS_NUMBER);
+        cases.setText(countCases);
+        cases.setTextSize(32);
+        cases.setGravity(Gravity.CENTER);
+        cases.setMinHeight(92);
+        root.removeAllViews();
+        root.addView(formLayout("Inventory Count", "Step 3 of 4", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(banner("Enter Cases", countSku, BLUE));
+                l.addView(field("Location", countLocation));
+                l.addView(field("SKU / UPC", countSku));
+                l.addView(cases);
+                l.addView(primaryButton("Confirm Cases", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        int q = intValue(cases);
+                        if (cases.getText().toString().trim().length() == 0 || q < 0) {
+                            toast("Enter cases counted. Use 0 if empty.", true);
+                            showKeyboard(cases);
+                            return;
+                        }
+                        countCases = cases.getText().toString().trim();
+                        showCountTrace();
+                    }
+                }));
+                l.addView(secondaryButton("Empty / Zero Cases", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        countCases = "0";
+                        showCountTrace();
+                    }
+                }));
+                l.addView(secondaryButton("Back to SKU", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showCountSku(); }
+                }));
+            }
+        }));
+        activateInput(cases, "cases", true);
+    }
+
+    private void showCountTrace() {
+        screen = "count";
+        countStep = "trace";
+        final EditText lot = input("Lot if required", InputType.TYPE_CLASS_TEXT);
+        final EditText expiry = input("Expiry YYYY-MM-DD if required", InputType.TYPE_CLASS_TEXT);
+        lot.setText(countLot);
+        expiry.setText(countExpiry);
+        root.removeAllViews();
+        root.addView(formLayout("Inventory Count", "Step 4 of 4", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(banner("Lot / Expiry", "Skip when not required", BLUE));
+                l.addView(field("Location", countLocation));
+                l.addView(field("SKU / UPC", countSku));
+                l.addView(field("Cases", countCases));
+                l.addView(lot);
+                l.addView(scanButton("Scan Lot", lot, "lot"));
+                l.addView(expiry);
+                l.addView(primaryButton("Submit Count", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        countLot = lot.getText().toString().trim();
+                        countExpiry = expiry.getText().toString().trim();
+                        submitCount();
+                    }
+                }));
+                l.addView(secondaryButton("Skip Lot / Expiry", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        countLot = "";
+                        countExpiry = "";
+                        submitCount();
+                    }
+                }));
+                l.addView(secondaryButton("Back to Qty", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showCountQty(); }
+                }));
+            }
+        }));
+        activateInput(lot, "lot", false);
+    }
+
+    private void submitCount() {
+        int q = countCases.length() == 0 ? -1 : Integer.parseInt(countCases);
+        if (countLocation.length() == 0 || countSku.length() == 0 || q < 0) {
+            toast("Count is missing location, SKU, or cases.", true);
+            showCountLocation();
+            return;
+        }
+        queue("INVENTORY_COUNT", basePayload()
+            .put("accountName", company())
+            .put("location", countLocation)
+            .put("skuOrUpc", countSku)
+            .put("countedCases", q)
+            .put("lotNumber", countLot)
+            .put("expirationDate", countExpiry), "Count submitted for review", false);
+        showCountSaved();
+    }
+
+    private void showCountSaved() {
+        screen = "count";
+        countStep = "";
+        root.removeAllViews();
+        root.addView(formLayout("Inventory Count", "Saved", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(banner("Count Saved", countSku + " at " + countLocation, GREEN));
+                l.addView(field("Cases", countCases));
+                l.addView(primaryButton("Add Another SKU Here", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        countSku = "";
+                        countCases = "";
+                        countLot = "";
+                        countExpiry = "";
+                        showCountSku();
+                    }
+                }));
+                l.addView(primaryButton("Next Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showInventoryCount(); }
+                }));
+                l.addView(secondaryButton("Home", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showHome(); }
+                }));
+            }
+        }));
     }
 
     private void showPallets() {
@@ -919,17 +1094,38 @@ public class MainActivity extends Activity {
             activeInput.setText(value);
             activeInput.setSelection(activeInput.getText().length());
             toast("Scanned " + (activeInputLabel.length() == 0 ? "value" : activeInputLabel), false);
+            if ("count".equals(screen)) {
+                if ("location".equals(countStep)) {
+                    countLocation = value;
+                    showCountSku();
+                } else if ("sku".equals(countStep)) {
+                    countSku = value;
+                    showCountQty();
+                } else if ("qty".equals(countStep)) {
+                    String digits = value.replaceAll("[^0-9]", "");
+                    if (digits.length() == 0) {
+                        toast("Qty scan did not include a number.", true);
+                        return;
+                    }
+                    countCases = digits;
+                    showCountTrace();
+                }
+            }
         } else {
             toast("Scan received: " + value, false);
         }
     }
 
     private void queue(String type, JSONObject payload, String message) {
+        queue(type, payload, message, true);
+    }
+
+    private void queue(String type, JSONObject payload, String message, boolean returnHome) {
         queueOnly(type, payload);
         success();
         toast(message + ". Syncing...", false);
         syncQueue(false);
-        showHome();
+        if (returnHome) showHome();
     }
 
     private void queueOnly(String type, JSONObject payload) {
@@ -1197,7 +1393,35 @@ public class MainActivity extends Activity {
         e.setMinHeight(60);
         e.setPadding(14, 8, 14, 8);
         e.setLayoutParams(margins());
+        e.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showKeyboard((EditText) v); }
+        });
+        e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) activeInput = (EditText) v;
+            }
+        });
         return e;
+    }
+
+    private void activateInput(final EditText input, String label, boolean keyboard) {
+        activeInput = input;
+        activeInputLabel = label;
+        input.requestFocus();
+        if (keyboard) showKeyboard(input);
+    }
+
+    private void showKeyboard(final EditText input) {
+        try {
+            activeInput = input;
+            input.requestFocus();
+            input.postDelayed(new Runnable() {
+                @Override public void run() {
+                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+                }
+            }, 180);
+        } catch (Throwable ignored) {}
     }
 
     private Button primaryButton(String text, View.OnClickListener listener) {
