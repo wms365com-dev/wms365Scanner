@@ -162,6 +162,7 @@ class MainActivity : Activity() {
                 runAsync("Signing in...") {
                     val session = api.login(email.text.toString(), password.text.toString(), deviceId)
                     store.saveSession(session)
+                    runCatching { api.checkIn(session) }
                     runOnUiThread {
                         showCompanySelect(forceRefresh = true)
                     }
@@ -266,6 +267,11 @@ class MainActivity : Activity() {
         store.setLockedCompany(company)
         scanner.success()
         showHome()
+        executor.execute {
+            store.getSession()?.let { session ->
+                runCatching { api.checkIn(session) }
+            }
+        }
         sync.syncNow(downloadOrders = true)
     }
 

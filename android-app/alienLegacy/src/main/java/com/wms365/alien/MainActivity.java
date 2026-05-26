@@ -8,16 +8,19 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.net.SSLCertificateSocketFactory;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Vibrator;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
@@ -37,13 +40,25 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.HttpURLConnection;
+import java.net.Socket;
 import java.net.URLEncoder;
 import java.net.URL;
+import java.lang.reflect.Method;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -55,6 +70,16 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
+
+import org.conscrypt.Conscrypt;
+
 public class MainActivity extends Activity {
     private static final String PREFS = "wms365_alien_native";
     private static final String KEY_EMAIL = "email";
@@ -63,6 +88,7 @@ public class MainActivity extends Activity {
     private static final String KEY_DEVICE_ID = "deviceId";
     private static final String KEY_COMPANIES = "companies";
     private static final String KEY_OUTBOX = "outbox";
+    private static final String KEY_COUNTED_LOCATIONS = "countedLocations";
 
     private static final int BG = Color.rgb(244, 247, 249);
     private static final int TEXT = Color.rgb(15, 23, 42);
@@ -82,12 +108,14 @@ public class MainActivity extends Activity {
     private EditText activeInput;
     private String activeInputLabel = "";
     private String screen = "login";
+    private TextView transientStatus;
     private String countStep = "";
     private String countLocation = "";
     private String countSku = "";
     private String countCases = "";
     private String countLot = "";
     private String countExpiry = "";
+    private boolean countLocationRecountOverride = false;
     private String activeOrderId = "";
     private List<PickTask> activeTasks = new ArrayList<>();
     private PickTask activeTask;
@@ -106,6 +134,7 @@ public class MainActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        installTls12ForAndroid44();
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         root = new FrameLayout(this);
         setContentView(root);
@@ -192,7 +221,24 @@ public class MainActivity extends Activity {
         root.removeAllViews();
         final EditText email = input("Warehouse email", InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
         final EditText password = input("Password", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        email.setSingleLine(true);
+        password.setSingleLine(true);
+        password.setImeOptions(EditorInfo.IME_ACTION_DONE);
         email.setText(prefs.getString(KEY_EMAIL, ""));
+        final TextView statusLine = status("Sign in first. Next screen selects the company.");
+        transientStatus = statusLine;
+        password.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                boolean enterPressed = event != null
+                    && event.getAction() == KeyEvent.ACTION_UP
+                    && (event.getKeyCode() == KeyEvent.KEYCODE_ENTER || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER);
+                if (actionId == EditorInfo.IME_ACTION_DONE || enterPressed) {
+                    attemptLogin(email, password);
+                    return true;
+                }
+                return false;
+            }
+        });
         root.addView(screenLayout(new Builder() {
             @Override public void build(LinearLayout l) {
                 l.addView(header("WMS365 Scanner", "Alien native terminal"));
@@ -200,44 +246,52 @@ public class MainActivity extends Activity {
                 l.addView(password);
                 l.addView(primaryButton("Sign In", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        final String e = email.getText().toString().trim();
-                        final String p = password.getText().toString();
-                        if (e.length() == 0 || p.length() == 0) {
-                            toast("Email and password are required.", true);
-                            return;
-                        }
-                        runAsync("Signing in...", new Runnable() {
-                            @Override public void run() {
-                                try {
-                                    JSONObject body = new JSONObject()
-                                        .put("email", e)
-                                        .put("password", p)
-                                        .put("source", "alien_native")
-                                        .put("deviceId", deviceId());
-                                    ApiResult result = request("/api/app/login", "POST", body);
-                                    if (result.cookie.length() == 0) throw new Exception("No session returned.");
-                                    prefs.edit()
-                                        .putString(KEY_EMAIL, e)
-                                        .putString(KEY_COOKIE, result.cookie)
-                                        .putString(KEY_COMPANY, "")
-                                        .apply();
-                                    runOnUiThread(new Runnable() {
-                                        @Override public void run() {
-                                            showCompanySelect(true);
-                                        }
-                                    });
-                                } catch (final Exception ex) {
-                                    fail(ex);
-                                }
-                            }
-                        });
+                        attemptLogin(email, password);
                     }
                 }));
-                l.addView(status("Sign in first. Next screen selects the company."));
+                l.addView(statusLine);
                 l.addView(status("Native app. Hardware scanner ready."));
             }
         }));
         email.requestFocus();
+    }
+
+    private void attemptLogin(final EditText email, final EditText password) {
+        final String e = email.getText().toString().trim();
+        final String p = password.getText().toString();
+        if (e.length() == 0 || p.length() == 0) {
+            toast("Email and password are required.", true);
+            return;
+        }
+        hideKeyboard();
+        setStatusLine("Signing in...");
+        Log.i("WMS365Alien", "Submitting login for " + e);
+        runAsync("Signing in...", new Runnable() {
+            @Override public void run() {
+                try {
+                    JSONObject body = devicePayload()
+                        .put("email", e)
+                        .put("password", p);
+                    ApiResult result = request("/api/app/login", "POST", body);
+                    if (result.cookie.length() == 0) throw new Exception("No session returned.");
+                    Log.i("WMS365Alien", "Login accepted; opening company select.");
+                    prefs.edit()
+                        .putString(KEY_EMAIL, e)
+                        .putString(KEY_COOKIE, result.cookie)
+                        .putString(KEY_COMPANY, "")
+                        .apply();
+                    checkInDevice();
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            showCompanySelect(true);
+                        }
+                    });
+                } catch (final Exception ex) {
+                    Log.e("WMS365Alien", "Login failed", ex);
+                    fail(ex);
+                }
+            }
+        });
     }
 
     private void showCompanySelect(boolean refresh) {
@@ -314,6 +368,7 @@ public class MainActivity extends Activity {
         prefs.edit().putString(KEY_COMPANY, company.trim()).apply();
         success();
         showHome();
+        checkInDevice();
         syncQueue(false);
     }
 
@@ -464,6 +519,7 @@ public class MainActivity extends Activity {
         countCases = "";
         countLot = "";
         countExpiry = "";
+        countLocationRecountOverride = false;
         showCountLocation();
     }
 
@@ -485,8 +541,7 @@ public class MainActivity extends Activity {
                             showKeyboard(loc);
                             return;
                         }
-                        countLocation = value;
-                        showCountSku();
+                        confirmCountLocationForCounting(value);
                     }
                 }));
                 l.addView(secondaryButton("Key In Location", new View.OnClickListener() {
@@ -497,6 +552,50 @@ public class MainActivity extends Activity {
             }
         }));
         activateInput(loc, "location", false);
+    }
+
+    private void confirmCountLocationForCounting(String value) {
+        String location = value == null ? "" : value.trim();
+        if (location.length() == 0) {
+            toast("Scan or enter the location.", true);
+            return;
+        }
+        countLocation = location;
+        countLocationRecountOverride = false;
+        if (hasCountedLocationToday(location)) {
+            showCountLocationRepeatWarning(location);
+            return;
+        }
+        showCountSku();
+    }
+
+    private void showCountLocationRepeatWarning(final String location) {
+        screen = "count";
+        countStep = "location-repeat";
+        root.removeAllViews();
+        root.addView(formLayout("Inventory Count", "Location Check", new Builder() {
+            @Override public void build(LinearLayout l) {
+                l.addView(banner("Location Already Counted", location, YELLOW));
+                l.addView(status("This device already submitted a count for this location today."));
+                l.addView(primaryButton("Count Again", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        countLocation = location;
+                        countLocationRecountOverride = true;
+                        showCountSku();
+                    }
+                }));
+                l.addView(secondaryButton("Choose Different Location", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        countLocation = "";
+                        countLocationRecountOverride = false;
+                        showCountLocation();
+                    }
+                }));
+                l.addView(secondaryButton("Home", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showHome(); }
+                }));
+            }
+        }));
     }
 
     private void showCountSku() {
@@ -627,7 +726,9 @@ public class MainActivity extends Activity {
             .put("skuOrUpc", countSku)
             .put("countedCases", q)
             .put("lotNumber", countLot)
-            .put("expirationDate", countExpiry), "Count submitted for review", false);
+            .put("expirationDate", countExpiry)
+            .put("recountOverride", countLocationRecountOverride), "Count submitted for review", false);
+        markCountedLocationToday(countLocation);
         showCountSaved();
     }
 
@@ -1097,8 +1198,7 @@ public class MainActivity extends Activity {
             toast("Scanned " + (activeInputLabel.length() == 0 ? "value" : activeInputLabel), false);
             if ("count".equals(screen)) {
                 if ("location".equals(countStep)) {
-                    countLocation = value;
-                    showCountSku();
+                    confirmCountLocationForCounting(value);
                 } else if ("sku".equals(countStep)) {
                     countSku = value;
                     showCountQty();
@@ -1191,14 +1291,48 @@ public class MainActivity extends Activity {
     }
 
     private J basePayload() {
-        return new J()
+        return devicePayload()
             .put("accountName", company())
             .put("deviceId", deviceId())
             .put("source", "alien_native");
     }
 
+    private J devicePayload() {
+        return new J()
+            .put("source", "alien_native")
+            .put("appSource", "alien_native")
+            .put("appName", "WMS365 Scanner Alien")
+            .put("packageName", BuildConfig.APPLICATION_ID)
+            .put("platform", "android")
+            .put("deviceId", deviceId())
+            .put("manufacturer", android.os.Build.MANUFACTURER)
+            .put("model", android.os.Build.MODEL)
+            .put("osVersion", android.os.Build.VERSION.RELEASE)
+            .put("sdkVersion", String.valueOf(android.os.Build.VERSION.SDK_INT))
+            .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("appVersionCode", String.valueOf(BuildConfig.VERSION_CODE))
+            .put("scannerType", "Alien ALR-H450 hardware scanner")
+            .put("accountName", company());
+    }
+
+    private void checkInDevice() {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (cookie().length() > 0) {
+                        request("/api/app/device-checkin", "POST", devicePayload());
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
     private ApiResult request(String path, String method, JSONObject body) throws Exception {
         HttpURLConnection con = (HttpURLConnection) new URL(BuildConfig.WMS365_BASE_URL + path).openConnection();
+        if (con instanceof HttpsURLConnection) {
+            ((HttpsURLConnection) con).setSSLSocketFactory(tls12SocketFactory());
+        }
         con.setRequestMethod(method);
         con.setConnectTimeout(15000);
         con.setReadTimeout(90000);
@@ -1232,6 +1366,137 @@ public class MainActivity extends Activity {
             throw new Exception(json.optString("error", json.optString("message", "HTTP " + status)));
         }
         return new ApiResult(json, cookie);
+    }
+
+    private void installTls12ForAndroid44() {
+        try {
+            if (Security.getProvider("Conscrypt") == null) {
+                Security.insertProviderAt(Conscrypt.newProvider(), 1);
+            }
+            HttpsURLConnection.setDefaultSSLSocketFactory(tls12SocketFactory());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private SSLSocketFactory tls12SocketFactory() {
+        try {
+            SSLContext context = SSLContext.getInstance("TLS");
+            context.init(null, new TrustManager[] { combinedTrustManager() }, null);
+            return new Tls12SocketFactory(context.getSocketFactory());
+        } catch (Throwable error) {
+            Log.e("WMS365Alien", "Falling back to platform TLS socket factory", error);
+            SSLSocketFactory factory = (SSLSocketFactory) SSLCertificateSocketFactory.getDefault(90000, null);
+            return new Tls12SocketFactory(factory);
+        }
+    }
+
+    private X509TrustManager combinedTrustManager() throws Exception {
+        final X509TrustManager systemTrust = trustManagerFor(null);
+
+        KeyStore extraStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        extraStore.load(null, null);
+        InputStream certStream = getResources().openRawResource(getResources().getIdentifier("isrg_root_x1", "raw", getPackageName()));
+        try {
+            Certificate certificate = CertificateFactory.getInstance("X.509").generateCertificate(certStream);
+            extraStore.setCertificateEntry("isrg_root_x1", certificate);
+        } finally {
+            certStream.close();
+        }
+        final X509TrustManager bundledTrust = trustManagerFor(extraStore);
+
+        return new X509TrustManager() {
+            @Override public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                systemTrust.checkClientTrusted(chain, authType);
+            }
+
+            @Override public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                try {
+                    systemTrust.checkServerTrusted(chain, authType);
+                } catch (CertificateException systemError) {
+                    bundledTrust.checkServerTrusted(chain, authType);
+                }
+            }
+
+            @Override public X509Certificate[] getAcceptedIssuers() {
+                List<X509Certificate> issuers = new ArrayList<>();
+                issuers.addAll(Arrays.asList(systemTrust.getAcceptedIssuers()));
+                issuers.addAll(Arrays.asList(bundledTrust.getAcceptedIssuers()));
+                return issuers.toArray(new X509Certificate[issuers.size()]);
+            }
+        };
+    }
+
+    private X509TrustManager trustManagerFor(KeyStore keyStore) throws Exception {
+        TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        factory.init(keyStore);
+        TrustManager[] managers = factory.getTrustManagers();
+        for (TrustManager manager : managers) {
+            if (manager instanceof X509TrustManager) return (X509TrustManager) manager;
+        }
+        throw new IllegalStateException("No X509 trust manager available.");
+    }
+
+    private static class Tls12SocketFactory extends SSLSocketFactory {
+        private static final String[] TLS_12 = new String[] { "TLSv1.2" };
+        private final SSLSocketFactory delegate;
+
+        Tls12SocketFactory(SSLSocketFactory delegate) {
+            this.delegate = delegate;
+        }
+
+        private Socket patch(Socket socket, String host) {
+            if (socket instanceof SSLSocket) {
+                SSLSocket ssl = (SSLSocket) socket;
+                ssl.setEnabledProtocols(TLS_12);
+                if (host != null && host.length() > 0) {
+                    if (delegate instanceof SSLCertificateSocketFactory) {
+                        try {
+                            ((SSLCertificateSocketFactory) delegate).setHostname(socket, host);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    try {
+                        Method setUseSessionTickets = ssl.getClass().getMethod("setUseSessionTickets", boolean.class);
+                        setUseSessionTickets.invoke(ssl, true);
+                    } catch (Throwable ignored) {
+                    }
+                    try {
+                        Method setHostname = ssl.getClass().getMethod("setHostname", String.class);
+                        setHostname.invoke(ssl, host);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            return socket;
+        }
+
+        @Override public String[] getDefaultCipherSuites() {
+            return delegate.getDefaultCipherSuites();
+        }
+
+        @Override public String[] getSupportedCipherSuites() {
+            return delegate.getSupportedCipherSuites();
+        }
+
+        @Override public Socket createSocket(Socket s, String host, int port, boolean autoClose) throws IOException {
+            return patch(delegate.createSocket(s, host, port, autoClose), host);
+        }
+
+        @Override public Socket createSocket(String host, int port) throws IOException {
+            return patch(delegate.createSocket(host, port), host);
+        }
+
+        @Override public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
+            return patch(delegate.createSocket(host, port, localHost, localPort), host);
+        }
+
+        @Override public Socket createSocket(InetAddress host, int port) throws IOException {
+            return patch(delegate.createSocket(host, port), host == null ? null : host.getHostName());
+        }
+
+        @Override public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
+            return patch(delegate.createSocket(address, port, localAddress, localPort), address == null ? null : address.getHostName());
+        }
     }
 
     private void configureScanner() {
@@ -1483,6 +1748,7 @@ public class MainActivity extends Activity {
                 if (actionLocked) return;
                 actionLocked = true;
                 handler.postDelayed(new Runnable() { @Override public void run() { actionLocked = false; } }, 450);
+                hideKeyboard();
                 listener.onClick(v);
             }
         });
@@ -1531,8 +1797,18 @@ public class MainActivity extends Activity {
     }
 
     private void toast(String msg, boolean bad) {
+        setStatusLine(msg);
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
         if (bad) error();
+    }
+
+    private void setStatusLine(final String msg) {
+        if (transientStatus == null) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                if (transientStatus != null) transientStatus.setText(msg == null ? "" : msg);
+            }
+        });
     }
 
     private void success() {
@@ -1608,6 +1884,49 @@ public class MainActivity extends Activity {
 
     private String today() {
         return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+    }
+
+    private String countedLocationKey(String location) {
+        return normalize(company()) + "|" + today() + "|" + normalize(location);
+    }
+
+    private boolean hasCountedLocationToday(String location) {
+        String key = countedLocationKey(location);
+        if (key.endsWith("|")) return false;
+        try {
+            JSONArray remembered = new JSONArray(prefs.getString(KEY_COUNTED_LOCATIONS, "[]"));
+            for (int i = 0; i < remembered.length(); i++) {
+                if (key.equals(remembered.optString(i))) return true;
+            }
+            JSONArray pending = outbox();
+            for (int i = 0; i < pending.length(); i++) {
+                JSONObject item = pending.optJSONObject(i);
+                if (item == null || !"INVENTORY_COUNT".equals(item.optString("type"))) continue;
+                JSONObject payload = item.optJSONObject("payload");
+                if (payload == null) continue;
+                String pendingKey = normalize(payload.optString("accountName")) + "|" + today() + "|" + normalize(payload.optString("location"));
+                if (key.equals(pendingKey)) return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private void markCountedLocationToday(String location) {
+        String key = countedLocationKey(location);
+        if (key.endsWith("|")) return;
+        try {
+            JSONArray existing = new JSONArray(prefs.getString(KEY_COUNTED_LOCATIONS, "[]"));
+            LinkedHashSet<String> values = new LinkedHashSet<>();
+            String prefix = normalize(company()) + "|" + today() + "|";
+            values.add(key);
+            for (int i = 0; i < existing.length() && values.size() < 250; i++) {
+                String value = existing.optString(i);
+                if (value != null && value.startsWith(prefix)) values.add(value);
+            }
+            JSONArray saved = new JSONArray();
+            for (String value : values) saved.put(value);
+            prefs.edit().putString(KEY_COUNTED_LOCATIONS, saved.toString()).apply();
+        } catch (Exception ignored) {}
     }
 
     private String normalize(String v) {

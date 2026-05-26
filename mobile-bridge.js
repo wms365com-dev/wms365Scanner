@@ -85,6 +85,9 @@
       }
     } catch {}
     window.dispatchEvent(new CustomEvent("wms365:company-context", { detail: { company: normalized } }));
+    if (normalized && isAndroidApp()) {
+      setTimeout(() => { checkInDevice({ accountName: normalized }).catch(() => {}); }, 0);
+    }
     return normalized;
   }
 
@@ -240,6 +243,37 @@
       clientTimestamp: timestamp,
       client_timestamp: timestamp
     };
+  }
+
+  function getDeviceRegistrationPayload(extra = {}) {
+    const source = isAndroidApp() ? "android_webview" : getSource();
+    return {
+      source,
+      appSource: source,
+      appName: "WMS365 Scanner",
+      packageName: isAndroidApp() ? "com.wms365.app" : "",
+      platform: getPlatform(),
+      deviceId: getDeviceId(),
+      device_id: getDeviceId(),
+      manufacturer: getDeviceManufacturer(),
+      model: getDeviceModel(),
+      appVersion: getAppVersion(),
+      scannerType: getScannerProfile(),
+      accountName: normalizeCompany(extra.accountName || getCompanyContext()),
+      ...extra
+    };
+  }
+
+  async function checkInDevice(extra = {}) {
+    if (!isAndroidApp()) return null;
+    const response = await fetch("/api/app/device-checkin", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getDeviceRegistrationPayload(extra))
+    });
+    if (!response.ok) throw new Error("Device check-in failed.");
+    return response.json().catch(() => null);
   }
 
   function makeIdempotencyKey(actionType = "mobile") {
@@ -858,6 +892,8 @@
     hasHardwareScanner,
     getScannerProfile,
     getDeviceModel,
+    getDeviceRegistrationPayload,
+    checkInDevice,
     getAuditContext,
     makeIdempotencyKey,
     envelope,

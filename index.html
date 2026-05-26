@@ -6355,9 +6355,9 @@
                         </div>
                     </details>
                     <details class="module-menu">
-                        <summary>All Reports</summary>
+                        <summary>Reports & Counts</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item primary" type="button" data-jump-section="reports">All Reports</button>
+                            <button class="module-menu-item primary" type="button" data-jump-section="reports">Inventory Count Review</button>
                             <button class="module-menu-item" type="button" data-jump-section="reports">Inventory Export</button>
                             <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
                             <button class="module-menu-item" type="button" data-jump-section="shipped">Shipment History</button>
@@ -6386,7 +6386,7 @@
                 <button type="button" data-jump-section="search">Inventory</button>
                 <button type="button" data-jump-section="orders">Sales Orders</button>
                 <button type="button" data-jump-section="inbounds">Purchase Orders</button>
-                <button type="button" data-jump-section="reports">Reports</button>
+                <button type="button" data-jump-section="reports">Reports & Counts</button>
             </div>
             <div class="desktop-alertbar desktop-only">
                 <div class="desktop-alertbar-copy">
@@ -6560,7 +6560,7 @@
                 <h3>Related Actions</h3>
                 <button class="factbox-action" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
                 <button class="factbox-action" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
-                <button class="factbox-action" type="button" data-jump-section="reports">Open Reports</button>
+                <button class="factbox-action" type="button" data-jump-section="reports">Open Count Review</button>
                 <button class="factbox-action" type="button" data-jump-section="backup">Feedback Queue</button>
             </section>
         </aside>
@@ -6824,7 +6824,7 @@
                         </div>
                     </div>
                     <div class="home-actions">
-                        <button class="home-task" type="button" data-jump-section="reports" data-open-label="Review"><strong>Reports & Counts</strong><span>Run utilization, location, item, and inventory reporting.</span></button>
+                        <button class="home-task" type="button" data-jump-section="reports" data-open-label="Review"><strong>Inventory Count Review</strong><span>Review mobile counts, then approve, reject, or post adjustments.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -9011,8 +9011,8 @@
                 <article class="card workspace-control-card" id="reportsOverviewCard">
                     <div class="card-head">
                         <div>
-                            <h2>Desktop Reports</h2>
-                            <p class="lead">Filter live inventory, print report snapshots, and export Excel-friendly CSV files from the desktop view.</p>
+                            <h2>Reports & Counts</h2>
+                            <p class="lead">Review pending mobile inventory counts, filter live inventory, print report snapshots, and export Excel-friendly CSV files from the desktop view.</p>
                         </div>
                     </div>
                     <div class="button-row" style="margin-bottom: 1rem;">
@@ -9908,6 +9908,42 @@
                     </div>
                 </article>
 
+                <article class="card span-2" id="mobileDeviceAdminCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Mobile Device Registry</h2>
+                            <p class="lead">Track every Android scanner that signs in, including app version, device model, user, company, and last check-in.</p>
+                        </div>
+                        <span class="meta" id="mobileDeviceSummaryCount">0 devices</span>
+                    </div>
+                    <div class="helper" id="mobileDeviceAccessGate">
+                        Super user access is required to review installed Android scanner devices.
+                    </div>
+                    <div id="mobileDeviceDashboard" class="hidden">
+                        <div class="button-row" style="margin-bottom: 1rem;">
+                            <label class="field" style="flex: 1 1 180px;">
+                                <span>Status</span>
+                                <select id="mobileDeviceStatusFilter">
+                                    <option value="">All statuses</option>
+                                    <option value="ACTIVE">Active</option>
+                                    <option value="WATCH">Watch</option>
+                                    <option value="BLOCKED">Blocked</option>
+                                    <option value="RETIRED">Retired</option>
+                                </select>
+                            </label>
+                            <label class="field" style="flex: 2 1 280px;">
+                                <span>Search</span>
+                                <input id="mobileDeviceSearch" type="text" placeholder="Device, model, app version, user, company">
+                            </label>
+                            <button class="btn ghost" id="refreshMobileDevicesBtn" type="button">Refresh Devices</button>
+                        </div>
+                        <div class="status" id="mobileDeviceMessage"></div>
+                        <div id="mobileDeviceList" class="stack-list" style="margin-top: 1rem;">
+                            <p class="empty">No Android devices have checked in yet.</p>
+                        </div>
+                    </div>
+                </article>
+
                 <article class="card span-2" id="supportTicketAdminCard">
                     <div class="card-head">
                         <div>
@@ -10353,6 +10389,7 @@
         let portalKittingRecords = [];
         let shipToAddressRecords = [];
         let feedbackRecords = [];
+        let mobileDeviceRecords = [];
         let emailQueueRecords = [];
         let emailQueueSummary = { total: 0, pending: 0, sent: 0, failed: 0 };
         let emailQueueLoaded = false;
@@ -10444,9 +10481,9 @@
                 },
                 reports: {
                     title: "Reports & Counts",
-                    meta: "Run cycle count reporting, utilization, activity review, and inventory worksheet exports.",
-                    drillPath: "Reporting / Reports & Counts",
-                    features: ["Inventory Export", "Location Report", "Item Report", "Vendor Inventory", "Utilization / Counts"]
+                    meta: "Review mobile inventory counts, run reporting, and export inventory worksheets.",
+                    drillPath: "Reporting / Reports & Counts / Inventory Count Review",
+                    features: ["Inventory Count Review", "Approve / Reject / Post Counts", "Inventory Export", "Location Report", "Item Report"]
                 },
                 billing: {
                     title: "Billing",
@@ -10494,7 +10531,7 @@
             shipped: "Shipped Orders: All",
             inventory: "Master Data",
             integrations: "Marketplace Connections",
-            reports: "All Reports",
+            reports: "Reports & Counts",
             billing: "Billing Ledger",
             "billing-finance": "Billing & Accounting",
             backup: "Admin & System"
@@ -11208,6 +11245,15 @@
             warehouseUserMessage: document.getElementById("warehouseUserMessage"),
             warehouseUserList: document.getElementById("warehouseUserList"),
             warehouseUserSummaryCount: document.getElementById("warehouseUserSummaryCount"),
+            mobileDeviceAdminCard: document.getElementById("mobileDeviceAdminCard"),
+            mobileDeviceAccessGate: document.getElementById("mobileDeviceAccessGate"),
+            mobileDeviceDashboard: document.getElementById("mobileDeviceDashboard"),
+            mobileDeviceSummaryCount: document.getElementById("mobileDeviceSummaryCount"),
+            mobileDeviceStatusFilter: document.getElementById("mobileDeviceStatusFilter"),
+            mobileDeviceSearch: document.getElementById("mobileDeviceSearch"),
+            refreshMobileDevicesBtn: document.getElementById("refreshMobileDevicesBtn"),
+            mobileDeviceMessage: document.getElementById("mobileDeviceMessage"),
+            mobileDeviceList: document.getElementById("mobileDeviceList"),
             companyFeatureAdminCard: document.getElementById("companyFeatureAdminCard"),
             companyFeatureAccessGate: document.getElementById("companyFeatureAccessGate"),
             companyFeatureDashboard: document.getElementById("companyFeatureDashboard"),
@@ -11812,6 +11858,10 @@
             ui.warehouseUserAssignedCompanies?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
             ui.warehouseUserAssignedWarehouses?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
             ui.warehouseUserList?.addEventListener("click", onWarehouseUserListClick);
+            ui.refreshMobileDevicesBtn?.addEventListener("click", () => refreshMobileDevices(false));
+            ui.mobileDeviceStatusFilter?.addEventListener("change", renderMobileDevices);
+            ui.mobileDeviceSearch?.addEventListener("input", debounce(renderMobileDevices, 180));
+            ui.mobileDeviceList?.addEventListener("change", onMobileDeviceListChange);
             ui.companyFeatureForm?.addEventListener("submit", saveCompanyFeatures);
             ui.resetCompanyFeaturesBtn?.addEventListener("click", resetCompanyFeatureDraft);
             ui.companyFeatureChecklist?.addEventListener("change", onCompanyFeatureChecklistChange);
@@ -11908,6 +11958,7 @@
             refreshPortalInboundsList().catch(() => {});
             refreshKittingRequestsAdmin(true).catch(() => {});
             refreshFeedbackQueue(true).catch(() => {});
+            refreshMobileDevices(true).catch(() => {});
             syncTimer = window.setInterval(() => {
                 if (document.visibilityState === "visible") {
                     syncServerState(true).catch(() => {});
@@ -11917,6 +11968,7 @@
                     refreshPortalInboundsList(true).catch(() => {});
                     refreshKittingRequestsAdmin(true).catch(() => {});
                     refreshFeedbackQueue(true).catch(() => {});
+                    refreshMobileDevices(true).catch(() => {});
                 }
             }, 30000);
             window.addEventListener("focus", () => {
@@ -11927,6 +11979,7 @@
                 refreshPortalInboundsList(true).catch(() => {});
                 refreshKittingRequestsAdmin(true).catch(() => {});
                 refreshFeedbackQueue(true).catch(() => {});
+                refreshMobileDevices(true).catch(() => {});
             });
             window.addEventListener("keydown", (event) => {
                 if (event.key === "Escape" && !ui.companySwitcherAddPopout?.classList.contains("hidden")) {
@@ -12940,6 +12993,143 @@
                         </div>
                     `).join("")
                     : `<p class="empty">No warehouse users saved yet.</p>`;
+            }
+        }
+
+        function mobileDeviceStatusTone(status) {
+            if (status === "ACTIVE") return "success";
+            if (status === "WATCH") return "warn";
+            if (status === "BLOCKED") return "error";
+            if (status === "RETIRED") return "warn";
+            return "warn";
+        }
+
+        function mobileDeviceSourceLabel(source) {
+            if (source === "alien_native") return "Alien Native";
+            if (source === "android_webview") return "Android WebView";
+            if (source === "android_app") return "Android Native";
+            return source || "Android";
+        }
+
+        function getVisibleMobileDevices() {
+            const statusFilter = norm(ui.mobileDeviceStatusFilter?.value || "");
+            const query = norm(ui.mobileDeviceSearch?.value || "");
+            return mobileDeviceRecords.filter((device) => {
+                if (statusFilter && device.status !== statusFilter) return false;
+                if (!query) return true;
+                return [
+                    device.deviceId,
+                    device.appSource,
+                    device.appName,
+                    device.packageName,
+                    device.manufacturer,
+                    device.model,
+                    device.osVersion,
+                    device.sdkVersion,
+                    device.appVersion,
+                    device.appVersionCode,
+                    device.scannerType,
+                    device.lastUserEmail,
+                    device.lastAccountName,
+                    device.notes
+                ].some((value) => norm(value).includes(query));
+            });
+        }
+
+        function renderMobileDevices() {
+            if (!ui.mobileDeviceList || !ui.mobileDeviceSummaryCount) return;
+            ui.mobileDeviceSummaryCount.textContent = `${num(mobileDeviceRecords.length)} device${mobileDeviceRecords.length === 1 ? "" : "s"}`;
+            if (!currentUserIsSuperAdmin()) {
+                ui.mobileDeviceAccessGate?.classList.remove("hidden");
+                ui.mobileDeviceDashboard?.classList.add("hidden");
+                return;
+            }
+            ui.mobileDeviceAccessGate?.classList.add("hidden");
+            ui.mobileDeviceDashboard?.classList.remove("hidden");
+
+            const visibleDevices = getVisibleMobileDevices();
+            if (!visibleDevices.length) {
+                ui.mobileDeviceList.innerHTML = `<p class="empty">${mobileDeviceRecords.length ? "No devices match the current filters." : "No Android devices have checked in yet."}</p>`;
+                return;
+            }
+            ui.mobileDeviceList.innerHTML = visibleDevices.map((device) => {
+                const deviceName = [device.manufacturer, device.model].filter(Boolean).join(" ") || "Unknown Android device";
+                const version = [device.appVersion ? `App ${device.appVersion}` : "", device.appVersionCode ? `Code ${device.appVersionCode}` : ""].filter(Boolean).join(" | ");
+                const platform = [device.platform || "android", device.osVersion ? `OS ${device.osVersion}` : "", device.sdkVersion ? `SDK ${device.sdkVersion}` : ""].filter(Boolean).join(" | ");
+                const lastUser = device.lastUserEmail || "No user captured";
+                const lastCompany = device.lastAccountName || "No company selected";
+                return `
+                    <div class="quick-row">
+                        <div class="quick-main">
+                            <strong>${esc(deviceName)}</strong>
+                            <div class="quick-meta">${esc(mobileDeviceSourceLabel(device.appSource))} | ${esc(device.deviceId)}</div>
+                            <div class="quick-meta">${esc([version || "App version not reported", platform].filter(Boolean).join(" | "))}</div>
+                            <div class="quick-meta">${esc(lastUser)} | ${esc(lastCompany)} | Last seen ${esc(device.lastSeenAt ? formatDate(device.lastSeenAt) : "never")}</div>
+                            ${device.scannerType ? `<div class="quick-meta">${esc(device.scannerType)}</div>` : ""}
+                            ${device.notes ? `<div class="quick-meta">${esc(device.notes)}</div>` : ""}
+                        </div>
+                        <div class="quick-row-actions">
+                            <span class="pill ${mobileDeviceStatusTone(device.status)}">${esc(device.status)}</span>
+                            <label class="field" style="min-width: 130px;">
+                                <span>Status</span>
+                                <select data-mobile-device-status="${attr(device.id)}">
+                                    ${["ACTIVE", "WATCH", "BLOCKED", "RETIRED"].map((status) => `<option value="${attr(status)}" ${status === device.status ? "selected" : ""}>${esc(status)}</option>`).join("")}
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function refreshMobileDevices(silent = false) {
+            if (!currentUserIsSuperAdmin()) {
+                mobileDeviceRecords = [];
+                renderMobileDevices();
+                return;
+            }
+            try {
+                const payload = await requestJson("/api/admin/mobile-devices");
+                mobileDeviceRecords = Array.isArray(payload?.devices)
+                    ? payload.devices.map(sanitizeMobileDeviceRecord).filter(Boolean)
+                    : [];
+                state.admin.mobileDevices = mobileDeviceRecords;
+                renderMobileDevices();
+                if (!silent) {
+                    showMessage(ui.mobileDeviceMessage, `Loaded ${num(mobileDeviceRecords.length)} mobile device${mobileDeviceRecords.length === 1 ? "" : "s"}.`, "success");
+                }
+            } catch (error) {
+                if (!silent) showMessage(ui.mobileDeviceMessage, error.message, "error");
+                throw error;
+            }
+        }
+
+        async function onMobileDeviceListChange(event) {
+            const input = event.target.closest("[data-mobile-device-status]");
+            if (!input) return;
+            const deviceId = String(input.dataset.mobileDeviceStatus || "").trim();
+            const device = mobileDeviceRecords.find((entry) => entry.id === deviceId);
+            if (!device) return;
+            const previousStatus = device.status;
+            const nextStatus = norm(input.value || "ACTIVE");
+            input.disabled = true;
+            try {
+                const payload = await requestJson(`/api/admin/mobile-devices/${encodeURIComponent(deviceId)}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ status: nextStatus, notes: device.notes || "" })
+                });
+                const updated = sanitizeMobileDeviceRecord(payload?.device);
+                if (updated) {
+                    mobileDeviceRecords = mobileDeviceRecords.map((entry) => entry.id === updated.id ? updated : entry);
+                    state.admin.mobileDevices = mobileDeviceRecords;
+                }
+                renderMobileDevices();
+                showMessage(ui.mobileDeviceMessage, "Device status updated.", "success");
+            } catch (error) {
+                input.value = previousStatus;
+                showMessage(ui.mobileDeviceMessage, error.message, "error");
+            } finally {
+                input.disabled = false;
             }
         }
 
@@ -15090,6 +15280,7 @@
             renderDatalists();
             renderMasterLibrary();
             renderWarehouseUserDashboard();
+            renderMobileDevices();
             renderCompanyFeatureDashboard();
             renderFeedbackQueue();
             renderBilling();
@@ -25920,8 +26111,10 @@
             state.billing.ownerRates = Array.isArray(payload?.billing?.ownerRates) ? payload.billing.ownerRates.map(sanitizeOwnerBillingRate).filter(Boolean) : [];
             state.billing.events = Array.isArray(payload?.billing?.events) ? payload.billing.events.map(sanitizeBillingEvent).filter(Boolean) : [];
             state.admin = {
-                appUsers: Array.isArray(payload?.admin?.appUsers) ? payload.admin.appUsers.map(sanitizeWarehouseAppUser).filter(Boolean) : []
+                appUsers: Array.isArray(payload?.admin?.appUsers) ? payload.admin.appUsers.map(sanitizeWarehouseAppUser).filter(Boolean) : [],
+                mobileDevices: Array.isArray(payload?.admin?.mobileDevices) ? payload.admin.mobileDevices.map(sanitizeMobileDeviceRecord).filter(Boolean) : []
             };
+            mobileDeviceRecords = state.admin.mobileDevices;
             state.session = {
                 appUser: payload?.session?.appUser && typeof payload.session.appUser === "object"
                     ? {
@@ -26166,7 +26359,7 @@
                 warehouseTasks: [],
                 masters: { locations: [], ownerRecords: [], fulfillmentLocations: [], companyFulfillmentLocations: [], partners: [], items: [], owners: [] },
                 billing: { feeCatalog: [], ownerRates: [], events: [] },
-                admin: { appUsers: [] },
+                admin: { appUsers: [], mobileDevices: [] },
                 session: { appUser: null },
                 preferences: { lastLocation: "", lastAccount: "", activeCompany: "", desktopMobilePreview: false },
                 meta: { version: 8, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
@@ -26227,7 +26420,7 @@
                 warehouseTasks: cache.warehouseTasks,
                 masters: cache.masters,
                 billing: cache.billing,
-                admin: { appUsers: [] },
+                admin: { appUsers: [], mobileDevices: [] },
                 session: { appUser: null },
                 preferences: {
                     lastLocation: typeof raw.preferences?.lastLocation === "string" ? norm(raw.preferences.lastLocation) : "",
@@ -26687,6 +26880,39 @@
                 lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : (typeof item?.last_login_at === "string" ? item.last_login_at : null),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : (typeof item?.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : (typeof item?.updated_at === "string" ? item.updated_at : new Date().toISOString())
+            };
+        }
+
+        function sanitizeMobileDeviceRecord(item) {
+            const deviceId = String(item?.deviceId || item?.device_id || "").trim();
+            if (!deviceId) return null;
+            return {
+                id: String(item?.id || ""),
+                deviceId,
+                appSource: norm(item?.appSource || item?.app_source || "android_app").toLowerCase(),
+                appName: String(item?.appName || item?.app_name || "").trim(),
+                packageName: String(item?.packageName || item?.package_name || "").trim(),
+                platform: String(item?.platform || "android").trim(),
+                manufacturer: String(item?.manufacturer || "").trim(),
+                model: String(item?.model || "").trim(),
+                osVersion: String(item?.osVersion || item?.os_version || "").trim(),
+                sdkVersion: String(item?.sdkVersion || item?.sdk_version || "").trim(),
+                appVersion: String(item?.appVersion || item?.app_version || "").trim(),
+                appVersionCode: String(item?.appVersionCode || item?.app_version_code || "").trim(),
+                scannerType: String(item?.scannerType || item?.scanner_type || "").trim(),
+                lastUserId: String(item?.lastUserId || item?.last_user_id || ""),
+                lastUserEmail: norm(String(item?.lastUserEmail || item?.last_user_email || "").toLowerCase()),
+                lastAccountName: norm(item?.lastAccountName || item?.last_account_name || ""),
+                status: ["ACTIVE", "WATCH", "BLOCKED", "RETIRED"].includes(norm(item?.status || "")) ? norm(item?.status || "") : "ACTIVE",
+                notes: String(item?.notes || "").trim(),
+                firstSeenAt: typeof item?.firstSeenAt === "string" ? item.firstSeenAt : (typeof item?.first_seen_at === "string" ? item.first_seen_at : null),
+                lastSeenAt: typeof item?.lastSeenAt === "string" ? item.lastSeenAt : (typeof item?.last_seen_at === "string" ? item.last_seen_at : null),
+                lastLoginAt: typeof item?.lastLoginAt === "string" ? item.lastLoginAt : (typeof item?.last_login_at === "string" ? item.last_login_at : null),
+                lastCheckinAt: typeof item?.lastCheckinAt === "string" ? item.lastCheckinAt : (typeof item?.last_checkin_at === "string" ? item.last_checkin_at : null),
+                lastIp: String(item?.lastIp || item?.last_ip || "").trim(),
+                userAgent: String(item?.userAgent || item?.user_agent || "").trim(),
+                createdAt: typeof item?.createdAt === "string" ? item.createdAt : (typeof item?.created_at === "string" ? item.created_at : null),
+                updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : (typeof item?.updated_at === "string" ? item.updated_at : null)
             };
         }
 

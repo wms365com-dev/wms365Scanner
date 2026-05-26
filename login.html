@@ -156,6 +156,23 @@
       }
       return text;
     }
+    function getAndroidDevicePayload(){
+      if(typeof window.WMS365Android === 'undefined') return {};
+      const model=String(window.WMS365Android.getDeviceModel?.()||'').trim();
+      const manufacturer=String(window.WMS365Android.getDeviceManufacturer?.()||'').trim();
+      return {
+        source:'android_webview',
+        appSource:'android_webview',
+        appName:'WMS365 Scanner',
+        packageName:'com.wms365.app',
+        platform:'android',
+        deviceId:String(window.WMS365Android.getDeviceId?.()||'').trim()?`android-${String(window.WMS365Android.getDeviceId?.()||'').trim()}`:'',
+        manufacturer,
+        model:model.replace(manufacturer,'').trim()||model,
+        appVersion:String(window.WMS365Android.getAppVersion?.()||'').trim(),
+        scannerType:String(window.WMS365Android.getScannerProfile?.()||'Android WebView scanner').trim()
+      };
+    }
     const warehouseAppEntryPath=sanitizeNextWarehousePath(new URLSearchParams(window.location.search||'').get('next'));
     fetch('/api/version').then(r=>r.ok?r.json():null).then(data=>{ if(buildLabel){ const label=data?.build?.label||'Build unavailable'; buildLabel.textContent=`Deployment: ${label}`; } }).catch(()=>{ if(buildLabel) buildLabel.textContent='Deployment: Build unavailable'; });
     fetch('/api/app/me').then(r=>r.ok?r.json():null).then(data=>{ if(data&&data.authenticated){ window.location.href=warehouseAppEntryPath; } }).catch(()=>{});
@@ -163,7 +180,7 @@
       e.preventDefault();
       message.className='msg';
       message.textContent='Signing in...';
-      const payload={email:form.email.value.trim(), password:form.password.value};
+      const payload={email:form.email.value.trim(), password:form.password.value, ...getAndroidDevicePayload()};
       try{
         setButtonBusy(submitButton,true,'Signing in...');
         const res=await fetch('/api/app/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});

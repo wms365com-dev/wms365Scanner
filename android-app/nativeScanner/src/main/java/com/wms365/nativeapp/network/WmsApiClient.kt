@@ -1,5 +1,6 @@
 package com.wms365.nativeapp.network
 
+import android.os.Build
 import com.wms365.nativeapp.BuildConfig
 import com.wms365.nativeapp.data.AppSession
 import com.wms365.nativeapp.data.OutboxItem
@@ -19,12 +20,24 @@ class WmsApiClient(private val baseUrl: String = BuildConfig.WMS365_BASE_URL.tri
             body = JSONObject()
                 .put("email", email)
                 .put("password", password)
-                .put("source", "android_app")
-                .put("deviceId", deviceId),
+                .apply {
+                    mergeDevicePayload(this, deviceId, "")
+                },
             cookieHeader = ""
         )
         val cookie = result.cookieHeader.ifBlank { throw ApiException(401, "Login succeeded but no session cookie was returned.") }
         return AppSession(email = email, cookieHeader = cookie, company = "", warehouseId = "", deviceId = deviceId)
+    }
+
+    fun checkIn(session: AppSession) {
+        request(
+            path = "/api/app/device-checkin",
+            method = "POST",
+            body = JSONObject().apply {
+                mergeDevicePayload(this, session.deviceId, session.company)
+            },
+            cookieHeader = session.cookieHeader
+        )
     }
 
     fun fetchPickOrders(session: AppSession): JSONArray {
@@ -84,6 +97,24 @@ class WmsApiClient(private val baseUrl: String = BuildConfig.WMS365_BASE_URL.tri
     }
 
     private fun urlEncode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+
+    private fun mergeDevicePayload(body: JSONObject, deviceId: String, company: String) {
+        body
+            .put("source", "android_app")
+            .put("appSource", "android_app")
+            .put("appName", "WMS365 Scanner")
+            .put("packageName", BuildConfig.APPLICATION_ID)
+            .put("platform", "android")
+            .put("deviceId", deviceId)
+            .put("manufacturer", Build.MANUFACTURER.orEmpty())
+            .put("model", Build.MODEL.orEmpty())
+            .put("osVersion", Build.VERSION.RELEASE.orEmpty())
+            .put("sdkVersion", Build.VERSION.SDK_INT.toString())
+            .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("appVersionCode", BuildConfig.VERSION_CODE.toString())
+            .put("scannerType", "Native Android scanner / camera fallback")
+            .put("accountName", company)
+    }
 }
 
 data class ApiResult(val status: Int, val json: JSONObject, val cookieHeader: String)

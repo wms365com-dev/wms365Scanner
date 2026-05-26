@@ -769,12 +769,23 @@ app.post("/api/app/login", async (req, res, next) => {
             }
             const token = await createAppSession(client, user.id);
             await client.query("update app_users set last_login_at = now(), updated_at = now() where id = $1", [user.id]);
-            return { token, user: await attachAppUserCompanyAssignments(client, await getAppUserById(client, user.id)) };
+            const attachedUser = await attachAppUserCompanyAssignments(client, await getAppUserById(client, user.id));
+            await upsertMobileDevice(client, req.body || {}, attachedUser, req, { login: true });
+            return { token, user: attachedUser };
         });
 
         setAppSessionCookie(res, session.token, req);
         res.json({ success: true, user: mapAppUserRow(session.user) });
         queueExpiredAppSessionCleanup();
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/app/device-checkin", async (req, res, next) => {
+    try {
+        const device = await withTransaction((client) => upsertMobileDevice(client, req.body || {}, req.appUser, req, { checkin: true }));
+        res.json({ success: true, device });
     } catch (error) {
         next(error);
     }
@@ -2238,6 +2249,56 @@ app.post("/api/admin/app-users", requireSuperAdmin(), async (req, res, next) => 
         });
 
         res.json({ success: true, user: mapAppUserRow(user) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/mobile-devices", requireSuperAdmin(), async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const result = await pool.query(`
+            select *
+            from mobile_devices
+            order by last_seen_at desc, id desc
+        `);
+        res.json({ success: true, devices: result.rows.map(mapMobileDeviceRow) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.patch("/api/admin/mobile-devices/:id", requireSuperAdmin(), async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        const deviceId = Number.parseInt(String(req.params.id || ""), 10);
+        if (!Number.isFinite(deviceId) || deviceId <= 0) {
+            throw httpError(400, "A valid device id is required.");
+        }
+        const status = normalizeText(req.body?.status || "ACTIVE");
+        if (!["ACTIVE", "WATCH", "BLOCKED", "RETIRED"].includes(status)) {
+            throw httpError(400, "Device status must be Active, Watch, Blocked, or Retired.");
+        }
+        const notes = normalizeFreeText(req.body?.notes || "").slice(0, 1000);
+        const result = await withTransaction(async (client) => {
+            const updated = await client.query(`
+                update mobile_devices
+                set status = $2,
+                    notes = $3,
+                    updated_at = now()
+                where id = $1
+                returning *
+            `, [deviceId, status, notes]);
+            if (updated.rowCount !== 1) throw httpError(404, "Mobile device was not found.");
+            await insertActivity(
+                client,
+                "admin",
+                `Updated mobile device ${updated.rows[0].device_id}`,
+                `${status}${notes ? ` | ${notes}` : ""} | ${req.appUser?.email || "super_admin"}`
+            );
+            return updated.rows[0];
+        });
+        res.json({ success: true, device: mapMobileDeviceRow(result) });
     } catch (error) {
         next(error);
     }
@@ -5320,6 +5381,61 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
+        create table if not exists mobile_devices (
+            id bigserial primary key,
+            device_id text not null,
+            app_source text not null default 'android_app',
+            app_name text not null default '',
+            package_name text not null default '',
+            platform text not null default 'android',
+            manufacturer text not null default '',
+            model text not null default '',
+            os_version text not null default '',
+            sdk_version text not null default '',
+            app_version text not null default '',
+            app_version_code text not null default '',
+            scanner_type text not null default '',
+            last_user_id bigint,
+            last_user_email text not null default '',
+            last_account_name text not null default '',
+            status text not null default 'ACTIVE',
+            notes text not null default '',
+            first_seen_at timestamptz not null default now(),
+            last_seen_at timestamptz not null default now(),
+            last_login_at timestamptz,
+            last_checkin_at timestamptz,
+            last_ip text not null default '',
+            user_agent text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (device_id, app_source)
+        );
+    `);
+    await pool.query("alter table mobile_devices add column if not exists app_name text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists package_name text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists platform text not null default 'android';");
+    await pool.query("alter table mobile_devices add column if not exists manufacturer text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists model text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists os_version text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists sdk_version text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists app_version text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists app_version_code text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists scanner_type text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists last_user_id bigint;");
+    await pool.query("alter table mobile_devices add column if not exists last_user_email text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists last_account_name text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists status text not null default 'ACTIVE';");
+    await pool.query("alter table mobile_devices add column if not exists notes text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists first_seen_at timestamptz not null default now();");
+    await pool.query("alter table mobile_devices add column if not exists last_seen_at timestamptz not null default now();");
+    await pool.query("alter table mobile_devices add column if not exists last_login_at timestamptz;");
+    await pool.query("alter table mobile_devices add column if not exists last_checkin_at timestamptz;");
+    await pool.query("alter table mobile_devices add column if not exists last_ip text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists user_agent text not null default '';");
+    await pool.query("alter table mobile_devices add column if not exists created_at timestamptz not null default now();");
+    await pool.query("alter table mobile_devices add column if not exists updated_at timestamptz not null default now();");
+
+    await pool.query(`
         create table if not exists inventory_count_records (
             id bigserial primary key,
             account_name text not null,
@@ -6510,6 +6626,11 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_transactions_user on inventory_transactions (user_id, server_timestamp desc);");
     await pool.query("create index if not exists idx_inventory_transactions_source_ref on inventory_transactions (source_type, source_id, server_timestamp desc);");
     await pool.query("create index if not exists idx_inventory_transactions_type_time on inventory_transactions (transaction_type, server_timestamp desc);");
+    await pool.query("create unique index if not exists idx_mobile_devices_device_source_unique on mobile_devices (device_id, app_source);");
+    await pool.query("create index if not exists idx_mobile_devices_last_seen on mobile_devices (last_seen_at desc);");
+    await pool.query("create index if not exists idx_mobile_devices_user on mobile_devices (last_user_email);");
+    await pool.query("create index if not exists idx_mobile_devices_account on mobile_devices (last_account_name);");
+    await pool.query("create index if not exists idx_mobile_devices_status on mobile_devices (status);");
     await pool.query("create index if not exists idx_inventory_count_records_status_submitted on inventory_count_records (status, submitted_at desc);");
     await pool.query("create index if not exists idx_inventory_count_records_account_location_sku on inventory_count_records (account_name, location, sku);");
     await pool.query("create index if not exists idx_inventory_count_audit_count_id on inventory_count_audit (count_id, created_at desc);");
@@ -7587,7 +7708,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         : client.query("select * from billing_events order by service_date desc, id desc");
     const warehouseTasksQuery = getWarehouseTaskRowsForAppUser(client, appUser, { activeOnly: true, limit: 240 });
 
-    const [inventoryResult, inventoryCountResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, warehouseTaskResult, metaResult] = await Promise.all([
+    const [inventoryResult, inventoryCountResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, warehouseTaskResult, mobileDeviceResult, metaResult] = await Promise.all([
         client.query(
             `
                 select
@@ -7659,6 +7780,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         client.query("select * from owner_billing_rates order by account_name asc, fee_code asc"),
         billingEventsQuery,
         warehouseTasksQuery,
+        client.query("select * from mobile_devices order by last_seen_at desc, id desc limit 500"),
         client.query(`
             select nullif(
                 greatest(
@@ -7676,6 +7798,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                     coalesce((select max(updated_at) from portal_kitting_requests), to_timestamp(0)),
                     coalesce((select max(updated_at) from portal_order_allocations), to_timestamp(0)),
                     coalesce((select max(updated_at) from warehouse_tasks), to_timestamp(0)),
+                    coalesce((select max(updated_at) from mobile_devices), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_fee_catalog), to_timestamp(0)),
                     coalesce((select max(updated_at) from owner_billing_rates), to_timestamp(0)),
                     coalesce((select max(updated_at) from billing_events), to_timestamp(0))
@@ -7726,6 +7849,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
         : warehouseTaskResult.rows;
     const activityRows = companyScoped ? [] : activityResult.rows;
     const appUsers = isSuperAdminUser(appUser) ? await getAppUsersWithAssignments(client) : [];
+    const mobileDeviceRows = isSuperAdminUser(appUser) ? mobileDeviceResult.rows : [];
 
     const owners = [...new Set(
         ownerRows.map((row) => row.name)
@@ -7759,7 +7883,8 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
             appUser: appUser ? mapAppUserRow(appUser) : null
         },
         admin: {
-            appUsers: appUsers.map(mapAppUserRow)
+            appUsers: appUsers.map(mapAppUserRow),
+            mobileDevices: mobileDeviceRows.map(mapMobileDeviceRow)
         },
         featureCatalog: COMPANY_FEATURE_CATALOG,
         meta: {
@@ -18801,7 +18926,162 @@ function getMobileDeviceId(input = {}) {
 
 function getMobileSource(input = {}) {
     const source = normalizeFreeText(input.source || input.auditContext?.source || "mobile_web").toLowerCase();
-    return ["android_app", "mobile_web"].includes(source) ? source : "mobile_web";
+    return ["android_app", "alien_native", "android_webview", "mobile_web"].includes(source) ? source : "mobile_web";
+}
+
+function normalizeDeviceRegistrySource(value = "") {
+    const source = normalizeFreeText(value).toLowerCase();
+    if (["android_app", "alien_native", "android_webview", "mobile_web"].includes(source)) return source;
+    if (source.includes("alien")) return "alien_native";
+    if (source.includes("webview")) return "android_webview";
+    if (source.includes("android")) return "android_app";
+    return "android_app";
+}
+
+function sanitizeMobileDeviceInput(input = {}, req = null) {
+    const body = input && typeof input === "object" ? input : {};
+    const headerDeviceId = normalizeFreeText(req?.headers?.["x-wms365-device-id"] || "");
+    const deviceId = (getMobileDeviceId(body) || headerDeviceId).slice(0, 120);
+    if (!deviceId) return null;
+
+    const headerSource = normalizeFreeText(req?.headers?.["x-wms365-mobile-source"] || "");
+    const rawSource = body.appSource || body.app_source || body.source || headerSource || "android_app";
+    const forwardedFor = normalizeFreeText(req?.headers?.["x-forwarded-for"] || "");
+    const lastIp = (forwardedFor.split(",")[0] || normalizeFreeText(req?.ip || "")).slice(0, 160);
+
+    return {
+        deviceId,
+        appSource: normalizeDeviceRegistrySource(rawSource),
+        appName: normalizeFreeText(body.appName || body.app_name || "WMS365 Scanner").slice(0, 120),
+        packageName: normalizeFreeText(body.packageName || body.package_name || "").slice(0, 180),
+        platform: normalizeFreeText(body.platform || "android").toLowerCase().slice(0, 80),
+        manufacturer: normalizeFreeText(body.manufacturer || "").slice(0, 120),
+        model: normalizeFreeText(body.model || "").slice(0, 160),
+        osVersion: normalizeFreeText(body.osVersion || body.os_version || "").slice(0, 80),
+        sdkVersion: normalizeFreeText(body.sdkVersion || body.sdk_version || "").slice(0, 40),
+        appVersion: normalizeFreeText(body.appVersion || body.app_version || body.buildLabel || "").slice(0, 80),
+        appVersionCode: normalizeFreeText(body.appVersionCode || body.app_version_code || "").slice(0, 40),
+        scannerType: normalizeFreeText(body.scannerType || body.scanner_type || "").slice(0, 120),
+        lastAccountName: normalizeText(body.accountName || body.account_name || body.company || body.lastAccountName || body.last_account_name || "").slice(0, 180),
+        lastIp,
+        userAgent: normalizeFreeText(req?.headers?.["user-agent"] || "").slice(0, 500)
+    };
+}
+
+function mapMobileDeviceRow(row = {}) {
+    return {
+        id: String(row.id || ""),
+        deviceId: row.device_id || "",
+        appSource: row.app_source || "android_app",
+        appName: row.app_name || "",
+        packageName: row.package_name || "",
+        platform: row.platform || "android",
+        manufacturer: row.manufacturer || "",
+        model: row.model || "",
+        osVersion: row.os_version || "",
+        sdkVersion: row.sdk_version || "",
+        appVersion: row.app_version || "",
+        appVersionCode: row.app_version_code || "",
+        scannerType: row.scanner_type || "",
+        lastUserId: row.last_user_id ? String(row.last_user_id) : "",
+        lastUserEmail: row.last_user_email || "",
+        lastAccountName: row.last_account_name || "",
+        status: row.status || "ACTIVE",
+        notes: row.notes || "",
+        firstSeenAt: row.first_seen_at ? new Date(row.first_seen_at).toISOString() : null,
+        lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+        lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
+        lastCheckinAt: row.last_checkin_at ? new Date(row.last_checkin_at).toISOString() : null,
+        lastIp: row.last_ip || "",
+        userAgent: row.user_agent || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+async function upsertMobileDevice(client, input = {}, user = null, req = null, options = {}) {
+    const device = sanitizeMobileDeviceInput(input, req);
+    if (!device || !["android_app", "alien_native", "android_webview"].includes(device.appSource)) {
+        return null;
+    }
+    const userId = user?.id || user?.app_user_id || null;
+    const userEmail = normalizeEmail(user?.email || input?.email || "");
+    const result = await client.query(`
+        insert into mobile_devices (
+            device_id,
+            app_source,
+            app_name,
+            package_name,
+            platform,
+            manufacturer,
+            model,
+            os_version,
+            sdk_version,
+            app_version,
+            app_version_code,
+            scanner_type,
+            last_user_id,
+            last_user_email,
+            last_account_name,
+            last_login_at,
+            last_checkin_at,
+            last_ip,
+            user_agent,
+            first_seen_at,
+            last_seen_at,
+            created_at,
+            updated_at
+        )
+        values (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+            $13, $14, $15,
+            case when $16 then now() else null end,
+            case when $17 then now() else null end,
+            $18, $19, now(), now(), now(), now()
+        )
+        on conflict (device_id, app_source) do update
+        set app_name = excluded.app_name,
+            package_name = excluded.package_name,
+            platform = excluded.platform,
+            manufacturer = excluded.manufacturer,
+            model = excluded.model,
+            os_version = excluded.os_version,
+            sdk_version = excluded.sdk_version,
+            app_version = excluded.app_version,
+            app_version_code = excluded.app_version_code,
+            scanner_type = excluded.scanner_type,
+            last_user_id = excluded.last_user_id,
+            last_user_email = excluded.last_user_email,
+            last_account_name = case when excluded.last_account_name <> '' then excluded.last_account_name else mobile_devices.last_account_name end,
+            last_login_at = case when $16 then now() else mobile_devices.last_login_at end,
+            last_checkin_at = case when $17 then now() else mobile_devices.last_checkin_at end,
+            last_ip = excluded.last_ip,
+            user_agent = excluded.user_agent,
+            last_seen_at = now(),
+            updated_at = now()
+        returning *
+    `, [
+        device.deviceId,
+        device.appSource,
+        device.appName,
+        device.packageName,
+        device.platform,
+        device.manufacturer,
+        device.model,
+        device.osVersion,
+        device.sdkVersion,
+        device.appVersion,
+        device.appVersionCode,
+        device.scannerType,
+        userId,
+        userEmail,
+        device.lastAccountName,
+        options.login === true,
+        options.checkin === true,
+        device.lastIp,
+        device.userAgent
+    ]);
+    return mapMobileDeviceRow(result.rows[0]);
 }
 
 function mapPickConfirmationRow(row) {
