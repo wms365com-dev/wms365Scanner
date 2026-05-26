@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -1196,16 +1197,20 @@ class MainActivity : Activity() {
     private fun input(hint: String, inputTypeValue: Int): EditText = EditText(this).apply {
         this.hint = hint
         inputType = inputTypeValue
-        textSize = 18f
+        textSize = 21f
+        setTextColor(TEXT)
+        setHintTextColor(MUTED)
         setSingleLine(true)
-        setPadding(18, 8, 18, 8)
-        minHeight = 64
+        setPadding(22, 10, 22, 10)
+        minHeight = 76
+        background = inputBackground(focused = false)
         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
             showSoftInputOnFocus = true
         }
         setOnClickListener { showKeyboard(this) }
         setOnFocusChangeListener { view, hasFocus ->
+            background = inputBackground(focused = hasFocus)
             if (hasFocus && view is EditText) {
                 activeTextInput = view
             }
@@ -1217,6 +1222,12 @@ class MainActivity : Activity() {
         textSize = 22f
         minHeight = 78
         setPadding(20, 12, 20, 12)
+    }
+
+    private fun inputBackground(focused: Boolean): GradientDrawable = GradientDrawable().apply {
+        setColor(Color.WHITE)
+        cornerRadius = 10f
+        setStroke(if (focused) 4 else 2, if (focused) BLUE else Color.rgb(148, 163, 184))
     }
 
     private fun activateInput(input: EditText, target: String, showKeyboard: Boolean) {

@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Vibrator;
@@ -1388,20 +1389,32 @@ public class MainActivity extends Activity {
         EditText e = new EditText(this);
         e.setHint(hint);
         e.setInputType(type);
-        e.setTextSize(18);
+        e.setTextSize(21);
+        e.setTextColor(TEXT);
+        e.setHintTextColor(MUTED);
         e.setSingleLine((type & InputType.TYPE_TEXT_FLAG_MULTI_LINE) == 0);
-        e.setMinHeight(60);
-        e.setPadding(14, 8, 14, 8);
+        e.setMinHeight(76);
+        e.setPadding(22, 10, 22, 10);
+        e.setBackground(inputBackground(false));
         e.setLayoutParams(margins());
         e.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { showKeyboard((EditText) v); }
         });
         e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View v, boolean hasFocus) {
+                v.setBackground(inputBackground(hasFocus));
                 if (hasFocus) activeInput = (EditText) v;
             }
         });
         return e;
+    }
+
+    private GradientDrawable inputBackground(boolean focused) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.WHITE);
+        bg.setCornerRadius(10);
+        bg.setStroke(focused ? 4 : 2, focused ? BLUE : Color.rgb(148, 163, 184));
+        return bg;
     }
 
     private void activateInput(final EditText input, String label, boolean keyboard) {
