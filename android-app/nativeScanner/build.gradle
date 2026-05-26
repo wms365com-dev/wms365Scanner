@@ -13,8 +13,8 @@ android {
         applicationId "com.wms365.nativeapp"
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName "1.0.6-rs60-sync-ux"
+        versionCode 9
+        versionName "1.0.8-scan-unit-fix"
         buildConfigField "String", "WMS365_BASE_URL", "\"${configuredBaseUrl}\""
     }
 

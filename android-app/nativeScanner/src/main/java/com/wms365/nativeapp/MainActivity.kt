@@ -919,7 +919,7 @@ class MainActivity : Activity() {
         when (next.state) {
             PickState.GO_TO_LOCATION -> showGoToLocation(next, tasks)
             PickState.SCAN_LOCATION -> showScanLocation(next, tasks)
-            PickState.SCAN_ITEM -> showScanItem(next, tasks)
+            PickState.SCAN_ITEM -> showEnterQty(next, tasks)
             PickState.ENTER_QTY -> showEnterQty(next, tasks)
             PickState.EXCEPTION, PickState.COMPLETE -> openNextTask()
         }
@@ -974,22 +974,25 @@ class MainActivity : Activity() {
     }
 
     private fun showEnterQty(task: PickTask, tasks: List<PickTask>) {
-        activeScanTarget = ScanTarget.NONE
+        activeTask = task
+        activeScanTarget = ScanTarget.SKU
         currentScreen = Screen.PICKING
-        val qty = input("Picked Qty", InputType.TYPE_CLASS_NUMBER).apply {
-            setText(task.remainingQty.toString())
-            textSize = 30f
-            gravity = Gravity.CENTER
-        }
+        val scan = input("Scan each unit / case", InputType.TYPE_CLASS_TEXT)
         root.removeAllViews()
-        root.addView(taskScreen(task, tasks, "Confirm picked quantity", "${task.remainingQty} required") {
+        root.addView(taskScreen(task, tasks, "Scan each unit", task.sku) {
+            addView(fieldLabel("Picked", "${task.pickedQty} of ${task.requiredQty}"))
+            addView(fieldLabel("Remaining", task.remainingQty.toString()))
             addView(fieldLabel("Available", task.availableQty.toString()))
-            addView(qty)
-            addView(primaryButton("Confirm Pick") { confirmPick(task, qty.text.toString().toIntOrNull() ?: 0, shortPick = false) })
-            addView(secondaryButton("Short Pick / Not Enough Stock") { confirmPick(task, qty.text.toString().toIntOrNull() ?: 0, shortPick = true) })
+            addView(fieldLabel("Description", task.description.ifBlank { "No description" }))
+            if (task.lotNumber.isNotBlank()) addView(fieldLabel("Lot", task.lotNumber))
+            if (task.expiry.isNotBlank()) addView(fieldLabel("Expiry", task.expiry))
+            addView(scan)
+            addView(primaryButton("Confirm This Scan") { confirmSku(task, scan.text.toString()) })
+            addView(cameraButton("Camera Scan") { startCameraScan() })
+            addView(secondaryButton("Short Pick / Not Enough Stock") { reportException(task, "SHORT_PICK") })
             addProblemButtons(task)
         })
-        qty.requestFocus()
+        scan.requestFocus()
     }
 
     private fun showPickComplete(tasks: List<PickTask>) {
@@ -1028,7 +1031,7 @@ class MainActivity : Activity() {
         val key = newKey("arrival", task)
         store.enqueue(OutboxType.PICK_ARRIVAL, key, basePayload(task, key).put("location", actualLocation))
         store.recordScan(value, "location", "accepted", task.orderId, task.id)
-        store.updateTaskState(task.id, PickState.SCAN_ITEM)
+        store.updateTaskState(task.id, PickState.ENTER_QTY)
         sync.syncNow(downloadOrders = false)
         openNextTask()
     }
@@ -1043,62 +1046,47 @@ class MainActivity : Activity() {
             toastStatus("Wrong item. Expected ${task.sku}", true)
             return
         }
-        store.recordScan(value, "sku", "accepted", task.orderId, task.id)
-        store.updateTaskState(task.id, PickState.ENTER_QTY)
-        openNextTask()
+        confirmPickScan(task, value)
     }
 
-    private fun confirmPick(task: PickTask, qty: Int, shortPick: Boolean) {
-        if (qty <= 0) {
+    private fun confirmPickScan(task: PickTask, scannedValue: String) {
+        val current = store.getPickTask(task.id) ?: task
+        if (current.remainingQty <= 0) {
             scanner.error()
-            toastStatus("Qty must be greater than zero.", true)
-            return
-        }
-        if (qty > task.remainingQty) {
-            scanner.error()
-            toastStatus("Cannot pick more than required.", true)
-            return
-        }
-        if (task.availableQty > 0 && qty > task.availableQty) {
-            scanner.error()
-            toastStatus("Cannot pick more than available.", true)
+            toastStatus("This line is already fully picked.", true)
             return
         }
 
-        val pickKey = newKey("pick", task)
+        val pickKey = newKey("pick", current)
         store.enqueue(
             OutboxType.PICK_CONFIRMATION,
             pickKey,
-            basePayload(task, pickKey)
-                .put("location", task.location)
-                .put("sku", task.sku)
-                .put("skuOrUpc", task.sku)
-                .put("quantity", qty)
-                .put("lot", task.lotNumber)
-                .put("expiry", task.expiry)
+            basePayload(current, pickKey)
+                .put("location", current.location)
+                .put("sku", current.sku)
+                .put("skuOrUpc", current.sku)
+                .put("scannedValue", scannedValue.trim())
+                .put("quantity", 1)
+                .put("lot", current.lotNumber)
+                .put("expiry", current.expiry)
         )
 
-        val newPicked = task.pickedQty + qty
-        if (shortPick || newPicked < task.requiredQty) {
-            val exceptionKey = newKey("short-pick", task)
-            store.enqueue(
-                OutboxType.PICK_EXCEPTION,
-                exceptionKey,
-                basePayload(task, exceptionKey)
-                    .put("reason", "SHORT_PICK")
-                    .put("note", "Worker picked $qty of ${task.requiredQty}; supervisor review required.")
-                    .put("location", task.location)
-                    .put("sku", task.sku)
-                    .put("quantity", qty)
-            )
-            store.updateTaskState(task.id, PickState.EXCEPTION, newPicked)
-        } else {
-            store.updateTaskState(task.id, PickState.COMPLETE, newPicked)
-        }
+        val newPicked = current.pickedQty + 1
+        val nextState = if (newPicked >= current.requiredQty) PickState.COMPLETE else PickState.ENTER_QTY
+        store.recordScan(scannedValue, "sku", "picked_unit", current.orderId, current.id)
+        store.updateTaskState(current.id, nextState, newPicked)
 
         scanner.success()
+        toastStatus("Picked $newPicked of ${current.requiredQty}", false)
         sync.syncNow(downloadOrders = false)
-        openNextTask()
+        if (nextState == PickState.COMPLETE) {
+            openNextTask()
+        } else {
+            store.getPickTask(current.id)?.let {
+                activeTask = it
+                showEnterQty(it, store.getPickTasks(current.orderId))
+            } ?: openNextTask()
+        }
     }
 
     private fun reportException(task: PickTask, reason: String) {
@@ -1186,7 +1174,7 @@ class MainActivity : Activity() {
             .put("idempotencyKey", key)
     }
 
-    private fun newKey(prefix: String, task: PickTask): String = "android-$prefix-${store.getSession()?.deviceId}-${task.id}-${System.currentTimeMillis()}"
+    private fun newKey(prefix: String, task: PickTask): String = "android-$prefix-${store.getSession()?.deviceId}-${task.id}-${System.currentTimeMillis()}-${UUID.randomUUID()}"
 
     private fun taskScreen(task: PickTask, tasks: List<PickTask>, instruction: String, focus: String, body: LinearLayout.() -> Unit): ScrollView {
         val done = tasks.count { it.state == PickState.COMPLETE || it.state == PickState.EXCEPTION }
