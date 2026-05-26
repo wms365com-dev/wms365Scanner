@@ -614,9 +614,6 @@ class MainActivity : Activity() {
             addView(fieldLabel("Location", countLocation))
             addView(fieldLabel("SKU / UPC", countSkuOrUpc))
             addView(fieldLabel("Cases", countCases))
-            addView(lot)
-            addView(scanToButton("Scan Lot", lot, "lot"))
-            addView(expiry)
             addView(primaryButton("Submit Count") {
                 countLot = lot.text.toString().trim()
                 countExpiry = expiry.text.toString().trim()
@@ -627,6 +624,9 @@ class MainActivity : Activity() {
                 countExpiry = ""
                 submitGuidedInventoryCount()
             })
+            addView(lot)
+            addView(scanToButton("Scan Lot", lot, "lot"))
+            addView(expiry)
             addView(secondaryButton("Back to Qty") { showCountQty() })
         })
         activateInput(lot, "lot", showKeyboard = false)
