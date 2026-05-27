@@ -6,6 +6,8 @@ const {
     app,
     validateProductionEnvironment,
     assertProductionEnvironment,
+    isForbiddenOutboundEmailSender,
+    assertOutboundEmailSenderAllowed,
     sanitizePortalOrderDocumentInput,
     detectSafeUploadMimeType,
     encryptSecret,
@@ -54,6 +56,25 @@ test("production startup validation passes with required settings", () => {
         INTEGRATION_SECRET_KEY: "32-byte-minimum-production-secret"
     });
     assert.deepEqual(missing, []);
+});
+
+test("system email blocks forbidden Greywolf Gmail sender", () => {
+    assert.equal(isForbiddenOutboundEmailSender("greywolf3plca@gmail.com"), true);
+    assert.equal(isForbiddenOutboundEmailSender("WMS365 <support@wms365.co>"), false);
+    assert.throws(
+        () => assertOutboundEmailSenderAllowed({ from: "Greywolf <greywolf3plca@gmail.com>" }),
+        /not allowed as a WMS365 outbound sender/
+    );
+
+    const missing = validateProductionEnvironment({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgres://db",
+        APP_ADMIN_EMAIL: "owner@example.com",
+        APP_ADMIN_PASSWORD: "long-random-password",
+        INTEGRATION_SECRET_KEY: "32-byte-minimum-production-secret",
+        SMTP_USER: "greywolf3plca@gmail.com"
+    });
+    assert.deepEqual(missing, ["Remove forbidden outbound email sender: SMTP_USER"]);
 });
 
 test("upload validation accepts PDF JPEG PNG and WebP signatures only", () => {

@@ -178,6 +178,9 @@ const WMS365_SYSTEM_EMAIL_ADDRESS = "support@wms365.co";
 const WMS365_SYSTEM_EMAIL_FROM = "WMS365 <support@wms365.co>";
 const SMTP_FROM = WMS365_SYSTEM_EMAIL_FROM;
 const SMTP_REPLY_TO = WMS365_SYSTEM_EMAIL_ADDRESS;
+const FORBIDDEN_OUTBOUND_EMAIL_SENDERS = new Set([
+    "greywolf3plca@gmail.com"
+]);
 const ORDER_RELEASE_TO = readEnv("ORDER_RELEASE_TO", "");
 const EMAIL_PROVIDER = normalizeText(readEnv("EMAIL_PROVIDER", ""));
 const RESEND_API_KEY = readEnv("RESEND_API_KEY", "");
@@ -604,7 +607,35 @@ function validateProductionEnvironment(env = process.env) {
     if (!stripEnvWrappingQuotes(env.INTEGRATION_SECRET_KEY || env.APP_SECRET || env.SESSION_SECRET || "")) {
         missing.push("INTEGRATION_SECRET_KEY or APP_SECRET");
     }
+    const forbiddenEmailConfig = getForbiddenOutboundEmailConfig(env);
+    if (forbiddenEmailConfig.length) {
+        missing.push(`Remove forbidden outbound email sender: ${forbiddenEmailConfig.join(", ")}`);
+    }
     return missing;
+}
+
+function normalizeEmailIdentity(value) {
+    const text = stripEnvWrappingQuotes(value || "");
+    if (!text) return "";
+    const match = text.match(/<([^>]+)>/);
+    return normalizeEmail(match?.[1] || text);
+}
+
+function isForbiddenOutboundEmailSender(value) {
+    const email = normalizeEmailIdentity(value);
+    return !!email && FORBIDDEN_OUTBOUND_EMAIL_SENDERS.has(email);
+}
+
+function getForbiddenOutboundEmailConfig(env = process.env) {
+    return [
+        ["SMTP_USER", env.SMTP_USER],
+        ["SMTP_FROM", env.SMTP_FROM],
+        ["SMTP_REPLY_TO", env.SMTP_REPLY_TO],
+        ["EMAIL_FROM", env.EMAIL_FROM],
+        ["MAIL_FROM", env.MAIL_FROM]
+    ]
+        .filter(([, value]) => isForbiddenOutboundEmailSender(value))
+        .map(([name]) => name);
 }
 
 function sanitizeSensitiveLogMessage(value) {
@@ -13658,6 +13689,7 @@ function getSystemMailer(configErrorMessage = "System email is not configured. S
     if (!hasSmtpEmailConfig()) {
         throw httpError(500, configErrorMessage);
     }
+    assertOutboundEmailSenderAllowed({ from: SMTP_FROM, replyTo: SMTP_REPLY_TO }, "SMTP configuration");
     if (/(^|\.)gmail\.com$/i.test(SMTP_HOST) && (!SMTP_USER || !SMTP_PASS)) {
         throw httpError(500, "Gmail SMTP requires SMTP_USER and SMTP_PASS. Set SMTP_USER to the sending mailbox and SMTP_PASS to its app password.");
     }
@@ -13715,6 +13747,20 @@ function parseEmailAddressHeader(value) {
         name: "",
         email: normalizeEmail(text)
     };
+}
+
+function assertOutboundEmailSenderAllowed(mailOptions = {}, context = "System email") {
+    const candidates = [
+        mailOptions.from,
+        mailOptions.sender,
+        mailOptions.replyTo,
+        mailOptions.reply_to,
+        mailOptions.envelope?.from,
+        SMTP_USER
+    ];
+    if (candidates.some(isForbiddenOutboundEmailSender)) {
+        throw httpError(500, `${context} blocked: greywolf3plca@gmail.com is not allowed as a WMS365 outbound sender. Use ${WMS365_SYSTEM_EMAIL_ADDRESS}.`);
+    }
 }
 
 function normalizeSystemEmailMailOptions(mailOptions = {}) {
@@ -14001,6 +14047,7 @@ async function sendEmailViaSendGrid(mailOptions) {
 
 async function sendSystemEmail(mailOptions, configErrorMessage = "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.") {
     const safeMailOptions = normalizeSystemEmailMailOptions(mailOptions);
+    assertOutboundEmailSenderAllowed(safeMailOptions);
     const provider = getConfiguredEmailProvider() || (hasSmtpEmailConfig() ? "SMTP" : (EMAIL_PROVIDER || "NOT_CONFIGURED"));
     const logId = await insertEmailDeliveryLog(safeMailOptions, provider);
     try {
@@ -26601,6 +26648,8 @@ module.exports = {
     requireMobileWorkerAction,
     validateProductionEnvironment,
     assertProductionEnvironment,
+    isForbiddenOutboundEmailSender,
+    assertOutboundEmailSenderAllowed,
     sanitizeSensitiveLogMessage,
     normalizeSafeUploadMimeType,
     detectSafeUploadMimeType,
