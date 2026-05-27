@@ -9,6 +9,15 @@ const PORTAL_DISPLAY_URL = process.env.WMS365_PORTAL_DISPLAY_URL || "https://www
 const EMAIL = process.env.WMS365_PORTAL_EMAIL || "";
 const PASSWORD = process.env.WMS365_PORTAL_PASSWORD || "";
 const COMPANY = process.env.WMS365_PORTAL_COMPANY || "Your Company";
+const DISPLAY_EMAIL = process.env.WMS365_PORTAL_DISPLAY_EMAIL || "Use the email address provided in your welcome email.";
+const CONTACT_NAME = process.env.WMS365_PORTAL_CONTACT_NAME || "Portal User";
+const CONTACT_PHONE = process.env.WMS365_PORTAL_CONTACT_PHONE || "+1 555 555 1212";
+const GUIDE_SLUG = (process.env.WMS365_PORTAL_GUIDE_SLUG || COMPANY || "customer")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "customer";
+const GUIDE_TITLE = process.env.WMS365_PORTAL_GUIDE_TITLE || `WMS365-Customer-Portal-Quick-Guide-${GUIDE_SLUG}`;
 
 function ensureDir(dir) {
     fs.mkdirSync(dir, { recursive: true });
@@ -47,6 +56,24 @@ async function fillIfVisible(page, selector, value) {
     }
 }
 
+async function selectWarehouseIfAvailable(page, preferredText = "") {
+    const selector = page.locator("#portalWarehouseSelect").first();
+    if (!(await selector.count())) return "";
+    await selector.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+    const options = await selector.locator("option").evaluateAll((nodes) => nodes.map((node) => ({
+        value: node.value,
+        text: node.textContent.trim()
+    })));
+    if (!options.length) return "";
+    const preferred = preferredText
+        ? options.find((option) => option.text.toLowerCase().includes(preferredText.toLowerCase()))
+        : null;
+    const selected = preferred || options[0];
+    await selector.selectOption(selected.value);
+    await page.waitForTimeout(500);
+    return selected.text;
+}
+
 async function generateScreenshots() {
     if (!EMAIL || !PASSWORD) {
         throw new Error("Set WMS365_PORTAL_EMAIL and WMS365_PORTAL_PASSWORD before running this script.");
@@ -67,31 +94,38 @@ async function generateScreenshots() {
     await fillIfVisible(page, "#loginPassword", PASSWORD);
     await page.locator("#loginForm button[type='submit']").click();
     await waitForPortal(page);
+    await page.evaluate((companyName) => {
+        const chip = document.querySelector("#accountChip");
+        if (chip && companyName) chip.textContent = companyName;
+    }, COMPANY);
     await screenshot(page, "02-dashboard-inventory", "#portalView");
+
+    await selectWarehouseIfAvailable(page, process.env.WMS365_PORTAL_WAREHOUSE || "");
+    await screenshot(page, "03-active-warehouse", ".topbar");
 
     await clickView(page, "inventory");
     await fillIfVisible(page, "#inventoryFilter", "SKU");
     await page.waitForTimeout(350);
-    await screenshot(page, "03-inventory-filter", "#inventoryPanel");
+    await screenshot(page, "04-inventory-filter", "#inventoryPanel");
 
     await clickView(page, "inbound");
     await fillIfVisible(page, "#inboundReferenceNumber", "PO-EXAMPLE-001");
     await fillIfVisible(page, "#inboundCarrierName", "Carrier name");
     await fillIfVisible(page, "#inboundExpectedDate", "2026-06-05");
-    await fillIfVisible(page, "#inboundContactName", "Hisham Ajani");
-    await fillIfVisible(page, "#inboundContactPhone", "+1 437 607 8691");
+    await fillIfVisible(page, "#inboundContactName", CONTACT_NAME);
+    await fillIfVisible(page, "#inboundContactPhone", CONTACT_PHONE);
     await fillIfVisible(page, "#inboundNotes", "Attach packing slip/BOL after submitting.");
-    await screenshot(page, "04-new-purchase-order", "#inboundPanel");
+    await screenshot(page, "05-new-purchase-order", "#inboundPanel");
 
     await clickView(page, "inbounds");
-    await screenshot(page, "05-my-purchase-orders", "#inboundsPanel");
+    await screenshot(page, "06-my-purchase-orders", "#inboundsPanel");
 
     await clickView(page, "order");
     await fillIfVisible(page, "#orderPoNumber", "SO-EXAMPLE-001");
     await fillIfVisible(page, "#orderShippingReference", "SHIP-EXAMPLE-001");
     await fillIfVisible(page, "#orderRequestedShipDate", "2026-06-07");
-    await fillIfVisible(page, "#orderContactName", "Hisham Ajani");
-    await fillIfVisible(page, "#orderContactPhone", "+1 437 607 8691");
+    await fillIfVisible(page, "#orderContactName", CONTACT_NAME);
+    await fillIfVisible(page, "#orderContactPhone", CONTACT_PHONE);
     await fillIfVisible(page, "#orderShipToName", "Receiver Company");
     await fillIfVisible(page, "#orderShipToPhone", "+1 555 555 1212");
     await fillIfVisible(page, "#orderShipToAddress1", "123 Example Street");
@@ -100,10 +134,10 @@ async function generateScreenshots() {
     await fillIfVisible(page, "#orderShipToPostalCode", "M1M 1M1");
     await fillIfVisible(page, "#orderShipToCountry", "Canada");
     await fillIfVisible(page, "#orderNotes", "Attach shipping label before release if customer-provided.");
-    await screenshot(page, "06-new-sales-order", "#orderPanel");
+    await screenshot(page, "07-new-sales-order", "#orderPanel");
 
     await clickView(page, "orders");
-    await screenshot(page, "07-my-sales-orders", "#ordersPanel");
+    await screenshot(page, "08-my-sales-orders", "#ordersPanel");
 
     await clickView(page, "delivery");
     await fillIfVisible(page, "#deliveryReferenceNumber", "PO-EXAMPLE-001");
@@ -112,10 +146,10 @@ async function generateScreenshots() {
     await fillIfVisible(page, "#deliveryCarrierName", "Carrier name");
     await fillIfVisible(page, "#deliveryPalletCount", "3");
     await fillIfVisible(page, "#deliveryCartonCount", "120");
-    await fillIfVisible(page, "#deliveryContactName", "Hisham Ajani");
+    await fillIfVisible(page, "#deliveryContactName", CONTACT_NAME);
     await fillIfVisible(page, "#deliveryContactEmail", EMAIL);
-    await fillIfVisible(page, "#deliveryContactPhone", "+1 437 607 8691");
-    await screenshot(page, "08-book-delivery", "#deliveryPanel");
+    await fillIfVisible(page, "#deliveryContactPhone", CONTACT_PHONE);
+    await screenshot(page, "09-book-delivery", "#deliveryPanel");
 
     await browser.close();
 }
@@ -156,10 +190,10 @@ function buildGuideHtml() {
 <section class="cover">
     <div class="meta">WMS365 Customer Portal</div>
     <h1>Quick Guide for ${esc(COMPANY)}</h1>
-    <p>Use this guide to check inventory, submit purchase orders/inbounds, create outbound sales orders, upload documents, and track order status.</p>
+    <p>Use this guide to choose the correct warehouse, check inventory, submit purchase orders/inbounds, create outbound sales orders, upload documents, and track order status.</p>
     <p><strong>Portal URL:</strong> ${esc(PORTAL_DISPLAY_URL)}</p>
-    <p><strong>Username:</strong> ${esc(EMAIL)}</p>
-    <p class="meta">Generated ${esc(generatedAt)}. Use the password provided in the welcome email.</p>
+    <p><strong>Username:</strong> ${esc(DISPLAY_EMAIL)}</p>
+    <p class="meta">Generated ${esc(generatedAt)}. Use the temporary password provided in the welcome email. You may be asked to change it after signing in.</p>
 </section>
 
 <h2>1. Sign In</h2>
@@ -171,7 +205,16 @@ function buildGuideHtml() {
 <div class="callout">Warehouse staff use a separate warehouse login. Customer portal users should always use the customer portal page.</div>
 <img class="screen" src="${image("01-login")}" alt="WMS365 customer portal login screen">
 
-<h2>2. Check Inventory</h2>
+<h2>2. Select the Active Warehouse</h2>
+<ol>
+    <li>After signing in, review the <strong>Active Warehouse</strong> selector in the top right corner.</li>
+    <li>If your company uses more than one warehouse, choose the warehouse you want to work with before creating a purchase order, delivery appointment, or sales order.</li>
+    <li>The portal will show a confirmation message and route new work to the selected warehouse.</li>
+</ol>
+<div class="callout">For companies using Ontario and BC, select the correct warehouse location before submitting each inbound or outbound transaction.</div>
+<img class="screen" src="${image("03-active-warehouse")}" alt="Active warehouse selector">
+
+<h2>3. Check Inventory</h2>
 <ol>
     <li>Select <strong>Inventory</strong> from the portal menu.</li>
     <li>Use the <strong>Filter</strong> box to search by SKU, UPC, description, or location.</li>
@@ -180,10 +223,11 @@ function buildGuideHtml() {
 </ol>
 <div class="callout">Inventory is account-scoped. You only see inventory assigned to your company.</div>
 <img class="screen" src="${image("02-dashboard-inventory")}" alt="Portal dashboard inventory overview">
-<img class="screen" src="${image("03-inventory-filter")}" alt="Inventory filter screen">
+<img class="screen" src="${image("04-inventory-filter")}" alt="Inventory filter screen">
 
-<h2 class="page-break">3. Enter an Inbound / Purchase Order</h2>
+<h2 class="page-break">4. Enter an Inbound / Purchase Order</h2>
 <ol>
+    <li>Confirm the correct <strong>Active Warehouse</strong> is selected at the top right.</li>
     <li>Select <strong>New Purchase Order</strong>.</li>
     <li>Enter the purchase order/reference number, carrier if known, expected date, contact name, and phone number.</li>
     <li>Add one line per SKU with the expected quantity.</li>
@@ -191,10 +235,10 @@ function buildGuideHtml() {
     <li>After submitting, open <strong>My Purchase Orders</strong> to track status and upload packing slips, BOLs, or product documents.</li>
 </ol>
 <div class="callout warning">If the warehouse has not received the freight yet, status will remain open/submitted. Once freight arrives, the warehouse may check it in before full receiving is completed.</div>
-<img class="screen" src="${image("04-new-purchase-order")}" alt="New purchase order screen">
-<img class="screen" src="${image("05-my-purchase-orders")}" alt="My purchase orders screen">
+<img class="screen" src="${image("05-new-purchase-order")}" alt="New purchase order screen">
+<img class="screen" src="${image("06-my-purchase-orders")}" alt="My purchase orders screen">
 
-<h2>4. Book a Delivery Appointment</h2>
+<h2>5. Book a Delivery Appointment</h2>
 <ol>
     <li>Create or select the inbound/purchase order first.</li>
     <li>Select <strong>Book Delivery</strong>.</li>
@@ -202,20 +246,22 @@ function buildGuideHtml() {
     <li>Select <strong>Request Delivery Appointment</strong>.</li>
     <li>Watch <strong>My Deliveries</strong> for approval or alternate date/time from the warehouse.</li>
 </ol>
-<img class="screen" src="${image("08-book-delivery")}" alt="Book delivery appointment screen">
+<div class="callout">Delivery appointments follow the warehouse selected on the inbound/purchase order.</div>
+<img class="screen" src="${image("09-book-delivery")}" alt="Book delivery appointment screen">
 
-<h2 class="page-break">5. Enter an Outbound Sales Order</h2>
+<h2 class="page-break">6. Enter an Outbound Sales Order</h2>
 <ol>
+    <li>Confirm the correct <strong>Active Warehouse</strong> is selected at the top right.</li>
     <li>Select <strong>New Sales Order</strong>.</li>
     <li>Enter PO number, shipping reference, requested ship date, contact, and ship-to address.</li>
     <li>Add order lines by selecting each SKU and quantity.</li>
     <li>Select <strong>Save Draft</strong> if you still need to review.</li>
     <li>Select <strong>Release Order</strong> when the order is ready for the warehouse.</li>
 </ol>
-<div class="callout warning">If you select “Shipping label is attached” during release, a label or document must already be uploaded to the order. This prevents missed labels.</div>
-<img class="screen" src="${image("06-new-sales-order")}" alt="New sales order screen">
+<div class="callout warning">If you select "Shipping label is attached" during release, a label or document must already be uploaded to the order. This prevents missed labels.</div>
+<img class="screen" src="${image("07-new-sales-order")}" alt="New sales order screen">
 
-<h2>6. Upload Labels and Order Documents</h2>
+<h2>7. Upload Labels and Order Documents</h2>
 <ol>
     <li>Open <strong>My Sales Orders</strong> for outbound documents or <strong>My Purchase Orders</strong> for inbound documents.</li>
     <li>Find the order or purchase order card.</li>
@@ -223,9 +269,9 @@ function buildGuideHtml() {
     <li>Select <strong>Upload Labels / Docs</strong> or <strong>Upload PO Docs</strong>.</li>
 </ol>
 <p class="small">Accepted files are PDF or image files. Upload up to 5 files at a time.</p>
-<img class="screen" src="${image("07-my-sales-orders")}" alt="My sales orders screen">
+<img class="screen" src="${image("08-my-sales-orders")}" alt="My sales orders screen">
 
-<h2>7. Track Status</h2>
+<h2>8. Track Status</h2>
 <div class="checklist">
     <div><strong>Draft</strong><br>Order is saved but not released to the warehouse.</div>
     <div><strong>Released</strong><br>Warehouse can see the order for picking.</div>
@@ -236,14 +282,14 @@ function buildGuideHtml() {
 </div>
 
 <h2>Need Help?</h2>
-<p>Use <strong>Report Bug / Request Feature</strong> in the portal, or contact WMS365 / Grey Wolf 3PL support.</p>
+<p>Use <strong>Report Bug / Request Feature</strong> in the portal, or contact <strong>support@wms365.co</strong>.</p>
 </body>
 </html>`;
 }
 
 async function generatePdf() {
-    const htmlPath = path.join(ROOT, "docs", "WMS365-Customer-Portal-Quick-Guide-Traveone.html");
-    const pdfPath = path.join(ROOT, "docs", "WMS365-Customer-Portal-Quick-Guide-Traveone.pdf");
+    const htmlPath = path.join(ROOT, "docs", `${GUIDE_TITLE}.html`);
+    const pdfPath = path.join(ROOT, "docs", `${GUIDE_TITLE}.pdf`);
     fs.writeFileSync(htmlPath, buildGuideHtml(), "utf8");
 
     const browser = await chromium.launch({ headless: true });
