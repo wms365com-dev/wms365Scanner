@@ -11,6 +11,7 @@ Files in this folder:
 - `lot-tracking-expiration-date-inventory-software.html`
 - `customer-portal-for-3pl-warehouses.html`
 - `sftp-warehouse-integration-software.html`
+- `portal.html`
 - `pricing.html`
 - `industries.html`
 - `book-demo.html`
@@ -30,7 +31,8 @@ Files in this folder:
 Notes:
 - `wms365.co` and `www.wms365.co` should stay on Bluehost.
 - `app.wms365.co` should stay on Railway.
-- The public pages already point login and portal traffic to `https://app.wms365.co`.
+- Customer-facing portal traffic should use `https://www.wms365.co/portal`, which forwards to the secure application portal on `https://app.wms365.co/portal`.
+- Warehouse/admin login traffic should continue to use `https://app.wms365.co`.
 - The demo form and Stripe checkout use the Railway app/API endpoint configured in the page metadata.
 - `marketing-logo.svg` is also used as the favicon source by the public pages.
 - For Google Search Console:

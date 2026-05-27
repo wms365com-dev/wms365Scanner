@@ -159,7 +159,7 @@ const SAFE_UPLOAD_EXTENSIONS = new Map([
 ]);
 const DEMO_REQUEST_TO = bootstrapNormalizeEmail(readEnv("DEMO_REQUEST_TO", DEFAULT_ADMIN_EMAIL || ""));
 const ADMIN_ACTIVITY_SUMMARY_TO = bootstrapNormalizeEmail(readEnv("ADMIN_ACTIVITY_SUMMARY_TO", DEFAULT_ADMIN_EMAIL || ""));
-const DEFAULT_PUBLIC_SITE_URL = "https://wms365.co";
+const DEFAULT_PUBLIC_SITE_URL = "https://www.wms365.co";
 const PUBLIC_SITE_URL = readEnv("PUBLIC_SITE_URL", "").replace(/\/+$/, "");
 const APP_BASE_URL = (readEnv("APP_BASE_URL", "") || readEnv("PUBLIC_APP_URL", "")).replace(/\/+$/, "");
 const PUBLIC_SITE_ALLOWED_ORIGINS = readEnv("PUBLIC_SITE_ALLOWED_ORIGINS", "");
@@ -14084,8 +14084,7 @@ async function sendSystemEmail(mailOptions, configErrorMessage = "System email i
 }
 
 function buildPortalLoginUrl(req) {
-    const requestOrigin = getRequestOrigin(req);
-    const origin = requestOrigin || PUBLIC_SITE_URL || "https://app.wms365.co";
+    const origin = PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL;
     return `${String(origin).replace(/\/+$/, "")}/portal`;
 }
 

@@ -5,6 +5,7 @@ RewriteEngine On
 RewriteRule ^pricing/?$ /pricing.html [L]
 RewriteRule ^industries/?$ /industries.html [L]
 RewriteRule ^book-demo/?$ /book-demo.html [L]
+RewriteRule ^portal/?$ /portal.html [L]
 RewriteRule ^integrations/?$ /integrations.html [L]
 RewriteRule ^implementation/?$ /implementation.html [L]
 RewriteRule ^3pl-warehouse-management-software/?$ /3pl-warehouse-management-software.html [L]
