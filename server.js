@@ -23548,6 +23548,8 @@ function mapFulfillmentLocationRow(row) {
 }
 
 function mapCompanyFulfillmentLocationRow(row) {
+    const createdAt = row.created_at ? new Date(row.created_at).toISOString() : null;
+    const updatedAt = row.updated_at ? new Date(row.updated_at).toISOString() : createdAt;
     return {
         id: String(row.id),
         accountName: row.account_name,
@@ -23568,8 +23570,8 @@ function mapCompanyFulfillmentLocationRow(row) {
         allowStorage: row.allow_storage !== false,
         allowReturns: row.allow_returns !== false,
         note: row.note || "",
-        createdAt: new Date(row.created_at).toISOString(),
-        updatedAt: new Date(row.updated_at).toISOString()
+        createdAt,
+        updatedAt
     };
 }
 
