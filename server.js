@@ -4170,6 +4170,23 @@ app.get("/api/portal/inbounds", async (req, res, next) => {
     }
 });
 
+app.get("/api/portal/fulfillment-locations", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            success: true,
+            locations: await getPortalFulfillmentLocationsForAccount(pool, session.access.accountName)
+        });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.post("/api/portal/inbounds", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -6111,6 +6128,7 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
     await pool.query("alter table portal_orders add column if not exists ship_to_phone text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_status text not null default ''");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_scheduled_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_sent_at timestamptz");
@@ -6227,6 +6245,7 @@ async function initializeDatabase() {
     await pool.query("alter table portal_inbounds add column if not exists arrived_by text not null default ''");
     await pool.query("alter table portal_inbounds add column if not exists arrival_note text not null default ''");
     await pool.query("alter table portal_inbounds add column if not exists received_at timestamptz");
+    await pool.query("alter table portal_inbounds add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
 
     await pool.query(`
         create table if not exists portal_inbound_lines (
@@ -6680,6 +6699,7 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_portal_orders_order_code_unique on portal_orders (order_code);");
     await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
     await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
+    await pool.query("create index if not exists idx_portal_orders_fulfillment_location on portal_orders (fulfillment_location_id);");
     await pool.query("create unique index if not exists idx_portal_kitting_requests_code_unique on portal_kitting_requests (request_code);");
     await pool.query("create index if not exists idx_portal_kitting_requests_account on portal_kitting_requests (account_name, created_at desc);");
     await pool.query("create index if not exists idx_portal_kitting_requests_status on portal_kitting_requests (status, created_at desc);");
@@ -6692,6 +6712,7 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_portal_inbounds_inbound_code_unique on portal_inbounds (inbound_code);");
     await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
     await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
+    await pool.query("create index if not exists idx_portal_inbounds_fulfillment_location on portal_inbounds (fulfillment_location_id);");
     await pool.query("create index if not exists idx_portal_inbound_lines_inbound_id on portal_inbound_lines (inbound_id);");
     await pool.query("create index if not exists idx_portal_inbound_documents_inbound_id on portal_inbound_documents (inbound_id);");
     await pool.query("create unique index if not exists idx_portal_delivery_appointments_code_unique on portal_delivery_appointments (appointment_code);");
@@ -12746,6 +12767,10 @@ async function savePortalOrderDraftForAccount(
             await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
         }
     }
+    const fulfillmentLocation = await resolvePortalFulfillmentLocation(client, normalizedAccount, order, {
+        direction: "OUTBOUND",
+        requiredLabel: "ship-from warehouse"
+    });
 
     let savedOrderId = orderId;
     if (savedOrderId) {
@@ -12761,7 +12786,7 @@ async function savePortalOrderDraftForAccount(
             `
                 update portal_orders
                 set
-                    portal_access_id = $16,
+                    portal_access_id = $17,
                     po_number = $2,
                     shipping_reference = $3,
                     contact_name = $4,
@@ -12776,6 +12801,7 @@ async function savePortalOrderDraftForAccount(
                     ship_to_postal_code = $13,
                     ship_to_country = $14,
                     ship_to_phone = $15,
+                    fulfillment_location_id = $16,
                     updated_at = now()
                 where id = $1
             `,
@@ -12795,6 +12821,7 @@ async function savePortalOrderDraftForAccount(
                 order.shipToPostalCode,
                 order.shipToCountry,
                 order.shipToPhone,
+                toPositiveInt(fulfillmentLocation.fulfillmentLocationId) || null,
                 portalAccessId
             ]
         );
@@ -12806,9 +12833,10 @@ async function savePortalOrderDraftForAccount(
                     account_name, portal_access_id, po_number, shipping_reference,
                     contact_name, contact_phone, requested_ship_date, order_notes,
                     ship_to_name, ship_to_address1, ship_to_address2,
-                    ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country, ship_to_phone
+                    ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country, ship_to_phone,
+                    fulfillment_location_id
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 returning id
             `,
             [
@@ -12827,7 +12855,8 @@ async function savePortalOrderDraftForAccount(
                 order.shipToState,
                 order.shipToPostalCode,
                 order.shipToCountry,
-                order.shipToPhone
+                order.shipToPhone,
+                toPositiveInt(fulfillmentLocation.fulfillmentLocationId) || null
             ]
         );
         savedOrderId = insertResult.rows[0].id;
@@ -16047,9 +16076,11 @@ async function getPortalInboundArrivalRecipients(client, accountName) {
     return getPortalShipmentRecipients(client, accountName);
 }
 
-async function getPortalInboundFulfillmentLocation(client, accountName) {
+async function getPortalInboundFulfillmentLocation(client, accountName, input = {}) {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) return null;
+    const requestedId = toPositiveInt(input?.fulfillmentLocationId || input?.fulfillment_location_id || input?.warehouseId || input?.warehouse_id);
+    const requestedCode = normalizeText(input?.fulfillmentLocationCode || input?.fulfillment_location_code || input?.warehouseCode || input?.warehouse_code || input?.warehouse);
     const result = await client.query(
         `
             select
@@ -16070,10 +16101,12 @@ async function getPortalInboundFulfillmentLocation(client, accountName) {
             where cfl.account_name = $1
               and cfl.allow_inbound = true
               and fl.is_active = true
+              and ($2::bigint is null or fl.id = $2)
+              and ($3::text = '' or fl.code = $3)
             order by cfl.is_primary desc, fl.is_default desc, fl.code asc
             limit 1
         `,
-        [normalizedAccount]
+        [normalizedAccount, requestedId || null, requestedCode]
     );
     return result.rowCount ? result.rows[0] : null;
 }
@@ -16582,6 +16615,76 @@ async function getPortalOrderReleaseFulfillmentLocations(client = pool, accountN
         [normalizedAccount]
     );
     return fulfillmentLocations.rows;
+}
+
+async function getPortalFulfillmentLocationsForAccount(client = pool, accountName = "", { direction = "" } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+    const normalizedDirection = normalizeText(direction);
+    const clauses = [
+        "cfl.account_name = $1",
+        "fl.is_active = true"
+    ];
+    if (normalizedDirection === "INBOUND") clauses.push("cfl.allow_inbound = true");
+    if (normalizedDirection === "OUTBOUND") clauses.push("cfl.allow_outbound = true");
+    const result = await client.query(
+        `
+            select
+                cfl.id as assignment_id,
+                cfl.account_name,
+                cfl.is_primary,
+                cfl.allow_inbound,
+                cfl.allow_outbound,
+                cfl.allow_storage,
+                cfl.allow_returns,
+                fl.id as fulfillment_location_id,
+                fl.code,
+                fl.name,
+                fl.partner_name,
+                fl.location_type,
+                fl.contact_name,
+                fl.contact_email,
+                fl.contact_phone,
+                fl.address1,
+                fl.address2,
+                fl.city,
+                fl.state,
+                fl.postal_code,
+                fl.country,
+                fl.is_active
+            from company_fulfillment_locations cfl
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            where ${clauses.join(" and ")}
+            order by cfl.is_primary desc, fl.is_default desc, fl.code asc
+        `,
+        [normalizedAccount]
+    );
+    return result.rows.map(mapCompanyFulfillmentLocationRow);
+}
+
+async function resolvePortalFulfillmentLocation(client, accountName, input = {}, { direction = "OUTBOUND", requiredLabel = "warehouse" } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedDirection = normalizeText(direction);
+    const locations = await getPortalFulfillmentLocationsForAccount(client, normalizedAccount, { direction: normalizedDirection });
+    if (!locations.length) {
+        throw httpError(400, `No active ${requiredLabel} is assigned to this company.`);
+    }
+    const requestedId = toPositiveInt(input?.fulfillmentLocationId || input?.fulfillment_location_id || input?.warehouseId || input?.warehouse_id);
+    const requestedCode = normalizeText(input?.fulfillmentLocationCode || input?.fulfillment_location_code || input?.warehouseCode || input?.warehouse_code || input?.warehouse);
+    if (requestedId || requestedCode) {
+        const match = locations.find((location) => {
+            return (requestedId && toPositiveInt(location.fulfillmentLocationId) === requestedId)
+                || (requestedCode && normalizeText(location.locationCode) === requestedCode);
+        });
+        if (!match) {
+            throw httpError(400, `Choose a valid ${requiredLabel} assigned to this company.`);
+        }
+        return match;
+    }
+    if (locations.length > 1) {
+        throw httpError(400, `Choose the ${requiredLabel} for this transaction.`);
+    }
+    return locations[0];
 }
 
 function addValidEmailRecipient(recipients, value) {
@@ -18297,7 +18400,9 @@ async function savePortalDeliveryAppointment(client, accessRow, input) {
         throw httpError(400, "Requested date, requested time, purchase order/inbound, and contact name are required.");
     }
 
-    const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, access.accountName);
+    const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, access.accountName, {
+        fulfillmentLocationId: linkedInbound?.fulfillmentLocationId || linkedInbound?.fulfillment_location_id
+    });
     const approvalToken = createDeliveryAppointmentToken();
     const insertResult = await client.query(
         `
@@ -18529,19 +18634,24 @@ async function savePortalInboundForAccount(
     for (const line of inbound.lines) {
         await assertPortalInboundSkuAllowed(client, normalizedAccount, line.sku);
     }
+    const fulfillmentLocation = await resolvePortalFulfillmentLocation(client, normalizedAccount, inbound, {
+        direction: "INBOUND",
+        requiredLabel: "receiving warehouse"
+    });
 
     const insertResult = await client.query(
         `
             insert into portal_inbounds (
-                account_name, portal_access_id, reference_number, carrier_name,
+                account_name, portal_access_id, fulfillment_location_id, reference_number, carrier_name,
                 expected_date, contact_name, contact_phone, notes
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             returning id
         `,
         [
             normalizedAccount,
             portalAccessId,
+            toPositiveInt(fulfillmentLocation.fulfillmentLocationId) || null,
             inbound.referenceNumber,
             inbound.carrierName,
             inbound.expectedDate,
@@ -19906,6 +20016,7 @@ function getOrderTaskFacts(order) {
         id: toPositiveInt(getTaskRecordField(order, "id", "id")),
         code: normalizeFreeText(getTaskRecordField(order, "orderCode", "order_code")) || makePortalOrderCode(getTaskRecordField(order, "id", "id")),
         accountName: normalizeText(getTaskRecordField(order, "accountName", "account_name")),
+        fulfillmentLocationId: toPositiveInt(getTaskRecordField(order, "fulfillmentLocationId", "fulfillment_location_id")) || 0,
         status: normalizePortalOrderStatus(getTaskRecordField(order, "status", "status")),
         poNumber: normalizeFreeText(getTaskRecordField(order, "poNumber", "po_number")),
         shippingReference: normalizeFreeText(getTaskRecordField(order, "shippingReference", "shipping_reference")),
@@ -19921,6 +20032,7 @@ function getInboundTaskFacts(inbound) {
         id: toPositiveInt(getTaskRecordField(inbound, "id", "id")),
         code: normalizeFreeText(getTaskRecordField(inbound, "inboundCode", "inbound_code")) || makePortalInboundCode(getTaskRecordField(inbound, "id", "id")),
         accountName: normalizeText(getTaskRecordField(inbound, "accountName", "account_name")),
+        fulfillmentLocationId: toPositiveInt(getTaskRecordField(inbound, "fulfillmentLocationId", "fulfillment_location_id")) || 0,
         status: normalizePortalInboundStatus(getTaskRecordField(inbound, "status", "status")),
         referenceNumber: normalizeFreeText(getTaskRecordField(inbound, "referenceNumber", "reference_number")),
         carrierName: normalizeFreeText(getTaskRecordField(inbound, "carrierName", "carrier_name")),
@@ -20069,7 +20181,9 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
 
     const completedBefore = allTaskTypes.slice(0, allTaskTypes.indexOf(activeTaskType));
     const cancelledAfter = allTaskTypes.slice(allTaskTypes.indexOf(activeTaskType) + 1);
-    const fulfillmentLocation = (await getPortalOrderReleaseFulfillmentLocations(client, facts.accountName))[0] || null;
+    const fulfillmentLocation = facts.fulfillmentLocationId
+        ? { fulfillment_location_id: facts.fulfillmentLocationId }
+        : ((await getPortalOrderReleaseFulfillmentLocations(client, facts.accountName))[0] || null);
     await closeWarehouseTasksForSource(client, sourceType, facts.id, completedBefore, "DONE", actor);
     await closeWarehouseTasksForSource(client, sourceType, facts.id, cancelledAfter, "CANCELLED", actor);
     await upsertWarehouseTask(client, {
@@ -20105,7 +20219,9 @@ async function syncWarehouseTasksForInbound(client, inbound, appUser = null) {
     const actor = appUser?.full_name || appUser?.email || "System";
     const sourceType = "PORTAL_INBOUND";
     const allTaskTypes = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY"];
-    const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, facts.accountName);
+    const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, facts.accountName, {
+        fulfillmentLocationId: facts.fulfillmentLocationId
+    });
     const assignedAppUserId = isWarehouseWorkerUser(appUser)
         ? (toPositiveInt(appUser?.id || appUser?.app_user_id) || null)
         : null;
@@ -23436,16 +23552,16 @@ function mapCompanyFulfillmentLocationRow(row) {
         id: String(row.id),
         accountName: row.account_name,
         fulfillmentLocationId: String(row.fulfillment_location_id),
-        locationCode: row.location_code || "",
-        locationName: row.location_name || "",
+        locationCode: row.location_code || row.code || "",
+        locationName: row.location_name || row.name || "",
         partnerName: row.partner_name || "",
         locationType: normalizeFulfillmentLocationType(row.location_type),
-        address1: row.location_address1 || "",
-        address2: row.location_address2 || "",
-        city: row.location_city || "",
-        state: row.location_state || "",
-        postalCode: row.location_postal_code || "",
-        country: row.location_country || "",
+        address1: row.location_address1 || row.address1 || "",
+        address2: row.location_address2 || row.address2 || "",
+        city: row.location_city || row.city || "",
+        state: row.location_state || row.state || "",
+        postalCode: row.location_postal_code || row.postal_code || "",
+        country: row.location_country || row.country || "",
         isPrimary: row.is_primary === true,
         allowInbound: row.allow_inbound !== false,
         allowOutbound: row.allow_outbound !== false,
@@ -23807,6 +23923,10 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         contactPhone: row.contact_phone || "",
         requestedShipDate: row.requested_ship_date ? normalizeDateOnly(row.requested_ship_date) : "",
         orderNotes: row.order_notes || "",
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        fulfillmentPartnerName: row.fulfillment_partner_name || "",
         shipToName: row.ship_to_name || "",
         shipToAddress1: row.ship_to_address1 || "",
         shipToAddress2: row.ship_to_address2 || "",
@@ -23913,6 +24033,10 @@ function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix
         status: row.status || "SUBMITTED",
         referenceNumber: row.reference_number || "",
         carrierName: row.carrier_name || "",
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        fulfillmentPartnerName: row.fulfillment_partner_name || "",
         expectedDate: row.expected_date ? new Date(row.expected_date).toISOString().slice(0, 10) : "",
         arrivedAt: row.arrived_at ? new Date(row.arrived_at).toISOString() : null,
         arrivedBy: row.arrived_by || "",
@@ -23956,6 +24080,8 @@ function sanitizePortalInboundInput(inbound, accountName) {
 
     return {
         accountName: normalizeText(accountName),
+        fulfillmentLocationId: toPositiveInt(inbound?.fulfillmentLocationId || inbound?.fulfillment_location_id || inbound?.warehouseId || inbound?.warehouse_id),
+        fulfillmentLocationCode: normalizeText(inbound?.fulfillmentLocationCode || inbound?.fulfillment_location_code || inbound?.warehouseCode || inbound?.warehouse_code || inbound?.warehouse),
         referenceNumber: normalizeFreeText(inbound?.referenceNumber || inbound?.reference || inbound?.poNumber),
         carrierName: normalizeFreeText(inbound?.carrierName || inbound?.carrier),
         expectedDate: normalizeDateInput(inbound?.expectedDate),
@@ -24013,6 +24139,8 @@ function sanitizePortalInboundReceivingInput(payload, inbound) {
 function sanitizePortalOrderInput(order, accountName) {
     return {
         accountName: normalizeText(accountName),
+        fulfillmentLocationId: toPositiveInt(order?.fulfillmentLocationId || order?.fulfillment_location_id || order?.warehouseId || order?.warehouse_id),
+        fulfillmentLocationCode: normalizeText(order?.fulfillmentLocationCode || order?.fulfillment_location_code || order?.warehouseCode || order?.warehouse_code || order?.warehouse),
         poNumber: normalizeFreeText(order?.poNumber),
         shippingReference: normalizeFreeText(order?.shippingReference),
         contactName: normalizeFreeText(order?.contactName),

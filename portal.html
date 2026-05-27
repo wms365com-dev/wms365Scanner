@@ -255,6 +255,44 @@
         .portal-nav-primary .btn {
             min-width: 160px;
         }
+        .topbar-actions {
+            display: grid;
+            gap: 0.7rem;
+            justify-items: end;
+            min-width: min(360px, 100%);
+        }
+        .warehouse-switcher {
+            display: grid;
+            gap: 0.35rem;
+            width: min(340px, 100%);
+            padding: 0.75rem;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--panel-2);
+        }
+        .warehouse-switcher label {
+            display: grid;
+            gap: 0.35rem;
+        }
+        .warehouse-switcher span {
+            font-size: 0.78rem;
+            font-weight: 800;
+            color: #3f5f76;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .warehouse-switcher select {
+            min-height: 44px;
+            padding: 0.55rem 0.75rem;
+            border-radius: 10px;
+            font-weight: 700;
+        }
+        .warehouse-current {
+            color: var(--muted);
+            font-size: 0.84rem;
+            font-weight: 700;
+            line-height: 1.35;
+        }
         .service-grid {
             display: grid;
             gap: 0.85rem;
@@ -575,6 +613,13 @@
                 flex-basis: 46px;
             }
             .portal-brand-copy strong { font-size: 1.35rem; }
+            .topbar-actions {
+                width: 100%;
+                justify-items: stretch;
+            }
+            .warehouse-switcher {
+                width: 100%;
+            }
             .feedback-modal {
                 align-items: end;
                 padding: 0.75rem;
@@ -603,7 +648,16 @@
                 <h1>WMS365 Customer Portal</h1>
                 <p class="lead">Review inventory, enter sales orders, submit purchase orders, and track warehouse progress from one account-scoped portal.</p>
             </div>
-            <div id="accountChip" class="account-chip hidden"></div>
+            <div class="topbar-actions hidden" id="portalTopbarActions">
+                <div class="warehouse-switcher hidden" id="portalWarehouseSwitcher">
+                    <label>
+                        <span>Active Warehouse</span>
+                        <select id="portalWarehouseSelect" aria-label="Active warehouse"></select>
+                    </label>
+                    <div class="warehouse-current" id="portalWarehouseCurrent">No warehouse selected</div>
+                </div>
+                <div id="accountChip" class="account-chip hidden"></div>
+            </div>
         </header>
 
         <div id="portalMessage" class="status"></div>
@@ -926,6 +980,7 @@
                 </div>
 
                 <form id="orderForm" class="form-grid" autocomplete="off">
+                    <div class="helper span-2" id="orderWarehouseNotice"></div>
                     <label class="field"><span>PO #</span><input id="orderPoNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Shipping Reference</span><input id="orderShippingReference" type="text" placeholder="Required"></label>
                     <label class="field"><span>Requested Ship Date</span><input id="orderRequestedShipDate" type="date"></label>
@@ -970,6 +1025,7 @@
                 </div>
 
                 <form id="inboundForm" class="form-grid" autocomplete="off">
+                    <div class="helper span-2" id="inboundWarehouseNotice"></div>
                     <label class="field"><span>Purchase Order / Reference #</span><input id="inboundReferenceNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Carrier</span><input id="inboundCarrierName" type="text" placeholder="Optional"></label>
                     <label class="field"><span>Expected Date</span><input id="inboundExpectedDate" type="date"></label>
@@ -1199,6 +1255,8 @@
             invoices: [],
             invoiceSummary: { totalBilled: 0, unpaidBalance: 0, invoiceCount: 0 },
             deliveryAppointments: [],
+            fulfillmentLocations: [],
+            activeFulfillmentLocationId: "",
             shipToAddresses: [],
             activeView: "inventory",
             editingOrderId: null,
@@ -1213,6 +1271,10 @@
             accountChip: document.getElementById("accountChip"),
             portalBuildLabel: document.getElementById("portalBuildLabel"),
             portalLoginBuildLabel: document.getElementById("portalLoginBuildLabel"),
+            portalTopbarActions: document.getElementById("portalTopbarActions"),
+            portalWarehouseSwitcher: document.getElementById("portalWarehouseSwitcher"),
+            portalWarehouseSelect: document.getElementById("portalWarehouseSelect"),
+            portalWarehouseCurrent: document.getElementById("portalWarehouseCurrent"),
             loginView: document.getElementById("loginView"),
             portalView: document.getElementById("portalView"),
             loginForm: document.getElementById("loginForm"),
@@ -1296,6 +1358,7 @@
             itemsList: document.getElementById("itemsList"),
             itemFormMessage: document.getElementById("itemFormMessage"),
             orderFormTitle: document.getElementById("orderFormTitle"),
+            orderWarehouseNotice: document.getElementById("orderWarehouseNotice"),
             orderPoNumber: document.getElementById("orderPoNumber"),
             orderShippingReference: document.getElementById("orderShippingReference"),
             orderRequestedShipDate: document.getElementById("orderRequestedShipDate"),
@@ -1333,6 +1396,7 @@
             portalReleaseSubmitBtn: document.getElementById("portalReleaseSubmitBtn"),
             portalReleaseMessage: document.getElementById("portalReleaseMessage"),
             inboundForm: document.getElementById("inboundForm"),
+            inboundWarehouseNotice: document.getElementById("inboundWarehouseNotice"),
             inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
             inboundCarrierName: document.getElementById("inboundCarrierName"),
             inboundExpectedDate: document.getElementById("inboundExpectedDate"),
@@ -1405,6 +1469,85 @@
             });
         }
 
+        function portalWarehouseStorageKey() {
+            return `wms365.portal.warehouse.${norm(portalState.account?.accountName || "account")}`;
+        }
+
+        function getFulfillmentLocationLabel(location) {
+            if (!location) return "No warehouse selected";
+            const name = location.partnerName || location.locationName || location.locationCode || location.code || "Warehouse";
+            const code = location.locationCode || location.code || "";
+            const region = [location.city, location.state].filter(Boolean).join(", ");
+            return [name, code && code !== name ? `(${code})` : "", region].filter(Boolean).join(" ");
+        }
+
+        function getActiveFulfillmentLocation() {
+            const activeId = String(portalState.activeFulfillmentLocationId || "");
+            return portalState.fulfillmentLocations.find((location) => String(location.fulfillmentLocationId) === activeId) || null;
+        }
+
+        function setActiveFulfillmentLocation(locationId, { announce = false } = {}) {
+            const requestedId = String(locationId || "");
+            const match = portalState.fulfillmentLocations.find((location) => String(location.fulfillmentLocationId) === requestedId)
+                || portalState.fulfillmentLocations[0]
+                || null;
+            portalState.activeFulfillmentLocationId = match ? String(match.fulfillmentLocationId) : "";
+            try {
+                if (portalState.activeFulfillmentLocationId) {
+                    localStorage.setItem(portalWarehouseStorageKey(), portalState.activeFulfillmentLocationId);
+                } else {
+                    localStorage.removeItem(portalWarehouseStorageKey());
+                }
+            } catch {}
+            syncWarehouseContextDisplay();
+            if (announce && match) {
+                setMessage(`Active warehouse changed to ${getFulfillmentLocationLabel(match)}.`, "success");
+            }
+        }
+
+        function renderPortalWarehouseSwitcher() {
+            const locations = portalState.fulfillmentLocations;
+            if (!locations.length) {
+                portalState.activeFulfillmentLocationId = "";
+                ui.portalWarehouseSwitcher?.classList.add("hidden");
+                syncWarehouseContextDisplay();
+                return;
+            }
+            let savedId = "";
+            try {
+                savedId = localStorage.getItem(portalWarehouseStorageKey()) || "";
+            } catch {}
+            const currentId = portalState.activeFulfillmentLocationId || savedId || String(locations[0].fulfillmentLocationId || "");
+            if (ui.portalWarehouseSelect) {
+                ui.portalWarehouseSelect.innerHTML = locations.map((location) => (
+                    `<option value="${attr(location.fulfillmentLocationId)}">${esc(getFulfillmentLocationLabel(location))}</option>`
+                )).join("");
+            }
+            ui.portalWarehouseSwitcher?.classList.remove("hidden");
+            setActiveFulfillmentLocation(currentId);
+        }
+
+        function syncWarehouseContextDisplay() {
+            const active = getActiveFulfillmentLocation();
+            if (ui.portalWarehouseSelect && active) {
+                ui.portalWarehouseSelect.value = String(active.fulfillmentLocationId);
+            }
+            if (ui.portalWarehouseCurrent) {
+                ui.portalWarehouseCurrent.textContent = active
+                    ? `New orders, purchase orders, and delivery appointments will be routed to ${getFulfillmentLocationLabel(active)}.`
+                    : "Select the warehouse location for this account before creating work.";
+            }
+            const noticeText = active
+                ? `Warehouse: ${getFulfillmentLocationLabel(active)}`
+                : "Select the active warehouse at the top right before submitting.";
+            if (ui.orderWarehouseNotice) {
+                ui.orderWarehouseNotice.innerHTML = `<strong>Fulfillment Warehouse</strong><p class="meta">${esc(noticeText)}</p>`;
+            }
+            if (ui.inboundWarehouseNotice) {
+                ui.inboundWarehouseNotice.innerHTML = `<strong>Receiving Warehouse</strong><p class="meta">${esc(noticeText)}</p>`;
+            }
+        }
+
         function init() {
             refreshBuildLabel().catch(() => {});
             ui.loginForm.addEventListener("submit", onLoginSubmit);
@@ -1427,6 +1570,7 @@
             ui.resetDeliveryBtn.addEventListener("click", () => resetDeliveryForm());
             ui.deliveryCreateInboundBtn?.addEventListener("click", () => setView("inbound"));
             ui.deliveryInboundId?.addEventListener("change", syncDeliveryInboundSelection);
+            ui.portalWarehouseSelect?.addEventListener("change", () => setActiveFulfillmentLocation(ui.portalWarehouseSelect.value, { announce: true }));
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
@@ -1504,6 +1648,8 @@
             ui.loginView.classList.remove("hidden");
             ui.portalView.classList.add("hidden");
             ui.accountChip.classList.add("hidden");
+            ui.portalTopbarActions?.classList.add("hidden");
+            ui.portalWarehouseSwitcher?.classList.add("hidden");
             ui.loginPassword.value = "";
             closePortalFeedbackModal();
             setMessage("", "info");
@@ -1513,6 +1659,7 @@
             document.body.classList.remove("portal-auth-only");
             ui.loginView.classList.add("hidden");
             ui.portalView.classList.remove("hidden");
+            ui.portalTopbarActions?.classList.remove("hidden");
             ui.accountChip.classList.remove("hidden");
             ui.accountChip.textContent = portalState.account?.accountName || "";
             applyPortalFeatureAccess();
@@ -1655,7 +1802,7 @@
         }
 
         async function loadPortalData() {
-            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, shipToPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, fulfillmentPayload, shipToPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
                 requestJson("/api/portal/items"),
                 requestJson("/api/portal/kitting-requests").catch(() => ({ requests: [] })),
@@ -1669,6 +1816,7 @@
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
                     ? requestJson("/api/portal/delivery-appointments")
                     : Promise.resolve({ appointments: [] }),
+                requestJson("/api/portal/fulfillment-locations").catch(() => ({ locations: [] })),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
                     ? requestJson("/api/portal/ship-to-addresses")
                     : Promise.resolve({ addresses: [] })
@@ -1682,8 +1830,10 @@
             portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
             portalState.deliveryAppointments = Array.isArray(deliveriesPayload?.appointments) ? deliveriesPayload.appointments.map(sanitizeDeliveryAppointment).filter(Boolean) : [];
+            portalState.fulfillmentLocations = Array.isArray(fulfillmentPayload?.locations) ? fulfillmentPayload.locations.map(sanitizeFulfillmentLocation).filter(Boolean) : [];
             portalState.shipToAddresses = Array.isArray(shipToPayload?.addresses) ? shipToPayload.addresses.map(sanitizeShipToAddress).filter(Boolean) : [];
             applyPortalFeatureAccess();
+            renderPortalWarehouseSwitcher();
             renderShipToAddressOptions();
             renderStats();
             renderInventory();
@@ -2192,6 +2342,7 @@
                         <div>PO: ${esc(order.poNumber || "None")}</div>
                         <div>Reference: ${esc(order.shippingReference || "None")}</div>
                         <div>Requested Ship: ${esc(order.requestedShipDate || "Not set")}</div>
+                        <div>Ship From Warehouse: ${esc(formatRecordFulfillmentLocation(order))}</div>
                         <div>Ship To: ${esc(order.shipToName || order.contactName || "")}${order.shipToPhone ? ` | ${esc(order.shipToPhone)}` : ""}${formatAddress(order) ? ` | ${esc(formatAddress(order))}` : ""}</div>
                         <div>Contact: ${esc(order.contactName)}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
                         ${order.orderNotes ? `<div>Notes: ${esc(order.orderNotes)}</div>` : ""}
@@ -2405,6 +2556,7 @@
                     </div>
                     <div class="order-meta">
                         <div>Reference: ${esc(inbound.referenceNumber || "None")}</div>
+                        <div>Receiving Warehouse: ${esc(formatRecordFulfillmentLocation(inbound))}</div>
                         <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
                         ${inbound.arrivedAt ? `<div>Checked in: ${esc(formatDate(inbound.arrivedAt))}</div>` : ""}
                         ${inbound.receivedAt ? `<div>Received: ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
@@ -2470,6 +2622,7 @@
             ui.inboundForm.reset();
             ui.inboundLines.innerHTML = "";
             addInboundLine();
+            syncWarehouseContextDisplay();
         }
 
         function addInboundLine(line = null) {
@@ -2504,6 +2657,7 @@
                 quantity: Number(card.querySelector('[data-inbound-qty]')?.value || 0)
             })).filter((line) => line.sku && line.quantity > 0);
             return {
+                fulfillmentLocationId: portalState.activeFulfillmentLocationId || "",
                 referenceNumber: ui.inboundReferenceNumber.value,
                 carrierName: ui.inboundCarrierName.value,
                 expectedDate: ui.inboundExpectedDate.value,
@@ -2525,6 +2679,9 @@
                     busyLabel: "Submitting purchase order...",
                     progressMessage: "Submitting your purchase order..."
                 }, async () => {
+                    if (!portalState.activeFulfillmentLocationId) {
+                        return fail(ui.portalMessage, "Select the receiving warehouse at the top right before submitting the purchase order.", ui.portalWarehouseSelect);
+                    }
                     const response = await requestJson('/api/portal/inbounds', {
                         method: 'POST',
                         body: JSON.stringify(collectInboundForm())
@@ -2574,7 +2731,7 @@
             ui.deliveryInboundId.innerHTML = [
                 `<option value="">Select submitted inbound</option>`,
                 ...openInbounds.map((inbound) => {
-                    const label = `${inbound.inboundCode || "Inbound"} | Ref ${inbound.referenceNumber || "None"} | ${inbound.expectedDate || "No date"}`;
+                    const label = `${inbound.inboundCode || "Inbound"} | ${formatRecordFulfillmentLocation(inbound)} | Ref ${inbound.referenceNumber || "None"} | ${inbound.expectedDate || "No date"}`;
                     return `<option value="${attr(inbound.id)}">${esc(label)}</option>`;
                 })
             ].join("");
@@ -2640,6 +2797,19 @@
                 appointment.fulfillmentPartnerName || appointment.fulfillmentLocationName || appointment.fulfillmentLocationCode || "Assigned warehouse",
                 appointment.fulfillmentCity || "",
                 appointment.fulfillmentState || ""
+            ].filter(Boolean).join(" - ");
+        }
+
+        function formatRecordFulfillmentLocation(record) {
+            if (!record) return "Assigned warehouse";
+            const linked = record.fulfillmentLocationId
+                ? portalState.fulfillmentLocations.find((location) => String(location.fulfillmentLocationId) === String(record.fulfillmentLocationId))
+                : null;
+            if (linked) return getFulfillmentLocationLabel(linked);
+            return [
+                record.fulfillmentPartnerName || record.fulfillmentLocationName || record.fulfillmentLocationCode || "Assigned warehouse",
+                record.fulfillmentCity || "",
+                record.fulfillmentState || ""
             ].filter(Boolean).join(" - ");
         }
 
@@ -2732,6 +2902,11 @@
             ui.orderShipToCountry.value = order?.shipToCountry || "USA";
             ui.orderNotes.value = order?.orderNotes || "";
             ui.orderLines.innerHTML = "";
+            if (order?.fulfillmentLocationId) {
+                setActiveFulfillmentLocation(order.fulfillmentLocationId);
+            } else {
+                syncWarehouseContextDisplay();
+            }
             const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
             lines.forEach((line) => addOrderLine(line));
         }
@@ -2857,6 +3032,7 @@
             })).filter((line) => line.sku && Number.isFinite(line.quantity) && line.quantity > 0);
 
             return {
+                fulfillmentLocationId: portalState.activeFulfillmentLocationId || "",
                 poNumber: ui.orderPoNumber.value.trim(),
                 shippingReference: ui.orderShippingReference.value.trim(),
                 requestedShipDate: ui.orderRequestedShipDate.value,
@@ -2881,6 +3057,9 @@
                 return setMessage("Sales orders are not enabled for your company.", "error");
             }
             const payload = collectOrderPayload();
+            if (!portalState.activeFulfillmentLocationId) {
+                return fail(ui.portalMessage, "Select the ship-from warehouse at the top right before saving the order.", ui.portalWarehouseSelect);
+            }
             const actionButton = options.useBusy === false ? null : resolveActionButton(context, ui.saveDraftBtn);
             try {
                 return await runActionWithFeedback({
@@ -3622,12 +3801,38 @@
             };
         }
 
+        function sanitizeFulfillmentLocation(location) {
+            if (!location || typeof location !== "object") return null;
+            const fulfillmentLocationId = String(location.fulfillmentLocationId || location.fulfillment_location_id || location.id || "");
+            if (!fulfillmentLocationId) return null;
+            const locationCode = String(location.locationCode || location.location_code || location.code || "").trim();
+            return {
+                fulfillmentLocationId,
+                companyId: String(location.companyId || location.company_id || ""),
+                code: locationCode,
+                locationCode,
+                locationName: String(location.locationName || location.location_name || location.name || "").trim(),
+                partnerName: String(location.partnerName || location.partner_name || "").trim(),
+                city: String(location.city || "").trim(),
+                state: String(location.state || "").trim(),
+                country: String(location.country || "").trim(),
+                allowInbound: location.allowInbound !== false && location.allow_inbound !== false,
+                allowOutbound: location.allowOutbound !== false && location.allow_outbound !== false
+            };
+        }
+
         function sanitizeInbound(inbound) {
             if (!inbound || typeof inbound !== "object") return null;
             return {
                 id: Number(inbound.id || 0),
                 inboundCode: String(inbound.inboundCode || inbound.inbound_code || ""),
                 status: String(inbound.status || "SUBMITTED").toUpperCase(),
+                fulfillmentLocationId: String(inbound.fulfillmentLocationId || inbound.fulfillment_location_id || ""),
+                fulfillmentLocationCode: String(inbound.fulfillmentLocationCode || inbound.fulfillment_location_code || ""),
+                fulfillmentLocationName: String(inbound.fulfillmentLocationName || inbound.fulfillment_location_name || ""),
+                fulfillmentPartnerName: String(inbound.fulfillmentPartnerName || inbound.fulfillment_partner_name || ""),
+                fulfillmentCity: String(inbound.fulfillmentCity || inbound.fulfillment_city || ""),
+                fulfillmentState: String(inbound.fulfillmentState || inbound.fulfillment_state || ""),
                 referenceNumber: String(inbound.referenceNumber || inbound.reference_number || ""),
                 carrierName: String(inbound.carrierName || inbound.carrier_name || ""),
                 expectedDate: String(inbound.expectedDate || inbound.expected_date || ""),
@@ -3705,6 +3910,12 @@
                 orderCode: String(order.orderCode || "").trim(),
                 accountName: norm(order.accountName || ""),
                 status: String(order.status || "DRAFT").toUpperCase(),
+                fulfillmentLocationId: String(order.fulfillmentLocationId || order.fulfillment_location_id || ""),
+                fulfillmentLocationCode: String(order.fulfillmentLocationCode || order.fulfillment_location_code || ""),
+                fulfillmentLocationName: String(order.fulfillmentLocationName || order.fulfillment_location_name || ""),
+                fulfillmentPartnerName: String(order.fulfillmentPartnerName || order.fulfillment_partner_name || ""),
+                fulfillmentCity: String(order.fulfillmentCity || order.fulfillment_city || ""),
+                fulfillmentState: String(order.fulfillmentState || order.fulfillment_state || ""),
                 poNumber: String(order.poNumber || "").trim(),
                 shippingReference: String(order.shippingReference || "").trim(),
                 contactName: String(order.contactName || "").trim(),
