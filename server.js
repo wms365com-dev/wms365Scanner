@@ -14108,7 +14108,8 @@ function buildPortalAccessWelcomeEmailText({ accountName, email, password, porta
         "",
         "Please keep this email private. If you need help, reply to this message or contact support@wms365.co.",
         "",
-        "WMS365 Support"
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
     ];
     return lines.join("\n");
 }
@@ -14146,7 +14147,7 @@ function buildPortalAccessWelcomeEmailHtml({ accountName, email, password, porta
             <p style="margin:0 0 8px;font-weight:700;">How WMS365 helps your team</p>
             <ul style="margin:0 0 18px;padding-left:22px;">${featureRows}</ul>
             <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Please keep this email private. If you need help, reply to this message or contact support@wms365.co.</p>
-            <p style="margin:0;">WMS365 Support</p>
+            <p style="margin:0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
 }
@@ -14224,7 +14225,8 @@ function buildRecoveryUsernameEmailText({ accessLabel, loginUrl, username, signu
         "",
         `Need a different account? Sign up or contact us: ${signupUrl}`,
         "",
-        "WMS365 Support"
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
     ].join("\n");
 }
 
@@ -14242,6 +14244,7 @@ function buildRecoveryUsernameEmailHtml({ accessLabel, loginUrl, username, signu
             </table>
             <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">If you did not request this, you can ignore this message.</p>
             <p style="margin:0;">Need a different account? <a href="${safeSignupUrl}">Sign up or contact WMS365</a>.</p>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
 }
@@ -14260,7 +14263,8 @@ function buildRecoveryPasswordEmailText({ accessLabel, loginUrl, username, tempo
         "",
         `Need a different account? Sign up or contact us: ${signupUrl}`,
         "",
-        "WMS365 Support"
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
     ].join("\n");
 }
 
@@ -14279,6 +14283,7 @@ function buildRecoveryPasswordEmailHtml({ accessLabel, loginUrl, username, tempo
             </table>
             <p style="margin:0 0 16px;padding:12px 14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;">Please sign in with this temporary password and ask your administrator to set a new password if needed.</p>
             <p style="margin:0;">Need a different account? <a href="${safeSignupUrl}">Sign up or contact WMS365</a>.</p>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
 }
@@ -16158,7 +16163,8 @@ function buildPortalInboundArrivalEmailText(inbound, { warehouseLocation = "the 
         "Expected Lines:",
         formatPortalInboundArrivalLines(inbound),
         "",
-        "WMS365 Support"
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
     ].filter(Boolean).join("\n");
 }
 
@@ -16195,6 +16201,7 @@ function buildPortalInboundArrivalEmailHtml(inbound, { warehouseLocation = "the 
                 </thead>
                 <tbody>${lineRows}</tbody>
             </table>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
 }
@@ -16358,7 +16365,8 @@ function buildDeliveryAppointmentCustomerEmailText(appointment) {
         denied ? `Suggested Alternative: ${appointment.alternativeDate || "-"} ${appointment.alternativeTime || "-"}` : "",
         appointment.warehouseNote ? `Warehouse Note: ${appointment.warehouseNote}` : "",
         "",
-        "WMS365 Support"
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
     ].filter(Boolean).join("\n");
 }
 
@@ -16378,6 +16386,7 @@ function buildDeliveryAppointmentCustomerEmailHtml(appointment) {
                 ${appointment.status === "DENIED" ? `<tr><td style="padding:6px 0;font-weight:700;">Suggested Alternative</td><td style="padding:6px 0;">${escapeHtml(`${appointment.alternativeDate || "-"} ${appointment.alternativeTime || "-"}`)}</td></tr>` : ""}
                 ${appointment.warehouseNote ? `<tr><td style="padding:6px 0;font-weight:700;">Warehouse Note</td><td style="padding:6px 0;">${escapeHtml(appointment.warehouseNote)}</td></tr>` : ""}
             </table>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
 }
