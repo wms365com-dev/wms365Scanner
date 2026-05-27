@@ -14113,8 +14113,38 @@ async function sendSystemEmail(mailOptions, configErrorMessage = "System email i
 }
 
 function buildPortalLoginUrl(req) {
-    const origin = PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL;
+    const origin = APP_BASE_URL || getAppActionOrigin(getRequestOrigin(req));
     return `${String(origin).replace(/\/+$/, "")}/portal`;
+}
+
+function slugifyPortalGuideName(value) {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/\b(incorporated|inc|ltd|limited|llc|corp|corporation|company|co)\b/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
+function findPortalGuideAttachment(accountName = "") {
+    const baseName = slugifyPortalGuideName(accountName);
+    const candidates = [
+        baseName,
+        baseName.replace(/-canada$/, "-canada"),
+        baseName.replace(/-group-canada$/, "-group-canada"),
+        "customer"
+    ].filter(Boolean);
+    const uniqueCandidates = [...new Set(candidates)];
+    for (const slug of uniqueCandidates) {
+        const guidePath = path.join(__dirname, "docs", `WMS365-Customer-Portal-Quick-Guide-${slug}.pdf`);
+        if (fs.existsSync(guidePath)) {
+            return {
+                filename: `WMS365-Customer-Portal-Quick-Guide-${slug}.pdf`,
+                content: fs.readFileSync(guidePath),
+                contentType: "application/pdf"
+            };
+        }
+    }
+    return null;
 }
 
 function buildPortalAccessWelcomeEmailText({ accountName, email, password, portalUrl, wasCreated }) {
@@ -14130,11 +14160,13 @@ function buildPortalAccessWelcomeEmailText({ accountName, email, password, porta
         "- Review your live inventory and available stock by SKU.",
         "- Create sales orders for the warehouse to process.",
         "- Submit purchase orders / inbound notices so receiving can plan ahead.",
+        "- Select the active warehouse before submitting work when your company uses multiple locations.",
         "- Track each order through draft, released, picked, staged, and shipped status.",
         "- Upload order documents or shipping labels for the warehouse team.",
         "- Review shipment confirmations, carrier details, tracking, and shipped orders.",
         "",
         "Please keep this email private. If you need help, reply to this message or contact support@wms365.co.",
+        "The WMS365 customer portal quick guide is attached for reference.",
         "",
         "WMS365 Support",
         WMS365_SYSTEM_EMAIL_ADDRESS
@@ -14149,6 +14181,7 @@ function buildPortalAccessWelcomeEmailHtml({ accountName, email, password, porta
         "Review live inventory and available stock by SKU.",
         "Create sales orders for warehouse processing.",
         "Submit purchase orders / inbound notices before inventory arrives.",
+        "Select the active warehouse before submitting work when your company uses multiple locations.",
         "Track orders through draft, released, picked, staged, and shipped status.",
         "Upload order documents or shipping labels for the warehouse team.",
         "Review shipment confirmations, carrier details, tracking, and shipped orders."
@@ -14174,7 +14207,7 @@ function buildPortalAccessWelcomeEmailHtml({ accountName, email, password, porta
             </table>
             <p style="margin:0 0 8px;font-weight:700;">How WMS365 helps your team</p>
             <ul style="margin:0 0 18px;padding-left:22px;">${featureRows}</ul>
-            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Please keep this email private. If you need help, reply to this message or contact support@wms365.co.</p>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;">Please keep this email private. The WMS365 customer portal quick guide is attached. If you need help, reply to this message or contact support@wms365.co.</p>
             <p style="margin:0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
@@ -14184,6 +14217,7 @@ async function sendPortalAccessWelcomeEmail({ accountName, email, password, port
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Portal welcome email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     }
+    const guideAttachment = findPortalGuideAttachment(accountName);
     return sendSystemEmail({
         from: SMTP_FROM,
         to: email,
@@ -14193,6 +14227,7 @@ async function sendPortalAccessWelcomeEmail({ accountName, email, password, port
             : `WMS365 portal access updated - ${accountName}`,
         text: buildPortalAccessWelcomeEmailText({ accountName, email, password, portalUrl, wasCreated }),
         html: buildPortalAccessWelcomeEmailHtml({ accountName, email, password, portalUrl, wasCreated }),
+        attachments: guideAttachment ? [guideAttachment] : [],
         emailContext: {
             accountName,
             sourceType: "PORTAL_ACCESS",
