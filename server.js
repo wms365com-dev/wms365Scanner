@@ -209,6 +209,13 @@ const WAREHOUSE_TASK_PRIORITIES = ["LOW", "NORMAL", "HIGH", "RUSH"];
 const ACTIVE_WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED"];
 const MOBILE_WORKER_ACTION_TASK_STATUSES = ["OPEN", "IN_PROGRESS"];
 const MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES = MOBILE_WORKER_ACTION_TASK_STATUSES;
+const DATABASE_CONNECTION_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_CONNECTION_TIMEOUT_MS", "5000") || "5000", 10) || 5000);
+const DATABASE_QUERY_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_QUERY_TIMEOUT_MS", "15000") || "15000", 10) || 15000);
+const DATABASE_TRANSACTION_STATEMENT_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_TRANSACTION_STATEMENT_TIMEOUT_MS", "20000") || "20000", 10) || 20000);
+const DATABASE_TRANSACTION_LOCK_TIMEOUT_MS = Math.max(500, Number.parseInt(readEnv("DATABASE_TRANSACTION_LOCK_TIMEOUT_MS", "5000") || "5000", 10) || 5000);
+const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_HEALTH_TIMEOUT_MS", "5000") || "5000", 10) || 5000);
+const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
+const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
@@ -582,6 +589,8 @@ const BILLING_FEE_SEED = [
 let databaseReady = false;
 let databaseErrorMessage = "";
 let databaseInitStartedAt = null;
+let databaseHealthWatchdogStarted = false;
+let databaseHealthWatchdogFailures = 0;
 let shipmentMailer = null;
 let systemMailer = null;
 let stripeClient = null;
@@ -663,7 +672,11 @@ try {
 const pool = DATABASE_URL
     ? new Pool({
         connectionString: DATABASE_URL,
-        ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false
+        ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false,
+        connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
+        idleTimeoutMillis: 30000,
+        query_timeout: DATABASE_QUERY_TIMEOUT_MS,
+        statement_timeout: DATABASE_QUERY_TIMEOUT_MS
     })
     : createUnavailablePool("DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.");
 
@@ -897,12 +910,14 @@ app.post("/api/app/feedback", async (req, res, next) => {
     }
 });
 
-app.get("/api/health", (_req, res) => {
-    const healthy = DATABASE_URL && databaseReady && !databaseErrorMessage;
+app.get("/api/health", async (_req, res) => {
+    const probe = await runDatabaseHealthProbe({ timeoutMs: DATABASE_HEALTH_TIMEOUT_MS });
+    const healthy = probe.ok;
     res.status(healthy ? 200 : 503).json({
         ok: !!healthy,
         databaseReady,
-        databaseError: databaseErrorMessage || null,
+        databaseError: probe.error || databaseErrorMessage || null,
+        databaseProbeMs: probe.durationMs,
         startedInitializingAt: databaseInitStartedAt,
         requiresDatabase: true
     });
@@ -5348,6 +5363,7 @@ async function start() {
         console.log(`WMS365 Scanner server listening on port ${PORT}`);
     });
 
+    ensureDatabaseHealthWatchdogStarted();
     void initializeDatabaseWithRetry();
 }
 
@@ -7750,6 +7766,82 @@ async function initializeDatabaseWithRetry() {
             await delay(5000);
         }
     }
+}
+
+function withTimeout(promise, timeoutMs, message = "Operation timed out.") {
+    let timeoutId = null;
+    const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(message));
+        }, timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+    });
+}
+
+async function runDatabaseHealthProbe({ timeoutMs = DATABASE_HEALTH_TIMEOUT_MS } = {}) {
+    const startedAt = Date.now();
+    if (!DATABASE_URL) {
+        return {
+            ok: false,
+            durationMs: Date.now() - startedAt,
+            error: databaseErrorMessage || "DATABASE_URL or DATABASE_PRIVATE_URL is required."
+        };
+    }
+    if (!databaseReady) {
+        return {
+            ok: false,
+            durationMs: Date.now() - startedAt,
+            error: databaseErrorMessage || "Database is still initializing."
+        };
+    }
+
+    let client = null;
+    try {
+        client = await withTimeout(pool.connect(), timeoutMs, "Database connection health check timed out.");
+        await withTimeout(client.query("select set_config('statement_timeout', $1, true)", [`${timeoutMs}ms`]), timeoutMs, "Database health timeout setup failed.");
+        await withTimeout(client.query("select 1"), timeoutMs, "Database ping timed out.");
+        await withTimeout(client.query("select exists(select 1 from app_users where is_active = true) as has_active_app_user"), timeoutMs, "Warehouse login table check timed out.");
+        await withTimeout(client.query("select exists(select 1 from app_sessions limit 1) as app_sessions_ready"), timeoutMs, "Warehouse session table check timed out.");
+        await withTimeout(client.query("select exists(select 1 from mobile_devices limit 1) as mobile_devices_ready"), timeoutMs, "Mobile device table check timed out.");
+        await withTimeout(client.query("select exists(select 1 from portal_vendor_access limit 1) as portal_access_ready"), timeoutMs, "Customer portal login table check timed out.");
+        databaseReady = true;
+        databaseErrorMessage = "";
+        return {
+            ok: true,
+            durationMs: Date.now() - startedAt,
+            error: ""
+        };
+    } catch (error) {
+        databaseErrorMessage = error?.message || "Database health check failed.";
+        return {
+            ok: false,
+            durationMs: Date.now() - startedAt,
+            error: databaseErrorMessage
+        };
+    } finally {
+        if (client) client.release();
+    }
+}
+
+function ensureDatabaseHealthWatchdogStarted() {
+    if (databaseHealthWatchdogStarted || !IS_PRODUCTION) return;
+    databaseHealthWatchdogStarted = true;
+    setInterval(async () => {
+        const probe = await runDatabaseHealthProbe({ timeoutMs: DATABASE_HEALTH_TIMEOUT_MS });
+        if (probe.ok) {
+            databaseHealthWatchdogFailures = 0;
+            return;
+        }
+
+        databaseHealthWatchdogFailures += 1;
+        console.error(`Database health watchdog failure ${databaseHealthWatchdogFailures}/${DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT}: ${probe.error}`);
+        if (databaseHealthWatchdogFailures >= DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT) {
+            console.error("Database health watchdog is restarting the process so Railway can recover the service.");
+            process.exit(1);
+        }
+    }, DATABASE_HEALTH_WATCHDOG_INTERVAL_MS).unref();
 }
 
 async function getServerState(client = pool, { billingEventLimit = 1000, appUser = null } = {}) {
@@ -20755,15 +20847,20 @@ async function logInventoryLockFailure(error, context = {}) {
 async function withTransaction(handler, options = {}) {
     const maxAttempts = Math.max(1, toPositiveInt(options.maxAttempts) || INVENTORY_TRANSACTION_MAX_RETRIES);
     const isolationLevel = normalizeText(options.isolationLevel || "");
+    const statementTimeoutMs = Math.max(1000, toPositiveInt(options.statementTimeoutMs) || DATABASE_TRANSACTION_STATEMENT_TIMEOUT_MS);
+    const lockTimeoutMs = Math.max(500, toPositiveInt(options.lockTimeoutMs) || DATABASE_TRANSACTION_LOCK_TIMEOUT_MS);
     const context = options.context || {};
     let lastError = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        const client = await pool.connect();
+        const client = await withTimeout(pool.connect(), DATABASE_CONNECTION_TIMEOUT_MS, "Database connection timed out.");
         let transactionStarted = false;
         try {
             await client.query("begin");
             transactionStarted = true;
+            await client.query("select set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
+            await client.query("select set_config('lock_timeout', $1, true)", [`${lockTimeoutMs}ms`]);
+            await client.query("select set_config('idle_in_transaction_session_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
             if (isolationLevel) {
                 await client.query(`set transaction isolation level ${isolationLevel}`);
             }
