@@ -674,9 +674,7 @@ const pool = DATABASE_URL
         connectionString: DATABASE_URL,
         ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false,
         connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
-        idleTimeoutMillis: 30000,
-        query_timeout: DATABASE_QUERY_TIMEOUT_MS,
-        statement_timeout: DATABASE_QUERY_TIMEOUT_MS
+        idleTimeoutMillis: 30000
     })
     : createUnavailablePool("DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.");
 
@@ -5363,7 +5361,6 @@ async function start() {
         console.log(`WMS365 Scanner server listening on port ${PORT}`);
     });
 
-    ensureDatabaseHealthWatchdogStarted();
     void initializeDatabaseWithRetry();
 }
 
@@ -7758,6 +7755,7 @@ async function initializeDatabaseWithRetry() {
             ensureStoreIntegrationSchedulerStarted();
             ensurePortalOrderPickTicketEmailSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
+            ensureDatabaseHealthWatchdogStarted();
             console.log("PostgreSQL schema ready.");
         } catch (error) {
             databaseReady = false;
