@@ -190,6 +190,9 @@ const SENDGRID_API_URL = readEnv("SENDGRID_API_URL", "https://api.sendgrid.com")
 const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES = Math.max(0, Number.parseInt(readEnv("PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES", "30") || "30", 10) || 0);
 const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES * 60 * 1000;
 const PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const PORTAL_ORDER_SHIPMENT_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS = Math.max(60 * 1000, Number.parseInt(readEnv("PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS", "300000") || "300000", 10) || 300000);
+const PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS = Math.max(1, Number.parseInt(readEnv("PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS", "8") || "8", 10) || 8);
 const ADMIN_ACTIVITY_DIGEST_JOB_KEY = "ADMIN_ACTIVITY_DIGEST";
 const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
@@ -604,11 +607,15 @@ let storeIntegrationSchedulerTimer = null;
 let portalOrderPickTicketEmailSchedulerStarted = false;
 let portalOrderPickTicketEmailSchedulerRunning = false;
 let portalOrderPickTicketEmailSchedulerTimer = null;
+let portalOrderShipmentEmailSchedulerStarted = false;
+let portalOrderShipmentEmailSchedulerRunning = false;
+let portalOrderShipmentEmailSchedulerTimer = null;
 let adminActivityDigestSchedulerStarted = false;
 let adminActivityDigestSchedulerRunning = false;
 let adminActivityDigestSchedulerTimer = null;
 const storeIntegrationSyncLocks = new Set();
 const portalOrderPickTicketEmailLocks = new Set();
+const portalOrderShipmentEmailLocks = new Set();
 
 function validateProductionEnvironment(env = process.env) {
     const isProduction = normalizeFreeText(env.NODE_ENV || "").toLowerCase() === "production";
@@ -4804,11 +4811,12 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
             return updateAdminPortalOrderStatus(client, orderId, nextStatus, req.body, req.appUser);
         });
 
-        const shipmentEmailQueued = nextStatus === "SHIPPED";
+        const shipmentEmailQueued = nextStatus === "SHIPPED"
+            && ["SCHEDULED", "SENDING"].includes(normalizeText(order.shipmentEmailStatus || ""));
         const storeShipmentConfirmationQueued = nextStatus === "SHIPPED";
         res.json({ success: true, order, shipmentEmailQueued, storeShipmentConfirmationQueued });
         if (shipmentEmailQueued) {
-            queuePortalShipmentConfirmationEmail(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
+            queuePortalShipmentConfirmationEmail(order);
             queueStoreShipmentConfirmation(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
         }
     } catch (error) {
@@ -6443,6 +6451,12 @@ async function initializeDatabase() {
             pick_ticket_email_last_error text not null default '',
             pick_ticket_email_cc text not null default '',
             pick_ticket_email_requested_by text not null default '',
+            shipment_email_status text not null default '',
+            shipment_email_scheduled_at timestamptz,
+            shipment_email_sent_at timestamptz,
+            shipment_email_last_error text not null default '',
+            shipment_email_attempts integer not null default 0,
+            shipment_email_is_update boolean not null default false,
             cancelled_at timestamptz,
             archived_at timestamptz,
             created_at timestamptz not null default now(),
@@ -6469,11 +6483,18 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_last_error text not null default ''");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_cc text not null default ''");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_requested_by text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists shipment_email_status text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists shipment_email_scheduled_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists shipment_email_sent_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists shipment_email_last_error text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists shipment_email_attempts integer not null default 0");
+    await pool.query("alter table portal_orders add column if not exists shipment_email_is_update boolean not null default false");
     await pool.query("alter table portal_orders add column if not exists archived_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists cancelled_at timestamptz");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
     await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))");
     await pool.query("create index if not exists idx_portal_orders_pick_ticket_email_due on portal_orders (pick_ticket_email_status, pick_ticket_email_scheduled_at)");
+    await pool.query("create index if not exists idx_portal_orders_shipment_email_due on portal_orders (shipment_email_status, shipment_email_scheduled_at)");
 
     await pool.query(`
         create table if not exists portal_ship_to_addresses (
@@ -8087,6 +8108,7 @@ async function initializeDatabaseWithRetry() {
             databaseErrorMessage = "";
             ensureStoreIntegrationSchedulerStarted();
             ensurePortalOrderPickTicketEmailSchedulerStarted();
+            ensurePortalOrderShipmentEmailSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
             ensureDatabaseHealthWatchdogStarted();
             console.log("PostgreSQL schema ready.");
@@ -18641,47 +18663,232 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
     return recipients;
 }
 
-function queuePortalShipmentConfirmationEmail(order, rawConfirmation, { isUpdate = false } = {}) {
-    if (!order?.id || !order?.accountName) return;
-    const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
-    const emailConfirmation = {
-        ...confirmation,
-        confirmedShipDate: order.confirmedShipDate || confirmation.confirmedShipDate || "",
-        shippedCarrierName: order.shippedCarrierName || confirmation.shippedCarrierName || "",
-        shippedTrackingReference: order.shippedTrackingReference || confirmation.shippedTrackingReference || "",
-        shippedConfirmationNote: order.shippedConfirmationNote || confirmation.shippedConfirmationNote || ""
+function getPortalShipmentEmailConfirmationFromOrder(order) {
+    return {
+        confirmedShipDate: order?.confirmedShipDate || "",
+        shippedCarrierName: order?.shippedCarrierName || "",
+        shippedTrackingReference: order?.shippedTrackingReference || "",
+        shippedConfirmationNote: order?.shippedConfirmationNote || "",
+        documents: []
     };
-    const orderLabel = order.orderCode || String(order.id);
+}
 
-    setTimeout(async () => {
+function armPortalShipmentEmailTimer(orderId, scheduledAt) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return;
+    const dueAt = new Date(scheduledAt || Date.now());
+    if (!Number.isFinite(dueAt.getTime())) return;
+    const delayMs = Math.max(0, Math.min(dueAt.getTime() - Date.now(), 2147483647));
+    const timer = setTimeout(() => {
+        void processScheduledPortalShipmentConfirmationEmail(normalizedOrderId);
+    }, delayMs);
+    if (typeof timer?.unref === "function") {
+        timer.unref();
+    }
+}
+
+async function processScheduledPortalShipmentConfirmationEmail(orderId) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return { sent: false, reason: "invalid-order" };
+    const lockKey = String(normalizedOrderId);
+    if (portalOrderShipmentEmailLocks.has(lockKey)) {
+        return { sent: false, reason: "locked" };
+    }
+    portalOrderShipmentEmailLocks.add(lockKey);
+    let claim = null;
+
+    try {
+        const claimResult = await pool.query(
+            `
+                update portal_orders
+                set
+                    shipment_email_status = 'SENDING',
+                    shipment_email_last_error = '',
+                    shipment_email_attempts = coalesce(shipment_email_attempts, 0) + 1,
+                    updated_at = now()
+                where id = $1
+                  and status = 'SHIPPED'
+                  and (
+                    (shipment_email_status = 'SCHEDULED' and coalesce(shipment_email_scheduled_at, now()) <= now())
+                    or (shipment_email_status = 'SENDING' and updated_at < now() - interval '15 minutes')
+                    or (
+                        shipment_email_status = 'FAILED'
+                        and coalesce(shipment_email_scheduled_at, updated_at) <= now()
+                        and coalesce(shipment_email_attempts, 0) < $2
+                    )
+                  )
+                returning id, account_name, order_code, shipment_email_is_update, shipment_email_attempts
+            `,
+            [normalizedOrderId, PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS]
+        );
+        if (claimResult.rowCount !== 1) {
+            return { sent: false, reason: "not-due" };
+        }
+
+        claim = claimResult.rows[0];
+        const order = await getPortalOrderById(pool, claim.id, claim.account_name, "/api/admin/portal-order-documents");
+        if (!order || order.status !== "SHIPPED") {
+            await pool.query(
+                `
+                    update portal_orders
+                    set
+                        shipment_email_status = 'SKIPPED',
+                        shipment_email_last_error = 'Order was changed before the shipment confirmation email was sent.',
+                        updated_at = now()
+                    where id = $1
+                `,
+                [normalizedOrderId]
+            );
+            return { sent: false, reason: "status-changed" };
+        }
+
+        const recipients = await sendPortalShipmentConfirmationEmail(
+            pool,
+            order,
+            getPortalShipmentEmailConfirmationFromOrder(order),
+            { isUpdate: claim.shipment_email_is_update === true }
+        );
+
+        await withTransaction(async (client) => {
+            await client.query(
+                `
+                    update portal_orders
+                    set
+                        shipment_email_status = 'SENT',
+                        shipment_email_sent_at = now(),
+                        shipment_email_last_error = '',
+                        shipment_email_scheduled_at = null,
+                        updated_at = now()
+                    where id = $1
+                `,
+                [normalizedOrderId]
+            );
+            await insertActivity(
+                client,
+                "order",
+                `Shipment email sent for portal order ${order.orderCode}`,
+                [
+                    order.accountName,
+                    `Sent to ${formatCount(recipients.length, "recipient")}`,
+                    `${formatCount(order.documents.length, "document")} available in portal`
+                ].filter(Boolean).join(" | ")
+            );
+        });
+        return { sent: true, orderCode: order.orderCode, recipients };
+    } catch (error) {
+        console.error(`Shipment email failed for portal order ${normalizedOrderId}:`, error);
+        const attemptCount = Number(claim?.shipment_email_attempts || 0);
+        const canRetry = attemptCount < PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS;
+        const retryAt = canRetry ? new Date(Date.now() + PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS) : null;
         try {
-            const recipients = await sendPortalShipmentConfirmationEmail(pool, order, emailConfirmation, { isUpdate });
+            await pool.query(
+                `
+                    update portal_orders
+                    set
+                        shipment_email_status = 'FAILED',
+                        shipment_email_scheduled_at = $3,
+                        shipment_email_last_error = $2,
+                        updated_at = now()
+                    where id = $1
+                `,
+                [
+                    normalizedOrderId,
+                    truncateStoreSyncMessage(error.message || "Unknown email error"),
+                    retryAt ? retryAt.toISOString() : null
+                ]
+            );
             await withTransaction((client) => insertActivity(
                 client,
                 "order",
-                `Shipment email sent for portal order ${orderLabel}`,
+                `Shipment email failed for portal order ${claim?.order_code || normalizedOrderId}`,
                 [
-                    order.accountName,
-                    `Sent to ${formatCount(recipients.length, "recipient")}`
+                    claim?.account_name || "",
+                    error.message || "Unknown email error",
+                    canRetry ? `Retry scheduled ${retryAt.toISOString()}` : `Retry limit reached after ${attemptCount} attempts`
                 ].filter(Boolean).join(" | ")
             ));
-        } catch (error) {
-            console.error(`Shipment email failed for portal order ${orderLabel}:`, error);
-            try {
-                await withTransaction((client) => insertActivity(
-                    client,
-                    "order",
-                    `Shipment email failed for portal order ${orderLabel}`,
-                    [
-                        order.accountName,
-                        error.message || "Unknown email error"
-                    ].filter(Boolean).join(" | ")
-                ));
-            } catch (logError) {
-                console.error(`Unable to record shipment email failure for portal order ${orderLabel}:`, logError);
+            if (retryAt) {
+                armPortalShipmentEmailTimer(normalizedOrderId, retryAt);
             }
+        } catch (logError) {
+            console.error(`Unable to record shipment email failure for portal order ${normalizedOrderId}:`, logError);
         }
+        return { sent: false, reason: "error", error: error.message || "Unknown email error" };
+    } finally {
+        portalOrderShipmentEmailLocks.delete(lockKey);
+    }
+}
+
+function queuePortalShipmentConfirmationEmail(order) {
+    const normalizedOrderId = toPositiveInt(order?.id);
+    if (!normalizedOrderId) return;
+    const scheduledAt = order?.shipmentEmailScheduledAt || Date.now();
+    setTimeout(() => {
+        armPortalShipmentEmailTimer(normalizedOrderId, scheduledAt);
     }, 0);
+}
+
+function ensurePortalOrderShipmentEmailSchedulerStarted() {
+    if (portalOrderShipmentEmailSchedulerStarted) {
+        return;
+    }
+    portalOrderShipmentEmailSchedulerStarted = true;
+    portalOrderShipmentEmailSchedulerTimer = setInterval(() => {
+        void runDuePortalShipmentConfirmationEmails();
+    }, PORTAL_ORDER_SHIPMENT_EMAIL_SCHEDULER_INTERVAL_MS);
+    if (typeof portalOrderShipmentEmailSchedulerTimer?.unref === "function") {
+        portalOrderShipmentEmailSchedulerTimer.unref();
+    }
+    void runDuePortalShipmentConfirmationEmails();
+}
+
+async function runDuePortalShipmentConfirmationEmails() {
+    if (!databaseReady || portalOrderShipmentEmailSchedulerRunning) {
+        return;
+    }
+
+    portalOrderShipmentEmailSchedulerRunning = true;
+    try {
+        await pool.query(
+            `
+                update portal_orders
+                set
+                    shipment_email_status = 'SKIPPED',
+                    shipment_email_last_error = 'Order was changed before the shipment confirmation email was sent.',
+                    updated_at = now()
+                where shipment_email_status in ('SCHEDULED', 'SENDING', 'FAILED')
+                  and status <> 'SHIPPED'
+            `
+        );
+
+        const dueResult = await pool.query(
+            `
+                select id, shipment_email_scheduled_at
+                from portal_orders
+                where status = 'SHIPPED'
+                  and (
+                    (shipment_email_status = 'SCHEDULED' and coalesce(shipment_email_scheduled_at, now()) <= now())
+                    or (shipment_email_status = 'SENDING' and updated_at < now() - interval '15 minutes')
+                    or (
+                        shipment_email_status = 'FAILED'
+                        and coalesce(shipment_email_scheduled_at, updated_at) <= now()
+                        and coalesce(shipment_email_attempts, 0) < $1
+                    )
+                  )
+                order by shipment_email_scheduled_at asc nulls first, id asc
+                limit 20
+            `,
+            [PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS]
+        );
+
+        for (const row of dueResult.rows) {
+            await processScheduledPortalShipmentConfirmationEmail(row.id);
+        }
+    } catch (error) {
+        console.error("Portal order shipment email scheduler failed:", error.message || error);
+    } finally {
+        portalOrderShipmentEmailSchedulerRunning = false;
+    }
 }
 
 async function getStoreOrderIntegrationRowsForPortalOrder(client, orderId, accountName) {
@@ -18716,6 +18923,17 @@ async function assertIntegratedStoreShipmentRequirements(client, order, shipment
     if (!carrier || !tracking) {
         throw httpError(400, "Shopify imported orders require carrier and tracking before marking shipped so WMS365 can mark the Shopify order fulfilled.");
     }
+}
+
+async function assertPortalShipmentEmailReady(client, order) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Shipment email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings before marking an order shipped.");
+    }
+    const recipients = await getPortalShipmentRecipients(client, order?.accountName || "");
+    if (!recipients.length) {
+        throw httpError(400, "No active portal user or company email is available for shipment confirmation. Add a customer portal email before marking this order shipped.");
+    }
+    return recipients;
 }
 
 function queueStoreShipmentConfirmation(order, rawConfirmation, { isUpdate = false } = {}) {
@@ -18887,8 +19105,16 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
     const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
+    const shippingConfirmationUnchanged = !confirmation.documents.length
+        && confirmedShipDate === (order.confirmedShipDate || "")
+        && shippedCarrierName === (order.shippedCarrierName || "")
+        && shippedTrackingReference === (order.shippedTrackingReference || "")
+        && shippedConfirmationNote === (order.shippedConfirmationNote || "");
 
     await assertIntegratedStoreShipmentRequirements(client, order, { shippedCarrierName, shippedTrackingReference });
+    if (transitionToShipped || !shippingConfirmationUnchanged) {
+        await assertPortalShipmentEmailReady(client, order);
+    }
 
     if (transitionToShipped) {
         await consumePortalOrderInventory(client, order, {
@@ -18897,11 +19123,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             sourceType: "PORTAL_ORDER",
             sourceId: order.id
         });
-    } else if (!confirmation.documents.length
-        && confirmedShipDate === (order.confirmedShipDate || "")
-        && shippedCarrierName === (order.shippedCarrierName || "")
-        && shippedTrackingReference === (order.shippedTrackingReference || "")
-        && shippedConfirmationNote === (order.shippedConfirmationNote || "")) {
+    } else if (shippingConfirmationUnchanged) {
         await syncWarehouseTasksForOrder(client, order, appUser);
         return order;
     }
@@ -18916,6 +19138,12 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
                 shipped_tracking_reference = $5,
                 shipped_confirmation_note = $6,
                 shipped_at = case when $7::boolean then coalesce(shipped_at, now()) else shipped_at end,
+                shipment_email_status = 'SCHEDULED',
+                shipment_email_scheduled_at = now(),
+                shipment_email_sent_at = null,
+                shipment_email_last_error = '',
+                shipment_email_attempts = 0,
+                shipment_email_is_update = not $7::boolean,
                 updated_at = now()
             where id = $1
         `,
@@ -18947,7 +19175,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
-            "Shipment email queued",
+            "Shipment email scheduled",
             actor
         ].filter(Boolean).join(" | ")
     );
@@ -24790,6 +25018,11 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         pickTicketEmailScheduledAt: row.pick_ticket_email_scheduled_at ? new Date(row.pick_ticket_email_scheduled_at).toISOString() : null,
         pickTicketEmailSentAt: row.pick_ticket_email_sent_at ? new Date(row.pick_ticket_email_sent_at).toISOString() : null,
         pickTicketEmailLastError: row.pick_ticket_email_last_error || "",
+        shipmentEmailStatus: row.shipment_email_status || "",
+        shipmentEmailScheduledAt: row.shipment_email_scheduled_at ? new Date(row.shipment_email_scheduled_at).toISOString() : null,
+        shipmentEmailSentAt: row.shipment_email_sent_at ? new Date(row.shipment_email_sent_at).toISOString() : null,
+        shipmentEmailLastError: row.shipment_email_last_error || "",
+        shipmentEmailAttempts: Number(row.shipment_email_attempts || 0),
         pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
         stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
