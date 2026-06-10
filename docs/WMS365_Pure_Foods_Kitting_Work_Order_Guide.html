@@ -73,6 +73,13 @@
       gap: 22px;
       align-items: stretch;
     }
+    .screen-grid {
+      grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+      align-items: start;
+    }
+    .screen-grid.reverse {
+      grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.78fr);
+    }
     .card {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -136,54 +143,24 @@
     .crop.menu img { transform: translateY(-220px); }
     .crop.form img { transform: translateY(-230px); }
     .crop.status img { transform: translateY(-230px); }
-    .mock-ui {
-      border: 1px solid var(--line);
-      border-radius: 10px;
+    .actual-shot {
+      padding: 10px;
       background: #f7fafc;
-      padding: 18px;
-      min-height: 430px;
     }
-    .mock-nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 18px;
-    }
-    .pill {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px 16px;
-      background: white;
-      font-weight: 700;
-      color: #0e2334;
-    }
-    .pill.active {
-      background: var(--brand);
-      color: white;
-      border-color: var(--brand);
-    }
-    .field-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    .field {
-      border: 1px solid var(--line);
-      background: white;
-      border-radius: 8px;
-      padding: 11px 13px;
-      min-height: 54px;
-    }
-    .field label {
+    .actual-shot img {
+      width: 100%;
       display: block;
-      color: var(--dark);
-      font-size: 13px;
-      font-weight: 700;
-      margin-bottom: 6px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
     }
-    .field span {
-      color: var(--muted);
-      font-size: 16px;
+    .actual-shot.tall img {
+      max-height: 510px;
+      object-fit: contain;
+    }
+    .actual-shot.compact img {
+      max-height: 360px;
+      object-fit: contain;
     }
     .footer {
       position: absolute;
@@ -219,8 +196,8 @@
 <body>
   <section class="slide">
     <div class="eyebrow">WMS365 Customer Portal</div>
-    <h1>Pure Foods Work Order / Kitting Request Guide</h1>
-    <p>This guide shows how to request warehouse work to pull an existing SKU and create, convert, kit, de-kit, or re-SKU inventory into another item.</p>
+    <h1>Pure Foods Store Display Work Order Guide</h1>
+    <p>This guide shows how to request a warehouse work order to pull multiple existing SKUs and build them into one finished store display, bundle, or kit SKU.</p>
     <div class="grid" style="margin-top: 28px;">
       <div class="card">
         <h3>Pure Foods access status</h3>
@@ -228,13 +205,13 @@
         <ul>
           <li>Customer Portal is enabled.</li>
           <li>Order Entry permission is enabled.</li>
-          <li>Added Services / Kitting Request is available in the portal.</li>
+          <li>Added Services / Display Build Work Order is available in the portal.</li>
         </ul>
       </div>
       <div class="card">
         <h3>Important inventory rule</h3>
-        <p>The warehouse can only complete the work if the source components are available in inventory.</p>
-        <div class="callout">Before submitting, confirm the source SKU and quantity are on hand. If components are short, receive or replenish the stock first.</div>
+        <p>The warehouse can only complete the work if every component SKU is available in inventory.</p>
+        <div class="callout">Before submitting, confirm all display components are on hand. If any SKU is short, receive or replenish the stock first.</div>
       </div>
     </div>
     <div class="footer"><span>Prepared for Pure Foods by Estee</span><span>support@wms365.co</span></div>
@@ -242,23 +219,23 @@
 
   <section class="slide">
     <div class="eyebrow">Before You Start</div>
-    <h2>Information needed for a clean request</h2>
+    <h2>Information needed for a display build</h2>
     <div class="steps">
-      <div class="step"><strong>1. Source SKU</strong>SKU currently in stock that the warehouse will pull or consume.</div>
-      <div class="step"><strong>2. Source quantity</strong>Quantity to pull. Pure Foods stock is normally managed in cases unless a unit SKU ends in "s".</div>
-      <div class="step"><strong>3. Target SKU</strong>SKU that should be created, converted to, or replenished by the work.</div>
-      <div class="step"><strong>4. Target quantity</strong>Quantity expected after the work is complete.</div>
-      <div class="step"><strong>5. Reference</strong>Optional sales order, purchase order, or note explaining why the work is needed.</div>
-      <div class="step"><strong>6. Needed by</strong>Date the work is requested, if there is a deadline.</div>
+      <div class="step"><strong>1. Component SKUs</strong>Each SKU that goes into the finished display, normally 4-6 SKUs.</div>
+      <div class="step"><strong>2. Qty per display</strong>How many cases or units of each component are needed for one display.</div>
+      <div class="step"><strong>3. Finished display SKU</strong>The SKU that should be created after the display is built.</div>
+      <div class="step"><strong>4. Displays to build</strong>Total number of finished displays requested.</div>
+      <div class="step"><strong>5. Reference</strong>Optional sales order, purchase order, promotion, or project name.</div>
+      <div class="step"><strong>6. Needed by</strong>Date the display build is requested, if there is a deadline.</div>
     </div>
-    <div class="callout">Submitting the request does not immediately change inventory. The warehouse reviews the request, performs the physical work, and then updates inventory.</div>
+    <div class="callout">Pure Foods stock is normally managed in cases. If the item should be managed as units, use the unit SKU ending in "s" where applicable.</div>
     <div class="footer"><span>Step preparation</span><span>WMS365</span></div>
   </section>
 
   <section class="slide">
     <div class="eyebrow">Step 1</div>
     <h2>Open the Customer Portal</h2>
-    <div class="grid">
+    <div class="grid screen-grid">
       <div>
         <p>Go to <strong>www.wms365.co</strong> and sign in to the customer portal using your Pure Foods portal login.</p>
         <p>After login, use the main menu to select <strong>Added Services</strong>.</p>
@@ -267,20 +244,10 @@
           <li>Use standard Sales Orders and Purchase Orders for normal inbound/outbound work.</li>
         </ul>
       </div>
-      <div class="mock-ui">
-        <div class="mock-nav">
-          <div class="pill">New Sales Order</div>
-          <div class="pill">New Purchase Order</div>
-          <div class="pill">Book Delivery</div>
-          <div class="pill active">Added Services</div>
-          <div class="pill">Inventory</div>
-          <div class="pill">Items</div>
-          <div class="pill">My Sales Orders</div>
-        </div>
-        <div class="card">
-          <h3>Kitting / SKU Conversion</h3>
-          <p>Ask the warehouse to kit, de-kit, case-break, or convert inventory from one SKU to another.</p>
-          <div class="pill active" style="display:inline-block;">New Kitting Request</div>
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Added Services</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-added-services.png" alt="Actual WMS365 Added Services screen">
         </div>
       </div>
     </div>
@@ -289,20 +256,20 @@
 
   <section class="slide">
     <div class="eyebrow">Step 2</div>
-    <h2>Select New Kitting Request</h2>
-    <div class="grid">
+    <h2>Select New Work Order</h2>
+    <div class="grid screen-grid reverse">
       <div class="screen">
-        <div class="screen-title">Screen example - Added Services panel</div>
-        <div class="crop menu">
-          <img src="screenshots/customer-added-services-menu.png" alt="Added Services menu screenshot">
+        <div class="screen-title">Actual system screen - New Work Order</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-added-services.png" alt="Actual WMS365 New Work Order option">
         </div>
       </div>
       <div>
-        <p>Click <strong>New Kitting Request</strong>.</p>
-        <p>This opens the form for converting one item into another item.</p>
+        <p>Click <strong>New Work Order</strong>.</p>
+        <p>This opens the work order form for creating a display or bundle from multiple component SKUs.</p>
         <ul>
-          <li>Use it for kitting, de-kitting, case breaking, bundling, and SKU conversion.</li>
-          <li>Use clear quantities and notes so the warehouse can complete the work without calling for clarification.</li>
+          <li>Use it when 4-6 SKUs need to be pulled and packed into one finished display SKU.</li>
+          <li>Use clear quantities and notes so the warehouse can complete the build without calling for clarification.</li>
         </ul>
       </div>
     </div>
@@ -311,63 +278,81 @@
 
   <section class="slide">
     <div class="eyebrow">Step 3</div>
-    <h2>Enter source and target item details</h2>
-    <div class="grid">
+    <h2>Screen 1: Enter the display components</h2>
+    <div class="grid screen-grid">
       <div>
-        <p>Fill in the kitting request fields.</p>
+        <p>Start by entering each SKU that goes into one finished display.</p>
         <ul>
-          <li><strong>Source SKU:</strong> item the warehouse will pull from stock.</li>
-          <li><strong>Source Quantity:</strong> quantity to consume.</li>
-          <li><strong>Target SKU:</strong> item to create or convert to.</li>
-          <li><strong>Target Quantity:</strong> quantity expected after completion.</li>
+          <li><strong>Component SKU:</strong> item the warehouse will pull from stock.</li>
+          <li><strong>Qty Per Display:</strong> how many of that SKU go into one display.</li>
+          <li><strong>Placement / Notes:</strong> optional shelf, layer, flavor, or packing note.</li>
+          <li>Use <strong>Add Component SKU</strong> if the display has more than four SKUs.</li>
         </ul>
-        <div class="callout">Make sure the target item exists in WMS365. If it is a new item, set it up in Items first or include clear setup notes.</div>
+        <div class="callout">Check Inventory first. Every component SKU must be available before submitting the work order.</div>
       </div>
-      <div class="mock-ui">
-        <div class="field-grid">
-          <div class="field"><label>Related Sales Order</label><span>Optional</span></div>
-          <div class="field"><label>Related Purchase Order</label><span>Optional</span></div>
-          <div class="field"><label>Source SKU</label><span>SKU to pull</span></div>
-          <div class="field"><label>Source Quantity</label><span>Cases or units</span></div>
-          <div class="field"><label>Target SKU</label><span>SKU to create</span></div>
-          <div class="field"><label>Target Quantity</label><span>Expected quantity</span></div>
-          <div class="field"><label>Needed By</label><span>Optional date</span></div>
-          <div class="field"><label>Your Name</label><span>Optional</span></div>
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Component SKUs</div>
+        <div class="actual-shot tall">
+          <img src="screenshots/pure-foods-display-work-order-components.png" alt="Actual WMS365 component entry screen">
         </div>
       </div>
     </div>
-    <div class="footer"><span>Step 3 - Item details</span><span>support@wms365.co</span></div>
+    <div class="footer"><span>Step 3 - Components</span><span>support@wms365.co</span></div>
   </section>
 
   <section class="slide">
     <div class="eyebrow">Step 4</div>
-    <h2>Add notes and submit</h2>
-    <div class="grid">
+    <h2>Screen 2: Enter the finished display item</h2>
+    <div class="grid screen-grid">
+      <div>
+        <p>After components are entered, fill in the item that should be created.</p>
+        <ul>
+          <li><strong>Finished Display SKU:</strong> SKU that should exist after the build.</li>
+          <li><strong>Displays to Build:</strong> number of finished displays requested.</li>
+          <li><strong>Needed By:</strong> requested completion date, if applicable.</li>
+          <li><strong>References:</strong> optional sales order, PO, or promotion name.</li>
+        </ul>
+        <div class="callout">Make sure the finished display SKU exists in Items first. If it is brand new, create it before submitting the work order.</div>
+      </div>
       <div class="screen">
-        <div class="screen-title">Screen example - Kitting request form</div>
-        <div class="crop form">
-          <img src="screenshots/customer-kitting-walkthrough-filled.png" alt="Kitting request form screenshot">
+        <div class="screen-title">Actual system screen - Finished display item</div>
+        <div class="actual-shot tall">
+          <img src="screenshots/pure-foods-display-work-order-finished.png" alt="Actual WMS365 finished display entry screen">
         </div>
       </div>
-      <div>
-        <p>Use the notes field to explain exactly what needs to happen.</p>
-        <ul>
-          <li>Example: "Pull 10 cases of source SKU and convert to 60 cases of target SKU."</li>
-          <li>Add related order numbers if this is for a waiting order.</li>
-          <li>Add any label, packaging, or handling instructions.</li>
-        </ul>
-        <div class="callout">Do not submit a request if the source components are not available. Check Inventory first, or ask the warehouse team to confirm stock.</div>
-      </div>
     </div>
-    <div class="footer"><span>Step 4 - Submit</span><span>WMS365</span></div>
+    <div class="footer"><span>Step 4 - Finished display</span><span>WMS365</span></div>
   </section>
 
   <section class="slide">
     <div class="eyebrow">Step 5</div>
-    <h2>Track the request status</h2>
-    <div class="grid">
+    <h2>Review the build summary and submit</h2>
+    <div class="grid screen-grid reverse">
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Build summary</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-summary.png" alt="Actual WMS365 build summary">
+        </div>
+      </div>
       <div>
-        <p>After submission, open <strong>My Kitting Requests</strong> to track status.</p>
+        <p>Before submitting, review the summary and confirm the component totals make sense.</p>
+        <ul>
+          <li>The system shows the quantity needed per display.</li>
+          <li>The system shows the total quantity needed for the full build.</li>
+          <li>If a component is short, do not submit yet. Replenish or receive stock first.</li>
+        </ul>
+        <div class="callout">Submitting the request does not immediately change inventory. The warehouse reviews the request, performs the physical work, and then updates inventory.</div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 5 - Submit</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 6</div>
+    <h2>Track the request status</h2>
+    <div class="grid screen-grid">
+      <div>
+        <p>After submission, open <strong>My Display Build / Kitting Requests</strong> to track status.</p>
         <ul>
           <li><strong>Submitted:</strong> warehouse has received the request.</li>
           <li><strong>In Progress:</strong> warehouse is working on it.</li>
@@ -376,13 +361,13 @@
         </ul>
       </div>
       <div class="screen">
-        <div class="screen-title">Screen example - My Kitting Requests</div>
-        <div class="crop status">
-          <img src="screenshots/customer-kitting-requests-list.png" alt="Kitting requests list screenshot">
+        <div class="screen-title">Actual system screen - Request status</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-status.png" alt="Actual WMS365 display build request status">
         </div>
       </div>
     </div>
-    <div class="footer"><span>Step 5 - Track status</span><span>Pure Foods by Estee</span></div>
+    <div class="footer"><span>Step 6 - Track status</span><span>Pure Foods by Estee</span></div>
   </section>
 
   <section class="slide">
@@ -392,11 +377,11 @@
       <div class="card">
         <h3>Customer checklist</h3>
         <ul>
-          <li>Source SKU is correct.</li>
-          <li>Source quantity is available on hand.</li>
-          <li>Target SKU is correct and already set up.</li>
-          <li>Target quantity is correct.</li>
-          <li>Notes are clear enough for the warehouse to complete the work.</li>
+          <li>All component SKUs are correct.</li>
+          <li>All component quantities per display are correct.</li>
+          <li>All component stock is available on hand.</li>
+          <li>Finished display SKU is correct and already set up.</li>
+          <li>Displays to build is correct.</li>
         </ul>
       </div>
       <div class="card">
@@ -404,7 +389,7 @@
         <ul>
           <li>The request is sent to the warehouse team.</li>
           <li>The warehouse pulls the components.</li>
-          <li>The warehouse completes the physical kitting/conversion work.</li>
+          <li>The warehouse completes the physical display build.</li>
           <li>Inventory is updated after the work is completed.</li>
         </ul>
       </div>

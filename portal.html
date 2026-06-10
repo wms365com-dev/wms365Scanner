@@ -313,6 +313,64 @@
         .service-card .btn {
             justify-self: start;
         }
+        .kitting-steps {
+            display: grid;
+            gap: 1rem;
+        }
+        .kitting-step-indicator {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+        .kitting-step-pill {
+            padding: 0.75rem 0.85rem;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--panel-2);
+            color: var(--muted);
+            font-weight: 800;
+        }
+        .kitting-step-pill.active {
+            border-color: rgba(92, 123, 146, 0.45);
+            background: var(--brand-soft);
+            color: #1f3446;
+        }
+        .kitting-step {
+            display: grid;
+            gap: 0.9rem;
+        }
+        .kitting-component-list {
+            display: grid;
+            gap: 0.75rem;
+        }
+        .kitting-component-row {
+            display: grid;
+            grid-template-columns: minmax(180px, 1.45fr) minmax(140px, 0.7fr) minmax(160px, 1fr) auto;
+            gap: 0.65rem;
+            align-items: end;
+            padding: 0.85rem;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--panel-2);
+        }
+        .kitting-component-row .btn {
+            min-height: 46px;
+            padding-inline: 0.85rem;
+        }
+        .kitting-summary {
+            display: grid;
+            gap: 0.55rem;
+            padding: 0.85rem;
+            border: 1px solid #dbeafe;
+            border-radius: 14px;
+            background: #eff6ff;
+        }
+        .kitting-summary ul {
+            margin: 0;
+            padding-left: 1.15rem;
+            color: #294255;
+            line-height: 1.55;
+        }
         .btn {
             display: inline-flex;
             align-items: center;
@@ -596,7 +654,7 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid { grid-template-columns: 1fr; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -869,10 +927,10 @@
                 <div class="service-grid">
                     <article class="service-card">
                         <div class="header-copy">
-                            <h3>Kitting / SKU Conversion</h3>
-                            <p class="meta">Ask the warehouse to kit, de-kit, case-break, or convert inventory from one SKU to another.</p>
+                            <h3>Display Build / Kitting</h3>
+                            <p class="meta">Ask the warehouse to pull component SKUs and build a display, bundle, kit, or converted finished SKU.</p>
                         </div>
-                        <button class="btn" type="button" data-service-view="kitting">New Kitting Request</button>
+                        <button class="btn" type="button" data-service-view="kitting">New Work Order</button>
                     </article>
                     <article class="service-card">
                         <div class="header-copy">
@@ -887,58 +945,77 @@
             <section id="kittingPanel" class="card hidden">
                 <div class="order-form-head">
                     <div class="header-copy">
-                        <h2>Kitting / SKU Conversion Request</h2>
-                        <p class="lead">Request the warehouse to physically kit, de-kit, or re-SKU inventory. The warehouse will complete the work and update inventory.</p>
+                        <h2>Display Build / Kitting Work Order</h2>
+                        <p class="lead">Request the warehouse to pull multiple component SKUs and build a finished display, bundle, kit, or converted SKU.</p>
                     </div>
                     <div class="button-row">
                         <button class="btn ghost" type="button" data-service-back>Back to Added Services</button>
                         <button class="btn ghost" id="resetKittingBtn" type="button">Clear Form</button>
                     </div>
                 </div>
-                <form id="kittingForm" class="form-grid" autocomplete="off">
-                    <label class="field">
-                        <span>Related Sales Order</span>
-                        <input id="kittingSalesOrder" type="text" placeholder="Example: ORD-000045">
-                    </label>
-                    <label class="field">
-                        <span>Related Purchase Order</span>
-                        <input id="kittingPurchaseOrder" type="text" placeholder="Example: INB-000012">
-                    </label>
-                    <label class="field">
-                        <span>Source SKU</span>
-                        <input id="kittingSourceSku" list="kittingSkuList" type="text" placeholder="SKU to consume">
-                    </label>
-                    <label class="field">
-                        <span>Source Quantity</span>
-                        <input id="kittingSourceQty" type="number" min="1" inputmode="numeric" placeholder="Quantity to consume">
-                    </label>
-                    <label class="field">
-                        <span>Target SKU</span>
-                        <input id="kittingTargetSku" list="kittingSkuList" type="text" placeholder="SKU to create">
-                    </label>
-                    <label class="field">
-                        <span>Target Quantity</span>
-                        <input id="kittingTargetQty" type="number" min="1" inputmode="numeric" placeholder="Quantity expected">
-                    </label>
-                    <label class="field">
-                        <span>Needed By</span>
-                        <input id="kittingNeededBy" type="date">
-                    </label>
-                    <label class="field">
-                        <span>Your Name</span>
-                        <input id="kittingRequestedBy" type="text" placeholder="Optional">
-                    </label>
-                    <label class="field span-2">
-                        <span>Instructions / Notes</span>
-                        <textarea id="kittingNotes" rows="4" placeholder="Example: Convert 10 CS of source SKU into 60 CS of target SKU for waiting orders."></textarea>
-                    </label>
-                    <div class="helper span-2">
-                        <strong>Warehouse controlled</strong>
-                        <p class="meta">Submitting this request does not change stock. It creates a company-scoped request and emails the assigned warehouse team.</p>
+                <form id="kittingForm" class="kitting-steps" autocomplete="off">
+                    <div class="kitting-step-indicator" aria-label="Kitting request steps">
+                        <div class="kitting-step-pill active" id="kittingStepOnePill">1. Components for display</div>
+                        <div class="kitting-step-pill" id="kittingStepTwoPill">2. Finished display item</div>
                     </div>
-                    <div class="button-row span-2">
-                        <button class="btn" type="submit">Submit Kitting Request</button>
-                    </div>
+
+                    <section class="kitting-step" id="kittingComponentsStep">
+                        <div class="helper">
+                            <strong>Step 1: Add each SKU going into the display</strong>
+                            <p class="meta">Use this for display builds, bundles, or kits that pull 4-6 existing SKUs into one finished display SKU. Enter the quantity needed per finished display.</p>
+                        </div>
+                        <div class="kitting-component-list" id="kittingComponentList"></div>
+                        <div class="button-row">
+                            <button class="btn ghost" id="addKittingComponentBtn" type="button">Add Component SKU</button>
+                            <button class="btn" id="kittingNextStepBtn" type="button">Next: Finished Display</button>
+                        </div>
+                    </section>
+
+                    <section class="kitting-step hidden" id="kittingFinishedStep">
+                        <div class="helper">
+                            <strong>Step 2: Enter the finished display item</strong>
+                            <p class="meta">The warehouse will pull the components, build the display, and update inventory after the work is complete.</p>
+                        </div>
+                        <div class="form-grid">
+                            <label class="field">
+                                <span>Finished Display SKU</span>
+                                <input id="kittingTargetSku" list="kittingSkuList" type="text" placeholder="SKU to create">
+                            </label>
+                            <label class="field">
+                                <span>Displays to Build</span>
+                                <input id="kittingTargetQty" type="number" min="1" inputmode="numeric" placeholder="Number of finished displays">
+                            </label>
+                            <label class="field">
+                                <span>Needed By</span>
+                                <input id="kittingNeededBy" type="date">
+                            </label>
+                            <label class="field">
+                                <span>Your Name</span>
+                                <input id="kittingRequestedBy" type="text" placeholder="Optional">
+                            </label>
+                            <label class="field">
+                                <span>Related Sales Order</span>
+                                <input id="kittingSalesOrder" type="text" placeholder="Example: ORD-000045">
+                            </label>
+                            <label class="field">
+                                <span>Related Purchase Order</span>
+                                <input id="kittingPurchaseOrder" type="text" placeholder="Example: INB-000012">
+                            </label>
+                            <label class="field span-2">
+                                <span>Build Instructions / Notes</span>
+                                <textarea id="kittingNotes" rows="4" placeholder="Example: Build 20 store displays. Each display needs 4 flavors, shelf cards, and outer display carton."></textarea>
+                            </label>
+                        </div>
+                        <div class="kitting-summary" id="kittingBuildSummary"></div>
+                        <div class="helper">
+                            <strong>Component stock must be available</strong>
+                            <p class="meta">Please check inventory before submitting. If any component is short, receive or replenish stock before sending the work order.</p>
+                        </div>
+                        <div class="button-row">
+                            <button class="btn ghost" id="kittingBackStepBtn" type="button">Back to Components</button>
+                            <button class="btn" type="submit">Submit Display Work Order</button>
+                        </div>
+                    </section>
                 </form>
                 <div id="kittingMessage" class="status" style="margin-top: 1rem;"></div>
             </section>
@@ -946,8 +1023,8 @@
             <section id="kittingRequestsPanel" class="card hidden">
                 <div class="inventory-head" style="margin-bottom: 1rem;">
                     <div class="header-copy">
-                        <h2>My Kitting Requests</h2>
-                        <p class="lead">Track submitted kitting, de-kitting, and SKU conversion requests without using email threads.</p>
+                        <h2>My Display Build / Kitting Requests</h2>
+                        <p class="lead">Track submitted display build, kitting, de-kitting, and SKU conversion requests without using email threads.</p>
                     </div>
                     <div class="button-row">
                         <button class="btn ghost" type="button" data-service-back>Back to Added Services</button>
@@ -1251,6 +1328,8 @@
             ORDER_ENTRY: "ORDER_ENTRY",
             INBOUND_NOTICES: "INBOUND_NOTICES"
         });
+        const DEFAULT_KITTING_COMPONENT_ROWS = 4;
+        const MAX_KITTING_COMPONENT_ROWS = 12;
         const portalState = {
             account: null,
             inventory: [],
@@ -1320,10 +1399,17 @@
             kittingPanel: document.getElementById("kittingPanel"),
             kittingRequestsPanel: document.getElementById("kittingRequestsPanel"),
             kittingForm: document.getElementById("kittingForm"),
+            kittingStepOnePill: document.getElementById("kittingStepOnePill"),
+            kittingStepTwoPill: document.getElementById("kittingStepTwoPill"),
+            kittingComponentsStep: document.getElementById("kittingComponentsStep"),
+            kittingFinishedStep: document.getElementById("kittingFinishedStep"),
+            kittingComponentList: document.getElementById("kittingComponentList"),
+            addKittingComponentBtn: document.getElementById("addKittingComponentBtn"),
+            kittingNextStepBtn: document.getElementById("kittingNextStepBtn"),
+            kittingBackStepBtn: document.getElementById("kittingBackStepBtn"),
+            kittingBuildSummary: document.getElementById("kittingBuildSummary"),
             kittingSalesOrder: document.getElementById("kittingSalesOrder"),
             kittingPurchaseOrder: document.getElementById("kittingPurchaseOrder"),
-            kittingSourceSku: document.getElementById("kittingSourceSku"),
-            kittingSourceQty: document.getElementById("kittingSourceQty"),
             kittingTargetSku: document.getElementById("kittingTargetSku"),
             kittingTargetQty: document.getElementById("kittingTargetQty"),
             kittingNeededBy: document.getElementById("kittingNeededBy"),
@@ -1566,6 +1652,20 @@
             ui.itemsList.addEventListener("click", onItemsListClick);
             ui.kittingForm?.addEventListener("submit", submitKittingRequest);
             ui.resetKittingBtn?.addEventListener("click", resetKittingForm);
+            ui.addKittingComponentBtn?.addEventListener("click", () => addKittingComponentRow());
+            ui.kittingComponentList?.addEventListener("click", onKittingComponentListClick);
+            ui.kittingComponentList?.addEventListener("input", updateKittingBuildSummary);
+            ui.kittingTargetQty?.addEventListener("input", updateKittingBuildSummary);
+            ui.kittingTargetSku?.addEventListener("input", updateKittingBuildSummary);
+            ui.kittingNextStepBtn?.addEventListener("click", () => {
+                try {
+                    validateKittingComponents();
+                    setKittingStep(2);
+                } catch (error) {
+                    showMessage(ui.kittingMessage, error.message, "error");
+                }
+            });
+            ui.kittingBackStepBtn?.addEventListener("click", () => setKittingStep(1));
             ui.refreshKittingRequestsBtn?.addEventListener("click", () => refreshKittingRequests(false));
             ui.serviceViewButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.serviceView)));
             ui.serviceBackButtons.forEach((button) => button.addEventListener("click", () => setView("addedServices")));
@@ -1909,6 +2009,7 @@
             ui.invoicesStatButton?.classList.toggle("active", activeView === "invoices");
             if (activeView === "orders") renderOrders();
             if (activeView === "addedServices") renderAddedServices();
+            if (activeView === "kitting") ensureKittingComponentRows();
             if (activeView === "kittingRequests") renderKittingRequests();
             if (activeView === "delivery") renderDeliveryInboundOptions();
             if (activeView === "deliveries") renderDeliveryAppointments();
@@ -2147,8 +2248,168 @@
             `).join("");
         }
 
+        function findCatalogItemBySku(sku) {
+            const normalizedSku = norm(sku);
+            return portalState.catalogItems.find((item) => norm(item.sku) === normalizedSku) || null;
+        }
+
+        function getKittingComponentRows() {
+            return [...(ui.kittingComponentList?.querySelectorAll("[data-kitting-component]") || [])];
+        }
+
+        function createKittingComponentRow(component = {}) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "kitting-component-row";
+            wrapper.dataset.kittingComponent = "true";
+            wrapper.innerHTML = `
+                <label class="field">
+                    <span>Component SKU</span>
+                    <input data-component-sku list="kittingSkuList" type="text" placeholder="SKU going into display" value="${attr(component.sku || "")}">
+                </label>
+                <label class="field">
+                    <span>Qty Per Display</span>
+                    <input data-component-qty type="number" min="1" inputmode="numeric" placeholder="Example: 1" value="${attr(component.quantityPerUnit || "")}">
+                </label>
+                <label class="field">
+                    <span>Placement / Notes</span>
+                    <input data-component-note type="text" placeholder="Optional" value="${attr(component.note || "")}">
+                </label>
+                <button class="btn ghost" type="button" data-remove-component>Remove</button>
+            `;
+            return wrapper;
+        }
+
+        function ensureKittingComponentRows() {
+            if (!ui.kittingComponentList) return;
+            if (!ui.kittingComponentList.children.length) {
+                for (let index = 0; index < DEFAULT_KITTING_COMPONENT_ROWS; index += 1) {
+                    addKittingComponentRow({}, { focus: false });
+                }
+            }
+            updateKittingBuildSummary();
+        }
+
+        function addKittingComponentRow(component = {}, { focus = true } = {}) {
+            if (!ui.kittingComponentList) return;
+            const currentRows = getKittingComponentRows();
+            if (currentRows.length >= MAX_KITTING_COMPONENT_ROWS) {
+                showMessage(ui.kittingMessage, `A display work order can include up to ${MAX_KITTING_COMPONENT_ROWS} component lines.`, "error");
+                return;
+            }
+            const row = createKittingComponentRow(component);
+            ui.kittingComponentList.appendChild(row);
+            if (focus) row.querySelector("[data-component-sku]")?.focus();
+            updateKittingBuildSummary();
+        }
+
+        function onKittingComponentListClick(event) {
+            const removeButton = event.target.closest("[data-remove-component]");
+            if (!removeButton) return;
+            const row = removeButton.closest("[data-kitting-component]");
+            if (!row) return;
+            const rows = getKittingComponentRows();
+            if (rows.length <= 1) {
+                row.querySelectorAll("input").forEach((input) => { input.value = ""; });
+            } else {
+                row.remove();
+            }
+            updateKittingBuildSummary();
+        }
+
+        function collectKittingComponents({ allowPartial = false, targetQuantity = 0 } = {}) {
+            const rows = getKittingComponentRows();
+            const seenSkus = new Set();
+            const components = [];
+            rows.forEach((row, index) => {
+                const skuInput = row.querySelector("[data-component-sku]");
+                const qtyInput = row.querySelector("[data-component-qty]");
+                const noteInput = row.querySelector("[data-component-note]");
+                const sku = norm(skuInput?.value || "");
+                const quantityPerUnit = toPositiveInt(qtyInput?.value);
+                const note = String(noteInput?.value || "").trim();
+                if (!sku && !quantityPerUnit && !note) return;
+                if (!allowPartial && (!sku || !quantityPerUnit)) {
+                    throw new Error(`Complete component line ${index + 1}, or remove it.`);
+                }
+                if (!sku || !quantityPerUnit) return;
+                if (!allowPartial && seenSkus.has(sku)) {
+                    throw new Error(`Component SKU ${sku} is listed more than once. Combine it into one line.`);
+                }
+                seenSkus.add(sku);
+                const catalogItem = findCatalogItemBySku(sku);
+                components.push({
+                    sku,
+                    quantityPerUnit,
+                    totalQuantity: targetQuantity ? quantityPerUnit * targetQuantity : 0,
+                    note,
+                    description: catalogItem?.description || ""
+                });
+            });
+            return components;
+        }
+
+        function validateKittingComponents() {
+            const components = collectKittingComponents();
+            if (!components.length) {
+                throw new Error("Add at least one component SKU for the display build.");
+            }
+            return components;
+        }
+
+        function setKittingStep(step) {
+            const showFinished = Number(step) === 2;
+            ui.kittingComponentsStep?.classList.toggle("hidden", showFinished);
+            ui.kittingFinishedStep?.classList.toggle("hidden", !showFinished);
+            ui.kittingStepOnePill?.classList.toggle("active", !showFinished);
+            ui.kittingStepTwoPill?.classList.toggle("active", showFinished);
+            showMessage(ui.kittingMessage, "", "info");
+            if (showFinished) {
+                updateKittingBuildSummary();
+                ui.kittingTargetSku?.focus?.();
+            }
+        }
+
+        function updateKittingBuildSummary() {
+            if (!ui.kittingBuildSummary) return;
+            const targetSku = norm(ui.kittingTargetSku?.value || "");
+            const targetQuantity = toPositiveInt(ui.kittingTargetQty?.value);
+            const components = collectKittingComponents({ allowPartial: true, targetQuantity });
+            const targetLabel = targetSku ? `${targetQuantity || 0} of ${targetSku}` : `${targetQuantity || 0} finished displays`;
+            if (!components.length) {
+                ui.kittingBuildSummary.innerHTML = `<strong>Build summary</strong><p class="meta">Add component SKUs to see the display build summary.</p>`;
+                return;
+            }
+            ui.kittingBuildSummary.innerHTML = `
+                <strong>Build summary</strong>
+                <p class="meta">Finished output: ${esc(targetLabel)}</p>
+                <ul>
+                    ${components.map((component) => `
+                        <li>${esc(component.sku)}: ${esc(String(component.quantityPerUnit))} per display${targetQuantity ? `, ${esc(String(component.totalQuantity))} total needed` : ""}${component.description ? ` - ${esc(component.description)}` : ""}</li>
+                    `).join("")}
+                </ul>
+            `;
+        }
+
+        function formatKittingComponentSummary(request) {
+            const components = Array.isArray(request.components) ? request.components : [];
+            if (!components.length) {
+                return `${request.sourceQuantity} of ${request.sourceSku}`;
+            }
+            return components.map((component) => {
+                const total = toPositiveInt(component.totalQuantity) || toPositiveInt(component.quantity) || 0;
+                const perUnit = toPositiveInt(component.quantityPerUnit) || 0;
+                const quantityLabel = total ? `${total} total` : `${perUnit} per display`;
+                return `${quantityLabel} ${component.sku}`;
+            }).join(", ");
+        }
+
         function resetKittingForm() {
             ui.kittingForm?.reset();
+            if (ui.kittingComponentList) {
+                ui.kittingComponentList.innerHTML = "";
+                ensureKittingComponentRows();
+            }
+            setKittingStep(1);
             showMessage(ui.kittingMessage, "", "info");
         }
 
@@ -2169,7 +2430,8 @@
                         <span class="pill">${esc(request.status)}</span>
                     </div>
                     <div class="order-meta">
-                        <div><strong>Convert:</strong> ${esc(request.sourceQuantity)} of ${esc(request.sourceSku)} to ${esc(request.targetQuantity)} of ${esc(request.targetSku)}</div>
+                        <div><strong>Build:</strong> ${esc(formatKittingComponentSummary(request))}</div>
+                        <div><strong>Finished item:</strong> ${esc(request.targetQuantity)} of ${esc(request.targetSku)}${request.targetDescription ? ` - ${esc(request.targetDescription)}` : ""}</div>
                         <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
                         ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
                         ${request.warehouseNote ? `<div><strong>Warehouse note:</strong> ${esc(request.warehouseNote)}</div>` : ""}
@@ -2193,21 +2455,25 @@
         }
 
         function collectKittingRequestPayload() {
-            const sourceSku = norm(ui.kittingSourceSku?.value || "");
             const targetSku = norm(ui.kittingTargetSku?.value || "");
-            const sourceQuantity = toPositiveInt(ui.kittingSourceQty?.value);
             const targetQuantity = toPositiveInt(ui.kittingTargetQty?.value);
-            if (!sourceSku || !sourceQuantity || !targetSku || !targetQuantity) {
-                throw new Error("Enter source SKU, source quantity, target SKU, and target quantity.");
+            if (!targetSku || !targetQuantity) {
+                throw new Error("Enter the finished display SKU and number of displays to build.");
             }
-            if (sourceSku === targetSku) {
-                throw new Error("Source and target SKU must be different.");
+            const components = collectKittingComponents({ targetQuantity });
+            if (!components.length) {
+                throw new Error("Add at least one component SKU for the display build.");
             }
+            if (components.some((component) => component.sku === targetSku)) {
+                throw new Error("The finished display SKU must be different from the component SKUs.");
+            }
+            const firstComponent = components[0];
             return {
                 salesOrderReference: ui.kittingSalesOrder?.value || "",
                 purchaseOrderReference: ui.kittingPurchaseOrder?.value || "",
-                sourceSku,
-                sourceQuantity,
+                sourceSku: firstComponent.sku,
+                sourceQuantity: firstComponent.totalQuantity,
+                components,
                 targetSku,
                 targetQuantity,
                 requestedCompletionDate: ui.kittingNeededBy?.value || "",
@@ -3522,6 +3788,11 @@
 
         function showMessage(element, text, tone) {
             if (!element) return setMessage(text, tone);
+            if (!text) {
+                element.className = "status";
+                element.textContent = "";
+                return;
+            }
             element.className = `status show ${tone}`;
             element.textContent = text;
         }
@@ -3779,9 +4050,33 @@
         function sanitizeKittingRequest(request) {
             if (!request || typeof request !== "object") return null;
             const requestCode = String(request.requestCode || request.request_code || "").trim();
-            const sourceSku = norm(request.sourceSku || request.source_sku);
+            const rawComponents = Array.isArray(request.components)
+                ? request.components
+                : (Array.isArray(request.components_json) ? request.components_json : []);
+            const components = rawComponents.map((component) => {
+                const sku = norm(component?.sku);
+                const quantityPerUnit = toPositiveInt(component?.quantityPerUnit || component?.quantity_per_unit);
+                const totalQuantity = toPositiveInt(component?.totalQuantity || component?.total_quantity || component?.quantity);
+                if (!sku || (!quantityPerUnit && !totalQuantity)) return null;
+                return {
+                    sku,
+                    quantityPerUnit,
+                    totalQuantity,
+                    note: String(component?.note || "").trim(),
+                    description: String(component?.description || "").trim()
+                };
+            }).filter(Boolean);
+            const sourceSku = norm(request.sourceSku || request.source_sku || components[0]?.sku);
             const targetSku = norm(request.targetSku || request.target_sku);
             if (!sourceSku || !targetSku) return null;
+            const sourceQuantity = toPositiveInt(request.sourceQuantity || request.source_quantity) || components[0]?.totalQuantity || 0;
+            const normalizedComponents = components.length ? components : [{
+                sku: sourceSku,
+                quantityPerUnit: 0,
+                totalQuantity: sourceQuantity,
+                note: "",
+                description: String(request.sourceDescription || request.source_description || "").trim()
+            }];
             return {
                 id: String(request.id || ""),
                 requestCode: requestCode || `KIT-${String(request.id || "").padStart(6, "0")}`,
@@ -3790,8 +4085,9 @@
                 salesOrderReference: String(request.salesOrderReference || request.sales_order_reference || "").trim(),
                 purchaseOrderReference: String(request.purchaseOrderReference || request.purchase_order_reference || "").trim(),
                 sourceSku,
-                sourceQuantity: toPositiveInt(request.sourceQuantity || request.source_quantity) || 0,
+                sourceQuantity,
                 sourceDescription: String(request.sourceDescription || request.source_description || "").trim(),
+                components: normalizedComponents,
                 targetSku,
                 targetQuantity: toPositiveInt(request.targetQuantity || request.target_quantity) || 0,
                 targetDescription: String(request.targetDescription || request.target_description || "").trim(),

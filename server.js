@@ -6610,6 +6610,7 @@ async function initializeDatabase() {
             purchase_order_reference text not null default '',
             source_sku text not null,
             source_quantity integer not null check (source_quantity > 0),
+            components_json jsonb not null default '[]'::jsonb,
             target_sku text not null,
             target_quantity integer not null check (target_quantity > 0),
             requested_completion_date date,
@@ -6640,6 +6641,8 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_import_backups_created_at on import_backups (created_at desc)");
     await pool.query("alter table portal_kitting_requests alter column request_code drop not null");
     await pool.query("alter table portal_kitting_requests alter column request_code drop default");
+    await pool.query("alter table portal_kitting_requests add column if not exists components_json jsonb not null default '[]'::jsonb");
+    await pool.query("update portal_kitting_requests set components_json = '[]'::jsonb where components_json is null");
     await pool.query("alter table portal_kitting_requests drop constraint if exists portal_kitting_requests_status_check");
     await pool.query("alter table portal_kitting_requests add constraint portal_kitting_requests_status_check check (status in ('SUBMITTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'))");
     await pool.query("update portal_kitting_requests set request_code = null where request_code = ''");
@@ -7043,6 +7046,7 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_portal_kitting_requests_code_unique on portal_kitting_requests (request_code);");
     await pool.query("create index if not exists idx_portal_kitting_requests_account on portal_kitting_requests (account_name, created_at desc);");
     await pool.query("create index if not exists idx_portal_kitting_requests_status on portal_kitting_requests (status, created_at desc);");
+    await pool.query("create index if not exists idx_portal_kitting_requests_components_gin on portal_kitting_requests using gin (components_json);");
     await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
     await pool.query("create index if not exists idx_portal_order_lines_order_sort on portal_order_lines (order_id, line_number, id);");
     await pool.query("create index if not exists idx_portal_order_allocations_order_id on portal_order_allocations (order_id);");
@@ -12461,26 +12465,71 @@ function makePortalKittingRequestCode(id) {
     return `KIT-${String(id).padStart(6, "0")}`;
 }
 
+function sanitizePortalKittingComponents(input, targetQuantity) {
+    const rawComponents = Array.isArray(input.components) ? input.components : [];
+    const components = rawComponents.map((component) => {
+        const sku = normalizeText(component?.sku || component?.sourceSku || component?.source_sku || "");
+        const quantityPerUnit = toPositiveInt(component?.quantityPerUnit || component?.quantity_per_unit || component?.perDisplayQuantity || component?.per_display_quantity);
+        const totalQuantity = toPositiveInt(component?.totalQuantity || component?.total_quantity || component?.quantity || component?.sourceQuantity || component?.source_quantity)
+            || (quantityPerUnit && targetQuantity ? quantityPerUnit * targetQuantity : 0);
+        if (!sku && !quantityPerUnit && !totalQuantity) return null;
+        if (!sku || !totalQuantity) {
+            throw httpError(400, "Each display component must include a SKU and quantity.");
+        }
+        return {
+            sku,
+            quantityPerUnit: quantityPerUnit || null,
+            totalQuantity,
+            note: normalizeFreeText(component?.note || component?.notes || ""),
+            description: normalizeFreeText(component?.description || "")
+        };
+    }).filter(Boolean);
+
+    if (!components.length) {
+        const sourceSku = normalizeText(input.sourceSku || input.source_sku || input.fromSku || "");
+        const sourceQuantity = toPositiveInt(input.sourceQuantity || input.source_quantity || input.fromQuantity || input.quantity);
+        if (sourceSku && sourceQuantity) {
+            components.push({
+                sku: sourceSku,
+                quantityPerUnit: null,
+                totalQuantity: sourceQuantity,
+                note: "",
+                description: ""
+            });
+        }
+    }
+
+    const seenSkus = new Set();
+    components.forEach((component) => {
+        if (seenSkus.has(component.sku)) {
+            throw httpError(400, `Component SKU ${component.sku} is listed more than once.`);
+        }
+        seenSkus.add(component.sku);
+    });
+    return components;
+}
+
 function sanitizePortalKittingRequestInput(raw, { accountName = "", requestedByEmail = "" } = {}) {
     const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-    const sourceSku = normalizeText(input.sourceSku || input.source_sku || input.fromSku || "");
     const targetSku = normalizeText(input.targetSku || input.target_sku || input.toSku || "");
-    const sourceQuantity = toPositiveInt(input.sourceQuantity || input.source_quantity || input.fromQuantity || input.quantity);
     const targetQuantity = toPositiveInt(input.targetQuantity || input.target_quantity || input.toQuantity);
+    const components = sanitizePortalKittingComponents(input, targetQuantity);
+    const firstComponent = components[0];
 
-    if (!sourceSku || !sourceQuantity || !targetSku || !targetQuantity) {
-        throw httpError(400, "Source SKU, source quantity, target SKU, and target quantity are required.");
+    if (!components.length || !targetSku || !targetQuantity) {
+        throw httpError(400, "Component SKUs, component quantities, finished SKU, and finished quantity are required.");
     }
-    if (sourceSku === targetSku) {
-        throw httpError(400, "Source and target SKU must be different.");
+    if (components.some((component) => component.sku === targetSku)) {
+        throw httpError(400, "The finished SKU must be different from all component SKUs.");
     }
 
     return {
         accountName: normalizeText(accountName),
         salesOrderReference: normalizeFreeText(input.salesOrderReference || input.sales_order_reference || input.salesOrder || ""),
         purchaseOrderReference: normalizeFreeText(input.purchaseOrderReference || input.purchase_order_reference || input.purchaseOrder || ""),
-        sourceSku,
-        sourceQuantity,
+        sourceSku: firstComponent.sku,
+        sourceQuantity: firstComponent.totalQuantity,
+        components,
         targetSku,
         targetQuantity,
         requestedCompletionDate: normalizeDateInput(input.requestedCompletionDate || input.requested_completion_date || input.neededBy || ""),
@@ -12555,23 +12604,33 @@ async function savePortalKittingRequest(client, accessRow, rawRequest) {
         requestedByEmail: access.email
     });
 
-    const sourceItem = await findCatalogItem(client, request.accountName, request.sourceSku, request.sourceSku);
-    if (!sourceItem) {
-        throw httpError(404, "The source SKU could not be found in your item master.");
+    const validatedComponents = [];
+    for (const component of request.components) {
+        const componentItem = await findCatalogItem(client, request.accountName, component.sku, component.sku);
+        if (!componentItem) {
+            throw httpError(404, `Component SKU ${component.sku} could not be found in your item master.`);
+        }
+        validatedComponents.push({
+            ...component,
+            description: component.description || componentItem.description || ""
+        });
     }
+    request.components = validatedComponents;
+    request.sourceSku = request.components[0].sku;
+    request.sourceQuantity = request.components[0].totalQuantity;
     const targetItem = await findCatalogItem(client, request.accountName, request.targetSku, request.targetSku);
     if (!targetItem) {
-        throw httpError(404, "The target SKU could not be found in your item master.");
+        throw httpError(404, "The finished display SKU could not be found in your item master.");
     }
 
     const insertResult = await client.query(
         `
             insert into portal_kitting_requests (
                 account_name, portal_access_id, sales_order_reference, purchase_order_reference,
-                source_sku, source_quantity, target_sku, target_quantity,
+                source_sku, source_quantity, components_json, target_sku, target_quantity,
                 requested_completion_date, requested_by_name, requested_by_email, notes
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13)
             returning *
         `,
         [
@@ -12581,6 +12640,7 @@ async function savePortalKittingRequest(client, accessRow, rawRequest) {
             request.purchaseOrderReference,
             request.sourceSku,
             request.sourceQuantity,
+            JSON.stringify(request.components),
             request.targetSku,
             request.targetQuantity,
             request.requestedCompletionDate || null,
@@ -12598,7 +12658,7 @@ async function savePortalKittingRequest(client, accessRow, rawRequest) {
         `Submitted kitting request ${requestCode}`,
         [
             request.accountName,
-            `${request.sourceQuantity} of ${request.sourceSku} -> ${request.targetQuantity} of ${request.targetSku}`,
+            `${request.components.length} component SKU(s) -> ${request.targetQuantity} of ${request.targetSku}`,
             request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "",
             request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""
         ].filter(Boolean).join(" | ")
@@ -18039,11 +18099,46 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
 }
 
 function formatKittingRequestSummary(request) {
+    const components = Array.isArray(request.components) ? request.components : [];
+    if (components.length > 1) {
+        return `${components.length} component SKUs to ${request.targetQuantity} of ${request.targetSku}`;
+    }
     return [
         `${request.sourceQuantity} of ${request.sourceSku}`,
         "to",
         `${request.targetQuantity} of ${request.targetSku}`
     ].join(" ");
+}
+
+function formatKittingComponentLines(request) {
+    const components = Array.isArray(request.components) && request.components.length
+        ? request.components
+        : [{ sku: request.sourceSku, totalQuantity: request.sourceQuantity, description: request.sourceDescription || "" }];
+    return components.map((component) => {
+        const parts = [
+            component.sku,
+            component.totalQuantity ? `Total ${component.totalQuantity}` : "",
+            component.quantityPerUnit ? `${component.quantityPerUnit} per display` : "",
+            component.description || "",
+            component.note ? `Note: ${component.note}` : ""
+        ].filter(Boolean);
+        return `- ${parts.join(" | ")}`;
+    }).join("\n");
+}
+
+function buildKittingComponentRowsHtml(request) {
+    const components = Array.isArray(request.components) && request.components.length
+        ? request.components
+        : [{ sku: request.sourceSku, totalQuantity: request.sourceQuantity, description: request.sourceDescription || "" }];
+    return components.map((component) => `
+        <tr>
+            <td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(component.sku || "-")}</td>
+            <td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(String(component.quantityPerUnit || "-"))}</td>
+            <td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(String(component.totalQuantity || "-"))}</td>
+            <td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(component.description || "-")}</td>
+            <td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(component.note || "-")}</td>
+        </tr>
+    `).join("");
 }
 
 function buildPortalKittingRequestEmailText(request) {
@@ -18052,12 +18147,17 @@ function buildPortalKittingRequestEmailText(request) {
         `Company: ${request.accountName}`,
         `Status: ${request.status}`,
         `Request: ${formatKittingRequestSummary(request)}`,
+        "",
+        "Components to pull:",
+        formatKittingComponentLines(request),
+        "",
+        `Finished Display SKU: ${request.targetSku}`,
+        `Displays to Build: ${request.targetQuantity}`,
         request.salesOrderReference ? `Sales Order: ${request.salesOrderReference}` : "",
         request.purchaseOrderReference ? `Purchase Order: ${request.purchaseOrderReference}` : "",
         request.requestedCompletionDate ? `Needed By: ${request.requestedCompletionDate}` : "",
         request.requestedByEmail || request.requestedByName ? `Requested By: ${[request.requestedByName, request.requestedByEmail].filter(Boolean).join(" | ")}` : "",
-        request.sourceDescription ? `Source: ${request.sourceDescription}` : "",
-        request.targetDescription ? `Target: ${request.targetDescription}` : "",
+        request.targetDescription ? `Finished Item Description: ${request.targetDescription}` : "",
         request.notes ? `Notes: ${request.notes}` : "",
         "",
         "Warehouse action required: review the request, complete the physical kitting/re-SKU work, then use the warehouse Convert Item process to update inventory."
@@ -18075,11 +18175,21 @@ function buildPortalKittingRequestEmailHtml(request) {
             <table style="border-collapse:collapse;width:100%;margin:0 0 18px;">
                 <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Sales Order</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.salesOrderReference || "-")}</td></tr>
                 <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Purchase Order</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.purchaseOrderReference || "-")}</td></tr>
-                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Source SKU</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.sourceSku)} | Qty ${escapeHtml(String(request.sourceQuantity))}${request.sourceDescription ? ` | ${escapeHtml(request.sourceDescription)}` : ""}</td></tr>
-                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Target SKU</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.targetSku)} | Qty ${escapeHtml(String(request.targetQuantity))}${request.targetDescription ? ` | ${escapeHtml(request.targetDescription)}` : ""}</td></tr>
+                <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Finished Display SKU</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.targetSku)} | Qty ${escapeHtml(String(request.targetQuantity))}${request.targetDescription ? ` | ${escapeHtml(request.targetDescription)}` : ""}</td></tr>
                 <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Needed By</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.requestedCompletionDate || "-")}</td></tr>
                 <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Requested By</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml([request.requestedByName, request.requestedByEmail].filter(Boolean).join(" | ") || "-")}</td></tr>
                 <tr><td style="padding:8px;border:1px solid #e5e7eb;font-weight:700;">Notes</td><td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(request.notes || "-")}</td></tr>
+            </table>
+            <h3 style="margin:0 0 8px;font-size:16px;">Components to Pull</h3>
+            <table style="border-collapse:collapse;width:100%;margin:0 0 18px;">
+                <tr>
+                    <th align="left" style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc;">Component SKU</th>
+                    <th align="left" style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc;">Qty / Display</th>
+                    <th align="left" style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc;">Total to Pull</th>
+                    <th align="left" style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc;">Description</th>
+                    <th align="left" style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc;">Notes</th>
+                </tr>
+                ${buildKittingComponentRowsHtml(request)}
             </table>
             <p style="margin:0;padding:12px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;">Warehouse action required: complete the physical kitting/re-SKU work, then use Convert Item to update inventory.</p>
         </div>
@@ -24503,6 +24613,29 @@ function mapPortalItemRow(row) {
 }
 
 function mapPortalKittingRequestRow(row) {
+    const rawComponents = Array.isArray(row.components_json) ? row.components_json : [];
+    const sourceSku = normalizeText(row.source_sku || "");
+    const sourceQuantity = Number(row.source_quantity) || 0;
+    const components = rawComponents.map((component) => {
+        const sku = normalizeText(component?.sku || "");
+        const quantityPerUnit = toPositiveInt(component?.quantityPerUnit || component?.quantity_per_unit);
+        const totalQuantity = toPositiveInt(component?.totalQuantity || component?.total_quantity || component?.quantity);
+        if (!sku || (!quantityPerUnit && !totalQuantity)) return null;
+        return {
+            sku,
+            quantityPerUnit: quantityPerUnit || null,
+            totalQuantity: totalQuantity || 0,
+            note: component?.note || "",
+            description: component?.description || ""
+        };
+    }).filter(Boolean);
+    const normalizedComponents = components.length ? components : [{
+        sku: sourceSku,
+        quantityPerUnit: null,
+        totalQuantity: sourceQuantity,
+        note: "",
+        description: row.source_description || ""
+    }];
     return {
         id: String(row.id),
         requestCode: row.request_code || makePortalKittingRequestCode(row.id),
@@ -24510,10 +24643,11 @@ function mapPortalKittingRequestRow(row) {
         status: normalizePortalKittingRequestStatus(row.status) || "SUBMITTED",
         salesOrderReference: row.sales_order_reference || "",
         purchaseOrderReference: row.purchase_order_reference || "",
-        sourceSku: normalizeText(row.source_sku || ""),
-        sourceQuantity: Number(row.source_quantity) || 0,
+        sourceSku,
+        sourceQuantity,
         sourceDescription: row.source_description || "",
         sourceTrackingLevel: normalizeTrackingLevel(row.source_tracking_level || "UNIT"),
+        components: normalizedComponents,
         targetSku: normalizeText(row.target_sku || ""),
         targetQuantity: Number(row.target_quantity) || 0,
         targetDescription: row.target_description || "",

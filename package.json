@@ -11,7 +11,8 @@
     "test:inventory-locking": "node --test inventory-locking.spec.js",
     "test:mobile-execution": "node --test mobile-execution.spec.js",
     "test:security-hardening": "node --test security-hardening.spec.js",
-    "test:portal-isolation": "node --test portal-isolation.spec.js"
+    "test:portal-isolation": "node --test portal-isolation.spec.js",
+    "test:guides": "node scripts/validate-guide-screenshots.js"
   },
   "engines": {
     "node": ">=20"

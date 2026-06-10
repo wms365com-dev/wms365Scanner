@@ -8372,12 +8372,12 @@
                 <article class="card desktop-complex workspace-action-card" id="customerKittingRequestsCard">
                     <div class="card-head">
                         <div>
-                            <h2>Customer Kitting Requests</h2>
-                            <p class="lead">Customer-submitted kit, de-kit, and re-SKU work. Complete the physical work, then use Convert Item to update stock.</p>
+                            <h2>Customer Display Build / Kitting Requests</h2>
+                            <p class="lead">Customer-submitted display build, kit, de-kit, and re-SKU work. Complete the physical work, then use Convert Item to update stock.</p>
                         </div>
                         <button class="btn ghost mini" id="refreshKittingRequestsAdminBtn" type="button">Refresh</button>
                     </div>
-                    <p class="meta">Review customer conversion requests first. Mark the request status here, then update stock with Convert Item after the warehouse work is complete.</p>
+                    <p class="meta">Review customer display build requests first. Mark the request status here, then update stock with Convert Item after the warehouse work is complete.</p>
                     <div id="customerKittingRequestsList" class="orders-list">
                         <p class="empty">No customer kitting requests yet.</p>
                     </div>
@@ -21177,6 +21177,19 @@
             }
         }
 
+        function formatKittingComponentSummary(request) {
+            const components = Array.isArray(request.components) ? request.components : [];
+            if (!components.length) {
+                return `${request.sourceQuantity} of ${request.sourceSku}`;
+            }
+            return components.map((component) => {
+                const total = Number(component.totalQuantity || component.total_quantity || component.quantity || 0) || 0;
+                const perUnit = Number(component.quantityPerUnit || component.quantity_per_unit || 0) || 0;
+                const quantityLabel = total ? `${total} total` : `${perUnit} per display`;
+                return `${quantityLabel} ${component.sku}`;
+            }).join(", ");
+        }
+
         function renderCustomerKittingRequests() {
             if (!ui.customerKittingRequestsList) return;
             const requests = getCompanyScopedKittingRequests()
@@ -21195,7 +21208,8 @@
                         <span class="badge ${norm(request.status) === "COMPLETED" ? "success" : ""}">${esc(request.status)}</span>
                     </div>
                     <div class="order-meta">
-                        <div><strong>Convert:</strong> ${esc(request.sourceQuantity)} of ${esc(request.sourceSku)} to ${esc(request.targetQuantity)} of ${esc(request.targetSku)}</div>
+                        <div><strong>Build:</strong> ${esc(formatKittingComponentSummary(request))}</div>
+                        <div><strong>Finished item:</strong> ${esc(request.targetQuantity)} of ${esc(request.targetSku)}${request.targetDescription ? ` - ${esc(request.targetDescription)}` : ""}</div>
                         <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
                         ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
                     </div>
@@ -27344,6 +27358,24 @@
         function sanitizePortalKittingRequestRecord(item) {
             const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
             if (!item?.id || !accountName) return null;
+            const rawComponents = Array.isArray(item.components)
+                ? item.components
+                : (Array.isArray(item.components_json) ? item.components_json : []);
+            const components = rawComponents.map((component) => {
+                const sku = norm(component?.sku);
+                const quantityPerUnit = Number(component?.quantityPerUnit || component?.quantity_per_unit || 0) || 0;
+                const totalQuantity = Number(component?.totalQuantity || component?.total_quantity || component?.quantity || 0) || 0;
+                if (!sku || (!quantityPerUnit && !totalQuantity)) return null;
+                return {
+                    sku,
+                    quantityPerUnit,
+                    totalQuantity,
+                    note: String(component?.note || "").trim(),
+                    description: String(component?.description || "").trim()
+                };
+            }).filter(Boolean);
+            const sourceSku = norm(item.sourceSku || item.source_sku || components[0]?.sku);
+            const sourceQuantity = Number(item.sourceQuantity || item.source_quantity || components[0]?.totalQuantity || 0) || 0;
             return {
                 id: String(item.id),
                 requestCode: String(item.requestCode || item.request_code || "").trim(),
@@ -27351,9 +27383,16 @@
                 status: norm(item.status || "SUBMITTED"),
                 salesOrderReference: String(item.salesOrderReference || item.sales_order_reference || "").trim(),
                 purchaseOrderReference: String(item.purchaseOrderReference || item.purchase_order_reference || "").trim(),
-                sourceSku: norm(item.sourceSku || item.source_sku),
-                sourceQuantity: Number(item.sourceQuantity || item.source_quantity || 0) || 0,
+                sourceSku,
+                sourceQuantity,
                 sourceDescription: String(item.sourceDescription || item.source_description || "").trim(),
+                components: components.length ? components : [{
+                    sku: sourceSku,
+                    quantityPerUnit: 0,
+                    totalQuantity: sourceQuantity,
+                    note: "",
+                    description: String(item.sourceDescription || item.source_description || "").trim()
+                }],
                 targetSku: norm(item.targetSku || item.target_sku),
                 targetQuantity: Number(item.targetQuantity || item.target_quantity || 0) || 0,
                 targetDescription: String(item.targetDescription || item.target_description || "").trim(),
