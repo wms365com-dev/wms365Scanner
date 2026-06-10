@@ -3581,6 +3581,27 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/shipment-email-alerts", async (req, res, next) => {
+    try {
+        const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        if (requestedAccount) {
+            await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
+        const orders = await getPortalShipmentEmailFailureOrders({
+            accountName: requestedAccount,
+            appUser: req.appUser
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            success: true,
+            count: orders.length,
+            orders
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/ship-to-addresses", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
@@ -13057,6 +13078,76 @@ async function getPortalOrderListForAccount(accountName, client = pool) {
         limit: 100,
         downloadPathPrefix: "/api/admin/portal-order-documents"
     });
+}
+
+async function getPortalShipmentEmailFailureOrders({ accountName = "", appUser = null, client = pool, limit = 50 } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const params = [];
+    const filters = [
+        "o.status = 'SHIPPED'",
+        "o.shipment_email_status = 'FAILED'"
+    ];
+
+    if (normalizedAccount) {
+        params.push(normalizedAccount);
+        filters.push(`o.account_name = $${params.length}`);
+    } else if (appUser && !isSuperAdminUser(appUser)) {
+        const allowedCompanies = await getAccessibleCompanyNamesForAppUser(client, appUser);
+        if (!allowedCompanies.length) return [];
+        params.push(allowedCompanies);
+        filters.push(`o.account_name = any($${params.length}::text[])`);
+    }
+
+    params.push(Math.max(1, Math.min(Number(limit) || 50, 100)));
+    const limitPlaceholder = `$${params.length}`;
+    const ordersResult = await client.query(
+        `
+            select o.*
+            from portal_orders o
+            where ${filters.join(" and ")}
+            order by
+                coalesce(o.shipment_email_scheduled_at, o.updated_at) asc,
+                o.id asc
+            limit ${limitPlaceholder}
+        `,
+        params
+    );
+
+    const orderIds = ordersResult.rows.map((row) => row.id);
+    const linesResult = orderIds.length
+        ? await client.query(
+            `
+                select
+                    l.*,
+                    o.account_name,
+                    c.description as item_description,
+                    c.upc as item_upc,
+                    c.tracking_level as item_tracking_level,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
+                from portal_order_lines l
+                join portal_orders o on o.id = l.order_id
+                left join item_catalog c
+                  on c.account_name = o.account_name
+                 and c.sku = l.sku
+                where l.order_id = any($1::bigint[])
+                order by l.order_id desc, l.line_number asc, l.id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+    const documentsResult = orderIds.length
+        ? await client.query(
+            `
+                select id, order_id, file_name, file_type, file_size, uploaded_by, created_at
+                from portal_order_documents
+                where order_id = any($1::bigint[])
+                order by order_id desc, created_at asc, id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", new Map(), new Map());
 }
 
 async function getShipToAddressesForAccount(accountName, client = pool) {

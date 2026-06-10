@@ -1672,6 +1672,17 @@
             font-size: 0.82rem;
         }
 
+        .desktop-alert-pill.danger {
+            border-color: #fecaca;
+            background: #fff1f2;
+            color: #991b1b;
+            cursor: pointer;
+        }
+
+        .desktop-alert-pill.danger strong {
+            color: #b91c1c;
+        }
+
         .connection-status-dot {
             width: 0.72rem;
             height: 0.72rem;
@@ -6449,6 +6460,7 @@
                     <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
                     <span class="desktop-alert-pill">Picked <strong id="desktopAlertPicked">0</strong></span>
                     <span class="desktop-alert-pill">Staged <strong id="desktopAlertStaged">0</strong></span>
+                    <button class="desktop-alert-pill danger" type="button" id="desktopAlertShipmentEmailFailuresWrap" data-open-shipment-email-failures hidden>Shipment Email Failed <strong id="desktopAlertShipmentEmailFailures">0</strong></button>
                     <span class="desktop-alert-pill">Open POs <strong id="desktopAlertInbounds">0</strong></span>
                 </div>
                 <div class="desktop-alertbar-tools">
@@ -10420,6 +10432,9 @@
         let integrationRecords = [];
         let skuMappingRecords = [];
         let portalOrderRecords = [];
+        let shipmentEmailAlertRecords = [];
+        let shipmentEmailAlertsLoaded = false;
+        let shipmentEmailAlertLoading = false;
         let portalOrdersRefreshSerial = 0;
         const PORTAL_ORDERS_CACHE_TTL_MS = 30000;
         const portalOrdersCompanyCache = new Map();
@@ -10693,6 +10708,8 @@
             desktopAlertReleased: document.getElementById("desktopAlertReleased"),
             desktopAlertPicked: document.getElementById("desktopAlertPicked"),
             desktopAlertStaged: document.getElementById("desktopAlertStaged"),
+            desktopAlertShipmentEmailFailuresWrap: document.getElementById("desktopAlertShipmentEmailFailuresWrap"),
+            desktopAlertShipmentEmailFailures: document.getElementById("desktopAlertShipmentEmailFailures"),
             desktopAlertInbounds: document.getElementById("desktopAlertInbounds"),
             desktopFactboxSection: document.getElementById("desktopFactboxSection"),
             desktopFactboxCompany: document.getElementById("desktopFactboxCompany"),
@@ -11524,6 +11541,7 @@
                     showPurchaseOrderDocument(null, { scroll: true });
                 }
             }));
+            ui.desktopAlertShipmentEmailFailuresWrap?.addEventListener("click", openShipmentEmailFailureOrders);
             ui.desktopCommandRefreshBtn?.addEventListener("click", () => {
                 ui.syncNowBtn?.click();
             });
@@ -15465,6 +15483,71 @@
                 : portalOrderRecords;
         }
 
+        function isShipmentEmailFailure(order) {
+            return norm(order?.shipmentEmailStatus || order?.shipment_email_status || "") === "FAILED";
+        }
+
+        function getShipmentEmailFailureOrders() {
+            const company = norm(getActiveCompany());
+            const source = shipmentEmailAlertsLoaded ? shipmentEmailAlertRecords : portalOrderRecords;
+            return source.filter((order) => isShipmentEmailFailure(order) && (!company || norm(order.accountName) === company));
+        }
+
+        function updateShipmentEmailFailureAlert() {
+            const failures = getShipmentEmailFailureOrders();
+            if (ui.desktopAlertShipmentEmailFailures) {
+                ui.desktopAlertShipmentEmailFailures.textContent = num(failures.length);
+            }
+            if (ui.desktopAlertShipmentEmailFailuresWrap) {
+                ui.desktopAlertShipmentEmailFailuresWrap.hidden = failures.length === 0;
+                ui.desktopAlertShipmentEmailFailuresWrap.title = failures.length
+                    ? `${num(failures.length)} shipped order${failures.length === 1 ? "" : "s"} need customer shipment email attention.`
+                    : "No failed shipment emails are loaded.";
+            }
+        }
+
+        async function refreshShipmentEmailAlerts(silent = true) {
+            if (shipmentEmailAlertLoading) return shipmentEmailAlertRecords;
+            shipmentEmailAlertLoading = true;
+            try {
+                const company = getActiveCompany();
+                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+                const payload = await requestJson(`/api/admin/shipment-email-alerts${query}`);
+                shipmentEmailAlertRecords = Array.isArray(payload?.orders)
+                    ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
+                    : [];
+                shipmentEmailAlertsLoaded = true;
+                updateShipmentEmailFailureAlert();
+                renderWarehouseDashboard();
+                return shipmentEmailAlertRecords;
+            } catch (error) {
+                if (!silent) showMessage(ui.portalOrdersMessage, `Could not load shipment email alerts: ${error.message}`, "error");
+                return shipmentEmailAlertRecords;
+            } finally {
+                shipmentEmailAlertLoading = false;
+            }
+        }
+
+        function openShipmentEmailFailureOrders() {
+            setSection("shipped", { focusAnchorId: "portalOrdersQueueCard" });
+            if (ui.portalOrderSearch) ui.portalOrderSearch.value = "EMAIL FAILED";
+            renderPortalOrdersWorkspace();
+            refreshPortalOrdersList(true, { allowAllCompanies: true, showLoading: true })
+                .then(() => {
+                    if (ui.portalOrderSearch) ui.portalOrderSearch.value = "EMAIL FAILED";
+                    renderPortalOrdersWorkspace();
+                    const failures = getFilteredPortalOrders().filter(isShipmentEmailFailure);
+                    showMessage(
+                        ui.portalOrdersMessage,
+                        failures.length
+                            ? `Showing ${num(failures.length)} shipped order${failures.length === 1 ? "" : "s"} with failed customer shipment emails.`
+                            : "No failed shipment emails match the current company and search filters.",
+                        failures.length ? "error" : "success"
+                    );
+                })
+                .catch((error) => showMessage(ui.portalOrdersMessage, error.message, "error"));
+        }
+
         function getCompanyScopedPortalInbounds() {
             const company = norm(getActiveCompany());
             return company
@@ -15518,6 +15601,7 @@
             if (ui.desktopAlertInbounds) {
                 ui.desktopAlertInbounds.textContent = num(openInboundCount);
             }
+            updateShipmentEmailFailureAlert();
             if (ui.desktopFactboxReleased) {
                 ui.desktopFactboxReleased.textContent = num(releasedCount);
             }
@@ -16001,6 +16085,7 @@
             const releasedOrders = openOrders.filter((order) => norm(order.status) === "RELEASED");
             const pickedOrders = openOrders.filter((order) => norm(order.status) === "PICKED");
             const stagedOrders = openOrders.filter((order) => norm(order.status) === "STAGED");
+            const failedShipmentEmails = getShipmentEmailFailureOrders();
             const rushTasks = activeTasks.filter((task) => ["RUSH", "HIGH"].includes(norm(task.priority)));
             const blockedTasks = activeTasks.filter((task) => norm(task.status) === "BLOCKED");
             const overdueTasks = activeTasks.filter((task) => warehouseTaskSlaInfo(task).status === "OVERDUE");
@@ -16095,6 +16180,7 @@
             if (ui.warehouseDashboardPlanningList) {
                 const notes = [];
                 const addNote = (title, body, tone = "") => notes.push({ title, body, tone });
+                if (failedShipmentEmails.length) addNote("Shipment email failed", `${num(failedShipmentEmails.length)} shipped order${failedShipmentEmails.length === 1 ? " needs" : "s need"} customer shipment email attention. Open Shipped Orders and search EMAIL FAILED.`, "warn");
                 if (overdueTasks.length) addNote("SLA aging", `${num(overdueTasks.length)} warehouse task${overdueTasks.length === 1 ? " is" : "s are"} past SLA. Clear these before starting normal-priority work.`, "warn");
                 if (dueSoonTasks.length) addNote("SLA watch", `${num(dueSoonTasks.length)} task${dueSoonTasks.length === 1 ? " is" : "s are"} due within four hours.`, "warn");
                 if (blockedTasks.length) addNote("Blocked task", `${num(blockedTasks.length)} warehouse task${blockedTasks.length === 1 ? " is" : "s are"} blocked. Open the task queue before assigning new work.`, "warn");
@@ -22040,6 +22126,7 @@
                 portalOrderRecords = orders;
                 void shipToRefresh;
                 refreshWarehouseTasksList(true).catch(() => {});
+                refreshShipmentEmailAlerts(true).catch(() => {});
                 renderPortalOrdersWorkspace();
                 if (showLoading) {
                     setPortalOrdersLoadingMessage(`Updated ${company || "all company"} sales orders.`, "success");
@@ -22091,6 +22178,9 @@
                     order.shippedCarrierName,
                     order.shippedTrackingReference,
                     order.shippedConfirmationNote,
+                    order.shipmentEmailStatus,
+                    order.shipmentEmailLastError,
+                    isShipmentEmailFailure(order) ? "EMAIL FAILED SHIPMENT EMAIL FAILED CUSTOMER EMAIL FAILED" : "",
                     order.updatedAt,
                     ...(Array.isArray(order.lines) ? order.lines.flatMap((line) => [
                         line.sku,
@@ -22145,6 +22235,11 @@
                 const isDraft = order.status === "DRAFT";
                 const orderStateLabel = order.status === "CANCELLED" ? "Cancelled" : (isDraft ? "Draft" : "Open document");
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+                const emailFailure = isShipmentEmailFailure(order);
+                const statusHtml = [
+                    `<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>`,
+                    emailFailure ? `<span class="pill error" title="${attr(order.shipmentEmailLastError || "Customer shipment email failed.")}">Email failed</span>` : ""
+                ].filter(Boolean).join(" ");
                 return `
                     <tr data-open-warehouse-order="${attr(order.id)}">
                         <td><button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.id)}">${esc(order.orderCode)}</button></td>
@@ -22153,7 +22248,7 @@
                         <td>${esc(order.requestedShipDate || "Not set")}</td>
                         <td>${num(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</td>
                         <td>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</td>
-                        <td><span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span></td>
+                        <td>${statusHtml}</td>
                         <td>${order.documents?.length ? `${num(order.documents.length)} doc${order.documents.length === 1 ? "" : "s"}` : "-"}</td>
                         <td>${esc(orderStateLabel)}</td>
                     </tr>
@@ -22395,6 +22490,7 @@
             renderWarehouseSalesOrderContext();
             updateDesktopOperationsAlerts();
             renderWarehouseDashboard();
+            refreshShipmentEmailAlerts(true).catch(() => {});
             if (sanitized && String(sanitized.id) === String(editingWarehouseOrderId)) {
                 resetWarehouseSalesOrderForm(sanitized);
             }
@@ -26341,6 +26437,7 @@
             try {
                 const payload = await requestJson("/api/state");
                 applyServerState(payload);
+                refreshShipmentEmailAlerts(true).catch(() => {});
                 return payload;
             } catch (error) {
                 if (!silent) {
@@ -27434,6 +27531,11 @@
                 shippedCarrierName: String(item.shippedCarrierName || item.shipped_carrier_name || "").trim(),
                 shippedTrackingReference: String(item.shippedTrackingReference || item.shipped_tracking_reference || "").trim(),
                 shippedConfirmationNote: String(item.shippedConfirmationNote || item.shipped_confirmation_note || "").trim(),
+                shipmentEmailStatus: norm(item.shipmentEmailStatus || item.shipment_email_status || ""),
+                shipmentEmailScheduledAt: typeof item.shipmentEmailScheduledAt === "string" ? item.shipmentEmailScheduledAt : (typeof item.shipment_email_scheduled_at === "string" ? item.shipment_email_scheduled_at : null),
+                shipmentEmailSentAt: typeof item.shipmentEmailSentAt === "string" ? item.shipmentEmailSentAt : (typeof item.shipment_email_sent_at === "string" ? item.shipment_email_sent_at : null),
+                shipmentEmailLastError: String(item.shipmentEmailLastError || item.shipment_email_last_error || "").trim(),
+                shipmentEmailAttempts: Number(item.shipmentEmailAttempts || item.shipment_email_attempts || 0) || 0,
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString()),
                 releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : (typeof item.released_at === "string" ? item.released_at : null),
