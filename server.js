@@ -3561,11 +3561,13 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
             ? await getPortalOrdersForAccount(requestedAccount)
             : await getAdminPortalOrders();
         res.setHeader("Cache-Control", "no-store");
+        if (isSuperAdminUser(req.appUser)) {
+            res.json({ orders });
+            return;
+        }
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
         res.json({
-            orders: isSuperAdminUser(req.appUser)
-                ? orders
-                : orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
+            orders: orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
         });
     } catch (error) {
         next(error);
@@ -7003,6 +7005,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_company_fulfillment_locations_location on company_fulfillment_locations (fulfillment_location_id);");
     await pool.query("create index if not exists idx_item_catalog_account_name on item_catalog (account_name);");
     await pool.query("create index if not exists idx_item_catalog_sku on item_catalog (sku);");
+    await pool.query("create index if not exists idx_item_catalog_account_sku on item_catalog (account_name, sku);");
     await pool.query("create index if not exists idx_item_catalog_upc on item_catalog (upc);");
     await pool.query("create index if not exists idx_portal_vendor_access_account_name on portal_vendor_access (account_name);");
     await pool.query("create unique index if not exists idx_customer_email_preferences_unique on customer_email_preferences (account_name, email, notification_type);");
@@ -7013,16 +7016,20 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_portal_orders_order_code_unique on portal_orders (order_code);");
     await pool.query("create index if not exists idx_portal_orders_account_name on portal_orders (account_name);");
     await pool.query("create index if not exists idx_portal_orders_status on portal_orders (status);");
+    await pool.query("create index if not exists idx_portal_orders_account_active_recent on portal_orders (account_name, created_at desc, id desc) where status <> 'ARCHIVED';");
+    await pool.query("create index if not exists idx_portal_orders_active_recent on portal_orders (created_at desc, id desc) where status <> 'ARCHIVED';");
     await pool.query("create index if not exists idx_portal_orders_fulfillment_location on portal_orders (fulfillment_location_id);");
     await pool.query("create unique index if not exists idx_portal_kitting_requests_code_unique on portal_kitting_requests (request_code);");
     await pool.query("create index if not exists idx_portal_kitting_requests_account on portal_kitting_requests (account_name, created_at desc);");
     await pool.query("create index if not exists idx_portal_kitting_requests_status on portal_kitting_requests (status, created_at desc);");
     await pool.query("create index if not exists idx_portal_order_lines_order_id on portal_order_lines (order_id);");
+    await pool.query("create index if not exists idx_portal_order_lines_order_sort on portal_order_lines (order_id, line_number, id);");
     await pool.query("create index if not exists idx_portal_order_allocations_order_id on portal_order_allocations (order_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_order_line_id on portal_order_allocations (order_line_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_inventory_line_id on portal_order_allocations (inventory_line_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_sku on portal_order_allocations (sku);");
     await pool.query("create index if not exists idx_portal_order_documents_order_id on portal_order_documents (order_id);");
+    await pool.query("create index if not exists idx_portal_order_documents_order_sort on portal_order_documents (order_id, created_at, id);");
     await pool.query("create unique index if not exists idx_portal_inbounds_inbound_code_unique on portal_inbounds (inbound_code);");
     await pool.query("create index if not exists idx_portal_inbounds_account_name on portal_inbounds (account_name);");
     await pool.query("create index if not exists idx_portal_inbounds_status on portal_inbounds (status);");
@@ -12720,16 +12727,15 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
                 end)::integer as available_quantity
             from inventory_lines i
             left join bin_locations bl on bl.code = i.location
-            left join (
+            left join lateral (
                 select
-                    a.inventory_line_id,
                     coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
                 from portal_order_allocations a
                 join portal_orders o on o.id = a.order_id
-                where o.status = any($3::text[])
+                where a.inventory_line_id = i.id
+                  and o.status = any($3::text[])
                   and a.inventory_line_id is not null
-                group by a.inventory_line_id
-            ) c on c.inventory_line_id = i.id
+            ) c on true
             where (i.account_name, i.sku) in (
                 select *
                 from unnest($1::text[], $2::text[])
