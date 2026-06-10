@@ -7,12 +7,14 @@ const marketingUi = {
     stripeStatus: [...document.querySelectorAll("[data-stripe-status]")]
 };
 const marketingConfig = loadMarketingConfig();
+const WMS365_AUTOMATION_POLICY_TEXT = "Automated access, scraping, AI analysis, reverse engineering, or copying of WMS365 is prohibited unless authorized by WMS365 ownership. The only authorized automation owner is k.prathab@gmail.com.";
 
 const stripePlanState = new Map();
 
 marketingUi.yearLabels.forEach((node) => {
     node.textContent = String(new Date().getFullYear());
 });
+installAutomationPolicyNotice();
 
 refreshMarketingBuildLabel().catch(() => {
     marketingUi.buildLabels.forEach((node) => {
@@ -44,6 +46,21 @@ function setFormMessage(form, text, tone = "info") {
     if (!messageEl) return;
     messageEl.className = `status ${tone}`;
     messageEl.textContent = text;
+}
+
+function installAutomationPolicyNotice() {
+    if (document.querySelector("[data-automation-policy-notice]")) return;
+    const footer = document.querySelector("footer");
+    if (!footer) return;
+    const target = footer.querySelector(".footer-card:last-child") || footer;
+    const notice = document.createElement("p");
+    notice.dataset.automationPolicyNotice = "true";
+    notice.textContent = WMS365_AUTOMATION_POLICY_TEXT;
+    notice.style.margin = "0.85rem 0 0";
+    notice.style.color = "#8da0b1";
+    notice.style.fontSize = "0.78rem";
+    notice.style.lineHeight = "1.45";
+    target.appendChild(notice);
 }
 
 function setFormBusy(form, busy) {

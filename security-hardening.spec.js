@@ -4,6 +4,10 @@ const http = require("node:http");
 
 const {
     app,
+    RBAC_PERMISSIONS,
+    roleHasPermission,
+    userHasPermission,
+    isKnownAiCrawlerUserAgent,
     validateProductionEnvironment,
     assertProductionEnvironment,
     isForbiddenOutboundEmailSender,
@@ -19,19 +23,20 @@ function dataUrl(mimeType, buffer) {
     return `data:${mimeType};base64,${Buffer.from(buffer).toString("base64")}`;
 }
 
-function request(server, pathName) {
+function request(server, pathName, options = {}) {
     return new Promise((resolve, reject) => {
         const address = server.address();
         const req = http.request({
             host: "127.0.0.1",
             port: address.port,
             path: pathName,
-            method: "GET"
+            method: "GET",
+            headers: options.headers || {}
         }, (res) => {
             let body = "";
             res.setEncoding("utf8");
             res.on("data", (chunk) => { body += chunk; });
-            res.on("end", () => resolve({ statusCode: res.statusCode, body }));
+            res.on("end", () => resolve({ statusCode: res.statusCode, headers: res.headers, body }));
         });
         req.on("error", reject);
         req.end();
@@ -129,6 +134,39 @@ test("destructive import requires feature flag and typed confirmation", () => {
         /Type IMPORT WMS365/
     );
     assert.doesNotThrow(() => assertDestructiveImportAllowed({ body: { confirmationToken: "IMPORT WMS365" } }, { allow: true }));
+});
+
+test("automation permission is only granted to the WMS365 owner email", () => {
+    assert.equal(roleHasPermission("super_admin", RBAC_PERMISSIONS.ALLOW_AUTOMATION), false);
+    assert.equal(userHasPermission({ email: "other.owner@example.com", role: "super_admin" }, RBAC_PERMISSIONS.ALLOW_AUTOMATION), false);
+    assert.equal(userHasPermission({ email: "k.prathab@gmail.com", role: "warehouse_worker" }, RBAC_PERMISSIONS.ALLOW_AUTOMATION), true);
+});
+
+test("known AI crawler user agents are detected and blocked", async () => {
+    assert.equal(isKnownAiCrawlerUserAgent("Mozilla/5.0 AppleWebKit GPTBot"), true);
+    assert.equal(isKnownAiCrawlerUserAgent("Mozilla/5.0 Chrome Safari"), false);
+
+    const server = app.listen(0);
+    try {
+        const response = await request(server, "/", { headers: { "User-Agent": "ChatGPT-User" } });
+        assert.equal(response.statusCode, 403);
+        assert.match(response.body, /Automated access, scraping, AI analysis/);
+        assert.equal(response.headers["x-wms365-blocked-reason"], "ai-crawler");
+    } finally {
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test("llms.txt is public and carries the no-automation policy", async () => {
+    const server = app.listen(0);
+    try {
+        const response = await request(server, "/llms.txt");
+        assert.equal(response.statusCode, 200);
+        assert.match(response.body, /Do not crawl or scrape WMS365/);
+        assert.match(response.headers["x-robots-tag"], /noai/);
+    } finally {
+        await new Promise((resolve) => server.close(resolve));
+    }
 });
 
 test("health endpoint returns 503 when database is unavailable", async () => {

@@ -89,6 +89,7 @@ public class MainActivity extends Activity {
     private static final String KEY_COMPANIES = "companies";
     private static final String KEY_OUTBOX = "outbox";
     private static final String KEY_COUNTED_LOCATIONS = "countedLocations";
+    private static final String AUTOMATION_POLICY_TEXT = "Automated access, scraping, AI analysis, reverse engineering, or copying of WMS365 is prohibited unless authorized by WMS365 ownership. The only authorized automation owner is k.prathab@gmail.com.";
 
     private static final int BG = Color.rgb(244, 247, 249);
     private static final int TEXT = Color.rgb(15, 23, 42);
@@ -251,6 +252,7 @@ public class MainActivity extends Activity {
                 }));
                 l.addView(statusLine);
                 l.addView(status("Native app. Hardware scanner ready."));
+                l.addView(status(AUTOMATION_POLICY_TEXT));
             }
         }));
         email.requestFocus();

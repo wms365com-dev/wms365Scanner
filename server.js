@@ -249,10 +249,11 @@ const RBAC_PERMISSIONS = Object.freeze({
     INBOUND_STATUS_UPDATE: "inbound_status_update",
     INTEGRATION_MANAGE: "integration_manage",
     DESTRUCTIVE_IMPORT: "destructive_import",
+    ALLOW_AUTOMATION: "allow_automation",
     CUSTOMER_PORTAL_OWN_ACCOUNT: "customer_portal_own_account"
 });
 const ROLE_PERMISSION_MAP = Object.freeze({
-    [APP_USER_ROLES.SUPER_ADMIN]: Object.freeze(Object.values(RBAC_PERMISSIONS)),
+    [APP_USER_ROLES.SUPER_ADMIN]: Object.freeze(Object.values(RBAC_PERMISSIONS).filter((permission) => permission !== RBAC_PERMISSIONS.ALLOW_AUTOMATION)),
     [APP_USER_ROLES.ADMIN]: Object.freeze([
         RBAC_PERMISSIONS.WAREHOUSE_ADMIN,
         RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
@@ -287,6 +288,8 @@ const ROLE_PERMISSION_MAP = Object.freeze({
         RBAC_PERMISSIONS.CUSTOMER_PORTAL_OWN_ACCOUNT
     ])
 });
+const AUTHORIZED_AUTOMATION_OWNER_EMAIL = "k.prathab@gmail.com";
+const AI_AUTOMATION_POLICY_TEXT = "Automated access, scraping, AI analysis, reverse engineering, or copying of WMS365 is prohibited unless authorized by WMS365 ownership. The only authorized automation owner is k.prathab@gmail.com.";
 const BILLING_FINANCE_ROLE_SET = new Set([
     APP_USER_ROLES.SUPER_ADMIN,
     APP_USER_ROLES.ADMIN,
@@ -696,17 +699,242 @@ const app = express();
 app.set("trust proxy", 1);
 
 const loginRateBuckets = new Map();
+const automationRateBuckets = new Map();
+const automationPathBuckets = new Map();
+const automationAuditCooldowns = new Map();
 let lastAppSessionCleanupAt = 0;
 
 function getClientIp(req) {
     return String(req.headers["x-forwarded-for"] || req.ip || req.socket?.remoteAddress || "").split(",")[0].trim();
 }
 
-function applySecurityHeaders(_req, res, next) {
+const AI_CRAWLER_USER_AGENT_PATTERNS = Object.freeze([
+    /gptbot/i,
+    /chatgpt-user/i,
+    /oai-searchbot/i,
+    /claudebot/i,
+    /claude-user/i,
+    /anthropic-ai/i,
+    /perplexitybot/i,
+    /perplexity-user/i,
+    /ccbot/i,
+    /bytespider/i,
+    /cohere-ai/i,
+    /ai2bot/i,
+    /amazonbot/i,
+    /applebot-extended/i,
+    /google-extended/i,
+    /meta-externalagent/i,
+    /meta-externalfetcher/i,
+    /diffbot/i,
+    /youbot/i,
+    /timpibot/i,
+    /dataforseobot/i,
+    /omgili/i
+]);
+
+const AUTOMATION_DECLARATION_HEADERS = Object.freeze([
+    "x-wms365-automation",
+    "x-automation-client",
+    "x-ai-agent",
+    "x-bulk-client"
+]);
+
+const STATIC_ASSET_PATH_PATTERN = /\.(?:css|js|png|jpg|jpeg|webp|gif|svg|ico|json|xml|webmanifest|txt|woff2?)$/i;
+const BULK_ACCESS_PATH_PATTERN = /(?:\/api\/export\b|\/export(?:\.|\/|$)|\/bulk(?:-|\/|$)|\/import(?:-|\/|$)|\/backup(?:-|\/|$)|\/reports?(?:\/|$)|\/inventory\/export)/i;
+
+function getRequestPathName(req) {
+    return String(req?.path || req?.url || "").split("?")[0] || "/";
+}
+
+function getRequestUserAgent(req) {
+    return String(req?.headers?.["user-agent"] || "");
+}
+
+function isKnownAiCrawlerUserAgent(userAgent) {
+    const value = String(userAgent || "");
+    return value ? AI_CRAWLER_USER_AGENT_PATTERNS.some((pattern) => pattern.test(value)) : false;
+}
+
+function isDeclaredAutomationRequest(req) {
+    if (String(req?.query?.automation || "").trim().toLowerCase() === "true") return true;
+    return AUTOMATION_DECLARATION_HEADERS.some((headerName) => {
+        const value = String(req.get?.(headerName) || "").trim();
+        return value && value !== "0" && value.toLowerCase() !== "false";
+    });
+}
+
+function isBulkAccessPath(req) {
+    return BULK_ACCESS_PATH_PATTERN.test(getRequestPathName(req));
+}
+
+function getAutomationActorLabel(req) {
+    return normalizeEmail(req?.appUser?.email || "") || getClientIp(req) || "unknown";
+}
+
+function cleanupExpiredMapBuckets(map, now = Date.now()) {
+    if (map.size < 500) return;
+    for (const [key, bucket] of map.entries()) {
+        if (!bucket || bucket.resetAt <= now) {
+            map.delete(key);
+        }
+    }
+}
+
+function getRateBucket(map, key, windowMs, now = Date.now()) {
+    cleanupExpiredMapBuckets(map, now);
+    const existing = map.get(key);
+    if (!existing || existing.resetAt <= now) {
+        const bucket = { count: 0, resetAt: now + windowMs };
+        map.set(key, bucket);
+        return bucket;
+    }
+    return existing;
+}
+
+async function auditAutomationSecurityAttempt(req, title, details = {}) {
+    if (!databaseReady) return;
+    try {
+        const now = Date.now();
+        const userEmail = normalizeEmail(req?.appUser?.email || "");
+        const key = [
+            title,
+            userEmail || getClientIp(req),
+            getRequestPathName(req)
+        ].join(":");
+        const cooldownUntil = automationAuditCooldowns.get(key) || 0;
+        if (cooldownUntil > now) return;
+        automationAuditCooldowns.set(key, now + (5 * 60 * 1000));
+        await insertActivity(
+            pool,
+            "security",
+            title,
+            [
+                userEmail ? `User ${userEmail}` : "No signed-in user",
+                req?.appUser?.role ? `Role ${req.appUser.role}` : "",
+                req?.method || "",
+                req?.originalUrl || req?.url || "",
+                getClientIp(req) ? `IP ${getClientIp(req)}` : "",
+                details.reason ? `Reason ${details.reason}` : "",
+                details.userAgent ? `UA ${String(details.userAgent).slice(0, 180)}` : "",
+                details.count ? `Count ${details.count}` : "",
+                details.distinctPaths ? `Paths ${details.distinctPaths}` : ""
+            ].filter(Boolean).join(" | ")
+        );
+    } catch (error) {
+        console.error("Unable to audit automation security attempt:", error.message || error);
+    }
+}
+
+function blockKnownAutomationCrawler(req, res, next) {
+    const pathName = getRequestPathName(req);
+    if (pathName === "/api/health" || pathName === "/api/version" || pathName === "/robots.txt" || pathName === "/llms.txt") {
+        return next();
+    }
+    const userAgent = getRequestUserAgent(req);
+    if (!isKnownAiCrawlerUserAgent(userAgent)) {
+        return next();
+    }
+    res.setHeader("X-WMS365-Blocked-Reason", "ai-crawler");
+    void auditAutomationSecurityAttempt(req, "Blocked AI crawler access", {
+        reason: "known_ai_user_agent",
+        userAgent
+    });
+    return res.status(403).type("text/plain; charset=utf-8").send(`${AI_AUTOMATION_POLICY_TEXT}\n`);
+}
+
+function denyProductionSourceMapAccess(req, res, next) {
+    if (!IS_PRODUCTION || !/\.map(?:$|\?)/i.test(getRequestPathName(req))) {
+        return next();
+    }
+    void auditAutomationSecurityAttempt(req, "Blocked production source map request", {
+        reason: "source_map_request",
+        userAgent: getRequestUserAgent(req)
+    });
+    return res.status(404).type("text/plain; charset=utf-8").send("Not found");
+}
+
+function monitorAutomationAndBulkAccess(req, _res, next) {
+    if (userHasPermission(req.appUser, RBAC_PERMISSIONS.ALLOW_AUTOMATION)) {
+        return next();
+    }
+
+    const pathName = getRequestPathName(req);
+    if (STATIC_ASSET_PATH_PATTERN.test(pathName) && pathName !== "/robots.txt" && pathName !== "/llms.txt") {
+        return next();
+    }
+
+    if (isDeclaredAutomationRequest(req)) {
+        void auditAutomationSecurityAttempt(req, "Blocked unauthorized automation request", {
+            reason: "automation_header_or_query",
+            userAgent: getRequestUserAgent(req)
+        });
+        return next(httpError(403, "Automation access is restricted to authorized WMS365 ownership."));
+    }
+
+    const now = Date.now();
+    const actor = getAutomationActorLabel(req);
+    const isApi = pathName.startsWith("/api/");
+    const isBulk = isBulkAccessPath(req);
+    const windowMs = isBulk ? 15 * 60 * 1000 : (isApi ? 10 * 60 * 1000 : 5 * 60 * 1000);
+    const hardLimit = isBulk ? 20 : (isApi ? 900 : 220);
+    const key = `${actor}:${isBulk ? "bulk" : isApi ? "api" : "page"}`;
+    const bucket = getRateBucket(automationRateBuckets, key, windowMs, now);
+    bucket.count += 1;
+
+    const pathBucket = getRateBucket(automationPathBuckets, `${actor}:paths`, 10 * 60 * 1000, now);
+    if (!pathBucket.paths) pathBucket.paths = new Set();
+    pathBucket.paths.add(pathName);
+
+    if (isBulk && bucket.count > 6) {
+        void auditAutomationSecurityAttempt(req, "Automation alert: repeated bulk access", {
+            reason: "repeated_bulk_access",
+            count: bucket.count,
+            distinctPaths: pathBucket.paths.size,
+            userAgent: getRequestUserAgent(req)
+        });
+    } else if (pathBucket.paths.size > 80 || (isApi && bucket.count > 450)) {
+        void auditAutomationSecurityAttempt(req, "Automation alert: abnormal system traversal", {
+            reason: "abnormal_navigation_or_api_volume",
+            count: bucket.count,
+            distinctPaths: pathBucket.paths.size,
+            userAgent: getRequestUserAgent(req)
+        });
+    }
+
+    if (bucket.count > hardLimit) {
+        void auditAutomationSecurityAttempt(req, "Blocked abnormal automation volume", {
+            reason: "rate_limit",
+            count: bucket.count,
+            distinctPaths: pathBucket.paths.size,
+            userAgent: getRequestUserAgent(req)
+        });
+        return next(httpError(429, "Too many requests. Please slow down and try again."));
+    }
+
+    return next();
+}
+
+function applySecurityHeaders(req, res, next) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader("Permissions-Policy", "geolocation=(), microphone=()");
+    res.setHeader("X-WMS365-AI-Policy", "automation-prohibited-except-authorized-owner");
+    const pathName = getRequestPathName(req);
+    const robotsTags = pathName.startsWith("/api/")
+        || pathName === "/login"
+        || pathName === "/login.html"
+        || pathName === "/portal"
+        || pathName === "/portal.html"
+        || pathName.startsWith("/mobile")
+        || pathName === "/app"
+        || pathName === "/desktop"
+        || pathName === "/access"
+        || pathName === "/access.html"
+        ? "noindex, nofollow, noarchive, nosnippet, noai, noimageai"
+        : "noarchive, nosnippet, noai, noimageai";
+    res.setHeader("X-Robots-Tag", robotsTags);
     next();
 }
 
@@ -744,6 +972,8 @@ function loginRateLimit(req, _res, next) {
 }
 
 app.use(applySecurityHeaders);
+app.use(blockKnownAutomationCrawler);
+app.use(denyProductionSourceMapAccess);
 app.use(requireSameOriginForStateChanges);
 
 app.use((req, res, next) => {
@@ -793,6 +1023,8 @@ app.use(async (req, res, next) => {
         next(error);
     }
 });
+
+app.use(monitorAutomationAndBulkAccess);
 
 app.post("/api/app/login", async (req, res, next) => {
     try {
@@ -1523,7 +1755,7 @@ app.post("/api/mobile/receiving-confirmations", requireMobileWorkerAction(), asy
     }
 });
 
-app.get("/api/export", async (req, res, next) => {
+app.get("/api/export", requireSuperAdmin(), async (req, res, next) => {
     try {
         res.json({
             app: "WMS365 Scanner",
@@ -4729,19 +4961,19 @@ app.get("/api/portal/inbound-documents/:id", async (req, res, next) => {
 });
 
 app.get("/portal", (_req, res) => {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
 app.get("/portal.html", (_req, res) => {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
 app.get("/mobile-pick", async (req, res) => {
     try {
         await requireAppSession(req);
-        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
         res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
     } catch (_error) {
         clearAppSessionCookie(res, req);
@@ -4752,7 +4984,7 @@ app.get("/mobile-pick", async (req, res) => {
 app.get("/mobile-pick.html", async (req, res) => {
     try {
         await requireAppSession(req);
-        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
         res.sendFile(path.join(ROOT_DIR, "mobile-pick.html"));
     } catch (_error) {
         clearAppSessionCookie(res, req);
@@ -4763,7 +4995,7 @@ app.get("/mobile-pick.html", async (req, res) => {
 app.get("/mobile-count", async (req, res) => {
     try {
         await requireAppSession(req);
-        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
         res.setHeader("Cache-Control", "no-store, max-age=0");
         res.setHeader("Pragma", "no-cache");
         res.setHeader("Expires", "0");
@@ -4777,7 +5009,7 @@ app.get("/mobile-count", async (req, res) => {
 app.get("/mobile-count.html", async (req, res) => {
     try {
         await requireAppSession(req);
-        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
         res.setHeader("Cache-Control", "no-store, max-age=0");
         res.setHeader("Pragma", "no-cache");
         res.setHeader("Expires", "0");
@@ -4789,22 +5021,22 @@ app.get("/mobile-count.html", async (req, res) => {
 });
 
 app.get("/login", (_req, res) => {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
 
 app.get("/login.html", (_req, res) => {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.sendFile(path.join(ROOT_DIR, "login.html"));
 });
 
 app.get("/access", (_req, res) => {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.sendFile(path.join(ROOT_DIR, "access.html"));
 });
 
 app.get("/access.html", (_req, res) => {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.sendFile(path.join(ROOT_DIR, "access.html"));
 });
 
@@ -4856,7 +5088,7 @@ async function getAppDomainHomePath(req, res) {
 }
 
 function sendWarehouseApp(res) {
-    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     res.setHeader("Cache-Control", "no-store, max-age=0");
     res.sendFile(path.join(ROOT_DIR, "index.html"));
 }
@@ -4874,7 +5106,7 @@ function sendMarketingPage(req, res, fileName) {
         if (publicOrigin) {
             return res.redirect(`${publicOrigin}${req.path === "/" ? "" : req.path}`);
         }
-        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
     }
     res.sendFile(path.join(ROOT_DIR, fileName));
 }
@@ -5020,6 +5252,11 @@ app.get("/robots.txt", (req, res) => {
     return res.sendFile(path.join(ROOT_DIR, "robots.txt"));
 });
 
+app.get("/llms.txt", (_req, res) => {
+    res.type("text/plain; charset=utf-8");
+    res.sendFile(path.join(ROOT_DIR, "llms.txt"));
+});
+
 app.get("/sitemap.xml", (_req, res) => {
     res.type("application/xml; charset=utf-8");
     res.sendFile(path.join(ROOT_DIR, "sitemap.xml"));
@@ -5083,7 +5320,7 @@ app.get("/delivery-appointment-action", async (req, res, next) => {
             res.status(404).send(renderDeliveryAppointmentActionPage(null, "", "This delivery appointment link is no longer valid."));
             return;
         }
-        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
         res.send(renderDeliveryAppointmentActionPage(mapPortalDeliveryAppointmentRow(row), token));
     } catch (error) {
         next(error);
@@ -26227,11 +26464,19 @@ function roleHasPermission(roleOrUser, permission) {
     const normalizedRole = normalizeText(role || "") === "CUSTOMER_PORTAL_USER"
         ? CUSTOMER_PORTAL_ROLE
         : normalizeAppUserRole(role || "");
+    if (permission === RBAC_PERMISSIONS.ALLOW_AUTOMATION) return false;
     if (normalizedRole === APP_USER_ROLES.SUPER_ADMIN) return true;
     return getRolePermissions(normalizedRole).includes(permission);
 }
 
+function isAuthorizedAutomationUser(user) {
+    return normalizeEmail(user?.email || "") === AUTHORIZED_AUTOMATION_OWNER_EMAIL;
+}
+
 function userHasPermission(user, permission) {
+    if (permission === RBAC_PERMISSIONS.ALLOW_AUTOMATION) {
+        return isAuthorizedAutomationUser(user);
+    }
     return !!user && roleHasPermission(user, permission);
 }
 
@@ -26304,6 +26549,12 @@ function requireInventoryAdjustPermission() {
 function requireMobileWorkerAction() {
     return requirePermission(RBAC_PERMISSIONS.MOBILE_WORKER_ACTION, {
         message: "Mobile warehouse task access is required for that action."
+    });
+}
+
+function requireAutomationAccess() {
+    return requirePermission(RBAC_PERMISSIONS.ALLOW_AUTOMATION, {
+        message: "Automation access is restricted to authorized WMS365 ownership."
     });
 }
 
@@ -26943,7 +27194,7 @@ function isPublicRequest(req) {
     if (pathName === "/implementation" || pathName === "/implementation.html") return true;
     if (pathName === "/device-resources" || pathName === "/device-resources.html") return true;
     if (pathName === "/delivery-appointment-action") return true;
-    if (pathName === "/robots.txt" || pathName === "/sitemap.xml") return true;
+    if (pathName === "/robots.txt" || pathName === "/llms.txt" || pathName === "/sitemap.xml") return true;
     if (pathName === "/marketing-logo.svg") return true;
     if (pathName === "/site.webmanifest") return true;
     if (pathName === "/mobile-bridge.js") return true;
@@ -27135,6 +27386,10 @@ module.exports = {
     requireWarehouseAdmin,
     requireInventoryAdjustPermission,
     requireMobileWorkerAction,
+    requireAutomationAccess,
+    isAuthorizedAutomationUser,
+    isKnownAiCrawlerUserAgent,
+    AI_AUTOMATION_POLICY_TEXT,
     validateProductionEnvironment,
     assertProductionEnvironment,
     isForbiddenOutboundEmailSender,

@@ -1346,7 +1346,7 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).withMargins()
     }
 
-    private fun footer(): TextView = statusView("Works offline. Pick confirmations sync automatically.")
+    private fun footer(): TextView = statusView("Works offline. Pick confirmations sync automatically.\n$AUTOMATION_POLICY_TEXT")
 
     private fun runAsync(loading: String, action: () -> Unit) {
         toastStatus(loading, false)
@@ -1435,5 +1435,6 @@ class MainActivity : Activity() {
         private val YELLOW = Color.rgb(202, 138, 4)
         private val RED = Color.rgb(185, 28, 28)
         private val DARK = Color.rgb(15, 23, 42)
+        private const val AUTOMATION_POLICY_TEXT = "Automated access, scraping, AI analysis, reverse engineering, or copying of WMS365 is prohibited unless authorized by WMS365 ownership. The only authorized automation owner is k.prathab@gmail.com."
     }
 }
