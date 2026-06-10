@@ -10424,6 +10424,9 @@
         const PORTAL_ORDERS_CACHE_TTL_MS = 30000;
         const portalOrdersCompanyCache = new Map();
         const portalOrdersInFlight = new Map();
+        const portalOrderDetailsInFlight = new Map();
+        let portalOrdersAllCompaniesRequested = false;
+        let portalOrdersLoadingTimer = null;
         let portalInboundRecords = [];
         let portalKittingRecords = [];
         let shipToAddressRecords = [];
@@ -11427,7 +11430,16 @@
                     await runActionWithFeedback({
                         button: ui.syncNowBtn,
                         busyLabel: "Refreshing..."
-                    }, () => syncServerState(true));
+                    }, async () => {
+                        await syncServerState(true);
+                        if (activeSection === "orders" || activeSection === "shipped") {
+                            if (!getActiveCompany()) portalOrdersAllCompaniesRequested = true;
+                            await refreshPortalOrdersList(false, {
+                                allowAllCompanies: true,
+                                showLoading: true
+                            });
+                        }
+                    });
                 } catch (error) {
                     if (ui.workspaceSyncChip) {
                         ui.workspaceSyncChip.textContent = previousSyncLabel;
@@ -12000,7 +12012,7 @@
             refreshPortalAccessList().catch(() => {});
             refreshIntegrationsList().catch(() => {});
             refreshSkuMappingsList(true).catch(() => {});
-            refreshPortalOrdersList().catch(() => {});
+            refreshPortalOrdersList(true, { allowAllCompanies: false, showLoading: activeSection === "orders" || activeSection === "shipped" }).catch(() => {});
             refreshPortalInboundsList().catch(() => {});
             refreshKittingRequestsAdmin(true).catch(() => {});
             refreshFeedbackQueue(true).catch(() => {});
@@ -12010,7 +12022,7 @@
                     syncServerState(true).catch(() => {});
                     refreshIntegrationsList().catch(() => {});
                     refreshSkuMappingsList(true).catch(() => {});
-                    refreshPortalOrdersList(true).catch(() => {});
+                    refreshPortalOrdersList(true, { showLoading: false }).catch(() => {});
                     refreshPortalInboundsList(true).catch(() => {});
                     refreshKittingRequestsAdmin(true).catch(() => {});
                     refreshFeedbackQueue(true).catch(() => {});
@@ -12021,7 +12033,7 @@
                 syncServerState(true).catch(() => {});
                 refreshIntegrationsList().catch(() => {});
                 refreshSkuMappingsList(true).catch(() => {});
-                refreshPortalOrdersList(true).catch(() => {});
+                refreshPortalOrdersList(true, { showLoading: false }).catch(() => {});
                 refreshPortalInboundsList(true).catch(() => {});
                 refreshKittingRequestsAdmin(true).catch(() => {});
                 refreshFeedbackQueue(true).catch(() => {});
@@ -12652,7 +12664,7 @@
                     if (section === "shipped") showSalesOrderList({ scroll: false });
                     if (section === "shipped" && ui.portalOrderSearch) ui.portalOrderSearch.focus();
                 }
-                refreshPortalOrdersList(true).catch(() => {});
+                refreshPortalOrdersList(true, { showLoading: true }).catch(() => {});
             }
         }
 
@@ -13779,7 +13791,11 @@
             updateActiveCompanyUi();
             if (persist) saveState();
             if (rerender) refreshCompanyScopedUi();
-            refreshPortalOrdersList(true).catch(() => {});
+            portalOrdersAllCompaniesRequested = !normalized;
+            refreshPortalOrdersList(true, {
+                allowAllCompanies: portalOrdersAllCompaniesRequested,
+                showLoading: activeSection === "orders" || activeSection === "shipped"
+            }).catch(() => {});
             refreshPortalInboundsList(true).catch(() => {});
             refreshKittingRequestsAdmin(true).catch(() => {});
             refreshSkuMappingsList(true).catch(() => {});
@@ -15926,12 +15942,14 @@
             closeDashboardListPopout();
             if (task.sourceType === "PORTAL_ORDER") {
                 setSection("orders", { focusAnchorId: "portalOrdersQueueCard" });
-                let order = getPortalOrderById(task.sourceId);
-                if (!order) {
-                    await refreshPortalOrdersList(true).catch(() => {});
-                    order = getPortalOrderById(task.sourceId);
+                try {
+                    await openSalesOrderDetail(task.sourceId, {
+                        messageElement: ui.portalOrdersMessage,
+                        scroll: true
+                    });
+                } catch (error) {
+                    showMessage(ui.portalOrdersMessage, error.message, "error");
                 }
-                if (order) showSalesOrderDocument(order, { scroll: true });
                 return;
             }
             if (task.sourceType === "PORTAL_INBOUND") {
@@ -21906,6 +21924,21 @@
             renderWarehouseDashboard();
         }
 
+        function setPortalOrdersLoadingMessage(message, tone = "info", { delay = false } = {}) {
+            if (!ui.portalOrdersMessage) return;
+            if (portalOrdersLoadingTimer) {
+                window.clearTimeout(portalOrdersLoadingTimer);
+                portalOrdersLoadingTimer = null;
+            }
+            if (!message) return;
+            const apply = () => showMessage(ui.portalOrdersMessage, message, tone);
+            if (delay) {
+                portalOrdersLoadingTimer = window.setTimeout(apply, 300);
+            } else {
+                apply();
+            }
+        }
+
         function isPortalOrdersRefreshCurrent(refreshSerial, companyKey) {
             return refreshSerial === portalOrdersRefreshSerial && norm(getActiveCompany()) === companyKey;
         }
@@ -21953,12 +21986,20 @@
             }
         }
 
-        async function refreshPortalOrdersList(silent = false) {
+        async function refreshPortalOrdersList(silent = false, { allowAllCompanies = portalOrdersAllCompaniesRequested, showLoading = !silent } = {}) {
             const company = getActiveCompany();
             const companyKey = norm(company);
             const cacheKey = getPortalOrdersRequestKey(company);
             const refreshSerial = ++portalOrdersRefreshSerial;
             let renderedCachedOrders = false;
+            if (!company && !allowAllCompanies) {
+                portalOrderRecords = [];
+                renderPortalOrdersWorkspace();
+                if (showLoading) {
+                    setPortalOrdersLoadingMessage("Choose a company to load sales orders. Use Refresh if you need the All Companies view.", "info");
+                }
+                return portalOrderRecords;
+            }
             try {
                 const shipToRefresh = refreshShipToAddresses(true).catch(() => []);
                 const cached = portalOrdersCompanyCache.get(cacheKey);
@@ -21966,6 +22007,11 @@
                     portalOrderRecords = cached.orders;
                     renderPortalOrdersWorkspace();
                     renderedCachedOrders = true;
+                    if (showLoading) {
+                        setPortalOrdersLoadingMessage(`Showing recent ${company || "all company"} orders. Updating...`, "info");
+                    }
+                } else if (showLoading) {
+                    setPortalOrdersLoadingMessage(`Loading ${company || "all company"} sales orders...`, "info", { delay: true });
                 }
                 const payload = await requestPortalOrdersForCompany(company);
                 if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
@@ -21981,10 +22027,16 @@
                 void shipToRefresh;
                 refreshWarehouseTasksList(true).catch(() => {});
                 renderPortalOrdersWorkspace();
+                if (showLoading) {
+                    setPortalOrdersLoadingMessage(`Updated ${company || "all company"} sales orders.`, "success");
+                }
                 return portalOrderRecords;
             } catch (error) {
                 if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
                 if (renderedCachedOrders) return portalOrderRecords;
+                if (showLoading) {
+                    setPortalOrdersLoadingMessage(`Could not refresh sales orders: ${error.message}`, "error");
+                }
                 if (!silent) {
                     portalOrderRecords = [];
                     renderPortalOrdersList(error.message);
@@ -22162,6 +22214,56 @@
             return portalOrderRecords.find((entry) => String(entry.id) === String(orderId)) || null;
         }
 
+        function requestPortalOrderDetail(orderId) {
+            const key = String(orderId || "");
+            if (!key) return Promise.resolve(null);
+            const existing = portalOrderDetailsInFlight.get(key);
+            if (existing) return existing;
+            const request = requestJson(`/api/admin/portal-orders/${encodeURIComponent(key)}`)
+                .then((payload) => {
+                    const order = mergePortalOrderRecord(payload?.order, { invalidateCache: false });
+                    renderPortalOrdersWorkspace();
+                    return order;
+                })
+                .finally(() => {
+                    if (portalOrderDetailsInFlight.get(key) === request) portalOrderDetailsInFlight.delete(key);
+                });
+            portalOrderDetailsInFlight.set(key, request);
+            return request;
+        }
+
+        async function openSalesOrderDetail(orderId, { button = null, messageElement = ui.portalOrdersMessage, scroll = true } = {}) {
+            const summary = getPortalOrderById(orderId);
+            const orderLabel = summary?.orderCode || orderId;
+            const open = async () => {
+                const order = await requestPortalOrderDetail(orderId);
+                if (!order) throw new Error("That sales order could not be loaded.");
+                showSalesOrderDocument(order, { scroll });
+                showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode || orderLabel}.`, "info");
+                return order;
+            };
+            if (button) {
+                try {
+                    return await runActionWithFeedback({
+                        button,
+                        busyLabel: "Opening...",
+                        messageElement,
+                        progressMessage: `Opening sales order ${orderLabel}...`
+                    }, open);
+                } catch (error) {
+                    showMessage(messageElement || ui.portalOrdersMessage, error.message, "error");
+                    return null;
+                }
+            }
+            if (messageElement) showMessage(messageElement, `Opening sales order ${orderLabel}...`, "info");
+            try {
+                return await open();
+            } catch (error) {
+                showMessage(messageElement || ui.portalOrdersMessage, error.message, "error");
+                return null;
+            }
+        }
+
         function getPortalInboundRecordById(inboundId) {
             return portalInboundRecords.find((entry) => String(entry.id) === String(inboundId)) || null;
         }
@@ -22256,10 +22358,10 @@
             }
         }
 
-        function mergePortalOrderRecord(updatedOrder) {
+        function mergePortalOrderRecord(updatedOrder, { invalidateCache = true } = {}) {
             const sanitized = sanitizePortalOrderRecord(updatedOrder);
             if (!sanitized) return null;
-            portalOrdersCompanyCache.clear();
+            if (invalidateCache) portalOrdersCompanyCache.clear();
             const existingIndex = portalOrderRecords.findIndex((entry) => String(entry.id) === String(sanitized.id));
             if (existingIndex >= 0) {
                 portalOrderRecords.splice(existingIndex, 1, sanitized);
@@ -22447,25 +22549,47 @@
             const actionMessageElement = getPortalOrderActionMessageElement(event.target);
             const editWarehouseOrderButton = event.target.closest("[data-edit-warehouse-order]");
             if (editWarehouseOrderButton) {
-                const order = getPortalOrderById(editWarehouseOrderButton.dataset.editWarehouseOrder || "");
-                if (order) {
-                    showSalesOrderDocument(order, { scroll: true });
-                    showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode}.`, "info");
-                }
+                await openSalesOrderDetail(editWarehouseOrderButton.dataset.editWarehouseOrder || "", {
+                    button: editWarehouseOrderButton,
+                    messageElement: actionMessageElement,
+                    scroll: true
+                });
                 return;
             }
 
             const pickTicketButton = event.target.closest("[data-print-pick-ticket]");
             if (pickTicketButton) {
-                const order = getPortalOrderById(pickTicketButton.dataset.printPickTicket || "");
-                if (order) printPortalOrderDocument(order, "pick", actionMessageElement);
+                try {
+                    await runActionWithFeedback({
+                        button: pickTicketButton,
+                        busyLabel: "Opening...",
+                        messageElement: actionMessageElement,
+                        progressMessage: "Loading full order details for the pick ticket..."
+                    }, async () => {
+                        const order = await requestPortalOrderDetail(pickTicketButton.dataset.printPickTicket || "");
+                        if (order) printPortalOrderDocument(order, "pick", actionMessageElement);
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
                 return;
             }
 
             const packingSlipButton = event.target.closest("[data-print-packing-slip]");
             if (packingSlipButton) {
-                const order = getPortalOrderById(packingSlipButton.dataset.printPackingSlip || "");
-                if (order) printPortalOrderDocument(order, "packing", actionMessageElement);
+                try {
+                    await runActionWithFeedback({
+                        button: packingSlipButton,
+                        busyLabel: "Opening...",
+                        messageElement: actionMessageElement,
+                        progressMessage: "Loading full order details for the packing slip..."
+                    }, async () => {
+                        const order = await requestPortalOrderDetail(packingSlipButton.dataset.printPackingSlip || "");
+                        if (order) printPortalOrderDocument(order, "packing", actionMessageElement);
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
                 return;
             }
 
@@ -22648,11 +22772,11 @@
 
             const openOrderButton = event.target.closest("[data-open-warehouse-order]");
             if (openOrderButton) {
-                const order = getPortalOrderById(openOrderButton.dataset.openWarehouseOrder || "");
-                if (order) {
-                    showSalesOrderDocument(order, { scroll: true });
-                    showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode}.`, "info");
-                }
+                await openSalesOrderDetail(openOrderButton.dataset.openWarehouseOrder || "", {
+                    button: openOrderButton,
+                    messageElement: actionMessageElement,
+                    scroll: true
+                });
             }
         }
 

@@ -3558,8 +3558,8 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
         }
         const orders = requestedAccount
-            ? await getPortalOrdersForAccount(requestedAccount)
-            : await getAdminPortalOrders();
+            ? await getPortalOrderListForAccount(requestedAccount)
+            : await getAdminPortalOrderList();
         res.setHeader("Cache-Control", "no-store");
         if (isSuperAdminUser(req.appUser)) {
             res.json({ orders });
@@ -3732,6 +3732,27 @@ app.post("/api/admin/portal-orders", async (req, res, next) => {
             return saveWarehousePortalOrderDraft(client, accountName, req.body, null, req.appUser);
         });
         res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/portal-orders/:id", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const order = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            return getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+        });
+        if (!order) {
+            throw httpError(404, "That sales order could not be found.");
+        }
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ order });
     } catch (error) {
         next(error);
     }
@@ -12889,6 +12910,73 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries);
 }
 
+async function getPortalOrderList({ accountName = "", limit = 100, client = pool, downloadPathPrefix = "/api/admin/portal-order-documents" } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const params = [];
+    const filters = ["status <> 'ARCHIVED'"];
+    if (normalizedAccount) {
+        params.push(normalizedAccount);
+        filters.push(`account_name = $${params.length}`);
+    }
+    params.push(Math.max(1, Math.min(Number(limit) || 100, 200)));
+    const limitPlaceholder = `$${params.length}`;
+    const ordersResult = await client.query(
+        `
+            select *
+            from portal_orders
+            where ${filters.join(" and ")}
+            order by created_at desc, id desc
+            limit ${limitPlaceholder}
+        `,
+        params
+    );
+
+    const orderIds = ordersResult.rows.map((row) => row.id);
+    const linesResult = orderIds.length
+        ? await client.query(
+            `
+                select
+                    l.*,
+                    o.account_name,
+                    c.description as item_description,
+                    c.upc as item_upc,
+                    c.tracking_level as item_tracking_level,
+                    c.lot_tracked as item_lot_tracked,
+                    c.expiration_tracked as item_expiration_tracked
+                from portal_order_lines l
+                join portal_orders o on o.id = l.order_id
+                left join item_catalog c
+                  on c.account_name = o.account_name
+                 and c.sku = l.sku
+                where l.order_id = any($1::bigint[])
+                order by l.order_id desc, l.line_number asc, l.id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+    const documentsResult = orderIds.length
+        ? await client.query(
+            `
+                select id, order_id, file_name, file_type, file_size, uploaded_by, created_at
+                from portal_order_documents
+                where order_id = any($1::bigint[])
+                order by order_id desc, created_at asc, id asc
+            `,
+            [orderIds]
+        )
+        : { rows: [] };
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map());
+}
+
+async function getPortalOrderListForAccount(accountName, client = pool) {
+    return getPortalOrderList({
+        accountName,
+        client,
+        limit: 100,
+        downloadPathPrefix: "/api/admin/portal-order-documents"
+    });
+}
+
 async function getShipToAddressesForAccount(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) return [];
@@ -12951,6 +13039,14 @@ async function getAdminPortalOrders(client = pool) {
         )
         : { rows: [] };
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", new Map(), allocationSummaries);
+}
+
+async function getAdminPortalOrderList(client = pool) {
+    return getPortalOrderList({
+        client,
+        limit: 150,
+        downloadPathPrefix: "/api/admin/portal-order-documents"
+    });
 }
 
 function filterMobilePickOrdersForAppUser(orders, appUser, {
