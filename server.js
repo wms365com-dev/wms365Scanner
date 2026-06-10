@@ -3657,7 +3657,8 @@ app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
         }
         const tasks = await withTransaction(async (client) => {
-            await syncWarehouseTasksFromOperationalRecords(client);
+            // Source document mutations sync warehouse tasks. Read endpoints must stay
+            // side-effect free so dashboard refreshes cannot block company switching.
             const result = await getWarehouseTaskRowsForAppUser(client, req.appUser, {
                 accountName: requestedAccount,
                 status: req.query?.status,
@@ -8143,8 +8144,6 @@ function ensureDatabaseHealthWatchdogStarted() {
 }
 
 async function getServerState(client = pool, { billingEventLimit = 1000, appUser = null } = {}) {
-    await syncWarehouseTasksFromOperationalRecords(client);
-
     const billingEventsQuery = Number.isFinite(billingEventLimit) && billingEventLimit > 0
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
