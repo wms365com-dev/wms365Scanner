@@ -195,6 +195,7 @@ const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const DEFAULT_RECEIVING_STAGE_LOCATION = "RECEIVING-STAGE";
 const NON_PICKABLE_LOCATION_TYPES = new Set(["RECEIVING_STAGE", "DOCK", "QA_HOLD", "STAGING"]);
@@ -927,6 +928,43 @@ app.get("/api/version", (_req, res) => {
         app: "WMS365 Scanner",
         build: APP_BUILD_INFO
     });
+});
+
+app.get(["/email-preferences/unsubscribe", "/api/email-preferences/unsubscribe"], async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        const preference = verifyCustomerEmailPreferenceToken(req.query?.token || "");
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).send(renderCustomerEmailUnsubscribePage({
+            ...preference,
+            token: req.query?.token || "",
+            mode: "confirm"
+        }));
+    } catch (error) {
+        res.status(error.statusCode || 400).send(renderCustomerEmailUnsubscribePage({
+            errorMessage: error.message || "This unsubscribe link could not be processed."
+        }));
+    }
+});
+
+app.post(["/email-preferences/unsubscribe", "/api/email-preferences/unsubscribe"], async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        const preference = verifyCustomerEmailPreferenceToken(req.query?.token || req.body?.token || "");
+        await withTransaction((client) => unsubscribeCustomerEmailPreference(client, {
+            ...preference,
+            source: "daily_update_email_link"
+        }));
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).send(renderCustomerEmailUnsubscribePage({
+            ...preference,
+            mode: "success"
+        }));
+    } catch (error) {
+        res.status(error.statusCode || 400).send(renderCustomerEmailUnsubscribePage({
+            errorMessage: error.message || "This unsubscribe link could not be processed."
+        }));
+    }
 });
 
 app.post("/api/admin/system-email/daily-summary/send-now", async (req, res, next) => {
@@ -5764,6 +5802,28 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_portal_vendor_access_email_unique on portal_vendor_access (email) where email is not null and btrim(email) <> ''");
 
     await pool.query(`
+        create table if not exists customer_email_preferences (
+            id bigserial primary key,
+            account_name text not null,
+            email text not null,
+            notification_type text not null,
+            is_subscribed boolean not null default true,
+            unsubscribed_at timestamptz,
+            unsubscribe_source text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, email, notification_type)
+        );
+    `);
+    await pool.query("alter table customer_email_preferences add column if not exists account_name text not null default ''");
+    await pool.query("alter table customer_email_preferences add column if not exists email text not null default ''");
+    await pool.query("alter table customer_email_preferences add column if not exists notification_type text not null default ''");
+    await pool.query("alter table customer_email_preferences add column if not exists is_subscribed boolean not null default true");
+    await pool.query("alter table customer_email_preferences add column if not exists unsubscribed_at timestamptz");
+    await pool.query("alter table customer_email_preferences add column if not exists unsubscribe_source text not null default ''");
+    await pool.query("update customer_email_preferences set email = lower(email) where email is not null and email <> lower(email)");
+
+    await pool.query(`
         create table if not exists portal_sessions (
             id bigserial primary key,
             portal_access_id bigint not null references portal_vendor_access(id) on delete cascade,
@@ -6707,6 +6767,9 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_item_catalog_sku on item_catalog (sku);");
     await pool.query("create index if not exists idx_item_catalog_upc on item_catalog (upc);");
     await pool.query("create index if not exists idx_portal_vendor_access_account_name on portal_vendor_access (account_name);");
+    await pool.query("create unique index if not exists idx_customer_email_preferences_unique on customer_email_preferences (account_name, email, notification_type);");
+    await pool.query("create index if not exists idx_customer_email_preferences_email on customer_email_preferences (email, notification_type);");
+    await pool.query("create index if not exists idx_customer_email_preferences_account on customer_email_preferences (account_name, notification_type, is_subscribed);");
     await pool.query("create index if not exists idx_portal_sessions_access_id on portal_sessions (portal_access_id);");
     await pool.query("create index if not exists idx_portal_sessions_expires_at on portal_sessions (expires_at);");
     await pool.query("create unique index if not exists idx_portal_orders_order_code_unique on portal_orders (order_code);");
@@ -8949,6 +9012,7 @@ function requiresAppAuth(req) {
         || pathName === "/api/site/stripe-checkout-session"
         || pathName === "/api/site/stripe-checkout"
         || pathName === "/api/site/stripe-webhook"
+        || pathName === "/api/email-preferences/unsubscribe"
         || pathName === "/api/delivery-appointment-action"
         || pathName === "/api/app/login"
         || pathName === "/api/app/recovery/username"
@@ -14324,6 +14388,161 @@ async function sendPortalAccessWelcomeEmail({ accountName, email, password, port
             sourceRef: email
         }
     }, "Portal welcome email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+}
+
+function getEmailPreferenceTokenSecret() {
+    return readEnv("EMAIL_UNSUBSCRIBE_SECRET", "") || INTEGRATION_SECRET_KEY;
+}
+
+function createCustomerEmailPreferenceToken({ accountName, email, notificationType = CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE }) {
+    const payload = {
+        v: 1,
+        accountName: normalizeText(accountName),
+        email: normalizeEmail(email),
+        notificationType: normalizeText(notificationType || CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE)
+    };
+    if (!payload.accountName || !payload.email || !payload.notificationType) return "";
+    const secret = getEmailPreferenceTokenSecret();
+    if (!secret) return "";
+    const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    const signature = crypto.createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+    return `${encodedPayload}.${signature}`;
+}
+
+function verifyCustomerEmailPreferenceToken(token) {
+    const [encodedPayload, signature] = String(token || "").trim().split(".");
+    if (!encodedPayload || !signature) {
+        throw httpError(400, "This unsubscribe link is invalid.");
+    }
+    const secret = getEmailPreferenceTokenSecret();
+    if (!secret) {
+        throw httpError(503, "Email preference links are not configured.");
+    }
+    const expectedSignature = crypto.createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+    const provided = Buffer.from(signature);
+    const expected = Buffer.from(expectedSignature);
+    if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+        throw httpError(400, "This unsubscribe link is invalid.");
+    }
+    let payload;
+    try {
+        payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    } catch (_error) {
+        throw httpError(400, "This unsubscribe link is invalid.");
+    }
+    const accountName = normalizeText(payload?.accountName);
+    const email = normalizeEmail(payload?.email);
+    const notificationType = normalizeText(payload?.notificationType || CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE);
+    if (!accountName || !email || !notificationType) {
+        throw httpError(400, "This unsubscribe link is incomplete.");
+    }
+    return { accountName, email, notificationType };
+}
+
+function buildCustomerEmailUnsubscribeUrl({ accountName, email, notificationType = CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE } = {}) {
+    const token = createCustomerEmailPreferenceToken({ accountName, email, notificationType });
+    if (!token) return "";
+    const origin = APP_BASE_URL || PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL;
+    const url = new URL("/email-preferences/unsubscribe", String(origin).replace(/\/+$/, ""));
+    url.searchParams.set("token", token);
+    return url.toString();
+}
+
+async function unsubscribeCustomerEmailPreference(client, { accountName, email, notificationType, source = "email_link" }) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedType = normalizeText(notificationType || CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE);
+    if (!normalizedAccount || !normalizedEmail || !normalizedType) {
+        throw httpError(400, "The unsubscribe request is incomplete.");
+    }
+    const result = await client.query(
+        `
+            insert into customer_email_preferences (
+                account_name, email, notification_type, is_subscribed, unsubscribed_at, unsubscribe_source, updated_at
+            )
+            values ($1, $2, $3, false, now(), $4, now())
+            on conflict (account_name, email, notification_type)
+            do update set
+                is_subscribed = false,
+                unsubscribed_at = coalesce(customer_email_preferences.unsubscribed_at, now()),
+                unsubscribe_source = excluded.unsubscribe_source,
+                updated_at = now()
+            returning *
+        `,
+        [
+            normalizedAccount,
+            normalizedEmail,
+            normalizedType,
+            normalizeFreeText(source || "email_link")
+        ]
+    );
+    await insertActivity(
+        client,
+        "email",
+        "Customer unsubscribed from WMS365 email",
+        `${normalizedAccount} | ${normalizedEmail} | ${normalizedType}`
+    );
+    return result.rows[0] || null;
+}
+
+async function isCustomerEmailSubscribed(client, { accountName, email, notificationType = CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedType = normalizeText(notificationType || CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE);
+    if (!normalizedAccount || !normalizedEmail || !normalizedType) return true;
+    const result = await client.query(
+        `
+            select is_subscribed
+            from customer_email_preferences
+            where account_name = $1
+              and email = $2
+              and notification_type = $3
+            limit 1
+        `,
+        [normalizedAccount, normalizedEmail, normalizedType]
+    );
+    if (result.rowCount !== 1) return true;
+    return result.rows[0].is_subscribed !== false;
+}
+
+function renderCustomerEmailUnsubscribePage({ accountName = "", email = "", notificationType = "", errorMessage = "", token = "", mode = "success" } = {}) {
+    const hasError = !!errorMessage;
+    const isConfirm = !hasError && mode === "confirm";
+    const title = hasError ? "Unable to unsubscribe" : (isConfirm ? "Unsubscribe from daily updates?" : "You are unsubscribed");
+    const body = hasError
+        ? escapeHtml(errorMessage)
+        : isConfirm
+            ? `Confirm that you want to stop daily account update emails for ${escapeHtml(email)} under ${escapeHtml(accountName)}.`
+            : `We will no longer send the daily account update email to ${escapeHtml(email)} for ${escapeHtml(accountName)}.`;
+    const tokenValue = encodeURIComponent(token || "");
+    return `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(title)} | WMS365</title>
+    <style>
+        body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fa;color:#172b3a;font-family:Arial,Helvetica,sans-serif}
+        main{width:min(92vw,560px);background:#fff;border:1px solid #dbe5ec;border-radius:12px;padding:30px;box-shadow:0 12px 34px rgba(15,42,60,.10)}
+        .kicker{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#0f6f8c;font-weight:700}
+        h1{margin:10px 0 12px;font-size:28px;line-height:1.2;color:#163447}
+        p{line-height:1.55}
+        button{border:0;border-radius:8px;background:#0f6f8c;color:#fff;font-weight:700;padding:12px 18px;cursor:pointer}
+        .meta{font-size:13px;color:#64748b}
+        a{color:#0f6f8c}
+    </style>
+</head>
+<body>
+    <main>
+        <div class="kicker">WMS365 Email Preferences</div>
+        <h1>${escapeHtml(title)}</h1>
+        <p>${body}</p>
+        ${isConfirm ? `<form method="post" action="/email-preferences/unsubscribe?token=${tokenValue}"><button type="submit">Unsubscribe</button></form>` : ""}
+        ${notificationType ? `<p class="meta">Notification type: ${escapeHtml(notificationType.replace(/_/g, " "))}</p>` : ""}
+        <p class="meta">Need this turned back on? Contact <a href="mailto:${WMS365_SYSTEM_EMAIL_ADDRESS}">${WMS365_SYSTEM_EMAIL_ADDRESS}</a>.</p>
+    </main>
+</body>
+</html>`;
 }
 
 function buildWarehouseLoginUrl(req) {
@@ -26710,6 +26929,8 @@ function isPublicRequest(req) {
     if (pathName === "/api/site/stripe-checkout-session") return true;
     if (pathName === "/api/site/stripe-checkout") return true;
     if (pathName === "/api/site/stripe-webhook") return true;
+    if (pathName === "/api/email-preferences/unsubscribe") return true;
+    if (pathName === "/email-preferences/unsubscribe") return true;
     if (pathName === "/" || pathName === "/index.html") return true;
     if (pathName === "/access" || pathName === "/access.html") return true;
     if (pathName === "/marketing" || pathName === "/marketing.html") return true;
