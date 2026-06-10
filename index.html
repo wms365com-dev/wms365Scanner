@@ -10420,9 +10420,12 @@
         let integrationRecords = [];
         let skuMappingRecords = [];
         let portalOrderRecords = [];
+        let portalOrdersRefreshSerial = 0;
+        const portalOrdersInFlight = new Map();
         let portalInboundRecords = [];
         let portalKittingRecords = [];
         let shipToAddressRecords = [];
+        let shipToAddressesRefreshSerial = 0;
         let feedbackRecords = [];
         let mobileDeviceRecords = [];
         let emailQueueRecords = [];
@@ -21890,8 +21893,35 @@
             }
         }
 
+        function getPortalOrdersRequestKey(company) {
+            return norm(company) || "__ALL_COMPANIES__";
+        }
+
+        function isPortalOrdersRefreshCurrent(refreshSerial, companyKey) {
+            return refreshSerial === portalOrdersRefreshSerial && norm(getActiveCompany()) === companyKey;
+        }
+
+        function requestPortalOrdersForCompany(company) {
+            const key = getPortalOrdersRequestKey(company);
+            const existing = portalOrdersInFlight.get(key);
+            if (existing) return existing;
+            const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+            const request = requestJson(`/api/admin/portal-orders${query}`)
+                .finally(() => {
+                    if (portalOrdersInFlight.get(key) === request) portalOrdersInFlight.delete(key);
+                });
+            portalOrdersInFlight.set(key, request);
+            return request;
+        }
+
+        function isShipToRefreshCurrent(refreshSerial, companyKey) {
+            return refreshSerial === shipToAddressesRefreshSerial && norm(getActiveCompany()) === companyKey;
+        }
+
         async function refreshShipToAddresses(silent = true) {
             const company = getActiveCompany();
+            const companyKey = norm(company);
+            const refreshSerial = ++shipToAddressesRefreshSerial;
             if (!company) {
                 shipToAddressRecords = [];
                 renderWarehouseShipToAddressOptions();
@@ -21899,12 +21929,14 @@
             }
             try {
                 const payload = await requestJson(`/api/admin/ship-to-addresses?accountName=${encodeURIComponent(company)}`);
+                if (!isShipToRefreshCurrent(refreshSerial, companyKey)) return shipToAddressRecords;
                 shipToAddressRecords = Array.isArray(payload?.addresses)
                     ? payload.addresses.map(sanitizeShipToAddressRecord).filter(Boolean)
                     : [];
                 renderWarehouseShipToAddressOptions();
                 return shipToAddressRecords;
             } catch (error) {
+                if (!isShipToRefreshCurrent(refreshSerial, companyKey)) return shipToAddressRecords;
                 shipToAddressRecords = [];
                 renderWarehouseShipToAddressOptions();
                 if (!silent) showMessage(ui.warehouseOrderMessage, error.message, "error");
@@ -21913,33 +21945,27 @@
         }
 
         async function refreshPortalOrdersList(silent = false) {
+            const company = getActiveCompany();
+            const companyKey = norm(company);
+            const refreshSerial = ++portalOrdersRefreshSerial;
             try {
-                const company = getActiveCompany();
-                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
-                const [ordersPayload] = await Promise.all([
-                    requestJson(`/api/admin/portal-orders${query}`),
-                    refreshShipToAddresses(true).catch(() => [])
-                ]);
-                let payload = ordersPayload;
+                const shipToRefresh = refreshShipToAddresses(true).catch(() => []);
+                const payload = await requestPortalOrdersForCompany(company);
+                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
                 let orders = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
 
-                if (!orders.length && company) {
-                    const fallbackPayload = await requestJson(`/api/admin/portal-orders`);
-                    const fallbackOrders = Array.isArray(fallbackPayload?.orders)
-                        ? fallbackPayload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
-                        : [];
-                    orders = fallbackOrders.filter((order) => norm(order.accountName) === norm(company));
-                }
-
                 portalOrderRecords = orders;
-                await refreshWarehouseTasksList(true).catch(() => {});
+                void shipToRefresh;
+                refreshWarehouseTasksList(true).catch(() => {});
                 renderPortalOrdersList();
                 renderWarehouseSalesOrderContext();
                 updateDesktopOperationsAlerts();
                 renderWarehouseDashboard();
+                return portalOrderRecords;
             } catch (error) {
+                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
                 if (!silent) {
                     portalOrderRecords = [];
                     renderPortalOrdersList(error.message);
