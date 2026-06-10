@@ -1672,6 +1672,31 @@
             font-size: 0.82rem;
         }
 
+        .connection-status-dot {
+            width: 0.72rem;
+            height: 0.72rem;
+            border-radius: 999px;
+            flex: 0 0 auto;
+            border: 2px solid rgba(255,255,255,0.88);
+            background: #f59e0b;
+            box-shadow: 0 0 0 2px rgba(245,158,11,0.2);
+        }
+
+        .connection-status-dot.connected {
+            background: #22c55e;
+            box-shadow: 0 0 0 2px rgba(34,197,94,0.24);
+        }
+
+        .connection-status-dot.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 0 2px rgba(239,68,68,0.24);
+        }
+
+        .connection-status-dot.checking {
+            background: #f59e0b;
+            box-shadow: 0 0 0 2px rgba(245,158,11,0.24);
+        }
+
         .utility-action-link:hover {
             background: #eef4f8;
         }
@@ -6149,7 +6174,10 @@
                     </div>
                 </div>
                 <div class="desktop-utility-actions">
-                    <span class="utility-status-pill" id="appBuildBadge">Build loading...</span>
+                    <span class="utility-status-pill" id="appBuildBadge" title="Checking WMS365 connection">
+                        <span class="connection-status-dot checking" id="appConnectionDot" aria-label="Checking connection"></span>
+                        <span id="appBuildLabelText">Build loading...</span>
+                    </span>
                     <a class="utility-action-link" href="mailto:support@wms365.co">Contact Support</a>
                     <details class="company-switcher" id="desktopCompanySwitcher">
                         <summary class="topbar-icon-button" id="desktopCompanySwitcherSummary" title="Available Companies" aria-label="Available Companies">
@@ -10668,6 +10696,8 @@
             desktopFactboxContextTitle: document.getElementById("desktopFactboxContextTitle"),
             desktopFactboxContextBody: document.getElementById("desktopFactboxContextBody"),
             appBuildBadge: document.getElementById("appBuildBadge"),
+            appBuildLabelText: document.getElementById("appBuildLabelText"),
+            appConnectionDot: document.getElementById("appConnectionDot"),
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
             appBuildFooter: document.getElementById("appBuildFooter"),
@@ -11370,6 +11400,10 @@
             mountIntegrationsWorkspace();
             syncDesktopNavigationToc();
             refreshAppBuildLabels().catch(() => {});
+            refreshAppConnectionStatus().catch(() => setAppConnectionStatus("disconnected", "Connection check failed."));
+            window.setInterval(() => {
+                refreshAppConnectionStatus().catch(() => setAppConnectionStatus("disconnected", "Connection check failed."));
+            }, 60000);
             updateDesktopSectionBackButton();
             const debouncedRenderMasterLibrary = debounce(() => renderMasterLibrary(), 140);
             const debouncedRenderPortalOrders = debounce(() => renderPortalOrdersList(), 140);
@@ -12073,11 +12107,42 @@
 
         function applyAppBuildLabels(label) {
             const safeLabel = String(label || "Build unavailable").trim() || "Build unavailable";
-            if (ui.appBuildBadge) ui.appBuildBadge.textContent = safeLabel;
+            if (ui.appBuildLabelText) ui.appBuildLabelText.textContent = safeLabel;
+            else if (ui.appBuildBadge) ui.appBuildBadge.textContent = safeLabel;
             if (ui.appBuildMeta) ui.appBuildMeta.textContent = safeLabel;
             if (ui.appBuildMobileLabel) ui.appBuildMobileLabel.textContent = safeLabel;
             if (ui.appBuildFooter) ui.appBuildFooter.textContent = `Deployment: ${safeLabel}`;
             syncFeedbackContext();
+        }
+
+        function setAppConnectionStatus(status = "checking", detail = "") {
+            const normalized = ["connected", "disconnected"].includes(status) ? status : "checking";
+            const labels = {
+                connected: "Connected to WMS365",
+                disconnected: "Connection issue",
+                checking: "Checking connection"
+            };
+            const message = detail || labels[normalized];
+            if (ui.appConnectionDot) {
+                ui.appConnectionDot.classList.remove("connected", "disconnected", "checking");
+                ui.appConnectionDot.classList.add(normalized);
+                ui.appConnectionDot.setAttribute("aria-label", message);
+                ui.appConnectionDot.title = message;
+            }
+            if (ui.appBuildBadge) {
+                ui.appBuildBadge.dataset.connectionStatus = normalized;
+                ui.appBuildBadge.title = message;
+            }
+        }
+
+        async function refreshAppConnectionStatus() {
+            setAppConnectionStatus("checking", "Checking WMS365 connection...");
+            const payload = await requestJson("/api/health", { cache: "no-store" });
+            const healthy = payload?.ok === true && payload?.databaseReady !== false;
+            setAppConnectionStatus(
+                healthy ? "connected" : "disconnected",
+                healthy ? "Connected to WMS365" : "WMS365 connection issue. Refresh or contact support."
+            );
         }
 
         async function refreshAppBuildLabels() {
