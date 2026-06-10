@@ -12886,9 +12886,7 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
             [orderIds]
         )
         : { rows: [] };
-    const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
-
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", locationSummaries, allocationSummaries);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries);
 }
 
 async function getShipToAddressesForAccount(accountName, client = pool) {
@@ -12952,9 +12950,7 @@ async function getAdminPortalOrders(client = pool) {
             [orderIds]
         )
         : { rows: [] };
-    const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
-
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", locationSummaries, allocationSummaries);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", new Map(), allocationSummaries);
 }
 
 function filterMobilePickOrdersForAppUser(orders, appUser, {
