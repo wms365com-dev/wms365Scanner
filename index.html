@@ -12633,7 +12633,19 @@
                 "choose a 3pl company",
                 "choose 3pl company"
             ].map(norm));
-            return blocked.has(normalized) ? "" : normalized;
+            if (blocked.has(normalized)) return "";
+            const knownCompanies = [...new Set(
+                []
+                    .concat(state?.masters?.owners || [])
+                    .concat((state?.masters?.ownerRecords || []).map((owner) => owner.name))
+                    .concat((state?.masters?.companyFulfillmentLocations || []).map((assignment) => assignment.accountName))
+                    .map((entry) => norm(entry))
+                    .filter(Boolean)
+            )].sort((a, b) => b.length - a.length);
+            const directMatch = knownCompanies.find((entry) => entry === normalized);
+            if (directMatch) return directMatch;
+            const decoratedMatch = knownCompanies.find((entry) => normalized.startsWith(`${entry} (`));
+            return decoratedMatch || normalized;
         }
 
         function getActiveCompany() {
@@ -12684,12 +12696,14 @@
 
         function updateActiveCompanyUi() {
             const company = getActiveCompany();
+            const companyDisplay = formatCompanySelectorLabel(company);
             if (ui.activeCompanyDisplay) {
-                ui.activeCompanyDisplay.textContent = company || "All Companies";
+                ui.activeCompanyDisplay.textContent = companyDisplay || "All Companies";
             }
             if (ui.activeCompanyMeta) {
+                const warehouseSummary = formatCompanyWarehouseSummary(company);
                 ui.activeCompanyMeta.textContent = company
-                    ? `Company locked to ${company}.`
+                    ? `Company locked to ${company}.${warehouseSummary ? ` Warehouses: ${warehouseSummary}.` : ""}`
                     : "Choose a company to lock receiving, inventory, outbound, billing, and reports.";
             }
             if (ui.clearActiveCompanyBtn) {
@@ -13708,6 +13722,7 @@
         function updateMobileCompanyContextUi() {
             const company = getActiveCompany();
             const draftCompany = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
+            const companyDisplay = formatCompanySelectorLabel(company);
             const mobileTaskButtons = [
                 ...(ui.mobileNavButtons || []),
                 ...(ui.mobileLinkButtons || []),
@@ -13724,10 +13739,11 @@
                 button.title = company ? "" : "Choose a company first.";
             });
             if (!company) ui.mobilePendingPanel?.classList.add("hidden");
-            if (ui.mobileCompanyLockedLabel) ui.mobileCompanyLockedLabel.textContent = company || "Choose company";
+            if (ui.mobileCompanyLockedLabel) ui.mobileCompanyLockedLabel.textContent = companyDisplay || "Choose company";
             if (ui.mobileCompanyMeta) {
+                const warehouseSummary = formatCompanyWarehouseSummary(company);
                 ui.mobileCompanyMeta.textContent = company
-                    ? "This device is locked to the selected company. Use Back to switch before starting another company's work."
+                    ? `This device is locked to the selected company.${warehouseSummary ? ` Warehouses: ${warehouseSummary}.` : ""} Use Back to switch before starting another company's work.`
                     : "Choose the company once, then stay locked in while you work.";
             }
         }
@@ -16096,7 +16112,7 @@
             return [...ui.activeCompany.options]
                 .map((option) => {
                     const value = normalizeCompanyContextValue(option.value || "");
-                    return { value, label: value || "All Companies" };
+                    return { value, label: value ? formatCompanySelectorLabel(value) : "All Companies" };
                 })
                 .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.value === entry.value) === index);
         }
@@ -16282,14 +16298,14 @@
             const current = norm(ui.activeCompany?.value || state.preferences.activeCompany || "");
             const uniqueOwners = [...new Set((owners || []).map((owner) => norm(owner)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
             const options = ['<option value="">All Companies</option>']
-                .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(owner)}</option>`));
+                .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(formatCompanySelectorLabel(owner))}</option>`));
             if (ui.activeCompany) {
                 ui.activeCompany.innerHTML = options.join('');
                 ui.activeCompany.value = current && uniqueOwners.includes(current) ? current : '';
             }
             if (ui.mobileActiveCompany) {
                 ui.mobileActiveCompany.innerHTML = ['<option value="">Choose company</option>']
-                    .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(owner)}</option>`))
+                    .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(formatCompanySelectorLabel(owner))}</option>`))
                     .join('');
                 ui.mobileActiveCompany.value = current && uniqueOwners.includes(current) ? current : '';
             }
@@ -27563,6 +27579,71 @@
             return (state.masters.companyFulfillmentLocations || [])
                 .filter((entry) => norm(entry.accountName) === normalizedCompany)
                 .sort((a, b) => Number(b.isPrimary === true) - Number(a.isPrimary === true) || (a.locationCode || "").localeCompare(b.locationCode || ""));
+        }
+
+        function normalizeProvinceCode(value = "") {
+            const normalized = norm(value).toUpperCase();
+            if (!normalized) return "";
+            const provinceMap = new Map([
+                ["ONTARIO", "ON"],
+                ["ON", "ON"],
+                ["BRITISH COLUMBIA", "BC"],
+                ["B.C.", "BC"],
+                ["BC", "BC"],
+                ["ALBERTA", "AB"],
+                ["AB", "AB"],
+                ["QUEBEC", "QC"],
+                ["QC", "QC"],
+                ["MANITOBA", "MB"],
+                ["MB", "MB"],
+                ["SASKATCHEWAN", "SK"],
+                ["SK", "SK"],
+                ["NOVA SCOTIA", "NS"],
+                ["NS", "NS"],
+                ["NEW BRUNSWICK", "NB"],
+                ["NB", "NB"],
+                ["NEWFOUNDLAND AND LABRADOR", "NL"],
+                ["NL", "NL"],
+                ["PRINCE EDWARD ISLAND", "PE"],
+                ["PE", "PE"]
+            ]);
+            return provinceMap.get(normalized) || normalized;
+        }
+
+        function getCompanyFulfillmentProvinceCodes(accountName = getActiveCompany()) {
+            const seen = new Set();
+            const codes = [];
+            getCompanyFulfillmentAssignments(accountName).forEach((assignment) => {
+                const location = getFulfillmentLocationByCode(assignment.locationCode) || {};
+                const code = normalizeProvinceCode(assignment.state || location.state || "");
+                if (code && !seen.has(code)) {
+                    seen.add(code);
+                    codes.push(code);
+                }
+            });
+            return codes;
+        }
+
+        function formatCompanySelectorLabel(accountName = getActiveCompany()) {
+            const company = norm(accountName);
+            if (!company) return "";
+            const provinceCodes = getCompanyFulfillmentProvinceCodes(company);
+            return provinceCodes.length ? `${company} (${provinceCodes.join(" + ")})` : company;
+        }
+
+        function formatCompanyWarehouseSummary(accountName = getActiveCompany()) {
+            return getCompanyFulfillmentAssignments(accountName)
+                .map((assignment) => {
+                    const location = getFulfillmentLocationByCode(assignment.locationCode) || {};
+                    const provinceCode = normalizeProvinceCode(assignment.state || location.state || "");
+                    const label = [
+                        assignment.locationName || location.name || assignment.locationCode || location.code,
+                        provinceCode ? `(${provinceCode})` : ""
+                    ].filter(Boolean).join(" ");
+                    return label;
+                })
+                .filter(Boolean)
+                .join("; ");
         }
 
         function getPrimaryFulfillmentAssignment(accountName = getActiveCompany()) {
