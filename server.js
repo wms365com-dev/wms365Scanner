@@ -12711,6 +12711,28 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
     const skus = skuPairs.map((pair) => pair.sku);
     const result = await client.query(
         `
+            with requested_skus(account_name, sku) as (
+                select *
+                from unnest($1::text[], $2::text[])
+            ),
+            matching_inventory as (
+                select i.*
+                from inventory_lines i
+                join requested_skus r
+                  on r.account_name = i.account_name
+                 and r.sku = i.sku
+            ),
+            allocated as (
+                select
+                    a.inventory_line_id,
+                    coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
+                from portal_order_allocations a
+                join portal_orders o on o.id = a.order_id
+                join matching_inventory mi on mi.id = a.inventory_line_id
+                where o.status = any($3::text[])
+                  and a.inventory_line_id is not null
+                group by a.inventory_line_id
+            )
             select
                 i.account_name,
                 i.sku,
@@ -12725,21 +12747,9 @@ async function buildPortalOrderLocationSummaries(client, lineRows = []) {
                     then greatest(coalesce(i.quantity, 0) - coalesce(c.allocated_quantity, 0), 0)
                     else 0
                 end)::integer as available_quantity
-            from inventory_lines i
+            from matching_inventory i
             left join bin_locations bl on bl.code = i.location
-            left join lateral (
-                select
-                    coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
-                from portal_order_allocations a
-                join portal_orders o on o.id = a.order_id
-                where a.inventory_line_id = i.id
-                  and o.status = any($3::text[])
-                  and a.inventory_line_id is not null
-            ) c on true
-            where (i.account_name, i.sku) in (
-                select *
-                from unnest($1::text[], $2::text[])
-            )
+            left join allocated c on c.inventory_line_id = i.id
             group by i.account_name, i.sku, i.location, i.lot_number, i.expiration_date
             order by
                 i.account_name asc,
