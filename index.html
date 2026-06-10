@@ -10421,6 +10421,8 @@
         let skuMappingRecords = [];
         let portalOrderRecords = [];
         let portalOrdersRefreshSerial = 0;
+        const PORTAL_ORDERS_CACHE_TTL_MS = 30000;
+        const portalOrdersCompanyCache = new Map();
         const portalOrdersInFlight = new Map();
         let portalInboundRecords = [];
         let portalKittingRecords = [];
@@ -21897,6 +21899,13 @@
             return norm(company) || "__ALL_COMPANIES__";
         }
 
+        function renderPortalOrdersWorkspace() {
+            renderPortalOrdersList();
+            renderWarehouseSalesOrderContext();
+            updateDesktopOperationsAlerts();
+            renderWarehouseDashboard();
+        }
+
         function isPortalOrdersRefreshCurrent(refreshSerial, companyKey) {
             return refreshSerial === portalOrdersRefreshSerial && norm(getActiveCompany()) === companyKey;
         }
@@ -21947,25 +21956,35 @@
         async function refreshPortalOrdersList(silent = false) {
             const company = getActiveCompany();
             const companyKey = norm(company);
+            const cacheKey = getPortalOrdersRequestKey(company);
             const refreshSerial = ++portalOrdersRefreshSerial;
+            let renderedCachedOrders = false;
             try {
                 const shipToRefresh = refreshShipToAddresses(true).catch(() => []);
+                const cached = portalOrdersCompanyCache.get(cacheKey);
+                if (cached && (Date.now() - cached.loadedAt) < PORTAL_ORDERS_CACHE_TTL_MS) {
+                    portalOrderRecords = cached.orders;
+                    renderPortalOrdersWorkspace();
+                    renderedCachedOrders = true;
+                }
                 const payload = await requestPortalOrdersForCompany(company);
                 if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
                 let orders = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
 
+                portalOrdersCompanyCache.set(cacheKey, {
+                    loadedAt: Date.now(),
+                    orders
+                });
                 portalOrderRecords = orders;
                 void shipToRefresh;
                 refreshWarehouseTasksList(true).catch(() => {});
-                renderPortalOrdersList();
-                renderWarehouseSalesOrderContext();
-                updateDesktopOperationsAlerts();
-                renderWarehouseDashboard();
+                renderPortalOrdersWorkspace();
                 return portalOrderRecords;
             } catch (error) {
                 if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
+                if (renderedCachedOrders) return portalOrderRecords;
                 if (!silent) {
                     portalOrderRecords = [];
                     renderPortalOrdersList(error.message);
@@ -22240,6 +22259,7 @@
         function mergePortalOrderRecord(updatedOrder) {
             const sanitized = sanitizePortalOrderRecord(updatedOrder);
             if (!sanitized) return null;
+            portalOrdersCompanyCache.clear();
             const existingIndex = portalOrderRecords.findIndex((entry) => String(entry.id) === String(sanitized.id));
             if (existingIndex >= 0) {
                 portalOrderRecords.splice(existingIndex, 1, sanitized);
