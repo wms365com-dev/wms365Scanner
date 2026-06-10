@@ -10,6 +10,7 @@ const PORTAL_URL = "https://www.wms365.co/portal";
 const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || "https://app.wms365.co").replace(/\/+$/, "");
 const NOTIFICATION_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const TIME_ZONE = "America/Toronto";
+const SECTION_ROW_LIMIT = 5;
 
 function esc(value) {
     return String(value ?? "")
@@ -68,6 +69,21 @@ function buildLink(section, id) {
     url.searchParams.set("view", section);
     if (id) url.searchParams.set(section === "inbounds" ? "inbound" : "order", id);
     return url.toString();
+}
+
+function sectionFooter({ visibleCount, totalCount, colSpan, section, label }) {
+    if (totalCount <= 0) return "";
+    const hiddenCount = Math.max(0, totalCount - visibleCount);
+    const message = hiddenCount > 0
+        ? `Showing ${visibleCount} of ${totalCount}. Sign in to review the full ${label}.`
+        : `Sign in to review ${label}.`;
+    return `
+        <tr>
+            <td colspan="${colSpan}" style="padding:12px;border-top:1px solid #e5edf3;background:#f8fbfd;color:#64748b;font-size:13px;">
+                ${esc(message)} <a href="${esc(buildLink(section))}" style="color:#0f6f8c;font-weight:700;">View all in WMS365</a>
+            </td>
+        </tr>
+    `;
 }
 
 function rowOrEmpty(rows, emptyText, colSpan) {
@@ -235,6 +251,9 @@ async function getData() {
 
 function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
     const now = new Date();
+    const visibleInbounds = inbounds.slice(0, SECTION_ROW_LIMIT);
+    const visibleOrders = orders.slice(0, SECTION_ROW_LIMIT);
+    const visibleInventory = inventory.slice(0, SECTION_ROW_LIMIT);
     const openInbounds = inbounds.filter((row) => !["RECEIVED", "PUTAWAY_COMPLETE", "CANCELLED"].includes(normalizeText(row.status))).length;
     const activeOrders = orders.filter((row) => !["SHIPPED", "CANCELLED", "ARCHIVED"].includes(normalizeText(row.status))).length;
     const shippingTodayKey = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(now);
@@ -243,7 +262,7 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
     const activeSkuCount = inventory.length;
     const totalAvailable = inventory.reduce((sum, row) => sum + Number(row.available_quantity || 0), 0);
 
-    const inboundRows = inbounds.map((row) => {
+    const inboundRows = visibleInbounds.map((row) => {
         const status = labelStatus(row.status);
         const dateText = row.received_at ? `Received ${formatDate(row.received_at)}` : (row.arrived_at ? `Arrived ${formatDate(row.arrived_at)}` : `Expected ${formatDate(row.expected_date)}`);
         return `
@@ -257,7 +276,7 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
         `;
     });
 
-    const inventoryRows = inventory.map((row) => `
+    const inventoryRows = visibleInventory.map((row) => `
         <tr>
             <td style="padding:12px;border-top:1px solid #e5edf3;"><strong>${esc(row.sku)}</strong></td>
             <td style="padding:12px;border-top:1px solid #e5edf3;">${esc(row.description || "-")}</td>
@@ -268,7 +287,7 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
         </tr>
     `);
 
-    const orderRows = orders.map((row) => {
+    const orderRows = visibleOrders.map((row) => {
         const status = labelStatus(row.status);
         const reference = row.po_number || row.shipping_reference || "-";
         const expected = row.expected_ready_date || row.requested_ship_date;
@@ -337,6 +356,7 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
                                     <th align="left" style="padding:10px;">Action</th>
                                 </tr>
                                 ${rowOrEmpty(inboundRows, "No active inbounds to show for this sample window.", 5)}
+                                ${sectionFooter({ visibleCount: visibleInbounds.length, totalCount: inbounds.length, colSpan: 5, section: "inbounds", label: "inbound shipments" })}
                             </table>
                         </td>
                     </tr>
@@ -352,6 +372,7 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
                                     <th align="left" style="padding:10px;">Action</th>
                                 </tr>
                                 ${rowOrEmpty(orderRows, "No active sales orders to show for this sample window.", 5)}
+                                ${sectionFooter({ visibleCount: visibleOrders.length, totalCount: orders.length, colSpan: 5, section: "orders", label: "sales orders" })}
                             </table>
                         </td>
                     </tr>
@@ -369,6 +390,7 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
                                     <th align="right" style="padding:10px;">Locations</th>
                                 </tr>
                                 ${rowOrEmpty(inventoryRows, "No active stock to show for this account.", 6)}
+                                ${sectionFooter({ visibleCount: visibleInventory.length, totalCount: inventory.length, colSpan: 6, section: "inventory", label: "inventory snapshot" })}
                             </table>
                         </td>
                     </tr>
@@ -397,6 +419,12 @@ function buildHtml({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
 }
 
 function buildText({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
+    const visibleInbounds = inbounds.slice(0, SECTION_ROW_LIMIT);
+    const visibleOrders = orders.slice(0, SECTION_ROW_LIMIT);
+    const visibleInventory = inventory.slice(0, SECTION_ROW_LIMIT);
+    const moreLine = (visibleCount, totalCount, section, label) => totalCount > 0
+        ? `View all ${label} in WMS365 (${visibleCount} of ${totalCount} shown): ${buildLink(section)}`
+        : "";
     return [
         "WMS365 Daily Account Update",
         ACCOUNT_NAME,
@@ -406,13 +434,16 @@ function buildText({ inbounds, orders, inventory = [], unsubscribeUrl = "" }) {
         `Dashboard: ${PORTAL_URL}`,
         "",
         "Inbound Shipments:",
-        ...(inbounds.length ? inbounds.map((row) => `- ${row.inbound_code || `INB-${row.id}`} | ${row.reference_number || "-"} | ${labelStatus(row.status)} | ${formatDate(row.expected_date || row.received_at || row.updated_at)}`) : ["- No active inbounds to show."]),
+        ...(visibleInbounds.length ? visibleInbounds.map((row) => `- ${row.inbound_code || `INB-${row.id}`} | ${row.reference_number || "-"} | ${labelStatus(row.status)} | ${formatDate(row.expected_date || row.received_at || row.updated_at)}`) : ["- No active inbounds to show."]),
+        moreLine(visibleInbounds.length, inbounds.length, "inbounds", "inbounds"),
         "",
         "Sales Orders:",
-        ...(orders.length ? orders.map((row) => `- ${row.order_code || `ORD-${row.id}`} | ${row.po_number || row.shipping_reference || "-"} | ${labelStatus(row.status)} | Expected ship ${formatDate(row.expected_ready_date || row.requested_ship_date)}`) : ["- No active sales orders to show."]),
+        ...(visibleOrders.length ? visibleOrders.map((row) => `- ${row.order_code || `ORD-${row.id}`} | ${row.po_number || row.shipping_reference || "-"} | ${labelStatus(row.status)} | Expected ship ${formatDate(row.expected_ready_date || row.requested_ship_date)}`) : ["- No active sales orders to show."]),
+        moreLine(visibleOrders.length, orders.length, "orders", "sales orders"),
         "",
         "Inventory Snapshot:",
-        ...(inventory.length ? inventory.map((row) => `- ${row.sku} | On hand ${Number(row.on_hand_quantity || 0).toLocaleString("en-US")} | Reserved ${Number(row.reserved_quantity || 0).toLocaleString("en-US")} | Available ${Number(row.available_quantity || 0).toLocaleString("en-US")} | Locations ${Number(row.location_count || 0).toLocaleString("en-US")}`) : ["- No active stock to show."]),
+        ...(visibleInventory.length ? visibleInventory.map((row) => `- ${row.sku} | On hand ${Number(row.on_hand_quantity || 0).toLocaleString("en-US")} | Reserved ${Number(row.reserved_quantity || 0).toLocaleString("en-US")} | Available ${Number(row.available_quantity || 0).toLocaleString("en-US")} | Locations ${Number(row.location_count || 0).toLocaleString("en-US")}`) : ["- No active stock to show."]),
+        moreLine(visibleInventory.length, inventory.length, "inventory", "inventory"),
         "",
         "This is an automated WMS365 notification. Please make changes directly in WMS365 instead of replying to this email.",
         "Need help? support@wms365.co",
