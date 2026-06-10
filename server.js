@@ -18059,6 +18059,18 @@ async function getPortalOrderReleaseDocumentAttachments(orderId, client = pool) 
         .filter((attachment) => attachment.filename && attachment.content);
 }
 
+async function getPortalOrderShipmentDocumentAttachments(orderId, client = pool) {
+    const storedAttachments = await getPortalOrderReleaseDocumentAttachments(orderId, client);
+    return storedAttachments
+        .map((attachment) => ({
+            fileName: attachment.filename,
+            fileBuffer: attachment.content,
+            fileType: attachment.contentType,
+            fileSize: attachment.fileSize
+        }))
+        .filter((attachment) => attachment.fileName && attachment.fileBuffer);
+}
+
 async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPrefix = "", testMode = false, testRequestedBy = "" } = {}) {
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
@@ -18601,15 +18613,20 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
     if (!recipients.length) {
         throw httpError(400, "No active portal user or company email is available for shipment confirmation.");
     }
+    const savedDocuments = await getPortalOrderShipmentDocumentAttachments(order.id, client);
+    const emailConfirmation = {
+        ...confirmation,
+        documents: savedDocuments
+    };
 
     await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `${isUpdate ? "Shipment Confirmation Updated" : "Shipment Confirmed"} - ${order.orderCode}`,
-        text: buildPortalShipmentEmailText(order, confirmation, { isUpdate }),
-        html: buildPortalShipmentEmailHtml(order, confirmation, { isUpdate }),
-        attachments: confirmation.documents.map((document) => ({
+        text: buildPortalShipmentEmailText(order, emailConfirmation, { isUpdate }),
+        html: buildPortalShipmentEmailHtml(order, emailConfirmation, { isUpdate }),
+        attachments: emailConfirmation.documents.map((document) => ({
             filename: document.fileName,
             content: document.fileBuffer,
             contentType: document.fileType
