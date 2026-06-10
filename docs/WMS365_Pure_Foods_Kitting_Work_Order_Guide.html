@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WMS365 Pure Foods Work Order / Kitting Request Guide</title>
+  <style>
+    :root {
+      --ink: #0f2f44;
+      --muted: #52697a;
+      --line: #d7e2ea;
+      --panel: #f6f9fb;
+      --brand: #5b7f98;
+      --dark: #183247;
+      --warn: #fff7df;
+      --warn-border: #e3b84b;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eaf0f4;
+    }
+    .slide {
+      width: 11in;
+      min-height: 8.5in;
+      padding: 0.45in;
+      margin: 0 auto 18px;
+      background: white;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:last-child { page-break-after: auto; }
+    .eyebrow {
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1, h2 {
+      margin: 0 0 14px;
+      color: var(--dark);
+      line-height: 1.08;
+    }
+    h1 { font-size: 40px; }
+    h2 { font-size: 30px; }
+    h3 {
+      margin: 0 0 8px;
+      color: var(--dark);
+      font-size: 20px;
+    }
+    p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    ul {
+      margin: 10px 0 0 22px;
+      padding: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    li { margin-bottom: 8px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      align-items: stretch;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      background: var(--panel);
+    }
+    .callout {
+      border: 1px solid var(--warn-border);
+      border-radius: 8px;
+      background: var(--warn);
+      color: #7b5712;
+      padding: 16px 18px;
+      font-size: 17px;
+      line-height: 1.4;
+      margin-top: 16px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 120px;
+      background: #fff;
+    }
+    .step strong {
+      display: block;
+      color: var(--dark);
+      margin-bottom: 7px;
+      font-size: 18px;
+    }
+    .screen {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f7fafc;
+      overflow: hidden;
+      box-shadow: 0 10px 28px rgba(24, 50, 71, 0.12);
+    }
+    .screen-title {
+      background: var(--dark);
+      color: white;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .crop {
+      height: 420px;
+      overflow: hidden;
+      background: #f7fafc;
+      position: relative;
+    }
+    .crop img {
+      width: 100%;
+      display: block;
+      transform-origin: top left;
+    }
+    .crop.menu img { transform: translateY(-220px); }
+    .crop.form img { transform: translateY(-230px); }
+    .crop.status img { transform: translateY(-230px); }
+    .mock-ui {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f7fafc;
+      padding: 18px;
+      min-height: 430px;
+    }
+    .mock-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 16px;
+      background: white;
+      font-weight: 700;
+      color: #0e2334;
+    }
+    .pill.active {
+      background: var(--brand);
+      color: white;
+      border-color: var(--brand);
+    }
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .field {
+      border: 1px solid var(--line);
+      background: white;
+      border-radius: 8px;
+      padding: 11px 13px;
+      min-height: 54px;
+    }
+    .field label {
+      display: block;
+      color: var(--dark);
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .field span {
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .footer {
+      position: absolute;
+      left: 0.45in;
+      right: 0.45in;
+      bottom: 0.28in;
+      display: flex;
+      justify-content: space-between;
+      color: #7890a2;
+      font-size: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .small { font-size: 14px; }
+    .ok {
+      color: #166534;
+      background: #ecfdf3;
+      border: 1px solid #bbf7d0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+    }
+    @page {
+      size: Letter landscape;
+      margin: 0;
+    }
+    @media print {
+      body { background: white; }
+      .slide { margin: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <section class="slide">
+    <div class="eyebrow">WMS365 Customer Portal</div>
+    <h1>Pure Foods Work Order / Kitting Request Guide</h1>
+    <p>This guide shows how to request warehouse work to pull an existing SKU and create, convert, kit, de-kit, or re-SKU inventory into another item.</p>
+    <div class="grid" style="margin-top: 28px;">
+      <div class="card">
+        <h3>Pure Foods access status</h3>
+        <p class="ok">Enabled for Pure Foods by Estee</p>
+        <ul>
+          <li>Customer Portal is enabled.</li>
+          <li>Order Entry permission is enabled.</li>
+          <li>Added Services / Kitting Request is available in the portal.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Important inventory rule</h3>
+        <p>The warehouse can only complete the work if the source components are available in inventory.</p>
+        <div class="callout">Before submitting, confirm the source SKU and quantity are on hand. If components are short, receive or replenish the stock first.</div>
+      </div>
+    </div>
+    <div class="footer"><span>Prepared for Pure Foods by Estee</span><span>support@wms365.co</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Before You Start</div>
+    <h2>Information needed for a clean request</h2>
+    <div class="steps">
+      <div class="step"><strong>1. Source SKU</strong>SKU currently in stock that the warehouse will pull or consume.</div>
+      <div class="step"><strong>2. Source quantity</strong>Quantity to pull. Pure Foods stock is normally managed in cases unless a unit SKU ends in "s".</div>
+      <div class="step"><strong>3. Target SKU</strong>SKU that should be created, converted to, or replenished by the work.</div>
+      <div class="step"><strong>4. Target quantity</strong>Quantity expected after the work is complete.</div>
+      <div class="step"><strong>5. Reference</strong>Optional sales order, purchase order, or note explaining why the work is needed.</div>
+      <div class="step"><strong>6. Needed by</strong>Date the work is requested, if there is a deadline.</div>
+    </div>
+    <div class="callout">Submitting the request does not immediately change inventory. The warehouse reviews the request, performs the physical work, and then updates inventory.</div>
+    <div class="footer"><span>Step preparation</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 1</div>
+    <h2>Open the Customer Portal</h2>
+    <div class="grid">
+      <div>
+        <p>Go to <strong>www.wms365.co</strong> and sign in to the customer portal using your Pure Foods portal login.</p>
+        <p>After login, use the main menu to select <strong>Added Services</strong>.</p>
+        <ul>
+          <li>Use Added Services for special warehouse work.</li>
+          <li>Use standard Sales Orders and Purchase Orders for normal inbound/outbound work.</li>
+        </ul>
+      </div>
+      <div class="mock-ui">
+        <div class="mock-nav">
+          <div class="pill">New Sales Order</div>
+          <div class="pill">New Purchase Order</div>
+          <div class="pill">Book Delivery</div>
+          <div class="pill active">Added Services</div>
+          <div class="pill">Inventory</div>
+          <div class="pill">Items</div>
+          <div class="pill">My Sales Orders</div>
+        </div>
+        <div class="card">
+          <h3>Kitting / SKU Conversion</h3>
+          <p>Ask the warehouse to kit, de-kit, case-break, or convert inventory from one SKU to another.</p>
+          <div class="pill active" style="display:inline-block;">New Kitting Request</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 1 - Added Services</span><span>Pure Foods by Estee</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 2</div>
+    <h2>Select New Kitting Request</h2>
+    <div class="grid">
+      <div class="screen">
+        <div class="screen-title">Screen example - Added Services panel</div>
+        <div class="crop menu">
+          <img src="screenshots/customer-added-services-menu.png" alt="Added Services menu screenshot">
+        </div>
+      </div>
+      <div>
+        <p>Click <strong>New Kitting Request</strong>.</p>
+        <p>This opens the form for converting one item into another item.</p>
+        <ul>
+          <li>Use it for kitting, de-kitting, case breaking, bundling, and SKU conversion.</li>
+          <li>Use clear quantities and notes so the warehouse can complete the work without calling for clarification.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer"><span>Step 2 - New request</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 3</div>
+    <h2>Enter source and target item details</h2>
+    <div class="grid">
+      <div>
+        <p>Fill in the kitting request fields.</p>
+        <ul>
+          <li><strong>Source SKU:</strong> item the warehouse will pull from stock.</li>
+          <li><strong>Source Quantity:</strong> quantity to consume.</li>
+          <li><strong>Target SKU:</strong> item to create or convert to.</li>
+          <li><strong>Target Quantity:</strong> quantity expected after completion.</li>
+        </ul>
+        <div class="callout">Make sure the target item exists in WMS365. If it is a new item, set it up in Items first or include clear setup notes.</div>
+      </div>
+      <div class="mock-ui">
+        <div class="field-grid">
+          <div class="field"><label>Related Sales Order</label><span>Optional</span></div>
+          <div class="field"><label>Related Purchase Order</label><span>Optional</span></div>
+          <div class="field"><label>Source SKU</label><span>SKU to pull</span></div>
+          <div class="field"><label>Source Quantity</label><span>Cases or units</span></div>
+          <div class="field"><label>Target SKU</label><span>SKU to create</span></div>
+          <div class="field"><label>Target Quantity</label><span>Expected quantity</span></div>
+          <div class="field"><label>Needed By</label><span>Optional date</span></div>
+          <div class="field"><label>Your Name</label><span>Optional</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 3 - Item details</span><span>support@wms365.co</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 4</div>
+    <h2>Add notes and submit</h2>
+    <div class="grid">
+      <div class="screen">
+        <div class="screen-title">Screen example - Kitting request form</div>
+        <div class="crop form">
+          <img src="screenshots/customer-kitting-walkthrough-filled.png" alt="Kitting request form screenshot">
+        </div>
+      </div>
+      <div>
+        <p>Use the notes field to explain exactly what needs to happen.</p>
+        <ul>
+          <li>Example: "Pull 10 cases of source SKU and convert to 60 cases of target SKU."</li>
+          <li>Add related order numbers if this is for a waiting order.</li>
+          <li>Add any label, packaging, or handling instructions.</li>
+        </ul>
+        <div class="callout">Do not submit a request if the source components are not available. Check Inventory first, or ask the warehouse team to confirm stock.</div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 4 - Submit</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 5</div>
+    <h2>Track the request status</h2>
+    <div class="grid">
+      <div>
+        <p>After submission, open <strong>My Kitting Requests</strong> to track status.</p>
+        <ul>
+          <li><strong>Submitted:</strong> warehouse has received the request.</li>
+          <li><strong>In Progress:</strong> warehouse is working on it.</li>
+          <li><strong>Completed:</strong> work is done and inventory should be updated.</li>
+          <li><strong>Cancelled:</strong> request will not be completed.</li>
+        </ul>
+      </div>
+      <div class="screen">
+        <div class="screen-title">Screen example - My Kitting Requests</div>
+        <div class="crop status">
+          <img src="screenshots/customer-kitting-requests-list.png" alt="Kitting requests list screenshot">
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 5 - Track status</span><span>Pure Foods by Estee</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Final Checklist</div>
+    <h2>Before sending a work order to the warehouse</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Customer checklist</h3>
+        <ul>
+          <li>Source SKU is correct.</li>
+          <li>Source quantity is available on hand.</li>
+          <li>Target SKU is correct and already set up.</li>
+          <li>Target quantity is correct.</li>
+          <li>Notes are clear enough for the warehouse to complete the work.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What happens next</h3>
+        <ul>
+          <li>The request is sent to the warehouse team.</li>
+          <li>The warehouse pulls the components.</li>
+          <li>The warehouse completes the physical kitting/conversion work.</li>
+          <li>Inventory is updated after the work is completed.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">Questions or changes should be submitted through WMS365 or sent to the warehouse email. This keeps the request history and inventory trail clear.</div>
+    <div class="footer"><span>End of guide</span><span>support@wms365.co</span></div>
+  </section>
+</body>
+</html>
