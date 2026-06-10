@@ -3,7 +3,6 @@ const { Pool } = require("pg");
 const nodemailer = require("nodemailer");
 
 const ACCOUNT_NAME = "PURE FOODS BY ESTEE";
-const RECIPIENT = "k.prathab@gmail.com";
 const FROM = "WMS365 <support@wms365.co>";
 const REPLY_TO = "support@wms365.co";
 const PORTAL_URL = "https://www.wms365.co/portal";
@@ -11,6 +10,39 @@ const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || 
 const NOTIFICATION_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const TIME_ZONE = "America/Toronto";
 const SECTION_ROW_LIMIT = 5;
+const IS_PRODUCTION_SEND = process.argv.includes("--production") || /^(1|true|yes|production)$/i.test(process.env.CUSTOMER_DAILY_PRODUCTION || "");
+const DEFAULT_TEST_RECIPIENTS = ["k.prathab@gmail.com"];
+const DEFAULT_PURE_FOODS_RECIPIENTS = [
+    "operations@pure-food.ca",
+    "franco@pure-food.ca",
+    "accounting@pure-food.ca"
+];
+const DEFAULT_WAREHOUSE_CC = ["gworders@greywolf3pl.com"];
+
+function parseRecipientList(value) {
+    if (Array.isArray(value)) {
+        return value.flatMap(parseRecipientList);
+    }
+    return String(value || "")
+        .split(/[;,]/)
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean);
+}
+
+function uniqueRecipients(entries) {
+    return [...new Set((entries || []).map((entry) => String(entry || "").trim().toLowerCase()).filter(Boolean))];
+}
+
+const TO_RECIPIENTS = uniqueRecipients(parseRecipientList(
+    process.env.CUSTOMER_DAILY_TO
+    || process.env.PURE_FOODS_DAILY_TO
+    || (IS_PRODUCTION_SEND ? DEFAULT_PURE_FOODS_RECIPIENTS.join(",") : DEFAULT_TEST_RECIPIENTS.join(","))
+));
+const CC_RECIPIENTS = uniqueRecipients(parseRecipientList(
+    process.env.CUSTOMER_DAILY_CC
+    || process.env.PURE_FOODS_DAILY_CC
+    || (IS_PRODUCTION_SEND ? DEFAULT_WAREHOUSE_CC.join(",") : "")
+));
 
 function esc(value) {
     return String(value ?? "")
@@ -91,7 +123,7 @@ function rowOrEmpty(rows, emptyText, colSpan) {
     return `<tr><td colspan="${colSpan}" style="padding:16px;border-top:1px solid #e5edf3;color:#64748b;">${esc(emptyText)}</td></tr>`;
 }
 
-function createUnsubscribeUrl({ accountName = ACCOUNT_NAME, email = RECIPIENT, notificationType = NOTIFICATION_TYPE } = {}) {
+function createUnsubscribeUrl({ accountName = ACCOUNT_NAME, email = TO_RECIPIENTS[0] || "", notificationType = NOTIFICATION_TYPE } = {}) {
     const secret = process.env.EMAIL_UNSUBSCRIBE_SECRET
         || process.env.INTEGRATION_SECRET_KEY
         || process.env.APP_SECRET
@@ -109,6 +141,37 @@ function createUnsubscribeUrl({ accountName = ACCOUNT_NAME, email = RECIPIENT, n
     const url = new URL("/email-preferences/unsubscribe", APP_BASE_URL);
     url.searchParams.set("token", `${encodedPayload}.${signature}`);
     return url.toString();
+}
+
+async function filterSubscribedRecipients(recipients) {
+    const normalizedRecipients = uniqueRecipients(recipients);
+    if (!normalizedRecipients.length) return { recipients: [], unsubscribed: [] };
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false } });
+    try {
+        const result = await pool.query(
+            `
+                select email
+                from customer_email_preferences
+                where account_name = $1
+                  and notification_type = $2
+                  and is_subscribed = false
+                  and email = any($3::text[])
+            `,
+            [ACCOUNT_NAME, NOTIFICATION_TYPE, normalizedRecipients]
+        );
+        const unsubscribed = new Set(result.rows.map((row) => String(row.email || "").trim().toLowerCase()).filter(Boolean));
+        return {
+            recipients: normalizedRecipients.filter((email) => !unsubscribed.has(email)),
+            unsubscribed: normalizedRecipients.filter((email) => unsubscribed.has(email))
+        };
+    } catch (error) {
+        if (error.code === "42P01") {
+            return { recipients: normalizedRecipients, unsubscribed: [] };
+        }
+        throw error;
+    } finally {
+        await pool.end();
+    }
 }
 
 async function getData() {
@@ -462,7 +525,8 @@ async function sendViaResend(mail) {
         },
         body: JSON.stringify({
             from: FROM,
-            to: [RECIPIENT],
+            to: uniqueRecipients(mail.to),
+            cc: uniqueRecipients(mail.cc).length ? uniqueRecipients(mail.cc) : undefined,
             reply_to: REPLY_TO,
             subject: mail.subject,
             html: mail.html,
@@ -489,7 +553,8 @@ async function sendViaSmtp(mail) {
     });
     const info = await transporter.sendMail({
         from: FROM,
-        to: RECIPIENT,
+        to: uniqueRecipients(mail.to),
+        cc: uniqueRecipients(mail.cc).length ? uniqueRecipients(mail.cc) : undefined,
         replyTo: REPLY_TO,
         subject: mail.subject,
         html: mail.html,
@@ -504,42 +569,71 @@ async function sendViaSmtp(mail) {
 async function main() {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not available.");
     const data = await getData();
-    const unsubscribeUrl = createUnsubscribeUrl();
-    const subject = `Sample: WMS365 Daily Update - Pure Foods - ${formatDate(new Date())}`;
-    const emailData = { ...data, unsubscribeUrl };
-    const mail = {
-        subject,
-        html: buildHtml(emailData),
-        text: buildText(emailData),
-        unsubscribeUrl
-    };
+    const subscription = await filterSubscribedRecipients(TO_RECIPIENTS);
+    if (!subscription.recipients.length) {
+        throw new Error("No subscribed recipients are available for this daily update.");
+    }
+    const subjectPrefix = process.env.CUSTOMER_DAILY_SUBJECT_PREFIX ?? (IS_PRODUCTION_SEND ? "" : "Sample: ");
+    const subject = `${subjectPrefix}WMS365 Daily Update - Pure Foods - ${formatDate(new Date())}`;
 
     if (process.argv.includes("--dry-run")) {
+        const previewUnsubscribeUrl = createUnsubscribeUrl({ email: subscription.recipients[0] });
+        const previewMail = {
+            subject,
+            html: buildHtml({ ...data, unsubscribeUrl: previewUnsubscribeUrl }),
+            text: buildText({ ...data, unsubscribeUrl: previewUnsubscribeUrl }),
+            unsubscribeUrl: previewUnsubscribeUrl
+        };
         console.log(JSON.stringify({
             dryRun: true,
-            to: RECIPIENT,
+            production: IS_PRODUCTION_SEND,
+            to: subscription.recipients,
+            cc: CC_RECIPIENTS,
+            unsubscribed: subscription.unsubscribed,
             subject,
             inboundCount: data.inbounds.length,
             orderCount: data.orders.length,
             inventoryCount: data.inventory.length,
-            hasUnsubscribeUrl: !!unsubscribeUrl,
-            htmlLength: mail.html.length
+            visibleLimit: SECTION_ROW_LIMIT,
+            hasUnsubscribeUrl: !!previewUnsubscribeUrl,
+            htmlLength: previewMail.html.length
         }, null, 2));
         return;
     }
 
-    const result = process.env.RESEND_API_KEY
-        ? await sendViaResend(mail)
-        : await sendViaSmtp(mail);
+    const sent = [];
+    for (const recipient of subscription.recipients) {
+        const unsubscribeUrl = createUnsubscribeUrl({ email: recipient });
+        const emailData = { ...data, unsubscribeUrl };
+        const mail = {
+            to: [recipient],
+            cc: CC_RECIPIENTS,
+            subject,
+            html: buildHtml(emailData),
+            text: buildText(emailData),
+            unsubscribeUrl
+        };
+        const result = process.env.RESEND_API_KEY
+            ? await sendViaResend(mail)
+            : await sendViaSmtp(mail);
+        sent.push({
+            to: recipient,
+            provider: result.provider,
+            messageId: result.messageId
+        });
+    }
     console.log(JSON.stringify({
         sent: true,
-        to: RECIPIENT,
+        production: IS_PRODUCTION_SEND,
+        to: subscription.recipients,
+        cc: CC_RECIPIENTS,
+        skippedUnsubscribed: subscription.unsubscribed,
         subject,
-        provider: result.provider,
-        messageId: result.messageId,
+        deliveries: sent,
         inboundCount: data.inbounds.length,
         orderCount: data.orders.length,
-        inventoryCount: data.inventory.length
+        inventoryCount: data.inventory.length,
+        visibleLimit: SECTION_ROW_LIMIT
     }, null, 2));
 }
 
