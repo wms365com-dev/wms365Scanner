@@ -60,7 +60,7 @@
             box-shadow: var(--shadow);
             padding: 1.1rem;
         }
-        .topbar, .inventory-head, .order-head, .line-head, .order-form-head {
+        .topbar, .inventory-head, .order-head, .line-head, .order-form-head, .portal-panel-head {
             display: flex;
             justify-content: space-between;
             gap: 0.8rem;
@@ -68,6 +68,44 @@
         }
         .topbar { align-items: center; background: var(--panel); }
         .header-copy { display: grid; gap: 0.45rem; }
+        .portal-section {
+            display: grid;
+            gap: 1rem;
+        }
+        .portal-panel-head {
+            margin-bottom: 0;
+        }
+        .portal-panel-head .button-row {
+            justify-content: flex-end;
+        }
+        .portal-panel-body,
+        .portal-subsection {
+            display: grid;
+            gap: 0.9rem;
+        }
+        .portal-subsection {
+            margin-top: 0.15rem;
+        }
+        .portal-section-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+            align-items: start;
+        }
+        .portal-support-card {
+            display: grid;
+            gap: 0.9rem;
+            padding: 1rem;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: var(--panel-2);
+        }
+        .portal-actions-right {
+            justify-content: flex-end;
+        }
+        .portal-stats-row {
+            margin-bottom: 0;
+        }
         .portal-brand {
             display: inline-flex;
             align-items: center;
@@ -715,8 +753,8 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid { grid-template-columns: 1fr; }
-            .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid { grid-template-columns: 1fr; }
+            .topbar, .inventory-head, .order-head, .line-head, .order-form-head, .portal-panel-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
                 align-items: stretch;
@@ -904,40 +942,41 @@
                 </div>
             </section>
 
-            <section id="inventoryPanel" class="two-up">
-                <article class="card">
-                    <div class="inventory-head" style="margin-bottom: 1rem;">
-                        <div class="header-copy">
-                            <h2>Your Inventory</h2>
-                            <p class="lead">Only inventory assigned to your vendor/customer is shown here.</p>
+            <section id="inventoryPanel" class="card portal-section">
+                <div class="portal-panel-head">
+                    <div class="header-copy">
+                        <h2>Your Inventory</h2>
+                        <p class="lead">Only inventory assigned to your vendor/customer is shown here.</p>
+                    </div>
+                    <button class="btn ghost" id="exportInventoryBtn" type="button">Export Report</button>
+                </div>
+                <div class="portal-section-grid">
+                    <div class="portal-panel-body">
+                        <label class="field">
+                            <span>Filter</span>
+                            <input id="inventoryFilter" type="text" placeholder="Search SKU, UPC, description, or location">
+                        </label>
+                        <div id="inventoryList" class="inventory-list">
+                            <div class="empty">No inventory is available for this vendor yet.</div>
                         </div>
-                        <button class="btn ghost" id="exportInventoryBtn" type="button">Export Report</button>
                     </div>
-                    <label class="field">
-                        <span>Filter</span>
-                        <input id="inventoryFilter" type="text" placeholder="Search SKU, UPC, description, or location">
-                    </label>
-                    <div id="inventoryList" class="inventory-list" style="margin-top: 1rem;">
-                        <div class="empty">No inventory is available for this vendor yet.</div>
-                    </div>
-                </article>
-
-                <article class="card">
-                    <div class="header-copy" style="margin-bottom: 1rem;">
-                        <h2>Release Notes</h2>
-                        <p class="lead">Save a draft while you are building the order, then release it when it is ready for the warehouse team.</p>
-                    </div>
-                    <div class="detail-grid">
-                        <div class="detail"><span>Order Flow</span><strong>Draft to Released</strong></div>
-                        <div class="detail"><span>Item Scope</span><strong>Your inventory only</strong></div>
-                        <div class="detail"><span>Ship To</span><strong>Saved with every order</strong></div>
-                        <div class="detail"><span>Vendor Scope</span><strong>Locked to your account</strong></div>
-                    </div>
-                </article>
+                    <aside class="portal-support-card">
+                        <div class="header-copy">
+                            <h2>Release Notes</h2>
+                            <p class="lead">Save a draft while you are building the order, then release it when it is ready for the warehouse team.</p>
+                        </div>
+                        <div class="detail-grid">
+                            <div class="detail"><span>Order Flow</span><strong>Draft to Released</strong></div>
+                            <div class="detail"><span>Item Scope</span><strong>Your inventory only</strong></div>
+                            <div class="detail"><span>Ship To</span><strong>Saved with every order</strong></div>
+                            <div class="detail"><span>Vendor Scope</span><strong>Locked to your account</strong></div>
+                        </div>
+                    </aside>
+                </div>
             </section>
 
-            <section id="itemsPanel" class="card hidden">
-                <div class="order-form-head">
+            <section id="itemsPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2 id="itemFormTitle">Item Setup</h2>
                         <p class="lead">Create and maintain the item masters your team will use for purchase orders and warehouse shipping.</p>
@@ -971,8 +1010,8 @@
                 </div>
                 <div id="itemFormMessage" class="status" style="margin-top: 1rem;"></div>
 
-                <div style="margin-top: 1rem;">
-                    <div class="header-copy" style="margin-bottom: 0.8rem;">
+                <div class="portal-subsection">
+                    <div class="header-copy">
                         <h3>Saved Items</h3>
                         <p class="meta">Use item setup first, then use the same items in your purchase orders.</p>
                     </div>
@@ -982,8 +1021,8 @@
                 </div>
             </section>
 
-            <section id="addedServicesPanel" class="card hidden">
-                <div class="inventory-head" style="margin-bottom: 1rem;">
+            <section id="addedServicesPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>Added Services</h2>
                         <p class="lead">Request special warehouse work without cluttering your main order and inventory screens.</p>
@@ -1007,8 +1046,8 @@
                 </div>
             </section>
 
-            <section id="kittingPanel" class="card hidden">
-                <div class="order-form-head">
+            <section id="kittingPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>Display Build / Kitting Work Order</h2>
                         <p class="lead">Request the warehouse to pull multiple component SKUs and build a finished display, bundle, kit, or converted SKU.</p>
@@ -1085,8 +1124,8 @@
                 <div id="kittingMessage" class="status" style="margin-top: 1rem;"></div>
             </section>
 
-            <section id="kittingRequestsPanel" class="card hidden">
-                <div class="inventory-head" style="margin-bottom: 1rem;">
+            <section id="kittingRequestsPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>My Display Build / Kitting Requests</h2>
                         <p class="lead">Track submitted display build, kitting, de-kitting, and SKU conversion requests without using email threads.</p>
@@ -1101,14 +1140,14 @@
                 </div>
             </section>
 
-            <section id="invoicesPanel" class="card hidden">
-                <div class="inventory-head" style="margin-bottom: 1rem;">
+            <section id="invoicesPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>Invoices</h2>
                         <p class="lead">Review current and past invoices, download PDFs, and see your total billed and unpaid balance.</p>
                     </div>
                 </div>
-                <div class="stats" style="margin-bottom: 1rem;">
+                <div class="stats portal-stats-row">
                     <div class="stat"><span>Total billed</span><strong id="portalInvoiceTotalBilled">$0.00</strong></div>
                     <div class="stat"><span>Unpaid balance</span><strong id="portalInvoiceUnpaidBalance">$0.00</strong></div>
                     <div class="stat"><span>Invoices</span><strong id="portalInvoiceCount">0</strong></div>
@@ -1118,8 +1157,8 @@
                 </div>
             </section>
 
-            <section id="orderPanel" class="card hidden">
-                <div class="order-form-head">
+            <section id="orderPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2 id="orderFormTitle">New Sales Order</h2>
                         <p class="lead">Enter the ship-to details, then add the items you want us to process.</p>
@@ -1153,8 +1192,8 @@
                     </div>
                 </form>
 
-                <div style="margin-top: 1rem;">
-                    <div class="line-head" style="margin-bottom: 0.8rem;">
+                <div class="portal-subsection">
+                    <div class="line-head">
                         <div class="header-copy">
                             <h3>Order Lines</h3>
                             <p class="meta">Only SKUs currently in your inventory can be selected.</p>
@@ -1171,8 +1210,8 @@
             </section>
 
 
-            <section id="inboundPanel" class="card hidden">
-                <div class="order-form-head">
+            <section id="inboundPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>New Purchase Order</h2>
                         <p class="lead">Tell the warehouse what inventory is coming in so we can plan receiving.</p>
@@ -1190,8 +1229,8 @@
                     <label class="field span-2"><span>Notes</span><input id="inboundNotes" type="text" placeholder="Optional notes for receiving"></label>
                 </form>
 
-                <div style="margin-top: 1rem;">
-                    <div class="line-head" style="margin-bottom: 0.8rem;">
+                <div class="portal-subsection">
+                    <div class="line-head">
                         <div class="header-copy">
                             <h3>Purchase Order Lines</h3>
                             <p class="meta">Use SKUs from your item list.</p>
@@ -1206,8 +1245,8 @@
                 </div>
             </section>
 
-            <section id="deliveryPanel" class="card hidden">
-                <div class="order-form-head">
+            <section id="deliveryPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>Book Delivery Appointment</h2>
                         <p class="lead">Request a delivery time at the warehouse. The warehouse will approve the appointment or suggest another date/time.</p>
@@ -1242,8 +1281,8 @@
                 <div id="deliveryMessage" class="status" style="margin-top: 1rem;"></div>
             </section>
 
-            <section id="deliveriesPanel" class="card hidden">
-                <div class="order-form-head" style="margin-bottom: 1rem;">
+            <section id="deliveriesPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>My Delivery Appointments</h2>
                         <p class="lead">Track delivery appointment requests, approvals, and alternate times from the warehouse.</p>
@@ -1254,8 +1293,8 @@
                 </div>
             </section>
 
-            <section id="inboundsPanel" class="card hidden">
-                <div class="order-form-head" style="margin-bottom: 1rem;">
+            <section id="inboundsPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>My Purchase Orders</h2>
                         <p class="lead">Track purchase orders you submitted through the portal.</p>
@@ -1266,13 +1305,13 @@
                 </div>
             </section>
 
-            <section id="ordersPanel" class="card hidden">
-                <div class="order-form-head" style="margin-bottom: 1rem;">
+            <section id="ordersPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>My Sales Orders</h2>
                         <p class="lead" id="ordersPanelLead">Draft and active orders stay here until they ship. Click a summary card above to filter by status.</p>
                     </div>
-                    <div class="button-row" style="justify-content: flex-end;">
+                    <div class="button-row">
                         <button class="btn ghost hidden" id="clearOrderStatusFilterBtn" type="button">Show Open Orders</button>
                         <button class="btn ghost" id="exportOrdersBtn" type="button">Export Orders</button>
                     </div>
@@ -1282,18 +1321,18 @@
                 </div>
             </section>
 
-            <section id="shippedPanel" class="card hidden">
-                <div class="order-form-head" style="margin-bottom: 1rem;">
+            <section id="shippedPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
                     <div class="header-copy">
                         <h2>Shipped Orders</h2>
                         <p class="lead">Review completed shipments separately from open work. Select an order to see carrier, tracking, ship-to, lines, notes, and downloadable documents.</p>
                     </div>
-                    <div class="button-row" style="justify-content: flex-end;">
+                    <div class="button-row">
                         <button class="btn ghost" id="exportShippedOrdersBtn" type="button">Export Shipments</button>
                         <button class="btn ghost" id="refreshShippedOrdersBtn" type="button">Refresh Shipments</button>
                     </div>
                 </div>
-                <div class="two-up">
+                <div class="portal-section-grid">
                     <div id="shippedOrdersList" class="orders-list">
                         <div class="empty">No shipped orders yet.</div>
                     </div>
