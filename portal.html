@@ -477,6 +477,7 @@
         .pill.success { background: rgba(31, 157, 104, 0.1); color: #146846; border-color: rgba(31, 157, 104, 0.25); }
         .pill.warn { background: rgba(210, 132, 0, 0.1); color: #9b5d00; border-color: rgba(210, 132, 0, 0.22); }
         .pill.info { background: rgba(8, 145, 178, 0.1); color: #0e7490; border-color: rgba(8, 145, 178, 0.22); }
+        .pill.error { background: rgba(220, 38, 38, 0.1); color: #991b1b; border-color: rgba(220, 38, 38, 0.24); }
         .inventory-meta, .order-meta, .line-note { display: grid; gap: 0.35rem; margin-top: 0.6rem; color: var(--muted); font-size: 0.92rem; }
         .order-document-upload {
             display: grid;
@@ -1234,9 +1235,11 @@
             </section>
 
             <section id="deliveriesPanel" class="card hidden">
-                <div class="header-copy" style="margin-bottom: 1rem;">
-                    <h2>My Delivery Appointments</h2>
-                    <p class="lead">Track delivery appointment requests, approvals, and alternate times from the warehouse.</p>
+                <div class="order-form-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>My Delivery Appointments</h2>
+                        <p class="lead">Track delivery appointment requests, approvals, and alternate times from the warehouse.</p>
+                    </div>
                 </div>
                 <div id="deliveriesList" class="orders-list">
                     <div class="empty">No delivery appointments requested yet.</div>
@@ -1244,9 +1247,11 @@
             </section>
 
             <section id="inboundsPanel" class="card hidden">
-                <div class="header-copy" style="margin-bottom: 1rem;">
-                    <h2>My Purchase Orders</h2>
-                    <p class="lead">Track purchase orders you submitted through the portal.</p>
+                <div class="order-form-head" style="margin-bottom: 1rem;">
+                    <div class="header-copy">
+                        <h2>My Purchase Orders</h2>
+                        <p class="lead">Track purchase orders you submitted through the portal.</p>
+                    </div>
                 </div>
                 <div id="inboundsList" class="orders-list">
                     <div class="empty">No purchase orders submitted yet.</div>
@@ -1429,6 +1434,9 @@
             editingItemSku: null,
             selectedShippedOrderId: null,
             expandedOrderId: null,
+            expandedInboundId: null,
+            expandedDeliveryId: null,
+            expandedKittingRequestId: null,
             documentPreviewObjectUrl: "",
             orderStatusFilter: "",
             pendingReleaseHandler: null
@@ -1792,6 +1800,8 @@
             ui.exportShippedOrdersBtn.addEventListener("click", exportShippedOrders);
             ui.refreshShippedOrdersBtn.addEventListener("click", refreshShippedOrders);
             ui.inboundsList.addEventListener("click", onInboundsListClick);
+            ui.deliveriesList?.addEventListener("click", onDeliveriesListClick);
+            ui.kittingRequestsList?.addEventListener("click", onKittingRequestsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
             ui.inboundLines.addEventListener("click", onOrderLinesClick);
             ui.orderLines.addEventListener("change", onOrderLinesChange);
@@ -1915,6 +1925,10 @@
             portalState.editingOrderId = null;
             portalState.editingItemSku = null;
             portalState.selectedShippedOrderId = null;
+            portalState.expandedOrderId = null;
+            portalState.expandedInboundId = null;
+            portalState.expandedDeliveryId = null;
+            portalState.expandedKittingRequestId = null;
             portalState.orderStatusFilter = "";
             resetOrderForm();
             resetInboundForm();
@@ -2358,18 +2372,22 @@
             }
 
             ui.inventoryList.innerHTML = matches.map((item) => `
-                <article class="inventory-card">
-                    <div class="inventory-head">
+                <article class="inventory-card order-summary-card">
+                    <div class="order-head">
                         <div>
                             <strong>${esc(item.sku)}</strong>
                             <div class="meta">${esc(item.description || "No description")}</div>
                         </div>
                         <span class="pill">${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</span>
                     </div>
-                    <div class="inventory-meta">
+                    <div class="order-summary-grid">
+                        <div class="detail"><span>On Hand</span><strong>${esc(formatTrackedQuantity(item.onHandQuantity, item.trackingLevel))}</strong></div>
+                        <div class="detail"><span>Reserved</span><strong>${esc(formatTrackedQuantity(item.reservedQuantity, item.trackingLevel))}</strong></div>
+                        <div class="detail"><span>Tracking</span><strong>${esc(trackingLabel(item.trackingLevel))}</strong></div>
+                        <div class="detail"><span>Locations</span><strong>${esc(num(item.locationCount))}</strong></div>
+                    </div>
+                    <div class="order-meta">
                         <div>${item.upc ? `UPC ${esc(item.upc)}` : "No UPC saved"}</div>
-                        <div>On Hand ${esc(formatTrackedQuantity(item.onHandQuantity, item.trackingLevel))} | Reserved ${esc(formatTrackedQuantity(item.reservedQuantity, item.trackingLevel))}</div>
-                        <div>${esc(trackingLabel(item.trackingLevel))} | ${esc(num(item.locationCount))} location${item.locationCount === 1 ? "" : "s"}</div>
                         <div>${item.locations.length ? `Locations: ${esc(item.locations.join(", "))}` : "No locations found"}</div>
                     </div>
                 </article>
@@ -2383,7 +2401,7 @@
             }
 
             ui.itemsList.innerHTML = portalState.catalogItems.map((item) => `
-                <article class="order-card">
+                <article class="order-card order-summary-card">
                     <div class="order-head">
                         <div>
                             <strong>${esc(item.sku)}</strong>
@@ -2391,23 +2409,22 @@
                         </div>
                         <span class="pill">${esc(trackingLabel(item.trackingLevel))}</span>
                     </div>
+                    <div class="order-summary-grid">
+                        <div class="detail"><span>UPC</span><strong>${esc(item.upc || "Not saved")}</strong></div>
+                        <div class="detail"><span>Units / Case</span><strong>${esc(item.unitsPerCase ? num(item.unitsPerCase) : "Not set")}</strong></div>
+                        <div class="detail"><span>Each Size</span><strong>${esc([
+                            item.eachLength != null ? item.eachLength : "",
+                            item.eachWidth != null ? item.eachWidth : "",
+                            item.eachHeight != null ? item.eachHeight : ""
+                        ].filter(Boolean).join(" x ") || "Not set")}</strong></div>
+                        <div class="detail"><span>Case Size</span><strong>${esc([
+                            item.caseLength != null ? item.caseLength : "",
+                            item.caseWidth != null ? item.caseWidth : "",
+                            item.caseHeight != null ? item.caseHeight : ""
+                        ].filter(Boolean).join(" x ") || "Not set")}</strong></div>
+                    </div>
                     <div class="order-meta">
-                        <div>${item.upc ? `UPC ${esc(item.upc)}` : "No UPC saved"}</div>
-                        <div>${item.unitsPerCase ? `${esc(num(item.unitsPerCase))} units per case` : "Units per case not set"}</div>
-                        <div>
-                            ${[
-                                item.eachLength != null ? `Each ${item.eachLength}` : "",
-                                item.eachWidth != null ? `x ${item.eachWidth}` : "",
-                                item.eachHeight != null ? `x ${item.eachHeight}` : ""
-                            ].filter(Boolean).join(" ") || "Each dimensions not set"}
-                        </div>
-                        <div>
-                            ${[
-                                item.caseLength != null ? `Case ${item.caseLength}` : "",
-                                item.caseWidth != null ? `x ${item.caseWidth}` : "",
-                                item.caseHeight != null ? `x ${item.caseHeight}` : ""
-                            ].filter(Boolean).join(" ") || "Case dimensions not set"}
-                        </div>
+                        <div>Item master details are used by purchase orders, sales orders, and warehouse receiving.</div>
                     </div>
                     <div class="button-row" style="margin-top: 0.85rem;">
                         <button class="btn ghost" type="button" data-edit-item="${attr(item.sku)}">Edit Item</button>
@@ -2426,7 +2443,7 @@
                 return;
             }
             ui.portalInvoicesList.innerHTML = portalState.invoices.map((invoice) => `
-                <article class="order-card">
+                <article class="order-card order-summary-card">
                     <div class="order-head">
                         <div>
                             <strong>${esc(invoice.invoiceNumber)}</strong>
@@ -2434,8 +2451,13 @@
                         </div>
                         <span class="pill">${esc(invoice.status || "sent")}</span>
                     </div>
+                    <div class="order-summary-grid">
+                        <div class="detail"><span>Total</span><strong>${esc(money(invoice.total))}</strong></div>
+                        <div class="detail"><span>Paid</span><strong>${esc(money(invoice.paidAmount))}</strong></div>
+                        <div class="detail"><span>Balance</span><strong>${esc(money(invoice.balanceDue))}</strong></div>
+                        <div class="detail"><span>Lines</span><strong>${esc(num((invoice.lines || []).length))}</strong></div>
+                    </div>
                     <div class="order-meta">
-                        <div>Total ${esc(money(invoice.total))} | Paid ${esc(money(invoice.paidAmount))} | Balance ${esc(money(invoice.balanceDue))}</div>
                         <div>${(invoice.lines || []).slice(0, 3).map((line) => esc(line.description || line.chargeType || "Invoice line")).join(", ") || "No line summary"}</div>
                     </div>
                     <div class="order-actions">
@@ -2622,27 +2644,68 @@
             if (!ui.kittingRequestsList) return;
             renderAddedServices();
             if (!portalState.kittingRequests.length) {
+                portalState.expandedKittingRequestId = null;
                 ui.kittingRequestsList.innerHTML = `<div class="empty">No kitting requests submitted yet.</div>`;
                 return;
             }
-            ui.kittingRequestsList.innerHTML = portalState.kittingRequests.map((request) => `
-                <article class="order-card">
-                    <div class="order-head">
-                        <div>
-                            <strong>${esc(request.requestCode)}</strong>
-                            <div class="meta">Created ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed by ${esc(request.requestedCompletionDate)}` : ""}</div>
+            if (portalState.expandedKittingRequestId && !portalState.kittingRequests.some((request) => String(request.id) === String(portalState.expandedKittingRequestId))) {
+                portalState.expandedKittingRequestId = null;
+            }
+            ui.kittingRequestsList.innerHTML = portalState.kittingRequests.map((request) => {
+                const isExpanded = String(portalState.expandedKittingRequestId || "") === String(request.id);
+                const referenceSummary = [request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "None";
+                return `
+                    <article class="order-card order-summary-card">
+                        <div class="order-head">
+                            <div>
+                                <strong>${esc(request.requestCode)}</strong>
+                                <div class="meta">Created ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed by ${esc(request.requestedCompletionDate)}` : ""}</div>
+                            </div>
+                            <span class="pill ${request.status === "COMPLETED" ? "success" : (request.status === "CANCELLED" ? "error" : "info")}">${esc(request.status)}</span>
                         </div>
-                        <span class="pill">${esc(request.status)}</span>
-                    </div>
-                    <div class="order-meta">
-                        <div><strong>Build:</strong> ${esc(formatKittingComponentSummary(request))}</div>
-                        <div><strong>Finished item:</strong> ${esc(request.targetQuantity)} of ${esc(request.targetSku)}${request.targetDescription ? ` - ${esc(request.targetDescription)}` : ""}</div>
-                        <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
-                        ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
-                        ${request.warehouseNote ? `<div><strong>Warehouse note:</strong> ${esc(request.warehouseNote)}</div>` : ""}
-                    </div>
-                </article>
-            `).join("");
+                        <div class="order-summary-grid">
+                            <div class="detail"><span>Finished SKU</span><strong>${esc(request.targetSku)}</strong></div>
+                            <div class="detail"><span>Build Qty</span><strong>${esc(num(request.targetQuantity))}</strong></div>
+                            <div class="detail"><span>Components</span><strong>${esc(num((request.components || []).length))}</strong></div>
+                            <div class="detail"><span>Reference</span><strong>${esc(referenceSummary)}</strong></div>
+                        </div>
+                        <div class="button-row">
+                            <button class="btn ghost" type="button" data-toggle-kitting-details="${attr(request.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
+                        </div>
+                        ${isExpanded ? `
+                            <div class="order-details-panel">
+                                <div class="order-meta">
+                                    <div><strong>Build:</strong> ${esc(formatKittingComponentSummary(request))}</div>
+                                    <div><strong>Finished item:</strong> ${esc(request.targetQuantity)} of ${esc(request.targetSku)}${request.targetDescription ? ` - ${esc(request.targetDescription)}` : ""}</div>
+                                    ${request.requestedByName || request.requestedByEmail ? `<div>Requested by: ${esc([request.requestedByName, request.requestedByEmail].filter(Boolean).join(" | "))}</div>` : ""}
+                                    ${request.completedAt ? `<div>Completed: ${esc(formatDate(request.completedAt))}${request.completedBy ? ` by ${esc(request.completedBy)}` : ""}</div>` : ""}
+                                    ${request.notes ? `<div>Notes: ${esc(request.notes)}</div>` : ""}
+                                    ${request.warehouseNote ? `<div><strong>Warehouse note:</strong> ${esc(request.warehouseNote)}</div>` : ""}
+                                </div>
+                                <div class="line-items">
+                                    ${(request.components || []).map((component) => `
+                                        <div class="line-card">
+                                            <div class="line-head">
+                                                <strong>${esc(component.sku)}</strong>
+                                                <span class="pill">${esc(component.totalQuantity ? `${num(component.totalQuantity)} total` : `${num(component.quantityPerUnit)} per display`)}</span>
+                                            </div>
+                                            <div class="line-note">${esc(component.description || "Component item")}${component.note ? ` | ${esc(component.note)}` : ""}</div>
+                                        </div>
+                                    `).join("") || `<div class="empty">No component lines saved.</div>`}
+                                </div>
+                            </div>
+                        ` : ""}
+                    </article>
+                `;
+            }).join("");
+        }
+
+        function onKittingRequestsListClick(event) {
+            const toggleButton = event.target.closest("[data-toggle-kitting-details]");
+            if (!toggleButton) return;
+            const requestId = toggleButton.dataset.toggleKittingDetails || "";
+            portalState.expandedKittingRequestId = String(portalState.expandedKittingRequestId || "") === String(requestId) ? null : requestId;
+            renderKittingRequests();
         }
 
         async function refreshKittingRequests(silent = true) {
@@ -3032,81 +3095,114 @@
             }
         }
 
+        function inboundPillClass(status) {
+            if (status === "RECEIVED") return "success";
+            if (status === "ARRIVED") return "info";
+            if (status === "CANCELLED") return "error";
+            return "warn";
+        }
+
+        function inboundStatusLabel(status) {
+            return status === "ARRIVED" ? "CHECKED IN" : (status || "");
+        }
+
+        function inboundTotalQuantity(inbound) {
+            return (inbound?.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+        }
+
+        function renderInboundLineCards(lines = []) {
+            if (!lines.length) return `<div class="empty">No purchase order lines saved.</div>`;
+            return lines.map((line) => `
+                <div class="line-card">
+                    <div class="line-head">
+                        <strong>${esc(line.sku)}</strong>
+                        <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                    </div>
+                    <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                    ${(line.receivedQuantity || line.receivedLocation || line.lotNumber || line.expirationDate) ? `
+                        <div class="line-note">
+                            Received ${line.receivedQuantity ? esc(formatTrackedQuantity(line.receivedQuantity, line.trackingLevel)) : "-"}
+                            ${line.receivedLocation ? ` | Location ${esc(line.receivedLocation)}` : ""}
+                            ${line.lotNumber ? ` | Lot ${esc(line.lotNumber)}` : ""}
+                            ${line.expirationDate ? ` | Exp ${esc(line.expirationDate)}` : ""}
+                        </div>
+                    ` : ""}
+                </div>
+            `).join("");
+        }
+
         function renderInbounds() {
             if (!portalState.inbounds.length) {
+                portalState.expandedInboundId = null;
                 ui.inboundsList.innerHTML = `<div class="empty">No purchase orders submitted yet.</div>`;
                 return;
             }
 
-            const inboundPillClass = (status) => {
-                if (status === "RECEIVED") return "success";
-                if (status === "ARRIVED") return "info";
-                return "warn";
-            };
-            const inboundStatusLabel = (status) => status === "ARRIVED" ? "CHECKED IN" : (status || "");
+            if (portalState.expandedInboundId && !portalState.inbounds.some((inbound) => String(inbound.id) === String(portalState.expandedInboundId))) {
+                portalState.expandedInboundId = null;
+            }
 
-            ui.inboundsList.innerHTML = portalState.inbounds.map((inbound) => `
-                <article class="order-card">
-                    <div class="order-head">
-                        <div>
-                            <strong>${esc(inbound.inboundCode)}</strong>
-                            <div class="meta">Submitted ${esc(formatDate(inbound.createdAt))}</div>
+            ui.inboundsList.innerHTML = portalState.inbounds.map((inbound) => {
+                const isExpanded = String(portalState.expandedInboundId || "") === String(inbound.id);
+                const appointments = getAppointmentsForInbound(inbound);
+                return `
+                    <article class="order-card order-summary-card">
+                        <div class="order-head">
+                            <div>
+                                <strong>${esc(inbound.inboundCode)}</strong>
+                                <div class="meta">Submitted ${esc(formatDate(inbound.createdAt))}${inbound.receivedAt ? ` | Received ${esc(formatDate(inbound.receivedAt))}` : ""}</div>
+                            </div>
+                            <span class="pill ${inboundPillClass(inbound.status)}">${esc(inboundStatusLabel(inbound.status))}</span>
                         </div>
-                        <span class="pill ${inboundPillClass(inbound.status)}">${esc(inboundStatusLabel(inbound.status))}</span>
-                    </div>
-                    <div class="order-meta">
-                        <div>Reference: ${esc(inbound.referenceNumber || "None")}</div>
-                        <div>Receiving Warehouse: ${esc(formatRecordFulfillmentLocation(inbound))}</div>
-                        <div>Expected: ${esc(inbound.expectedDate || "Not set")}</div>
-                        ${inbound.arrivedAt ? `<div>Checked in: ${esc(formatDate(inbound.arrivedAt))}</div>` : ""}
-                        ${inbound.receivedAt ? `<div>Received: ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
-                        <div>Carrier: ${esc(inbound.carrierName || "Not provided")}</div>
-                        <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
-                        <div>Notes: ${esc(inbound.notes || "None")}</div>
-                    </div>
-                    ${getAppointmentsForInbound(inbound).length ? `
-                        <div class="order-documents">
-                            <strong>Delivery Appointment</strong>
-                            ${getAppointmentsForInbound(inbound).map((appointment) => `
-                                <span class="meta">${esc(appointment.appointmentCode)} | ${esc(appointment.status)} | ${esc(appointment.requestedDate || "No date")} ${esc(appointment.requestedTime || "")}</span>
-                            `).join("")}
+                        <div class="order-summary-grid">
+                            <div class="detail"><span>Reference</span><strong>${esc(inbound.referenceNumber || "None")}</strong></div>
+                            <div class="detail"><span>Expected</span><strong>${esc(inbound.expectedDate || "Not set")}</strong></div>
+                            <div class="detail"><span>Lines / Qty</span><strong>${esc(inbound.lines.length)} line${inbound.lines.length === 1 ? "" : "s"} / ${esc(num(inboundTotalQuantity(inbound)))}</strong></div>
+                            <div class="detail"><span>Appointments</span><strong>${esc(num(appointments.length))}</strong></div>
                         </div>
-                    ` : ""}
-                    <div class="line-items">
-                        ${inbound.lines.map((line) => `
-                            <div class="line-card">
-                                <div class="line-head">
-                                    <strong>${esc(line.sku)}</strong>
-                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                        <div class="button-row">
+                            <button class="btn ghost" type="button" data-toggle-inbound-details="${attr(inbound.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
+                            ${inbound.status !== "CANCELLED" ? `<button class="btn" type="button" data-book-inbound-appointment="${attr(inbound.id)}">Book Appointment</button>` : ""}
+                        </div>
+                        ${isExpanded ? `
+                            <div class="order-details-panel">
+                                <div class="order-meta">
+                                    <div>Receiving Warehouse: ${esc(formatRecordFulfillmentLocation(inbound))}</div>
+                                    ${inbound.arrivedAt ? `<div>Checked in: ${esc(formatDate(inbound.arrivedAt))}</div>` : ""}
+                                    ${inbound.receivedAt ? `<div>Received: ${esc(formatDate(inbound.receivedAt))}</div>` : ""}
+                                    <div>Carrier: ${esc(inbound.carrierName || "Not provided")}</div>
+                                    <div>Contact: ${esc(inbound.contactName || "None")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
+                                    <div>Notes: ${esc(inbound.notes || "None")}</div>
                                 </div>
-                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
-                                ${(line.receivedQuantity || line.receivedLocation || line.lotNumber || line.expirationDate) ? `
-                                    <div class="line-note">
-                                        Received ${line.receivedQuantity ? esc(formatTrackedQuantity(line.receivedQuantity, line.trackingLevel)) : "-"}
-                                        ${line.receivedLocation ? ` | Location ${esc(line.receivedLocation)}` : ""}
-                                        ${line.lotNumber ? ` | Lot ${esc(line.lotNumber)}` : ""}
-                                        ${line.expirationDate ? ` | Exp ${esc(line.expirationDate)}` : ""}
+                                ${appointments.length ? `
+                                    <div class="order-documents">
+                                        <strong>Delivery Appointment</strong>
+                                        ${appointments.map((appointment) => `
+                                            <span class="meta">${esc(appointment.appointmentCode)} | ${esc(appointment.status)} | ${esc(appointment.requestedDate || "No date")} ${esc(appointment.requestedTime || "")}</span>
+                                        `).join("")}
+                                    </div>
+                                ` : ""}
+                                <div class="line-items">
+                                    ${renderInboundLineCards(inbound.lines)}
+                                </div>
+                                ${inbound.documents?.length ? renderDocumentList(inbound.documents, "Purchase Order Documents") : ""}
+                                ${inbound.status !== "CANCELLED" ? `
+                                    <div class="order-document-upload">
+                                        <label class="field">
+                                            <span>Purchase Order Documents</span>
+                                            <input data-inbound-documents="${attr(inbound.id)}" type="file" accept="application/pdf,image/*" multiple>
+                                        </label>
+                                        <div class="button-row">
+                                            <button class="btn ghost" type="button" data-upload-inbound-documents="${attr(inbound.id)}">Upload PO Docs</button>
+                                            <span class="meta">PDF or image files, up to 5 at a time.</span>
+                                        </div>
                                     </div>
                                 ` : ""}
                             </div>
-                        `).join("")}
-                    </div>
-                    ${inbound.documents?.length ? renderDocumentList(inbound.documents, "Purchase Order Documents") : ""}
-                    ${inbound.status !== "CANCELLED" ? `
-                        <div class="order-document-upload">
-                            <label class="field">
-                                <span>Purchase Order Documents</span>
-                                <input data-inbound-documents="${attr(inbound.id)}" type="file" accept="application/pdf,image/*" multiple>
-                            </label>
-                            <div class="button-row">
-                                <button class="btn" type="button" data-book-inbound-appointment="${attr(inbound.id)}">Book Appointment</button>
-                                <button class="btn ghost" type="button" data-upload-inbound-documents="${attr(inbound.id)}">Upload PO Docs</button>
-                                <span class="meta">PDF or image files, up to 5 at a time.</span>
-                            </div>
-                        </div>
-                    ` : ""}
-                </article>
-            `).join("");
+                        ` : ""}
+                    </article>
+                `;
+            }).join("");
         }
 
         function resetInboundForm() {
@@ -3253,34 +3349,53 @@
         function renderDeliveryAppointments() {
             if (!ui.deliveriesList) return;
             if (!portalState.deliveryAppointments.length) {
+                portalState.expandedDeliveryId = null;
                 ui.deliveriesList.innerHTML = `<div class="empty">No delivery appointments requested yet.</div>`;
                 return;
             }
 
-            ui.deliveriesList.innerHTML = portalState.deliveryAppointments.map((appointment) => `
-                <article class="order-card">
-                    <div class="order-head">
-                        <div>
-                            <strong>${esc(appointment.appointmentCode)}</strong>
-                            <div class="meta">Requested ${esc(formatDate(appointment.createdAt))}</div>
+            if (portalState.expandedDeliveryId && !portalState.deliveryAppointments.some((appointment) => String(appointment.id) === String(portalState.expandedDeliveryId))) {
+                portalState.expandedDeliveryId = null;
+            }
+
+            ui.deliveriesList.innerHTML = portalState.deliveryAppointments.map((appointment) => {
+                const isExpanded = String(portalState.expandedDeliveryId || "") === String(appointment.id);
+                const inboundStatus = appointment.inboundStatus === "ARRIVED" ? "CHECKED IN" : appointment.inboundStatus;
+                return `
+                    <article class="order-card order-summary-card">
+                        <div class="order-head">
+                            <div>
+                                <strong>${esc(appointment.appointmentCode)}</strong>
+                                <div class="meta">Requested ${esc(formatDate(appointment.createdAt))}</div>
+                            </div>
+                            <span class="pill ${deliveryStatusPillClass(appointment.status)}">${esc(appointment.status)}</span>
                         </div>
-                        <span class="pill ${deliveryStatusPillClass(appointment.status)}">${esc(appointment.status)}</span>
-                    </div>
-                    <div class="order-meta">
-                        ${appointment.inboundCode ? `<div>Inbound: ${esc(appointment.inboundCode)}${appointment.inboundStatus ? ` | ${esc(appointment.inboundStatus === "ARRIVED" ? "CHECKED IN" : appointment.inboundStatus)}` : ""}</div>` : ""}
-                        <div>Reference / PO: ${esc(appointment.referenceNumber || "None")}</div>
-                        <div>Requested: ${esc(appointment.requestedDate || "Not set")} ${esc(appointment.requestedTime || "")}</div>
-                        ${appointment.status === "APPROVED" ? `<div>Approved: ${esc(formatDate(appointment.approvedAt))}</div>` : ""}
-                        ${appointment.status === "DENIED" ? `<div>Alternative: ${esc(appointment.alternativeDate || "Not set")} ${esc(appointment.alternativeTime || "")}</div>` : ""}
-                        <div>Warehouse: ${esc(formatDeliveryLocation(appointment))}</div>
-                        <div>Carrier: ${esc(appointment.carrierName || "Not provided")}${appointment.trailerNumber ? ` | Trailer ${esc(appointment.trailerNumber)}` : ""}</div>
-                        <div>Counts: ${appointment.palletCount ? `${esc(appointment.palletCount)} pallet${appointment.palletCount === 1 ? "" : "s"}` : "Pallets not provided"}${appointment.cartonCount ? ` | ${esc(appointment.cartonCount)} carton${appointment.cartonCount === 1 ? "" : "s"}` : ""}</div>
-                        <div>Contact: ${esc(appointment.contactName || "None")}${appointment.contactPhone ? ` | ${esc(appointment.contactPhone)}` : ""}${appointment.contactEmail ? ` | ${esc(appointment.contactEmail)}` : ""}</div>
-                        ${appointment.warehouseNote ? `<div>Warehouse Note: ${esc(appointment.warehouseNote)}</div>` : ""}
-                        <div>Notes: ${esc(appointment.notes || "None")}</div>
-                    </div>
-                </article>
-            `).join("");
+                        <div class="order-summary-grid">
+                            <div class="detail"><span>Inbound</span><strong>${esc(appointment.inboundCode || "Not linked")}</strong></div>
+                            <div class="detail"><span>Reference</span><strong>${esc(appointment.referenceNumber || "None")}</strong></div>
+                            <div class="detail"><span>Requested</span><strong>${esc(appointment.requestedDate || "Not set")} ${esc(appointment.requestedTime || "")}</strong></div>
+                            <div class="detail"><span>Warehouse</span><strong>${esc(formatDeliveryLocation(appointment))}</strong></div>
+                        </div>
+                        <div class="button-row">
+                            <button class="btn ghost" type="button" data-toggle-delivery-details="${attr(appointment.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
+                        </div>
+                        ${isExpanded ? `
+                            <div class="order-details-panel">
+                                <div class="order-meta">
+                                    ${appointment.inboundCode ? `<div>Inbound: ${esc(appointment.inboundCode)}${inboundStatus ? ` | ${esc(inboundStatus)}` : ""}</div>` : ""}
+                                    ${appointment.status === "APPROVED" ? `<div>Approved: ${esc(formatDate(appointment.approvedAt))}</div>` : ""}
+                                    ${appointment.status === "DENIED" ? `<div>Alternative: ${esc(appointment.alternativeDate || "Not set")} ${esc(appointment.alternativeTime || "")}</div>` : ""}
+                                    <div>Carrier: ${esc(appointment.carrierName || "Not provided")}${appointment.trailerNumber ? ` | Trailer ${esc(appointment.trailerNumber)}` : ""}</div>
+                                    <div>Counts: ${appointment.palletCount ? `${esc(appointment.palletCount)} pallet${appointment.palletCount === 1 ? "" : "s"}` : "Pallets not provided"}${appointment.cartonCount ? ` | ${esc(appointment.cartonCount)} carton${appointment.cartonCount === 1 ? "" : "s"}` : ""}</div>
+                                    <div>Contact: ${esc(appointment.contactName || "None")}${appointment.contactPhone ? ` | ${esc(appointment.contactPhone)}` : ""}${appointment.contactEmail ? ` | ${esc(appointment.contactEmail)}` : ""}</div>
+                                    ${appointment.warehouseNote ? `<div>Warehouse Note: ${esc(appointment.warehouseNote)}</div>` : ""}
+                                    <div>Notes: ${esc(appointment.notes || "None")}</div>
+                                </div>
+                            </div>
+                        ` : ""}
+                    </article>
+                `;
+            }).join("");
         }
 
         function formatDeliveryLocation(appointment) {
@@ -3924,6 +4039,14 @@
         }
 
         async function onInboundsListClick(event) {
+            const toggleDetailsButton = event.target.closest("[data-toggle-inbound-details]");
+            if (toggleDetailsButton) {
+                const inboundId = toggleDetailsButton.dataset.toggleInboundDetails || "";
+                portalState.expandedInboundId = String(portalState.expandedInboundId || "") === String(inboundId) ? null : inboundId;
+                renderInbounds();
+                return;
+            }
+
             if (await onDocumentPreviewClick(event)) return;
 
             const appointmentButton = event.target.closest("[data-book-inbound-appointment]");
@@ -3940,6 +4063,14 @@
             const uploadButton = event.target.closest("[data-upload-inbound-documents]");
             if (!uploadButton) return;
             await uploadInboundDocuments(uploadButton.dataset.uploadInboundDocuments, uploadButton);
+        }
+
+        function onDeliveriesListClick(event) {
+            const toggleDetailsButton = event.target.closest("[data-toggle-delivery-details]");
+            if (!toggleDetailsButton) return;
+            const appointmentId = toggleDetailsButton.dataset.toggleDeliveryDetails || "";
+            portalState.expandedDeliveryId = String(portalState.expandedDeliveryId || "") === String(appointmentId) ? null : appointmentId;
+            renderDeliveryAppointments();
         }
 
         async function uploadInboundDocuments(inboundId, button = null) {
@@ -4357,7 +4488,7 @@
         function sanitizeInbound(inbound) {
             if (!inbound || typeof inbound !== "object") return null;
             return {
-                id: Number(inbound.id || 0),
+                id: String(inbound.id || ""),
                 inboundCode: String(inbound.inboundCode || inbound.inbound_code || ""),
                 status: String(inbound.status || "SUBMITTED").toUpperCase(),
                 fulfillmentLocationId: String(inbound.fulfillmentLocationId || inbound.fulfillment_location_id || ""),
