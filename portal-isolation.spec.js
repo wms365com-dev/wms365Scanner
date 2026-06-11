@@ -7,7 +7,8 @@ const {
     assertPortalResourceAccount,
     getPortalRouteRule,
     sanitizePortalPermissionsInput,
-    portalSessionHasPermission
+    portalSessionHasPermission,
+    assertPortalOrderCanReceiveDocuments
 } = require("./server.js");
 
 function portalSession(accountName, permissions = {}) {
@@ -134,4 +135,13 @@ test("portal item maintenance requires admin permission while lookup stays inven
     assert.equal(getPortalRouteRule("GET", "/items").permission, PORTAL_PERMISSION_KEYS.INVENTORY);
     assert.equal(getPortalRouteRule("POST", "/items").permission, PORTAL_PERMISSION_KEYS.ADMIN);
     assert.equal(getPortalRouteRule("PUT", "/items/123").permission, PORTAL_PERMISSION_KEYS.ADMIN);
+});
+
+test("customer portal cannot upload order documents after shipment", () => {
+    assert.doesNotThrow(() => assertPortalOrderCanReceiveDocuments("STAGED", { allowShippedDocuments: false }));
+    assert.doesNotThrow(() => assertPortalOrderCanReceiveDocuments("SHIPPED", { allowShippedDocuments: true }));
+    assert.throws(
+        () => assertPortalOrderCanReceiveDocuments("SHIPPED", { allowShippedDocuments: false }),
+        (error) => error.statusCode === 400 && /shipped orders are locked/i.test(error.message)
+    );
 });

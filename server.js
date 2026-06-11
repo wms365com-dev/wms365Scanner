@@ -13698,7 +13698,8 @@ async function savePortalOrderDocumentsForAccount(
     {
         downloadPathPrefix = "/api/admin/portal-order-documents",
         activityActor = "",
-        uploadedBy = ""
+        uploadedBy = "",
+        allowShippedDocuments = true
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -13706,9 +13707,7 @@ async function savePortalOrderDocumentsForAccount(
     if (!order) {
         throw httpError(404, "That order could not be found.");
     }
-    if (["ARCHIVED", "CANCELLED"].includes(order.status)) {
-        throw httpError(400, `${order.status === "CANCELLED" ? "Cancelled" : "Archived"} orders cannot receive new shipping labels or documents.`);
-    }
+    assertPortalOrderCanReceiveDocuments(order.status, { allowShippedDocuments });
 
     const documents = sanitizePortalOrderDocumentsInput(Array.isArray(rawPayload?.documents) ? rawPayload.documents : []);
     if (!documents.length) {
@@ -13733,12 +13732,23 @@ async function savePortalOrderDocumentsForAccount(
     return updatedOrder;
 }
 
+function assertPortalOrderCanReceiveDocuments(status, { allowShippedDocuments = true } = {}) {
+    const normalizedStatus = normalizeText(status || "");
+    if (["ARCHIVED", "CANCELLED"].includes(normalizedStatus)) {
+        throw httpError(400, `${normalizedStatus === "CANCELLED" ? "Cancelled" : "Archived"} orders cannot receive new shipping labels or documents.`);
+    }
+    if (!allowShippedDocuments && normalizedStatus === "SHIPPED") {
+        throw httpError(400, "Shipped orders are locked. New documents cannot be uploaded from the customer portal after shipment.");
+    }
+}
+
 async function savePortalOrderDocuments(client, accessRow, orderId, rawPayload) {
     const access = mapPortalAccessRow(accessRow);
     return savePortalOrderDocumentsForAccount(client, access.accountName, orderId, rawPayload, {
         downloadPathPrefix: "/api/portal/order-documents",
         activityActor: "Company portal",
-        uploadedBy: access.email || "Company portal"
+        uploadedBy: access.email || "Company portal",
+        allowShippedDocuments: false
     });
 }
 
@@ -27980,6 +27990,7 @@ module.exports = {
     normalizeSafeUploadMimeType,
     detectSafeUploadMimeType,
     assertSafeUploadContent,
+    assertPortalOrderCanReceiveDocuments,
     sanitizePortalOrderDocumentInput,
     sendSafeUploadedDocument,
     encryptSecret,

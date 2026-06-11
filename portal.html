@@ -2647,7 +2647,7 @@
                             `).join("")}
                         </div>
                     ` : ""}
-                    ${order.status !== "ARCHIVED" ? `
+                    ${canCustomerUploadOrderDocuments(order) ? `
                         <div class="order-document-upload">
                             <label class="field">
                                 <span>Shipping Labels / Order Documents</span>
@@ -2657,6 +2657,10 @@
                                 <button class="btn ghost" type="button" data-upload-order-documents="${attr(order.id)}">Upload Labels / Docs</button>
                                 <span class="meta">PDF or image files, up to 5 at a time.</span>
                             </div>
+                        </div>
+                    ` : orderDocumentLockMessage(order) ? `
+                        <div class="order-document-upload">
+                            <span class="meta">${esc(orderDocumentLockMessage(order))}</span>
                         </div>
                     ` : ""}
                     <div class="button-row" style="margin-top: 0.85rem;">
@@ -2673,6 +2677,18 @@
             return portalState.orders
                 .filter((order) => statusFilter ? order.status === statusFilter : order.status !== "SHIPPED")
                 .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+        }
+
+        function canCustomerUploadOrderDocuments(order) {
+            return ["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(String(order?.status || "").toUpperCase());
+        }
+
+        function orderDocumentLockMessage(order) {
+            const status = String(order?.status || "").toUpperCase();
+            if (status === "SHIPPED") return "This order has shipped. Documents are locked and can no longer be uploaded from the customer portal.";
+            if (status === "CANCELLED") return "This order is cancelled. Documents are locked.";
+            if (status === "ARCHIVED") return "This order is archived. Documents are locked.";
+            return "";
         }
 
         function getShippedOrders() {
