@@ -13414,11 +13414,13 @@ async function savePortalOrderDraftForAccount(
         downloadPathPrefix = "/api/admin/portal-order-documents",
         activityTitlePrefix = "portal",
         activityActor = "",
+        uploadedBy = "",
         enforceInventoryAvailability = true
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
     const order = sanitizePortalOrderInput(rawOrder, normalizedAccount);
+    const documents = sanitizePortalOrderDocumentsInput(Array.isArray(rawOrder?.documents) ? rawOrder.documents : []);
 
     if (!order.poNumber || !order.shippingReference || !order.contactName || !order.contactPhone) {
         throw httpError(400, "PO number, shipping reference, contact name, and contact phone are required.");
@@ -13547,6 +13549,9 @@ async function savePortalOrderDraftForAccount(
         );
     }
     await upsertShipToAddressFromOrder(client, normalizedAccount, order);
+    if (documents.length) {
+        await insertPortalOrderDocuments(client, savedOrderId, documents, uploadedBy || activityActor || "");
+    }
 
     const savedOrder = await getPortalOrderById(client, savedOrderId, normalizedAccount, downloadPathPrefix);
     await insertActivity(
@@ -13556,6 +13561,7 @@ async function savePortalOrderDraftForAccount(
         [
             savedOrder.accountName,
             `${formatCount(savedOrder.lines.length, "line")}`,
+            documents.length ? `${formatCount(documents.length, "document")} attached` : "",
             `PO ${savedOrder.poNumber}`,
             `Requested ${savedOrder.requestedShipDate || "No ship date"}`,
             activityActor || ""
@@ -13571,7 +13577,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
         portalAccessId: accessRow.id,
         downloadPathPrefix: "/api/portal/order-documents",
         activityTitlePrefix: "portal",
-        activityActor: "Company portal"
+        activityActor: "Company portal",
+        uploadedBy: access.email || "Company portal"
     });
 }
 
@@ -14214,7 +14221,8 @@ async function saveWarehousePortalOrderDraft(client, accountName, rawOrder, orde
         portalAccessId: null,
         downloadPathPrefix: "/api/admin/portal-order-documents",
         activityTitlePrefix: "warehouse sales",
-        activityActor: actor
+        activityActor: actor,
+        uploadedBy: actor
     });
 }
 

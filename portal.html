@@ -1143,6 +1143,14 @@
                     <label class="field"><span>Postal Code</span><input id="orderShipToPostalCode" type="text" placeholder="Required"></label>
                     <label class="field"><span>Country</span><input id="orderShipToCountry" type="text" value="USA" placeholder="Required"></label>
                     <label class="field span-2"><span>Order Notes</span><input id="orderNotes" type="text" placeholder="Optional shipping or handling notes"></label>
+                    <div class="order-document-upload span-2">
+                        <label class="field">
+                            <span>Shipping Labels / Order Documents</span>
+                            <input id="orderDocumentFiles" type="file" accept="application/pdf,image/*" multiple>
+                        </label>
+                        <div class="meta">Attach labels, BOLs, packing instructions, or supporting files while creating the order. PDF or image files, up to 5 at a time.</div>
+                        <div id="orderFormDocuments" class="order-documents hidden"></div>
+                    </div>
                 </form>
 
                 <div style="margin-top: 1rem;">
@@ -1557,6 +1565,8 @@
             orderShipToCountry: document.getElementById("orderShipToCountry"),
             portalShipToAddressList: document.getElementById("portalShipToAddressList"),
             orderNotes: document.getElementById("orderNotes"),
+            orderDocumentFiles: document.getElementById("orderDocumentFiles"),
+            orderFormDocuments: document.getElementById("orderFormDocuments"),
             addLineBtn: document.getElementById("addLineBtn"),
             orderLines: document.getElementById("orderLines"),
             resetOrderBtn: document.getElementById("resetOrderBtn"),
@@ -1788,6 +1798,7 @@
             ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
             ui.documentPreviewCloseButtons.forEach((button) => button.addEventListener("click", closeDocumentPreviewModal));
             ui.logoutBtn.addEventListener("click", logout);
+            ui.orderPanel.addEventListener("click", onDocumentPreviewClick);
             ui.ordersList.addEventListener("click", onOrdersListClick);
             ui.shippedOrdersList.addEventListener("click", onShippedOrdersListClick);
             ui.shippedOrderDetails.addEventListener("click", onDocumentPreviewClick);
@@ -2875,6 +2886,30 @@
             `;
         }
 
+        function renderOrderFormDocuments(order = null) {
+            const documents = Array.isArray(order?.documents) ? order.documents : [];
+            if (!ui.orderFormDocuments) return;
+            if (!documents.length) {
+                ui.orderFormDocuments.classList.add("hidden");
+                ui.orderFormDocuments.innerHTML = "";
+                return;
+            }
+            ui.orderFormDocuments.classList.remove("hidden");
+            ui.orderFormDocuments.innerHTML = `
+                <strong>Already Attached</strong>
+                ${documents.map(renderDocumentActions).join("")}
+            `;
+        }
+
+        function pendingOrderDocumentCount() {
+            return ui.orderDocumentFiles?.files?.length || 0;
+        }
+
+        async function readPendingOrderDocuments() {
+            if (!pendingOrderDocumentCount()) return [];
+            return readOrderDocumentFiles(ui.orderDocumentFiles.files);
+        }
+
         function renderOrders() {
             const statusFilter = String(portalState.orderStatusFilter || "").trim().toUpperCase();
             const activeOrders = getVisibleOrdersForExport();
@@ -3507,6 +3542,8 @@
             ui.orderShipToPostalCode.value = order?.shipToPostalCode || "";
             ui.orderShipToCountry.value = order?.shipToCountry || "USA";
             ui.orderNotes.value = order?.orderNotes || "";
+            if (ui.orderDocumentFiles) ui.orderDocumentFiles.value = "";
+            renderOrderFormDocuments(order);
             ui.orderLines.innerHTML = "";
             if (order?.fulfillmentLocationId) {
                 setActiveFulfillmentLocation(order.fulfillmentLocationId);
@@ -3671,18 +3708,20 @@
                 return await runActionWithFeedback({
                     button: actionButton,
                     busyLabel: "Saving draft...",
-                    progressMessage: options.showProgress === false ? "" : "Saving your draft order..."
+                    progressMessage: options.showProgress === false ? "" : (pendingOrderDocumentCount() ? "Saving your draft order and uploading documents..." : "Saving your draft order...")
                 }, async () => {
+                    const documents = await readPendingOrderDocuments();
+                    const payloadToSave = documents.length ? { ...payload, documents } : payload;
                     const response = await requestJson(portalState.editingOrderId ? `/api/portal/orders/${portalState.editingOrderId}` : "/api/portal/orders", {
                         method: portalState.editingOrderId ? "PUT" : "POST",
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(payloadToSave)
                     });
                     await loadPortalData();
                     const savedOrder = portalState.orders.find((order) => order.id === response.order.id) || response.order;
                     resetOrderForm(savedOrder);
                     setView("order");
                     if (options.suppressSuccessMessage !== true) {
-                        setMessage(`Saved draft ${savedOrder.orderCode}.`, "success");
+                        setMessage(`Saved draft ${savedOrder.orderCode}${documents.length ? ` with ${documents.length} document${documents.length === 1 ? "" : "s"}` : ""}.`, "success");
                     }
                     return response;
                 });
@@ -3746,7 +3785,7 @@
                 orderCode: currentOrder?.orderCode || "New draft order",
                 reference: ui.orderShippingReference.value.trim() || currentOrder?.shippingReference || "Not set",
                 shipTo: shipToSummary || "Not set",
-                documentCount: Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0
+                documentCount: (Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0) + pendingOrderDocumentCount()
             };
         }
 
@@ -3842,15 +3881,13 @@
                 throw new Error("Sales orders are not enabled for your company.");
             }
 
-            if (!portalState.editingOrderId) {
-                const draftResponse = await saveDraftOrder({
-                    useBusy: false,
-                    showProgress: false,
-                    suppressSuccessMessage: true
-                });
-                if (!draftResponse || !portalState.editingOrderId) {
-                    throw new Error(ui.portalMessage.textContent || "Save the draft before releasing.");
-                }
+            const draftResponse = await saveDraftOrder({
+                useBusy: false,
+                showProgress: false,
+                suppressSuccessMessage: true
+            });
+            if (!draftResponse || !portalState.editingOrderId) {
+                throw new Error(ui.portalMessage.textContent || "Save the draft before releasing.");
             }
 
             return releaseOrderByIdFlow(portalState.editingOrderId, { releaseOptions, resetForm, nextView });
