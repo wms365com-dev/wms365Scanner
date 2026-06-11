@@ -506,6 +506,66 @@
             font-weight: 700;
             text-decoration: none;
         }
+        .order-summary-card {
+            display: grid;
+            gap: 0.85rem;
+        }
+        .order-summary-grid {
+            display: grid;
+            gap: 0.55rem;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .order-summary-grid .detail {
+            padding: 0.75rem;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+        }
+        .order-details-panel {
+            display: grid;
+            gap: 0.85rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--line);
+        }
+        .document-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.65rem 0;
+            border-top: 1px solid var(--line);
+        }
+        .document-row:first-of-type {
+            border-top: 0;
+            padding-top: 0.2rem;
+        }
+        .document-row-name {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+        .document-preview-body {
+            min-height: 58vh;
+            display: grid;
+            place-items: center;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #f8fbfd;
+            overflow: hidden;
+        }
+        .document-preview-body iframe,
+        .document-preview-body img {
+            width: 100%;
+            height: min(70vh, 760px);
+            border: 0;
+            object-fit: contain;
+            background: #fff;
+        }
+        .document-preview-body img {
+            padding: 0.75rem;
+        }
+        #documentPreviewModal .feedback-modal-dialog {
+            width: min(980px, 96vw);
+        }
         .line-fields {
             display: grid;
             gap: 0.75rem;
@@ -654,7 +714,7 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row { grid-template-columns: 1fr; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -663,6 +723,10 @@
             }
             .portal-nav .btn {
                 width: 100%;
+            }
+            .document-row {
+                align-items: stretch;
+                flex-direction: column;
             }
             body { padding: 0.75rem; }
             .auth-wrap { min-height: calc(100dvh - 1.5rem); }
@@ -1269,6 +1333,23 @@
             <datalist id="portalShipToAddressList"></datalist>
             <datalist id="kittingSkuList"></datalist>
 
+            <div id="documentPreviewModal" class="feedback-modal hidden" aria-hidden="true">
+                <div class="feedback-modal-backdrop" data-document-preview-close></div>
+                <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="documentPreviewTitle">
+                    <div class="order-head">
+                        <div class="header-copy">
+                            <h2 id="documentPreviewTitle">Document Preview</h2>
+                            <p class="lead">Review the uploaded file without leaving the customer portal.</p>
+                        </div>
+                        <button class="btn ghost" type="button" data-document-preview-close>Close</button>
+                    </div>
+                    <div id="documentPreviewBody" class="document-preview-body" style="margin-top: 1rem;">
+                        <div class="empty">Select a document to preview.</div>
+                    </div>
+                    <div id="documentPreviewMessage" class="status" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+
             <div id="portalFeedbackModal" class="feedback-modal hidden" aria-hidden="true">
                 <div class="feedback-modal-backdrop" data-portal-feedback-close></div>
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalFeedbackTitle">
@@ -1347,6 +1428,8 @@
             editingOrderId: null,
             editingItemSku: null,
             selectedShippedOrderId: null,
+            expandedOrderId: null,
+            documentPreviewObjectUrl: "",
             orderStatusFilter: "",
             pendingReleaseHandler: null
         };
@@ -1487,6 +1570,11 @@
             portalReleaseCcEmails: document.getElementById("portalReleaseCcEmails"),
             portalReleaseSubmitBtn: document.getElementById("portalReleaseSubmitBtn"),
             portalReleaseMessage: document.getElementById("portalReleaseMessage"),
+            documentPreviewModal: document.getElementById("documentPreviewModal"),
+            documentPreviewCloseButtons: [...document.querySelectorAll("[data-document-preview-close]")],
+            documentPreviewTitle: document.getElementById("documentPreviewTitle"),
+            documentPreviewBody: document.getElementById("documentPreviewBody"),
+            documentPreviewMessage: document.getElementById("documentPreviewMessage"),
             inboundForm: document.getElementById("inboundForm"),
             inboundWarehouseNotice: document.getElementById("inboundWarehouseNotice"),
             inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
@@ -1690,9 +1778,11 @@
             ui.openPortalFeedbackBtn.addEventListener("click", openPortalFeedbackModal);
             ui.portalFeedbackCloseButtons.forEach((button) => button.addEventListener("click", closePortalFeedbackModal));
             ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
+            ui.documentPreviewCloseButtons.forEach((button) => button.addEventListener("click", closeDocumentPreviewModal));
             ui.logoutBtn.addEventListener("click", logout);
             ui.ordersList.addEventListener("click", onOrdersListClick);
             ui.shippedOrdersList.addEventListener("click", onShippedOrdersListClick);
+            ui.shippedOrderDetails.addEventListener("click", onDocumentPreviewClick);
             ui.orderStatusFilterButtons.forEach((button) => button.addEventListener("click", () => applyOrderStatusFilter(button.dataset.orderStatusFilter)));
             ui.itemsStatButton.addEventListener("click", () => setView("items"));
             ui.inventoryStatButton.addEventListener("click", () => setView("inventory"));
@@ -1716,6 +1806,10 @@
                 }
                 if (event.key === "Escape" && !ui.portalFeedbackModal.classList.contains("hidden")) {
                     closePortalFeedbackModal();
+                    return;
+                }
+                if (event.key === "Escape" && !ui.documentPreviewModal.classList.contains("hidden")) {
+                    closeDocumentPreviewModal();
                 }
             });
             restoreSession();
@@ -1758,6 +1852,7 @@
             ui.portalWarehouseSwitcher?.classList.add("hidden");
             ui.loginPassword.value = "";
             closePortalFeedbackModal();
+            closeDocumentPreviewModal();
             setMessage("", "info");
         }
 
@@ -2071,6 +2166,116 @@
             ui.portalFeedbackModal.classList.add("hidden");
             ui.portalFeedbackModal.setAttribute("aria-hidden", "true");
             resetPortalFeedbackForm();
+        }
+
+        function setDocumentPreviewMessage(text, tone) {
+            showMessage(ui.documentPreviewMessage, text, tone);
+        }
+
+        function closeDocumentPreviewModal() {
+            if (!ui.documentPreviewModal) return;
+            ui.documentPreviewModal.classList.add("hidden");
+            ui.documentPreviewModal.setAttribute("aria-hidden", "true");
+            if (portalState.documentPreviewObjectUrl) {
+                URL.revokeObjectURL(portalState.documentPreviewObjectUrl);
+                portalState.documentPreviewObjectUrl = "";
+            }
+            if (ui.documentPreviewBody) {
+                ui.documentPreviewBody.innerHTML = `<div class="empty">Select a document to preview.</div>`;
+            }
+            setDocumentPreviewMessage("", "info");
+        }
+
+        function inferDocumentMimeType(fileName = "") {
+            const lower = String(fileName || "").toLowerCase();
+            if (lower.endsWith(".pdf")) return "application/pdf";
+            if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+            if (lower.endsWith(".png")) return "image/png";
+            if (lower.endsWith(".webp")) return "image/webp";
+            return "";
+        }
+
+        function isPreviewableDocument(fileName = "", fileType = "") {
+            const type = String(fileType || inferDocumentMimeType(fileName)).toLowerCase();
+            return type === "application/pdf" || type.startsWith("image/");
+        }
+
+        function renderDocumentActions(document) {
+            const fileName = document.fileName || "Document";
+            const fileType = document.fileType || inferDocumentMimeType(fileName);
+            const fileLabel = `${fileName}${document.fileSize ? ` (${formatDocumentFileSize(document.fileSize)})` : ""}`;
+            return `
+                <div class="document-row">
+                    <div class="document-row-name">
+                        <strong>${esc(fileLabel)}</strong>
+                        ${document.createdAt ? `<div class="meta">Uploaded ${esc(formatDate(document.createdAt))}</div>` : ""}
+                    </div>
+                    <div class="button-row">
+                        ${isPreviewableDocument(fileName, fileType) ? `<button class="btn ghost mini" type="button" data-preview-document="${attr(document.downloadUrl)}" data-document-name="${attr(fileName)}" data-document-type="${attr(fileType)}">Preview</button>` : ""}
+                        <a class="btn ghost mini" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">Download</a>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function openDocumentPreview({ url = "", fileName = "Document", fileType = "" } = {}, button = null) {
+            const documentUrl = String(url || "").trim();
+            const safeFileName = String(fileName || "Document").trim() || "Document";
+            const expectedType = String(fileType || inferDocumentMimeType(safeFileName)).trim();
+            if (!documentUrl) {
+                setMessage("Document preview is missing a file URL.", "error");
+                return;
+            }
+            if (!isPreviewableDocument(safeFileName, expectedType)) {
+                setMessage("Preview is available for PDF and image documents. Use Download for this file.", "info");
+                return;
+            }
+
+            if (portalState.documentPreviewObjectUrl) {
+                URL.revokeObjectURL(portalState.documentPreviewObjectUrl);
+                portalState.documentPreviewObjectUrl = "";
+            }
+            ui.documentPreviewTitle.textContent = safeFileName;
+            ui.documentPreviewBody.innerHTML = `<div class="empty">Loading preview...</div>`;
+            setDocumentPreviewMessage("", "info");
+            ui.documentPreviewModal.classList.remove("hidden");
+            ui.documentPreviewModal.setAttribute("aria-hidden", "false");
+
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Opening...",
+                    progressMessage: `Opening ${safeFileName}...`,
+                    onProgress: setDocumentPreviewMessage
+                }, async () => {
+                    const { blob } = await requestFile(documentUrl);
+                    const actualType = String(blob.type || expectedType || inferDocumentMimeType(safeFileName)).toLowerCase();
+                    const objectUrl = URL.createObjectURL(blob);
+                    portalState.documentPreviewObjectUrl = objectUrl;
+                    if (actualType === "application/pdf" || safeFileName.toLowerCase().endsWith(".pdf")) {
+                        ui.documentPreviewBody.innerHTML = `<iframe src="${attr(objectUrl)}" title="${attr(safeFileName)}"></iframe>`;
+                    } else if (actualType.startsWith("image/") || isPreviewableDocument(safeFileName, actualType)) {
+                        ui.documentPreviewBody.innerHTML = `<img src="${attr(objectUrl)}" alt="${attr(safeFileName)}">`;
+                    } else {
+                        ui.documentPreviewBody.innerHTML = `<div class="empty">Preview is available for PDF and image documents. Use Download for this file.</div>`;
+                    }
+                    setDocumentPreviewMessage("", "info");
+                });
+            } catch (error) {
+                ui.documentPreviewBody.innerHTML = `<div class="empty">The document could not be previewed.</div>`;
+                setDocumentPreviewMessage(error.message, "error");
+            }
+        }
+
+        async function onDocumentPreviewClick(event) {
+            const previewButton = event.target.closest("[data-preview-document]");
+            if (!previewButton) return false;
+            await openDocumentPreview({
+                url: previewButton.dataset.previewDocument,
+                fileName: previewButton.dataset.documentName || "Document",
+                fileType: previewButton.dataset.documentType || ""
+            }, previewButton);
+            return true;
         }
 
         async function submitPortalFeedback(event) {
@@ -2582,13 +2787,41 @@
             }
         }
 
+        function renderOrderLineCards(lines = [], emptyText = "No lines saved on this order.") {
+            if (!lines.length) {
+                return `<div class="empty">${esc(emptyText)}</div>`;
+            }
+            return lines.map((line) => `
+                <div class="line-card">
+                    <div class="line-head">
+                        <strong>${esc(line.sku)}</strong>
+                        <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                    </div>
+                    <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                </div>
+            `).join("");
+        }
+
+        function renderDocumentList(documents = [], title = "Order Documents") {
+            if (!documents.length) return "";
+            return `
+                <div class="order-documents">
+                    <strong>${esc(title)}</strong>
+                    ${documents.map(renderDocumentActions).join("")}
+                </div>
+            `;
+        }
+
         function renderOrders() {
             const statusFilter = String(portalState.orderStatusFilter || "").trim().toUpperCase();
             const activeOrders = getVisibleOrdersForExport();
+            if (portalState.expandedOrderId && !activeOrders.some((order) => String(order.id) === String(portalState.expandedOrderId))) {
+                portalState.expandedOrderId = null;
+            }
             if (ui.ordersPanelLead) {
                 ui.ordersPanelLead.textContent = statusFilter
-                    ? `Showing only ${statusFilter.toLowerCase()} sales orders. Clear the filter to return to open orders.`
-                    : "Draft and active orders stay here until they ship. Click a summary card above to filter by status.";
+                    ? `Showing ${statusFilter.toLowerCase()} sales orders. Open an order to review lines, documents, and shipment details.`
+                    : "Orders are shown as a compact list. Open an order to review lines, documents, or draft actions.";
             }
             if (ui.clearOrderStatusFilterBtn) {
                 ui.clearOrderStatusFilterBtn.classList.toggle("hidden", !statusFilter);
@@ -2601,75 +2834,71 @@
                 return;
             }
 
-            ui.ordersList.innerHTML = activeOrders.map((order) => `
-                <article class="order-card">
-                    <div class="order-head">
-                        <div>
-                            <strong>${esc(order.orderCode)}</strong>
-                            <div class="meta">Created ${esc(formatDate(order.createdAt))}</div>
+            ui.ordersList.innerHTML = activeOrders.map((order) => {
+                const isExpanded = String(portalState.expandedOrderId || "") === String(order.id);
+                const timeline = orderStatusTimeline(order);
+                const shipToSummary = [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not provided";
+                const hasShippingConfirmation = order.confirmedShipDate || order.shippedCarrierName || order.shippedTrackingReference || order.shippedConfirmationNote;
+                return `
+                    <article class="order-card order-summary-card">
+                        <div class="order-head">
+                            <div>
+                                <strong>${esc(order.orderCode)}</strong>
+                                <div class="meta">Created ${esc(formatDate(order.createdAt))}${timeline ? ` | ${esc(timeline)}` : ""}</div>
+                            </div>
+                            <span class="pill ${statusPillClass(order.status)}">${esc(order.status)}</span>
                         </div>
-                        <span class="pill ${statusPillClass(order.status)}">${esc(order.status)}</span>
-                    </div>
-                    <div class="order-meta">
-                        <div>PO: ${esc(order.poNumber || "None")}</div>
-                        <div>Reference: ${esc(order.shippingReference || "None")}</div>
-                        <div>Requested Ship: ${esc(order.requestedShipDate || "Not set")}</div>
-                        <div>Ship From Warehouse: ${esc(formatRecordFulfillmentLocation(order))}</div>
-                        <div>Ship To: ${esc(order.shipToName || order.contactName || "")}${order.shipToPhone ? ` | ${esc(order.shipToPhone)}` : ""}${formatAddress(order) ? ` | ${esc(formatAddress(order))}` : ""}</div>
-                        <div>Contact: ${esc(order.contactName)}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
-                        ${order.orderNotes ? `<div>Notes: ${esc(order.orderNotes)}</div>` : ""}
-                        <div>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</div>
-                        ${orderStatusTimeline(order) ? `<div>${esc(orderStatusTimeline(order))}</div>` : ""}
-                        ${order.confirmedShipDate || order.shippedCarrierName || order.shippedTrackingReference || order.shippedConfirmationNote ? `
-                            <div>Confirmed Ship: ${esc(order.confirmedShipDate || "Not set")}</div>
-                            <div>Carrier: ${esc(order.shippedCarrierName || "Not provided")}</div>
-                            <div>Tracking / PRO / BOL: ${esc(order.shippedTrackingReference || "Not provided")}</div>
-                            ${order.shippedConfirmationNote ? `<div>Shipping Note: ${esc(order.shippedConfirmationNote)}</div>` : ""}
-                        ` : ""}
-                    </div>
-                    <div class="line-items">
-                        ${order.lines.map((line) => `
-                            <div class="line-card">
-                                <div class="line-head">
-                                    <strong>${esc(line.sku)}</strong>
-                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                        <div class="order-summary-grid">
+                            <div class="detail"><span>PO #</span><strong>${esc(order.poNumber || "None")}</strong></div>
+                            <div class="detail"><span>Reference</span><strong>${esc(order.shippingReference || "None")}</strong></div>
+                            <div class="detail"><span>Requested Ship</span><strong>${esc(order.requestedShipDate || "Not set")}</strong></div>
+                            <div class="detail"><span>Lines / Qty</span><strong>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} / ${esc(num(orderTotalQuantity(order)))}</strong></div>
+                        </div>
+                        <div class="button-row">
+                            <button class="btn ghost" type="button" data-toggle-order-details="${attr(order.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
+                            ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
+                            ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}">Release</button>` : ""}
+                        </div>
+                        ${isExpanded ? `
+                            <div class="order-details-panel">
+                                <div class="order-meta">
+                                    <div>Ship From Warehouse: ${esc(formatRecordFulfillmentLocation(order))}</div>
+                                    <div>Ship To: ${esc(shipToSummary)}${order.shipToPhone ? ` | ${esc(order.shipToPhone)}` : ""}</div>
+                                    <div>Contact: ${esc(order.contactName || "Not provided")}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
+                                    ${order.orderNotes ? `<div>Notes: ${esc(order.orderNotes)}</div>` : ""}
+                                    ${hasShippingConfirmation ? `
+                                        <div>Confirmed Ship: ${esc(order.confirmedShipDate || "Not set")}</div>
+                                        <div>Carrier: ${esc(order.shippedCarrierName || "Not provided")}</div>
+                                        <div>Tracking / PRO / BOL: ${esc(order.shippedTrackingReference || "Not provided")}</div>
+                                        ${order.shippedConfirmationNote ? `<div>Shipping Note: ${esc(order.shippedConfirmationNote)}</div>` : ""}
+                                    ` : ""}
                                 </div>
-                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
+                                <div class="line-items">
+                                    ${renderOrderLineCards(order.lines)}
+                                </div>
+                                ${renderDocumentList(order.documents || [], "Shipping Labels / Order Documents")}
+                                ${canCustomerUploadOrderDocuments(order) ? `
+                                    <div class="order-document-upload">
+                                        <label class="field">
+                                            <span>Shipping Labels / Order Documents</span>
+                                            <input data-order-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
+                                        </label>
+                                        <div class="button-row">
+                                            <button class="btn ghost" type="button" data-upload-order-documents="${attr(order.id)}">Upload Labels / Docs</button>
+                                            <span class="meta">PDF or image files, up to 5 at a time.</span>
+                                        </div>
+                                    </div>
+                                ` : orderDocumentLockMessage(order) ? `
+                                    <div class="order-document-upload">
+                                        <span class="meta">${esc(orderDocumentLockMessage(order))}</span>
+                                    </div>
+                                ` : ""}
+                                ${order.status === "DRAFT" ? `<div class="button-row"><button class="btn ghost" type="button" data-archive-order="${attr(order.id)}">Archive Draft</button></div>` : ""}
                             </div>
-                        `).join("")}
-                    </div>
-                    ${order.documents?.length ? `
-                        <div class="button-row" style="margin-top: 0.85rem;">
-                            ${order.documents.map((document) => `
-                                <a class="btn ghost mini" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
-                                </a>
-                            `).join("")}
-                        </div>
-                    ` : ""}
-                    ${canCustomerUploadOrderDocuments(order) ? `
-                        <div class="order-document-upload">
-                            <label class="field">
-                                <span>Shipping Labels / Order Documents</span>
-                                <input data-order-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
-                            </label>
-                            <div class="button-row">
-                                <button class="btn ghost" type="button" data-upload-order-documents="${attr(order.id)}">Upload Labels / Docs</button>
-                                <span class="meta">PDF or image files, up to 5 at a time.</span>
-                            </div>
-                        </div>
-                    ` : orderDocumentLockMessage(order) ? `
-                        <div class="order-document-upload">
-                            <span class="meta">${esc(orderDocumentLockMessage(order))}</span>
-                        </div>
-                    ` : ""}
-                    <div class="button-row" style="margin-top: 0.85rem;">
-                        ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
-                        ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}">Release</button>` : ""}
-                        ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-archive-order="${attr(order.id)}">Archive Draft</button>` : ""}
-                    </div>
-                </article>
-            `).join("");
+                        ` : ""}
+                    </article>
+                `;
+            }).join("");
         }
 
         function getVisibleOrdersForExport() {
@@ -2772,27 +3001,10 @@
                 <div style="margin-top: 1rem;">
                     <h3>Lines</h3>
                     <div class="line-items" style="margin-top: 0.7rem;">
-                        ${order.lines.length ? order.lines.map((line) => `
-                            <div class="line-card">
-                                <div class="line-head">
-                                    <strong>${esc(line.sku)}</strong>
-                                    <span class="pill">${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
-                                </div>
-                                <div class="line-note">${esc(line.description || "No description")}${line.upc ? ` | UPC ${esc(line.upc)}` : ""}</div>
-                            </div>
-                        `).join("") : `<div class="empty">No lines saved on this shipment.</div>`}
+                        ${renderOrderLineCards(order.lines, "No lines saved on this shipment.")}
                     </div>
                 </div>
-                ${order.documents?.length ? `
-                    <div class="order-documents">
-                        <strong>Shipment Documents</strong>
-                        ${order.documents.map((document) => `
-                            <a href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
-                            </a>
-                        `).join("")}
-                    </div>
-                ` : `<div class="order-documents"><strong>Shipment Documents</strong><span class="meta">No shipment documents or labels saved yet.</span></div>`}
+                ${order.documents?.length ? renderDocumentList(order.documents, "Shipment Documents") : `<div class="order-documents"><strong>Shipment Documents</strong><span class="meta">No shipment documents or labels saved yet.</span></div>`}
             `;
         }
 
@@ -2879,16 +3091,7 @@
                             </div>
                         `).join("")}
                     </div>
-                    ${inbound.documents?.length ? `
-                        <div class="order-documents">
-                            <strong>Purchase Order Documents</strong>
-                            ${inbound.documents.map((document) => `
-                                <a href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
-                                </a>
-                            `).join("")}
-                        </div>
-                    ` : ""}
+                    ${inbound.documents?.length ? renderDocumentList(inbound.documents, "Purchase Order Documents") : ""}
                     ${inbound.status !== "CANCELLED" ? `
                         <div class="order-document-upload">
                             <label class="field">
@@ -3612,6 +3815,16 @@
         }
 
         async function onOrdersListClick(event) {
+            const toggleDetailsButton = event.target.closest("[data-toggle-order-details]");
+            if (toggleDetailsButton) {
+                const orderId = toggleDetailsButton.dataset.toggleOrderDetails || "";
+                portalState.expandedOrderId = String(portalState.expandedOrderId || "") === String(orderId) ? null : orderId;
+                renderOrders();
+                return;
+            }
+
+            if (await onDocumentPreviewClick(event)) return;
+
             const uploadButton = event.target.closest("[data-upload-order-documents]");
             if (uploadButton) {
                 await uploadOrderDocuments(uploadButton.dataset.uploadOrderDocuments, uploadButton);
@@ -3711,6 +3924,8 @@
         }
 
         async function onInboundsListClick(event) {
+            if (await onDocumentPreviewClick(event)) return;
+
             const appointmentButton = event.target.closest("[data-book-inbound-appointment]");
             if (appointmentButton) {
                 const inbound = getInboundById(appointmentButton.dataset.bookInboundAppointment || "");
@@ -4298,6 +4513,7 @@
                 id: String(document.id || ""),
                 fileName,
                 fileSize: Number(document.fileSize || document.file_size || 0),
+                fileType: String(document.fileType || document.file_type || document.mimeType || document.mime_type || "").trim(),
                 downloadUrl,
                 uploadedBy: String(document.uploadedBy || document.uploaded_by || "").trim(),
                 createdAt: document.createdAt || document.created_at || null
