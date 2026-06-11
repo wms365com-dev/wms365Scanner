@@ -3823,6 +3823,58 @@
             background: var(--panel-2);
         }
 
+        .document-preview-dialog {
+            width: min(1040px, 96vw);
+        }
+
+        .document-preview-body {
+            min-height: min(68vh, 760px);
+            display: grid;
+            place-items: center;
+            margin-top: 1rem;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: #f8fbfd;
+            overflow: hidden;
+        }
+
+        .document-preview-body iframe,
+        .document-preview-body img {
+            width: 100%;
+            height: min(68vh, 760px);
+            border: 0;
+            object-fit: contain;
+            background: #ffffff;
+        }
+
+        .document-preview-body img {
+            padding: 0.75rem;
+        }
+
+        .document-preview-actions {
+            justify-content: flex-end;
+        }
+
+        .portal-order-doc-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            align-items: center;
+            padding: 0.7rem 0;
+            border-top: 1px solid var(--line);
+        }
+
+        .portal-order-doc-item:first-child {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .portal-order-doc-name {
+            min-width: 0;
+            overflow-wrap: anywhere;
+            font-weight: 700;
+        }
+
         .feedback-context-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -5285,6 +5337,16 @@
                 border-radius: 24px 24px 18px 18px;
                 max-height: min(88vh, 820px);
                 overflow-y: auto;
+            }
+            .portal-order-doc-item {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .portal-order-doc-item .button-row {
+                justify-content: stretch;
+            }
+            .portal-order-doc-item .btn {
+                flex: 1 1 auto;
             }
             .app {
                 position: fixed;
@@ -10280,6 +10342,25 @@
             <div class="status" id="feedbackMessage"></div>
         </div>
     </div>
+    <div id="warehouseDocumentPreviewModal" class="feedback-modal hidden" aria-hidden="true">
+        <div class="feedback-modal-backdrop" data-document-preview-close></div>
+        <div class="feedback-modal-dialog document-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="warehouseDocumentPreviewTitle">
+            <div class="card-head">
+                <div>
+                    <h2 id="warehouseDocumentPreviewTitle">Document Preview</h2>
+                    <p class="meta">Review the uploaded file without downloading it first.</p>
+                </div>
+                <div class="button-row document-preview-actions">
+                    <a class="btn ghost mini" id="warehouseDocumentDownloadLink" href="#" target="_blank" rel="noopener">Download</a>
+                    <button class="btn ghost mini" type="button" data-document-preview-close>Close</button>
+                </div>
+            </div>
+            <div id="warehouseDocumentPreviewBody" class="document-preview-body">
+                <div class="empty">Select a document to preview.</div>
+            </div>
+            <div class="status" id="warehouseDocumentPreviewMessage"></div>
+        </div>
+    </div>
 
     <datalist id="locationList"></datalist>
     <datalist id="ownerList"></datalist>
@@ -10454,6 +10535,7 @@
         let emailQueueLoading = false;
         let editingWarehouseOrderId = "";
         let editingWarehouseInboundId = "";
+        let warehouseDocumentPreviewObjectUrl = "";
         let inventoryWorksheetDraftCompany = "";
         let inventoryWorksheetDraftRows = null;
         let companyFeatureDraftCompany = "";
@@ -11342,6 +11424,12 @@
             feedbackContextBuild: document.getElementById("feedbackContextBuild"),
             feedbackContextMeta: document.getElementById("feedbackContextMeta"),
             feedbackMessage: document.getElementById("feedbackMessage"),
+            warehouseDocumentPreviewModal: document.getElementById("warehouseDocumentPreviewModal"),
+            warehouseDocumentPreviewCloseButtons: [...document.querySelectorAll("[data-document-preview-close]")],
+            warehouseDocumentPreviewTitle: document.getElementById("warehouseDocumentPreviewTitle"),
+            warehouseDocumentPreviewBody: document.getElementById("warehouseDocumentPreviewBody"),
+            warehouseDocumentPreviewMessage: document.getElementById("warehouseDocumentPreviewMessage"),
+            warehouseDocumentDownloadLink: document.getElementById("warehouseDocumentDownloadLink"),
             feedbackAdminCard: document.getElementById("feedbackAdminCard"),
             feedbackTypeFilter: document.getElementById("feedbackTypeFilter"),
             feedbackStatusFilter: document.getElementById("feedbackStatusFilter"),
@@ -11944,6 +12032,7 @@
             ui.companyFeatureCompanyList?.addEventListener("click", onCompanyFeatureCompanyListClick);
             ui.feedbackLauncherButtons.forEach((button) => button.addEventListener("click", openFeedbackModal));
             ui.feedbackModalCloseButtons.forEach((button) => button.addEventListener("click", closeFeedbackModal));
+            ui.warehouseDocumentPreviewCloseButtons.forEach((button) => button.addEventListener("click", closeWarehouseDocumentPreview));
             ui.feedbackForm?.addEventListener("submit", submitFeedbackRequest);
             ui.feedbackAttachment?.addEventListener("change", updateFeedbackAttachmentPreview);
             ui.feedbackTypeFilter?.addEventListener("change", renderFeedbackQueue);
@@ -12068,6 +12157,10 @@
                 }
                 if (event.key === "Escape" && !ui.feedbackModal?.classList.contains("hidden")) {
                     closeFeedbackModal();
+                    return;
+                }
+                if (event.key === "Escape" && !ui.warehouseDocumentPreviewModal?.classList.contains("hidden")) {
+                    closeWarehouseDocumentPreview();
                     return;
                 }
                 if (event.key === "Escape" && document.body.classList.contains("sales-order-popout-open")) {
@@ -20267,15 +20360,7 @@
                         <h3>Order Documents / Labels</h3>
                         <p class="meta">Customer-uploaded labels and order documents are available here as soon as the order is released.</p>
                     </div>
-                    ${order.documents.length ? `
-                        <div class="portal-order-doc-list">
-                            ${order.documents.map((document) => `
-                                <a class="portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
-                                </a>
-                            `).join("")}
-                        </div>
-                    ` : `<div class="quick-meta">No order documents or labels saved yet.</div>`}
+                    ${renderWarehouseDocumentActions(order.documents, "No order documents or labels saved yet.")}
                     ${canManageOrderDocuments ? `
                         <div class="form-grid compact-grid" style="margin-top:0.8rem;">
                             <label class="field span-2">
@@ -20898,15 +20983,7 @@
                         <h3>Purchase Order Documents</h3>
                         <p class="meta">Customer-uploaded purchase order documents are available here for receiving.</p>
                     </div>
-                    ${inbound.documents?.length ? `
-                        <div class="portal-order-doc-list">
-                            ${inbound.documents.map((document) => `
-                                <a class="portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">
-                                    ${esc(document.fileName)}${document.fileSize ? ` (${esc(formatDocumentFileSize(document.fileSize))})` : ""}
-                                </a>
-                            `).join("")}
-                        </div>
-                    ` : `<div class="quick-meta">No purchase order documents uploaded yet.</div>`}
+                    ${renderWarehouseDocumentActions(inbound.documents, "No purchase order documents uploaded yet.")}
                 </div>
             `;
 
@@ -21847,6 +21924,10 @@
         }
 
         async function onPortalInboundsListClick(event) {
+            if (await handleWarehouseDocumentPreviewClick(event, ui.warehouseInboundMessage || ui.portalOrdersMessage)) {
+                return;
+            }
+
             const printReceivingButton = event.target.closest("[data-print-receiving-document]");
             if (printReceivingButton) {
                 const inbound = getPortalInboundRecordById(printReceivingButton.dataset.printReceivingDocument || "");
@@ -22641,6 +22722,164 @@
             }
         }
 
+        function inferWarehouseDocumentMimeType(fileName = "") {
+            const lower = String(fileName || "").toLowerCase();
+            if (lower.endsWith(".pdf")) return "application/pdf";
+            if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+            if (lower.endsWith(".png")) return "image/png";
+            if (lower.endsWith(".webp")) return "image/webp";
+            return "";
+        }
+
+        function isPreviewableWarehouseDocument(fileName = "", fileType = "") {
+            const type = String(fileType || inferWarehouseDocumentMimeType(fileName)).toLowerCase();
+            return type === "application/pdf" || type.startsWith("image/");
+        }
+
+        function addDocumentPreviewQuery(downloadUrl = "") {
+            const url = String(downloadUrl || "").trim();
+            if (!url) return "";
+            const separator = url.includes("?") ? "&" : "?";
+            return `${url}${separator}preview=1`;
+        }
+
+        function renderWarehouseDocumentActions(documents = [], emptyText = "No documents uploaded yet.") {
+            if (!Array.isArray(documents) || !documents.length) {
+                return `<div class="quick-meta">${esc(emptyText)}</div>`;
+            }
+            return `
+                <div class="portal-order-doc-list">
+                    ${documents.map((document) => {
+                        const fileName = document.fileName || "Document";
+                        const fileType = document.fileType || inferWarehouseDocumentMimeType(fileName);
+                        const fileLabel = `${fileName}${document.fileSize ? ` (${formatDocumentFileSize(document.fileSize)})` : ""}`;
+                        return `
+                            <div class="portal-order-doc-item">
+                                <div class="portal-order-doc-name">${esc(fileLabel)}</div>
+                                <div class="button-row">
+                                    ${isPreviewableWarehouseDocument(fileName, fileType) ? `<button class="btn ghost mini" type="button" data-preview-warehouse-document="${attr(document.downloadUrl)}" data-document-name="${attr(fileName)}" data-document-type="${attr(fileType)}">Preview</button>` : ""}
+                                    <a class="btn ghost mini portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">Download</a>
+                                </div>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function setWarehouseDocumentPreviewMessage(text, tone = "info") {
+            if (!ui.warehouseDocumentPreviewMessage) return;
+            if (!text) {
+                ui.warehouseDocumentPreviewMessage.textContent = "";
+                ui.warehouseDocumentPreviewMessage.className = "status";
+                return;
+            }
+            showMessage(ui.warehouseDocumentPreviewMessage, text, tone);
+        }
+
+        function closeWarehouseDocumentPreview() {
+            ui.warehouseDocumentPreviewModal?.classList.add("hidden");
+            ui.warehouseDocumentPreviewModal?.setAttribute("aria-hidden", "true");
+            if (warehouseDocumentPreviewObjectUrl) {
+                URL.revokeObjectURL(warehouseDocumentPreviewObjectUrl);
+                warehouseDocumentPreviewObjectUrl = "";
+            }
+            if (ui.warehouseDocumentPreviewBody) {
+                ui.warehouseDocumentPreviewBody.innerHTML = `<div class="empty">Select a document to preview.</div>`;
+            }
+            if (ui.warehouseDocumentDownloadLink) {
+                ui.warehouseDocumentDownloadLink.href = "#";
+            }
+            setWarehouseDocumentPreviewMessage("");
+        }
+
+        async function requestFile(url, options = {}) {
+            const response = await fetch(url, { cache: "no-store", ...options });
+            if (!response.ok) {
+                let message = "File request failed.";
+                try {
+                    const text = await response.text();
+                    const data = text ? JSON.parse(text) : {};
+                    message = data.error || message;
+                } catch {
+                    // Keep the generic message for binary or empty error responses.
+                }
+                if (response.status === 401 && !String(url || "").startsWith("/api/portal/")) {
+                    window.location.href = "/login";
+                    throw new Error("Warehouse session expired. Redirecting to login.");
+                }
+                throw new Error(message);
+            }
+            return {
+                blob: await response.blob(),
+                fileName: response.headers.get("X-Filename") || "",
+                contentType: response.headers.get("Content-Type") || ""
+            };
+        }
+
+        async function openWarehouseDocumentPreview({ url = "", fileName = "Document", fileType = "" } = {}, button = null, messageElement = ui.portalOrdersMessage) {
+            const documentUrl = String(url || "").trim();
+            const safeFileName = String(fileName || "Document").trim() || "Document";
+            const expectedType = String(fileType || inferWarehouseDocumentMimeType(safeFileName)).trim();
+            if (!documentUrl) {
+                showMessage(messageElement, "Document preview is missing a file URL.", "error");
+                return;
+            }
+            if (!isPreviewableWarehouseDocument(safeFileName, expectedType)) {
+                showMessage(messageElement, "Preview is available for PDF and image documents. Use Download for this file.", "info");
+                return;
+            }
+
+            if (warehouseDocumentPreviewObjectUrl) {
+                URL.revokeObjectURL(warehouseDocumentPreviewObjectUrl);
+                warehouseDocumentPreviewObjectUrl = "";
+            }
+            if (ui.warehouseDocumentPreviewTitle) ui.warehouseDocumentPreviewTitle.textContent = safeFileName;
+            if (ui.warehouseDocumentDownloadLink) ui.warehouseDocumentDownloadLink.href = documentUrl;
+            if (ui.warehouseDocumentPreviewBody) ui.warehouseDocumentPreviewBody.innerHTML = `<div class="empty">Loading preview...</div>`;
+            setWarehouseDocumentPreviewMessage("");
+            ui.warehouseDocumentPreviewModal?.classList.remove("hidden");
+            ui.warehouseDocumentPreviewModal?.setAttribute("aria-hidden", "false");
+
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Opening...",
+                    messageElement: ui.warehouseDocumentPreviewMessage,
+                    progressMessage: `Opening ${safeFileName}...`
+                }, async () => {
+                    const { blob, contentType } = await requestFile(addDocumentPreviewQuery(documentUrl));
+                    const actualType = String(blob.type || contentType || expectedType || inferWarehouseDocumentMimeType(safeFileName)).toLowerCase();
+                    const objectUrl = URL.createObjectURL(blob);
+                    warehouseDocumentPreviewObjectUrl = objectUrl;
+                    if (actualType === "application/pdf" || safeFileName.toLowerCase().endsWith(".pdf")) {
+                        ui.warehouseDocumentPreviewBody.innerHTML = `<iframe src="${attr(objectUrl)}" title="${attr(safeFileName)}"></iframe>`;
+                    } else if (actualType.startsWith("image/") || isPreviewableWarehouseDocument(safeFileName, actualType)) {
+                        ui.warehouseDocumentPreviewBody.innerHTML = `<img src="${attr(objectUrl)}" alt="${attr(safeFileName)}">`;
+                    } else {
+                        ui.warehouseDocumentPreviewBody.innerHTML = `<div class="empty">Preview is available for PDF and image documents. Use Download for this file.</div>`;
+                    }
+                    setWarehouseDocumentPreviewMessage("");
+                });
+            } catch (error) {
+                if (ui.warehouseDocumentPreviewBody) {
+                    ui.warehouseDocumentPreviewBody.innerHTML = `<div class="empty">The document could not be previewed.</div>`;
+                }
+                setWarehouseDocumentPreviewMessage(error.message, "error");
+            }
+        }
+
+        async function handleWarehouseDocumentPreviewClick(event, messageElement = ui.portalOrdersMessage) {
+            const previewButton = event.target.closest("[data-preview-warehouse-document]");
+            if (!previewButton) return false;
+            await openWarehouseDocumentPreview({
+                url: previewButton.dataset.previewWarehouseDocument,
+                fileName: previewButton.dataset.documentName || "Document",
+                fileType: previewButton.dataset.documentType || ""
+            }, previewButton, messageElement);
+            return true;
+        }
+
         function printCurrentWarehouseSalesOrderDocument(type, event = null) {
             const order = editingWarehouseOrderId ? getPortalOrderById(editingWarehouseOrderId) : null;
             if (!order?.id) {
@@ -22657,6 +22896,10 @@
 
         async function onPortalOrdersListClick(event) {
             const actionMessageElement = getPortalOrderActionMessageElement(event.target);
+            if (await handleWarehouseDocumentPreviewClick(event, actionMessageElement)) {
+                return;
+            }
+
             const editWarehouseOrderButton = event.target.closest("[data-edit-warehouse-order]");
             if (editWarehouseOrderButton) {
                 await openSalesOrderDetail(editWarehouseOrderButton.dataset.editWarehouseOrder || "", {

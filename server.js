@@ -4932,7 +4932,7 @@ app.get("/api/admin/portal-order-documents/:id", async (req, res, next) => {
         }
         await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
 
-        sendSafeUploadedDocument(res, document);
+        sendSafeUploadedDocument(res, document, { inline: req.query.preview === "1" });
     } catch (error) {
         next(error);
     }
@@ -4957,7 +4957,7 @@ app.get("/api/portal/order-documents/:id", async (req, res, next) => {
             throw httpError(404, "That shipped document could not be found.");
         }
 
-        sendSafeUploadedDocument(res, document);
+        sendSafeUploadedDocument(res, document, { inline: req.query.preview === "1" });
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -4979,7 +4979,7 @@ app.get("/api/admin/portal-inbound-documents/:id", async (req, res, next) => {
         }
         await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
 
-        sendSafeUploadedDocument(res, document);
+        sendSafeUploadedDocument(res, document, { inline: req.query.preview === "1" });
     } catch (error) {
         next(error);
     }
@@ -5004,7 +5004,7 @@ app.get("/api/portal/inbound-documents/:id", async (req, res, next) => {
             throw httpError(404, "That purchase order document could not be found.");
         }
 
-        sendSafeUploadedDocument(res, document);
+        sendSafeUploadedDocument(res, document, { inline: req.query.preview === "1" });
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -25459,15 +25459,21 @@ function contentDispositionAttachment(fileName) {
     return `attachment; filename="${safeName.replace(/"/g, "")}"`;
 }
 
-function sendSafeUploadedDocument(res, document) {
+function contentDispositionInline(fileName) {
+    const safeName = normalizeUploadFileName(fileName) || "document";
+    return `inline; filename="${safeName.replace(/"/g, "")}"`;
+}
+
+function sendSafeUploadedDocument(res, document, { inline = false } = {}) {
     const declaredMimeType = normalizeSafeUploadMimeType(document?.file_type || "");
     const buffer = Buffer.isBuffer(document?.file_data) ? document.file_data : Buffer.from(document?.file_data || "");
     const detectedMimeType = detectSafeUploadMimeType(buffer);
     const mimeType = declaredMimeType && declaredMimeType === detectedMimeType ? declaredMimeType : "application/octet-stream";
+    const safeFileName = ensureSafeUploadFileExtension(document?.file_name || "document", mimeType);
     res.setHeader("Content-Type", mimeType);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Length", String(buffer.length || document?.file_size || 0));
-    res.setHeader("Content-Disposition", contentDispositionAttachment(ensureSafeUploadFileExtension(document?.file_name || "document", mimeType)));
+    res.setHeader("Content-Disposition", inline ? contentDispositionInline(safeFileName) : contentDispositionAttachment(safeFileName));
     res.send(buffer);
 }
 
