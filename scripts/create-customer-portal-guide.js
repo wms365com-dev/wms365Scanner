@@ -211,7 +211,7 @@ function buildGuideHtml() {
     <li>If your company uses more than one warehouse, choose the warehouse you want to work with before creating a purchase order, delivery appointment, or sales order.</li>
     <li>The portal will show a confirmation message and route new work to the selected warehouse.</li>
 </ol>
-<div class="callout">For companies using Ontario and BC, select the correct warehouse location before submitting each inbound or outbound transaction.</div>
+<div class="callout">For companies using multiple warehouse locations, select the correct active warehouse before submitting each inbound or outbound transaction.</div>
 <img class="screen" src="${image("03-active-warehouse")}" alt="Active warehouse selector">
 
 <h2>3. Check Inventory</h2>
