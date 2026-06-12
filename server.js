@@ -20029,10 +20029,10 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     let storedStatus = nextStatus;
     if (nextStatus === "RECEIVED") {
         storedStatus = "RECEIVED_PENDING_PUTAWAY";
-        await ensureReceivingStageLocation(client, details?.receivingLocation || details?.location || DEFAULT_RECEIVING_STAGE_LOCATION);
+        await ensureReceivingDestinationLocation(client, details?.receivingLocation || details?.location || DEFAULT_RECEIVING_STAGE_LOCATION);
         const receivedLines = sanitizePortalInboundReceivingInput(details, currentInbound);
         for (const line of receivedLines) {
-            await ensureReceivingStageLocation(client, line.receivedLocation);
+            await ensureReceivingDestinationLocation(client, line.receivedLocation);
             await client.query(
                 `
                     update portal_inbound_lines
@@ -22141,6 +22141,46 @@ async function ensureReceivingStageLocation(client, code = DEFAULT_RECEIVING_STA
                 is_pickable = false,
                 note = case
                     when btrim(coalesce(note, '')) = '' then 'Receiving staging - not pickable until putaway is complete.'
+                    else note
+                end,
+                updated_at = now()
+            where code = $1
+        `,
+        [normalizedCode]
+    );
+}
+
+function isReceivingStageLocationCode(code) {
+    const normalizedCode = normalizeText(code) || DEFAULT_RECEIVING_STAGE_LOCATION;
+    return normalizedCode === DEFAULT_RECEIVING_STAGE_LOCATION
+        || normalizedCode === "RECEIVING"
+        || normalizedCode === "RECEIVING-STAGE"
+        || normalizedCode.endsWith("-RECEIVING-STAGE");
+}
+
+async function ensureReceivingDestinationLocation(client, code = DEFAULT_RECEIVING_STAGE_LOCATION) {
+    const normalizedCode = normalizeText(code) || DEFAULT_RECEIVING_STAGE_LOCATION;
+    if (isReceivingStageLocationCode(normalizedCode)) {
+        await ensureReceivingStageLocation(client, normalizedCode);
+        return;
+    }
+
+    await upsertLocationMaster(client, normalizedCode, "Storage location - pickable.");
+    await client.query(
+        `
+            update bin_locations
+            set
+                location_type = case
+                    when location_type = 'RECEIVING_STAGE' and is_pickable = false then 'STORAGE'
+                    else location_type
+                end,
+                is_pickable = case
+                    when location_type = 'RECEIVING_STAGE' and is_pickable = false then true
+                    else is_pickable
+                end,
+                note = case
+                    when btrim(coalesce(note, '')) = '' or note = 'Receiving staging - not pickable until putaway is complete.'
+                    then 'Storage location - pickable.'
                     else note
                 end,
                 updated_at = now()
@@ -28057,6 +28097,7 @@ module.exports = {
     sanitizePortalPermissionsInput,
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
+    ensureReceivingDestinationLocation,
     resolvePortalPermissions,
     portalSessionHasPermission,
     assertPortalPermission,
