@@ -22681,7 +22681,7 @@
                 </tr>
             `).join("");
             return `<!doctype html><html><head><meta charset="utf-8"><title>Pick Ticket ${esc(order.orderCode)}</title><style>
-                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px} .meta{margin:0 0 16px;font-size:14px} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb} .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:72px}
+                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px} .meta{margin:0 0 16px;font-size:14px} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb} .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:72px}.signoff{margin-top:18px;border:1px solid #111;padding:14px;font-size:14px}.signoff-title{font-weight:bold;margin-bottom:12px}.signoff-grid{display:grid;grid-template-columns:1fr 140px 1fr 140px;gap:12px;align-items:end}.line{border-bottom:1px solid #111;min-height:22px}
             </style></head><body>
                 <h1>Pick Ticket</h1>
                 <div class="meta"><strong>Order:</strong> ${esc(order.orderCode)} | <strong>Company:</strong> ${esc(order.accountName)} | <strong>Status:</strong> ${esc(order.status)}</div>
@@ -22691,6 +22691,15 @@
                     <div class="box"><strong>Order Notes</strong><br>${esc(order.orderNotes || "") || "None"}</div>
                 </div>
                 <table><thead><tr><th>SKU</th><th>Description</th><th>Qty</th><th>Pick Locations</th></tr></thead><tbody>${lineRows}</tbody></table>
+                <div class="signoff">
+                    <div class="signoff-title">Warehouse Pick Verification - Print name and date clearly</div>
+                    <div class="signoff-grid">
+                        <div>Picked by<div class="line"></div></div>
+                        <div>Date<div class="line"></div></div>
+                        <div>Verified by<div class="line"></div></div>
+                        <div>Date<div class="line"></div></div>
+                    </div>
+                </div>
             </body></html>`;
         }
 

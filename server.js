@@ -18208,6 +18208,15 @@ function buildPortalOrderPickTicketPdfAttachment(order) {
         }
     });
 
+    lines.push(
+        "",
+        "Warehouse Pick Verification - print name and date clearly:",
+        "",
+        "Picked by: ____________________________________  Date: ________________",
+        "",
+        "Verified by: __________________________________  Date: ________________"
+    );
+
     lines.push("", `Generated: ${new Date().toISOString()}`);
 
     return {
