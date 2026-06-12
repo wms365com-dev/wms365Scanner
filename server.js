@@ -198,6 +198,7 @@ const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const STORE_INTEGRATION_SCHEDULE_TIME_ZONE = readEnv("STORE_INTEGRATION_SCHEDULE_TIME_ZONE", ADMIN_ACTIVITY_DIGEST_TIME_ZONE) || ADMIN_ACTIVITY_DIGEST_TIME_ZONE;
 const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const DEFAULT_RECEIVING_STAGE_LOCATION = "RECEIVING-STAGE";
@@ -27424,6 +27425,31 @@ function storeIntegrationProviderSupportsAutoSync(provider) {
         || normalizedProvider === BUSINESS_CENTRAL_SYNC_PROVIDER;
 }
 
+function addDaysToCalendarDate(year, month, day, daysToAdd = 1) {
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + daysToAdd);
+    return {
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate()
+    };
+}
+
+function dateFromTimeZoneParts({ year, month, day, hour = 0, minute = 0, second = 0 }, timeZone = STORE_INTEGRATION_SCHEDULE_TIME_ZONE) {
+    const requestedUtcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+    let candidate = new Date(requestedUtcMs);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const actual = getTimeZoneDateParts(candidate, timeZone);
+        const actualUtcMs = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second, 0);
+        const offsetMs = actualUtcMs - requestedUtcMs;
+        if (offsetMs === 0) {
+            return candidate;
+        }
+        candidate = new Date(candidate.getTime() - offsetMs);
+    }
+    return candidate;
+}
+
 function computeNextStoreIntegrationSyncAt(schedule, { lastSyncedAt = null, now = new Date() } = {}) {
     const normalizedSchedule = normalizeStoreIntegrationSyncSchedule(schedule);
     if (normalizedSchedule === "MANUAL") {
@@ -27452,10 +27478,23 @@ function computeNextStoreIntegrationSyncAt(schedule, { lastSyncedAt = null, now 
         return null;
     }
 
-    const candidate = new Date(currentTime);
-    candidate.setHours(dailyTime.hour, dailyTime.minute, 0, 0);
+    const currentParts = getTimeZoneDateParts(currentTime, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
+    let candidate = dateFromTimeZoneParts({
+        year: currentParts.year,
+        month: currentParts.month,
+        day: currentParts.day,
+        hour: dailyTime.hour,
+        minute: dailyTime.minute,
+        second: 0
+    }, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
     if (candidate <= currentTime) {
-        candidate.setDate(candidate.getDate() + 1);
+        const nextDate = addDaysToCalendarDate(currentParts.year, currentParts.month, currentParts.day, 1);
+        candidate = dateFromTimeZoneParts({
+            ...nextDate,
+            hour: dailyTime.hour,
+            minute: dailyTime.minute,
+            second: 0
+        }, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
     }
     return candidate.toISOString();
 }
@@ -28016,6 +28055,8 @@ module.exports = {
     assertPortalResourceAccount,
     getPortalRouteRule,
     sanitizePortalPermissionsInput,
+    STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
+    computeNextStoreIntegrationSyncAt,
     resolvePortalPermissions,
     portalSessionHasPermission,
     assertPortalPermission,
