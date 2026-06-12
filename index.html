@@ -20354,6 +20354,32 @@
                     </tr>
                 `;
             }).join("");
+            const shipmentLineByOrderLineId = new Map((order.shipmentLines || []).map((line) => [String(line.orderLineId), line]));
+            const shippedQuantityRows = order.lines.map((line) => {
+                const ordered = Number(line.quantity) || 0;
+                const shippedLine = shipmentLineByOrderLineId.get(String(line.id));
+                const shippedQuantity = shippedLine ? Number(shippedLine.shippedQuantity) || 0 : ordered;
+                return `
+                    <tr>
+                        <td>${esc(line.sku)}</td>
+                        <td>${esc(line.description || "")}</td>
+                        <td>${esc(formatTrackedQuantity(ordered, line.trackingLevel))}</td>
+                        <td>
+                            <input
+                                data-portal-ship-line-qty="${attr(order.id)}"
+                                data-order-line-id="${attr(line.id)}"
+                                data-sku="${attr(line.sku)}"
+                                type="number"
+                                min="0"
+                                step="1"
+                                inputmode="numeric"
+                                value="${attr(shippedQuantity)}"
+                                aria-label="Shipped quantity for ${attr(line.sku)}"
+                            >
+                        </td>
+                    </tr>
+                `;
+            }).join("");
             const documentsPanel = `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="header-copy" style="margin-bottom: 0.8rem;">
@@ -20395,14 +20421,26 @@
                         </label>
                         <label class="field span-2">
                             <span>Signed BOL / POD</span>
-                            <input data-portal-ship-documents="${attr(order.id)}" type="file" accept="application/pdf,image/*" multiple>
+                            <input data-portal-ship-documents="${attr(order.id)}" data-document-category="SHIPMENT_BOL" type="file" accept="application/pdf,image/*">
                         </label>
                         <label class="field span-2">
-                            <span>Loaded Truck Photos</span>
-                            <input data-portal-ship-photos="${attr(order.id)}" type="file" accept="image/*" capture="environment" multiple>
+                            <span>Checked Packing Slip</span>
+                            <input data-portal-ship-documents="${attr(order.id)}" data-document-category="SHIPMENT_PACKING_SLIP" type="file" accept="application/pdf,image/*">
+                        </label>
+                        <label class="field span-2">
+                            <span>Loaded Freight Photo</span>
+                            <input data-portal-ship-photos="${attr(order.id)}" data-document-category="SHIPMENT_LOAD_PHOTO" type="file" accept="image/*" capture="environment">
                         </label>
                     </div>
-                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : "Upload signed BOL/POD and loaded truck photos for pickup proof. Images are compressed before upload."}</div>
+                    <div class="erp-table-wrap" style="margin-top:0.8rem;">
+                        <table>
+                            <thead>
+                                <tr><th>SKU</th><th>Description</th><th>Order Qty</th><th>Qty Shipped</th></tr>
+                            </thead>
+                            <tbody>${shippedQuantityRows || `<tr><td colspan="4">No lines to confirm.</td></tr>`}</tbody>
+                        </table>
+                    </div>
+                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : "Required before shipment closeout: signed BOL/POD, checked packing slip, loaded freight photo, and quantity shipped by SKU."}</div>
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>
@@ -22743,6 +22781,15 @@
             return `${url}${separator}preview=1`;
         }
 
+        function warehouseDocumentCategoryLabel(category = "") {
+            const normalized = norm(category || "GENERAL");
+            if (normalized === "SHIPMENT_BOL") return "BOL / POD";
+            if (normalized === "SHIPMENT_PACKING_SLIP") return "Checked packing slip";
+            if (normalized === "SHIPMENT_LOAD_PHOTO") return "Load photo";
+            if (normalized === "RELEASE_COPY") return "Release copy";
+            return "";
+        }
+
         function renderWarehouseDocumentActions(documents = [], emptyText = "No documents uploaded yet.") {
             if (!Array.isArray(documents) || !documents.length) {
                 return `<div class="quick-meta">${esc(emptyText)}</div>`;
@@ -22753,9 +22800,10 @@
                         const fileName = document.fileName || "Document";
                         const fileType = document.fileType || inferWarehouseDocumentMimeType(fileName);
                         const fileLabel = `${fileName}${document.fileSize ? ` (${formatDocumentFileSize(document.fileSize)})` : ""}`;
+                        const categoryLabel = warehouseDocumentCategoryLabel(document.documentCategory);
                         return `
                             <div class="portal-order-doc-item">
-                                <div class="portal-order-doc-name">${esc(fileLabel)}</div>
+                                <div class="portal-order-doc-name">${categoryLabel ? `<span class="pill">${esc(categoryLabel)}</span> ` : ""}${esc(fileLabel)}</div>
                                 <div class="button-row">
                                     ${isPreviewableWarehouseDocument(fileName, fileType) ? `<button class="btn ghost mini" type="button" data-preview-warehouse-document="${attr(document.downloadUrl)}" data-document-name="${attr(fileName)}" data-document-type="${attr(fileType)}">Preview</button>` : ""}
                                     <a class="btn ghost mini portal-order-doc-link" href="${attr(document.downloadUrl)}" target="_blank" rel="noopener">Download</a>
@@ -22998,10 +23046,36 @@
                         const trackingNumber = orderCard?.querySelector(`[data-portal-ship-tracking="${orderId}"]`)?.value || "";
                         const shippingNote = orderCard?.querySelector(`[data-portal-ship-note="${orderId}"]`)?.value || "";
                         const fileInputs = Array.from(orderCard?.querySelectorAll(`[data-portal-ship-documents="${orderId}"], [data-portal-ship-photos="${orderId}"]`) || []);
-                        const documentGroups = await Promise.all(fileInputs.map((input) => readPortalShippingDocuments(input.files)));
+                        const documentGroups = await Promise.all(fileInputs.map(async (input) => {
+                            const category = norm(input.dataset.documentCategory || "GENERAL") || "GENERAL";
+                            const docs = await readPortalShippingDocuments(input.files);
+                            docs.forEach((document) => { document.documentCategory = category; });
+                            return docs;
+                        }));
                         const documents = documentGroups.flat();
                         if (documents.length > 5) {
                             throw new Error("Upload up to 5 shipment proof files at a time.");
+                        }
+                        const shippedLines = Array.from(orderCard?.querySelectorAll(`[data-portal-ship-line-qty="${orderId}"]`) || []).map((input) => ({
+                            orderLineId: input.dataset.orderLineId || "",
+                            sku: input.dataset.sku || "",
+                            shippedQuantity: Number(input.value)
+                        }));
+                        const requiresShipmentCloseout = currentOrder?.status === "STAGED";
+                        if (requiresShipmentCloseout) {
+                            const requiredCategories = new Set(["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP", "SHIPMENT_LOAD_PHOTO"]);
+                            const uploadedCategories = new Set(documents.map((document) => norm(document.documentCategory || "")));
+                            const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
+                            if (missingCategories.length) {
+                                throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
+                            }
+                            const mismatchedLine = shippedLines.find((entry) => {
+                                const line = (currentOrder?.lines || []).find((candidate) => String(candidate.id) === String(entry.orderLineId));
+                                return !line || Number(entry.shippedQuantity) !== (Number(line.quantity) || 0);
+                            });
+                            if (mismatchedLine) {
+                                throw new Error(`Qty shipped must match the order before closeout. Check ${mismatchedLine.sku || "the shipment lines"}.`);
+                            }
                         }
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
@@ -23011,7 +23085,8 @@
                                 shippedCarrierName: carrierName,
                                 shippedTrackingReference: trackingNumber,
                                 shippedConfirmationNote: shippingNote,
-                                documents
+                                documents,
+                                shippedLines
                             })
                         });
                         const emailQueuedNote = response?.shipmentEmailQueued
@@ -27789,7 +27864,10 @@
                 documents: Array.isArray(item.documents)
                     ? item.documents.map((document) => sanitizePortalOrderDocumentRecord(document)).filter(Boolean)
                     : [],
-                lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : []
+                lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : [],
+                shipmentLines: Array.isArray(item.shipmentLines)
+                    ? item.shipmentLines.map(sanitizePortalShipmentLineRecord).filter(Boolean)
+                    : []
             };
         }
 
@@ -27828,6 +27906,7 @@
                 fileName,
                 fileType: String(item.fileType || item.file_type || "").trim(),
                 fileSize: Number(item.fileSize || item.file_size || 0) || 0,
+                documentCategory: norm(item.documentCategory || item.document_category || "GENERAL"),
                 uploadedBy: String(item.uploadedBy || item.uploaded_by || "").trim(),
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : ""),
                 downloadUrl
@@ -27861,6 +27940,22 @@
                         expirationDate: normalizeLabelDate(entry?.expirationDate || entry?.expiration_date || entry?.expiryDate || entry?.expiry_date || "")
                     })).filter((entry) => entry.location)
                     : []
+            };
+        }
+
+        function sanitizePortalShipmentLineRecord(item) {
+            const orderLineId = String(item?.orderLineId || item?.order_line_id || "").trim();
+            const sku = norm(item?.sku);
+            if (!orderLineId && !sku) return null;
+            return {
+                id: item?.id != null ? String(item.id) : "",
+                orderId: item?.orderId != null ? String(item.orderId) : (item?.order_id != null ? String(item.order_id) : ""),
+                orderLineId,
+                sku,
+                orderedQuantity: Number(item?.orderedQuantity || item?.ordered_quantity || 0) || 0,
+                shippedQuantity: Number(item?.shippedQuantity || item?.shipped_quantity || 0) || 0,
+                confirmedBy: String(item?.confirmedBy || item?.confirmed_by || "").trim(),
+                confirmedAt: typeof item?.confirmedAt === "string" ? item.confirmedAt : (typeof item?.confirmed_at === "string" ? item.confirmed_at : null)
             };
         }
 

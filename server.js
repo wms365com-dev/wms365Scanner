@@ -203,6 +203,18 @@ const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE"
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const DEFAULT_RECEIVING_STAGE_LOCATION = "RECEIVING-STAGE";
 const NON_PICKABLE_LOCATION_TYPES = new Set(["RECEIVING_STAGE", "DOCK", "QA_HOLD", "STAGING"]);
+const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
+    GENERAL: "GENERAL",
+    RELEASE_COPY: "RELEASE_COPY",
+    SHIPMENT_BOL: "SHIPMENT_BOL",
+    SHIPMENT_PACKING_SLIP: "SHIPMENT_PACKING_SLIP",
+    SHIPMENT_LOAD_PHOTO: "SHIPMENT_LOAD_PHOTO"
+});
+const REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES = Object.freeze([
+    PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL,
+    PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP,
+    PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO
+]);
 const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"];
 const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
 const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
@@ -6787,10 +6799,29 @@ async function initializeDatabase() {
             file_type text not null default 'application/octet-stream',
             file_size integer not null default 0 check (file_size >= 0),
             file_data bytea not null,
+            document_category text not null default 'GENERAL',
             uploaded_by text not null default '',
             created_at timestamptz not null default now()
         );
     `);
+    await pool.query("alter table portal_order_documents add column if not exists document_category text not null default 'GENERAL'");
+    await pool.query("update portal_order_documents set document_category = 'GENERAL' where document_category is null or document_category = ''");
+    await pool.query(`
+        create table if not exists portal_order_shipment_lines (
+            id bigserial primary key,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            order_line_id bigint not null references portal_order_lines(id) on delete cascade,
+            sku text not null default '',
+            ordered_quantity integer not null default 0 check (ordered_quantity >= 0),
+            shipped_quantity integer not null default 0 check (shipped_quantity >= 0),
+            confirmed_by text not null default '',
+            confirmed_at timestamptz not null default now(),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (order_id, order_line_id)
+        );
+    `);
+    await pool.query("create index if not exists idx_portal_order_shipment_lines_order_id on portal_order_shipment_lines (order_id)");
     await pool.query(`
         create table if not exists portal_inbound_documents (
             id bigserial primary key,
@@ -12962,6 +12993,20 @@ async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
     return summaries;
 }
 
+async function getPortalShipmentLinesForOrders(client, orderIds = []) {
+    const ids = [...new Set((orderIds || []).map((id) => toPositiveInt(id)).filter((id) => id > 0))];
+    if (!ids.length) return { rows: [] };
+    return client.query(
+        `
+            select *
+            from portal_order_shipment_lines
+            where order_id = any($1::bigint[])
+            order by order_id desc, order_line_id asc, id asc
+        `,
+        [ids]
+    );
+}
+
 async function getPortalOrdersForAccount(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const ordersResult = await client.query(
@@ -13011,7 +13056,8 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
             [orderIds]
         )
         : { rows: [] };
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries);
+    const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, orderIds);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries, shipmentLinesResult.rows);
 }
 
 async function getPortalOrderList({ accountName = "", limit = 100, client = pool, downloadPathPrefix = "/api/admin/portal-order-documents" } = {}) {
@@ -13061,7 +13107,7 @@ async function getPortalOrderList({ accountName = "", limit = 100, client = pool
     const documentsResult = orderIds.length
         ? await client.query(
             `
-                select id, order_id, file_name, file_type, file_size, uploaded_by, created_at
+                select id, order_id, file_name, file_type, file_size, document_category, uploaded_by, created_at
                 from portal_order_documents
                 where order_id = any($1::bigint[])
                 order by order_id desc, created_at asc, id asc
@@ -13069,7 +13115,8 @@ async function getPortalOrderList({ accountName = "", limit = 100, client = pool
             [orderIds]
         )
         : { rows: [] };
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map());
+    const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, orderIds);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map(), shipmentLinesResult.rows);
 }
 
 async function getPortalOrderListForAccount(accountName, client = pool) {
@@ -13322,10 +13369,11 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
         `,
         [orderId]
     );
+    const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, [orderId]);
     const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries)[0] || null;
+    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries, shipmentLinesResult.rows)[0] || null;
 }
 
 function buildShipToAddressInput(accountName, order) {
@@ -14309,9 +14357,9 @@ async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy
         await client.query(
             `
                 insert into portal_order_documents (
-                    order_id, file_name, file_type, file_size, file_data, uploaded_by
+                    order_id, file_name, file_type, file_size, file_data, document_category, uploaded_by
                 )
-                values ($1, $2, $3, $4, $5, $6)
+                values ($1, $2, $3, $4, $5, $6, $7)
             `,
             [
                 orderId,
@@ -14319,6 +14367,7 @@ async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy
                 document.fileType,
                 document.fileSize,
                 document.fileBuffer,
+                normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category),
                 normalizeFreeText(uploadedBy)
             ]
         );
@@ -19215,7 +19264,12 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
     const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
+    const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
+    if (transitionToShipped) {
+        assertPortalShipmentProofRequirements(confirmation, { shippedCarrierName, shippedTrackingReference });
+    }
     const shippingConfirmationUnchanged = !confirmation.documents.length
+        && !shipmentLineConfirmations.length
         && confirmedShipDate === (order.confirmedShipDate || "")
         && shippedCarrierName === (order.shippedCarrierName || "")
         && shippedTrackingReference === (order.shippedTrackingReference || "")
@@ -19271,6 +19325,9 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     if (confirmation.documents.length) {
         await insertPortalOrderDocuments(client, order.id, confirmation.documents, actor);
     }
+    if (shipmentLineConfirmations.length) {
+        await savePortalShipmentLineConfirmations(client, order.id, shipmentLineConfirmations, actor);
+    }
 
     const updatedOrder = await getPortalOrderById(client, order.id, order.accountName);
     if (transitionToShipped) {
@@ -19291,6 +19348,124 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     );
     await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
     return updatedOrder;
+}
+
+function assertPortalShipmentProofRequirements(confirmation, { shippedCarrierName = "", shippedTrackingReference = "" } = {}) {
+    if (!normalizeFreeText(shippedCarrierName)) {
+        throw httpError(400, "Enter the carrier or pickup method before marking the order shipped.");
+    }
+    if (!normalizeFreeText(shippedTrackingReference)) {
+        throw httpError(400, "Enter the tracking, PRO, pickup reference, or BOL number before marking the order shipped.");
+    }
+    const uploadedCategories = new Set((confirmation.documents || []).map((document) => document.documentCategory));
+    const missingCategories = REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES.filter((category) => !uploadedCategories.has(category));
+    if (missingCategories.length) {
+        const labels = missingCategories.map((category) => shipmentDocumentCategoryLabel(category)).join(", ");
+        throw httpError(400, `Upload the required shipment proof before marking shipped: ${labels}.`);
+    }
+}
+
+function shipmentDocumentCategoryLabel(category) {
+    const normalized = normalizePortalOrderDocumentCategory(category);
+    if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL) return "signed BOL / POD";
+    if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP) return "checked packing slip";
+    if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO) return "loaded freight/truck photo";
+    if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.RELEASE_COPY) return "release copy";
+    return "general document";
+}
+
+function validatePortalShipmentLineConfirmations(order, shippedLines = [], { required = false } = {}) {
+    const orderLines = Array.isArray(order?.lines) ? order.lines : [];
+    if (!required && !shippedLines.length) return [];
+    if (!orderLines.length) {
+        throw httpError(400, "This order has no lines to confirm for shipment.");
+    }
+
+    const lineById = new Map(orderLines.map((line) => [String(line.id), line]));
+    const lineBySku = new Map();
+    for (const line of orderLines) {
+        const sku = normalizeText(line.sku);
+        if (!sku) continue;
+        const list = lineBySku.get(sku) || [];
+        list.push(line);
+        lineBySku.set(sku, list);
+    }
+
+    const confirmedByLineId = new Map();
+    for (const entry of shippedLines) {
+        let line = entry.orderLineId ? lineById.get(String(entry.orderLineId)) : null;
+        if (!line && entry.sku) {
+            const matches = lineBySku.get(entry.sku) || [];
+            if (matches.length === 1) {
+                line = matches[0];
+            } else if (matches.length > 1) {
+                throw httpError(400, `SKU ${entry.sku} appears on multiple order lines. Confirm each line separately.`);
+            }
+        }
+        if (!line) {
+            throw httpError(400, `A shipped quantity was entered for a line that is not on this order${entry.sku ? ` (${entry.sku})` : ""}.`);
+        }
+        const lineId = String(line.id);
+        if (confirmedByLineId.has(lineId)) {
+            throw httpError(400, `Shipped quantity was entered more than once for ${line.sku}.`);
+        }
+        confirmedByLineId.set(lineId, {
+            orderLineId: toPositiveInt(line.id),
+            sku: normalizeText(line.sku),
+            orderedQuantity: Number(line.quantity) || 0,
+            shippedQuantity: Number(entry.shippedQuantity) || 0
+        });
+    }
+
+    if (required) {
+        for (const line of orderLines) {
+            const lineId = String(line.id);
+            if (!confirmedByLineId.has(lineId)) {
+                throw httpError(400, `Enter the shipped quantity for ${line.sku} before marking the order shipped.`);
+            }
+            const confirmed = confirmedByLineId.get(lineId);
+            const orderedQuantity = Number(line.quantity) || 0;
+            if (confirmed.shippedQuantity !== orderedQuantity) {
+                throw httpError(
+                    400,
+                    `${line.sku} was ordered for ${orderedQuantity}, but shipped quantity was entered as ${confirmed.shippedQuantity}. Correct the order or resolve the exception before marking shipped.`
+                );
+            }
+        }
+    }
+
+    return [...confirmedByLineId.values()];
+}
+
+async function savePortalShipmentLineConfirmations(client, orderId, shipmentLines, actor = "") {
+    if (!shipmentLines.length) return;
+    for (const line of shipmentLines) {
+        await client.query(
+            `
+                insert into portal_order_shipment_lines (
+                    order_id, order_line_id, sku, ordered_quantity, shipped_quantity,
+                    confirmed_by, confirmed_at, updated_at
+                )
+                values ($1, $2, $3, $4, $5, $6, now(), now())
+                on conflict (order_id, order_line_id)
+                do update set
+                    sku = excluded.sku,
+                    ordered_quantity = excluded.ordered_quantity,
+                    shipped_quantity = excluded.shipped_quantity,
+                    confirmed_by = excluded.confirmed_by,
+                    confirmed_at = now(),
+                    updated_at = now()
+            `,
+            [
+                orderId,
+                line.orderLineId,
+                line.sku,
+                line.orderedQuantity,
+                line.shippedQuantity,
+                normalizeFreeText(actor)
+            ]
+        );
+    }
 }
 
 async function assertPortalOrderSkuAllowed(client, accountName, sku, requestedQuantity = null) {
@@ -19356,13 +19531,19 @@ async function getPortalSkuAvailability(client, accountName, sku, excludeOrderId
     };
 }
 
-function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map(), allocationSummaries = new Map()) {
+function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map(), allocationSummaries = new Map(), shipmentLineRows = []) {
     const linesByOrderId = new Map();
     lineRows.forEach((row) => {
         const key = String(row.order_id);
         const locationKey = `${normalizeText(row.account_name)}::${normalizeText(row.sku)}`;
         if (!linesByOrderId.has(key)) linesByOrderId.set(key, []);
         linesByOrderId.get(key).push(mapPortalOrderLineRow(row, locationSummaries.get(locationKey), allocationSummaries.get(String(row.id))));
+    });
+    const shipmentLinesByOrderId = new Map();
+    shipmentLineRows.forEach((row) => {
+        const key = String(row.order_id);
+        if (!shipmentLinesByOrderId.has(key)) shipmentLinesByOrderId.set(key, []);
+        shipmentLinesByOrderId.get(key).push(row);
     });
     const documentsByOrderId = new Map();
     documentRows.forEach((row) => {
@@ -19375,7 +19556,8 @@ function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPre
         row,
         linesByOrderId.get(String(row.id)) || [],
         documentsByOrderId.get(String(row.id)) || [],
-        downloadPathPrefix
+        downloadPathPrefix,
+        shipmentLinesByOrderId.get(String(row.id)) || []
     ));
 }
 
@@ -25135,7 +25317,7 @@ function mapWarehouseTaskRow(row) {
     };
 }
 
-function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents") {
+function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents", shipmentLines = []) {
     return {
         id: String(row.id),
         orderCode: row.order_code || makePortalOrderCode(row.id),
@@ -25181,9 +25363,25 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString(),
         lines,
+        shipmentLines: shipmentLines.map(mapPortalShipmentLineRow),
         documents: documents
             .filter((document) => !isPortalOrderReleaseCopyDocument(document))
             .map((document) => mapPortalOrderDocumentRow(document, downloadPathPrefix))
+    };
+}
+
+function mapPortalShipmentLineRow(row) {
+    return {
+        id: String(row.id),
+        orderId: String(row.order_id),
+        orderLineId: String(row.order_line_id),
+        sku: row.sku || "",
+        orderedQuantity: Number(row.ordered_quantity) || 0,
+        shippedQuantity: Number(row.shipped_quantity) || 0,
+        confirmedBy: row.confirmed_by || "",
+        confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).toISOString() : null,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
 }
 
@@ -25235,6 +25433,7 @@ function mapPortalOrderDocumentRow(row, downloadPathPrefix = "/api/admin/portal-
         fileName: row.file_name || "Document",
         fileType: row.file_type || "application/octet-stream",
         fileSize: Number(row.file_size) || 0,
+        documentCategory: normalizePortalOrderDocumentCategory(row.document_category || row.documentCategory || ""),
         uploadedBy: row.uploaded_by || "",
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
         downloadUrl: `${downloadPathPrefix}/${row.id}`
@@ -25400,8 +25599,35 @@ function sanitizePortalShippingConfirmationInput(payload) {
             || payload?.bolNumber
         ),
         shippedConfirmationNote: normalizeFreeText(payload?.shippedConfirmationNote || payload?.shippingNote || payload?.note),
-        documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : [])
+        documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : []),
+        shippedLines: sanitizePortalShippedLinesInput(Array.isArray(payload?.shippedLines) ? payload.shippedLines : [])
     };
+}
+
+function normalizePortalOrderDocumentCategory(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (!normalized) return PORTAL_ORDER_DOCUMENT_CATEGORIES.GENERAL;
+    return Object.values(PORTAL_ORDER_DOCUMENT_CATEGORIES).includes(normalized)
+        ? normalized
+        : PORTAL_ORDER_DOCUMENT_CATEGORIES.GENERAL;
+}
+
+function sanitizePortalShippedLinesInput(lines) {
+    return lines.map((line) => {
+        const orderLineId = toPositiveInt(line?.orderLineId || line?.order_line_id || line?.lineId || line?.line_id || line?.id);
+        const sku = normalizeText(line?.sku || "");
+        const shippedQuantityRaw = line?.shippedQuantity ?? line?.shipped_quantity ?? line?.quantity ?? line?.qty;
+        const shippedQuantity = Number(shippedQuantityRaw);
+        if (!orderLineId && !sku && (shippedQuantityRaw === undefined || shippedQuantityRaw === null || shippedQuantityRaw === "")) return null;
+        if (!Number.isInteger(shippedQuantity) || shippedQuantity < 0) {
+            throw httpError(400, `Enter a valid shipped quantity for ${sku || "each order line"}.`);
+        }
+        return {
+            orderLineId,
+            sku,
+            shippedQuantity
+        };
+    }).filter(Boolean);
 }
 
 function sanitizePortalOrderDocumentsInput(documents) {
@@ -25452,7 +25678,8 @@ function sanitizePortalOrderDocumentInput(document) {
         fileName: ensureSafeUploadFileExtension(fileName, fileType),
         fileType,
         fileSize: buffer.length,
-        fileBuffer: buffer
+        fileBuffer: buffer,
+        documentCategory: normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category || document.category || document.type)
     };
 }
 
@@ -28098,6 +28325,10 @@ module.exports = {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
     ensureReceivingDestinationLocation,
+    PORTAL_ORDER_DOCUMENT_CATEGORIES,
+    sanitizePortalShippingConfirmationInput,
+    assertPortalShipmentProofRequirements,
+    validatePortalShipmentLineConfirmations,
     resolvePortalPermissions,
     portalSessionHasPermission,
     assertPortalPermission,

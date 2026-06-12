@@ -316,12 +316,14 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
     <div class="proof-grid" style="margin-top:12px">
       <label>Carrier<input id="shipCarrier" type="text" placeholder="Carrier or driver name" autocomplete="off" enterkeyhint="next"></label>
       <label>Tracking / PRO / BOL<div class="scan-row"><input id="shipTracking" type="text" placeholder="Scan or enter reference" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next"><button class="secondary" type="button" data-scan-target="shipTracking">Scan</button></div></label>
-      <label>Signed BOL / POD<input id="shipBolFiles" type="file" accept="application/pdf,image/*" multiple></label>
-      <label>Loaded Truck Photos<input id="shipTruckPhotos" type="file" accept="image/*" capture="environment" multiple></label>
+      <label>Signed BOL / POD<input id="shipBolFiles" type="file" accept="application/pdf,image/*"></label>
+      <label>Checked Packing Slip<input id="shipPackingSlipFiles" type="file" accept="application/pdf,image/*"></label>
+      <label>Loaded Freight Photo<input id="shipTruckPhotos" type="file" accept="image/*" capture="environment"></label>
+      <div id="shipQuantityList" class="proof-grid" style="grid-column:1/-1"></div>
       <label>Note<input id="shipNote" type="text" placeholder="Optional pickup note" enterkeyhint="done"></label>
       <button class="success" id="submitPickupProofBtn" type="button">Save Proof & Ship</button>
       <button class="secondary" id="pickupChooseAnotherBtn" type="button">Choose Another Order</button>
-      <div class="status" id="pickupProofMessage">Capture signed BOL or truck photos before closing the shipment.</div>
+      <div class="status" id="pickupProofMessage">Capture signed BOL, checked packing slip, loaded freight photo, and confirm shipped quantities.</div>
     </div>
   </div>
 </main>
@@ -918,8 +920,14 @@ function renderPickupProof(){
   if(!$('shipCarrier').value)$('shipCarrier').value=order.shippedCarrierName||'';
   if(!$('shipTracking').value)$('shipTracking').value=order.shippedTrackingReference||'';
   if(!$('shipNote').value)$('shipNote').value=order.shippedConfirmationNote||'';
+  const shipmentByLineId=new Map((order.shipmentLines||[]).map(line=>[String(line.orderLineId),line]));
+  $('shipQuantityList').innerHTML=(order.lines||[]).map(line=>{
+    const shipped=shipmentByLineId.get(String(line.id));
+    const value=shipped?Number(shipped.shippedQuantity)||0:Number(line.quantity)||0;
+    return `<label>${esc(line.sku)} Qty Shipped <small>${esc(line.description||'')}</small><input data-ship-line-qty data-order-line-id="${esc(line.id)}" data-sku="${esc(line.sku)}" data-ordered-qty="${esc(line.quantity)}" type="number" min="0" step="1" inputmode="numeric" value="${esc(value)}"></label>`;
+  }).join('')||'<div class="muted">No shipment lines to confirm.</div>';
   $('pickupProofMessage').className='status';
-  $('pickupProofMessage').textContent='Capture signed BOL or truck photos before closing the shipment.';
+  $('pickupProofMessage').textContent='Capture signed BOL, checked packing slip, loaded freight photo, and confirm shipped quantities.';
 }
 
 function startOrder(order){
@@ -1573,9 +1581,36 @@ async function submitPickupProof(){
   }
   try{
     message.textContent='Reading proof files...';
-    const documents=await readPortalShippingDocuments($('shipBolFiles').files,$('shipTruckPhotos').files);
-    if(!documents.length){
-      throw new Error('Add a signed BOL, POD, or loaded truck photo before marking shipped.');
+    const bolDocuments=await readPortalShippingDocuments($('shipBolFiles').files);
+    const packingSlipDocuments=await readPortalShippingDocuments($('shipPackingSlipFiles').files);
+    const loadPhotoDocuments=await readPortalShippingDocuments($('shipTruckPhotos').files);
+    bolDocuments.forEach(document=>document.documentCategory='SHIPMENT_BOL');
+    packingSlipDocuments.forEach(document=>document.documentCategory='SHIPMENT_PACKING_SLIP');
+    loadPhotoDocuments.forEach(document=>document.documentCategory='SHIPMENT_LOAD_PHOTO');
+    const documents=[...bolDocuments,...packingSlipDocuments,...loadPhotoDocuments];
+    if(documents.length>5){
+      throw new Error('Attach up to 5 shipment proof files at a time.');
+    }
+    if(!bolDocuments.length||!packingSlipDocuments.length||!loadPhotoDocuments.length){
+      throw new Error('Add signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.');
+    }
+    if(!$('shipCarrier').value.trim()){
+      throw new Error('Enter the carrier or pickup method.');
+    }
+    if(!$('shipTracking').value.trim()){
+      throw new Error('Enter or scan the tracking, PRO, pickup reference, or BOL number.');
+    }
+    const shippedLines=Array.from(document.querySelectorAll('#shipQuantityList [data-ship-line-qty]')).map(input=>({
+      orderLineId:input.dataset.orderLineId||'',
+      sku:input.dataset.sku||'',
+      shippedQuantity:Number(input.value)
+    }));
+    const mismatched=shippedLines.find(entry=>{
+      const line=(state.selectedOrder.lines||[]).find(candidate=>String(candidate.id)===String(entry.orderLineId));
+      return !line||Number(entry.shippedQuantity)!==(Number(line.quantity)||0);
+    });
+    if(mismatched){
+      throw new Error(`Qty shipped must match the order before closeout. Check ${mismatched.sku||'the shipment lines'}.`);
     }
     message.textContent='Saving proof and marking shipped...';
     const payload={
@@ -1584,12 +1619,14 @@ async function submitPickupProof(){
       shippedCarrierName:$('shipCarrier').value.trim(),
       shippedTrackingReference:$('shipTracking').value.trim(),
       shippedConfirmationNote:$('shipNote').value.trim(),
-      documents
+      documents,
+      shippedLines
     };
     const body=window.WMS365Mobile?.envelope?.(payload,'MOBILE_OUTBOUND_PICKUP_PROOF')||payload;
     const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
     state.selectedOrder=response.order||{...state.selectedOrder,status:'SHIPPED'};
     $('shipBolFiles').value='';
+    $('shipPackingSlipFiles').value='';
     $('shipTruckPhotos').value='';
     await loadOrders();
     message.className='status good';
