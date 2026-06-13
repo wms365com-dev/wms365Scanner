@@ -10260,9 +10260,101 @@
                     </div>
                     <div class="helper" style="margin-top: 1rem;">
                         <h3>Printing Note</h3>
-                        <p class="meta">Printing from this page works on the current device right away. Sending jobs to a specific remote computer/printer is possible too, but it needs a small print bridge installed on that target computer.</p>
+                        <p class="meta">Printing from this page works on the current device right away. Warehouse direct print sends pick tickets and packing slips to the local WMS365 Print Agent installed near the warehouse printers.</p>
                     </div>
                     <div class="status" id="labelsMessage"></div>
+                </article>
+
+                <article class="card workspace-sheet-card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Warehouse Direct Print</h2>
+                            <p class="lead">Register print stations, assign printer roles, and monitor queued warehouse print jobs.</p>
+                        </div>
+                        <button class="btn ghost mini" id="refreshWarehousePrintSetupBtn" type="button">Refresh</button>
+                    </div>
+                    <div class="button-row" style="margin-bottom: 1rem;">
+                        <button class="btn secondary" id="loadWarehousePrintersBtn" type="button">Load Setup</button>
+                        <span class="meta">Agent setup file: print-agent/README.md</span>
+                    </div>
+                    <div class="status" id="warehousePrintSetupMessage"></div>
+                    <div class="helper" style="margin-top: 1rem;">
+                        <h3>New Print Station</h3>
+                        <form id="warehousePrintStationForm" class="form-grid" autocomplete="off">
+                            <label class="field">
+                                <span>Station Code</span>
+                                <input id="warehousePrintStationCode" type="text" placeholder="ONT-PACK-01">
+                            </label>
+                            <label class="field">
+                                <span>Station Name</span>
+                                <input id="warehousePrintStationName" type="text" placeholder="Ontario Packing Desk">
+                            </label>
+                            <label class="field span-2">
+                                <span>Warehouse</span>
+                                <select id="warehousePrintStationLocation"></select>
+                            </label>
+                            <label class="field span-2">
+                                <span>Note</span>
+                                <input id="warehousePrintStationNote" type="text" placeholder="PC name, desk, or printer room note">
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn secondary" type="submit">Create Station Token</button>
+                            </div>
+                        </form>
+                        <div class="meta" id="warehousePrintStationToken"></div>
+                    </div>
+                    <div class="helper" style="margin-top: 1rem;">
+                        <h3>Assign Printer</h3>
+                        <form id="warehousePrinterForm" class="form-grid" autocomplete="off">
+                            <label class="field">
+                                <span>Station</span>
+                                <select id="warehousePrinterStation"></select>
+                            </label>
+                            <label class="field">
+                                <span>Warehouse</span>
+                                <select id="warehousePrinterLocation"></select>
+                            </label>
+                            <label class="field">
+                                <span>Printer Name</span>
+                                <input id="warehousePrinterName" type="text" placeholder="Windows printer name">
+                            </label>
+                            <label class="field">
+                                <span>Role</span>
+                                <select id="warehousePrinterRole">
+                                    <option value="PICK_TICKET">Pick Ticket</option>
+                                    <option value="PACKING_SLIP">Packing Slip</option>
+                                    <option value="SHIPPING_LABEL">Shipping Label</option>
+                                    <option value="PALLET_LABEL">Pallet Label</option>
+                                    <option value="LOCATION_LABEL">Location Label</option>
+                                    <option value="GENERAL">General</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>Printer Code</span>
+                                <input id="warehousePrinterCode" type="text" placeholder="Optional stable code">
+                            </label>
+                            <label class="field">
+                                <span>Printer Type</span>
+                                <select id="warehousePrinterType">
+                                    <option value="DOCUMENT">Document</option>
+                                    <option value="LABEL">Label / Thermal</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>Default For Role</span>
+                                <select id="warehousePrinterDefault">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </label>
+                            <div class="button-row span-2">
+                                <button class="btn secondary" type="submit">Save Printer</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div id="warehousePrintSetupList" style="margin-top: 1rem;">
+                        <p class="empty">Load setup to view print stations, printers, and recent jobs.</p>
+                    </div>
                 </article>
 
                 <article class="card workspace-sheet-card">
@@ -10523,6 +10615,7 @@
         const portalOrderDetailsInFlight = new Map();
         let portalOrdersAllCompaniesRequested = false;
         let portalOrdersLoadingTimer = null;
+        let warehousePrintSetupState = { stations: [], printers: [], jobs: [] };
         let portalInboundRecords = [];
         let portalKittingRecords = [];
         let shipToAddressRecords = [];
@@ -11458,6 +11551,24 @@
             palletLabelDate: document.getElementById("palletLabelDate"),
             palletLabelLocation: document.getElementById("palletLabelLocation"),
             palletLabelSkuList: document.getElementById("palletLabelSkuList"),
+            refreshWarehousePrintSetupBtn: document.getElementById("refreshWarehousePrintSetupBtn"),
+            loadWarehousePrintersBtn: document.getElementById("loadWarehousePrintersBtn"),
+            warehousePrintSetupMessage: document.getElementById("warehousePrintSetupMessage"),
+            warehousePrintStationForm: document.getElementById("warehousePrintStationForm"),
+            warehousePrintStationCode: document.getElementById("warehousePrintStationCode"),
+            warehousePrintStationName: document.getElementById("warehousePrintStationName"),
+            warehousePrintStationLocation: document.getElementById("warehousePrintStationLocation"),
+            warehousePrintStationNote: document.getElementById("warehousePrintStationNote"),
+            warehousePrintStationToken: document.getElementById("warehousePrintStationToken"),
+            warehousePrinterForm: document.getElementById("warehousePrinterForm"),
+            warehousePrinterStation: document.getElementById("warehousePrinterStation"),
+            warehousePrinterLocation: document.getElementById("warehousePrinterLocation"),
+            warehousePrinterName: document.getElementById("warehousePrinterName"),
+            warehousePrinterRole: document.getElementById("warehousePrinterRole"),
+            warehousePrinterCode: document.getElementById("warehousePrinterCode"),
+            warehousePrinterType: document.getElementById("warehousePrinterType"),
+            warehousePrinterDefault: document.getElementById("warehousePrinterDefault"),
+            warehousePrintSetupList: document.getElementById("warehousePrintSetupList"),
             labelPreviewTitle: document.getElementById("labelPreviewTitle"),
             labelPreviewLead: document.getElementById("labelPreviewLead"),
             labelLibraryMeta: document.getElementById("labelLibraryMeta"),
@@ -12053,6 +12164,11 @@
             document.getElementById("clearPalletLabelsBtn").addEventListener("click", clearPalletLabels);
             document.getElementById("printLabelsBtn").addEventListener("click", printLocationLabels);
             document.getElementById("exportLabelCodesBtn").addEventListener("click", exportLocationLabelCodesCsv);
+            ui.loadWarehousePrintersBtn?.addEventListener("click", () => refreshWarehousePrintSetup({ announce: true }));
+            ui.refreshWarehousePrintSetupBtn?.addEventListener("click", () => refreshWarehousePrintSetup({ announce: true }));
+            ui.warehousePrintStationForm?.addEventListener("submit", saveWarehousePrintStation);
+            ui.warehousePrinterForm?.addEventListener("submit", saveWarehousePrinter);
+            ui.warehousePrinterStation?.addEventListener("change", syncWarehousePrinterStationLocation);
             document.getElementById("labelToolForm").addEventListener("submit", (event) => {
                 event.preventDefault();
                 addSingleLocationLabel();
@@ -12104,6 +12220,8 @@
             syncScanItemSelectors();
             syncPalletLabelSkuOptions();
             syncPalletLabelCatalogFields();
+            populateWarehousePrintLocationOptions();
+            renderWarehousePrintSetup();
             resetWarehouseSalesOrderForm();
             resetWarehouseInboundForm();
             setLabelToolMode(labelToolState.mode || "location");
@@ -12734,6 +12852,10 @@
             if (section === "labels" && isMobileView()) {
                 setLabelToolMode("pallet");
                 scrollCurrentViewTop();
+            }
+            if (section === "labels" && !isMobileView()) {
+                populateWarehousePrintLocationOptions();
+                refreshWarehousePrintSetup({ silent: true }).catch(() => {});
             }
             if (section === "integrations") {
                 if (isMobileView()) {
@@ -16998,6 +17120,220 @@
             renderLabelTool();
         }
 
+        function warehousePrintRoleLabel(value) {
+            const role = norm(value || "");
+            if (role === "PICK_TICKET") return "Pick Ticket";
+            if (role === "PACKING_SLIP") return "Packing Slip";
+            if (role === "SHIPPING_LABEL") return "Shipping Label";
+            if (role === "PALLET_LABEL") return "Pallet Label";
+            if (role === "LOCATION_LABEL") return "Location Label";
+            return "General";
+        }
+
+        function warehousePrintStatusLabel(value) {
+            const status = norm(value || "");
+            if (status === "QUEUED") return "Queued";
+            if (status === "CLAIMED") return "Printing";
+            if (status === "PRINTED") return "Printed";
+            if (status === "FAILED") return "Failed";
+            if (status === "CANCELLED") return "Cancelled";
+            if (status === "ONLINE") return "Online";
+            if (status === "OFFLINE") return "Offline";
+            return status || "Unknown";
+        }
+
+        function warehousePrintLocationOptions() {
+            return (state.masters.fulfillmentLocations || [])
+                .filter((location) => location.isActive !== false)
+                .sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+        }
+
+        function populateWarehousePrintLocationOptions() {
+            const locations = warehousePrintLocationOptions();
+            const options = [`<option value="">Choose warehouse</option>`].concat(locations.map((location) => (
+                `<option value="${attr(location.id)}">${esc(location.code)} - ${esc(location.name)}</option>`
+            ))).join("");
+            [ui.warehousePrintStationLocation, ui.warehousePrinterLocation].forEach((select) => {
+                if (!select) return;
+                const previous = select.value;
+                select.innerHTML = options;
+                if (previous && locations.some((location) => String(location.id) === String(previous))) {
+                    select.value = previous;
+                } else {
+                    const defaultCode = getDefaultFulfillmentLocationCode();
+                    const defaultLocation = defaultCode ? getFulfillmentLocationByCode(defaultCode) : null;
+                    select.value = defaultLocation?.id || locations[0]?.id || "";
+                }
+            });
+            syncWarehousePrinterStationOptions();
+        }
+
+        function syncWarehousePrinterStationOptions() {
+            if (!ui.warehousePrinterStation) return;
+            const stations = warehousePrintSetupState.stations || [];
+            const previous = ui.warehousePrinterStation.value;
+            ui.warehousePrinterStation.innerHTML = [`<option value="">Choose station</option>`].concat(stations.map((station) => (
+                `<option value="${attr(station.id)}">${esc(station.stationCode || station.stationName)}${station.status ? ` - ${esc(warehousePrintStatusLabel(station.status))}` : ""}</option>`
+            ))).join("");
+            if (previous && stations.some((station) => String(station.id) === String(previous))) {
+                ui.warehousePrinterStation.value = previous;
+            }
+            syncWarehousePrinterStationLocation();
+        }
+
+        function syncWarehousePrinterStationLocation() {
+            const stationId = ui.warehousePrinterStation?.value || "";
+            const station = (warehousePrintSetupState.stations || []).find((entry) => String(entry.id) === String(stationId));
+            if (station?.fulfillmentLocationId && ui.warehousePrinterLocation) {
+                ui.warehousePrinterLocation.value = station.fulfillmentLocationId;
+            }
+        }
+
+        async function refreshWarehousePrintSetup(options = {}) {
+            const { announce = false, silent = false } = options;
+            try {
+                if (!silent) showMessage(ui.warehousePrintSetupMessage, "Loading warehouse print setup...", "info");
+                const response = await requestJson("/api/admin/print-setup");
+                warehousePrintSetupState = {
+                    stations: Array.isArray(response?.stations) ? response.stations : [],
+                    printers: Array.isArray(response?.printers) ? response.printers : [],
+                    jobs: Array.isArray(response?.jobs) ? response.jobs : []
+                };
+                populateWarehousePrintLocationOptions();
+                renderWarehousePrintSetup();
+                if (announce) {
+                    showMessage(ui.warehousePrintSetupMessage, `Loaded ${num(warehousePrintSetupState.stations.length)} station${warehousePrintSetupState.stations.length === 1 ? "" : "s"} and ${num(warehousePrintSetupState.printers.length)} printer${warehousePrintSetupState.printers.length === 1 ? "" : "s"}.`, "success");
+                } else if (!silent) {
+                    showMessage(ui.warehousePrintSetupMessage, "", "");
+                }
+            } catch (error) {
+                showMessage(ui.warehousePrintSetupMessage, error.message || "Unable to load print setup.", "error");
+            }
+        }
+
+        async function saveWarehousePrintStation(event) {
+            event.preventDefault();
+            const fulfillmentLocationId = ui.warehousePrintStationLocation?.value || "";
+            const stationName = String(ui.warehousePrintStationName?.value || "").trim();
+            const stationCode = norm(ui.warehousePrintStationCode?.value || "");
+            if (!fulfillmentLocationId) return fail(ui.warehousePrintSetupMessage, "Choose the warehouse for this print station.", ui.warehousePrintStationLocation);
+            if (!stationName && !stationCode) return fail(ui.warehousePrintSetupMessage, "Enter a station name or station code.", ui.warehousePrintStationName);
+            try {
+                showMessage(ui.warehousePrintSetupMessage, "Creating print station...", "info");
+                const response = await requestJson("/api/admin/print-stations", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        fulfillmentLocationId,
+                        stationCode,
+                        stationName,
+                        note: ui.warehousePrintStationNote?.value || ""
+                    })
+                });
+                if (ui.warehousePrintStationToken) {
+                    ui.warehousePrintStationToken.innerHTML = response?.setupToken
+                        ? `<strong>Setup token:</strong> <code>${esc(response.setupToken)}</code><br><span>Copy this token into <code>WMS365_PRINT_STATION_TOKEN</code> on the warehouse print-agent computer. It is only shown now.</span>`
+                        : "Station saved. Rotate the token from setup if you need a new agent token.";
+                }
+                await refreshWarehousePrintSetup({ silent: true });
+                showMessage(ui.warehousePrintSetupMessage, "Print station saved.", "success");
+                if (ui.warehousePrinterStation && response?.station?.id) ui.warehousePrinterStation.value = response.station.id;
+                syncWarehousePrinterStationLocation();
+            } catch (error) {
+                showMessage(ui.warehousePrintSetupMessage, error.message || "Unable to save print station.", "error");
+            }
+        }
+
+        async function saveWarehousePrinter(event) {
+            event.preventDefault();
+            const stationId = ui.warehousePrinterStation?.value || "";
+            const fulfillmentLocationId = ui.warehousePrinterLocation?.value || "";
+            const printerName = String(ui.warehousePrinterName?.value || "").trim();
+            if (!stationId) return fail(ui.warehousePrintSetupMessage, "Choose the print station this printer belongs to.", ui.warehousePrinterStation);
+            if (!fulfillmentLocationId) return fail(ui.warehousePrintSetupMessage, "Choose the warehouse for this printer.", ui.warehousePrinterLocation);
+            if (!printerName) return fail(ui.warehousePrintSetupMessage, "Enter the exact printer name from the warehouse computer.", ui.warehousePrinterName);
+            try {
+                showMessage(ui.warehousePrintSetupMessage, "Saving warehouse printer...", "info");
+                await requestJson("/api/admin/warehouse-printers", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        stationId,
+                        fulfillmentLocationId,
+                        printerName,
+                        printerCode: ui.warehousePrinterCode?.value || "",
+                        printerRole: ui.warehousePrinterRole?.value || "GENERAL",
+                        printerType: ui.warehousePrinterType?.value || "DOCUMENT",
+                        isDefault: ui.warehousePrinterDefault?.value !== "false"
+                    })
+                });
+                if (ui.warehousePrinterName) ui.warehousePrinterName.value = "";
+                if (ui.warehousePrinterCode) ui.warehousePrinterCode.value = "";
+                await refreshWarehousePrintSetup({ silent: true });
+                showMessage(ui.warehousePrintSetupMessage, "Warehouse printer saved.", "success");
+            } catch (error) {
+                showMessage(ui.warehousePrintSetupMessage, error.message || "Unable to save printer.", "error");
+            }
+        }
+
+        function renderWarehousePrintSetup() {
+            if (!ui.warehousePrintSetupList) return;
+            syncWarehousePrinterStationOptions();
+            const stations = warehousePrintSetupState.stations || [];
+            const printers = warehousePrintSetupState.printers || [];
+            const jobs = warehousePrintSetupState.jobs || [];
+            if (!stations.length && !printers.length && !jobs.length) {
+                ui.warehousePrintSetupList.innerHTML = `<p class="empty">No print stations are configured yet. Create a station token, install the agent on the warehouse PC, then assign printers.</p>`;
+                return;
+            }
+            const stationCards = stations.length ? stations.map((station) => {
+                const localPrinters = Array.isArray(station.localPrinters) ? station.localPrinters : [];
+                const localPrinterText = localPrinters.length
+                    ? localPrinters.slice(0, 4).map((printer) => printer.name).filter(Boolean).join(", ")
+                    : "No heartbeat printer list yet";
+                return `
+                    <div class="quick-row">
+                        <div>
+                            <strong>${esc(station.stationName || station.stationCode)}</strong>
+                            <div class="quick-meta">${esc(station.stationCode)} | ${esc(station.fulfillmentLocationCode || "No warehouse")} | ${esc(warehousePrintStatusLabel(station.status))}${station.lastSeenAt ? ` | Last seen ${esc(formatDate(station.lastSeenAt))}` : ""}</div>
+                            <div class="quick-meta">${esc(station.hostName || "No host name")} | ${esc(localPrinterText)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join("") : `<p class="empty">No print stations configured.</p>`;
+            const printerRows = printers.length ? printers.map((printer) => `
+                <tr>
+                    <td>${esc(printer.printerName)}</td>
+                    <td>${esc(warehousePrintRoleLabel(printer.printerRole))}</td>
+                    <td>${esc(printer.fulfillmentLocationCode || "-")}</td>
+                    <td>${esc(printer.stationName || printer.stationCode || "-")}</td>
+                    <td>${printer.isDefault ? "Default" : "Backup"}</td>
+                </tr>
+            `).join("") : `<tr><td colspan="5">No printers assigned yet.</td></tr>`;
+            const jobRows = jobs.slice(0, 12).map((job) => `
+                <tr>
+                    <td>${esc(job.sourceRef || job.sourceId || "-")}</td>
+                    <td>${esc(warehousePrintRoleLabel(job.documentType))}</td>
+                    <td>${esc(job.printerName || "-")}</td>
+                    <td>${esc(warehousePrintStatusLabel(job.status))}</td>
+                    <td>${esc(job.requestedAt ? formatDate(job.requestedAt) : "-")}</td>
+                </tr>
+            `).join("") || `<tr><td colspan="5">No warehouse print jobs yet.</td></tr>`;
+            ui.warehousePrintSetupList.innerHTML = `
+                <div class="stack-list">${stationCards}</div>
+                <div class="table-wrap" style="margin-top: 1rem;">
+                    <table>
+                        <thead><tr><th>Printer</th><th>Role</th><th>Warehouse</th><th>Station</th><th>Default</th></tr></thead>
+                        <tbody>${printerRows}</tbody>
+                    </table>
+                </div>
+                <div class="table-wrap" style="margin-top: 1rem;">
+                    <table>
+                        <thead><tr><th>Source</th><th>Document</th><th>Printer</th><th>Status</th><th>Requested</th></tr></thead>
+                        <tbody>${jobRows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
         function renderLabelTool() {
             if (!ui.labelsPreviewGrid) return;
             const locationCandidates = getLocationLabelCandidates(ui.labelLibraryFilterInput?.value || "");
@@ -20491,6 +20827,8 @@
                     <div class="erp-document-process-actions">
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket${pickPrintCount ? ` (${esc(`${pickPrintCount}x`)})` : ""}</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip${packingPrintCount ? ` (${esc(`${packingPrintCount}x`)})` : ""}</button>` : ""}
+                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-pick-ticket="${attr(order.id)}">Send Pick to Warehouse Printer</button>` : ""}
+                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-packing-slip="${attr(order.id)}">Send Pack to Warehouse Printer</button>` : ""}
                         ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
                         ${["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status) ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="CANCELLED">Cancel Order</button>` : ""}
                     </div>
@@ -22759,7 +23097,7 @@
         function formatPrintHistoryForConfirm(summary = {}) {
             const parts = [];
             if (summary.lastPrintedBy) parts.push(`last printed by ${summary.lastPrintedBy}`);
-            if (summary.lastPrintedAt) parts.push(`on ${formatDateTime(summary.lastPrintedAt)}`);
+            if (summary.lastPrintedAt) parts.push(`on ${formatDate(summary.lastPrintedAt)}`);
             return parts.length ? ` (${parts.join(" ")})` : "";
         }
 
@@ -22777,6 +23115,27 @@
                 }
             }
             return response?.printEvent || null;
+        }
+
+        async function queuePortalOrderWarehousePrintJob(order, type, messageElement = ui.portalOrdersMessage) {
+            const printCount = getPortalOrderPrintCount(order, type);
+            const summary = getPortalOrderPrintSummaryEntry(order, type);
+            const label = portalOrderPrintDocumentLabel(type);
+            if (printCount > 0) {
+                const confirmed = window.confirm(`${order.orderCode || "This order"} ${label} has already been printed ${printCount} time${printCount === 1 ? "" : "s"}${formatPrintHistoryForConfirm(summary)}. Send it to the warehouse printer again?`);
+                if (!confirmed) {
+                    showMessage(messageElement, `Warehouse printer request cancelled for ${order.orderCode || "order"} ${label}.`, "info");
+                    return null;
+                }
+            }
+            const response = await requestJson(`/api/admin/portal-orders/${encodeURIComponent(order.id)}/print-jobs`, {
+                method: "POST",
+                body: JSON.stringify({ documentType: portalOrderPrintDocumentType(type) })
+            });
+            const printerName = response?.printer?.printerName || "warehouse printer";
+            const jobId = response?.job?.id ? ` Job #${response.job.id}.` : "";
+            showMessage(messageElement, `${label.charAt(0).toUpperCase()}${label.slice(1)} queued for ${printerName}.${jobId}`, "success");
+            return response?.job || null;
         }
 
         async function printPortalOrderDocument(order, type, messageElement = ui.portalOrdersMessage) {
@@ -23050,6 +23409,42 @@
                     }, async () => {
                         const order = await requestPortalOrderDetail(packingSlipButton.dataset.printPackingSlip || "");
                         if (order) await printPortalOrderDocument(order, "packing", actionMessageElement);
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
+                return;
+            }
+
+            const queuePickTicketButton = event.target.closest("[data-queue-pick-ticket]");
+            if (queuePickTicketButton) {
+                try {
+                    await runActionWithFeedback({
+                        button: queuePickTicketButton,
+                        busyLabel: "Queueing...",
+                        messageElement: actionMessageElement,
+                        progressMessage: "Sending the pick ticket to the warehouse printer..."
+                    }, async () => {
+                        const order = await requestPortalOrderDetail(queuePickTicketButton.dataset.queuePickTicket || "");
+                        if (order) await queuePortalOrderWarehousePrintJob(order, "pick", actionMessageElement);
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
+                return;
+            }
+
+            const queuePackingSlipButton = event.target.closest("[data-queue-packing-slip]");
+            if (queuePackingSlipButton) {
+                try {
+                    await runActionWithFeedback({
+                        button: queuePackingSlipButton,
+                        busyLabel: "Queueing...",
+                        messageElement: actionMessageElement,
+                        progressMessage: "Sending the packing slip to the warehouse printer..."
+                    }, async () => {
+                        const order = await requestPortalOrderDetail(queuePackingSlipButton.dataset.queuePackingSlip || "");
+                        if (order) await queuePortalOrderWarehousePrintJob(order, "packing", actionMessageElement);
                     });
                 } catch (error) {
                     showMessage(actionMessageElement, error.message, "error");

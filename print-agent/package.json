@@ -1,0 +1,13 @@
+{
+  "name": "wms365-print-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WMS365 local warehouse print agent",
+  "main": "wms365-print-agent.js",
+  "scripts": {
+    "start": "node wms365-print-agent.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

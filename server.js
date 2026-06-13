@@ -131,7 +131,10 @@ const APP_BUILD_FILES = [
     "portal.html",
     "login.html",
     "mobile-pick.html",
-    "mobile-count.html"
+    "mobile-count.html",
+    "print-agent/package.json",
+    "print-agent/wms365-print-agent.js",
+    "print-agent/README.md"
 ];
 const APP_BUILD_INFO = createAppBuildInfo(ROOT_DIR, APP_BUILD_FILES);
 const DATABASE_URL = readEnv("DATABASE_PRIVATE_URL") || readEnv("DATABASE_URL") || "";
@@ -213,6 +216,21 @@ const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
 const PORTAL_ORDER_PRINT_DOCUMENT_TYPES = Object.freeze({
     PICK_TICKET: "PICK_TICKET",
     PACKING_SLIP: "PACKING_SLIP"
+});
+const WAREHOUSE_PRINT_JOB_STATUSES = Object.freeze({
+    QUEUED: "QUEUED",
+    CLAIMED: "CLAIMED",
+    PRINTED: "PRINTED",
+    FAILED: "FAILED",
+    CANCELLED: "CANCELLED"
+});
+const WAREHOUSE_PRINTER_ROLES = Object.freeze({
+    GENERAL: "GENERAL",
+    PICK_TICKET: "PICK_TICKET",
+    PACKING_SLIP: "PACKING_SLIP",
+    SHIPPING_LABEL: "SHIPPING_LABEL",
+    PALLET_LABEL: "PALLET_LABEL",
+    LOCATION_LABEL: "LOCATION_LABEL"
 });
 const REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES = Object.freeze([
     PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL,
@@ -1635,6 +1653,40 @@ app.use((req, _res, next) => {
 app.get("/api/state", async (req, res, next) => {
     try {
         res.json(await getServerState(pool, { billingEventLimit: 1000, appUser: req.appUser }));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/print-agent/heartbeat", async (req, res, next) => {
+    try {
+        const station = await requireWarehousePrintAgent(req);
+        const result = await updateWarehousePrintStationHeartbeat(pool, station, req.body || {}, req);
+        res.json({ success: true, station: result.station, serverTime: new Date().toISOString() });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/print-agent/jobs/claim", async (req, res, next) => {
+    try {
+        const station = await requireWarehousePrintAgent(req);
+        const job = await withTransaction((client) => claimNextWarehousePrintJob(client, station, req.body || {}));
+        res.json({ success: true, job });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/print-agent/jobs/:id/complete", async (req, res, next) => {
+    try {
+        const station = await requireWarehousePrintAgent(req);
+        const jobId = toPositiveInt(req.params.id);
+        if (!jobId) {
+            throw httpError(400, "A valid print job id is required.");
+        }
+        const result = await withTransaction((client) => completeWarehousePrintJob(client, station, jobId, req.body || {}));
+        res.json({ success: true, ...result });
     } catch (error) {
         next(error);
     }
@@ -3881,6 +3933,50 @@ app.post("/api/admin/portal-orders/:id/print-events", async (req, res, next) => 
             return recordPortalOrderPrintEvent(client, orderId, documentType, req.appUser);
         });
         res.json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/print-setup", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const setup = await getWarehousePrintSetup(pool, req.appUser, req.query || {});
+        res.json({ success: true, ...setup });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/print-stations", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const result = await withTransaction((client) => saveWarehousePrintStation(client, req.body || {}, req.appUser));
+        res.status(result.wasCreated ? 201 : 200).json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/warehouse-printers", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const printer = await withTransaction((client) => saveWarehousePrinter(client, req.body || {}, req.appUser));
+        res.status(201).json({ success: true, printer });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-orders/:id/print-jobs", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const result = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            return createPortalOrderWarehousePrintJob(client, orderId, req.body || {}, req.appUser);
+        });
+        res.status(201).json({ success: true, ...result });
     } catch (error) {
         next(error);
     }
@@ -6863,6 +6959,132 @@ async function initializeDatabase() {
     await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_action_check check (print_action in ('PRINT', 'REPRINT'))");
     await pool.query("create index if not exists idx_portal_order_print_events_order_type on portal_order_print_events (order_id, document_type, created_at desc)");
     await pool.query(`
+        create table if not exists warehouse_print_stations (
+            id bigserial primary key,
+            station_code text not null unique,
+            station_name text not null,
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
+            token_hash text not null unique,
+            status text not null default 'OFFLINE',
+            last_seen_at timestamptz,
+            agent_version text not null default '',
+            host_name text not null default '',
+            local_printers jsonb not null default '[]'::jsonb,
+            note text not null default '',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table warehouse_print_stations add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
+    await pool.query("alter table warehouse_print_stations add column if not exists token_hash text");
+    await pool.query("alter table warehouse_print_stations add column if not exists status text not null default 'OFFLINE'");
+    await pool.query("alter table warehouse_print_stations add column if not exists last_seen_at timestamptz");
+    await pool.query("alter table warehouse_print_stations add column if not exists agent_version text not null default ''");
+    await pool.query("alter table warehouse_print_stations add column if not exists host_name text not null default ''");
+    await pool.query("alter table warehouse_print_stations add column if not exists local_printers jsonb not null default '[]'::jsonb");
+    await pool.query("alter table warehouse_print_stations add column if not exists note text not null default ''");
+    await pool.query("alter table warehouse_print_stations add column if not exists is_active boolean not null default true");
+    await pool.query("create unique index if not exists idx_warehouse_print_stations_code on warehouse_print_stations (station_code)");
+    await pool.query("create unique index if not exists idx_warehouse_print_stations_token_hash on warehouse_print_stations (token_hash) where token_hash is not null and token_hash <> ''");
+    await pool.query("create index if not exists idx_warehouse_print_stations_location on warehouse_print_stations (fulfillment_location_id)");
+
+    await pool.query(`
+        create table if not exists warehouse_printers (
+            id bigserial primary key,
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
+            station_id bigint references warehouse_print_stations(id) on delete set null,
+            printer_code text not null unique,
+            printer_name text not null,
+            printer_type text not null default 'DOCUMENT',
+            printer_role text not null default 'GENERAL',
+            media_size text not null default '',
+            driver_name text not null default '',
+            is_default boolean not null default false,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table warehouse_printers add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
+    await pool.query("alter table warehouse_printers add column if not exists station_id bigint references warehouse_print_stations(id) on delete set null");
+    await pool.query("alter table warehouse_printers add column if not exists printer_type text not null default 'DOCUMENT'");
+    await pool.query("alter table warehouse_printers add column if not exists printer_role text not null default 'GENERAL'");
+    await pool.query("alter table warehouse_printers add column if not exists media_size text not null default ''");
+    await pool.query("alter table warehouse_printers add column if not exists driver_name text not null default ''");
+    await pool.query("alter table warehouse_printers add column if not exists is_default boolean not null default false");
+    await pool.query("alter table warehouse_printers add column if not exists is_active boolean not null default true");
+    await pool.query("create unique index if not exists idx_warehouse_printers_code on warehouse_printers (printer_code)");
+    await pool.query("create index if not exists idx_warehouse_printers_location_role on warehouse_printers (fulfillment_location_id, printer_role, is_active)");
+    await pool.query("create index if not exists idx_warehouse_printers_station on warehouse_printers (station_id)");
+
+    await pool.query(`
+        create table if not exists warehouse_print_jobs (
+            id bigserial primary key,
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
+            station_id bigint references warehouse_print_stations(id) on delete set null,
+            printer_id bigint references warehouse_printers(id) on delete set null,
+            document_type text not null,
+            document_title text not null default '',
+            source_type text not null default '',
+            source_id text not null default '',
+            source_ref text not null default '',
+            account_name text not null default '',
+            payload_type text not null default 'PDF',
+            content_type text not null default 'application/pdf',
+            file_name text not null default '',
+            payload_base64 text not null default '',
+            status text not null default 'QUEUED',
+            requested_by text not null default '',
+            requested_at timestamptz not null default now(),
+            claimed_at timestamptz,
+            completed_at timestamptz,
+            failed_at timestamptz,
+            attempts integer not null default 0,
+            max_attempts integer not null default 5,
+            last_error text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table warehouse_print_jobs add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
+    await pool.query("alter table warehouse_print_jobs add column if not exists station_id bigint references warehouse_print_stations(id) on delete set null");
+    await pool.query("alter table warehouse_print_jobs add column if not exists printer_id bigint references warehouse_printers(id) on delete set null");
+    await pool.query("alter table warehouse_print_jobs add column if not exists document_type text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists document_title text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists source_type text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists source_id text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists source_ref text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists account_name text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists payload_type text not null default 'PDF'");
+    await pool.query("alter table warehouse_print_jobs add column if not exists content_type text not null default 'application/pdf'");
+    await pool.query("alter table warehouse_print_jobs add column if not exists file_name text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists payload_base64 text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists status text not null default 'QUEUED'");
+    await pool.query("alter table warehouse_print_jobs add column if not exists requested_by text not null default ''");
+    await pool.query("alter table warehouse_print_jobs add column if not exists requested_at timestamptz not null default now()");
+    await pool.query("alter table warehouse_print_jobs add column if not exists claimed_at timestamptz");
+    await pool.query("alter table warehouse_print_jobs add column if not exists completed_at timestamptz");
+    await pool.query("alter table warehouse_print_jobs add column if not exists failed_at timestamptz");
+    await pool.query("alter table warehouse_print_jobs add column if not exists attempts integer not null default 0");
+    await pool.query("alter table warehouse_print_jobs add column if not exists max_attempts integer not null default 5");
+    await pool.query("alter table warehouse_print_jobs add column if not exists last_error text not null default ''");
+    await pool.query("create index if not exists idx_warehouse_print_jobs_status_station on warehouse_print_jobs (status, station_id, requested_at)");
+    await pool.query("create index if not exists idx_warehouse_print_jobs_source on warehouse_print_jobs (source_type, source_id, document_type)");
+    await pool.query("create index if not exists idx_warehouse_print_jobs_location on warehouse_print_jobs (fulfillment_location_id, status)");
+
+    await pool.query(`
+        create table if not exists warehouse_print_job_events (
+            id bigserial primary key,
+            job_id bigint not null references warehouse_print_jobs(id) on delete cascade,
+            event_type text not null,
+            actor text not null default '',
+            details text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create index if not exists idx_warehouse_print_job_events_job on warehouse_print_job_events (job_id, created_at desc)");
+    await pool.query(`
         create table if not exists portal_inbound_documents (
             id bigserial primary key,
             inbound_id bigint not null references portal_inbounds(id) on delete cascade,
@@ -9403,6 +9625,7 @@ function requiresAppAuth(req) {
         || pathName === "/api/app/logout"
         || pathName === "/api/app/me") return false;
     if (pathName.startsWith("/api/portal/")) return false;
+    if (pathName.startsWith("/api/print-agent/")) return false;
     return pathName.startsWith("/api/");
 }
 
@@ -19423,6 +19646,565 @@ function shipmentDocumentCategoryLabel(category) {
     return "general document";
 }
 
+function normalizeWarehousePrinterRole(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (normalized === "PICK" || normalized === "PICK_TICKET") return WAREHOUSE_PRINTER_ROLES.PICK_TICKET;
+    if (normalized === "PACKING" || normalized === "PACKING_SLIP") return WAREHOUSE_PRINTER_ROLES.PACKING_SLIP;
+    if (normalized === "LABEL" || normalized === "SHIPPING_LABEL") return WAREHOUSE_PRINTER_ROLES.SHIPPING_LABEL;
+    if (normalized === "PALLET" || normalized === "PALLET_LABEL") return WAREHOUSE_PRINTER_ROLES.PALLET_LABEL;
+    if (normalized === "LOCATION" || normalized === "LOCATION_LABEL") return WAREHOUSE_PRINTER_ROLES.LOCATION_LABEL;
+    return Object.values(WAREHOUSE_PRINTER_ROLES).includes(normalized) ? normalized : WAREHOUSE_PRINTER_ROLES.GENERAL;
+}
+
+function normalizeWarehousePrinterType(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (["LABEL", "ZPL", "THERMAL"].includes(normalized)) return "LABEL";
+    return "DOCUMENT";
+}
+
+function normalizeWarehousePrintJobStatus(value) {
+    const normalized = normalizeText(value || "");
+    return Object.values(WAREHOUSE_PRINT_JOB_STATUSES).includes(normalized) ? normalized : WAREHOUSE_PRINT_JOB_STATUSES.QUEUED;
+}
+
+function createWarehousePrintStationToken() {
+    return `wms365ps_${crypto.randomBytes(24).toString("hex")}`;
+}
+
+function hashWarehousePrintStationToken(token) {
+    return crypto.createHash("sha256").update(String(token || "").trim()).digest("hex");
+}
+
+function getWarehousePrintAgentToken(req) {
+    const authorization = String(req.headers.authorization || "").trim();
+    if (/^bearer\s+/i.test(authorization)) {
+        return authorization.replace(/^bearer\s+/i, "").trim();
+    }
+    return String(req.headers["x-wms365-print-token"] || req.body?.stationToken || req.query?.stationToken || "").trim();
+}
+
+async function requireWarehousePrintAgent(req, client = pool) {
+    const token = getWarehousePrintAgentToken(req);
+    if (!token) throw httpError(401, "Print station token is required.");
+    const result = await client.query(
+        `
+            select s.*, fl.code as fulfillment_location_code, fl.name as fulfillment_location_name
+            from warehouse_print_stations s
+            left join fulfillment_locations fl on fl.id = s.fulfillment_location_id
+            where s.token_hash = $1
+              and s.is_active = true
+            limit 1
+        `,
+        [hashWarehousePrintStationToken(token)]
+    );
+    if (result.rowCount !== 1) throw httpError(401, "Print station token was not accepted.");
+    return result.rows[0];
+}
+
+function sanitizeLocalPrinterSnapshot(printers = []) {
+    return (Array.isArray(printers) ? printers : [])
+        .slice(0, 80)
+        .map((printer) => ({
+            name: normalizeFreeText(printer?.name || printer?.printerName || printer).slice(0, 180),
+            isDefault: printer?.isDefault === true || printer?.default === true,
+            status: normalizeFreeText(printer?.status || "").slice(0, 80)
+        }))
+        .filter((printer) => printer.name);
+}
+
+async function updateWarehousePrintStationHeartbeat(client, station, payload = {}, req = null) {
+    const localPrinters = sanitizeLocalPrinterSnapshot(payload.localPrinters || payload.printers || []);
+    const agentVersion = normalizeFreeText(payload.agentVersion || payload.version || "").slice(0, 80);
+    const hostName = normalizeFreeText(payload.hostName || payload.hostname || req?.headers["x-wms365-hostname"] || "").slice(0, 180);
+    const result = await client.query(
+        `
+            update warehouse_print_stations
+            set status = 'ONLINE',
+                last_seen_at = now(),
+                agent_version = coalesce(nullif($2, ''), agent_version),
+                host_name = coalesce(nullif($3, ''), host_name),
+                local_printers = $4::jsonb,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [station.id, agentVersion, hostName, JSON.stringify(localPrinters)]
+    );
+    return { station: mapWarehousePrintStationRow(result.rows[0]) };
+}
+
+async function getAccessibleFulfillmentLocationIdsForAppUser(client, user) {
+    if (!user || isSuperAdminUser(user)) return null;
+    const assignedLocationIds = (user.assignedFulfillmentLocations || user.assigned_fulfillment_locations || [])
+        .map((location) => toPositiveInt(location?.id || location?.fulfillmentLocationId || location?.fulfillment_location_id || location))
+        .filter((id) => id > 0);
+    const accessibleCompanies = await getAccessibleCompanyNamesForAppUser(client, user);
+    const result = accessibleCompanies.length
+        ? await client.query(
+            "select fulfillment_location_id from company_fulfillment_locations where account_name = any($1::text[])",
+            [accessibleCompanies]
+        )
+        : { rows: [] };
+    return [...new Set(assignedLocationIds.concat(result.rows.map((row) => toPositiveInt(row.fulfillment_location_id))).filter((id) => id > 0))];
+}
+
+async function assertAppUserFulfillmentLocationAccess(client, user, fulfillmentLocationId) {
+    const normalizedLocationId = toPositiveInt(fulfillmentLocationId);
+    if (!normalizedLocationId || !user || isSuperAdminUser(user)) return normalizedLocationId;
+    const accessibleIds = await getAccessibleFulfillmentLocationIdsForAppUser(client, user);
+    if (!accessibleIds.includes(normalizedLocationId)) {
+        throw httpError(403, "Warehouse printer access is not assigned to your login.");
+    }
+    return normalizedLocationId;
+}
+
+async function resolveFulfillmentLocationIdForPrintInput(client, input = {}) {
+    const locationId = toPositiveInt(input.fulfillmentLocationId || input.fulfillment_location_id || input.locationId || input.location_id);
+    if (locationId) return locationId;
+    const code = normalizeText(input.fulfillmentLocationCode || input.fulfillment_location_code || input.locationCode || input.location_code || input.warehouseCode || input.warehouse_code);
+    if (!code) return 0;
+    const result = await client.query("select id from fulfillment_locations where code = $1 limit 1", [code]);
+    if (result.rowCount !== 1) throw httpError(404, `Warehouse ${code} could not be found.`);
+    return toPositiveInt(result.rows[0].id);
+}
+
+async function getWarehousePrintSetup(client = pool, appUser = null, query = {}) {
+    const accessibleIds = await getAccessibleFulfillmentLocationIdsForAppUser(client, appUser);
+    const locationId = await resolveFulfillmentLocationIdForPrintInput(client, query);
+    if (locationId) await assertAppUserFulfillmentLocationAccess(client, appUser, locationId);
+    if (!locationId && Array.isArray(accessibleIds) && !accessibleIds.length) {
+        return { stations: [], printers: [], jobs: [] };
+    }
+
+    const stationParams = [];
+    let stationWhere = "";
+    if (locationId) {
+        stationParams.push(locationId);
+        stationWhere = "where s.fulfillment_location_id = $1";
+    } else if (Array.isArray(accessibleIds)) {
+        stationParams.push(accessibleIds);
+        stationWhere = "where s.fulfillment_location_id = any($1::bigint[])";
+    }
+
+    const stationResult = await client.query(
+        `
+            select s.*, fl.code as fulfillment_location_code, fl.name as fulfillment_location_name
+            from warehouse_print_stations s
+            left join fulfillment_locations fl on fl.id = s.fulfillment_location_id
+            ${stationWhere}
+            order by s.is_active desc, s.station_name asc
+        `,
+        stationParams
+    );
+    const printerResult = await client.query(
+        `
+            select p.*, s.station_code, s.station_name, fl.code as fulfillment_location_code, fl.name as fulfillment_location_name
+            from warehouse_printers p
+            left join warehouse_print_stations s on s.id = p.station_id
+            left join fulfillment_locations fl on fl.id = p.fulfillment_location_id
+            ${stationWhere.replace(/s\./g, "p.")}
+            order by p.is_active desc, p.is_default desc, fl.code asc nulls last, p.printer_role asc, p.printer_name asc
+        `,
+        stationParams
+    );
+    const jobResult = await client.query(
+        `
+            select j.*, p.printer_name, p.printer_code, s.station_name, s.station_code, fl.code as fulfillment_location_code
+            from warehouse_print_jobs j
+            left join warehouse_printers p on p.id = j.printer_id
+            left join warehouse_print_stations s on s.id = j.station_id
+            left join fulfillment_locations fl on fl.id = j.fulfillment_location_id
+            ${locationId ? "where j.fulfillment_location_id = $1" : (Array.isArray(accessibleIds) ? "where j.fulfillment_location_id = any($1::bigint[])" : "")}
+            order by j.created_at desc, j.id desc
+            limit 100
+        `,
+        locationId ? [locationId] : (Array.isArray(accessibleIds) ? [accessibleIds] : [])
+    );
+    return {
+        stations: stationResult.rows.map(mapWarehousePrintStationRow),
+        printers: printerResult.rows.map(mapWarehousePrinterRow),
+        jobs: jobResult.rows.map(mapWarehousePrintJobRow)
+    };
+}
+
+async function saveWarehousePrintStation(client, input = {}, appUser = null) {
+    const fulfillmentLocationId = await resolveFulfillmentLocationIdForPrintInput(client, input);
+    if (fulfillmentLocationId) await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocationId);
+    const stationCode = normalizeText(input.stationCode || input.station_code || input.code) || `PS-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    const stationName = normalizeFreeText(input.stationName || input.station_name || input.name) || stationCode;
+    const note = normalizeFreeText(input.note || "").slice(0, 500);
+    const rotateToken = input.rotateToken === true || input.rotate_token === true;
+    const token = createWarehousePrintStationToken();
+    const existing = await client.query("select * from warehouse_print_stations where station_code = $1 limit 1", [stationCode]);
+    const tokenHash = existing.rowCount && !rotateToken && existing.rows[0].token_hash
+        ? existing.rows[0].token_hash
+        : hashWarehousePrintStationToken(token);
+    const result = await client.query(
+        `
+            insert into warehouse_print_stations (
+                station_code, station_name, fulfillment_location_id, token_hash, note, is_active
+            )
+            values ($1, $2, nullif($3, 0), $4, $5, $6)
+            on conflict (station_code) do update set
+                station_name = excluded.station_name,
+                fulfillment_location_id = excluded.fulfillment_location_id,
+                token_hash = excluded.token_hash,
+                note = excluded.note,
+                is_active = excluded.is_active,
+                updated_at = now()
+            returning *
+        `,
+        [stationCode, stationName, fulfillmentLocationId || 0, tokenHash, note, input.isActive !== false]
+    );
+    await insertActivity(
+        client,
+        "printer",
+        `${existing.rowCount ? "Updated" : "Created"} print station ${stationCode}`,
+        [stationName, appUser?.email || appUser?.full_name || ""].filter(Boolean).join(" | ")
+    );
+    return {
+        station: mapWarehousePrintStationRow(result.rows[0]),
+        setupToken: (!existing.rowCount || rotateToken) ? token : "",
+        wasCreated: existing.rowCount !== 1
+    };
+}
+
+async function saveWarehousePrinter(client, input = {}, appUser = null) {
+    const stationId = toPositiveInt(input.stationId || input.station_id);
+    let station = null;
+    if (stationId) {
+        const stationResult = await client.query("select * from warehouse_print_stations where id = $1 limit 1", [stationId]);
+        if (stationResult.rowCount !== 1) throw httpError(404, "That print station could not be found.");
+        station = stationResult.rows[0];
+    }
+    const fulfillmentLocationId = await resolveFulfillmentLocationIdForPrintInput(client, input) || toPositiveInt(station?.fulfillment_location_id);
+    if (!fulfillmentLocationId) throw httpError(400, "Choose a warehouse for this printer.");
+    await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocationId);
+    const printerName = normalizeFreeText(input.printerName || input.printer_name || input.name);
+    if (!printerName) throw httpError(400, "Printer name is required.");
+    const printerRole = normalizeWarehousePrinterRole(input.printerRole || input.printer_role || input.role);
+    const printerCode = normalizeText(input.printerCode || input.printer_code || input.code)
+        || normalizeText(`${station?.station_code || "PRN"}-${printerRole}-${printerName}`).slice(0, 90);
+    const result = await client.query(
+        `
+            insert into warehouse_printers (
+                fulfillment_location_id, station_id, printer_code, printer_name,
+                printer_type, printer_role, media_size, driver_name, is_default, is_active
+            )
+            values ($1, nullif($2, 0), $3, $4, $5, $6, $7, $8, $9, $10)
+            on conflict (printer_code) do update set
+                fulfillment_location_id = excluded.fulfillment_location_id,
+                station_id = excluded.station_id,
+                printer_name = excluded.printer_name,
+                printer_type = excluded.printer_type,
+                printer_role = excluded.printer_role,
+                media_size = excluded.media_size,
+                driver_name = excluded.driver_name,
+                is_default = excluded.is_default,
+                is_active = excluded.is_active,
+                updated_at = now()
+            returning *
+        `,
+        [
+            fulfillmentLocationId,
+            stationId || 0,
+            printerCode,
+            printerName,
+            normalizeWarehousePrinterType(input.printerType || input.printer_type || input.type),
+            printerRole,
+            normalizeFreeText(input.mediaSize || input.media_size || "").slice(0, 80),
+            normalizeFreeText(input.driverName || input.driver_name || "").slice(0, 180),
+            input.isDefault === true || input.is_default === true,
+            input.isActive !== false
+        ]
+    );
+    await insertActivity(
+        client,
+        "printer",
+        `Saved warehouse printer ${printerName}`,
+        [printerCode, printerRole, appUser?.email || appUser?.full_name || ""].filter(Boolean).join(" | ")
+    );
+    return mapWarehousePrinterRow(result.rows[0]);
+}
+
+async function resolvePortalOrderPrintFulfillmentLocationId(client, order) {
+    const orderLocationId = toPositiveInt(order?.fulfillmentLocationId || order?.fulfillment_location_id);
+    if (orderLocationId) return orderLocationId;
+    const accountName = normalizeText(order?.accountName || order?.account_name || "");
+    if (accountName) {
+        const result = await client.query(
+            `
+                select fulfillment_location_id
+                from company_fulfillment_locations
+                where account_name = $1
+                  and allow_outbound = true
+                order by is_primary desc, id asc
+                limit 1
+            `,
+            [accountName]
+        );
+        if (result.rowCount === 1) return toPositiveInt(result.rows[0].fulfillment_location_id);
+    }
+    const defaultResult = await client.query("select id from fulfillment_locations where is_default = true order by id asc limit 1");
+    return defaultResult.rowCount === 1 ? toPositiveInt(defaultResult.rows[0].id) : 0;
+}
+
+async function resolveWarehousePrinterForJob(client, { fulfillmentLocationId, printerId = 0, documentType = "" } = {}) {
+    const normalizedPrinterId = toPositiveInt(printerId);
+    const role = normalizeWarehousePrinterRole(documentType);
+    const params = [];
+    const where = ["p.is_active = true"];
+    if (normalizedPrinterId) {
+        params.push(normalizedPrinterId);
+        where.push(`p.id = $${params.length}`);
+    } else {
+        params.push(toPositiveInt(fulfillmentLocationId));
+        where.push(`p.fulfillment_location_id = $${params.length}`);
+    }
+    const roleParam = params.length + 1;
+    const result = await client.query(
+        `
+            select p.*, s.station_code, s.station_name, s.status as station_status,
+                   fl.code as fulfillment_location_code, fl.name as fulfillment_location_name
+            from warehouse_printers p
+            left join warehouse_print_stations s on s.id = p.station_id
+            left join fulfillment_locations fl on fl.id = p.fulfillment_location_id
+            where ${where.join(" and ")}
+            order by
+                case when p.printer_role = $${roleParam} then 0 when p.printer_role = 'GENERAL' then 1 else 2 end,
+                p.is_default desc,
+                p.id asc
+            limit 1
+        `,
+        params.concat(role)
+    );
+    if (result.rowCount !== 1) throw httpError(400, "No active warehouse printer is configured for this document and warehouse.");
+    const printer = result.rows[0];
+    if (toPositiveInt(fulfillmentLocationId) && toPositiveInt(printer.fulfillment_location_id) !== toPositiveInt(fulfillmentLocationId)) {
+        throw httpError(400, "That printer is not assigned to this order's warehouse.");
+    }
+    if (!printer.station_id) throw httpError(400, "That printer is not assigned to a print station.");
+    return printer;
+}
+
+function buildPortalOrderPackingSlipPdfAttachment(order) {
+    const lines = [
+        "WMS365 PACKING SLIP",
+        "",
+        `Order: ${order.orderCode || ""}`,
+        `Company: ${order.accountName || ""}`,
+        `PO Number: ${order.poNumber || "-"}`,
+        `Shipping Reference: ${order.shippingReference || "-"}`,
+        `Requested Ship Date: ${order.requestedShipDate || "-"}`,
+        "",
+        "Ship To:"
+    ];
+    formatPortalOrderShipToAddress(order)
+        .split("|")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach((line) => lines.push(`  ${line}`));
+    lines.push("", "Items:", "SKU                 QTY            DESCRIPTION", "------------------- -------------- -----------------------------------------------");
+    (order.lines || []).forEach((line) => {
+        const prefix = `${pdfSafeText(line.sku).slice(0, 19).padEnd(19)} ${pdfSafeText(formatTrackedQuantity(line.quantity, line.trackingLevel)).slice(0, 14).padEnd(14)} `;
+        const descriptionLines = wrapPdfText(line.description || "", 47);
+        lines.push(`${prefix}${descriptionLines[0] || ""}`);
+        descriptionLines.slice(1).forEach((descriptionLine) => lines.push(`${"".padEnd(34)}${descriptionLine}`));
+    });
+    lines.push("", `Generated: ${new Date().toISOString()}`);
+    return {
+        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-packing-slip.pdf`),
+        content: buildSimpleTextPdfBuffer(lines),
+        contentType: "application/pdf"
+    };
+}
+
+async function insertWarehousePrintJobEvent(client, jobId, eventType, actor = "", details = "") {
+    await client.query(
+        "insert into warehouse_print_job_events (job_id, event_type, actor, details) values ($1, $2, $3, $4)",
+        [jobId, normalizeText(eventType || "EVENT"), normalizeFreeText(actor || "").slice(0, 180), normalizeFreeText(details || "").slice(0, 1000)]
+    );
+}
+
+async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, appUser = null) {
+    const documentType = normalizePortalOrderPrintDocumentType(input.documentType || input.document_type || input.type);
+    if (!documentType) throw httpError(400, "Choose a printable document type.");
+    const accountName = await getPortalOrderAccountNameById(client, orderId);
+    const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+    if (!order) throw httpError(404, "That sales order could not be found.");
+    if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
+        throw httpError(400, `Orders in ${order.status} cannot be printed for warehouse processing.`);
+    }
+    const fulfillmentLocationId = await resolvePortalOrderPrintFulfillmentLocationId(client, order);
+    if (!fulfillmentLocationId) throw httpError(400, "No warehouse is assigned to this order.");
+    await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocationId);
+    const printer = await resolveWarehousePrinterForJob(client, {
+        fulfillmentLocationId,
+        printerId: input.printerId || input.printer_id,
+        documentType
+    });
+    const attachment = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
+        ? buildPortalOrderPackingSlipPdfAttachment(order)
+        : buildPortalOrderPickTicketPdfAttachment(order);
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    const result = await client.query(
+        `
+            insert into warehouse_print_jobs (
+                fulfillment_location_id, station_id, printer_id, document_type, document_title,
+                source_type, source_id, source_ref, account_name, payload_type, content_type,
+                file_name, payload_base64, status, requested_by
+            )
+            values ($1, $2, $3, $4, $5, 'PORTAL_ORDER', $6, $7, $8, 'PDF', $9, $10, $11, 'QUEUED', $12)
+            returning *
+        `,
+        [
+            fulfillmentLocationId,
+            printer.station_id,
+            printer.id,
+            documentType,
+            `${portalOrderPrintDocumentLabel(documentType)} ${order.orderCode}`,
+            String(order.id),
+            order.orderCode,
+            order.accountName,
+            attachment.contentType,
+            attachment.filename,
+            attachment.content.toString("base64"),
+            actor
+        ]
+    );
+    await insertWarehousePrintJobEvent(client, result.rows[0].id, "QUEUED", actor, `${attachment.filename} queued for ${printer.printer_name}`);
+    await insertActivity(
+        client,
+        "printer",
+        `Queued ${portalOrderPrintDocumentLabel(documentType)} for ${order.orderCode}`,
+        [order.accountName, printer.printer_name, actor].filter(Boolean).join(" | ")
+    );
+    return {
+        job: mapWarehousePrintJobRow({
+            ...result.rows[0],
+            printer_name: printer.printer_name,
+            printer_code: printer.printer_code,
+            station_name: printer.station_name,
+            station_code: printer.station_code
+        }),
+        printer: mapWarehousePrinterRow(printer)
+    };
+}
+
+async function claimNextWarehousePrintJob(client, station, input = {}) {
+    const limit = Math.max(1, Math.min(toPositiveInt(input.limit) || 1, 5));
+    const result = await client.query(
+        `
+            with next_jobs as (
+                select id
+                from warehouse_print_jobs
+                where station_id = $1
+                  and status = 'QUEUED'
+                  and attempts < max_attempts
+                order by requested_at asc, id asc
+                limit $2
+                for update skip locked
+            )
+            update warehouse_print_jobs j
+            set status = 'CLAIMED',
+                claimed_at = now(),
+                attempts = attempts + 1,
+                updated_at = now()
+            from next_jobs
+            where j.id = next_jobs.id
+            returning j.*
+        `,
+        [station.id, limit]
+    );
+    if (!result.rows.length) return null;
+    const job = result.rows[0];
+    await insertWarehousePrintJobEvent(client, job.id, "CLAIMED", station.station_name || station.station_code || "Print station", `Attempt ${job.attempts}`);
+    const enriched = await client.query(
+        `
+            select j.*, p.printer_name, p.printer_code, s.station_name, s.station_code, fl.code as fulfillment_location_code
+            from warehouse_print_jobs j
+            left join warehouse_printers p on p.id = j.printer_id
+            left join warehouse_print_stations s on s.id = j.station_id
+            left join fulfillment_locations fl on fl.id = j.fulfillment_location_id
+            where j.id = $1
+            limit 1
+        `,
+        [job.id]
+    );
+    return mapWarehousePrintJobRow(enriched.rows[0], { includePayload: true });
+}
+
+async function completeWarehousePrintJob(client, station, jobId, input = {}) {
+    const success = input.success === true || normalizeText(input.status) === "PRINTED";
+    const errorMessage = normalizeFreeText(input.error || input.errorMessage || input.message || "").slice(0, 1000);
+    const jobResult = await client.query(
+        "select * from warehouse_print_jobs where id = $1 and station_id = $2 limit 1 for update",
+        [jobId, station.id]
+    );
+    if (jobResult.rowCount !== 1) throw httpError(404, "That print job could not be found for this station.");
+    const job = jobResult.rows[0];
+    if (job.status === WAREHOUSE_PRINT_JOB_STATUSES.PRINTED) {
+        return { job: mapWarehousePrintJobRow(job), alreadyCompleted: true };
+    }
+
+    if (success) {
+        const updated = await client.query(
+            `
+                update warehouse_print_jobs
+                set status = 'PRINTED',
+                    completed_at = now(),
+                    failed_at = null,
+                    last_error = '',
+                    updated_at = now()
+                where id = $1
+                returning *
+            `,
+            [jobId]
+        );
+        await insertWarehousePrintJobEvent(client, jobId, "PRINTED", station.station_name || station.station_code || "Print station", "Agent reported successful print.");
+        if (normalizeText(job.source_type) === "PORTAL_ORDER" && toPositiveInt(job.source_id)) {
+            try {
+                await recordPortalOrderPrintEvent(client, toPositiveInt(job.source_id), job.document_type, {
+                    full_name: station.station_name || station.station_code || "Print station",
+                    email: "warehouse-print-agent"
+                });
+            } catch (error) {
+                await insertWarehousePrintJobEvent(
+                    client,
+                    jobId,
+                    "PRINT_COUNT_SKIPPED",
+                    "WMS365",
+                    error.message || "Print job succeeded, but print count could not be updated."
+                );
+            }
+        }
+        return { job: mapWarehousePrintJobRow(updated.rows[0]) };
+    }
+
+    const retry = (Number(job.attempts) || 0) < (Number(job.max_attempts) || 1);
+    const updated = await client.query(
+        `
+            update warehouse_print_jobs
+            set status = $2,
+                failed_at = case when $2 = 'FAILED' then now() else failed_at end,
+                claimed_at = case when $2 = 'QUEUED' then null else claimed_at end,
+                last_error = $3,
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [jobId, retry ? WAREHOUSE_PRINT_JOB_STATUSES.QUEUED : WAREHOUSE_PRINT_JOB_STATUSES.FAILED, errorMessage || "Print agent reported a failure."]
+    );
+    await insertWarehousePrintJobEvent(
+        client,
+        jobId,
+        retry ? "RETRY" : "FAILED",
+        station.station_name || station.station_code || "Print station",
+        errorMessage || "Print agent reported a failure."
+    );
+    return { job: mapWarehousePrintJobRow(updated.rows[0]) };
+}
+
 function normalizePortalOrderPrintDocumentType(value) {
     const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
     if (normalized === "PICK" || normalized === "PICK_TICKET") return PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET;
@@ -25521,6 +26303,86 @@ function mapPortalOrderPrintSummaryRows(rows = []) {
     return summary;
 }
 
+function mapWarehousePrintStationRow(row = {}) {
+    return {
+        id: String(row.id || ""),
+        stationCode: row.station_code || "",
+        stationName: row.station_name || "",
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        status: normalizeText(row.status || "OFFLINE"),
+        lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+        agentVersion: row.agent_version || "",
+        hostName: row.host_name || "",
+        localPrinters: Array.isArray(row.local_printers) ? row.local_printers : [],
+        note: row.note || "",
+        isActive: row.is_active !== false,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+function mapWarehousePrinterRow(row = {}) {
+    return {
+        id: String(row.id || ""),
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        stationId: row.station_id ? String(row.station_id) : "",
+        stationCode: row.station_code || "",
+        stationName: row.station_name || "",
+        printerCode: row.printer_code || "",
+        printerName: row.printer_name || "",
+        printerType: normalizeWarehousePrinterType(row.printer_type || "DOCUMENT"),
+        printerRole: normalizeWarehousePrinterRole(row.printer_role || "GENERAL"),
+        mediaSize: row.media_size || "",
+        driverName: row.driver_name || "",
+        isDefault: row.is_default === true,
+        isActive: row.is_active !== false,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+function mapWarehousePrintJobRow(row = {}, { includePayload = false } = {}) {
+    const job = {
+        id: String(row.id || ""),
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        stationId: row.station_id ? String(row.station_id) : "",
+        stationCode: row.station_code || "",
+        stationName: row.station_name || "",
+        printerId: row.printer_id ? String(row.printer_id) : "",
+        printerCode: row.printer_code || "",
+        printerName: row.printer_name || "",
+        documentType: normalizePortalOrderPrintDocumentType(row.document_type || ""),
+        documentTitle: row.document_title || "",
+        sourceType: normalizeText(row.source_type || ""),
+        sourceId: row.source_id || "",
+        sourceRef: row.source_ref || "",
+        accountName: row.account_name || "",
+        payloadType: normalizeText(row.payload_type || "PDF"),
+        contentType: row.content_type || "application/pdf",
+        fileName: row.file_name || "",
+        status: normalizeWarehousePrintJobStatus(row.status || ""),
+        requestedBy: row.requested_by || "",
+        requestedAt: row.requested_at ? new Date(row.requested_at).toISOString() : null,
+        claimedAt: row.claimed_at ? new Date(row.claimed_at).toISOString() : null,
+        completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+        failedAt: row.failed_at ? new Date(row.failed_at).toISOString() : null,
+        attempts: Number(row.attempts) || 0,
+        maxAttempts: Number(row.max_attempts) || 0,
+        lastError: row.last_error || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+    if (includePayload) {
+        job.payloadBase64 = row.payload_base64 || "";
+    }
+    return job;
+}
+
 function mapPortalShipmentLineRow(row) {
     return {
         id: String(row.id),
@@ -28478,6 +29340,13 @@ module.exports = {
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
+    WAREHOUSE_PRINT_JOB_STATUSES,
+    WAREHOUSE_PRINTER_ROLES,
+    normalizeWarehousePrinterRole,
+    normalizeWarehousePrintJobStatus,
+    hashWarehousePrintStationToken,
+    mapWarehousePrintJobRow,
+    buildPortalOrderPackingSlipPdfAttachment,
     buildPortalReleaseEmailText,
     buildPortalReleaseEmailHtml,
     normalizePortalOrderPrintDocumentType,
