@@ -4820,7 +4820,7 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
                     await withTransaction((client) => insertActivity(
                         client,
                         "order",
-                        `Warehouse pick ticket email schedule failed for portal order ${order.orderCode}`,
+                        `Warehouse order notification schedule failed for portal order ${order.orderCode}`,
                         [
                             order.accountName,
                             releaseActions.warehouseEmailError,
@@ -18022,58 +18022,38 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
     `;
 }
 
-function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "", orderDocumentAttachments = [] } = {}) {
-    const customerDocuments = Array.isArray(orderDocumentAttachments) ? orderDocumentAttachments : [];
+function buildWarehouseOrderNotificationUrl() {
+    return `${getAppActionOrigin()}/desktop?section=orders`;
+}
+
+function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
+    const orderUrl = buildWarehouseOrderNotificationUrl();
     const lines = [
         testMode ? "TEST EMAIL ONLY - no order status was changed." : "",
         testMode && testRequestedBy ? `Requested by: ${testRequestedBy}` : "",
-        `WMS365 PICK TICKET: ${order.orderCode}`,
+        `WMS365 ORDER RELEASED: ${order.orderCode}`,
         `Company: ${order.accountName}`,
-        `Pick Status: ${formatPickTicketWorkflowStatus(order)}`,
+        `Status: ${formatPickTicketWorkflowStatus(order)}`,
         order.poNumber ? `PO Number: ${order.poNumber}` : "",
         order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
         order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
         order.contactName ? `Customer Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         order.orderNotes ? `Order Notes: ${order.orderNotes}` : "",
+        `Line Count: ${formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line")}`,
         ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
-        `Printable PDF: wms365-${order.orderCode || "order"}-pick-ticket.pdf`,
-        customerDocuments.length ? `Customer Attached Documents (${customerDocuments.length}): ${customerDocuments.map((attachment) => attachment.filename).join(", ")}` : "",
         "",
-        "Pick Lines:"
+        "No order documents are attached to this notification.",
+        "Log in to WMS365 to review the order, view uploaded documents, and print the pick ticket or packing slip from the system.",
+        `Open WMS365: ${orderUrl}`
     ];
-
-    order.lines.forEach((line) => {
-        lines.push(
-            `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)} | Pick: ${formatPickTicketLocationText(line)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
-        );
-    });
 
     return lines.filter((line, index, array) => line || (index > 0 && array[index - 1] !== "")).join("\n");
 }
 
-function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "", orderDocumentAttachments = [] } = {}) {
-    const pickTicketFileName = normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket.pdf`);
-    const customerDocuments = Array.isArray(orderDocumentAttachments) ? orderDocumentAttachments : [];
-    const linesHtml = order.lines.map((line, index) => `
-        <tr>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${index + 1}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "-")}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatPickTicketLocationText(line))}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.upc || "-")}</td>
-        </tr>
-    `).join("");
-    const customerDocumentsHtml = customerDocuments.length
-        ? `
-            <p style="margin:16px 0 8px;font-weight:700;font-size:16px;">Customer Attached Documents</p>
-            <ul style="margin:0 0 18px 18px;padding:0;">
-                ${customerDocuments.map((attachment) => `<li>${escapeHtml(attachment.filename)}</li>`).join("")}
-            </ul>
-        `
-        : "";
-
+function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
+    const orderUrl = buildWarehouseOrderNotificationUrl();
+    const lineCount = formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line");
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:860px;">
             ${testMode ? `
@@ -18082,9 +18062,9 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                 </div>
             ` : ""}
             <div style="margin:0 0 16px;padding:16px 18px;border:1px solid #dbeafe;background:#eff6ff;">
-                <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#1d4ed8;font-weight:700;">Warehouse Pick Ticket</div>
-                <h2 style="margin:4px 0 8px;font-size:24px;line-height:1.2;">Pick Ticket ${escapeHtml(order.orderCode || "")}</h2>
-                <p style="margin:0;color:#1f2937;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> is released and ready to pick. The printable PDF pick ticket is attached as <strong>${escapeHtml(pickTicketFileName)}</strong>.</p>
+                <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#1d4ed8;font-weight:700;">Warehouse Order Notification</div>
+                <h2 style="margin:4px 0 8px;font-size:24px;line-height:1.2;">Order Released ${escapeHtml(order.orderCode || "")}</h2>
+                <p style="margin:0;color:#1f2937;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> is released and ready for warehouse review.</p>
             </div>
             <table style="border-collapse:collapse;width:100%;margin:0 0 18px;">
                 <tr>
@@ -18094,6 +18074,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                         <div><strong>Ship Ref:</strong> ${escapeHtml(order.shippingReference || "-")}</div>
                         <div><strong>Requested Ship Date:</strong> ${escapeHtml(order.requestedShipDate || "-")}</div>
                         <div><strong>Customer Contact:</strong> ${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</div>
+                        <div><strong>Lines:</strong> ${escapeHtml(lineCount)}</div>
                     </td>
                     <td style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;width:50%;">
                         <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">Ship To</div>
@@ -18116,21 +18097,11 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                     </tr>
                 ` : ""}
             </table>
-            <p style="margin:20px 0 8px;font-weight:700;font-size:16px;">Pick Lines</p>
-            <table style="border-collapse:collapse;width:100%;border:1px solid #e5e7eb;">
-                <thead>
-                    <tr style="background:#f9fafb;">
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Line</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Qty</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Pick Location / Lot / Expiration</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">UPC</th>
-                    </tr>
-                </thead>
-                <tbody>${linesHtml}</tbody>
-            </table>
-            ${customerDocumentsHtml}
+            <div style="margin:18px 0 0;padding:16px 18px;border:1px solid #d1d5db;background:#f9fafb;">
+                <p style="margin:0 0 12px;font-weight:700;">No order documents are attached to this notification.</p>
+                <p style="margin:0 0 16px;">Log in to WMS365 to review the order, view uploaded documents, and print the pick ticket or packing slip from the system.</p>
+                <a href="${escapeHtml(orderUrl)}" style="display:inline-block;background:#0f6f8c;color:#ffffff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:6px;">Open WMS365</a>
+            </div>
         </div>
     `;
 }
@@ -18347,20 +18318,14 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     }
 
     const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
-    const orderDocumentAttachments = await getPortalOrderReleaseDocumentAttachments(order.id);
-    const attachments = [
-        buildPortalOrderPickTicketPdfAttachment(order),
-        ...orderDocumentAttachments
-    ];
     await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
         cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
         replyTo: SMTP_REPLY_TO || undefined,
-        subject: `${subjectPrefix || ""}Pick Ticket - ${order.orderCode} - ${order.accountName}`,
-        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy, orderDocumentAttachments }),
-        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy, orderDocumentAttachments }),
-        attachments,
+        subject: `${subjectPrefix || ""}Order Released - ${order.orderCode} - ${order.accountName}`,
+        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
+        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
         emailContext: {
             accountName: order.accountName,
             sourceType: testMode ? "PORTAL_ORDER_TEST" : "PORTAL_ORDER",
@@ -18371,7 +18336,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     return {
         recipients,
         ccRecipients: normalizedCcRecipients,
-        attachments: attachments.map((attachment) => attachment.filename)
+        attachments: []
     };
 }
 
@@ -18610,7 +18575,7 @@ function armPortalOrderReleaseEmailTimer(orderId, scheduledAt) {
 
 async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = [], actorLabel = "System", reason = "", delayMs = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS } = {}) {
     if (!order?.id || !order?.accountName) {
-        throw httpError(400, "A released order is required before scheduling a pick ticket email.");
+        throw httpError(400, "A released order is required before scheduling a warehouse order notification.");
     }
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
@@ -18627,7 +18592,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
     const actor = normalizeFreeText(actorLabel || "System");
     const note = [
         reason || "Portal order release",
-        `Pick ticket email delay ${formatPickTicketEmailDelay(normalizedDelayMs)}`
+        `Warehouse notification delay ${formatPickTicketEmailDelay(normalizedDelayMs)}`
     ].filter(Boolean).join(" | ");
 
     await withTransaction(async (client) => {
@@ -18650,12 +18615,12 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
             [order.id, order.accountName, scheduledAt.toISOString(), normalizedCcRecipients.join(","), actor]
         );
         if (result.rowCount !== 1) {
-            throw httpError(409, "The order must still be released before a pick ticket email can be scheduled.");
+            throw httpError(409, "The order must still be released before a warehouse order notification can be scheduled.");
         }
         await insertActivity(
             client,
             "order",
-            `Scheduled warehouse pick ticket email for ${orderLabel}`,
+            `Scheduled warehouse order notification for ${orderLabel}`,
             [
                 order.accountName,
                 `Due ${scheduledAt.toISOString()}`,
@@ -18685,12 +18650,12 @@ function queuePortalOrderReleaseEmail(order, { ccRecipients = [], actorLabel = "
                 setTimeout(() => scheduleWithRetry(attempt + 1), attempt * 1500);
                 return;
             }
-            console.error(`Unable to schedule warehouse pick ticket email for portal order ${orderLabel}:`, error);
+            console.error(`Unable to schedule warehouse order notification for portal order ${orderLabel}:`, error);
             try {
                 await withTransaction((client) => insertActivity(
                     client,
                     "order",
-                    `Warehouse pick ticket email schedule failed for ${orderLabel}`,
+                    `Warehouse order notification schedule failed for ${orderLabel}`,
                     [
                         order.accountName,
                         reason || "",
@@ -18699,7 +18664,7 @@ function queuePortalOrderReleaseEmail(order, { ccRecipients = [], actorLabel = "
                     ].filter(Boolean).join(" | ")
                 ));
             } catch (logError) {
-                console.error(`Unable to record pick ticket email schedule failure for portal order ${orderLabel}:`, logError);
+                console.error(`Unable to record warehouse order notification schedule failure for portal order ${orderLabel}:`, logError);
             }
         });
     };
@@ -18745,7 +18710,7 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
                     update portal_orders
                     set
                         pick_ticket_email_status = 'SKIPPED',
-                        pick_ticket_email_last_error = 'Order was changed before the pick ticket email was sent.',
+                        pick_ticket_email_last_error = 'Order was changed before the warehouse notification was sent.',
                         updated_at = now()
                     where id = $1
                 `,
@@ -18772,7 +18737,7 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
             await insertActivity(
                 client,
                 "order",
-                `Warehouse pick ticket email sent for ${order.orderCode}`,
+                `Warehouse order notification sent for ${order.orderCode}`,
                 [
                     order.accountName,
                     `Sent to ${formatCount(emailResult.recipients.length, "recipient")}`,
@@ -18784,7 +18749,7 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
         });
         return { sent: true, orderCode: order.orderCode, recipients: emailResult.recipients };
     } catch (error) {
-        console.error(`Warehouse pick ticket email failed for portal order ${normalizedOrderId}:`, error);
+        console.error(`Warehouse order notification failed for portal order ${normalizedOrderId}:`, error);
         try {
             await pool.query(
                 `
@@ -18800,14 +18765,14 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
             await withTransaction((client) => insertActivity(
                 client,
                 "order",
-                `Warehouse pick ticket email failed for ${claim?.order_code || normalizedOrderId}`,
+                `Warehouse order notification failed for ${claim?.order_code || normalizedOrderId}`,
                 [
                     claim?.account_name || "",
                     error.message || "Unknown email error"
                 ].filter(Boolean).join(" | ")
             ));
         } catch (logError) {
-            console.error(`Unable to record warehouse pick ticket email failure for portal order ${normalizedOrderId}:`, logError);
+            console.error(`Unable to record warehouse order notification failure for portal order ${normalizedOrderId}:`, logError);
         }
         return { sent: false, reason: "error", error: error.message || "Unknown email error" };
     } finally {
@@ -18841,7 +18806,7 @@ async function runDuePortalOrderPickTicketEmails() {
                 update portal_orders
                 set
                     pick_ticket_email_status = 'SKIPPED',
-                    pick_ticket_email_last_error = 'Order was changed before the pick ticket email was sent.',
+                    pick_ticket_email_last_error = 'Order was changed before the warehouse notification was sent.',
                     updated_at = now()
                 where pick_ticket_email_status = 'SCHEDULED'
                   and pick_ticket_email_scheduled_at <= now()
@@ -18867,7 +18832,7 @@ async function runDuePortalOrderPickTicketEmails() {
             await processScheduledPortalOrderReleaseEmail(row.id);
         }
     } catch (error) {
-        console.error("Portal order pick ticket email scheduler failed:", error.message || error);
+        console.error("Portal order warehouse notification scheduler failed:", error.message || error);
     } finally {
         portalOrderPickTicketEmailSchedulerRunning = false;
     }
@@ -20490,7 +20455,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
                         else pick_ticket_email_status
                     end,
                     pick_ticket_email_last_error = case
-                        when pick_ticket_email_status in ('SCHEDULED', 'SENDING', 'FAILED') then 'Order was cancelled before the pick ticket email was sent.'
+                        when pick_ticket_email_status in ('SCHEDULED', 'SENDING', 'FAILED') then 'Order was cancelled before the warehouse notification was sent.'
                         else pick_ticket_email_last_error
                     end,
                     updated_at = now()
@@ -28513,6 +28478,8 @@ module.exports = {
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
+    buildPortalReleaseEmailText,
+    buildPortalReleaseEmailHtml,
     normalizePortalOrderPrintDocumentType,
     mapPortalOrderPrintSummaryRows,
     recordPortalOrderPrintEvent,
