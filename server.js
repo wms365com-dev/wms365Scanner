@@ -210,6 +210,10 @@ const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
     SHIPMENT_PACKING_SLIP: "SHIPMENT_PACKING_SLIP",
     SHIPMENT_LOAD_PHOTO: "SHIPMENT_LOAD_PHOTO"
 });
+const PORTAL_ORDER_PRINT_DOCUMENT_TYPES = Object.freeze({
+    PICK_TICKET: "PICK_TICKET",
+    PACKING_SLIP: "PACKING_SLIP"
+});
 const REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES = Object.freeze([
     PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL,
     PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP,
@@ -3861,6 +3865,27 @@ app.post("/api/admin/portal-orders/:id/documents", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/portal-orders/:id/print-events", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        const documentType = normalizePortalOrderPrintDocumentType(req.body?.documentType || req.body?.document_type || req.body?.type);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        if (!documentType) {
+            throw httpError(400, "A valid printable document type is required.");
+        }
+        const result = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            return recordPortalOrderPrintEvent(client, orderId, documentType, req.appUser);
+        });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/portal-inbounds/:id/documents", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const inboundId = toPositiveInt(req.params.id);
@@ -6822,6 +6847,21 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("create index if not exists idx_portal_order_shipment_lines_order_id on portal_order_shipment_lines (order_id)");
+    await pool.query(`
+        create table if not exists portal_order_print_events (
+            id bigserial primary key,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            document_type text not null,
+            print_action text not null default 'PRINT',
+            printed_by text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table portal_order_print_events drop constraint if exists portal_order_print_events_document_type_check");
+    await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_document_type_check check (document_type in ('PICK_TICKET', 'PACKING_SLIP'))");
+    await pool.query("alter table portal_order_print_events drop constraint if exists portal_order_print_events_action_check");
+    await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_action_check check (print_action in ('PRINT', 'REPRINT'))");
+    await pool.query("create index if not exists idx_portal_order_print_events_order_type on portal_order_print_events (order_id, document_type, created_at desc)");
     await pool.query(`
         create table if not exists portal_inbound_documents (
             id bigserial primary key,
@@ -13007,6 +13047,38 @@ async function getPortalShipmentLinesForOrders(client, orderIds = []) {
     );
 }
 
+async function getPortalOrderPrintSummariesForOrders(client, orderIds = []) {
+    const ids = [...new Set((orderIds || []).map((id) => toPositiveInt(id)).filter((id) => id > 0))];
+    if (!ids.length) return { rows: [] };
+    return client.query(
+        `
+            with ranked as (
+                select
+                    order_id,
+                    document_type,
+                    print_action,
+                    printed_by,
+                    created_at,
+                    row_number() over (partition by order_id, document_type order by created_at desc, id desc) as rn,
+                    count(*) over (partition by order_id, document_type) as print_count
+                from portal_order_print_events
+                where order_id = any($1::bigint[])
+            )
+            select
+                order_id,
+                document_type,
+                print_count,
+                print_action as last_print_action,
+                printed_by as last_printed_by,
+                created_at as last_printed_at
+            from ranked
+            where rn = 1
+            order by order_id desc, document_type asc
+        `,
+        [ids]
+    );
+}
+
 async function getPortalOrdersForAccount(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const ordersResult = await client.query(
@@ -13057,7 +13129,8 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
         )
         : { rows: [] };
     const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, orderIds);
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries, shipmentLinesResult.rows);
+    const printSummariesResult = await getPortalOrderPrintSummariesForOrders(client, orderIds);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries, shipmentLinesResult.rows, printSummariesResult.rows);
 }
 
 async function getPortalOrderList({ accountName = "", limit = 100, client = pool, downloadPathPrefix = "/api/admin/portal-order-documents" } = {}) {
@@ -13116,7 +13189,8 @@ async function getPortalOrderList({ accountName = "", limit = 100, client = pool
         )
         : { rows: [] };
     const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, orderIds);
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map(), shipmentLinesResult.rows);
+    const printSummariesResult = await getPortalOrderPrintSummariesForOrders(client, orderIds);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map(), shipmentLinesResult.rows, printSummariesResult.rows);
 }
 
 async function getPortalOrderListForAccount(accountName, client = pool) {
@@ -13370,10 +13444,11 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
         [orderId]
     );
     const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, [orderId]);
+    const printSummariesResult = await getPortalOrderPrintSummariesForOrders(client, [orderId]);
     const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries, shipmentLinesResult.rows)[0] || null;
+    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries, shipmentLinesResult.rows, printSummariesResult.rows)[0] || null;
 }
 
 function buildShipToAddressInput(accountName, order) {
@@ -19383,6 +19458,75 @@ function shipmentDocumentCategoryLabel(category) {
     return "general document";
 }
 
+function normalizePortalOrderPrintDocumentType(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (normalized === "PICK" || normalized === "PICK_TICKET") return PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET;
+    if (normalized === "PACKING" || normalized === "PACKING_SLIP") return PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP;
+    return Object.values(PORTAL_ORDER_PRINT_DOCUMENT_TYPES).includes(normalized) ? normalized : "";
+}
+
+function portalOrderPrintDocumentLabel(documentType) {
+    const normalized = normalizePortalOrderPrintDocumentType(documentType);
+    if (normalized === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP) return "packing slip";
+    return "pick ticket";
+}
+
+async function recordPortalOrderPrintEvent(client, orderId, documentType, appUser = null) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    const normalizedDocumentType = normalizePortalOrderPrintDocumentType(documentType);
+    if (!normalizedOrderId || !normalizedDocumentType) {
+        throw httpError(400, "A valid order and printable document type are required.");
+    }
+
+    const order = await client.query(
+        "select id, account_name, order_code, status from portal_orders where id = $1 limit 1 for update",
+        [normalizedOrderId]
+    );
+    if (order.rowCount !== 1) {
+        throw httpError(404, "That sales order could not be found.");
+    }
+    const orderRow = order.rows[0];
+    if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(normalizePortalOrderStatus(orderRow.status))) {
+        throw httpError(400, `Orders in ${orderRow.status} cannot be printed for warehouse processing.`);
+    }
+
+    const existingCount = Number((await client.query(
+        "select count(*)::integer as print_count from portal_order_print_events where order_id = $1 and document_type = $2",
+        [normalizedOrderId, normalizedDocumentType]
+    )).rows[0]?.print_count) || 0;
+    const printAction = existingCount > 0 ? "REPRINT" : "PRINT";
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+    await client.query(
+        `
+            insert into portal_order_print_events (order_id, document_type, print_action, printed_by)
+            values ($1, $2, $3, $4)
+        `,
+        [normalizedOrderId, normalizedDocumentType, printAction, actor]
+    );
+    const summaryResult = await getPortalOrderPrintSummariesForOrders(client, [normalizedOrderId]);
+    await insertActivity(
+        client,
+        "order",
+        `${printAction === "REPRINT" ? "Reprinted" : "Printed"} ${portalOrderPrintDocumentLabel(normalizedDocumentType)} for ${orderRow.order_code || makePortalOrderCode(orderRow.id)}`,
+        [
+            orderRow.account_name,
+            `Print count ${existingCount + 1}`,
+            actor
+        ].filter(Boolean).join(" | ")
+    );
+    return {
+        printEvent: {
+            orderId: String(normalizedOrderId),
+            documentType: normalizedDocumentType,
+            printAction,
+            printCount: existingCount + 1,
+            printedBy: actor,
+            printedAt: new Date().toISOString()
+        },
+        printSummary: mapPortalOrderPrintSummaryRows(summaryResult.rows)
+    };
+}
+
 function validatePortalShipmentLineConfirmations(order, shippedLines = [], { required = false } = {}) {
     const orderLines = Array.isArray(order?.lines) ? order.lines : [];
     if (!required && !shippedLines.length) return [];
@@ -19540,7 +19684,7 @@ async function getPortalSkuAvailability(client, accountName, sku, excludeOrderId
     };
 }
 
-function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map(), allocationSummaries = new Map(), shipmentLineRows = []) {
+function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-order-documents", locationSummaries = new Map(), allocationSummaries = new Map(), shipmentLineRows = [], printSummaryRows = []) {
     const linesByOrderId = new Map();
     lineRows.forEach((row) => {
         const key = String(row.order_id);
@@ -19554,6 +19698,12 @@ function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPre
         if (!shipmentLinesByOrderId.has(key)) shipmentLinesByOrderId.set(key, []);
         shipmentLinesByOrderId.get(key).push(row);
     });
+    const printSummariesByOrderId = new Map();
+    printSummaryRows.forEach((row) => {
+        const key = String(row.order_id);
+        if (!printSummariesByOrderId.has(key)) printSummariesByOrderId.set(key, []);
+        printSummariesByOrderId.get(key).push(row);
+    });
     const documentsByOrderId = new Map();
     documentRows.forEach((row) => {
         const key = String(row.order_id);
@@ -19566,7 +19716,8 @@ function mapPortalOrders(orderRows, lineRows, documentRows = [], downloadPathPre
         linesByOrderId.get(String(row.id)) || [],
         documentsByOrderId.get(String(row.id)) || [],
         downloadPathPrefix,
-        shipmentLinesByOrderId.get(String(row.id)) || []
+        shipmentLinesByOrderId.get(String(row.id)) || [],
+        printSummariesByOrderId.get(String(row.id)) || []
     ));
 }
 
@@ -25326,7 +25477,7 @@ function mapWarehouseTaskRow(row) {
     };
 }
 
-function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents", shipmentLines = []) {
+function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents", shipmentLines = [], printSummaries = []) {
     return {
         id: String(row.id),
         orderCode: row.order_code || makePortalOrderCode(row.id),
@@ -25373,10 +25524,36 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         updatedAt: new Date(row.updated_at).toISOString(),
         lines,
         shipmentLines: shipmentLines.map(mapPortalShipmentLineRow),
+        printSummary: mapPortalOrderPrintSummaryRows(printSummaries),
         documents: documents
             .filter((document) => !isPortalOrderReleaseCopyDocument(document))
             .map((document) => mapPortalOrderDocumentRow(document, downloadPathPrefix))
     };
+}
+
+function mapPortalOrderPrintSummaryRows(rows = []) {
+    const summary = {};
+    Object.values(PORTAL_ORDER_PRINT_DOCUMENT_TYPES).forEach((documentType) => {
+        summary[documentType] = {
+            documentType,
+            printCount: 0,
+            lastPrintAction: "",
+            lastPrintedBy: "",
+            lastPrintedAt: null
+        };
+    });
+    rows.forEach((row) => {
+        const documentType = normalizePortalOrderPrintDocumentType(row.document_type || row.documentType);
+        if (!documentType) return;
+        summary[documentType] = {
+            documentType,
+            printCount: Number(row.print_count || row.printCount) || 0,
+            lastPrintAction: normalizeText(row.last_print_action || row.lastPrintAction || ""),
+            lastPrintedBy: row.last_printed_by || row.lastPrintedBy || "",
+            lastPrintedAt: row.last_printed_at ? new Date(row.last_printed_at).toISOString() : (row.lastPrintedAt || null)
+        };
+    });
+    return summary;
 }
 
 function mapPortalShipmentLineRow(row) {
@@ -28335,6 +28512,10 @@ module.exports = {
     computeNextStoreIntegrationSyncAt,
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
+    PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
+    normalizePortalOrderPrintDocumentType,
+    mapPortalOrderPrintSummaryRows,
+    recordPortalOrderPrintEvent,
     sanitizePortalShippingConfirmationInput,
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,

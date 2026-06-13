@@ -20400,6 +20400,8 @@
                     ` : `<div class="quick-meta">Cancelled orders are read-only. Existing documents remain available for audit.</div>`}
                 </div>
             `;
+            const pickPrintCount = getPortalOrderPrintCount(order, "pick");
+            const packingPrintCount = getPortalOrderPrintCount(order, "packing");
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="form-grid compact-grid">
@@ -20487,8 +20489,8 @@
                         <p class="meta">Order-specific actions stay here after drill-in.</p>
                     </div>
                     <div class="erp-document-process-actions">
-                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket</button>` : ""}
-                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip</button>` : ""}
+                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket${pickPrintCount ? ` (${esc(`${pickPrintCount}x`)})` : ""}</button>` : ""}
+                        ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip${packingPrintCount ? ` (${esc(`${packingPrintCount}x`)})` : ""}</button>` : ""}
                         ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
                         ${["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status) ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="CANCELLED">Cancel Order</button>` : ""}
                     </div>
@@ -22737,7 +22739,57 @@
             ) || null;
         }
 
-        function printPortalOrderDocument(order, type, messageElement = ui.portalOrdersMessage) {
+        function portalOrderPrintDocumentType(type = "") {
+            return norm(type) === "PACKING" ? "PACKING_SLIP" : "PICK_TICKET";
+        }
+
+        function portalOrderPrintDocumentLabel(type = "") {
+            return portalOrderPrintDocumentType(type) === "PACKING_SLIP" ? "packing slip" : "pick ticket";
+        }
+
+        function getPortalOrderPrintSummaryEntry(order, type = "") {
+            const documentType = portalOrderPrintDocumentType(type);
+            return order?.printSummary?.[documentType] || { documentType, printCount: 0, lastPrintedBy: "", lastPrintedAt: null };
+        }
+
+        function getPortalOrderPrintCount(order, type = "") {
+            return Number(getPortalOrderPrintSummaryEntry(order, type).printCount || 0) || 0;
+        }
+
+        function formatPrintHistoryForConfirm(summary = {}) {
+            const parts = [];
+            if (summary.lastPrintedBy) parts.push(`last printed by ${summary.lastPrintedBy}`);
+            if (summary.lastPrintedAt) parts.push(`on ${formatDateTime(summary.lastPrintedAt)}`);
+            return parts.length ? ` (${parts.join(" ")})` : "";
+        }
+
+        async function recordPortalOrderPrintEvent(order, type = "") {
+            const documentType = portalOrderPrintDocumentType(type);
+            const response = await requestJson(`/api/admin/portal-orders/${encodeURIComponent(order.id)}/print-events`, {
+                method: "POST",
+                body: JSON.stringify({ documentType })
+            });
+            if (response?.printSummary) {
+                const merged = mergePortalOrderRecord({ ...order, printSummary: response.printSummary }, { invalidateCache: false });
+                renderPortalOrdersList();
+                if (merged && String(merged.id) === String(editingWarehouseOrderId)) {
+                    resetWarehouseSalesOrderForm(merged);
+                }
+            }
+            return response?.printEvent || null;
+        }
+
+        async function printPortalOrderDocument(order, type, messageElement = ui.portalOrdersMessage) {
+            const printCount = getPortalOrderPrintCount(order, type);
+            const summary = getPortalOrderPrintSummaryEntry(order, type);
+            const label = portalOrderPrintDocumentLabel(type);
+            if (printCount > 0) {
+                const confirmed = window.confirm(`${order.orderCode || "This order"} ${label} has already been printed ${printCount} time${printCount === 1 ? "" : "s"}${formatPrintHistoryForConfirm(summary)}. Do you want to reprint?`);
+                if (!confirmed) {
+                    showMessage(messageElement, `Reprint cancelled for ${order.orderCode || "order"} ${label}.`, "info");
+                    return;
+                }
+            }
             const html = type === "pick" ? buildPickTicketHtml(order) : buildPackingSlipHtml(order);
             const printWindow = window.open("", "_blank", "width=900,height=700");
             if (!printWindow) {
@@ -22762,7 +22814,9 @@
                     printWindow.addEventListener("load", () => setTimeout(triggerPrint, 150), { once: true });
                     setTimeout(triggerPrint, 600);
                 }
-                showMessage(messageElement, type === "pick" ? "Pick ticket opened for printing." : "Packing slip opened for printing.", "success");
+                const event = await recordPortalOrderPrintEvent(order, type);
+                const countText = event?.printCount ? ` Print count: ${event.printCount}.` : "";
+                showMessage(messageElement, `${label.charAt(0).toUpperCase()}${label.slice(1)} opened for ${event?.printAction === "REPRINT" ? "reprinting" : "printing"}.${countText}`, "success");
             } catch (error) {
                 console.error("Document print window error", error);
                 showMessage(messageElement, "Unable to open the print view.", "error");
@@ -22937,7 +22991,7 @@
             return true;
         }
 
-        function printCurrentWarehouseSalesOrderDocument(type, event = null) {
+        async function printCurrentWarehouseSalesOrderDocument(type, event = null) {
             const order = editingWarehouseOrderId ? getPortalOrderById(editingWarehouseOrderId) : null;
             if (!order?.id) {
                 showMessage(ui.warehouseOrderMessage, "Open a released sales order before printing.", "error");
@@ -22947,7 +23001,7 @@
                 showMessage(ui.warehouseOrderMessage, "Release an active sales order before printing warehouse documents.", "error");
                 return;
             }
-            printPortalOrderDocument(order, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
+            await printPortalOrderDocument(order, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
             event?.currentTarget?.blur?.();
         }
 
@@ -22977,7 +23031,7 @@
                         progressMessage: "Loading full order details for the pick ticket..."
                     }, async () => {
                         const order = await requestPortalOrderDetail(pickTicketButton.dataset.printPickTicket || "");
-                        if (order) printPortalOrderDocument(order, "pick", actionMessageElement);
+                        if (order) await printPortalOrderDocument(order, "pick", actionMessageElement);
                     });
                 } catch (error) {
                     showMessage(actionMessageElement, error.message, "error");
@@ -22995,7 +23049,7 @@
                         progressMessage: "Loading full order details for the packing slip..."
                     }, async () => {
                         const order = await requestPortalOrderDetail(packingSlipButton.dataset.printPackingSlip || "");
-                        if (order) printPortalOrderDocument(order, "packing", actionMessageElement);
+                        if (order) await printPortalOrderDocument(order, "packing", actionMessageElement);
                     });
                 } catch (error) {
                     showMessage(actionMessageElement, error.message, "error");
@@ -27876,7 +27930,8 @@
                 lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : [],
                 shipmentLines: Array.isArray(item.shipmentLines)
                     ? item.shipmentLines.map(sanitizePortalShipmentLineRecord).filter(Boolean)
-                    : []
+                    : [],
+                printSummary: sanitizePortalOrderPrintSummary(item.printSummary || item.print_summary || {})
             };
         }
 
@@ -27965,6 +28020,26 @@
                 shippedQuantity: Number(item?.shippedQuantity || item?.shipped_quantity || 0) || 0,
                 confirmedBy: String(item?.confirmedBy || item?.confirmed_by || "").trim(),
                 confirmedAt: typeof item?.confirmedAt === "string" ? item.confirmedAt : (typeof item?.confirmed_at === "string" ? item.confirmed_at : null)
+            };
+        }
+
+        function sanitizePortalOrderPrintSummary(summary = {}) {
+            const sanitized = {
+                PICK_TICKET: sanitizePortalOrderPrintSummaryEntry(summary.PICK_TICKET || summary.pickTicket || summary.pick_ticket || {}),
+                PACKING_SLIP: sanitizePortalOrderPrintSummaryEntry(summary.PACKING_SLIP || summary.packingSlip || summary.packing_slip || {})
+            };
+            sanitized.PICK_TICKET.documentType = "PICK_TICKET";
+            sanitized.PACKING_SLIP.documentType = "PACKING_SLIP";
+            return sanitized;
+        }
+
+        function sanitizePortalOrderPrintSummaryEntry(entry = {}) {
+            return {
+                documentType: norm(entry.documentType || entry.document_type || ""),
+                printCount: Number(entry.printCount || entry.print_count || 0) || 0,
+                lastPrintAction: norm(entry.lastPrintAction || entry.last_print_action || ""),
+                lastPrintedBy: String(entry.lastPrintedBy || entry.last_printed_by || "").trim(),
+                lastPrintedAt: typeof entry.lastPrintedAt === "string" ? entry.lastPrintedAt : (typeof entry.last_printed_at === "string" ? entry.last_printed_at : null)
             };
         }
 
