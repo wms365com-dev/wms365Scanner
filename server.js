@@ -275,6 +275,14 @@ const APP_USER_ROLES = Object.freeze({
     WAREHOUSE_CUSTOMER_SERVICE: "warehouse_customer_service",
     WAREHOUSE_WORKER: "warehouse_worker"
 });
+const APP_USER_ACCESS_PROFILES = Object.freeze({
+    STANDARD: "standard",
+    CUSTOMER_WAREHOUSE_USER: "customer_warehouse_user"
+});
+const CUSTOMER_WAREHOUSE_USER_ALLOWED_ROLES = new Set([
+    APP_USER_ROLES.WAREHOUSE_WORKER,
+    APP_USER_ROLES.WAREHOUSE_CUSTOMER_SERVICE
+]);
 const CUSTOMER_PORTAL_ROLE = "customer_portal_user";
 const RBAC_PERMISSIONS = Object.freeze({
     SUPER_ADMIN: "super_admin",
@@ -9400,6 +9408,69 @@ function normalizeAppUserRole(value) {
     return APP_USER_ROLES.WAREHOUSE_WORKER;
 }
 
+function normalizeAppUserAccessProfile(profile) {
+    const normalized = normalizeText(profile);
+    if (normalized === "CUSTOMER_WAREHOUSE_USER"
+        || normalized === "CUSTOMERWAREHOUSEUSER"
+        || normalized === "CUSTOMER_WAREHOUSE"
+        || normalized === "CUSTOMERWAREHOUSE"
+        || normalized === "CUSTOMER") {
+        return APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER;
+    }
+    return APP_USER_ACCESS_PROFILES.STANDARD;
+}
+
+function inferAppUserAccessProfile(user) {
+    const assignedCompanies = Array.isArray(user?.assignedCompanies)
+        ? user.assignedCompanies
+        : Array.isArray(user?.assigned_companies)
+            ? user.assigned_companies
+            : [];
+    const assignedFulfillmentLocations = Array.isArray(user?.assignedFulfillmentLocations)
+        ? user.assignedFulfillmentLocations
+        : Array.isArray(user?.assigned_fulfillment_locations)
+            ? user.assigned_fulfillment_locations
+            : [];
+    const explicitProfile = normalizeAppUserAccessProfile(user?.accessProfile || user?.access_profile || user?.profile);
+    if (explicitProfile === APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER) {
+        return explicitProfile;
+    }
+    const role = normalizeAppUserRole(user?.role);
+    if (CUSTOMER_WAREHOUSE_USER_ALLOWED_ROLES.has(role)
+        && assignedCompanies.length === 1
+        && assignedFulfillmentLocations.length === 0) {
+        return APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER;
+    }
+    return APP_USER_ACCESS_PROFILES.STANDARD;
+}
+
+function applyAppUserAccessProfileRules(entry) {
+    const accessProfile = normalizeAppUserAccessProfile(entry?.accessProfile || entry?.access_profile || entry?.profile);
+    const normalizedEntry = {
+        ...entry,
+        accessProfile
+    };
+    if (accessProfile !== APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER) {
+        return normalizedEntry;
+    }
+    const assignedCompanies = Array.isArray(normalizedEntry.assignedCompanies) ? normalizedEntry.assignedCompanies : [];
+    const assignedFulfillmentLocations = Array.isArray(normalizedEntry.assignedFulfillmentLocations) ? normalizedEntry.assignedFulfillmentLocations : [];
+    if (!CUSTOMER_WAREHOUSE_USER_ALLOWED_ROLES.has(normalizedEntry.role)) {
+        throw httpError(400, "Customer warehouse users must use Warehouse Worker or Warehouse Customer Service role.");
+    }
+    if (assignedCompanies.length !== 1) {
+        throw httpError(400, "Customer warehouse users must be assigned to exactly one customer company.");
+    }
+    if (assignedFulfillmentLocations.length) {
+        throw httpError(400, "Customer warehouse users must be assigned by company only, not direct warehouse/location access.");
+    }
+    return {
+        ...normalizedEntry,
+        assignedCompanies,
+        assignedFulfillmentLocations: []
+    };
+}
+
 function sanitizeAppUserInput(input) {
     const assignedCompaniesSource = Array.isArray(input?.assignedCompanies)
         ? input.assignedCompanies
@@ -9422,6 +9493,7 @@ function sanitizeAppUserInput(input) {
         password: typeof input?.password === "string" ? input.password : "",
         fullName: normalizeFreeText(input?.fullName || input?.full_name || input?.name),
         role: normalizeAppUserRole(input?.role),
+        accessProfile: normalizeAppUserAccessProfile(input?.accessProfile || input?.access_profile || input?.profile),
         isActive: input?.isActive !== false,
         assignedCompanies: [...new Set(
             assignedCompaniesSource.map((value) => normalizeText(value)).filter(Boolean)
@@ -9433,7 +9505,7 @@ function sanitizeAppUserInput(input) {
 }
 
 async function saveAppUser(client, rawInput) {
-    const entry = sanitizeAppUserInput(rawInput);
+    const entry = applyAppUserAccessProfileRules(sanitizeAppUserInput(rawInput));
     const passwordText = typeof entry.password === "string" ? entry.password : "";
     const existingById = entry.id ? await getAppUserById(client, entry.id) : null;
     const existingByEmail = entry.email ? await getAppUserByEmail(client, entry.email) : null;
@@ -9521,6 +9593,7 @@ async function saveAppUser(client, rawInput) {
         );
     }
 
+    await client.query("delete from app_sessions where app_user_id = $1", [savedRow.id]);
     return attachAppUserCompanyAssignments(client, savedRow);
 }
 
@@ -9650,6 +9723,12 @@ function mapAppUserRow(row) {
         email: row.email,
         fullName: row.full_name || "",
         role: row.role || "",
+        accessProfile: inferAppUserAccessProfile({
+            ...row,
+            assignedCompanies,
+            inheritedCompanies,
+            assignedFulfillmentLocations
+        }),
         isActive: row.is_active !== false,
         assignedCompanies: [...new Set(assignedCompanies.map((value) => normalizeText(value)).filter(Boolean))],
         inheritedCompanies: [...new Set(inheritedCompanies.map((value) => normalizeText(value)).filter(Boolean))],
@@ -29300,10 +29379,14 @@ function delay(ms) {
 module.exports = {
     app,
     APP_USER_ROLES,
+    APP_USER_ACCESS_PROFILES,
     CUSTOMER_PORTAL_ROLE,
     RBAC_PERMISSIONS,
     ROLE_PERMISSION_MAP,
     normalizeAppUserRole,
+    normalizeAppUserAccessProfile,
+    inferAppUserAccessProfile,
+    applyAppUserAccessProfileRules,
     roleHasPermission,
     userHasPermission,
     requireRole,

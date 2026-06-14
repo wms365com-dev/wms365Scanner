@@ -9965,6 +9965,13 @@
                                         </select>
                                     </label>
                                     <label class="field">
+                                        <span>Access Profile</span>
+                                        <select id="warehouseUserAccessProfile">
+                                            <option value="standard">Standard Warehouse / Internal User</option>
+                                            <option value="customer_warehouse_user">Customer Warehouse User</option>
+                                        </select>
+                                    </label>
+                                    <label class="field">
                                         <span>Status</span>
                                         <select id="warehouseUserActive">
                                             <option value="true">Active</option>
@@ -11472,6 +11479,7 @@
             warehouseUserEmail: document.getElementById("warehouseUserEmail"),
             warehouseUserPassword: document.getElementById("warehouseUserPassword"),
             warehouseUserRole: document.getElementById("warehouseUserRole"),
+            warehouseUserAccessProfile: document.getElementById("warehouseUserAccessProfile"),
             warehouseUserActive: document.getElementById("warehouseUserActive"),
             warehouseUserAssignedMeta: document.getElementById("warehouseUserAssignedMeta"),
             warehouseUserAssignedWarehouseMeta: document.getElementById("warehouseUserAssignedWarehouseMeta"),
@@ -12130,6 +12138,7 @@
             ui.warehouseUserForm?.addEventListener("submit", saveWarehouseUser);
             ui.resetWarehouseUserBtn?.addEventListener("click", resetWarehouseUserForm);
             ui.warehouseUserRole?.addEventListener("change", renderWarehouseUserDashboard);
+            ui.warehouseUserAccessProfile?.addEventListener("change", renderWarehouseUserDashboard);
             ui.warehouseUserAssignedCompanies?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
             ui.warehouseUserAssignedWarehouses?.addEventListener("change", syncWarehouseUserAssignedDraftFromUi);
             ui.warehouseUserList?.addEventListener("click", onWarehouseUserListClick);
@@ -13167,10 +13176,31 @@
             return "Warehouse Worker";
         }
 
+        function normalizeWarehouseUserAccessProfile(profile) {
+            const normalized = norm(profile);
+            if (normalized === "CUSTOMER_WAREHOUSE_USER"
+                || normalized === "CUSTOMERWAREHOUSEUSER"
+                || normalized === "CUSTOMER_WAREHOUSE"
+                || normalized === "CUSTOMERWAREHOUSE"
+                || normalized === "CUSTOMER") {
+                return "customer_warehouse_user";
+            }
+            return "standard";
+        }
+
+        function isCustomerWarehouseUserProfile(profile) {
+            return normalizeWarehouseUserAccessProfile(profile || ui.warehouseUserAccessProfile?.value) === "customer_warehouse_user";
+        }
+
         function syncWarehouseUserAssignedDraftFromUi() {
             warehouseUserAssignedCompaniesDraft = [...(ui.warehouseUserAssignedCompanies?.querySelectorAll("[data-warehouse-user-company-input]:checked") || [])]
                 .map((input) => norm(input.value))
                 .filter(Boolean);
+            if (isCustomerWarehouseUserProfile()) {
+                warehouseUserAssignedFulfillmentLocationsDraft = [];
+                renderWarehouseUserDashboard();
+                return;
+            }
             warehouseUserAssignedFulfillmentLocationsDraft = [...(ui.warehouseUserAssignedWarehouses?.querySelectorAll("[data-warehouse-user-warehouse-input]:checked") || [])]
                 .map((input) => norm(input.value))
                 .filter(Boolean);
@@ -13185,6 +13215,7 @@
             if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = "";
             if (ui.warehouseUserPassword) ui.warehouseUserPassword.value = "";
             if (ui.warehouseUserRole) ui.warehouseUserRole.value = "WAREHOUSE_WORKER";
+            if (ui.warehouseUserAccessProfile) ui.warehouseUserAccessProfile.value = "standard";
             if (ui.warehouseUserActive) ui.warehouseUserActive.value = "true";
             if (ui.warehouseUserMessage) {
                 ui.warehouseUserMessage.textContent = "";
@@ -13203,6 +13234,7 @@
             if (ui.warehouseUserEmail) ui.warehouseUserEmail.value = user.email || "";
             if (ui.warehouseUserPassword) ui.warehouseUserPassword.value = "";
             if (ui.warehouseUserRole) ui.warehouseUserRole.value = normalizeWarehouseUserRole(user.role);
+            if (ui.warehouseUserAccessProfile) ui.warehouseUserAccessProfile.value = normalizeWarehouseUserAccessProfile(user.accessProfile || user.access_profile);
             if (ui.warehouseUserActive) ui.warehouseUserActive.value = user.isActive !== false ? "true" : "false";
             renderWarehouseUserDashboard();
         }
@@ -13232,6 +13264,11 @@
             ui.warehouseUserDashboard?.classList.remove("hidden");
 
             const role = normalizeWarehouseUserRole(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER");
+            const accessProfile = normalizeWarehouseUserAccessProfile(ui.warehouseUserAccessProfile?.value || "standard");
+            const isCustomerWarehouseUser = accessProfile === "customer_warehouse_user";
+            if (isCustomerWarehouseUser && warehouseUserAssignedFulfillmentLocationsDraft.length) {
+                warehouseUserAssignedFulfillmentLocationsDraft = [];
+            }
             const availableCompanies = [...(state.masters.ownerRecords || [])].sort((a, b) => a.name.localeCompare(b.name));
             const availableWarehouses = [...(state.masters.fulfillmentLocations || [])]
                 .filter((location) => location?.isActive !== false)
@@ -13247,18 +13284,26 @@
             }
             if (ui.warehouseUserMeta) {
                 ui.warehouseUserMeta.textContent = editingUser
-                    ? `Update role, password, active status, and warehouse access for ${editingUser.email}.`
-                    : "Create the login first, then assign the warehouses that worker should be able to manage.";
+                    ? (isCustomerWarehouseUser
+                        ? `Update customer-company scoped warehouse access for ${editingUser.email}.`
+                        : `Update role, password, active status, and warehouse access for ${editingUser.email}.`)
+                    : (isCustomerWarehouseUser
+                        ? "Create a company-scoped warehouse login for a customer user."
+                        : "Create the login first, then assign the warehouses that worker should be able to manage.");
             }
             if (ui.warehouseUserAssignedWarehouseMeta) {
-                ui.warehouseUserAssignedWarehouseMeta.textContent = role === "SUPER_ADMIN"
+                ui.warehouseUserAssignedWarehouseMeta.textContent = isCustomerWarehouseUser
+                    ? "Customer warehouse users are assigned by customer company only. Direct warehouse/location assignment is disabled."
+                    : role === "SUPER_ADMIN"
                     ? "Super users keep full warehouse and company access, so warehouse assignments are not required."
                     : (availableWarehouses.length
                         ? "Warehouse users inherit access to companies assigned to the warehouses checked here."
                         : "Save a warehouse or 3PL location first, then assign it to warehouse users here.");
             }
             if (ui.warehouseUserAssignedMeta) {
-                ui.warehouseUserAssignedMeta.textContent = role === "SUPER_ADMIN"
+                ui.warehouseUserAssignedMeta.textContent = isCustomerWarehouseUser
+                    ? "Required. Choose exactly one customer company; warehouse visibility stays limited to that customer's activity."
+                    : role === "SUPER_ADMIN"
                     ? "Super users keep full cross-company access, so direct company overrides are not required."
                     : (availableCompanies.length
                         ? "Optional direct company access for exceptions outside the worker's assigned warehouse."
@@ -13272,8 +13317,8 @@
                                 type="checkbox"
                                 value="${attr(warehouse.code)}"
                                 data-warehouse-user-warehouse-input
-                                ${selectedWarehouses.has(warehouse.code) ? "checked" : ""}
-                                ${role === "SUPER_ADMIN" ? "disabled" : ""}
+                                ${!isCustomerWarehouseUser && selectedWarehouses.has(warehouse.code) ? "checked" : ""}
+                                ${role === "SUPER_ADMIN" || isCustomerWarehouseUser ? "disabled" : ""}
                             >
                             <span>
                                 <strong>${esc(warehouse.code)}</strong>
@@ -13308,7 +13353,7 @@
                         <div class="quick-row">
                             <div class="quick-main">
                                 <strong>${esc(user.fullName || user.email)}</strong>
-                                <div class="quick-meta">${esc(user.email)} | ${esc(warehouseUserRoleLabel(user.role))}${user.isActive === false ? " | Disabled" : ""}</div>
+                                <div class="quick-meta">${esc(user.email)} | ${esc(warehouseUserRoleLabel(user.role))}${normalizeWarehouseUserAccessProfile(user.accessProfile) === "customer_warehouse_user" ? " | Customer warehouse user" : ""}${user.isActive === false ? " | Disabled" : ""}</div>
                                 <div class="quick-meta">${esc(
                                     norm(user.role) === "SUPER_ADMIN"
                                         ? "All warehouses"
@@ -13475,8 +13520,10 @@
                 return fail(ui.warehouseUserMessage, "Super user access is required to manage warehouse users.");
             }
             const role = normalizeWarehouseUserRole(ui.warehouseUserRole?.value || "WAREHOUSE_WORKER");
+            const accessProfile = normalizeWarehouseUserAccessProfile(ui.warehouseUserAccessProfile?.value || "standard");
+            const isCustomerWarehouseUser = accessProfile === "customer_warehouse_user";
             const assignedCompanies = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedCompaniesDraft.map((value) => norm(value)).filter(Boolean))];
-            const assignedFulfillmentLocations = role === "SUPER_ADMIN" ? [] : [...new Set(warehouseUserAssignedFulfillmentLocationsDraft.map((value) => norm(value)).filter(Boolean))];
+            const assignedFulfillmentLocations = role === "SUPER_ADMIN" || isCustomerWarehouseUser ? [] : [...new Set(warehouseUserAssignedFulfillmentLocationsDraft.map((value) => norm(value)).filter(Boolean))];
             if (!String(ui.warehouseUserFullName?.value || "").trim()) {
                 return fail(ui.warehouseUserMessage, "Enter the full name first.", ui.warehouseUserFullName);
             }
@@ -13488,6 +13535,12 @@
             }
             if (String(ui.warehouseUserPassword?.value || "").trim() && String(ui.warehouseUserPassword?.value || "").trim().length < 8) {
                 return fail(ui.warehouseUserMessage, "Warehouse passwords must be at least 8 characters.", ui.warehouseUserPassword);
+            }
+            if (isCustomerWarehouseUser && !["WAREHOUSE_WORKER", "WAREHOUSE_CUSTOMER_SERVICE"].includes(role)) {
+                return fail(ui.warehouseUserMessage, "Customer warehouse users must use Warehouse Worker or Warehouse Customer Service role.", ui.warehouseUserRole);
+            }
+            if (isCustomerWarehouseUser && assignedCompanies.length !== 1) {
+                return fail(ui.warehouseUserMessage, "Choose exactly one customer company for this customer warehouse user.", ui.warehouseUserAssignedCompanies);
             }
             if (role !== "SUPER_ADMIN" && !assignedFulfillmentLocations.length && !assignedCompanies.length) {
                 return fail(ui.warehouseUserMessage, "Choose at least one warehouse/location for this user, or add a direct company override.", ui.warehouseUserAssignedWarehouses || ui.warehouseUserAssignedCompanies);
@@ -13509,6 +13562,7 @@
                             email: ui.warehouseUserEmail?.value || "",
                             password: ui.warehouseUserPassword?.value || "",
                             role,
+                            accessProfile,
                             isActive: ui.warehouseUserActive?.value !== "false",
                             assignedCompanies,
                             assignedFulfillmentLocations
@@ -27267,6 +27321,7 @@
                         email: String(payload.session.appUser.email || "").trim(),
                         fullName: String(payload.session.appUser.fullName || "").trim(),
                         role: norm(payload.session.appUser.role || ""),
+                        accessProfile: normalizeWarehouseUserAccessProfile(payload.session.appUser.accessProfile || payload.session.appUser.access_profile || payload.session.appUser.profile),
                         isActive: payload.session.appUser.isActive !== false,
                         assignedCompanies: Array.isArray(payload.session.appUser.assignedCompanies)
                             ? payload.session.appUser.assignedCompanies.map((value) => norm(value)).filter(Boolean)
@@ -28002,6 +28057,7 @@
                 email,
                 fullName: String(item?.fullName || item?.full_name || "").trim().replace(/\s+/g, " "),
                 role: norm(item?.role || ""),
+                accessProfile: normalizeWarehouseUserAccessProfile(item?.accessProfile || item?.access_profile || item?.profile),
                 isActive: item?.isActive !== false,
                 assignedCompanies: Array.isArray(item?.assignedCompanies)
                     ? item.assignedCompanies.map((value) => norm(value)).filter(Boolean)

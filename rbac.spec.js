@@ -3,8 +3,11 @@ const assert = require("node:assert/strict");
 
 const {
     APP_USER_ROLES,
+    APP_USER_ACCESS_PROFILES,
     CUSTOMER_PORTAL_ROLE,
     RBAC_PERMISSIONS,
+    applyAppUserAccessProfileRules,
+    inferAppUserAccessProfile,
     roleHasPermission,
     requireWarehouseAdmin,
     requireInventoryAdjustPermission,
@@ -89,6 +92,52 @@ test("mobile worker action permission is limited to worker-safe actions", async 
 
     assert.equal(allowed, null);
     assert.equal(denied?.statusCode, 403);
+});
+
+test("customer warehouse profile requires a single company and no direct warehouse grants", () => {
+    const entry = applyAppUserAccessProfileRules({
+        accessProfile: APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER,
+        role: APP_USER_ROLES.WAREHOUSE_WORKER,
+        assignedCompanies: ["T-DOT / TDW TRADING CO"],
+        assignedFulfillmentLocations: []
+    });
+
+    assert.equal(entry.accessProfile, APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER);
+    assert.deepEqual(entry.assignedCompanies, ["T-DOT / TDW TRADING CO"]);
+    assert.deepEqual(entry.assignedFulfillmentLocations, []);
+});
+
+test("customer warehouse profile rejects admin roles and direct warehouse assignment", () => {
+    assert.throws(
+        () => applyAppUserAccessProfileRules({
+            accessProfile: APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER,
+            role: APP_USER_ROLES.WAREHOUSE_ADMIN,
+            assignedCompanies: ["T-DOT / TDW TRADING CO"],
+            assignedFulfillmentLocations: []
+        }),
+        (error) => error.statusCode === 400 && /Warehouse Worker or Warehouse Customer Service/i.test(error.message)
+    );
+
+    assert.throws(
+        () => applyAppUserAccessProfileRules({
+            accessProfile: APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER,
+            role: APP_USER_ROLES.WAREHOUSE_WORKER,
+            assignedCompanies: ["T-DOT / TDW TRADING CO"],
+            assignedFulfillmentLocations: ["FULLYBUILT-CHI"]
+        }),
+        (error) => error.statusCode === 400 && /company only/i.test(error.message)
+    );
+});
+
+test("single-company worker access is reported as a customer warehouse profile", () => {
+    assert.equal(
+        inferAppUserAccessProfile({
+            role: APP_USER_ROLES.WAREHOUSE_WORKER,
+            assigned_companies: ["T-DOT / TDW TRADING CO"],
+            assigned_fulfillment_locations: []
+        }),
+        APP_USER_ACCESS_PROFILES.CUSTOMER_WAREHOUSE_USER
+    );
 });
 
 test("inbound mobile status gates keep receiving and putaway assigned-task safe", () => {
