@@ -28151,7 +28151,7 @@
             const taskType = norm(item?.taskType || item?.task_type || "EXCEPTION");
             const status = norm(item?.status || "OPEN");
             const priority = norm(item?.priority || "NORMAL");
-            const validTypes = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT"];
+            const validTypes = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT", "KITTING"];
             const validStatuses = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
             const validPriorities = ["LOW", "NORMAL", "HIGH", "RUSH"];
             return {

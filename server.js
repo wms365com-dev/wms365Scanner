@@ -241,8 +241,8 @@ const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PART
 const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
 const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
 const PORTAL_KITTING_REQUEST_STATUSES = ["SUBMITTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
-const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT"];
-const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL", "INVENTORY"];
+const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT", "KITTING"];
+const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "PORTAL_KITTING_REQUEST", "MANUAL", "INVENTORY"];
 const WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
 const WAREHOUSE_TASK_PRIORITIES = ["LOW", "NORMAL", "HIGH", "RUSH"];
 const ACTIVE_WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED"];
@@ -7189,9 +7189,9 @@ async function initializeDatabase() {
     await pool.query("alter table warehouse_tasks add column if not exists metadata jsonb not null default '{}'::jsonb");
     await pool.query("update warehouse_tasks set metadata = '{}'::jsonb where metadata is null");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_type_check");
-    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_type_check check (task_type in ('INBOUND_ARRIVAL', 'RECEIVING', 'PUT_AWAY', 'PICK', 'PACK', 'SHIP', 'EXCEPTION', 'COUNT', 'REPLENISHMENT'))");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_type_check check (task_type in ('INBOUND_ARRIVAL', 'RECEIVING', 'PUT_AWAY', 'PICK', 'PACK', 'SHIP', 'EXCEPTION', 'COUNT', 'REPLENISHMENT', 'KITTING'))");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_source_type_check");
-    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_source_type_check check (source_type in ('PORTAL_INBOUND', 'PORTAL_ORDER', 'MANUAL', 'INVENTORY'))");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_source_type_check check (source_type in ('PORTAL_INBOUND', 'PORTAL_ORDER', 'PORTAL_KITTING_REQUEST', 'MANUAL', 'INVENTORY'))");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_status_check");
     await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_status_check check (status in ('OPEN', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'))");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_priority_check");
@@ -13001,7 +13001,9 @@ async function savePortalKittingRequest(client, accessRow, rawRequest) {
             request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""
         ].filter(Boolean).join(" | ")
     );
-    return (await getPortalKittingRequestsForAccount(request.accountName, client)).find((entry) => entry.id === String(requestId));
+    const savedRequest = (await getPortalKittingRequestsForAccount(request.accountName, client)).find((entry) => entry.id === String(requestId));
+    await syncWarehouseTasksForKittingRequest(client, savedRequest);
+    return savedRequest;
 }
 
 async function updatePortalKittingRequestStatus(client, requestId, status, rawInput = {}, appUser = null) {
@@ -13037,6 +13039,7 @@ async function updatePortalKittingRequestStatus(client, requestId, status, rawIn
         [existing.account_name, warehouseNote, actor].filter(Boolean).join(" | ")
     );
     const updated = (await getAdminPortalKittingRequests(client, existing.account_name)).find((entry) => entry.id === String(requestId));
+    await syncWarehouseTasksForKittingRequest(client, updated, appUser);
     return updated;
 }
 
@@ -22284,6 +22287,23 @@ function getInboundTaskFacts(inbound) {
     };
 }
 
+function getKittingTaskFacts(request) {
+    return {
+        id: toPositiveInt(getTaskRecordField(request, "id", "id")),
+        code: normalizeFreeText(getTaskRecordField(request, "requestCode", "request_code")) || makePortalKittingRequestCode(getTaskRecordField(request, "id", "id")),
+        accountName: normalizeText(getTaskRecordField(request, "accountName", "account_name")),
+        status: normalizePortalKittingRequestStatus(getTaskRecordField(request, "status", "status")) || "SUBMITTED",
+        salesOrderReference: normalizeFreeText(getTaskRecordField(request, "salesOrderReference", "sales_order_reference")),
+        purchaseOrderReference: normalizeFreeText(getTaskRecordField(request, "purchaseOrderReference", "purchase_order_reference")),
+        sourceSku: normalizeText(getTaskRecordField(request, "sourceSku", "source_sku")),
+        sourceQuantity: Number(getTaskRecordField(request, "sourceQuantity", "source_quantity")) || 0,
+        targetSku: normalizeText(getTaskRecordField(request, "targetSku", "target_sku")),
+        targetQuantity: Number(getTaskRecordField(request, "targetQuantity", "target_quantity")) || 0,
+        requestedCompletionDate: normalizeDateInput(getTaskRecordField(request, "requestedCompletionDate", "requested_completion_date")),
+        notes: normalizeFreeText(getTaskRecordField(request, "notes", "notes"))
+    };
+}
+
 function classifyWarehouseTaskPriorityFromDate(dateValue) {
     const date = normalizeDateInput(dateValue);
     if (!date) return "NORMAL";
@@ -22302,7 +22322,8 @@ function warehouseTaskTypeLabel(type) {
         SHIP: "Ship",
         EXCEPTION: "Exception",
         COUNT: "Count",
-        REPLENISHMENT: "Replenishment"
+        REPLENISHMENT: "Replenishment",
+        KITTING: "Kitting"
     };
     return labels[normalized] || "Warehouse Task";
 }
@@ -22452,6 +22473,66 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
             lineCount: facts.lineCount,
             totalQuantity: facts.totalQuantity
         }
+    });
+}
+
+async function syncWarehouseTasksForKittingRequest(client, request, appUser = null) {
+    const facts = getKittingTaskFacts(request);
+    if (!facts.id || !facts.accountName) return;
+    const actor = appUser?.full_name || appUser?.email || "System";
+    const sourceType = "PORTAL_KITTING_REQUEST";
+    const taskType = "KITTING";
+    const fulfillmentLocation = (await getPortalOrderReleaseFulfillmentLocations(client, facts.accountName))[0] || null;
+    const title = `Kitting ${facts.code}`;
+    const details = [
+        facts.accountName,
+        facts.sourceQuantity && facts.sourceSku ? `${facts.sourceQuantity} of ${facts.sourceSku}` : "",
+        facts.targetQuantity && facts.targetSku ? `to ${facts.targetQuantity} of ${facts.targetSku}` : "",
+        facts.salesOrderReference ? `Sales ${facts.salesOrderReference}` : "",
+        facts.purchaseOrderReference ? `PO ${facts.purchaseOrderReference}` : "",
+        facts.targetSku ? `Outbound SKU ${facts.targetSku}` : ""
+    ].filter(Boolean).join(" | ");
+    const taskInput = {
+        taskType,
+        sourceType,
+        sourceId: facts.id,
+        sourceCode: facts.code,
+        accountName: facts.accountName,
+        fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
+        status: "OPEN",
+        priority: classifyWarehouseTaskPriorityFromDate(facts.requestedCompletionDate),
+        dueAt: warehouseTaskDueAtFromDate(facts.requestedCompletionDate),
+        title,
+        details,
+        metadata: {
+            kittingStatus: facts.status,
+            requestedCompletionDate: facts.requestedCompletionDate,
+            sourceSku: facts.sourceSku,
+            sourceQuantity: facts.sourceQuantity,
+            targetSku: facts.targetSku,
+            targetQuantity: facts.targetQuantity,
+            outboundSku: facts.targetSku,
+            salesOrderReference: facts.salesOrderReference,
+            purchaseOrderReference: facts.purchaseOrderReference
+        }
+    };
+
+    if (facts.status === "COMPLETED" || facts.status === "CANCELLED") {
+        await upsertWarehouseTask(client, taskInput);
+        await closeWarehouseTasksForSource(
+            client,
+            sourceType,
+            facts.id,
+            [taskType],
+            facts.status === "COMPLETED" ? "DONE" : "CANCELLED",
+            actor
+        );
+        return;
+    }
+
+    await upsertWarehouseTask(client, {
+        ...taskInput,
+        status: facts.status === "IN_PROGRESS" ? "IN_PROGRESS" : "OPEN"
     });
 }
 
