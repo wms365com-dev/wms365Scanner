@@ -20738,6 +20738,8 @@
             `;
             const pickPrintCount = getPortalOrderPrintCount(order, "pick");
             const packingPrintCount = getPortalOrderPrintCount(order, "packing");
+            const shipmentMethod = normalizeShipmentMethod(order.shipmentMethod || "LTL_FREIGHT");
+            const isParcelShipment = shipmentMethod === "PARCEL";
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="form-grid compact-grid">
@@ -20746,12 +20748,20 @@
                             <input data-portal-ship-date="${attr(order.id)}" type="date" value="${attr(shipDateValue)}">
                         </label>
                         <label class="field">
-                            <span>Carrier</span>
-                            <input data-portal-ship-carrier="${attr(order.id)}" type="text" placeholder="UPS, LTL carrier, courier" value="${attr(order.shippedCarrierName || "")}">
+                            <span>Shipment Type</span>
+                            <select data-portal-ship-method="${attr(order.id)}">
+                                <option value="PARCEL" ${shipmentMethod === "PARCEL" ? "selected" : ""}>Parcel service</option>
+                                <option value="LTL_FREIGHT" ${shipmentMethod === "LTL_FREIGHT" ? "selected" : ""}>LTL / freight</option>
+                                <option value="CUSTOMER_PICKUP" ${shipmentMethod === "CUSTOMER_PICKUP" ? "selected" : ""}>Customer pickup</option>
+                            </select>
                         </label>
                         <label class="field">
-                            <span>Tracking / PRO / BOL</span>
-                            <input data-portal-ship-tracking="${attr(order.id)}" type="text" placeholder="Tracking, PRO, or BOL #" value="${attr(order.shippedTrackingReference || "")}">
+                            <span>Carrier</span>
+                            <input data-portal-ship-carrier="${attr(order.id)}" type="text" placeholder="${isParcelShipment ? "UPS, FedEx, Canada Post" : "LTL carrier, pickup method, courier"}" value="${attr(order.shippedCarrierName || "")}">
+                        </label>
+                        <label class="field">
+                            <span>${isParcelShipment ? "Tracking Number" : "Tracking / PRO / BOL"}</span>
+                            <input data-portal-ship-tracking="${attr(order.id)}" type="text" placeholder="${isParcelShipment ? "Parcel tracking number" : "Tracking, PRO, pickup ref, or BOL #"}" value="${attr(order.shippedTrackingReference || "")}">
                         </label>
                         <label class="field span-2">
                             <span>Shipping Note</span>
@@ -20778,7 +20788,7 @@
                             <tbody>${shippedQuantityRows || `<tr><td colspan="4">No lines to confirm.</td></tr>`}</tbody>
                         </table>
                     </div>
-                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : "Required before shipment closeout: signed BOL/POD, checked packing slip, loaded freight photo, and quantity shipped by SKU."}</div>
+                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : (isParcelShipment ? "Parcel closeout requires carrier, tracking number, and quantity shipped by SKU. Photos are not required." : "LTL/freight closeout requires signed BOL/POD, checked packing slip, loaded freight photo, and quantity shipped by SKU.")}</div>
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>
@@ -23212,6 +23222,17 @@
             return "";
         }
 
+        function normalizeShipmentMethod(value) {
+            const normalized = norm(value || "").replace(/[\s-]+/g, "_");
+            if (["PARCEL", "SMALL_PARCEL", "COURIER", "PACKAGE"].includes(normalized)) return "PARCEL";
+            if (["PICKUP", "CUSTOMER_PICKUP", "WILL_CALL", "SELF_PICKUP"].includes(normalized)) return "CUSTOMER_PICKUP";
+            return "LTL_FREIGHT";
+        }
+
+        function shipmentMethodRequiresFreightProof(value) {
+            return normalizeShipmentMethod(value) !== "PARCEL";
+        }
+
         function renderWarehouseDocumentActions(documents = [], emptyText = "No documents uploaded yet.") {
             if (!Array.isArray(documents) || !documents.length) {
                 return `<div class="quick-meta">${esc(emptyText)}</div>`;
@@ -23500,6 +23521,7 @@
                     }, async () => {
                         const orderCard = shipButton.closest(".erp-document-shipping-panel") || shipButton.closest(".erp-list-shipping-panel") || shipButton.closest(".quick-detail-stack") || shipButton.closest(".quick-row");
                         const shipDate = orderCard?.querySelector(`[data-portal-ship-date="${orderId}"]`)?.value || "";
+                        const shipmentMethod = normalizeShipmentMethod(orderCard?.querySelector(`[data-portal-ship-method="${orderId}"]`)?.value || currentOrder?.shipmentMethod || "LTL_FREIGHT");
                         const carrierName = orderCard?.querySelector(`[data-portal-ship-carrier="${orderId}"]`)?.value || "";
                         const trackingNumber = orderCard?.querySelector(`[data-portal-ship-tracking="${orderId}"]`)?.value || "";
                         const shippingNote = orderCard?.querySelector(`[data-portal-ship-note="${orderId}"]`)?.value || "";
@@ -23521,11 +23543,13 @@
                         }));
                         const requiresShipmentCloseout = currentOrder?.status === "STAGED";
                         if (requiresShipmentCloseout) {
-                            const requiredCategories = new Set(["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP", "SHIPMENT_LOAD_PHOTO"]);
-                            const uploadedCategories = new Set(documents.map((document) => norm(document.documentCategory || "")));
-                            const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
-                            if (missingCategories.length) {
-                                throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
+                            if (shipmentMethodRequiresFreightProof(shipmentMethod)) {
+                                const requiredCategories = new Set(["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP", "SHIPMENT_LOAD_PHOTO"]);
+                                const uploadedCategories = new Set(documents.map((document) => norm(document.documentCategory || "")));
+                                const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
+                                if (missingCategories.length) {
+                                    throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
+                                }
                             }
                             const mismatchedLine = shippedLines.find((entry) => {
                                 const line = (currentOrder?.lines || []).find((candidate) => String(candidate.id) === String(entry.orderLineId));
@@ -23540,6 +23564,7 @@
                             body: JSON.stringify({
                                 status: "SHIPPED",
                                 confirmedShipDate: shipDate,
+                                shipmentMethod,
                                 shippedCarrierName: carrierName,
                                 shippedTrackingReference: trackingNumber,
                                 shippedConfirmationNote: shippingNote,

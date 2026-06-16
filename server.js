@@ -237,6 +237,11 @@ const REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES = Object.freeze([
     PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP,
     PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO
 ]);
+const PORTAL_ORDER_SHIPMENT_METHODS = Object.freeze({
+    PARCEL: "PARCEL",
+    LTL_FREIGHT: "LTL_FREIGHT",
+    CUSTOMER_PICKUP: "CUSTOMER_PICKUP"
+});
 const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"];
 const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
 const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
@@ -6596,6 +6601,7 @@ async function initializeDatabase() {
             ship_to_country text not null default '',
             ship_to_phone text not null default '',
             confirmed_ship_date date,
+            shipment_method text not null default 'LTL_FREIGHT',
             shipped_carrier_name text not null default '',
             shipped_tracking_reference text not null default '',
             shipped_confirmation_note text not null default '',
@@ -6627,6 +6633,10 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists requested_ship_date date");
     await pool.query("alter table portal_orders add column if not exists order_notes text not null default ''");
     await pool.query("alter table portal_orders add column if not exists confirmed_ship_date date");
+    await pool.query("alter table portal_orders add column if not exists shipment_method text not null default 'LTL_FREIGHT'");
+    await pool.query("update portal_orders set shipment_method = 'LTL_FREIGHT' where shipment_method is null or shipment_method = ''");
+    await pool.query("alter table portal_orders drop constraint if exists portal_orders_shipment_method_check");
+    await pool.query("alter table portal_orders add constraint portal_orders_shipment_method_check check (shipment_method in ('PARCEL', 'LTL_FREIGHT', 'CUSTOMER_PICKUP'))");
     await pool.query("alter table portal_orders add column if not exists shipped_carrier_name text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
@@ -19533,16 +19543,18 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const confirmedShipDate = confirmation.confirmedShipDate || order.confirmedShipDate || normalizeDateInput(new Date());
+    const shipmentMethod = confirmation.shipmentMethod || order.shipmentMethod || "LTL_FREIGHT";
     const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
     const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
     const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
     if (transitionToShipped) {
-        assertPortalShipmentProofRequirements(confirmation, { shippedCarrierName, shippedTrackingReference });
+        assertPortalShipmentProofRequirements(confirmation, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
     }
     const shippingConfirmationUnchanged = !confirmation.documents.length
         && !shipmentLineConfirmations.length
         && confirmedShipDate === (order.confirmedShipDate || "")
+        && shipmentMethod === (order.shipmentMethod || "LTL_FREIGHT")
         && shippedCarrierName === (order.shippedCarrierName || "")
         && shippedTrackingReference === (order.shippedTrackingReference || "")
         && shippedConfirmationNote === (order.shippedConfirmationNote || "");
@@ -19570,16 +19582,17 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             set
                 status = $2,
                 confirmed_ship_date = $3,
-                shipped_carrier_name = $4,
-                shipped_tracking_reference = $5,
-                shipped_confirmation_note = $6,
-                shipped_at = case when $7::boolean then coalesce(shipped_at, now()) else shipped_at end,
+                shipment_method = $4,
+                shipped_carrier_name = $5,
+                shipped_tracking_reference = $6,
+                shipped_confirmation_note = $7,
+                shipped_at = case when $8::boolean then coalesce(shipped_at, now()) else shipped_at end,
                 shipment_email_status = 'SCHEDULED',
                 shipment_email_scheduled_at = now(),
                 shipment_email_sent_at = null,
                 shipment_email_last_error = '',
                 shipment_email_attempts = 0,
-                shipment_email_is_update = not $7::boolean,
+                shipment_email_is_update = not $8::boolean,
                 updated_at = now()
             where id = $1
         `,
@@ -19587,6 +19600,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             order.id,
             transitionToShipped ? "SHIPPED" : "SHIPPED",
             confirmedShipDate || null,
+            shipmentMethod,
             shippedCarrierName,
             shippedTrackingReference,
             shippedConfirmationNote,
@@ -19611,6 +19625,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
         `${transitionToShipped ? "Shipped" : "Updated shipping confirmation for"} portal order ${updatedOrder.orderCode}`,
         [
             updatedOrder.accountName,
+            `Method ${shipmentMethodLabel(updatedOrder.shipmentMethod)}`,
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
@@ -19622,12 +19637,38 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     return updatedOrder;
 }
 
-function assertPortalShipmentProofRequirements(confirmation, { shippedCarrierName = "", shippedTrackingReference = "" } = {}) {
+function normalizePortalShipmentMethod(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (["PARCEL", "SMALL_PARCEL", "COURIER", "PACKAGE"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+    if (["PICKUP", "CUSTOMER_PICKUP", "WILL_CALL", "SELF_PICKUP"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
+    return PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT;
+}
+
+function shipmentMethodLabel(value) {
+    const normalized = normalizePortalShipmentMethod(value);
+    if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) return "Parcel";
+    if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP) return "Customer pickup";
+    return "LTL / freight";
+}
+
+function shipmentMethodRequiresFreightProof(value) {
+    return normalizePortalShipmentMethod(value) !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+}
+
+function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = "LTL_FREIGHT", shippedCarrierName = "", shippedTrackingReference = "" } = {}) {
+    const normalizedMethod = normalizePortalShipmentMethod(shipmentMethod);
     if (!normalizeFreeText(shippedCarrierName)) {
-        throw httpError(400, "Enter the carrier or pickup method before marking the order shipped.");
+        throw httpError(400, normalizedMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL
+            ? "Enter the parcel carrier before marking the order shipped."
+            : "Enter the carrier or pickup method before marking the order shipped.");
     }
     if (!normalizeFreeText(shippedTrackingReference)) {
-        throw httpError(400, "Enter the tracking, PRO, pickup reference, or BOL number before marking the order shipped.");
+        throw httpError(400, normalizedMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL
+            ? "Enter the parcel tracking number before marking the order shipped."
+            : "Enter the tracking, PRO, pickup reference, or BOL number before marking the order shipped.");
+    }
+    if (!shipmentMethodRequiresFreightProof(normalizedMethod)) {
+        return;
     }
     const uploadedCategories = new Set((confirmation.documents || []).map((document) => document.documentCategory));
     const missingCategories = REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES.filter((category) => !uploadedCategories.has(category));
@@ -26249,6 +26290,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         shipToCountry: row.ship_to_country || "",
         shipToPhone: row.ship_to_phone || "",
         confirmedShipDate: row.confirmed_ship_date ? normalizeDateOnly(row.confirmed_ship_date) : "",
+        shipmentMethod: normalizePortalShipmentMethod(row.shipment_method || "LTL_FREIGHT"),
         shippedCarrierName: row.shipped_carrier_name || "",
         shippedTrackingReference: row.shipped_tracking_reference || "",
         shippedConfirmationNote: row.shipped_confirmation_note || "",
@@ -26603,6 +26645,7 @@ function sanitizePortalOrderInput(order, accountName) {
 function sanitizePortalShippingConfirmationInput(payload) {
     return {
         confirmedShipDate: normalizeDateInput(payload?.confirmedShipDate || payload?.shipDate || payload?.actualShipDate),
+        shipmentMethod: normalizePortalShipmentMethod(payload?.shipmentMethod || payload?.shipment_method || payload?.shippingMethod || payload?.shipping_method),
         shippedCarrierName: normalizeFreeText(payload?.shippedCarrierName || payload?.carrierName || payload?.carrier),
         shippedTrackingReference: normalizeFreeText(
             payload?.shippedTrackingReference

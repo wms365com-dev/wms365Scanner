@@ -31,6 +31,23 @@ test("shipment closeout requires BOL, checked packing slip, and load photo", () 
     );
 });
 
+test("parcel shipment closeout only requires carrier and tracking", () => {
+    assert.doesNotThrow(() => assertPortalShipmentProofRequirements(
+        { documents: [] },
+        { shipmentMethod: "PARCEL", shippedCarrierName: "UPS", shippedTrackingReference: "1Z123" }
+    ));
+});
+
+test("ltl shipment closeout still requires freight proof", () => {
+    assert.throws(
+        () => assertPortalShipmentProofRequirements(
+            { documents: [] },
+            { shipmentMethod: "LTL_FREIGHT", shippedCarrierName: "Day & Ross", shippedTrackingReference: "PRO-123" }
+        ),
+        /signed BOL|checked packing slip|loaded freight/i
+    );
+});
+
 test("shipment closeout rejects shipped quantity mismatch", () => {
     assert.throws(
         () => validatePortalShipmentLineConfirmations(sampleOrder, [
