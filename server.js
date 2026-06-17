@@ -416,6 +416,8 @@ const COMPANY_WMS_PRICING_PLANS = Object.freeze({
 });
 const SHOPIFY_ADMIN_API_VERSION = "2026-01";
 const SHOPIFY_ORDER_PAGE_LIMIT = 250;
+const SHOPIFY_VARIANT_PAGE_LIMIT = 250;
+const SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE = "SHOPIFY_INVENTORY_LEVEL";
 const STRIPE_CHECKOUT_PLANS = Object.freeze({
     LAUNCH_WAREHOUSE: {
         key: "LAUNCH_WAREHOUSE",
@@ -10511,8 +10513,8 @@ async function saveStoreIntegration(client, rawInput) {
         if ((entry.authClientId && !entry.authClientSecret) || (!entry.authClientId && entry.authClientSecret)) {
             throw httpError(400, "Enter both the Shopify client ID and client secret when updating client credentials.");
         }
-        if (!storedAccessToken && !(authClientId && authClientSecret)) {
-            throw httpError(400, "Enter either a Shopify Admin API access token or the Shopify client credentials.");
+        if (entry.isActive && !storedAccessToken && !(authClientId && authClientSecret)) {
+            throw httpError(400, "Enter either a Shopify Admin API access token or the Shopify client credentials before enabling the Shopify connection.");
         }
     }
     if (entry.provider === SFTP_SYNC_PROVIDER) {
@@ -10706,14 +10708,30 @@ async function syncStoreIntegrationById(integrationId, appUser = null) {
 }
 
 async function syncShopifyIntegration(integrationRow, appUser = null) {
-    const fetchedOrders = await fetchShopifyOrdersForIntegration(integrationRow);
-    const orderSummary = await withTransaction((client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser));
-    const shipmentSummary = await withTransaction((client) => exportShopifyShipmentConfirmations(client, integrationRow));
-    const failedCount = (Number(orderSummary.failedCount) || 0) + shipmentSummary.failedCount;
+    const settings = sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, integrationRow.settings || {});
+    const orderSummary = { ordersFetched: 0, importedCount: 0, releasedCount: 0, draftCount: 0, skippedCount: 0, failedCount: 0, message: "Order import disabled." };
+    const shipmentSummary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const inventorySummary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    let fetchedOrders = [];
+
+    if (settings.syncOrders) {
+        fetchedOrders = await fetchShopifyOrdersForIntegration(integrationRow);
+        Object.assign(orderSummary, await withTransaction((client) => importStoreOrdersForIntegration(client, integrationRow, fetchedOrders, appUser)));
+    }
+    if (settings.syncShipmentConfirmations) {
+        Object.assign(shipmentSummary, await withTransaction((client) => exportShopifyShipmentConfirmations(client, integrationRow)));
+    }
+    if (settings.syncInventory) {
+        Object.assign(inventorySummary, await withTransaction((client) => exportShopifyInventoryLevels(client, integrationRow)));
+    }
+
+    const failedCount = (Number(orderSummary.failedCount) || 0) + shipmentSummary.failedCount + inventorySummary.failedCount;
     const meaningfulProgress = (Number(orderSummary.importedCount) || 0)
         + (Number(orderSummary.skippedCount) || 0)
         + shipmentSummary.exportedCount
-        + shipmentSummary.skippedCount;
+        + shipmentSummary.skippedCount
+        + inventorySummary.exportedCount
+        + inventorySummary.skippedCount;
     const status = failedCount > 0
         ? (meaningfulProgress > 0 ? "WARNING" : "ERROR")
         : "SUCCESS";
@@ -10722,7 +10740,12 @@ async function syncShopifyIntegration(integrationRow, appUser = null) {
         `Shipment confirmations ${shipmentSummary.exportedCount} sent.`,
         `Shipment confirmations ${shipmentSummary.skippedCount} skipped.`,
         `Shipment confirmation failures ${shipmentSummary.failedCount}.`,
-        shipmentSummary.detailMessages.length ? truncateStoreSyncMessage(shipmentSummary.detailMessages.slice(0, 3).join(" | "), 260) : ""
+        `Inventory levels ${inventorySummary.exportedCount} sent.`,
+        `Inventory levels ${inventorySummary.skippedCount} skipped.`,
+        `Inventory level failures ${inventorySummary.failedCount}.`,
+        [...shipmentSummary.detailMessages, ...inventorySummary.detailMessages].length
+            ? truncateStoreSyncMessage([...shipmentSummary.detailMessages, ...inventorySummary.detailMessages].slice(0, 3).join(" | "), 260)
+            : ""
     ].filter(Boolean).join(" ");
 
     const updatedResult = await pool.query(
@@ -10763,8 +10786,9 @@ async function syncShopifyIntegration(integrationRow, appUser = null) {
         ...orderSummary,
         integration: mapStoreIntegrationRow(updatedResult.rows[0]),
         failedCount,
-        skippedCount: (Number(orderSummary.skippedCount) || 0) + shipmentSummary.skippedCount,
+        skippedCount: (Number(orderSummary.skippedCount) || 0) + shipmentSummary.skippedCount + inventorySummary.skippedCount,
         shippedExportCount: shipmentSummary.exportedCount,
+        inventoryExportCount: inventorySummary.exportedCount,
         message: truncateStoreSyncMessage(summaryMessage)
     };
 }
@@ -11212,6 +11236,216 @@ async function shopifyAdminRequestForIntegration(integrationRow, resourcePath, {
     }
 
     throw httpError(401, "Shopify access token refresh failed.");
+}
+
+async function fetchShopifyVariantInventoryItemsForIntegration(integrationRow) {
+    let forceRefresh = false;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const resolved = await resolveShopifyAccessTokenForIntegration(integrationRow, { forceRefresh });
+        const activeIntegrationRow = resolved.integrationRow || integrationRow;
+        const shopDomain = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, activeIntegrationRow.store_identifier);
+        const accessToken = String(resolved.accessToken || "").trim();
+
+        if (!shopDomain || !shopDomain.endsWith(".myshopify.com")) {
+            throw httpError(400, "This Shopify connection is missing a valid .myshopify.com domain.");
+        }
+        if (!accessToken) {
+            throw httpError(400, "This Shopify connection is missing its Shopify access credential.");
+        }
+
+        let nextUrl = new URL(`https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/variants.json`);
+        nextUrl.searchParams.set("limit", String(SHOPIFY_VARIANT_PAGE_LIMIT));
+        nextUrl.searchParams.set("fields", "id,sku,inventory_item_id");
+
+        const variants = [];
+        let pageCount = 0;
+        let shouldRetryWithFreshToken = false;
+
+        while (nextUrl) {
+            pageCount += 1;
+            if (pageCount > 40) break;
+
+            const response = await fetch(nextUrl, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                    "X-Shopify-Access-Token": accessToken
+                },
+                signal: AbortSignal.timeout(30000)
+            });
+            const text = await response.text();
+            let payload = {};
+            try {
+                payload = text ? JSON.parse(text) : {};
+            } catch (_error) {
+                payload = {};
+            }
+
+            if (!response.ok) {
+                if ((response.status === 401 || response.status === 403) && integrationHasShopifyClientCredentials(activeIntegrationRow) && !forceRefresh) {
+                    shouldRetryWithFreshToken = true;
+                    break;
+                }
+                const details = extractShopifyErrorDetails(payload, text, response.statusText || "Shopify variants request failed.");
+                throw httpError(response.status === 401 || response.status === 403 ? 401 : 502, `Shopify variants request failed: ${details}`);
+            }
+
+            variants.push(...(Array.isArray(payload?.variants) ? payload.variants : []));
+            nextUrl = parseShopifyNextLink(response.headers.get("link"));
+        }
+
+        if (!shouldRetryWithFreshToken) {
+            return {
+                integrationRow: activeIntegrationRow,
+                shopDomain,
+                variants: variants
+                    .map((variant) => ({
+                        id: String(variant?.id || "").trim(),
+                        sku: normalizeText(variant?.sku || ""),
+                        inventoryItemId: String(variant?.inventory_item_id || "").trim()
+                    }))
+                    .filter((variant) => variant.sku && variant.inventoryItemId)
+            };
+        }
+
+        forceRefresh = true;
+        integrationRow = activeIntegrationRow;
+    }
+
+    throw httpError(401, "Shopify access token refresh failed.");
+}
+
+async function buildShopifyInventoryAvailabilityLookup(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return new Map();
+    const result = await client.query(
+        `
+            with known_skus as (
+                select account_name, sku
+                from item_catalog
+                where account_name = $1
+                union
+                select account_name, sku
+                from inventory_lines
+                where account_name = $1
+            ),
+            allocated as (
+                select
+                    a.inventory_line_id,
+                    coalesce(sum(a.allocated_quantity), 0)::integer as allocated_quantity
+                from portal_order_allocations a
+                join portal_orders o on o.id = a.order_id
+                where o.account_name = $1
+                  and o.status = any($2::text[])
+                  and a.inventory_line_id is not null
+                group by a.inventory_line_id
+            )
+            select
+                k.sku,
+                coalesce(sum(i.quantity), 0)::integer as on_hand_quantity,
+                coalesce(sum(case
+                    when i.id is not null
+                     and coalesce(bl.is_pickable, true) = true
+                     and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+                    then greatest(coalesce(i.quantity, 0) - coalesce(a.allocated_quantity, 0), 0)
+                    else 0
+                end), 0)::integer as available_quantity
+            from known_skus k
+            left join inventory_lines i
+              on i.account_name = k.account_name
+             and i.sku = k.sku
+            left join bin_locations bl on bl.code = i.location
+            left join allocated a on a.inventory_line_id = i.id
+            group by k.sku
+            order by k.sku asc
+        `,
+        [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, [...NON_PICKABLE_LOCATION_TYPES]]
+    );
+    return new Map(result.rows.map((row) => [
+        normalizeText(row.sku),
+        {
+            sku: normalizeText(row.sku),
+            onHandQuantity: Number(row.on_hand_quantity) || 0,
+            availableQuantity: Math.max(Number(row.available_quantity) || 0, 0)
+        }
+    ]));
+}
+
+async function exportShopifyInventoryLevels(client, integrationRow) {
+    const summary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
+    const settings = sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, integrationRow?.settings || {});
+    if (!settings.syncInventory) return summary;
+
+    const locationId = toPositiveInt(settings.shopifyLocationId);
+    if (!locationId) {
+        summary.failedCount += 1;
+        summary.detailMessages.push("Inventory: Shopify location ID is required before inventory can be synced.");
+        return summary;
+    }
+
+    let variantResult;
+    try {
+        variantResult = await fetchShopifyVariantInventoryItemsForIntegration(integrationRow);
+    } catch (error) {
+        summary.failedCount += 1;
+        summary.detailMessages.push(`Inventory: ${error.message}`);
+        return summary;
+    }
+
+    const availabilityBySku = await buildShopifyInventoryAvailabilityLookup(client, integrationRow.account_name);
+    const externalToLocalSku = await getStoreSkuMappingLookup(client, integrationRow.id);
+    const disconnectIfNecessary = settings.inventoryDisconnectIfNecessary === true;
+
+    for (const variant of variantResult.variants) {
+        const localSku = externalToLocalSku.get(variant.sku) || variant.sku;
+        const availability = availabilityBySku.get(localSku);
+        if (!availability) {
+            summary.skippedCount += 1;
+            continue;
+        }
+
+        const available = Math.max(Number(availability.availableQuantity) || 0, 0);
+        const payload = {
+            location_id: locationId,
+            inventory_item_id: toPositiveInt(variant.inventoryItemId),
+            available,
+            disconnect_if_necessary: disconnectIfNecessary
+        };
+        if (!payload.inventory_item_id) {
+            summary.skippedCount += 1;
+            continue;
+        }
+
+        const entityRef = `${variant.id || variant.sku}:${locationId}`;
+        const contentHash = computeStoreSyncContentHash({
+            entityType: SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE,
+            entityRef,
+            sku: localSku,
+            storeSku: variant.sku,
+            inventoryItemId: payload.inventory_item_id,
+            locationId,
+            available
+        });
+        if (await hasStoreSyncExport(client, integrationRow.id, SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE, entityRef, contentHash)) {
+            summary.skippedCount += 1;
+            continue;
+        }
+
+        try {
+            const result = await shopifyAdminRequestForIntegration(integrationRow, "/inventory_levels/set.json", {
+                method: "POST",
+                body: payload
+            });
+            const remotePath = `shopify://${result.shopDomain || variantResult.shopDomain}/inventory_levels/${locationId}/${payload.inventory_item_id}`;
+            await recordStoreSyncExport(client, integrationRow.id, SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE, entityRef, contentHash, remotePath);
+            summary.exportedCount += 1;
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`${variant.sku}: ${error.message}`);
+        }
+    }
+
+    return summary;
 }
 
 function normalizeShopifyTrackingCompany(value) {
@@ -25567,6 +25801,51 @@ function sanitizeStoreIntegrationSettingsInput(provider, settings = {}, rawInput
     const normalizedProvider = normalizeStoreIntegrationProvider(provider);
     const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
 
+    if (normalizedProvider === SHOPIFY_SYNC_PROVIDER) {
+        const locationId = normalizeText(
+            source.shopifyLocationId
+            || source.shopify_location_id
+            || source.locationId
+            || source.location_id
+            || rawInput?.shopifyLocationId
+            || rawInput?.shopify_location_id
+            || rawInput?.locationId
+            || rawInput?.location_id
+            || ""
+        );
+        return {
+            shopifyLocationId: locationId,
+            primaryLocationName: normalizeFreeText(source.primaryLocationName || source.primary_location_name || rawInput?.primaryLocationName || rawInput?.primary_location_name || ""),
+            syncOrders: toBooleanFlag(source.syncOrders ?? source.sync_orders ?? rawInput?.syncOrders ?? rawInput?.sync_orders, true),
+            syncShipmentConfirmations: toBooleanFlag(
+                source.syncShipmentConfirmations
+                ?? source.sync_shipment_confirmations
+                ?? source.syncShipments
+                ?? source.sync_shipments
+                ?? rawInput?.syncShipmentConfirmations
+                ?? rawInput?.sync_shipment_confirmations
+                ?? rawInput?.syncShipments
+                ?? rawInput?.sync_shipments,
+                true
+            ),
+            syncInventory: toBooleanFlag(source.syncInventory ?? source.sync_inventory ?? rawInput?.syncInventory ?? rawInput?.sync_inventory, false),
+            notifyCustomerOnFulfillment: toBooleanFlag(
+                source.notifyCustomerOnFulfillment
+                ?? source.notify_customer_on_fulfillment
+                ?? rawInput?.notifyCustomerOnFulfillment
+                ?? rawInput?.notify_customer_on_fulfillment,
+                true
+            ),
+            inventoryDisconnectIfNecessary: toBooleanFlag(
+                source.inventoryDisconnectIfNecessary
+                ?? source.inventory_disconnect_if_necessary
+                ?? rawInput?.inventoryDisconnectIfNecessary
+                ?? rawInput?.inventory_disconnect_if_necessary,
+                false
+            )
+        };
+    }
+
     if (normalizedProvider === BUSINESS_CENTRAL_SYNC_PROVIDER) {
         return {
             environment: normalizeFreeText(source.environment || source.bcEnvironment || source.bc_environment || rawInput?.environment || rawInput?.bcEnvironment || rawInput?.bc_environment || "Production") || "Production",
@@ -29374,6 +29653,9 @@ module.exports = {
     sanitizePortalPermissionsInput,
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
+    sanitizeStoreIntegrationSettingsInput,
+    buildShopifyInventoryAvailabilityLookup,
+    exportShopifyInventoryLevels,
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
