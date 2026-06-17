@@ -246,7 +246,7 @@ const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PART
 const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
 const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
 const PORTAL_KITTING_REQUEST_STATUSES = ["SUBMITTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
-const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT"];
+const WAREHOUSE_TASK_TYPES = ["INBOUND_ARRIVAL", "RECEIVING", "PUT_AWAY", "PICK", "PACK", "SHIP", "EXCEPTION", "COUNT", "REPLENISHMENT", "KITTING"];
 const WAREHOUSE_TASK_SOURCE_TYPES = ["PORTAL_INBOUND", "PORTAL_ORDER", "MANUAL", "INVENTORY"];
 const WAREHOUSE_TASK_STATUSES = ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"];
 const WAREHOUSE_TASK_PRIORITIES = ["LOW", "NORMAL", "HIGH", "RUSH"];
@@ -7199,7 +7199,7 @@ async function initializeDatabase() {
     await pool.query("alter table warehouse_tasks add column if not exists metadata jsonb not null default '{}'::jsonb");
     await pool.query("update warehouse_tasks set metadata = '{}'::jsonb where metadata is null");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_type_check");
-    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_type_check check (task_type in ('INBOUND_ARRIVAL', 'RECEIVING', 'PUT_AWAY', 'PICK', 'PACK', 'SHIP', 'EXCEPTION', 'COUNT', 'REPLENISHMENT'))");
+    await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_type_check check (task_type in ('INBOUND_ARRIVAL', 'RECEIVING', 'PUT_AWAY', 'PICK', 'PACK', 'SHIP', 'EXCEPTION', 'COUNT', 'REPLENISHMENT', 'KITTING'))");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_source_type_check");
     await pool.query("alter table warehouse_tasks add constraint warehouse_tasks_source_type_check check (source_type in ('PORTAL_INBOUND', 'PORTAL_ORDER', 'MANUAL', 'INVENTORY'))");
     await pool.query("alter table warehouse_tasks drop constraint if exists warehouse_tasks_status_check");
