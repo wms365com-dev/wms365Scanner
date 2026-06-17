@@ -14428,18 +14428,12 @@ async function allocatePortalOrderInventory(client, order) {
 
         const sku = normalizeText(line.sku);
         const allRows = inventoryBySku.get(sku) || [];
-        const candidateRows = sortInventoryRowsForAllocation(
-            allRows.filter((row) =>
-                (!line.lotTracked || !!String(row.lot_number || "").trim()) &&
-                (!line.expirationTracked || !!normalizeDateOnly(row.expiration_date))
-            ),
-            line
-        );
+        const candidateRows = sortInventoryRowsForAllocation(allRows, line);
         const allocatableQuantity = candidateRows.reduce((sum, row) => sum + (Number(row.availableQuantity) || 0), 0);
         if (allocatableQuantity < remainingQuantity) {
             throw httpError(
                 409,
-                `Release blocked for ${order.orderCode}: ${line.sku} only has ${formatTrackedQuantity(allocatableQuantity, line.trackingLevel)} allocatable with the required lot and expiration data.`
+                `Release blocked for ${order.orderCode}: ${line.sku} only has ${formatTrackedQuantity(allocatableQuantity, line.trackingLevel)} available in pickable stock.`
             );
         }
 
