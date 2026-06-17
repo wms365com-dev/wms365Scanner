@@ -5,7 +5,11 @@ const {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
     sanitizeStoreIntegrationSettingsInput,
-    exportShopifyInventoryLevels
+    exportShopifyInventoryLevels,
+    createIntegrationCredentialRequestToken,
+    hashIntegrationCredentialRequestToken,
+    buildIntegrationCredentialRequestUrl,
+    renderIntegrationCredentialRequestPage
 } = require("./server");
 
 test("daily store integration sync runs at 9 AM in the WMS365 business timezone during daylight saving time", () => {
@@ -64,4 +68,34 @@ test("Shopify inventory export fails closed without location id", async () => {
     assert.equal(summary.skippedCount, 0);
     assert.equal(summary.failedCount, 1);
     assert.match(summary.detailMessages[0], /location ID is required/);
+});
+
+test("secure integration credential request renders one-time noindex form", () => {
+    const token = createIntegrationCredentialRequestToken();
+    assert.ok(token.length >= 40);
+    assert.equal(hashIntegrationCredentialRequestToken(token), hashIntegrationCredentialRequestToken(token));
+    assert.notEqual(hashIntegrationCredentialRequestToken(token), token);
+
+    const url = buildIntegrationCredentialRequestUrl(token);
+    assert.match(url, /\/secure\/integration-credential\?token=/);
+
+    const html = renderIntegrationCredentialRequestPage({
+        token,
+        request: {
+            accountName: "TRAVEONE LTD.",
+            provider: "SHOPIFY",
+            integrationName: "Justeefy Shopify Inventory Sync",
+            storeIdentifier: "fvapdw-08.myshopify.com",
+            expiresAt: "2026-06-20T12:00:00.000Z",
+            settings: {
+                primaryLocationName: "Justeefy Canada",
+                shopifyLocationId: "91373928677"
+            }
+        }
+    });
+
+    assert.match(html, /noindex,nofollow,noarchive,nosnippet/);
+    assert.match(html, /Shopify Admin API access token/);
+    assert.match(html, /TRAVEONE LTD\./);
+    assert.match(html, /Justeefy Canada/);
 });

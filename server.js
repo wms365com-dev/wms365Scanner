@@ -418,6 +418,7 @@ const SHOPIFY_ADMIN_API_VERSION = "2026-01";
 const SHOPIFY_ORDER_PAGE_LIMIT = 250;
 const SHOPIFY_VARIANT_PAGE_LIMIT = 250;
 const SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE = "SHOPIFY_INVENTORY_LEVEL";
+const INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS = Math.max(1, Number.parseInt(readEnv("INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS", "72") || "72", 10) || 72);
 const STRIPE_CHECKOUT_PLANS = Object.freeze({
     LAUNCH_WAREHOUSE: {
         key: "LAUNCH_WAREHOUSE",
@@ -1053,6 +1054,7 @@ app.use((req, res, next) => {
     }
     return jsonBodyParser(req, res, next);
 });
+app.use(express.urlencoded({ extended: false, limit: "64kb" }));
 
 app.use(loginRateLimit);
 
@@ -1244,6 +1246,48 @@ app.post(["/email-preferences/unsubscribe", "/api/email-preferences/unsubscribe"
     } catch (error) {
         res.status(error.statusCode || 400).send(renderCustomerEmailUnsubscribePage({
             errorMessage: error.message || "This unsubscribe link could not be processed."
+        }));
+    }
+});
+
+app.get("/secure/integration-credential", async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        const token = String(req.query?.token || "").trim();
+        const request = await getIntegrationCredentialRequestByToken(pool, token);
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).send(renderIntegrationCredentialRequestPage({ request, token }));
+    } catch (error) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(error.statusCode || 400).send(renderIntegrationCredentialRequestPage({
+            errorMessage: error.message || "This secure credential link could not be opened."
+        }));
+    }
+});
+
+app.post("/secure/integration-credential", async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        const token = String(req.body?.token || req.query?.token || "").trim();
+        const credential = String(req.body?.credential || req.body?.accessToken || req.body?.access_token || "").trim();
+        if (!credential || credential.length < 20) {
+            throw httpError(400, "Enter the Shopify Admin API access token before submitting.");
+        }
+        if (credential.length > 12000) {
+            throw httpError(400, "The submitted credential is longer than expected. Please verify the Shopify token and try again.");
+        }
+
+        const result = await withTransaction(async (client) => submitIntegrationCredentialRequest(client, token, credential));
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).send(renderIntegrationCredentialRequestPage({
+            mode: "success",
+            request: result.request,
+            integration: result.integration
+        }));
+    } catch (error) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(error.statusCode || 400).send(renderIntegrationCredentialRequestPage({
+            errorMessage: error.message || "This secure credential could not be saved."
         }));
     }
 });
@@ -7425,6 +7469,33 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_store_inbound_imports_external_inbound_id on store_inbound_imports (external_inbound_id);");
     await pool.query("create index if not exists idx_store_sync_exports_integration_id on store_sync_exports (integration_id);");
     await pool.query("create index if not exists idx_store_sync_exports_entity_type on store_sync_exports (entity_type);");
+    await pool.query(`
+        create table if not exists integration_credential_requests (
+            id bigserial primary key,
+            token_hash text not null unique,
+            integration_id bigint not null references store_integrations(id) on delete cascade,
+            account_name text not null default '',
+            recipient_email text not null default '',
+            purpose text not null default 'SHOPIFY_ACCESS_TOKEN',
+            expires_at timestamptz not null,
+            used_at timestamptz,
+            created_by text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        )
+    `);
+    await pool.query("alter table integration_credential_requests add column if not exists token_hash text not null default ''");
+    await pool.query("alter table integration_credential_requests add column if not exists integration_id bigint references store_integrations(id) on delete cascade");
+    await pool.query("alter table integration_credential_requests add column if not exists account_name text not null default ''");
+    await pool.query("alter table integration_credential_requests add column if not exists recipient_email text not null default ''");
+    await pool.query("alter table integration_credential_requests add column if not exists purpose text not null default 'SHOPIFY_ACCESS_TOKEN'");
+    await pool.query("alter table integration_credential_requests add column if not exists expires_at timestamptz not null default now()");
+    await pool.query("alter table integration_credential_requests add column if not exists used_at timestamptz");
+    await pool.query("alter table integration_credential_requests add column if not exists created_by text not null default ''");
+    await pool.query("alter table integration_credential_requests add column if not exists updated_at timestamptz not null default now()");
+    await pool.query("create unique index if not exists idx_integration_credential_requests_token_hash on integration_credential_requests (token_hash)");
+    await pool.query("create index if not exists idx_integration_credential_requests_integration on integration_credential_requests (integration_id, created_at desc)");
+    await pool.query("create index if not exists idx_integration_credential_requests_expires on integration_credential_requests (expires_at)");
     await pool.query("create index if not exists idx_activity_log_created_at on activity_log (created_at desc);");
 
     await pool.query(`
@@ -10319,6 +10390,177 @@ async function getStoreIntegrationList(client = pool, accountName = "") {
 async function getStoreIntegrationRowById(client, integrationId) {
     const result = await client.query("select * from store_integrations where id = $1 limit 1", [integrationId]);
     return result.rowCount === 1 ? decryptStoreIntegrationRow(result.rows[0]) : null;
+}
+
+function createIntegrationCredentialRequestToken() {
+    return crypto.randomBytes(32).toString("base64url");
+}
+
+function hashIntegrationCredentialRequestToken(token) {
+    return crypto.createHash("sha256").update(String(token || "").trim()).digest("hex");
+}
+
+function buildIntegrationCredentialRequestUrl(token) {
+    const origin = APP_BASE_URL || PUBLIC_SITE_URL || DEFAULT_PUBLIC_SITE_URL;
+    return `${origin.replace(/\/+$/, "")}/secure/integration-credential?token=${encodeURIComponent(String(token || ""))}`;
+}
+
+async function getIntegrationCredentialRequestByToken(client, token, { lock = false } = {}) {
+    const normalizedToken = String(token || "").trim();
+    if (!normalizedToken) {
+        throw httpError(400, "This secure credential link is missing its token.");
+    }
+    const result = await client.query(
+        `
+            select
+                r.*,
+                i.provider,
+                i.integration_name,
+                i.store_identifier,
+                i.settings,
+                i.is_active,
+                i.sync_schedule
+            from integration_credential_requests r
+            join store_integrations i on i.id = r.integration_id
+            where r.token_hash = $1
+            limit 1
+            ${lock ? "for update of r" : ""}
+        `,
+        [hashIntegrationCredentialRequestToken(normalizedToken)]
+    );
+    const row = result.rows[0];
+    if (!row) {
+        throw httpError(404, "This secure credential link is not valid.");
+    }
+    if (row.used_at) {
+        throw httpError(410, "This secure credential link was already used.");
+    }
+    const expiresAt = row.expires_at ? new Date(row.expires_at) : null;
+    if (!expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+        throw httpError(410, "This secure credential link has expired. Please ask WMS365 Support for a new link.");
+    }
+    return {
+        id: String(row.id),
+        integrationId: String(row.integration_id),
+        accountName: row.account_name || "",
+        recipientEmail: row.recipient_email || "",
+        purpose: row.purpose || "",
+        provider: normalizeStoreIntegrationProvider(row.provider || ""),
+        integrationName: row.integration_name || "",
+        storeIdentifier: row.store_identifier || "",
+        settings: sanitizeStoreIntegrationSettingsInput(row.provider, row.settings || {}),
+        isActive: row.is_active === true,
+        syncSchedule: normalizeStoreIntegrationSyncSchedule(row.sync_schedule || "MANUAL"),
+        expiresAt: expiresAt.toISOString(),
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : ""
+    };
+}
+
+async function submitIntegrationCredentialRequest(client, token, credential) {
+    const request = await getIntegrationCredentialRequestByToken(client, token, { lock: true });
+    if (request.provider !== SHOPIFY_SYNC_PROVIDER) {
+        throw httpError(400, "This secure link is not configured for a Shopify credential.");
+    }
+    const encryptedCredential = encryptSecret(String(credential || "").trim());
+    const nextScheduledSyncAt = computeNextStoreIntegrationSyncAt(request.syncSchedule, { lastSyncedAt: null });
+    const integrationResult = await client.query(
+        `
+            update store_integrations
+            set access_token = $2,
+                access_token_expires_at = null,
+                is_active = true,
+                next_scheduled_sync_at = $3,
+                last_sync_status = 'IDLE',
+                last_sync_message = 'Credential submitted securely. Waiting for next sync.',
+                updated_at = now()
+            where id = $1
+            returning *
+        `,
+        [request.integrationId, encryptedCredential, nextScheduledSyncAt]
+    );
+    if (integrationResult.rowCount !== 1) {
+        throw httpError(404, "The linked integration could not be found.");
+    }
+    await client.query(
+        "update integration_credential_requests set used_at = now(), updated_at = now() where id = $1",
+        [request.id]
+    );
+    await insertActivity(
+        client,
+        "setup",
+        `Shopify credential submitted securely for ${request.accountName}`,
+        `${request.integrationName || request.storeIdentifier} | ${request.storeIdentifier} | Request ${request.id}`
+    );
+    return {
+        request,
+        integration: mapStoreIntegrationRow(decryptStoreIntegrationRow(integrationResult.rows[0]))
+    };
+}
+
+function renderIntegrationCredentialRequestPage({ request = null, integration = null, token = "", mode = "form", errorMessage = "" } = {}) {
+    const isSuccess = mode === "success";
+    const title = isSuccess ? "Credential Received" : "Secure Credential Handoff";
+    const providerLabel = request?.provider ? describeStoreIntegrationProvider(request.provider) : "Store";
+    const accountName = request?.accountName || integration?.accountName || "";
+    const integrationName = request?.integrationName || integration?.integrationName || "";
+    const storeIdentifier = request?.storeIdentifier || integration?.storeIdentifier || "";
+    const expiresAt = request?.expiresAt ? new Date(request.expiresAt).toLocaleString("en-US", { timeZone: STORE_INTEGRATION_SCHEDULE_TIME_ZONE }) : "";
+    const settings = request?.settings || integration?.settings || {};
+    const formHtml = request && !isSuccess && !errorMessage ? `
+        <form method="post" action="/secure/integration-credential" autocomplete="off">
+            <input type="hidden" name="token" value="${escapeHtml(token)}">
+            <label for="credential">Shopify Admin API access token</label>
+            <textarea id="credential" name="credential" rows="5" required autocomplete="off" spellcheck="false" placeholder="Paste the Shopify Admin API access token here"></textarea>
+            <p class="hint">The token is encrypted immediately and this link can only be used once. Do not email the token.</p>
+            <button type="submit">Submit Securely</button>
+        </form>
+    ` : "";
+    const detailRows = [
+        ["Company", accountName],
+        ["Connection", integrationName],
+        ["Provider", providerLabel],
+        ["Store", storeIdentifier],
+        ["Shopify location", settings.primaryLocationName || ""],
+        ["Location ID", settings.shopifyLocationId || ""],
+        ["Expires", expiresAt]
+    ].filter(([, value]) => value);
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+  <title>${escapeHtml(`WMS365 - ${title}`)}</title>
+  <style>
+    :root{color-scheme:light;--ink:#102033;--muted:#607284;--line:#d9e4ee;--brand:#0f6f8c;--good:#0f7a4d;--bad:#9b1c1c;--bg:#f4f8fb}
+    body{margin:0;background:var(--bg);font-family:Arial,sans-serif;color:var(--ink);line-height:1.5}
+    main{max-width:720px;margin:32px auto;padding:0 18px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:26px;box-shadow:0 10px 24px rgba(15,32,51,.08)}
+    .brand{font-weight:800;letter-spacing:.08em;color:var(--brand);font-size:13px;text-transform:uppercase;margin-bottom:10px}
+    h1{font-size:28px;margin:0 0 10px}p{margin:0 0 14px}.hint,.meta{color:var(--muted);font-size:14px}
+    table{border-collapse:collapse;width:100%;margin:18px 0}td{border-top:1px solid var(--line);padding:10px 0;vertical-align:top}td:first-child{width:170px;font-weight:700;color:#31475b}
+    label{display:block;font-weight:700;margin:18px 0 8px}
+    textarea{width:100%;box-sizing:border-box;border:1px solid #b8c8d8;border-radius:6px;padding:12px;font:14px Consolas,monospace;resize:vertical}
+    button{margin-top:14px;background:var(--brand);color:#fff;border:0;border-radius:6px;padding:13px 18px;font-size:16px;font-weight:700;cursor:pointer}
+    .notice{border-radius:6px;padding:14px 16px;margin:16px 0}.success{background:#ecfdf5;color:var(--good);border:1px solid #bbf7d0}.error{background:#fef2f2;color:var(--bad);border:1px solid #fecaca}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <div class="brand">WMS365 Secure Handoff</div>
+      <h1>${escapeHtml(title)}</h1>
+      ${errorMessage ? `<div class="notice error">${escapeHtml(errorMessage)}</div>` : ""}
+      ${isSuccess ? `<div class="notice success">Thank you. The credential was received securely and the Shopify connection is ready for WMS365 sync.</div>` : ""}
+      ${request && !isSuccess ? `<p>Use this secure one-time page to provide the Shopify credential for WMS365. This page is protected by HTTPS, expires automatically, and cannot be reused.</p>` : ""}
+      ${detailRows.length ? `<table>${detailRows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>` : ""}
+      ${formHtml}
+      <footer>Need help? Contact <a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a>.</footer>
+    </section>
+  </main>
+</body>
+</html>`;
 }
 
 async function getStoreSkuMappings(client = pool, { accountName = "", localSku = "", integrationId = null } = {}) {
@@ -29656,6 +29898,10 @@ module.exports = {
     sanitizeStoreIntegrationSettingsInput,
     buildShopifyInventoryAvailabilityLookup,
     exportShopifyInventoryLevels,
+    createIntegrationCredentialRequestToken,
+    hashIntegrationCredentialRequestToken,
+    buildIntegrationCredentialRequestUrl,
+    renderIntegrationCredentialRequestPage,
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
