@@ -901,7 +901,7 @@
                         <button class="btn ghost active" type="button" data-view="inventory">Inventory</button>
                         <button class="btn ghost" type="button" data-view="items">Items</button>
                         <button class="btn ghost" type="button" data-view="orders">My Sales Orders</button>
-                        <button class="btn ghost" type="button" data-view="shipped">Shipped Orders</button>
+                        <button class="btn ghost" type="button" data-view="shipped">Shipped in WMS</button>
                         <button class="btn ghost" type="button" data-view="inbounds">My Purchase Orders</button>
                         <button class="btn ghost" type="button" data-view="deliveries">My Deliveries</button>
                         <button class="btn ghost" type="button" data-view="invoices">Invoices</button>
@@ -933,7 +933,7 @@
                     <button class="stat stat-button" type="button" data-order-status-filter="STAGED">
                         <span>Staged</span><strong id="statStaged">0</strong>
                     </button>
-                    <button class="stat stat-button" id="shippedStatButton" type="button" data-order-status-filter="SHIPPED">
+                    <button class="stat stat-button" id="shippedStatButton" type="button" data-view="shipped">
                         <span>Shipped</span><strong id="statShipped">0</strong>
                     </button>
                     <button class="stat stat-button" id="invoicesStatButton" type="button">
@@ -1324,20 +1324,20 @@
             <section id="shippedPanel" class="card portal-section hidden">
                 <div class="portal-panel-head">
                     <div class="header-copy">
-                        <h2>Shipped Orders</h2>
-                        <p class="lead">Review completed shipments separately from open work. Select an order to see carrier, tracking, ship-to, lines, notes, and downloadable documents.</p>
+                        <h2>Shipped in WMS</h2>
+                        <p class="lead">Review orders marked shipped by the warehouse. Select an order to see the WMS shipped timestamp, carrier, tracking, ship-to, lines, notes, and documents.</p>
                     </div>
                     <div class="button-row">
-                        <button class="btn ghost" id="exportShippedOrdersBtn" type="button">Export Shipments</button>
-                        <button class="btn ghost" id="refreshShippedOrdersBtn" type="button">Refresh Shipments</button>
+                        <button class="btn ghost" id="exportShippedOrdersBtn" type="button">Export Shipped Orders</button>
+                        <button class="btn ghost" id="refreshShippedOrdersBtn" type="button">Refresh Shipped Status</button>
                     </div>
                 </div>
                 <div class="portal-section-grid">
                     <div id="shippedOrdersList" class="orders-list">
-                        <div class="empty">No shipped orders yet.</div>
+                        <div class="empty">No orders have been marked shipped in WMS yet.</div>
                     </div>
                     <aside id="shippedOrderDetails" class="order-card">
-                        <div class="empty">Select a shipped order to view shipment details.</div>
+                        <div class="empty">Select an order marked shipped in WMS to view shipment details.</div>
                     </aside>
                 </div>
             </section>
@@ -3070,8 +3070,8 @@
             }
             if (!shippedOrders.length) {
                 portalState.selectedShippedOrderId = null;
-                ui.shippedOrdersList.innerHTML = `<div class="empty">No shipped orders yet.</div>`;
-                ui.shippedOrderDetails.innerHTML = `<div class="empty">Shipment details will appear here after an order is shipped.</div>`;
+                ui.shippedOrdersList.innerHTML = `<div class="empty">No orders have been marked shipped in WMS yet.</div>`;
+                ui.shippedOrderDetails.innerHTML = `<div class="empty">Shipment details will appear here after the warehouse marks an order shipped in WMS.</div>`;
                 return;
             }
 
@@ -3086,7 +3086,7 @@
                         <div class="order-head">
                             <div>
                                 <strong>${esc(order.orderCode)}</strong>
-                                <div class="meta">${esc(order.shippedAt ? `Shipped ${formatDate(order.shippedAt)}` : orderStatusTimeline(order) || "Shipped")}</div>
+                                <div class="meta">${esc(formatWmsShippedAt(order))}</div>
                             </div>
                             <span class="pill success">SHIPPED</span>
                         </div>
@@ -3110,7 +3110,7 @@
         function renderShippedOrderDetails() {
             const order = getShippedOrders().find((entry) => entry.id === portalState.selectedShippedOrderId);
             if (!order) {
-                ui.shippedOrderDetails.innerHTML = `<div class="empty">Select a shipped order to view shipment details.</div>`;
+                ui.shippedOrderDetails.innerHTML = `<div class="empty">Select an order marked shipped in WMS to view shipment details.</div>`;
                 return;
             }
 
@@ -3119,13 +3119,14 @@
                     <div>
                         <div class="eyebrow">Shipment Details</div>
                         <h3>${esc(order.orderCode)}</h3>
-                        <p class="meta">${esc(order.shippedAt ? `Shipped ${formatDate(order.shippedAt)}` : "Shipped date not provided")}</p>
+                        <p class="meta">${esc(formatWmsShippedAt(order))}</p>
                     </div>
                     <span class="pill success">SHIPPED</span>
                 </div>
                 <div class="detail-grid" style="margin-top: 1rem;">
                     <div class="detail"><span>PO #</span><strong>${esc(order.poNumber || "None")}</strong></div>
                     <div class="detail"><span>Reference</span><strong>${esc(order.shippingReference || "None")}</strong></div>
+                    <div class="detail"><span>Marked Shipped in WMS</span><strong>${esc(order.shippedAt ? formatDate(order.shippedAt) : "Not provided")}</strong></div>
                     <div class="detail"><span>Requested Ship</span><strong>${esc(order.requestedShipDate || "Not set")}</strong></div>
                     <div class="detail"><span>Confirmed Ship</span><strong>${esc(order.confirmedShipDate || "Not set")}</strong></div>
                     <div class="detail"><span>Carrier</span><strong>${esc(order.shippedCarrierName || "Not provided")}</strong></div>
@@ -4764,6 +4765,10 @@
             if (order.pickedAt) return `Picked ${formatDate(order.pickedAt)}`;
             if (order.releasedAt) return `Released ${formatDate(order.releasedAt)}`;
             return "";
+        }
+
+        function formatWmsShippedAt(order) {
+            return order?.shippedAt ? `Marked shipped in WMS ${formatDate(order.shippedAt)}` : "Marked shipped in WMS";
         }
 
         function orderTotalQuantity(order) {

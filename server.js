@@ -4649,6 +4649,7 @@ app.get("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        res.setHeader("Cache-Control", "no-store");
         res.json({
             orders: await getPortalOrdersForAccount(session.access.accountName)
         });
