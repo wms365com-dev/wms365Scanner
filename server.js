@@ -5201,11 +5201,13 @@ app.get("/api/portal/inbound-documents/:id", async (req, res, next) => {
 
 app.get("/portal", (_req, res) => {
     res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 
 app.get("/portal.html", (_req, res) => {
     res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.sendFile(path.join(ROOT_DIR, "portal.html"));
 });
 

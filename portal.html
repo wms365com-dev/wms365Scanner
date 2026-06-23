@@ -971,6 +971,18 @@
                             <div class="detail"><span>Ship To</span><strong>Saved with every order</strong></div>
                             <div class="detail"><span>Vendor Scope</span><strong>Locked to your account</strong></div>
                         </div>
+                        <div class="portal-subsection">
+                            <div class="order-head">
+                                <div>
+                                    <h3>Recent Shipments</h3>
+                                    <p class="meta">Latest orders marked shipped in WMS.</p>
+                                </div>
+                                <button class="btn ghost mini" type="button" data-view="shipped">View All</button>
+                            </div>
+                            <div id="recentShipmentsList" class="line-items">
+                                <div class="empty">No orders have been marked shipped in WMS yet.</div>
+                            </div>
+                        </div>
                     </aside>
                 </div>
             </section>
@@ -1570,6 +1582,7 @@
             shippedStatButton: document.getElementById("shippedStatButton"),
             inventoryFilter: document.getElementById("inventoryFilter"),
             inventoryList: document.getElementById("inventoryList"),
+            recentShipmentsList: document.getElementById("recentShipmentsList"),
             exportInventoryBtn: document.getElementById("exportInventoryBtn"),
             itemFormTitle: document.getElementById("itemFormTitle"),
             itemSku: document.getElementById("itemSku"),
@@ -2102,6 +2115,7 @@
             renderShipToAddressOptions();
             renderStats();
             renderInventory();
+            renderRecentShipments();
             renderItems();
             renderKittingRequests();
             renderAddedServices();
@@ -2167,6 +2181,7 @@
             ui.inventoryStatButton.classList.toggle("active", activeView === "inventory");
             ui.invoicesStatButton?.classList.toggle("active", activeView === "invoices");
             if (activeView === "orders") renderOrders();
+            if (activeView === "shipped") renderShippedOrders();
             if (activeView === "addedServices") renderAddedServices();
             if (activeView === "kitting") ensureKittingComponentRows();
             if (activeView === "kittingRequests") renderKittingRequests();
@@ -2440,6 +2455,25 @@
                         <div>${item.upc ? `UPC ${esc(item.upc)}` : "No UPC saved"}</div>
                         <div>${item.locations.length ? `Locations: ${esc(item.locations.join(", "))}` : "No locations found"}</div>
                     </div>
+                </article>
+            `).join("");
+        }
+
+        function renderRecentShipments() {
+            if (!ui.recentShipmentsList) return;
+            const shipments = getShippedOrders().slice(0, 5);
+            if (!shipments.length) {
+                ui.recentShipmentsList.innerHTML = `<div class="empty">No orders have been marked shipped in WMS yet.</div>`;
+                return;
+            }
+            ui.recentShipmentsList.innerHTML = shipments.map((order) => `
+                <article class="line-card">
+                    <div class="line-head">
+                        <strong>${esc(order.orderCode)}</strong>
+                        <span class="pill success">SHIPPED</span>
+                    </div>
+                    <div class="line-note">${esc(formatWmsShippedAt(order))}</div>
+                    <div class="line-note">${esc(order.shippedCarrierName || "Carrier not provided")} | ${esc(order.shippedTrackingReference || "Tracking not provided")}</div>
                 </article>
             `).join("");
         }
@@ -4295,6 +4329,7 @@
 
         async function requestJson(url, options = {}) {
             const response = await fetch(url, {
+                cache: "no-store",
                 headers: {
                     "Content-Type": "application/json",
                     ...(options.headers || {})

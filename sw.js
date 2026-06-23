@@ -1,4 +1,4 @@
-const WMS365_CACHE = "wms365-mobile-shell-v7";
+const WMS365_CACHE = "wms365-mobile-shell-v8";
 const CRITICAL_NETWORK_FIRST = new Set([
   "/mobile-bridge.js",
   "/mobile-pick",
@@ -53,6 +53,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/portal" || url.pathname === "/portal.html") {
+    event.respondWith(fetch(request).catch(() => offlinePage()));
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(
