@@ -1373,6 +1373,26 @@ function buildHealteaApiShippedLines(order, inputLines = []) {
     }));
 }
 
+function buildHealteaApiShipmentConfirmation(order, payload = {}) {
+    const shippedTrackingReference = (
+        payload.shippedTrackingReference
+        || payload.trackingReference
+        || payload.trackingNumber
+        || payload.tracking
+        || payload.proNumber
+        || payload.bolNumber
+        || ""
+    );
+    return {
+        ...payload,
+        shipmentMethod: payload.shipmentMethod || payload.shipment_method || payload.shippingMethod || payload.shipping_method || "PARCEL",
+        shippedCarrierName: payload.shippedCarrierName || payload.carrierName || payload.carrier || "",
+        shippedTrackingReference,
+        shippedConfirmationNote: payload.shippedConfirmationNote || payload.shippingNote || payload.note || "",
+        shippedLines: buildHealteaApiShippedLines(order, payload.shippedLines || payload.lines)
+    };
+}
+
 async function closeHealteaApiOrderAsShipped(client, currentOrder, confirmation) {
     let order = currentOrder;
     const actor = {
@@ -1506,11 +1526,28 @@ healteaApiRouter.post("/orders/:orderCode/ship", async (req, res, next) => {
         const order = await withTransaction(async (client) => {
             const currentOrder = await getHealteaApiOrderByCode(client, req.params.orderCode);
             if (!currentOrder) throw httpError(404, "HEALTEA order not found.");
-            const confirmation = {
-                ...req.body,
-                shipmentMethod: req.body?.shipmentMethod || req.body?.shippingMethod || "PARCEL",
-                shippedLines: buildHealteaApiShippedLines(currentOrder, req.body?.shippedLines)
-            };
+            const confirmation = buildHealteaApiShipmentConfirmation(currentOrder, req.body || {});
+            return closeHealteaApiOrderAsShipped(client, currentOrder, confirmation);
+        });
+        res.json({
+            success: true,
+            order: mapHealteaApiOrder(order)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+healteaApiRouter.post("/orders/:orderCode/status", async (req, res, next) => {
+    try {
+        const requestedStatus = normalizePortalOrderStatus(req.body?.status || req.body?.nextStatus || req.body?.orderStatus);
+        if (requestedStatus !== "SHIPPED") {
+            throw httpError(400, "HEALTEA API status updates currently support status SHIPPED only. Use /ship to close an order.");
+        }
+        const order = await withTransaction(async (client) => {
+            const currentOrder = await getHealteaApiOrderByCode(client, req.params.orderCode);
+            if (!currentOrder) throw httpError(404, "HEALTEA order not found.");
+            const confirmation = buildHealteaApiShipmentConfirmation(currentOrder, req.body || {});
             return closeHealteaApiOrderAsShipped(client, currentOrder, confirmation);
         });
         res.json({

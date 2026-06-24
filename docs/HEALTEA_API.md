@@ -81,17 +81,23 @@ This records an audited WMS activity marker. It does not buy a carrier label by 
 
 ### Mark Shipped
 
+You can close an order with either route. Both use the same WMS365 shipping workflow:
+
 ```http
 POST /orders/ORD-000330/ship
+POST /orders/ORD-000330/status
 ```
+
+For `/status`, include `status: "SHIPPED"` in the payload.
 
 Payload:
 
 ```json
 {
+  "status": "SHIPPED",
   "shipmentMethod": "PARCEL",
   "carrier": "UPS",
-  "trackingNumber": "1Z9999999999999999",
+  "tracking": "1Z9999999999999999",
   "shipDate": "2026-06-24",
   "note": "Closed by external label project"
 }
@@ -101,15 +107,16 @@ If `shippedLines` is omitted, WMS365 closes the full order quantity for every li
 
 ```json
 {
+  "status": "SHIPPED",
   "shipmentMethod": "PARCEL",
   "carrier": "UPS",
-  "trackingNumber": "1Z9999999999999999",
+  "tracking": "1Z9999999999999999",
   "shippedLines": [
     { "sku": "20628693486136", "shippedQuantity": 2 }
   ]
 }
 ```
 
-The endpoint uses the same WMS365 shipped-closeout logic as the warehouse UI, including inventory deduction, audit trail, shipment email scheduling, and Shopify confirmation flow where available.
+The endpoint accepts `carrier`, `carrierName`, `tracking`, `trackingNumber`, `trackingReference`, `proNumber`, or `bolNumber`. It uses the same WMS365 shipped-closeout logic as the warehouse UI, including inventory deduction, audit trail, shipment email scheduling, and Shopify confirmation flow where available.
 
 For speed, the endpoint can advance a `RELEASED` order through `PICKED` and `STAGED` before shipping. It refuses `DRAFT`, `CANCELLED`, or archived orders.
