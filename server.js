@@ -45,6 +45,14 @@ function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+function sanitizeDownloadFilename(value) {
+    return String(value || "wms365-document")
+        .replace(/[\r\n"]/g, "")
+        .replace(/[\\/:*?<>|]+/g, "-")
+        .trim()
+        .slice(0, 160) || "wms365-document";
+}
+
 function stripEnvWrappingQuotes(value) {
     const text = String(value || "").trim();
     if (!text) return "";
@@ -166,6 +174,8 @@ const DEFAULT_PUBLIC_SITE_URL = "https://www.wms365.co";
 const PUBLIC_SITE_URL = readEnv("PUBLIC_SITE_URL", "").replace(/\/+$/, "");
 const APP_BASE_URL = (readEnv("APP_BASE_URL", "") || readEnv("PUBLIC_APP_URL", "")).replace(/\/+$/, "");
 const PUBLIC_SITE_ALLOWED_ORIGINS = readEnv("PUBLIC_SITE_ALLOWED_ORIGINS", "");
+const HEALTEA_API_ACCOUNT_NAME = "HEALTEA";
+const HEALTEA_API_TOKEN = readEnv("HEALTEA_API_TOKEN", "");
 const STRIPE_SECRET_KEY = readEnv("STRIPE_SECRET_KEY", "");
 const STRIPE_WEBHOOK_SECRET = readEnv("STRIPE_WEBHOOK_SECRET", "");
 const STRIPE_PRICE_LAUNCH_WAREHOUSE = readEnv("STRIPE_PRICE_LAUNCH_WAREHOUSE", "");
@@ -1249,6 +1259,270 @@ app.post(["/email-preferences/unsubscribe", "/api/email-preferences/unsubscribe"
         }));
     }
 });
+
+function extractBearerToken(req) {
+    const authorization = String(req.headers.authorization || "").trim();
+    if (!/^bearer\s+/i.test(authorization)) return "";
+    return authorization.replace(/^bearer\s+/i, "").trim();
+}
+
+function safeTokenEquals(expected, actual) {
+    const expectedBuffer = Buffer.from(String(expected || ""));
+    const actualBuffer = Buffer.from(String(actual || ""));
+    if (!expectedBuffer.length || !actualBuffer.length || expectedBuffer.length !== actualBuffer.length) return false;
+    return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function requireHealteaApiToken(req, _res, next) {
+    if (!HEALTEA_API_TOKEN) {
+        return next(httpError(503, "HEALTEA API token is not configured."));
+    }
+    if (!safeTokenEquals(HEALTEA_API_TOKEN, extractBearerToken(req))) {
+        void insertActivity(
+            pool,
+            "security",
+            "HEALTEA API authentication failed",
+            [getClientIp(req), req.method, req.originalUrl || req.url].filter(Boolean).join(" | ")
+        ).catch((error) => console.error("Unable to audit HEALTEA API auth failure:", error.message || error));
+        return next(httpError(401, "Valid HEALTEA API bearer token required."));
+    }
+    req.healteaApi = {
+        accountName: HEALTEA_API_ACCOUNT_NAME,
+        actor: "HEALTEA_API"
+    };
+    return next();
+}
+
+function mapHealteaApiOrder(order) {
+    if (!order) return null;
+    return {
+        id: order.id,
+        orderCode: order.orderCode,
+        accountName: order.accountName,
+        status: order.status,
+        poNumber: order.poNumber,
+        shippingReference: order.shippingReference,
+        requestedShipDate: order.requestedShipDate,
+        shipTo: {
+            name: order.shipToName,
+            address1: order.shipToAddress1,
+            address2: order.shipToAddress2,
+            city: order.shipToCity,
+            state: order.shipToState,
+            postalCode: order.shipToPostalCode,
+            country: order.shipToCountry,
+            phone: order.shipToPhone
+        },
+        shipment: {
+            confirmedShipDate: order.confirmedShipDate,
+            method: order.shipmentMethod,
+            carrier: order.shippedCarrierName,
+            tracking: order.shippedTrackingReference,
+            note: order.shippedConfirmationNote,
+            shippedAt: order.shippedAt,
+            emailStatus: order.shipmentEmailStatus
+        },
+        lines: (Array.isArray(order.lines) ? order.lines : []).map((line) => ({
+            id: line.id,
+            lineNumber: line.lineNumber,
+            sku: line.sku,
+            description: line.description,
+            quantity: line.quantity,
+            trackingLevel: line.trackingLevel,
+            pickLocations: line.pickLocations || []
+        })),
+        documents: order.documents || [],
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt
+    };
+}
+
+async function getHealteaApiOrderByCode(client, orderCode) {
+    const normalizedCode = normalizeText(orderCode);
+    if (!normalizedCode) return null;
+    const result = await client.query(
+        `
+            select id
+            from portal_orders
+            where account_name = $1
+              and order_code = $2
+              and status <> 'ARCHIVED'
+            limit 1
+        `,
+        [HEALTEA_API_ACCOUNT_NAME, normalizedCode]
+    );
+    if (result.rowCount !== 1) return null;
+    return getPortalOrderById(client, result.rows[0].id, HEALTEA_API_ACCOUNT_NAME);
+}
+
+function normalizeHealteaOrderStatusFilter(value = "") {
+    const normalized = normalizeText(value || "");
+    if (!normalized || normalized === "OPEN") return ["DRAFT", "RELEASED", "PICKED", "STAGED"];
+    if (normalized === "ALL") return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"];
+    const allowed = new Set(["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"]);
+    return allowed.has(normalized) ? [normalized] : ["DRAFT", "RELEASED", "PICKED", "STAGED"];
+}
+
+function buildHealteaApiShippedLines(order, inputLines = []) {
+    const rawLines = Array.isArray(inputLines) ? inputLines : [];
+    if (rawLines.length) return rawLines;
+    return (Array.isArray(order?.lines) ? order.lines : []).map((line) => ({
+        orderLineId: line.id,
+        sku: line.sku,
+        shippedQuantity: Number(line.quantity) || 0
+    }));
+}
+
+async function closeHealteaApiOrderAsShipped(client, currentOrder, confirmation) {
+    let order = currentOrder;
+    const actor = {
+        id: null,
+        email: "healtea-api@wms365.co",
+        full_name: "HEALTEA API",
+        role: APP_USER_ROLES.WAREHOUSE_ADMIN
+    };
+    if (order.status === "SHIPPED") {
+        return updateAdminPortalOrderStatus(client, order.id, "SHIPPED", confirmation, actor);
+    }
+    if (order.status === "DRAFT" || order.status === "CANCELLED" || order.status === "ARCHIVED") {
+        throw httpError(400, `HEALTEA API cannot ship an order in ${order.status} status.`);
+    }
+    if (order.status === "RELEASED") {
+        order = await updateAdminPortalOrderStatus(client, order.id, "PICKED", {}, actor);
+    }
+    if (order.status === "PICKED") {
+        order = await updateAdminPortalOrderStatus(client, order.id, "STAGED", {}, actor);
+    }
+    if (order.status !== "STAGED") {
+        throw httpError(400, `HEALTEA API cannot ship an order in ${order.status} status.`);
+    }
+    return updateAdminPortalOrderStatus(client, order.id, "SHIPPED", confirmation, actor);
+}
+
+const healteaApiRouter = express.Router();
+healteaApiRouter.use(requireHealteaApiToken);
+
+healteaApiRouter.get("/health", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+        ok: true,
+        accountName: HEALTEA_API_ACCOUNT_NAME,
+        databaseReady,
+        timestamp: new Date().toISOString()
+    });
+});
+
+healteaApiRouter.get("/orders", async (req, res, next) => {
+    try {
+        const statuses = normalizeHealteaOrderStatusFilter(req.query?.status);
+        const limit = Math.max(1, Math.min(Number(req.query?.limit) || 50, 100));
+        const orders = await getPortalOrderList({
+            accountName: HEALTEA_API_ACCOUNT_NAME,
+            client: pool,
+            limit: 200,
+            downloadPathPrefix: "/api/healtea/v1/order-documents"
+        });
+        const filtered = orders
+            .filter((order) => statuses.includes(order.status))
+            .slice(0, limit)
+            .map(mapHealteaApiOrder);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            success: true,
+            accountName: HEALTEA_API_ACCOUNT_NAME,
+            statusFilter: statuses,
+            count: filtered.length,
+            orders: filtered
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+healteaApiRouter.get("/orders/:orderCode", async (req, res, next) => {
+    try {
+        const order = await getHealteaApiOrderByCode(pool, req.params.orderCode);
+        if (!order) throw httpError(404, "HEALTEA order not found.");
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            success: true,
+            order: mapHealteaApiOrder(order)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+healteaApiRouter.get("/order-documents/:documentId", async (req, res, next) => {
+    try {
+        const documentId = toPositiveInt(req.params.documentId);
+        if (!documentId) throw httpError(400, "A valid document id is required.");
+        const document = await getPortalOrderDocumentById(documentId);
+        if (!document || normalizeText(document.account_name) !== HEALTEA_API_ACCOUNT_NAME) {
+            throw httpError(404, "HEALTEA document not found.");
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="${sanitizeDownloadFilename(document.file_name || "wms365-document")}"`);
+        res.type(document.file_type || "application/octet-stream");
+        res.send(document.file_data);
+    } catch (error) {
+        next(error);
+    }
+});
+
+healteaApiRouter.post("/orders/:orderCode/label-request", async (req, res, next) => {
+    try {
+        const result = await withTransaction(async (client) => {
+            const order = await getHealteaApiOrderByCode(client, req.params.orderCode);
+            if (!order) throw httpError(404, "HEALTEA order not found.");
+            const carrier = normalizeFreeText(req.body?.carrier || req.body?.carrierName || "");
+            const service = normalizeFreeText(req.body?.service || req.body?.serviceLevel || "");
+            const idempotencyKey = normalizeFreeText(req.body?.idempotencyKey || req.get("Idempotency-Key") || "");
+            await insertActivity(
+                client,
+                "order",
+                `HEALTEA API label request for ${order.orderCode}`,
+                [
+                    order.accountName,
+                    carrier ? `Carrier ${carrier}` : "",
+                    service ? `Service ${service}` : "",
+                    idempotencyKey ? `Idempotency ${idempotencyKey}` : "",
+                    normalizeFreeText(req.body?.note || "")
+                ].filter(Boolean).join(" | ")
+            );
+            return order;
+        });
+        res.status(202).json({
+            success: true,
+            message: "Label request recorded in WMS365.",
+            order: mapHealteaApiOrder(result)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+healteaApiRouter.post("/orders/:orderCode/ship", async (req, res, next) => {
+    try {
+        const order = await withTransaction(async (client) => {
+            const currentOrder = await getHealteaApiOrderByCode(client, req.params.orderCode);
+            if (!currentOrder) throw httpError(404, "HEALTEA order not found.");
+            const confirmation = {
+                ...req.body,
+                shipmentMethod: req.body?.shipmentMethod || req.body?.shippingMethod || "PARCEL",
+                shippedLines: buildHealteaApiShippedLines(currentOrder, req.body?.shippedLines)
+            };
+            return closeHealteaApiOrderAsShipped(client, currentOrder, confirmation);
+        });
+        res.json({
+            success: true,
+            order: mapHealteaApiOrder(order)
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.use("/api/healtea/v1", healteaApiRouter);
 
 app.get("/secure/integration-credential", async (req, res) => {
     try {
@@ -9710,6 +9984,7 @@ function requiresAppAuth(req) {
         || pathName === "/api/app/recovery/password"
         || pathName === "/api/app/logout"
         || pathName === "/api/app/me") return false;
+    if (pathName.startsWith("/api/healtea/v1/")) return false;
     if (pathName.startsWith("/api/portal/")) return false;
     if (pathName.startsWith("/api/print-agent/")) return false;
     return pathName.startsWith("/api/");
