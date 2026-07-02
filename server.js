@@ -225,7 +225,8 @@ const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
 });
 const PORTAL_ORDER_PRINT_DOCUMENT_TYPES = Object.freeze({
     PICK_TICKET: "PICK_TICKET",
-    PACKING_SLIP: "PACKING_SLIP"
+    PACKING_SLIP: "PACKING_SLIP",
+    UCC128_LABELS: "UCC128_LABELS"
 });
 const WAREHOUSE_PRINT_JOB_STATUSES = Object.freeze({
     QUEUED: "QUEUED",
@@ -4196,6 +4197,44 @@ app.post("/api/admin/portal-orders", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/portal-orders/batch-pick-tickets.pdf", async (req, res, next) => {
+    try {
+        const rawIds = String(req.query?.ids || req.query?.orderIds || req.query?.order_ids || "")
+            .split(/[,\s]+/)
+            .map((value) => toPositiveInt(value))
+            .filter(Boolean);
+        const orderIds = [...new Set(rawIds)].slice(0, 100);
+        if (!orderIds.length) {
+            throw httpError(400, "Choose at least one order to print pick tickets.");
+        }
+        if (rawIds.length > 100) {
+            throw httpError(400, "Batch pick ticket printing is limited to 100 orders at a time.");
+        }
+        const attachment = await withTransaction(async (client) => {
+            const orders = [];
+            for (const orderId of orderIds) {
+                const accountName = await getPortalOrderAccountNameById(client, orderId);
+                await assertAppUserCompanyAccess(client, req.appUser, accountName);
+                const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+                if (!order) {
+                    throw httpError(404, `Order ${orderId} could not be found.`);
+                }
+                if (!["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status)) {
+                    throw httpError(400, `${order.orderCode || `Order ${orderId}`} is ${order.status} and cannot have a pick ticket printed.`);
+                }
+                await recordPortalOrderPrintEvent(client, orderId, PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET, req.appUser);
+                orders.push(order);
+            }
+            return buildPortalOrderBatchPickTicketPdfAttachment(orders);
+        });
+        res.setHeader("Content-Type", attachment.contentType);
+        res.setHeader("Content-Disposition", contentDispositionInline(attachment.filename));
+        res.send(attachment.content);
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/portal-orders/:id", async (req, res, next) => {
     try {
         const orderId = toPositiveInt(req.params.id);
@@ -4339,6 +4378,30 @@ app.post("/api/admin/portal-orders/:id/print-jobs", async (req, res, next) => {
             return createPortalOrderWarehousePrintJob(client, orderId, req.body || {}, req.appUser);
         });
         res.status(201).json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/portal-orders/:id/ucc128-labels.pdf", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const attachment = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+            if (!order) throw httpError(404, "That sales order could not be found.");
+            if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
+                throw httpError(400, `Orders in ${order.status} cannot have UCC128 labels generated.`);
+            }
+            return buildPortalOrderUcc128LabelPdfAttachment(order, req.query || {});
+        });
+        res.setHeader("Content-Type", attachment.contentType);
+        res.setHeader("Content-Disposition", contentDispositionInline(attachment.filename));
+        res.send(attachment.content);
     } catch (error) {
         next(error);
     }
@@ -7324,7 +7387,7 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("alter table portal_order_print_events drop constraint if exists portal_order_print_events_document_type_check");
-    await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_document_type_check check (document_type in ('PICK_TICKET', 'PACKING_SLIP'))");
+    await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_document_type_check check (document_type in ('PICK_TICKET', 'PACKING_SLIP', 'UCC128_LABELS'))");
     await pool.query("alter table portal_order_print_events drop constraint if exists portal_order_print_events_action_check");
     await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_action_check check (print_action in ('PRINT', 'REPRINT'))");
     await pool.query("create index if not exists idx_portal_order_print_events_order_type on portal_order_print_events (order_id, document_type, created_at desc)");
@@ -19158,7 +19221,7 @@ function wrapPdfText(value, width = 92) {
     return lines.length ? lines : [""];
 }
 
-function buildSimpleTextPdfBuffer(lines = []) {
+function paginateSimpleTextPdfLines(lines = []) {
     const pageWidth = 612;
     const pageHeight = 792;
     const marginX = 42;
@@ -19171,7 +19234,23 @@ function buildSimpleTextPdfBuffer(lines = []) {
     for (let index = 0; index < sourceLines.length; index += maxLinesPerPage) {
         pages.push(sourceLines.slice(index, index + maxLinesPerPage));
     }
+    return { pages, pageWidth, pageHeight, marginX, marginTop, lineHeight };
+}
 
+function buildSimpleTextPdfBuffer(lines = []) {
+    const { pages, pageWidth, pageHeight, marginX, marginTop, lineHeight } = paginateSimpleTextPdfLines(lines);
+    return buildSimpleTextPdfPagesBuffer(pages, { pageWidth, pageHeight, marginX, marginTop, lineHeight });
+}
+
+function buildSimpleTextPdfPagesBuffer(inputPages = [], options = {}) {
+    const pageWidth = options.pageWidth || 612;
+    const pageHeight = options.pageHeight || 792;
+    const marginX = options.marginX || 42;
+    const marginTop = options.marginTop || 42;
+    const lineHeight = options.lineHeight || 14;
+    const pages = Array.isArray(inputPages) && inputPages.length
+        ? inputPages.map((page) => (Array.isArray(page) && page.length ? page : [""]))
+        : [["WMS365 Document"]];
     const objects = [
         { body: "<< /Type /Catalog /Pages 2 0 R >>" },
         { body: "" },
@@ -19234,7 +19313,7 @@ function formatPickTicketWorkflowStatus(order) {
     return status || "READY TO PICK";
 }
 
-function buildPortalOrderPickTicketPdfAttachment(order) {
+function buildPortalOrderPickTicketLines(order) {
     const lines = [
         "WMS365 PICK TICKET",
         "",
@@ -19282,10 +19361,33 @@ function buildPortalOrderPickTicketPdfAttachment(order) {
     );
 
     lines.push("", `Generated: ${new Date().toISOString()}`);
+    return lines;
+}
 
+function buildPortalOrderPickTicketPdfAttachment(order) {
+    const lines = buildPortalOrderPickTicketLines(order);
     return {
         filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket.pdf`),
         content: buildSimpleTextPdfBuffer(lines),
+        contentType: "application/pdf"
+    };
+}
+
+function buildPortalOrderBatchPickTicketPdfAttachment(orders = []) {
+    const pdfPages = [];
+    const orderCodes = [];
+    (Array.isArray(orders) ? orders : []).forEach((order) => {
+        if (!order) return;
+        orderCodes.push(order.orderCode || String(order.id || "order"));
+        const { pages } = paginateSimpleTextPdfLines(buildPortalOrderPickTicketLines(order));
+        pdfPages.push(...pages);
+    });
+    if (!pdfPages.length) {
+        throw httpError(400, "Choose at least one order to print pick tickets.");
+    }
+    return {
+        filename: normalizeUploadFileName(`wms365-batch-pick-tickets-${orderCodes.length}-orders.pdf`),
+        content: buildSimpleTextPdfPagesBuffer(pdfPages),
         contentType: "application/pdf"
     };
 }
@@ -20476,6 +20578,7 @@ function normalizeWarehousePrinterRole(value) {
     const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
     if (normalized === "PICK" || normalized === "PICK_TICKET") return WAREHOUSE_PRINTER_ROLES.PICK_TICKET;
     if (normalized === "PACKING" || normalized === "PACKING_SLIP") return WAREHOUSE_PRINTER_ROLES.PACKING_SLIP;
+    if (normalized === "UCC128" || normalized === "UCC_128" || normalized === "GS1_128" || normalized === "UCC128_LABELS") return WAREHOUSE_PRINTER_ROLES.SHIPPING_LABEL;
     if (normalized === "LABEL" || normalized === "SHIPPING_LABEL") return WAREHOUSE_PRINTER_ROLES.SHIPPING_LABEL;
     if (normalized === "PALLET" || normalized === "PALLET_LABEL") return WAREHOUSE_PRINTER_ROLES.PALLET_LABEL;
     if (normalized === "LOCATION" || normalized === "LOCATION_LABEL") return WAREHOUSE_PRINTER_ROLES.LOCATION_LABEL;
@@ -20845,6 +20948,254 @@ function buildPortalOrderPackingSlipPdfAttachment(order) {
     };
 }
 
+const CODE128_PATTERNS = [
+    "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
+    "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
+    "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211",
+    "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313",
+    "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331",
+    "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111",
+    "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214",
+    "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111",
+    "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141",
+    "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141",
+    "114131", "311141", "411131", "211412", "211214", "211232", "2331112"
+];
+
+function calculateGs1Modulo10CheckDigit(value) {
+    const digits = String(value || "").replace(/\D/g, "");
+    let sum = 0;
+    let weight = 3;
+    for (let index = digits.length - 1; index >= 0; index -= 1) {
+        sum += Number(digits[index]) * weight;
+        weight = weight === 3 ? 1 : 3;
+    }
+    return String((10 - (sum % 10)) % 10);
+}
+
+function sanitizeGs1CompanyPrefix(value) {
+    const prefix = String(value || "").replace(/\D/g, "");
+    return prefix.length >= 6 && prefix.length <= 12 ? prefix : "";
+}
+
+function buildSscc18({ companyPrefix = "", serialSeed = "", extensionDigit = "0" } = {}) {
+    const prefix = sanitizeGs1CompanyPrefix(companyPrefix);
+    if (!prefix) {
+        throw httpError(400, "Enter a valid GS1 company prefix before generating UCC128/GS1-128 labels.");
+    }
+    const extension = String(extensionDigit || "0").replace(/\D/g, "").slice(0, 1) || "0";
+    const serialLength = 17 - extension.length - prefix.length;
+    if (serialLength < 1) {
+        throw httpError(400, "The GS1 company prefix is too long for SSCC label generation.");
+    }
+    const seed = String(serialSeed || "").replace(/\D/g, "");
+    const serial = seed.slice(-serialLength).padStart(serialLength, "0");
+    const body = `${extension}${prefix}${serial}`;
+    return `${body}${calculateGs1Modulo10CheckDigit(body)}`;
+}
+
+function encodeGs1SsccCode128Values(sscc) {
+    const digits = String(sscc || "").replace(/\D/g, "");
+    if (digits.length !== 18) {
+        throw httpError(400, "SSCC must be exactly 18 digits.");
+    }
+    const gs1Data = `00${digits}`;
+    const values = [105, 102];
+    for (let index = 0; index < gs1Data.length; index += 2) {
+        values.push(Number(gs1Data.slice(index, index + 2)));
+    }
+    let checksum = values[0];
+    for (let index = 1; index < values.length; index += 1) {
+        checksum += values[index] * index;
+    }
+    values.push(checksum % 103, 106);
+    return values;
+}
+
+function pdfRect(x, y, width, height) {
+    return `${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re f`;
+}
+
+function pdfStrokeRect(x, y, width, height) {
+    return `${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re S`;
+}
+
+function pdfLine(x1, y1, x2, y2) {
+    return `${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`;
+}
+
+function pdfText(text, x, y, size = 10, font = "F1") {
+    return `BT /${font} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscapeText(text)}) Tj ET`;
+}
+
+function drawCode128BarcodeOps(values, x, y, targetWidth, height) {
+    const patternText = values.map((value) => CODE128_PATTERNS[value] || "").join("");
+    const moduleCount = patternText.split("").reduce((sum, digit) => sum + Number(digit || 0), 0);
+    const moduleWidth = targetWidth / moduleCount;
+    const ops = [];
+    let cursor = x;
+    let drawBar = true;
+    for (const digit of patternText) {
+        const width = Number(digit || 0) * moduleWidth;
+        if (drawBar && width > 0) {
+            ops.push(pdfRect(cursor, y, width, height));
+        }
+        cursor += width;
+        drawBar = !drawBar;
+    }
+    return ops;
+}
+
+function buildPdfFromPageOperations(pages, { pageWidth = 288, pageHeight = 432 } = {}) {
+    const objects = [
+        { body: "<< /Type /Catalog /Pages 2 0 R >>" },
+        { body: "" },
+        { body: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>" },
+        { body: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>" }
+    ];
+    const pageObjectIds = [];
+    pages.forEach((operations) => {
+        const stream = operations.join("\n");
+        const contentObjectId = objects.length + 1;
+        const pageObjectId = contentObjectId + 1;
+        objects.push({ body: `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream` });
+        objects.push({
+            body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjectId} 0 R >>`
+        });
+        pageObjectIds.push(pageObjectId);
+    });
+    objects[1].body = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageObjectIds.length} >>`;
+    let output = "%PDF-1.4\n";
+    const offsets = [0];
+    objects.forEach((object, index) => {
+        offsets.push(Buffer.byteLength(output, "utf8"));
+        output += `${index + 1} 0 obj\n${object.body}\nendobj\n`;
+    });
+    const xrefOffset = Buffer.byteLength(output, "utf8");
+    output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let index = 1; index < offsets.length; index += 1) {
+        output += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+    }
+    output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+    return Buffer.from(output, "utf8");
+}
+
+function sanitizeUcc128LabelInput(input = {}) {
+    const explicitLabelsPerLine = input.labelsPerLine || input.labels_per_line || input.cartonsPerLine || input.cartons_per_line;
+    return {
+        gs1CompanyPrefix: sanitizeGs1CompanyPrefix(input.gs1CompanyPrefix || input.gs1_company_prefix || process.env.WMS365_GS1_COMPANY_PREFIX || ""),
+        extensionDigit: String(input.extensionDigit || input.extension_digit || "0").replace(/\D/g, "").slice(0, 1) || "0",
+        labelsPerLine: Math.max(1, Math.min(toPositiveInt(explicitLabelsPerLine) || 0, 9999)),
+        labelsPerLineProvided: explicitLabelsPerLine !== undefined && explicitLabelsPerLine !== null && String(explicitLabelsPerLine).trim() !== "",
+        maxLabels: Math.max(1, Math.min(toPositiveInt(input.maxLabels || input.max_labels) || 500, 5000))
+    };
+}
+
+function buildPortalOrderUcc128LabelPdfAttachment(order, input = {}) {
+    const options = sanitizeUcc128LabelInput(input);
+    if (!options.gs1CompanyPrefix && normalizeText(order?.accountName || "") === "PACKFIRE") {
+        options.gs1CompanyPrefix = "850072451";
+    }
+    if (!options.gs1CompanyPrefix) {
+        throw httpError(400, "Enter the GS1 company prefix for this customer before generating UCC128/GS1-128 labels.");
+    }
+    const pages = [];
+    let labelIndex = 0;
+    const orderLines = order.lines || [];
+    const isPackFire = normalizeText(order?.accountName || "") === "PACKFIRE";
+    const shipFromLines = isPackFire
+        ? [
+            "Pack Fire c/o Grey Wolf 3PL & Logistics Inc",
+            "1330 Courtney Park Drive East",
+            "Mississauga, Ontario",
+            "L5T1V6"
+        ]
+        : [
+            pdfSafeText(order.warehouseName || order.fulfillmentLocationName || "Warehouse"),
+            pdfSafeText(order.warehouseAddress1 || ""),
+            pdfSafeText([order.warehouseCity, order.warehouseState].filter(Boolean).join(", ")),
+            pdfSafeText(order.warehousePostalCode || "")
+        ].filter(Boolean);
+    const shipToName = pdfSafeText(order.shipToName || "-");
+    const shipToLines = [
+        shipToName,
+        pdfSafeText([order.shipToAddress1, order.shipToAddress2].filter(Boolean).join(" ")),
+        pdfSafeText([order.shipToCity, order.shipToState].filter(Boolean).join(", ")),
+        pdfSafeText(order.shipToPostalCode || ""),
+        pdfSafeText(order.shipToCountry || "")
+    ].filter(Boolean);
+    const carrier = pdfSafeText(order.carrier || order.shippingCarrier || order.shipMethod || "To be assigned");
+    const reference = pdfSafeText(order.referenceNumber || order.customerReference || order.poNumber || order.orderCode || "-");
+    const totalCartons = orderLines.reduce((sum, line) => sum + Math.max(1, Number(line.quantity) || 1), 0);
+    for (const [lineIndex, line] of orderLines.entries()) {
+        const labelCount = options.labelsPerLineProvided && orderLines.length === 1
+            ? options.labelsPerLine
+            : Math.max(1, Number(line.quantity) || 1);
+        for (let cartonIndex = 1; cartonIndex <= labelCount; cartonIndex += 1) {
+            labelIndex += 1;
+            if (labelIndex > options.maxLabels) {
+                throw httpError(400, `UCC128 label request exceeds the ${options.maxLabels} label safety limit.`);
+            }
+            const sscc = buildSscc18({
+                companyPrefix: options.gs1CompanyPrefix,
+                extensionDigit: options.extensionDigit,
+                serialSeed: `${order.id || 0}${String(line.id || lineIndex + 1).padStart(4, "0")}${String(cartonIndex).padStart(5, "0")}`
+            });
+            const barcodeValues = encodeGs1SsccCode128Values(sscc);
+            const sku = pdfSafeText(line.sku || "-");
+            const description = pdfSafeText(line.description || "-");
+            const upc = pdfSafeText(line.upc || line.gtin || "-");
+            const ops = [
+                "0.65 w",
+                pdfText("WMS365", 238, 414, 9, "F2"),
+                pdfLine(12, 406, 276, 406),
+                pdfStrokeRect(12, 336, 128, 60),
+                pdfStrokeRect(148, 336, 128, 60),
+                pdfText("SHIP FROM", 16, 384, 7, "F2"),
+                pdfText((shipFromLines[0] || "-").slice(0, 52), 16, 372, 5.5, "F2"),
+                pdfText((shipFromLines[1] || "").slice(0, 38), 16, 360, 6.7),
+                pdfText((shipFromLines[2] || "").slice(0, 38), 16, 348, 6.7),
+                pdfText((shipFromLines[3] || "").slice(0, 38), 16, 338, 6.7),
+                pdfText("SHIP TO", 152, 384, 7, "F2"),
+                pdfText((shipToLines[0] || "-").slice(0, 32), 152, 372, 7.3, "F2"),
+                pdfText((shipToLines[1] || "").slice(0, 32), 152, 360, 7.3),
+                pdfText((shipToLines[2] || "").slice(0, 32), 152, 348, 7.3),
+                pdfText((shipToLines[3] || "").slice(0, 32), 152, 338, 7.3),
+                pdfText((shipToLines[4] || "").slice(0, 32), 238, 338, 7.3),
+                pdfStrokeRect(12, 248, 128, 76),
+                pdfStrokeRect(148, 248, 128, 76),
+                pdfText("CARRIER / ROUTING", 16, 312, 7, "F2"),
+                pdfText(carrier.slice(0, 30), 16, 298, 9, "F2"),
+                pdfText(`REF: ${reference}`.slice(0, 34), 16, 284, 8),
+                pdfText(`ACCOUNT: ${pdfSafeText(order.accountName || "-")}`.slice(0, 34), 16, 270, 8),
+                pdfText("ORDER / CARTON", 152, 312, 7, "F2"),
+                pdfText(`Order: ${order.orderCode || "-"}`.slice(0, 30), 152, 298, 8, "F2"),
+                pdfText(`PO: ${order.poNumber || "-"}`.slice(0, 30), 152, 286, 7.5, "F2"),
+                pdfText(`Carton ${cartonIndex} of ${labelCount}`.slice(0, 30), 152, 274, 9, "F2"),
+                pdfText(`Order cartons: ${totalCartons}`.slice(0, 30), 152, 262, 7.5),
+                pdfStrokeRect(12, 168, 264, 64),
+                pdfText("ITEM", 16, 220, 7, "F2"),
+                pdfText(`SKU: ${sku}`.slice(0, 42), 16, 206, 11, "F2"),
+                pdfText(description.slice(0, 58), 16, 192, 8),
+                pdfText(`UPC/GTIN: ${upc}`.slice(0, 40), 16, 178, 8),
+                pdfText(`QTY: ${formatTrackedQuantity(1, line.trackingLevel || "CASE")}`.slice(0, 24), 202, 178, 8, "F2"),
+                pdfText("SSCC", 12, 150, 8, "F2"),
+                ...drawCode128BarcodeOps(barcodeValues, 16, 58, 256, 88),
+                pdfText(`(00) ${sscc}`, 56, 38, 13, "F2")
+            ];
+            pages.push(ops);
+        }
+    }
+    if (!pages.length) {
+        throw httpError(400, "No order lines are available for UCC128 label generation.");
+    }
+    return {
+        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-ucc128-labels.pdf`),
+        content: buildPdfFromPageOperations(pages, { pageWidth: 288, pageHeight: 432 }),
+        contentType: "application/pdf"
+    };
+}
+
 async function insertWarehousePrintJobEvent(client, jobId, eventType, actor = "", details = "") {
     await client.query(
         "insert into warehouse_print_job_events (job_id, event_type, actor, details) values ($1, $2, $3, $4)",
@@ -20869,9 +21220,11 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
         printerId: input.printerId || input.printer_id,
         documentType
     });
-    const attachment = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
-        ? buildPortalOrderPackingSlipPdfAttachment(order)
-        : buildPortalOrderPickTicketPdfAttachment(order);
+    const attachment = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.UCC128_LABELS
+        ? buildPortalOrderUcc128LabelPdfAttachment(order, input)
+        : (documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
+            ? buildPortalOrderPackingSlipPdfAttachment(order)
+            : buildPortalOrderPickTicketPdfAttachment(order));
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const result = await client.query(
         `
@@ -21035,11 +21388,15 @@ function normalizePortalOrderPrintDocumentType(value) {
     const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
     if (normalized === "PICK" || normalized === "PICK_TICKET") return PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET;
     if (normalized === "PACKING" || normalized === "PACKING_SLIP") return PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP;
+    if (["UCC128", "UCC_128", "UCC128_LABEL", "UCC128_LABELS", "GS1_128", "GS1_128_LABEL", "GS1_128_LABELS", "SSCC", "SSCC_LABEL", "SSCC_LABELS"].includes(normalized)) {
+        return PORTAL_ORDER_PRINT_DOCUMENT_TYPES.UCC128_LABELS;
+    }
     return Object.values(PORTAL_ORDER_PRINT_DOCUMENT_TYPES).includes(normalized) ? normalized : "";
 }
 
 function portalOrderPrintDocumentLabel(documentType) {
     const normalized = normalizePortalOrderPrintDocumentType(documentType);
+    if (normalized === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.UCC128_LABELS) return "UCC128 / GS1-128 labels";
     if (normalized === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP) return "packing slip";
     return "pick ticket";
 }
@@ -30227,6 +30584,10 @@ module.exports = {
     hashWarehousePrintStationToken,
     mapWarehousePrintJobRow,
     buildPortalOrderPackingSlipPdfAttachment,
+    buildPortalOrderBatchPickTicketPdfAttachment,
+    buildPortalOrderUcc128LabelPdfAttachment,
+    buildSscc18,
+    calculateGs1Modulo10CheckDigit,
     buildPortalReleaseEmailText,
     buildPortalReleaseEmailHtml,
     normalizePortalOrderPrintDocumentType,

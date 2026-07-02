@@ -20738,6 +20738,8 @@
             `;
             const pickPrintCount = getPortalOrderPrintCount(order, "pick");
             const packingPrintCount = getPortalOrderPrintCount(order, "packing");
+            const ucc128PrintCount = getPortalOrderPrintCount(order, "ucc128");
+            const canPrintUcc128Labels = canPrintWorkflowDocuments && norm(order.accountName) === "PACKFIRE";
             const shipmentMethod = normalizeShipmentMethod(order.shipmentMethod || "LTL_FREIGHT");
             const isParcelShipment = shipmentMethod === "PARCEL";
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
@@ -20837,8 +20839,10 @@
                     <div class="erp-document-process-actions">
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket${pickPrintCount ? ` (${esc(`${pickPrintCount}x`)})` : ""}</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip${packingPrintCount ? ` (${esc(`${packingPrintCount}x`)})` : ""}</button>` : ""}
+                        ${canPrintUcc128Labels ? `<button class="btn ghost mini" type="button" data-print-ucc128-labels="${attr(order.id)}">Print UCC128 Labels${ucc128PrintCount ? ` (${esc(`${ucc128PrintCount}x`)})` : ""}</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-pick-ticket="${attr(order.id)}">Send Pick to Warehouse Printer</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-packing-slip="${attr(order.id)}">Send Pack to Warehouse Printer</button>` : ""}
+                        ${canPrintUcc128Labels ? `<button class="btn ghost mini" type="button" data-queue-ucc128-labels="${attr(order.id)}">Send UCC128 to Label Printer</button>` : ""}
                         ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
                         ${["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status) ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="CANCELLED">Cancel Order</button>` : ""}
                     </div>
@@ -22705,12 +22709,14 @@
                 const orderStateLabel = order.status === "CANCELLED" ? "Cancelled" : (isDraft ? "Draft" : "Open document");
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
                 const emailFailure = isShipmentEmailFailure(order);
+                const canBatchPrintPickTicket = ["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
                 const statusHtml = [
                     `<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>`,
                     emailFailure ? `<span class="pill error" title="${attr(order.shipmentEmailLastError || "Customer shipment email failed.")}">Email failed</span>` : ""
                 ].filter(Boolean).join(" ");
                 return `
                     <tr data-open-warehouse-order="${attr(order.id)}">
+                        <td><input type="checkbox" data-batch-pick-ticket-order="${attr(order.id)}" aria-label="Select ${attr(order.orderCode)} for batch pick ticket printing" ${canBatchPrintPickTicket ? "" : "disabled"}></td>
                         <td><button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.id)}">${esc(order.orderCode)}</button></td>
                         <td>${esc(order.accountName || "")}</td>
                         <td>${esc(order.poNumber || "None")}</td>
@@ -22725,10 +22731,21 @@
             }).join("");
 
             ui.portalOrdersList.innerHTML = `
+                <div class="entry-secondary-toolbar compact" style="margin-bottom: 10px;">
+                    <div>
+                        <strong>Batch Print</strong>
+                        <p class="meta">Select released, picked, staged, or shipped orders, then print one combined pick-ticket PDF.</p>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn ghost" type="button" data-select-visible-pick-tickets>Select Visible</button>
+                        <button class="btn" type="button" data-print-selected-pick-tickets>Print Selected Pick Tickets</button>
+                    </div>
+                </div>
                 <div class="erp-list-table-wrap">
                     <table class="erp-list-table">
                         <thead>
                             <tr>
+                                <th><input type="checkbox" data-select-all-pick-tickets aria-label="Select all visible orders for batch pick ticket printing"></th>
                                 <th>No.</th>
                                 <th>Customer</th>
                                 <th>External Document No.</th>
@@ -23088,11 +23105,16 @@
         }
 
         function portalOrderPrintDocumentType(type = "") {
-            return norm(type) === "PACKING" ? "PACKING_SLIP" : "PICK_TICKET";
+            const normalized = norm(type).replace(/[\s-]+/g, "_");
+            if (normalized === "PACKING" || normalized === "PACKING_SLIP") return "PACKING_SLIP";
+            if (["UCC128", "UCC_128", "UCC128_LABELS", "GS1_128", "GS1_128_LABELS", "SSCC", "SSCC_LABELS"].includes(normalized)) return "UCC128_LABELS";
+            return "PICK_TICKET";
         }
 
         function portalOrderPrintDocumentLabel(type = "") {
-            return portalOrderPrintDocumentType(type) === "PACKING_SLIP" ? "packing slip" : "pick ticket";
+            const documentType = portalOrderPrintDocumentType(type);
+            if (documentType === "UCC128_LABELS") return "UCC128 labels";
+            return documentType === "PACKING_SLIP" ? "packing slip" : "pick ticket";
         }
 
         function getPortalOrderPrintSummaryEntry(order, type = "") {
@@ -23138,9 +23160,15 @@
                     return null;
                 }
             }
+            const documentType = portalOrderPrintDocumentType(type);
+            const body = { documentType };
+            if (documentType === "UCC128_LABELS" && norm(order.accountName) === "PACKFIRE") {
+                body.gs1CompanyPrefix = "850072451";
+                body.labelsPerLine = Math.max(1, Number(order.lines?.[0]?.quantity || 1) || 1);
+            }
             const response = await requestJson(`/api/admin/portal-orders/${encodeURIComponent(order.id)}/print-jobs`, {
                 method: "POST",
-                body: JSON.stringify({ documentType: portalOrderPrintDocumentType(type) })
+                body: JSON.stringify(body)
             });
             const printerName = response?.printer?.printerName || "warehouse printer";
             const jobId = response?.job?.id ? ` Job #${response.job.id}.` : "";
@@ -23158,6 +23186,18 @@
                     showMessage(messageElement, `Reprint cancelled for ${order.orderCode || "order"} ${label}.`, "info");
                     return;
                 }
+            }
+            if (portalOrderPrintDocumentType(type) === "UCC128_LABELS") {
+                await recordPortalOrderPrintEvent(order, type);
+                const labelsPerLine = Math.max(1, Number(order.lines?.[0]?.quantity || 1) || 1);
+                const url = `/api/admin/portal-orders/${encodeURIComponent(order.id)}/ucc128-labels.pdf?gs1CompanyPrefix=850072451&labelsPerLine=${encodeURIComponent(labelsPerLine)}`;
+                const labelWindow = window.open(url, "_blank", "width=900,height=700");
+                if (!labelWindow) {
+                    showMessage(messageElement, "Allow pop-ups to open UCC128 labels.", "error");
+                    return;
+                }
+                showMessage(messageElement, `Opened ${order.orderCode || "order"} ${label}.`, "success");
+                return;
             }
             const html = type === "pick" ? buildPickTicketHtml(order) : buildPackingSlipHtml(order);
             const printWindow = window.open("", "_blank", "width=900,height=700");
@@ -23385,9 +23425,82 @@
             event?.currentTarget?.blur?.();
         }
 
+        function getSelectedBatchPickTicketOrderIds() {
+            return [...ui.portalOrdersList.querySelectorAll("[data-batch-pick-ticket-order]:checked")]
+                .map((checkbox) => checkbox.dataset.batchPickTicketOrder || "")
+                .filter(Boolean);
+        }
+
+        function setVisibleBatchPickTicketSelection(checked) {
+            ui.portalOrdersList.querySelectorAll("[data-batch-pick-ticket-order]:not(:disabled)").forEach((checkbox) => {
+                checkbox.checked = !!checked;
+            });
+            const selectAll = ui.portalOrdersList.querySelector("[data-select-all-pick-tickets]");
+            if (selectAll) selectAll.checked = !!checked;
+        }
+
+        async function printSelectedPortalOrderPickTickets(button, messageElement = ui.portalOrdersMessage) {
+            const orderIds = getSelectedBatchPickTicketOrderIds();
+            if (!orderIds.length) {
+                showMessage(messageElement, "Select at least one order to print pick tickets.", "error");
+                return;
+            }
+            await runActionWithFeedback({
+                button,
+                busyLabel: "Opening...",
+                messageElement,
+                progressMessage: `Opening ${num(orderIds.length)} selected pick ticket${orderIds.length === 1 ? "" : "s"}...`
+            }, async () => {
+                const url = `/api/admin/portal-orders/batch-pick-tickets.pdf?ids=${encodeURIComponent(orderIds.join(","))}`;
+                const opened = window.open(url, "_blank", "noopener");
+                if (!opened) {
+                    showMessage(messageElement, "Allow pop-ups to open the selected pick tickets.", "error");
+                    return;
+                }
+                showMessage(messageElement, `Opened ${num(orderIds.length)} pick ticket${orderIds.length === 1 ? "" : "s"} in one PDF.`, "success");
+                setTimeout(() => loadPortalOrders({ background: true }), 700);
+            });
+        }
+
         async function onPortalOrdersListClick(event) {
             const actionMessageElement = getPortalOrderActionMessageElement(event.target);
             if (await handleWarehouseDocumentPreviewClick(event, actionMessageElement)) {
+                return;
+            }
+
+            if (event.target.closest("[data-batch-pick-ticket-order]")) {
+                event.stopPropagation();
+                const selected = getSelectedBatchPickTicketOrderIds().length;
+                if (selected) {
+                    showMessage(actionMessageElement, `${num(selected)} order${selected === 1 ? "" : "s"} selected for batch pick ticket printing.`, "info");
+                }
+                return;
+            }
+
+            const selectAllPickTickets = event.target.closest("[data-select-all-pick-tickets]");
+            if (selectAllPickTickets) {
+                event.stopPropagation();
+                setVisibleBatchPickTicketSelection(selectAllPickTickets.checked);
+                return;
+            }
+
+            const selectVisiblePickTickets = event.target.closest("[data-select-visible-pick-tickets]");
+            if (selectVisiblePickTickets) {
+                event.stopPropagation();
+                setVisibleBatchPickTicketSelection(true);
+                const selected = getSelectedBatchPickTicketOrderIds().length;
+                showMessage(actionMessageElement, `${num(selected)} visible order${selected === 1 ? "" : "s"} selected for batch pick ticket printing.`, selected ? "success" : "info");
+                return;
+            }
+
+            const printSelectedPickTickets = event.target.closest("[data-print-selected-pick-tickets]");
+            if (printSelectedPickTickets) {
+                event.stopPropagation();
+                try {
+                    await printSelectedPortalOrderPickTickets(printSelectedPickTickets, actionMessageElement);
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
                 return;
             }
 
@@ -23437,6 +23550,24 @@
                 return;
             }
 
+            const ucc128LabelsButton = event.target.closest("[data-print-ucc128-labels]");
+            if (ucc128LabelsButton) {
+                try {
+                    await runActionWithFeedback({
+                        button: ucc128LabelsButton,
+                        busyLabel: "Opening...",
+                        messageElement: actionMessageElement,
+                        progressMessage: "Loading full order details for UCC128 labels..."
+                    }, async () => {
+                        const order = await requestPortalOrderDetail(ucc128LabelsButton.dataset.printUcc128Labels || "");
+                        if (order) await printPortalOrderDocument(order, "ucc128", actionMessageElement);
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
+                return;
+            }
+
             const queuePickTicketButton = event.target.closest("[data-queue-pick-ticket]");
             if (queuePickTicketButton) {
                 try {
@@ -23466,6 +23597,24 @@
                     }, async () => {
                         const order = await requestPortalOrderDetail(queuePackingSlipButton.dataset.queuePackingSlip || "");
                         if (order) await queuePortalOrderWarehousePrintJob(order, "packing", actionMessageElement);
+                    });
+                } catch (error) {
+                    showMessage(actionMessageElement, error.message, "error");
+                }
+                return;
+            }
+
+            const queueUcc128LabelsButton = event.target.closest("[data-queue-ucc128-labels]");
+            if (queueUcc128LabelsButton) {
+                try {
+                    await runActionWithFeedback({
+                        button: queueUcc128LabelsButton,
+                        busyLabel: "Queueing...",
+                        messageElement: actionMessageElement,
+                        progressMessage: "Sending UCC128 labels to the warehouse label printer..."
+                    }, async () => {
+                        const order = await requestPortalOrderDetail(queueUcc128LabelsButton.dataset.queueUcc128Labels || "");
+                        if (order) await queuePortalOrderWarehousePrintJob(order, "ucc128", actionMessageElement);
                     });
                 } catch (error) {
                     showMessage(actionMessageElement, error.message, "error");
@@ -28446,10 +28595,12 @@
         function sanitizePortalOrderPrintSummary(summary = {}) {
             const sanitized = {
                 PICK_TICKET: sanitizePortalOrderPrintSummaryEntry(summary.PICK_TICKET || summary.pickTicket || summary.pick_ticket || {}),
-                PACKING_SLIP: sanitizePortalOrderPrintSummaryEntry(summary.PACKING_SLIP || summary.packingSlip || summary.packing_slip || {})
+                PACKING_SLIP: sanitizePortalOrderPrintSummaryEntry(summary.PACKING_SLIP || summary.packingSlip || summary.packing_slip || {}),
+                UCC128_LABELS: sanitizePortalOrderPrintSummaryEntry(summary.UCC128_LABELS || summary.ucc128Labels || summary.ucc128_labels || summary.gs1_128_labels || {})
             };
             sanitized.PICK_TICKET.documentType = "PICK_TICKET";
             sanitized.PACKING_SLIP.documentType = "PACKING_SLIP";
+            sanitized.UCC128_LABELS.documentType = "UCC128_LABELS";
             return sanitized;
         }
 
