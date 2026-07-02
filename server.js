@@ -429,6 +429,13 @@ const SHOPIFY_ADMIN_API_VERSION = "2026-01";
 const SHOPIFY_ORDER_PAGE_LIMIT = 250;
 const SHOPIFY_VARIANT_PAGE_LIMIT = 250;
 const SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE = "SHOPIFY_INVENTORY_LEVEL";
+const SHOPIFY_APP_CLIENT_ID = readEnv("SHOPIFY_APP_CLIENT_ID", "") || readEnv("SHOPIFY_API_KEY", "") || readEnv("SHOPIFY_CLIENT_ID", "");
+const SHOPIFY_APP_CLIENT_SECRET = readEnv("SHOPIFY_APP_CLIENT_SECRET", "") || readEnv("SHOPIFY_API_SECRET", "") || readEnv("SHOPIFY_CLIENT_SECRET", "");
+const SHOPIFY_APP_SCOPES = readEnv(
+    "SHOPIFY_APP_SCOPES",
+    "read_orders,read_products,read_inventory,write_inventory,read_locations,write_fulfillments,read_fulfillments"
+);
+const SHOPIFY_OAUTH_STATE_TTL_MS = Math.max(5 * 60 * 1000, Number.parseInt(readEnv("SHOPIFY_OAUTH_STATE_TTL_MS", "900000") || "900000", 10) || 900000);
 const INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS = Math.max(1, Number.parseInt(readEnv("INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS", "72") || "72", 10) || 72);
 const STRIPE_CHECKOUT_PLANS = Object.freeze({
     LAUNCH_WAREHOUSE: {
@@ -1600,6 +1607,76 @@ app.post("/secure/integration-credential", async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.status(error.statusCode || 400).send(renderIntegrationCredentialRequestPage({
             errorMessage: error.message || "This secure credential could not be saved."
+        }));
+    }
+});
+
+app.get("/shopify/install", async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        const shop = normalizeShopifyShopDomain(req.query?.shop);
+        const accountName = normalizeText(req.query?.accountName || req.query?.account || req.query?.company || req.query?.customer || "");
+        const integrationId = toPositiveInt(req.query?.integrationId || req.query?.integration_id) || null;
+        if (req.query?.hmac) {
+            if (!verifyShopifyRequestHmac(req.query)) {
+                throw httpError(401, "Shopify install request could not be verified.");
+            }
+        } else {
+            const { user } = await requireAppSession(req);
+            if (!userHasPermission(user, RBAC_PERMISSIONS.WAREHOUSE_ADMIN)) {
+                throw httpError(403, "Warehouse admin access is required to connect Shopify.");
+            }
+            await assertAppUserCompanyAccess(pool, user, accountName);
+        }
+        if (!accountName) {
+            throw httpError(400, "Open WMS365 Integrations, choose the company, and start the Shopify install from that screen.");
+        }
+        const state = signShopifyOAuthState({ accountName, integrationId });
+        const authorizeUrl = buildShopifyOAuthAuthorizeUrl({ shop, state });
+        res.setHeader("Cache-Control", "no-store");
+        res.redirect(authorizeUrl);
+    } catch (error) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(error.statusCode || 400).send(renderShopifyInstallResultPage({
+            mode: "error",
+            shop: normalizeShopifyShopDomain(req.query?.shop) || String(req.query?.shop || ""),
+            accountName: normalizeText(req.query?.accountName || req.query?.account || req.query?.company || req.query?.customer || ""),
+            message: error.message || "The Shopify install could not be started."
+        }));
+    }
+});
+
+app.get("/shopify/callback", async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        if (!verifyShopifyRequestHmac(req.query)) {
+            throw httpError(401, "Shopify callback could not be verified.");
+        }
+        const shop = normalizeShopifyShopDomain(req.query?.shop);
+        const state = verifyShopifyOAuthState(req.query?.state);
+        const tokenResult = await exchangeShopifyAuthorizationCode({
+            shop,
+            code: String(req.query?.code || "").trim()
+        });
+        const integration = await withTransaction(async (client) => upsertShopifyOAuthIntegration(client, {
+            accountName: state.accountName,
+            integrationId: state.integrationId,
+            shop,
+            accessToken: tokenResult.accessToken,
+            scope: tokenResult.scope
+        }));
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).send(renderShopifyInstallResultPage({
+            shop,
+            accountName: integration.accountName,
+            message: `${shop} is connected to ${integration.accountName}. Run Sync Now or turn on an auto-pull schedule from WMS365 Integrations.`
+        }));
+    } catch (error) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(error.statusCode || 400).send(renderShopifyInstallResultPage({
+            mode: "error",
+            shop: normalizeShopifyShopDomain(req.query?.shop) || String(req.query?.shop || ""),
+            message: error.message || "The Shopify callback could not be completed."
         }));
     }
 });
@@ -10935,6 +11012,228 @@ function renderIntegrationCredentialRequestPage({ request = null, integration = 
       ${detailRows.length ? `<table>${detailRows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>` : ""}
       ${formHtml}
       <footer>Need help? Contact <a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a>.</footer>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function getShopifyOAuthSecret() {
+    return SHOPIFY_APP_CLIENT_SECRET || readEnv("INTEGRATION_SECRET_KEY", "") || readEnv("APP_SESSION_SECRET", "") || readEnv("SESSION_SECRET", "");
+}
+
+function getShopifyOAuthClientId() {
+    return SHOPIFY_APP_CLIENT_ID;
+}
+
+function getShopifyOAuthRedirectUri() {
+    const configured = readEnv("SHOPIFY_APP_REDIRECT_URI", "").trim();
+    if (configured) return configured;
+    const origin = (APP_BASE_URL || "https://app.wms365.co").replace(/\/+$/, "");
+    return `${origin}/shopify/callback`;
+}
+
+function normalizeShopifyShopDomain(value) {
+    const shop = normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, value || "");
+    if (!shop || !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) {
+        return "";
+    }
+    return shop.toLowerCase();
+}
+
+function buildShopifyHmacMessage(queryInput = {}) {
+    const pairs = [];
+    Object.keys(queryInput || {})
+        .filter((key) => key !== "hmac" && key !== "signature")
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((key) => {
+            const rawValue = queryInput[key];
+            const value = Array.isArray(rawValue) ? rawValue.join(",") : String(rawValue ?? "");
+            pairs.push(`${key}=${value}`);
+        });
+    return pairs.join("&");
+}
+
+function verifyShopifyRequestHmac(queryInput = {}, secret = getShopifyOAuthSecret()) {
+    const provided = String(queryInput?.hmac || "").trim();
+    if (!provided || !secret) return false;
+    const expected = crypto
+        .createHmac("sha256", secret)
+        .update(buildShopifyHmacMessage(queryInput), "utf8")
+        .digest("hex");
+    const providedBuffer = Buffer.from(provided, "utf8");
+    const expectedBuffer = Buffer.from(expected, "utf8");
+    return providedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function signShopifyOAuthState(payload = {}, secret = getShopifyOAuthSecret()) {
+    if (!secret) {
+        throw httpError(500, "Shopify app secret is not configured.");
+    }
+    const body = {
+        accountName: normalizeText(payload.accountName || payload.account_name || ""),
+        integrationId: toPositiveInt(payload.integrationId || payload.integration_id) || null,
+        nonce: crypto.randomBytes(16).toString("hex"),
+        issuedAt: Date.now()
+    };
+    const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
+    const signature = crypto.createHmac("sha256", secret).update(encoded, "utf8").digest("base64url");
+    return `${encoded}.${signature}`;
+}
+
+function verifyShopifyOAuthState(state, secret = getShopifyOAuthSecret(), now = Date.now()) {
+    const [encoded, signature] = String(state || "").split(".");
+    if (!encoded || !signature || !secret) {
+        throw httpError(400, "Shopify install session is missing or invalid.");
+    }
+    const expected = crypto.createHmac("sha256", secret).update(encoded, "utf8").digest("base64url");
+    const providedBuffer = Buffer.from(signature, "utf8");
+    const expectedBuffer = Buffer.from(expected, "utf8");
+    if (providedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(providedBuffer, expectedBuffer)) {
+        throw httpError(400, "Shopify install session could not be verified.");
+    }
+    let payload;
+    try {
+        payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    } catch (_error) {
+        throw httpError(400, "Shopify install session could not be read.");
+    }
+    if (!payload?.issuedAt || now - Number(payload.issuedAt) > SHOPIFY_OAUTH_STATE_TTL_MS) {
+        throw httpError(400, "Shopify install session expired. Start the install again from WMS365.");
+    }
+    payload.accountName = normalizeText(payload.accountName || "");
+    payload.integrationId = toPositiveInt(payload.integrationId) || null;
+    return payload;
+}
+
+function buildShopifyOAuthAuthorizeUrl({ shop, state, scopes = SHOPIFY_APP_SCOPES } = {}) {
+    const shopDomain = normalizeShopifyShopDomain(shop);
+    const clientId = getShopifyOAuthClientId();
+    if (!shopDomain) {
+        throw httpError(400, "Enter the Shopify shop domain, such as your-store.myshopify.com.");
+    }
+    if (!clientId || !getShopifyOAuthSecret()) {
+        throw httpError(500, "Shopify app client ID and client secret are not configured.");
+    }
+    const authorizeUrl = new URL(`https://${shopDomain}/admin/oauth/authorize`);
+    authorizeUrl.searchParams.set("client_id", clientId);
+    authorizeUrl.searchParams.set("scope", scopes);
+    authorizeUrl.searchParams.set("redirect_uri", getShopifyOAuthRedirectUri());
+    authorizeUrl.searchParams.set("state", state);
+    return authorizeUrl.toString();
+}
+
+async function exchangeShopifyAuthorizationCode({ shop, code }) {
+    const shopDomain = normalizeShopifyShopDomain(shop);
+    if (!shopDomain || !code) {
+        throw httpError(400, "Shopify callback is missing the shop or authorization code.");
+    }
+    const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+            client_id: getShopifyOAuthClientId(),
+            client_secret: getShopifyOAuthSecret(),
+            code
+        })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.access_token) {
+        throw httpError(response.status || 502, payload?.error_description || payload?.error || "Shopify did not return an access token.");
+    }
+    return {
+        accessToken: String(payload.access_token || "").trim(),
+        scope: String(payload.scope || "").trim()
+    };
+}
+
+async function upsertShopifyOAuthIntegration(client, { accountName, integrationId = null, shop, accessToken, scope = "" } = {}) {
+    const normalizedAccount = normalizeText(accountName || "");
+    const shopDomain = normalizeShopifyShopDomain(shop);
+    if (!normalizedAccount) {
+        throw httpError(400, "Choose the WMS365 company before installing Shopify.");
+    }
+    if (!shopDomain) {
+        throw httpError(400, "Shopify shop domain is invalid.");
+    }
+    await assertCompanyFeatureEnabled(client, normalizedAccount, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+    await assertCompanyFeatureEnabled(client, normalizedAccount, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+
+    let targetIntegrationId = toPositiveInt(integrationId) || null;
+    if (targetIntegrationId) {
+        const existing = await getStoreIntegrationRowById(client, targetIntegrationId);
+        if (!existing) {
+            throw httpError(404, "That Shopify connection could not be found.");
+        }
+        if (normalizeText(existing.account_name) !== normalizedAccount) {
+            throw httpError(400, "That Shopify connection belongs to a different company.");
+        }
+    } else {
+        const existingResult = await client.query(
+            `select id from store_integrations where account_name = $1 and provider = $2 and store_identifier = $3 limit 1`,
+            [normalizedAccount, SHOPIFY_SYNC_PROVIDER, shopDomain]
+        );
+        targetIntegrationId = existingResult.rows[0]?.id || null;
+    }
+
+    const integration = await saveStoreIntegration(client, {
+        integrationId: targetIntegrationId,
+        accountName: normalizedAccount,
+        provider: SHOPIFY_SYNC_PROVIDER,
+        integrationName: `Shopify ${shopDomain}`,
+        storeIdentifier: shopDomain,
+        accessToken,
+        authClientId: getShopifyOAuthClientId(),
+        authClientSecret: getShopifyOAuthSecret(),
+        settings: {
+            syncOrders: true,
+            syncShipmentConfirmations: true,
+            syncInventory: false,
+            notifyCustomerOnFulfillment: true,
+            shopifyOAuthScope: scope
+        },
+        importStatus: "DRAFT",
+        isActive: true,
+        syncSchedule: "MANUAL"
+    });
+    await insertActivity(
+        client,
+        "setup",
+        `Shopify app connected for ${normalizedAccount}`,
+        `${shopDomain} | Integration ${integration.id}`
+    );
+    return integration;
+}
+
+function renderShopifyInstallResultPage({ mode = "success", shop = "", accountName = "", message = "" } = {}) {
+    const isSuccess = mode === "success";
+    const nextPath = encodeURIComponent("/desktop?section=integrations");
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${isSuccess ? "Shopify Connected" : "Shopify Connection Issue"} | WMS365</title>
+  <style>
+    body{margin:0;font-family:Arial,sans-serif;background:#f4f7fb;color:#10243a}
+    main{min-height:100vh;display:grid;place-items:center;padding:24px}
+    section{max-width:620px;background:#fff;border:1px solid #d7e2ee;border-radius:10px;padding:28px;box-shadow:0 18px 55px rgba(13,38,68,.12)}
+    h1{margin:0 0 12px;font-size:26px}
+    p{line-height:1.5;color:#506476}
+    .notice{padding:14px 16px;border-radius:8px;margin:16px 0;font-weight:700}
+    .success{background:#e8f8ef;color:#126633;border:1px solid #a8dfbd}
+    .error{background:#fff1f0;color:#a02216;border:1px solid #f1b2ad}
+    a.button{display:inline-block;margin-top:12px;background:#12324f;color:white;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700}
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>${isSuccess ? "Shopify is connected" : "Shopify could not be connected"}</h1>
+      <div class="notice ${isSuccess ? "success" : "error"}">${escapeHtml(message || (isSuccess ? "The Shopify store is connected to WMS365 and ready for sync." : "The Shopify install could not be completed."))}</div>
+      ${shop ? `<p><strong>Store:</strong> ${escapeHtml(shop)}</p>` : ""}
+      ${accountName ? `<p><strong>Company:</strong> ${escapeHtml(accountName)}</p>` : ""}
+      <a class="button" href="/login?next=${nextPath}">Open WMS365 Integrations</a>
     </section>
   </main>
 </body>
@@ -30344,6 +30643,7 @@ function isPublicRequest(req) {
     if (pathName === "/industries" || pathName === "/industries.html") return true;
     if (pathName === "/book-demo" || pathName === "/book-demo.html") return true;
     if (pathName === "/integrations" || pathName === "/integrations.html") return true;
+    if (pathName === "/shopify/install" || pathName === "/shopify/callback") return true;
     if (pathName === "/affiliate-program" || pathName === "/affiliate-program.html") return true;
     if (pathName === "/hiring" || pathName === "/hiring.html") return true;
     if (pathName === "/implementation" || pathName === "/implementation.html") return true;
@@ -30568,6 +30868,12 @@ module.exports = {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
     sanitizeStoreIntegrationSettingsInput,
+    normalizeShopifyShopDomain,
+    buildShopifyHmacMessage,
+    verifyShopifyRequestHmac,
+    signShopifyOAuthState,
+    verifyShopifyOAuthState,
+    buildShopifyOAuthAuthorizeUrl,
     buildShopifyInventoryAvailabilityLookup,
     exportShopifyInventoryLevels,
     createIntegrationCredentialRequestToken,

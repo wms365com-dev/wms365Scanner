@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 
 const {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
@@ -9,7 +10,12 @@ const {
     createIntegrationCredentialRequestToken,
     hashIntegrationCredentialRequestToken,
     buildIntegrationCredentialRequestUrl,
-    renderIntegrationCredentialRequestPage
+    renderIntegrationCredentialRequestPage,
+    normalizeShopifyShopDomain,
+    buildShopifyHmacMessage,
+    verifyShopifyRequestHmac,
+    signShopifyOAuthState,
+    verifyShopifyOAuthState
 } = require("./server");
 
 test("daily store integration sync runs at 9 AM in the WMS365 business timezone during daylight saving time", () => {
@@ -98,4 +104,35 @@ test("secure integration credential request renders one-time noindex form", () =
     assert.match(html, /Shopify Admin API access token/);
     assert.match(html, /TRAVEONE LTD\./);
     assert.match(html, /Justeefy Canada/);
+});
+
+test("Shopify OAuth HMAC verification sorts query parameters and ignores hmac", () => {
+    const secret = "test-shopify-secret";
+    const query = {
+        shop: "packfire.myshopify.com",
+        timestamp: "1783021519",
+        accountName: "PACKFIRE"
+    };
+    const message = buildShopifyHmacMessage(query);
+    const hmac = crypto.createHmac("sha256", secret).update(message, "utf8").digest("hex");
+
+    assert.equal(message, "accountName=PACKFIRE&shop=packfire.myshopify.com&timestamp=1783021519");
+    assert.equal(verifyShopifyRequestHmac({ ...query, hmac }, secret), true);
+    assert.equal(verifyShopifyRequestHmac({ ...query, hmac: `${hmac.slice(0, -1)}0` }, secret), false);
+});
+
+test("Shopify OAuth state is signed, scoped to company, and rejects tampering", () => {
+    const secret = "state-secret";
+    const state = signShopifyOAuthState({ accountName: "Pack Fire", integrationId: 12 }, secret);
+    const payload = verifyShopifyOAuthState(state, secret);
+
+    assert.equal(payload.accountName, "PACK FIRE");
+    assert.equal(payload.integrationId, 12);
+    assert.throws(() => verifyShopifyOAuthState(`${state.slice(0, -1)}x`, secret), /could not be verified|missing or invalid/);
+});
+
+test("Shopify shop domains normalize to safe myshopify host names only", () => {
+    assert.equal(normalizeShopifyShopDomain("https://PackFire.myshopify.com/admin"), "packfire.myshopify.com");
+    assert.equal(normalizeShopifyShopDomain("packfire.com"), "");
+    assert.equal(normalizeShopifyShopDomain("https://evil.myshopify.com.evil.com"), "");
 });
