@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WMS365 Shopify Connection Guide</title>
+  <style>
+    :root {
+      --ink: #10243a;
+      --muted: #5c7084;
+      --line: #d7e2ee;
+      --soft: #f4f8fb;
+      --brand: #12324f;
+      --accent: #2f7a9b;
+      --ok: #137343;
+      --warn: #9a5b00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: white;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .page {
+      width: 8.5in;
+      min-height: 11in;
+      padding: 0.5in;
+      margin: 0 auto;
+      background: white;
+    }
+    .cover {
+      border-bottom: 4px solid var(--brand);
+      padding-bottom: 18px;
+      margin-bottom: 20px;
+    }
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    h1 {
+      margin: 6px 0 6px;
+      font-size: 30px;
+      line-height: 1.1;
+    }
+    h2 {
+      margin: 22px 0 8px;
+      font-size: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 5px;
+    }
+    h3 {
+      margin: 12px 0 5px;
+      font-size: 14px;
+    }
+    p { margin: 6px 0; }
+    .meta { color: var(--muted); }
+    .callout {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 12px 0;
+    }
+    .callout strong { color: var(--brand); }
+    .warning {
+      border-color: #f1d19a;
+      background: #fff8ec;
+      color: #3b2b10;
+    }
+    .success {
+      border-color: #b7dfc7;
+      background: #edf9f2;
+    }
+    ol, ul { padding-left: 20px; margin: 8px 0; }
+    li { margin: 5px 0; }
+    code {
+      background: #eef4f8;
+      border: 1px solid #d3e0eb;
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf3f8;
+      color: var(--brand);
+    }
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      padding-left: 0;
+    }
+    .steps > li {
+      counter-increment: step;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px 10px 42px;
+      margin: 8px 0;
+      position: relative;
+      break-inside: avoid;
+    }
+    .steps > li::before {
+      content: counter(step);
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--brand);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 28px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .url-box {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    @media print {
+      body { background: white; }
+      .page { margin: 0; box-shadow: none; }
+      h2 { break-after: avoid; }
+      .callout, table, .steps > li { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="cover">
+      <div class="eyebrow">WMS365 Customer Guide</div>
+      <h1>Connect Shopify to WMS365</h1>
+      <p class="meta">Use this guide when your warehouse needs to pull Shopify orders, sync inventory, and send shipment confirmations from WMS365.</p>
+    </section>
+
+    <div class="callout success">
+      <strong>WMS365 app URL:</strong>
+      <div class="url-box">https://app.wms365.co</div>
+      <p>WMS365 will send you a separate secure one-time link for the Shopify Admin API access token. Do not email the token in a normal message.</p>
+    </div>
+
+    <h2>What WMS365 Needs</h2>
+    <table>
+      <thead>
+        <tr><th>Information</th><th>What to Provide</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Shopify store domain</td><td>Your <code>.myshopify.com</code> domain, for example <code>your-store.myshopify.com</code>.</td></tr>
+        <tr><td>Admin API access token</td><td>The token from a Shopify Custom App. It usually starts with <code>shpat_</code>.</td></tr>
+        <tr><td>Shopify location</td><td>The Shopify location that should receive WMS365 inventory updates, if inventory sync is enabled.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warning">
+      <strong>Important:</strong> Do not send your Shopify password, owner login, recovery codes, or billing access. WMS365 only needs the scoped Admin API token.
+    </div>
+
+    <h2>Step 1: Open Shopify Custom Apps</h2>
+    <ol class="steps">
+      <li>Log in to your Shopify Admin as a store owner or administrator.</li>
+      <li>Open <strong>Settings</strong>.</li>
+      <li>Open <strong>Apps and sales channels</strong>.</li>
+      <li>Open <strong>Develop apps</strong>. If Shopify asks you to allow custom app development, approve it only if your company policy allows it.</li>
+      <li>Create a new custom app named <strong>WMS365</strong>, or open your existing WMS365 app if one was already created.</li>
+    </ol>
+
+    <h2>Step 2: Configure Admin API Scopes</h2>
+    <p>Select only the scopes needed for your WMS365 workflow.</p>
+    <table>
+      <thead>
+        <tr><th>Scope</th><th>Why WMS365 Uses It</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>read_orders</code></td><td>Pull released Shopify orders into WMS365.</td></tr>
+        <tr><td><code>read_products</code></td><td>Read product and variant details for SKU matching.</td></tr>
+        <tr><td><code>read_inventory</code></td><td>Read Shopify inventory item/location data.</td></tr>
+        <tr><td><code>write_inventory</code></td><td>Push WMS365 available inventory back to Shopify, if enabled.</td></tr>
+        <tr><td><code>read_locations</code></td><td>Find the correct Shopify location for inventory sync.</td></tr>
+        <tr><td><code>read_fulfillments</code></td><td>Check fulfillment status before sending shipment confirmation.</td></tr>
+        <tr><td><code>write_fulfillments</code></td><td>Send carrier/tracking confirmation after WMS365 ships the order.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Step 3: Install the Custom App</h2>
+    <ol class="steps">
+      <li>After selecting the scopes, click <strong>Save</strong>.</li>
+      <li>Click <strong>Install app</strong>.</li>
+      <li>Shopify will show the Admin API access token one time. Copy it carefully.</li>
+      <li>Keep the Shopify page open until the token has been submitted successfully to WMS365.</li>
+    </ol>
+
+    <h2>Step 4: Submit the Token Securely</h2>
+    <ol class="steps">
+      <li>Open the secure WMS365 credential link provided by your warehouse or WMS365 support team.</li>
+      <li>Paste the Shopify Admin API access token into the secure page.</li>
+      <li>Submit the form. The link can only be used once and expires automatically.</li>
+      <li>Notify your warehouse contact that the token has been submitted. They will test the connection from WMS365.</li>
+    </ol>
+
+    <h2>What Happens Next</h2>
+    <ul>
+      <li>WMS365 stores the token encrypted under your company only.</li>
+      <li>WMS365 can pull Shopify orders into the warehouse system.</li>
+      <li>When orders ship, WMS365 can send shipment confirmations and tracking back to Shopify.</li>
+      <li>If inventory sync is enabled, WMS365 can push available stock to the selected Shopify location.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Support:</strong> If you are unsure which scopes to select, contact <strong>support@wms365.co</strong> before installing the Shopify Custom App.
+    </div>
+
+    <div class="footer">
+      WMS365 | https://app.wms365.co | support@wms365.co
+    </div>
+  </main>
+</body>
+</html>

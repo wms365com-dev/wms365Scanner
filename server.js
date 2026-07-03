@@ -4767,6 +4767,74 @@ app.post("/api/admin/integrations", requireWarehouseAdmin(), async (req, res, ne
     }
 });
 
+app.post("/api/admin/integrations/:id/credential-request", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const integrationId = toPositiveInt(req.params.id);
+        const recipientEmail = normalizeEmail(req.body?.recipientEmail || req.body?.recipient || req.body?.email || "");
+        if (!integrationId) {
+            throw httpError(400, "A valid integration id is required.");
+        }
+        if (!recipientEmail) {
+            throw httpError(400, "Enter the customer email address for the secure token request.");
+        }
+
+        const result = await withTransaction(async (client) => {
+            const integrationRow = await getStoreIntegrationRowById(client, integrationId);
+            if (!integrationRow) {
+                throw httpError(404, "That integration could not be found.");
+            }
+            const provider = normalizeStoreIntegrationProvider(integrationRow.provider);
+            if (provider !== SHOPIFY_SYNC_PROVIDER) {
+                throw httpError(400, "Secure credential links are currently available for Shopify connections.");
+            }
+            await assertAppUserCompanyAccess(client, req.appUser, integrationRow.account_name);
+            await assertCompanyFeatureEnabled(client, integrationRow.account_name, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            await assertCompanyFeatureEnabled(client, integrationRow.account_name, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+
+            const token = createIntegrationCredentialRequestToken();
+            const expiresAt = new Date(Date.now() + (INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS * 60 * 60 * 1000));
+            const insertResult = await client.query(
+                `
+                    insert into integration_credential_requests (
+                        token_hash, integration_id, account_name, recipient_email, purpose, expires_at, created_by
+                    )
+                    values ($1, $2, $3, $4, 'SHOPIFY_ACCESS_TOKEN', $5, $6)
+                    returning *
+                `,
+                [
+                    hashIntegrationCredentialRequestToken(token),
+                    integrationRow.id,
+                    integrationRow.account_name,
+                    recipientEmail,
+                    expiresAt,
+                    req.appUser?.email || ""
+                ]
+            );
+            const requestUrl = buildIntegrationCredentialRequestUrl(token);
+            await insertActivity(
+                client,
+                "setup",
+                `Created Shopify secure token link for ${integrationRow.account_name}`,
+                `${integrationRow.store_identifier} | Recipient ${recipientEmail} | Request ${insertResult.rows[0].id}`
+            );
+            return {
+                requestId: String(insertResult.rows[0].id),
+                recipientEmail,
+                expiresAt: expiresAt.toISOString(),
+                requestUrl,
+                integration: mapStoreIntegrationRow(decryptStoreIntegrationRow(integrationRow))
+            };
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/integrations/:id/sync", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const integrationId = toPositiveInt(req.params.id);
@@ -11433,7 +11501,7 @@ async function saveStoreIntegration(client, rawInput) {
             throw httpError(400, "Enter both the Shopify client ID and client secret when updating client credentials.");
         }
         if (entry.isActive && !storedAccessToken && !(authClientId && authClientSecret)) {
-            throw httpError(400, "Enter either a Shopify Admin API access token or the Shopify client credentials before enabling the Shopify connection.");
+            throw httpError(400, "Save the Shopify connection as Disabled until the customer submits the Admin API access token through a secure WMS365 credential link.");
         }
     }
     if (entry.provider === SFTP_SYNC_PROVIDER) {

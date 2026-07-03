@@ -8212,21 +8212,31 @@
                                     <input id="integrationAccessToken" type="password" placeholder="Required for Shopify sync. Leave blank on edit to keep the saved token." enterkeyhint="done">
                                 </label>
                                 <div class="helper span-2" id="integrationShopifyAuthFields">
-                                    <h3 id="integrationClientCredentialsTitle">Shopify Client Credentials</h3>
-                                    <p class="meta" id="integrationClientCredentialsMeta">Optional alternative to a direct Admin API token. Save the client ID and client secret here and WMS365 will fetch the short-lived Shopify access token automatically during sync.</p>
+                                    <h3 id="integrationClientCredentialsTitle">Shopify Customer Token Handoff</h3>
+                                    <p class="meta" id="integrationClientCredentialsMeta">Recommended: save the Shopify shop domain as Disabled, then create a secure one-time link for the customer to paste their Admin API access token. WMS365 stores the token encrypted under this company.</p>
                                     <div class="form-grid">
                                         <label class="field">
-                                            <span>Client ID</span>
-                                            <input id="integrationShopifyClientId" type="text" placeholder="Optional on new connections if you already have an Admin API token" enterkeyhint="next">
+                                            <span>Customer Email for Secure Token Link</span>
+                                            <input id="integrationCredentialRecipient" type="email" placeholder="customer@example.com" enterkeyhint="next">
+                                        </label>
+                                        <div class="field">
+                                            <span>Secure Link</span>
+                                            <button class="btn ghost" id="integrationCredentialRequestBtn" type="button">Create Secure Token Link</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-grid">
+                                        <label class="field">
+                                            <span>Optional App Client ID</span>
+                                            <input id="integrationShopifyClientId" type="text" placeholder="Only needed for direct Shopify app install" enterkeyhint="next">
                                         </label>
                                         <label class="field">
-                                            <span>Client Secret</span>
-                                            <input id="integrationShopifyClientSecret" type="password" placeholder="Leave blank on edit to keep the saved client secret" enterkeyhint="done">
+                                            <span>Optional App Client Secret</span>
+                                            <input id="integrationShopifyClientSecret" type="password" placeholder="Only needed for direct Shopify app install" enterkeyhint="done">
                                         </label>
                                     </div>
                                     <div class="action-row">
-                                        <button class="btn ghost" id="integrationShopifyInstallBtn" type="button">Connect Shopify App</button>
-                                        <span class="meta">Opens Shopify authorization and saves the Admin API token securely under this company.</span>
+                                        <button class="btn ghost" id="integrationShopifyInstallBtn" type="button">Optional: Connect Shopify App</button>
+                                        <span class="meta">Use only when the customer wants to authorize the WMS365 Shopify app directly. Most 3PL customers should use the secure token link above.</span>
                                     </div>
                                 </div>
                                 <div class="helper span-2 hidden" id="integrationSftpFields">
@@ -11191,6 +11201,8 @@
             integrationShopifyAuthFields: document.getElementById("integrationShopifyAuthFields"),
             integrationClientCredentialsTitle: document.getElementById("integrationClientCredentialsTitle"),
             integrationClientCredentialsMeta: document.getElementById("integrationClientCredentialsMeta"),
+            integrationCredentialRecipient: document.getElementById("integrationCredentialRecipient"),
+            integrationCredentialRequestBtn: document.getElementById("integrationCredentialRequestBtn"),
             integrationShopifyInstallBtn: document.getElementById("integrationShopifyInstallBtn"),
             integrationShopifyClientId: document.getElementById("integrationShopifyClientId"),
             integrationShopifyClientSecret: document.getElementById("integrationShopifyClientSecret"),
@@ -11876,6 +11888,7 @@
             document.getElementById("integrationForm").addEventListener("submit", saveStoreIntegration);
             ui.integrationResetBtn?.addEventListener("click", () => resetStoreIntegrationForm({ keepCompany: true }));
             ui.integrationSyncBtn?.addEventListener("click", syncSelectedIntegration);
+            ui.integrationCredentialRequestBtn?.addEventListener("click", createShopifyCredentialRequest);
             ui.integrationShopifyInstallBtn?.addEventListener("click", startShopifyOAuthInstall);
             ui.integrationMarketplaceCatalog?.addEventListener("click", onIntegrationMarketplaceClick);
             ui.integrationProvider?.addEventListener("change", updateIntegrationProviderNote);
@@ -19791,8 +19804,8 @@
             if (provider === "SHOPIFY" && ((authClientId && !authClientSecret) || (!authClientId && authClientSecret))) {
                 return fail(ui.integrationMessage, "Enter both the Shopify client ID and client secret when saving client credentials.", authClientId ? ui.integrationShopifyClientSecret : ui.integrationShopifyClientId);
             }
-            if (provider === "SHOPIFY" && !integrationId && !accessToken && !(authClientId && authClientSecret)) {
-                return fail(ui.integrationMessage, "Enter either a Shopify Admin API access token or the Shopify client credentials for this connection.", ui.integrationAccessToken);
+            if (provider === "SHOPIFY" && isActive && !integrationId && !accessToken && !(authClientId && authClientSecret)) {
+                return fail(ui.integrationMessage, "Set Status to Disabled until the customer submits the Shopify Admin API access token through a secure WMS365 link.", ui.integrationActive);
             }
             if (provider === "BUSINESS_CENTRAL") {
                 if (!settings.environment) {
@@ -19901,6 +19914,54 @@
             });
             if (integrationId) params.set("integrationId", integrationId);
             window.location.href = `/shopify/install?${params.toString()}`;
+        }
+
+        async function createShopifyCredentialRequest(event) {
+            const integrationId = String(ui.integrationId?.value || "").trim();
+            const accountName = getActiveCompany();
+            const provider = norm(ui.integrationProvider?.value || "SHOPIFY");
+            const recipientEmail = String(ui.integrationCredentialRecipient?.value || "").trim();
+
+            if (!accountName) {
+                return fail(ui.integrationMessage, "Choose the active company in the header first.", ui.activeCompany);
+            }
+            if (provider !== "SHOPIFY") {
+                return fail(ui.integrationMessage, "Secure token links are for Shopify connections. Choose Shopify first.", ui.integrationProvider);
+            }
+            if (!integrationId) {
+                return fail(ui.integrationMessage, "Save the Shopify connection first, then create the secure token link.", ui.integrationStoreIdentifier);
+            }
+            if (!recipientEmail || !recipientEmail.includes("@")) {
+                return fail(ui.integrationMessage, "Enter the customer's email address for the secure token link.", ui.integrationCredentialRecipient);
+            }
+
+            const button = resolveActionButton(event);
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Creating link...",
+                    messageElement: ui.integrationMessage,
+                    progressMessage: "Creating secure Shopify token link..."
+                }, async () => {
+                    const response = await requestJson(`/api/admin/integrations/${encodeURIComponent(integrationId)}/credential-request`, {
+                        method: "POST",
+                        body: JSON.stringify({ recipientEmail })
+                    });
+                    const requestUrl = String(response?.requestUrl || "");
+                    if (requestUrl && navigator.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(requestUrl).catch(() => {});
+                    }
+                    showMessage(
+                        ui.integrationMessage,
+                        requestUrl
+                            ? `Secure Shopify token link created for ${recipientEmail}. It expires ${formatDate(response.expiresAt)} and was copied if browser clipboard access is allowed: ${requestUrl}`
+                            : `Secure Shopify token link created for ${recipientEmail}.`,
+                        "success"
+                    );
+                });
+            } catch (error) {
+                showMessage(ui.integrationMessage, error.message, "error");
+            }
         }
 
         async function refreshIntegrationsList() {
@@ -20184,6 +20245,7 @@
             ui.integrationAccessToken.value = "";
             if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.value = "";
             if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.value = "";
+            if (ui.integrationCredentialRecipient) ui.integrationCredentialRecipient.value = "";
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = "";
             if (ui.integrationSftpPort) ui.integrationSftpPort.value = "22";
             if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = "";
@@ -20216,6 +20278,7 @@
             ui.integrationAccessToken.value = "";
             if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.value = "";
             if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.value = "";
+            if (ui.integrationCredentialRecipient) ui.integrationCredentialRecipient.value = "";
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = entry.settings?.username || "";
             if (ui.integrationSftpPort) ui.integrationSftpPort.value = String(entry.settings?.port || 22);
             if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = entry.settings?.ordersFolder || "";
