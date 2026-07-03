@@ -4889,7 +4889,9 @@ app.post("/api/admin/integrations/:id/sync", requireWarehouseAdmin(), async (req
             throw httpError(404, "That integration could not be found.");
         }
         await assertAppUserCompanyAccess(pool, req.appUser, integrationRow.account_name);
-        const result = await syncStoreIntegrationById(integrationId, req.appUser);
+        const result = await syncStoreIntegrationById(integrationId, req.appUser, {
+            forceInventory: toBooleanFlag(req.body?.forceInventory ?? req.body?.force_inventory, false)
+        });
         res.json({
             success: true,
             ...result
@@ -11677,7 +11679,7 @@ async function saveStoreIntegration(client, rawInput) {
     return mapped;
 }
 
-async function syncStoreIntegrationById(integrationId, appUser = null) {
+async function syncStoreIntegrationById(integrationId, appUser = null, options = {}) {
     const lockKey = String(toPositiveInt(integrationId) || "");
     if (!lockKey) {
         throw httpError(400, "A valid integration id is required.");
@@ -11711,7 +11713,7 @@ async function syncStoreIntegrationById(integrationId, appUser = null) {
                 return await syncSftpIntegration(integrationRow, appUser);
             }
             if (normalizeStoreIntegrationProvider(integrationRow.provider) === SHOPIFY_SYNC_PROVIDER) {
-                return await syncShopifyIntegration(integrationRow, appUser);
+                return await syncShopifyIntegration(integrationRow, appUser, options);
             }
 
             const fetchedOrders = await fetchStoreOrdersForIntegration(integrationRow);
@@ -11736,7 +11738,7 @@ async function syncStoreIntegrationById(integrationId, appUser = null) {
     }
 }
 
-async function syncShopifyIntegration(integrationRow, appUser = null) {
+async function syncShopifyIntegration(integrationRow, appUser = null, options = {}) {
     const settings = sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, integrationRow.settings || {});
     const orderSummary = { ordersFetched: 0, importedCount: 0, releasedCount: 0, draftCount: 0, skippedCount: 0, failedCount: 0, message: "Order import disabled." };
     const shipmentSummary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
@@ -11751,7 +11753,9 @@ async function syncShopifyIntegration(integrationRow, appUser = null) {
         Object.assign(shipmentSummary, await withTransaction((client) => exportShopifyShipmentConfirmations(client, integrationRow)));
     }
     if (settings.syncInventory) {
-        Object.assign(inventorySummary, await withTransaction((client) => exportShopifyInventoryLevels(client, integrationRow)));
+        Object.assign(inventorySummary, await withTransaction((client) => exportShopifyInventoryLevels(client, integrationRow, {
+            force: options.forceInventory === true
+        })));
     }
 
     const failedCount = (Number(orderSummary.failedCount) || 0) + shipmentSummary.failedCount + inventorySummary.failedCount;
@@ -12400,7 +12404,7 @@ async function buildShopifyInventoryAvailabilityLookup(client, accountName) {
     ]));
 }
 
-async function exportShopifyInventoryLevels(client, integrationRow) {
+async function exportShopifyInventoryLevels(client, integrationRow, options = {}) {
     const summary = { exportedCount: 0, skippedCount: 0, failedCount: 0, detailMessages: [] };
     const settings = sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, integrationRow?.settings || {});
     if (!settings.syncInventory) return summary;
@@ -12462,7 +12466,7 @@ async function exportShopifyInventoryLevels(client, integrationRow) {
             locationId,
             available
         });
-        if (await hasStoreSyncExport(client, integrationRow.id, SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE, entityRef, contentHash)) {
+        if (options.force !== true && await hasStoreSyncExport(client, integrationRow.id, SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE, entityRef, contentHash)) {
             summary.skippedCount += 1;
             continue;
         }
