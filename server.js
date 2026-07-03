@@ -12405,6 +12405,13 @@ async function exportShopifyInventoryLevels(client, integrationRow) {
     const settings = sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, integrationRow?.settings || {});
     if (!settings.syncInventory) return summary;
 
+    const integrationAccountName = normalizeText(integrationRow?.account_name || integrationRow?.accountName || "");
+    if (!integrationAccountName) {
+        summary.failedCount += 1;
+        summary.detailMessages.push("Inventory: company scope is required before Shopify inventory can be synced.");
+        return summary;
+    }
+
     const locationId = toPositiveInt(settings.shopifyLocationId);
     if (!locationId) {
         summary.failedCount += 1;
@@ -12421,7 +12428,7 @@ async function exportShopifyInventoryLevels(client, integrationRow) {
         return summary;
     }
 
-    const availabilityBySku = await buildShopifyInventoryAvailabilityLookup(client, integrationRow.account_name);
+    const availabilityBySku = await buildShopifyInventoryAvailabilityLookup(client, integrationAccountName);
     const externalToLocalSku = await getStoreSkuMappingLookup(client, integrationRow.id);
     const disconnectIfNecessary = settings.inventoryDisconnectIfNecessary === true;
 

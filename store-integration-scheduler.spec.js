@@ -76,6 +76,23 @@ test("Shopify inventory export fails closed without location id", async () => {
     assert.match(summary.detailMessages[0], /location ID is required/);
 });
 
+test("Shopify inventory export fails closed without a company scope", async () => {
+    const summary = await exportShopifyInventoryLevels({}, {
+        id: 1,
+        provider: "SHOPIFY",
+        store_identifier: "packfire.myshopify.com",
+        settings: {
+            syncInventory: true,
+            shopifyLocationId: "92461826304"
+        }
+    });
+
+    assert.equal(summary.exportedCount, 0);
+    assert.equal(summary.skippedCount, 0);
+    assert.equal(summary.failedCount, 1);
+    assert.match(summary.detailMessages[0], /company scope is required/);
+});
+
 test("secure integration credential request renders one-time noindex form", () => {
     const token = createIntegrationCredentialRequestToken();
     assert.ok(token.length >= 40);
