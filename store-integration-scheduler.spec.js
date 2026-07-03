@@ -11,6 +11,7 @@ const {
     hashIntegrationCredentialRequestToken,
     buildIntegrationCredentialRequestUrl,
     renderIntegrationCredentialRequestPage,
+    normalizeSubmittedIntegrationCredential,
     normalizeShopifyShopDomain,
     buildShopifyHmacMessage,
     verifyShopifyRequestHmac,
@@ -121,6 +122,17 @@ test("secure integration credential request renders one-time noindex form", () =
     assert.match(html, /Shopify Admin API access token/);
     assert.match(html, /TRAVEONE LTD\./);
     assert.match(html, /Justeefy Canada/);
+});
+
+test("secure integration credential input extracts a Shopify token from pasted JSON", () => {
+    assert.equal(
+        normalizeSubmittedIntegrationCredential('{"access_token":"shpat_example_token","scope":"read_products,write_inventory"}'),
+        "shpat_example_token"
+    );
+    assert.equal(
+        normalizeSubmittedIntegrationCredential("shpat_direct_token"),
+        "shpat_direct_token"
+    );
 });
 
 test("Shopify OAuth HMAC verification sorts query parameters and ignores hmac", () => {

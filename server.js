@@ -1588,7 +1588,7 @@ app.post("/secure/integration-credential", async (req, res) => {
     try {
         assertDatabaseAvailable();
         const token = String(req.body?.token || req.query?.token || "").trim();
-        const credential = String(req.body?.credential || req.body?.accessToken || req.body?.access_token || "").trim();
+        const credential = normalizeSubmittedIntegrationCredential(req.body?.credential || req.body?.accessToken || req.body?.access_token || "");
         if (!credential || credential.length < 20) {
             throw httpError(400, "Enter the Shopify Admin API access token before submitting.");
         }
@@ -11023,12 +11023,26 @@ async function getIntegrationCredentialRequestByToken(client, token, { lock = fa
     };
 }
 
+function normalizeSubmittedIntegrationCredential(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (text.startsWith("{")) {
+        try {
+            const parsed = JSON.parse(text);
+            return String(parsed?.access_token || parsed?.accessToken || parsed?.token || "").trim();
+        } catch (_error) {
+            return text;
+        }
+    }
+    return text;
+}
+
 async function submitIntegrationCredentialRequest(client, token, credential) {
     const request = await getIntegrationCredentialRequestByToken(client, token, { lock: true });
     if (request.provider !== SHOPIFY_SYNC_PROVIDER) {
         throw httpError(400, "This secure link is not configured for a Shopify credential.");
     }
-    const encryptedCredential = encryptSecret(String(credential || "").trim());
+    const encryptedCredential = encryptSecret(normalizeSubmittedIntegrationCredential(credential));
     const nextScheduledSyncAt = computeNextStoreIntegrationSyncAt(request.syncSchedule, { lastSyncedAt: null });
     const integrationResult = await client.query(
         `
@@ -31001,6 +31015,7 @@ module.exports = {
     hashIntegrationCredentialRequestToken,
     buildIntegrationCredentialRequestUrl,
     renderIntegrationCredentialRequestPage,
+    normalizeSubmittedIntegrationCredential,
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
