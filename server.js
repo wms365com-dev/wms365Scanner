@@ -11087,6 +11087,9 @@ function renderIntegrationCredentialRequestPage({ request = null, integration = 
     const storeIdentifier = request?.storeIdentifier || integration?.storeIdentifier || "";
     const expiresAt = request?.expiresAt ? new Date(request.expiresAt).toLocaleString("en-US", { timeZone: STORE_INTEGRATION_SCHEDULE_TIME_ZONE }) : "";
     const settings = request?.settings || integration?.settings || {};
+    const companyScopeNotice = accountName
+        ? `This secure link is unique to ${accountName}. It can only update this company's ${providerLabel} connection in WMS365 and must not be forwarded or reused for another company.`
+        : "This secure link is unique to one WMS365 company connection and must not be forwarded or reused for another company.";
     const formHtml = request && !isSuccess && !errorMessage ? `
         <form method="post" action="/secure/integration-credential" autocomplete="off">
             <input type="hidden" name="token" value="${escapeHtml(token)}">
@@ -11123,7 +11126,7 @@ function renderIntegrationCredentialRequestPage({ request = null, integration = 
     label{display:block;font-weight:700;margin:18px 0 8px}
     textarea{width:100%;box-sizing:border-box;border:1px solid #b8c8d8;border-radius:6px;padding:12px;font:14px Consolas,monospace;resize:vertical}
     button{margin-top:14px;background:var(--brand);color:#fff;border:0;border-radius:6px;padding:13px 18px;font-size:16px;font-weight:700;cursor:pointer}
-    .notice{border-radius:6px;padding:14px 16px;margin:16px 0}.success{background:#ecfdf5;color:var(--good);border:1px solid #bbf7d0}.error{background:#fef2f2;color:var(--bad);border:1px solid #fecaca}
+    .notice{border-radius:6px;padding:14px 16px;margin:16px 0}.success{background:#ecfdf5;color:var(--good);border:1px solid #bbf7d0}.error{background:#fef2f2;color:var(--bad);border:1px solid #fecaca}.scope{background:#eff6ff;color:#173b63;border:1px solid #bfdbfe}
     footer{margin-top:18px;color:var(--muted);font-size:13px}
   </style>
 </head>
@@ -11135,6 +11138,7 @@ function renderIntegrationCredentialRequestPage({ request = null, integration = 
       ${errorMessage ? `<div class="notice error">${escapeHtml(errorMessage)}</div>` : ""}
       ${isSuccess ? `<div class="notice success">Thank you. The credential was received securely and the Shopify connection is ready for WMS365 sync.</div>` : ""}
       ${request && !isSuccess ? `<p>Use this secure one-time page to provide the Shopify credential for WMS365. This page is protected by HTTPS, expires automatically, and cannot be reused.</p>` : ""}
+      ${request || integration ? `<div class="notice scope"><strong>Company-specific link:</strong> ${escapeHtml(companyScopeNotice)}</div>` : ""}
       ${detailRows.length ? `<table>${detailRows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>` : ""}
       ${formHtml}
       <footer>Need help? Contact <a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a>.</footer>
