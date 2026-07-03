@@ -4835,6 +4835,48 @@ app.post("/api/admin/integrations/:id/credential-request", requireWarehouseAdmin
     }
 });
 
+app.get("/api/admin/integrations/:id/shopify/locations", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const integrationId = toPositiveInt(req.params.id);
+        if (!integrationId) {
+            throw httpError(400, "A valid integration id is required.");
+        }
+        const integrationRow = await getStoreIntegrationRowById(pool, integrationId);
+        if (!integrationRow) {
+            throw httpError(404, "That integration could not be found.");
+        }
+        if (normalizeStoreIntegrationProvider(integrationRow.provider) !== SHOPIFY_SYNC_PROVIDER) {
+            throw httpError(400, "Shopify locations are only available for Shopify integrations.");
+        }
+        await assertAppUserCompanyAccess(pool, req.appUser, integrationRow.account_name);
+        await assertCompanyFeatureEnabled(pool, integrationRow.account_name, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+        await assertCompanyFeatureEnabled(pool, integrationRow.account_name, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+
+        const result = await shopifyAdminRequestForIntegration(integrationRow, "/locations.json");
+        const locations = Array.isArray(result.payload?.locations)
+            ? result.payload.locations.map((location) => ({
+                id: String(location?.id || "").trim(),
+                name: normalizeFreeText(location?.name || ""),
+                active: location?.active !== false,
+                city: normalizeFreeText(location?.city || ""),
+                province: normalizeFreeText(location?.province || ""),
+                country: normalizeFreeText(location?.country || ""),
+                address1: normalizeFreeText(location?.address1 || "")
+            })).filter((location) => location.id)
+            : [];
+
+        res.json({
+            success: true,
+            integrationId: String(integrationRow.id),
+            accountName: integrationRow.account_name,
+            shopDomain: result.shopDomain || integrationRow.store_identifier,
+            locations
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/integrations/:id/sync", requireWarehouseAdmin(), async (req, res, next) => {
     try {
         const integrationId = toPositiveInt(req.params.id);

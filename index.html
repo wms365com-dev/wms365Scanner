@@ -8226,6 +8226,36 @@
                                     </div>
                                     <div class="form-grid">
                                         <label class="field">
+                                            <span>Shopify Location ID</span>
+                                            <input id="integrationShopifyLocationId" type="text" inputmode="numeric" placeholder="Required for inventory sync" enterkeyhint="next">
+                                        </label>
+                                        <label class="field">
+                                            <span>Shopify Location Name</span>
+                                            <input id="integrationShopifyLocationName" type="text" placeholder="Example: Canada Warehouse" enterkeyhint="next">
+                                        </label>
+                                        <label class="toggle-line">
+                                            <input id="integrationShopifySyncOrders" type="checkbox" checked>
+                                            <span>Pull Shopify orders</span>
+                                        </label>
+                                        <label class="toggle-line">
+                                            <input id="integrationShopifySyncShipments" type="checkbox" checked>
+                                            <span>Send shipment confirmations</span>
+                                        </label>
+                                        <label class="toggle-line">
+                                            <input id="integrationShopifySyncInventory" type="checkbox">
+                                            <span>Push available inventory to Shopify</span>
+                                        </label>
+                                        <label class="toggle-line">
+                                            <input id="integrationShopifyInventoryDisconnect" type="checkbox">
+                                            <span>Allow Shopify inventory disconnect if required</span>
+                                        </label>
+                                        <div class="field span-2">
+                                            <span>Locations</span>
+                                            <button class="btn ghost" id="integrationFetchShopifyLocationsBtn" type="button">Fetch Shopify Locations</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-grid">
+                                        <label class="field">
                                             <span>Optional App Client ID</span>
                                             <input id="integrationShopifyClientId" type="text" placeholder="Only needed for direct Shopify app install" enterkeyhint="next">
                                         </label>
@@ -11204,6 +11234,13 @@
             integrationCredentialRecipient: document.getElementById("integrationCredentialRecipient"),
             integrationCredentialRequestBtn: document.getElementById("integrationCredentialRequestBtn"),
             integrationShopifyInstallBtn: document.getElementById("integrationShopifyInstallBtn"),
+            integrationShopifyLocationId: document.getElementById("integrationShopifyLocationId"),
+            integrationShopifyLocationName: document.getElementById("integrationShopifyLocationName"),
+            integrationShopifySyncOrders: document.getElementById("integrationShopifySyncOrders"),
+            integrationShopifySyncShipments: document.getElementById("integrationShopifySyncShipments"),
+            integrationShopifySyncInventory: document.getElementById("integrationShopifySyncInventory"),
+            integrationShopifyInventoryDisconnect: document.getElementById("integrationShopifyInventoryDisconnect"),
+            integrationFetchShopifyLocationsBtn: document.getElementById("integrationFetchShopifyLocationsBtn"),
             integrationShopifyClientId: document.getElementById("integrationShopifyClientId"),
             integrationShopifyClientSecret: document.getElementById("integrationShopifyClientSecret"),
             integrationSftpFields: document.getElementById("integrationSftpFields"),
@@ -11890,6 +11927,7 @@
             ui.integrationSyncBtn?.addEventListener("click", syncSelectedIntegration);
             ui.integrationCredentialRequestBtn?.addEventListener("click", createShopifyCredentialRequest);
             ui.integrationShopifyInstallBtn?.addEventListener("click", startShopifyOAuthInstall);
+            ui.integrationFetchShopifyLocationsBtn?.addEventListener("click", fetchShopifyLocationsForSelectedIntegration);
             ui.integrationMarketplaceCatalog?.addEventListener("click", onIntegrationMarketplaceClick);
             ui.integrationProvider?.addEventListener("change", updateIntegrationProviderNote);
             ui.integrationSchedule?.addEventListener("change", updateIntegrationScheduleMeta);
@@ -19745,6 +19783,17 @@
 
         function buildIntegrationSettingsPayload(provider) {
             const normalizedProvider = norm(provider);
+            if (normalizedProvider === "SHOPIFY") {
+                return {
+                    shopifyLocationId: String(ui.integrationShopifyLocationId?.value || "").trim(),
+                    primaryLocationName: String(ui.integrationShopifyLocationName?.value || "").trim(),
+                    syncOrders: ui.integrationShopifySyncOrders?.checked !== false,
+                    syncShipmentConfirmations: ui.integrationShopifySyncShipments?.checked !== false,
+                    syncInventory: ui.integrationShopifySyncInventory?.checked === true,
+                    notifyCustomerOnFulfillment: true,
+                    inventoryDisconnectIfNecessary: ui.integrationShopifyInventoryDisconnect?.checked === true
+                };
+            }
             if (normalizedProvider === "BUSINESS_CENTRAL") {
                 return {
                     environment: String(ui.integrationBcEnvironment?.value || "Production").trim() || "Production",
@@ -19806,6 +19855,9 @@
             }
             if (provider === "SHOPIFY" && isActive && !integrationId && !accessToken && !(authClientId && authClientSecret)) {
                 return fail(ui.integrationMessage, "Set Status to Disabled until the customer submits the Shopify Admin API access token through a secure WMS365 link.", ui.integrationActive);
+            }
+            if (provider === "SHOPIFY" && settings.syncInventory && !settings.shopifyLocationId) {
+                return fail(ui.integrationMessage, "Enter or fetch the Shopify Location ID before turning on inventory sync.", ui.integrationShopifyLocationId);
             }
             if (provider === "BUSINESS_CENTRAL") {
                 if (!settings.environment) {
@@ -19956,6 +20008,54 @@
                         requestUrl
                             ? `Secure Shopify token link created for ${recipientEmail}. It expires ${formatDate(response.expiresAt)} and was copied if browser clipboard access is allowed: ${requestUrl}`
                             : `Secure Shopify token link created for ${recipientEmail}.`,
+                        "success"
+                    );
+                });
+            } catch (error) {
+                showMessage(ui.integrationMessage, error.message, "error");
+            }
+        }
+
+        async function fetchShopifyLocationsForSelectedIntegration(event) {
+            const integrationId = String(ui.integrationId?.value || "").trim();
+            const provider = norm(ui.integrationProvider?.value || "SHOPIFY");
+            if (provider !== "SHOPIFY") {
+                return fail(ui.integrationMessage, "Choose a Shopify connection before fetching locations.", ui.integrationProvider);
+            }
+            if (!integrationId) {
+                return fail(ui.integrationMessage, "Save or load the Shopify connection first, then fetch locations.", ui.integrationStoreIdentifier);
+            }
+            const button = resolveActionButton(event);
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Fetching...",
+                    messageElement: ui.integrationMessage,
+                    progressMessage: "Fetching Shopify locations..."
+                }, async () => {
+                    const response = await requestJson(`/api/admin/integrations/${encodeURIComponent(integrationId)}/shopify/locations`);
+                    const locations = Array.isArray(response?.locations) ? response.locations : [];
+                    if (!locations.length) {
+                        return showMessage(ui.integrationMessage, "Shopify did not return any locations for this store.", "error");
+                    }
+                    const activeLocations = locations.filter((location) => location.active !== false);
+                    const preferred = activeLocations.find((location) => /canada| ca$| ca,|ontario|mississauga|toronto|qc|on/i.test([
+                        location.name,
+                        location.country,
+                        location.province,
+                        location.city,
+                        location.address1
+                    ].filter(Boolean).join(" "))) || activeLocations[0] || locations[0];
+                    if (preferred) {
+                        if (ui.integrationShopifyLocationId) ui.integrationShopifyLocationId.value = preferred.id || "";
+                        if (ui.integrationShopifyLocationName) ui.integrationShopifyLocationName.value = preferred.name || "";
+                    }
+                    const locationText = locations
+                        .map((location) => `${location.name || "Unnamed"} (${location.id})${location.city || location.province || location.country ? ` - ${[location.city, location.province, location.country].filter(Boolean).join(", ")}` : ""}`)
+                        .join(" | ");
+                    showMessage(
+                        ui.integrationMessage,
+                        `Fetched ${locations.length} Shopify location${locations.length === 1 ? "" : "s"}. Selected ${preferred?.name || preferred?.id || "the first active location"}. Review before saving. ${locationText}`,
                         "success"
                     );
                 });
@@ -20246,6 +20346,12 @@
             if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.value = "";
             if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.value = "";
             if (ui.integrationCredentialRecipient) ui.integrationCredentialRecipient.value = "";
+            if (ui.integrationShopifyLocationId) ui.integrationShopifyLocationId.value = "";
+            if (ui.integrationShopifyLocationName) ui.integrationShopifyLocationName.value = "";
+            if (ui.integrationShopifySyncOrders) ui.integrationShopifySyncOrders.checked = true;
+            if (ui.integrationShopifySyncShipments) ui.integrationShopifySyncShipments.checked = true;
+            if (ui.integrationShopifySyncInventory) ui.integrationShopifySyncInventory.checked = false;
+            if (ui.integrationShopifyInventoryDisconnect) ui.integrationShopifyInventoryDisconnect.checked = false;
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = "";
             if (ui.integrationSftpPort) ui.integrationSftpPort.value = "22";
             if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = "";
@@ -20279,6 +20385,12 @@
             if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.value = "";
             if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.value = "";
             if (ui.integrationCredentialRecipient) ui.integrationCredentialRecipient.value = "";
+            if (ui.integrationShopifyLocationId) ui.integrationShopifyLocationId.value = entry.settings?.shopifyLocationId || "";
+            if (ui.integrationShopifyLocationName) ui.integrationShopifyLocationName.value = entry.settings?.primaryLocationName || "";
+            if (ui.integrationShopifySyncOrders) ui.integrationShopifySyncOrders.checked = entry.settings?.syncOrders !== false;
+            if (ui.integrationShopifySyncShipments) ui.integrationShopifySyncShipments.checked = entry.settings?.syncShipmentConfirmations !== false;
+            if (ui.integrationShopifySyncInventory) ui.integrationShopifySyncInventory.checked = entry.settings?.syncInventory === true;
+            if (ui.integrationShopifyInventoryDisconnect) ui.integrationShopifyInventoryDisconnect.checked = entry.settings?.inventoryDisconnectIfNecessary === true;
             if (ui.integrationSftpUsername) ui.integrationSftpUsername.value = entry.settings?.username || "";
             if (ui.integrationSftpPort) ui.integrationSftpPort.value = String(entry.settings?.port || 22);
             if (ui.integrationOrdersFolder) ui.integrationOrdersFolder.value = entry.settings?.ordersFolder || "";
@@ -20428,6 +20540,15 @@
             ui.integrationStoreIdentifier.disabled = featureLocked || providerLocked;
             ui.integrationAccessToken.disabled = featureLocked || providerLocked || provider === "BUSINESS_CENTRAL";
             if (ui.integrationShopifyInstallBtn) ui.integrationShopifyInstallBtn.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked || !company;
+            if (ui.integrationCredentialRequestBtn) ui.integrationCredentialRequestBtn.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked || !company || !String(ui.integrationId?.value || "").trim();
+            if (ui.integrationFetchShopifyLocationsBtn) ui.integrationFetchShopifyLocationsBtn.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked || !company || !String(ui.integrationId?.value || "").trim();
+            if (ui.integrationCredentialRecipient) ui.integrationCredentialRecipient.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
+            if (ui.integrationShopifyLocationId) ui.integrationShopifyLocationId.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
+            if (ui.integrationShopifyLocationName) ui.integrationShopifyLocationName.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
+            if (ui.integrationShopifySyncOrders) ui.integrationShopifySyncOrders.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
+            if (ui.integrationShopifySyncShipments) ui.integrationShopifySyncShipments.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
+            if (ui.integrationShopifySyncInventory) ui.integrationShopifySyncInventory.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
+            if (ui.integrationShopifyInventoryDisconnect) ui.integrationShopifyInventoryDisconnect.disabled = provider !== "SHOPIFY" || featureLocked || providerLocked;
             if (ui.integrationShopifyClientId) ui.integrationShopifyClientId.disabled = featureLocked || providerLocked || !["SHOPIFY", "BUSINESS_CENTRAL"].includes(provider);
             if (ui.integrationShopifyClientSecret) ui.integrationShopifyClientSecret.disabled = featureLocked || providerLocked || !["SHOPIFY", "BUSINESS_CENTRAL"].includes(provider);
             ui.integrationImportStatus.disabled = featureLocked;
