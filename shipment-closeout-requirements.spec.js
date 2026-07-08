@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 
 const {
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
+    sanitizePortalShippingConfirmationInput,
+    assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,
     buildPortalShipmentQuantityWarnings
@@ -29,6 +31,25 @@ test("shipment closeout requires BOL, checked packing slip, and load photo", () 
             { shippedCarrierName: "Customer pickup", shippedTrackingReference: "BOL-123" }
         ),
         /checked packing slip/i
+    );
+});
+
+test("shipment closeout requires packing slip quantity confirmation", () => {
+    assert.throws(
+        () => assertPortalShipmentCloseoutReviewConfirmed({ packingSlipQuantityConfirmed: false }),
+        /packing slip quantity matches the system shipped quantity/i
+    );
+    assert.doesNotThrow(() => assertPortalShipmentCloseoutReviewConfirmed({ packingSlipQuantityConfirmed: true }));
+});
+
+test("shipment closeout accepts confirmation aliases from API payloads", () => {
+    assert.equal(
+        sanitizePortalShippingConfirmationInput({ packing_slip_quantity_confirmed: "yes" }).packingSlipQuantityConfirmed,
+        true
+    );
+    assert.equal(
+        sanitizePortalShippingConfirmationInput({ shipmentQuantityConfirmed: "false" }).packingSlipQuantityConfirmed,
+        false
     );
 });
 

@@ -23524,6 +23524,31 @@
             return "Customer pickup closeout records quantity shipped by SKU. Shipment proof is not required.";
         }
 
+        function buildShipmentQuantityReviewLines(order, shippedLines = []) {
+            const orderLines = Array.isArray(order?.lines) ? order.lines : [];
+            const lines = shippedLines.map((entry) => {
+                const line = orderLines.find((candidate) => String(candidate.id) === String(entry.orderLineId));
+                const trackingLevel = line?.trackingLevel || "UNIT";
+                const shippedQuantity = Number(entry.shippedQuantity) || 0;
+                return `${entry.sku || line?.sku || "Line"}: ${formatTrackedQuantity(shippedQuantity, trackingLevel)} shipped`;
+            });
+            if (lines.length > 8) {
+                return lines.slice(0, 8).concat(`${lines.length - 8} more line${lines.length - 8 === 1 ? "" : "s"}`);
+            }
+            return lines;
+        }
+
+        function confirmPortalShipmentCloseoutReview(order, shippedLines = []) {
+            const orderLabel = order?.orderCode || "this order";
+            const quantityLines = buildShipmentQuantityReviewLines(order, shippedLines);
+            const quantitySummary = quantityLines.length
+                ? `\n\nSystem Qty Shipped:\n${quantityLines.join("\n")}`
+                : "";
+            return window.confirm(
+                `Final shipping check for ${orderLabel}:\n\nBefore marking shipped, confirm the checked packing slip quantity matches the Qty Shipped shown in WMS365 for every SKU.\n\nAlso confirm the shipment type, carrier/tracking, and required documents are correct.${quantitySummary}\n\nClick OK only if everything matches.`
+            );
+        }
+
         function updatePortalShipmentMethodPanel(select) {
             const orderId = select?.dataset?.portalShipMethod || "";
             const method = normalizeShipmentMethod(select?.value || "");
@@ -23962,6 +23987,7 @@
                             shippedQuantity: Number(input.value)
                         }));
                         const requiresShipmentCloseout = currentOrder?.status === "STAGED";
+                        let packingSlipQuantityConfirmed = false;
                         if (requiresShipmentCloseout) {
                             if (shipmentMethod === "PARCEL" && !trackingNumber.trim()) {
                                 throw new Error("Enter the parcel tracking number before marking shipped.");
@@ -24010,6 +24036,11 @@
                                     return;
                                 }
                             }
+                            packingSlipQuantityConfirmed = confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
+                            if (!packingSlipQuantityConfirmed) {
+                                showMessage(actionMessageElement, "Shipment was not marked shipped. Confirm the checked packing slip quantity matches the system shipped quantity before trying again.", "info");
+                                return;
+                            }
                         }
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
@@ -24021,7 +24052,8 @@
                                 shippedTrackingReference: trackingNumber,
                                 shippedConfirmationNote: shippingNote,
                                 documents,
-                                shippedLines
+                                shippedLines,
+                                packingSlipQuantityConfirmed
                             })
                         });
                         const emailQueuedNote = response?.shipmentEmailQueued

@@ -436,6 +436,25 @@ function formatDateOnly(v){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(text)) return '';
   try{return new Intl.DateTimeFormat(undefined,{dateStyle:'medium'}).format(new Date(`${text}T00:00:00`))}catch{return text}
 }
+function formatShipmentQuantity(value,trackingLevel){
+  const qty=Number(value)||0;
+  const level=normalize(trackingLevel||'UNIT');
+  const noun=level==='PALLET'?'pallet':(level==='CASE'?'case':'unit');
+  return `${qty} ${noun}${qty===1?'':'s'}`;
+}
+function buildShipmentQuantityReviewLines(order,shippedLines){
+  const orderLines=Array.isArray(order?.lines)?order.lines:[];
+  const lines=(shippedLines||[]).map(entry=>{
+    const line=orderLines.find(candidate=>String(candidate.id)===String(entry.orderLineId));
+    return `${entry.sku||line?.sku||'Line'}: ${formatShipmentQuantity(entry.shippedQuantity,line?.trackingLevel)} shipped`;
+  });
+  return lines.length>8?lines.slice(0,8).concat(`${lines.length-8} more line${lines.length-8===1?'':'s'}`):lines;
+}
+function confirmShipmentCloseoutReview(order,shippedLines){
+  const quantityLines=buildShipmentQuantityReviewLines(order,shippedLines);
+  const quantitySummary=quantityLines.length?`\n\nSystem Qty Shipped:\n${quantityLines.join('\n')}`:'';
+  return window.confirm(`Final shipping check for ${order?.orderCode||'this order'}:\n\nBefore marking shipped, confirm the checked packing slip quantity matches the Qty Shipped shown in WMS365 for every SKU.\n\nAlso confirm the carrier/tracking and required shipment proof files are correct.${quantitySummary}\n\nTap OK only if everything matches.`);
+}
 async function updateQueueStatus(){
   const el=$('queueStatus');
   if(!el)return;
@@ -1605,12 +1624,39 @@ async function submitPickupProof(){
       sku:input.dataset.sku||'',
       shippedQuantity:Number(input.value)
     }));
-    const mismatched=shippedLines.find(entry=>{
+    const invalidLine=shippedLines.find(entry=>{
       const line=(state.selectedOrder.lines||[]).find(candidate=>String(candidate.id)===String(entry.orderLineId));
-      return !line||Number(entry.shippedQuantity)!==(Number(line.quantity)||0);
+      return !line||!Number.isInteger(Number(entry.shippedQuantity))||Number(entry.shippedQuantity)<0;
     });
-    if(mismatched){
-      throw new Error(`Qty shipped must match the order before closeout. Check ${mismatched.sku||'the shipment lines'}.`);
+    if(invalidLine){
+      throw new Error(`Enter a valid shipped quantity for ${invalidLine.sku||'the shipment lines'}.`);
+    }
+    const overShipped=shippedLines.find(entry=>{
+      const line=(state.selectedOrder.lines||[]).find(candidate=>String(candidate.id)===String(entry.orderLineId));
+      return line&&Number(entry.shippedQuantity)>(Number(line.quantity)||0);
+    });
+    if(overShipped){
+      throw new Error(`${overShipped.sku||'This line'} cannot ship more than the ordered quantity.`);
+    }
+    const shortShipped=shippedLines.map(entry=>{
+      const line=(state.selectedOrder.lines||[]).find(candidate=>String(candidate.id)===String(entry.orderLineId));
+      const orderedQuantity=Number(line?.quantity)||0;
+      const shippedQuantity=Number(entry.shippedQuantity)||0;
+      return line&&shippedQuantity<orderedQuantity?{sku:entry.sku||line.sku||'',shippedQuantity,orderedQuantity,trackingLevel:line.trackingLevel||'UNIT'}:null;
+    }).filter(Boolean);
+    if(shortShipped.length){
+      const warningLines=shortShipped.slice(0,5).map(line=>`${line.sku||'Line'}: ${formatShipmentQuantity(line.shippedQuantity,line.trackingLevel)} shipped of ${formatShipmentQuantity(line.orderedQuantity,line.trackingLevel)} ordered`);
+      if(shortShipped.length>5)warningLines.push(`${shortShipped.length-5} more line${shortShipped.length-5===1?'':'s'}`);
+      if(!window.confirm(`Shipped quantity is less than ordered:\n\n${warningLines.join('\n')}\n\nMark this order shipped anyway? Inventory will be deducted using the shipped quantities entered.`)){
+        message.className='status warn';
+        message.textContent='Shipment was not marked shipped. Review the shipped quantities and try again when ready.';
+        return;
+      }
+    }
+    if(!confirmShipmentCloseoutReview(state.selectedOrder,shippedLines)){
+      message.className='status warn';
+      message.textContent='Shipment was not marked shipped. Confirm the checked packing slip quantity matches the system shipped quantity before trying again.';
+      return;
     }
     message.textContent='Saving proof and marking shipped...';
     const payload={
@@ -1620,7 +1666,8 @@ async function submitPickupProof(){
       shippedTrackingReference:$('shipTracking').value.trim(),
       shippedConfirmationNote:$('shipNote').value.trim(),
       documents,
-      shippedLines
+      shippedLines,
+      packingSlipQuantityConfirmed:true
     };
     const body=window.WMS365Mobile?.envelope?.(payload,'MOBILE_OUTBOUND_PICKUP_PROOF')||payload;
     const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});

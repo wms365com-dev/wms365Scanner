@@ -1399,7 +1399,15 @@ function buildHealteaApiShipmentConfirmation(order, payload = {}) {
         shippedCarrierName: payload.shippedCarrierName || payload.carrierName || payload.carrier || "",
         shippedTrackingReference,
         shippedConfirmationNote: payload.shippedConfirmationNote || payload.shippingNote || payload.note || "",
-        shippedLines: buildHealteaApiShippedLines(order, payload.shippedLines || payload.lines)
+        shippedLines: buildHealteaApiShippedLines(order, payload.shippedLines || payload.lines),
+        packingSlipQuantityConfirmed: toBooleanFlag(
+            payload.packingSlipQuantityConfirmed
+            ?? payload.packing_slip_quantity_confirmed
+            ?? payload.packingSlipConfirmed
+            ?? payload.shipmentQuantityConfirmed
+            ?? payload.shipment_quantity_confirmed,
+            true
+        )
     };
 }
 
@@ -20946,6 +20954,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
     const shipmentQuantityWarnings = buildPortalShipmentQuantityWarnings(shipmentLineConfirmations);
     if (transitionToShipped) {
+        assertPortalShipmentCloseoutReviewConfirmed(confirmation);
         assertPortalShipmentProofRequirements(confirmation, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
     }
     const shippingConfirmationUnchanged = !confirmation.documents.length
@@ -21076,6 +21085,11 @@ function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = 
         const labels = missingCategories.map((category) => shipmentDocumentCategoryLabel(category)).join(", ");
         throw httpError(400, `Upload the required shipment proof before marking shipped: ${labels}.`);
     }
+}
+
+function assertPortalShipmentCloseoutReviewConfirmed(confirmation) {
+    if (confirmation?.packingSlipQuantityConfirmed === true) return;
+    throw httpError(400, "Confirm the checked packing slip quantity matches the system shipped quantity before marking shipped.");
 }
 
 function shipmentDocumentCategoryLabel(category) {
@@ -28387,6 +28401,14 @@ function sanitizePortalOrderInput(order, accountName) {
 }
 
 function sanitizePortalShippingConfirmationInput(payload) {
+    const packingSlipQuantityConfirmed = toBooleanFlag(
+        payload?.packingSlipQuantityConfirmed
+        ?? payload?.packing_slip_quantity_confirmed
+        ?? payload?.packingSlipConfirmed
+        ?? payload?.shipmentQuantityConfirmed
+        ?? payload?.shipment_quantity_confirmed,
+        false
+    );
     return {
         confirmedShipDate: normalizeDateInput(payload?.confirmedShipDate || payload?.shipDate || payload?.actualShipDate),
         shipmentMethod: normalizePortalShipmentMethod(payload?.shipmentMethod || payload?.shipment_method || payload?.shippingMethod || payload?.shipping_method),
@@ -28400,7 +28422,8 @@ function sanitizePortalShippingConfirmationInput(payload) {
         ),
         shippedConfirmationNote: normalizeFreeText(payload?.shippedConfirmationNote || payload?.shippingNote || payload?.note),
         documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : []),
-        shippedLines: sanitizePortalShippedLinesInput(Array.isArray(payload?.shippedLines) ? payload.shippedLines : [])
+        shippedLines: sanitizePortalShippedLinesInput(Array.isArray(payload?.shippedLines) ? payload.shippedLines : []),
+        packingSlipQuantityConfirmed
     };
 }
 
@@ -31159,6 +31182,7 @@ module.exports = {
     mapPortalOrderPrintSummaryRows,
     recordPortalOrderPrintEvent,
     sanitizePortalShippingConfirmationInput,
+    assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,
     buildPortalShipmentQuantityWarnings,

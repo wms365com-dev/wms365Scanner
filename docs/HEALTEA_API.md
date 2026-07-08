@@ -99,11 +99,12 @@ Payload:
   "carrier": "UPS",
   "tracking": "1Z9999999999999999",
   "shipDate": "2026-06-24",
+  "packingSlipQuantityConfirmed": true,
   "note": "Closed by external label project"
 }
 ```
 
-For parcel shipments, `tracking` is required and `carrier` is optional. For LTL/FTL shipments, WMS365 requires shipment proof documents: signed BOL/POD, checked packing slip, and loaded freight photo.
+For parcel shipments, `tracking` is required and `carrier` is optional. For LTL/FTL shipments, WMS365 requires shipment proof documents: signed BOL/POD, checked packing slip, and loaded freight photo. `packingSlipQuantityConfirmed` must be `true` when marking an order shipped; this confirms the checked packing slip quantity matches the WMS365 shipped quantity for every SKU.
 
 If `shippedLines` is omitted, WMS365 closes the full order quantity for every line. To send explicit line quantities:
 
@@ -113,6 +114,7 @@ If `shippedLines` is omitted, WMS365 closes the full order quantity for every li
   "shipmentMethod": "PARCEL",
   "carrier": "UPS",
   "tracking": "1Z9999999999999999",
+  "packingSlipQuantityConfirmed": true,
   "shippedLines": [
     { "sku": "20628693486136", "shippedQuantity": 2 }
   ]
