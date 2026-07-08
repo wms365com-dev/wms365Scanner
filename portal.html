@@ -580,6 +580,27 @@
             font-weight: 700;
             text-decoration: none;
         }
+        .document-selection-list {
+            display: grid;
+            gap: 0.35rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .document-selection-list strong {
+            color: var(--text);
+        }
+        .document-selection-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            align-items: center;
+            min-width: 0;
+        }
+        .document-selection-item span {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
         .order-summary-card {
             display: grid;
             gap: 0.85rem;
@@ -1235,6 +1256,7 @@
                             <input id="orderDocumentFiles" type="file" accept="application/pdf,image/*" multiple>
                         </label>
                         <div class="meta">Attach labels, BOLs, packing instructions, or supporting files while creating the order. PDF or image files, up to 5 at a time.</div>
+                        <div id="orderPendingDocuments" class="document-selection-list"></div>
                         <div id="orderFormDocuments" class="order-documents hidden"></div>
                     </div>
                 </form>
@@ -1541,6 +1563,9 @@
             expandedKittingRequestId: null,
             documentPreviewObjectUrl: "",
             orderStatusFilter: "",
+            orderDraftDocumentFiles: [],
+            orderUploadDocumentFiles: {},
+            inboundUploadDocumentFiles: {},
             pendingReleaseHandler: null
         };
 
@@ -1661,6 +1686,7 @@
             portalShipToAddressList: document.getElementById("portalShipToAddressList"),
             orderNotes: document.getElementById("orderNotes"),
             orderDocumentFiles: document.getElementById("orderDocumentFiles"),
+            orderPendingDocuments: document.getElementById("orderPendingDocuments"),
             orderFormDocuments: document.getElementById("orderFormDocuments"),
             addLineBtn: document.getElementById("addLineBtn"),
             orderLines: document.getElementById("orderLines"),
@@ -1945,6 +1971,8 @@
             ui.deliveryCreateInboundBtn?.addEventListener("click", () => setView("inbound"));
             ui.deliveryInboundId?.addEventListener("change", syncDeliveryInboundSelection);
             ui.portalWarehouseSelect?.addEventListener("change", () => setActiveFulfillmentLocation(ui.portalWarehouseSelect.value, { announce: true }));
+            ui.orderDocumentFiles?.addEventListener("change", () => onDraftOrderDocumentSelection(ui.orderDocumentFiles));
+            ui.orderPendingDocuments?.addEventListener("click", onDraftOrderDocumentSelectionClick);
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
@@ -1962,6 +1990,7 @@
             ui.logoutBtn.addEventListener("click", logout);
             ui.orderPanel.addEventListener("click", onDocumentPreviewClick);
             ui.ordersList.addEventListener("click", onOrdersListClick);
+            ui.ordersList.addEventListener("change", onOrderDocumentSelectionChange);
             ui.shippedOrdersList.addEventListener("click", onShippedOrdersListClick);
             ui.shippedOrderDetails.addEventListener("click", onDocumentPreviewClick);
             ui.orderStatusFilterButtons.forEach((button) => button.addEventListener("click", () => applyOrderStatusFilter(button.dataset.orderStatusFilter)));
@@ -1973,6 +2002,7 @@
             ui.exportShippedOrdersBtn.addEventListener("click", exportShippedOrders);
             ui.refreshShippedOrdersBtn.addEventListener("click", refreshShippedOrders);
             ui.inboundsList.addEventListener("click", onInboundsListClick);
+            ui.inboundsList.addEventListener("change", onInboundDocumentSelectionChange);
             ui.deliveriesList?.addEventListener("click", onDeliveriesListClick);
             ui.kittingRequestsList?.addEventListener("click", onKittingRequestsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
@@ -3084,13 +3114,100 @@
             `;
         }
 
+        function formatSelectedDocumentSize(file) {
+            const size = Number(file?.size || 0);
+            if (!size) return "";
+            if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+            return `${Math.max(1, Math.round(size / 1024))} KB`;
+        }
+
+        function fileSelectionKey(file) {
+            return [
+                String(file?.name || "").trim().toLowerCase(),
+                Number(file?.size || 0),
+                Number(file?.lastModified || 0)
+            ].join("|");
+        }
+
+        function addFilesToDocumentQueue(existingFiles, fileList) {
+            const queue = Array.isArray(existingFiles) ? existingFiles.slice() : [];
+            const incoming = [...(fileList || [])];
+            if (!incoming.length) return queue;
+            const seen = new Set(queue.map(fileSelectionKey));
+            for (const file of incoming) {
+                const key = fileSelectionKey(file);
+                if (!key || seen.has(key)) continue;
+                queue.push(file);
+                seen.add(key);
+            }
+            if (queue.length > 5) {
+                throw new Error("Upload up to 5 documents at a time.");
+            }
+            return queue;
+        }
+
+        function documentSelectionHtml(files = [], clearAttribute = "") {
+            if (!files.length) return `<span class="meta">No documents selected.</span>`;
+            const rows = files.map((file) => {
+                const size = formatSelectedDocumentSize(file);
+                return `<div class="document-selection-item"><span>${esc(file.name || "Document")}${size ? ` (${esc(size)})` : ""}</span></div>`;
+            }).join("");
+            return `
+                <div class="document-selection-item">
+                    <strong>${files.length} document${files.length === 1 ? "" : "s"} selected</strong>
+                    <button class="btn ghost mini" type="button" ${clearAttribute}>Clear</button>
+                </div>
+                ${rows}
+            `;
+        }
+
+        function renderDraftOrderDocumentSelection() {
+            if (!ui.orderPendingDocuments) return;
+            ui.orderPendingDocuments.innerHTML = documentSelectionHtml(portalState.orderDraftDocumentFiles, "data-clear-draft-documents");
+        }
+
+        function onDraftOrderDocumentSelection(input) {
+            try {
+                portalState.orderDraftDocumentFiles = addFilesToDocumentQueue(portalState.orderDraftDocumentFiles, input?.files);
+                if (input) input.value = "";
+                renderDraftOrderDocumentSelection();
+            } catch (error) {
+                if (input) input.value = "";
+                setMessage(error.message, "error");
+            }
+        }
+
+        function onDraftOrderDocumentSelectionClick(event) {
+            const clearButton = event.target.closest("[data-clear-draft-documents]");
+            if (!clearButton) return;
+            portalState.orderDraftDocumentFiles = [];
+            if (ui.orderDocumentFiles) ui.orderDocumentFiles.value = "";
+            renderDraftOrderDocumentSelection();
+        }
+
+        function renderOrderUploadDocumentSelection(orderId) {
+            const container = [...(ui.ordersList?.querySelectorAll("[data-order-document-selection]") || [])]
+                .find((entry) => String(entry.dataset.orderDocumentSelection || "") === String(orderId || ""));
+            if (!container) return;
+            const files = portalState.orderUploadDocumentFiles[String(orderId)] || [];
+            container.innerHTML = documentSelectionHtml(files, `data-clear-order-document-selection="${attr(orderId)}"`);
+        }
+
+        function renderInboundUploadDocumentSelection(inboundId) {
+            const container = [...(ui.inboundsList?.querySelectorAll("[data-inbound-document-selection]") || [])]
+                .find((entry) => String(entry.dataset.inboundDocumentSelection || "") === String(inboundId || ""));
+            if (!container) return;
+            const files = portalState.inboundUploadDocumentFiles[String(inboundId)] || [];
+            container.innerHTML = documentSelectionHtml(files, `data-clear-inbound-document-selection="${attr(inboundId)}"`);
+        }
+
         function pendingOrderDocumentCount() {
-            return ui.orderDocumentFiles?.files?.length || 0;
+            return portalState.orderDraftDocumentFiles.length;
         }
 
         async function readPendingOrderDocuments() {
             if (!pendingOrderDocumentCount()) return [];
-            return readOrderDocumentFiles(ui.orderDocumentFiles.files);
+            return readOrderDocumentFiles(portalState.orderDraftDocumentFiles);
         }
 
         function renderOrders() {
@@ -3167,6 +3284,9 @@
                                         <div class="button-row">
                                             <button class="btn ghost" type="button" data-upload-order-documents="${attr(order.id)}">Upload Labels / Docs</button>
                                             <span class="meta">PDF or image files, up to 5 at a time.</span>
+                                        </div>
+                                        <div class="document-selection-list" data-order-document-selection="${attr(order.id)}">
+                                            ${documentSelectionHtml(portalState.orderUploadDocumentFiles[String(order.id)] || [], `data-clear-order-document-selection="${attr(order.id)}"`)}
                                         </div>
                                     </div>
                                 ` : orderDocumentLockMessage(order) ? `
@@ -3414,6 +3534,9 @@
                                         <div class="button-row">
                                             <button class="btn ghost" type="button" data-upload-inbound-documents="${attr(inbound.id)}">Upload PO Docs</button>
                                             <span class="meta">PDF or image files, up to 5 at a time.</span>
+                                        </div>
+                                        <div class="document-selection-list" data-inbound-document-selection="${attr(inbound.id)}">
+                                            ${documentSelectionHtml(portalState.inboundUploadDocumentFiles[String(inbound.id)] || [], `data-clear-inbound-document-selection="${attr(inbound.id)}"`)}
                                         </div>
                                     </div>
                                 ` : ""}
@@ -3729,6 +3852,8 @@
             ui.orderShipToCountry.value = order?.shipToCountry || "USA";
             ui.orderNotes.value = order?.orderNotes || "";
             if (ui.orderDocumentFiles) ui.orderDocumentFiles.value = "";
+            portalState.orderDraftDocumentFiles = [];
+            renderDraftOrderDocumentSelection();
             renderOrderFormDocuments(order);
             ui.orderLines.innerHTML = "";
             if (order?.fulfillmentLocationId) {
@@ -3904,6 +4029,7 @@
                     });
                     await loadPortalData();
                     const savedOrder = portalState.orders.find((order) => order.id === response.order.id) || response.order;
+                    portalState.orderDraftDocumentFiles = [];
                     resetOrderForm(savedOrder);
                     setView("order");
                     if (options.suppressSuccessMessage !== true) {
@@ -4169,7 +4295,49 @@
             }
         }
 
+        function onOrderDocumentSelectionChange(event) {
+            const input = event.target.closest("[data-order-documents]");
+            if (!input) return;
+            const orderId = String(input.dataset.orderDocuments || "");
+            try {
+                portalState.orderUploadDocumentFiles[orderId] = addFilesToDocumentQueue(
+                    portalState.orderUploadDocumentFiles[orderId] || [],
+                    input.files
+                );
+                input.value = "";
+                renderOrderUploadDocumentSelection(orderId);
+            } catch (error) {
+                input.value = "";
+                setMessage(error.message, "error");
+            }
+        }
+
+        function onInboundDocumentSelectionChange(event) {
+            const input = event.target.closest("[data-inbound-documents]");
+            if (!input) return;
+            const inboundId = String(input.dataset.inboundDocuments || "");
+            try {
+                portalState.inboundUploadDocumentFiles[inboundId] = addFilesToDocumentQueue(
+                    portalState.inboundUploadDocumentFiles[inboundId] || [],
+                    input.files
+                );
+                input.value = "";
+                renderInboundUploadDocumentSelection(inboundId);
+            } catch (error) {
+                input.value = "";
+                setMessage(error.message, "error");
+            }
+        }
+
         async function onOrdersListClick(event) {
+            const clearOrderDocumentSelection = event.target.closest("[data-clear-order-document-selection]");
+            if (clearOrderDocumentSelection) {
+                const orderId = String(clearOrderDocumentSelection.dataset.clearOrderDocumentSelection || "");
+                delete portalState.orderUploadDocumentFiles[orderId];
+                renderOrderUploadDocumentSelection(orderId);
+                return;
+            }
+
             const toggleDetailsButton = event.target.closest("[data-toggle-order-details]");
             if (toggleDetailsButton) {
                 const orderId = toggleDetailsButton.dataset.toggleOrderDetails || "";
@@ -4258,7 +4426,9 @@
             const orderCard = button?.closest?.(".order-card") || null;
             const fileInput = orderCard?.querySelector("[data-order-documents]");
             try {
-                const documents = await readOrderDocumentFiles(fileInput?.files);
+                const orderKey = String(order.id);
+                const queuedFiles = portalState.orderUploadDocumentFiles[orderKey] || [];
+                const documents = await readOrderDocumentFiles(queuedFiles.length ? queuedFiles : fileInput?.files);
                 await runActionWithFeedback({
                     button,
                     busyLabel: "Uploading...",
@@ -4268,6 +4438,7 @@
                         method: "POST",
                         body: JSON.stringify({ documents })
                     });
+                    delete portalState.orderUploadDocumentFiles[orderKey];
                     if (fileInput) fileInput.value = "";
                     await loadPortalData();
                     setView("orders");
@@ -4280,6 +4451,14 @@
         }
 
         async function onInboundsListClick(event) {
+            const clearInboundDocumentSelection = event.target.closest("[data-clear-inbound-document-selection]");
+            if (clearInboundDocumentSelection) {
+                const inboundId = String(clearInboundDocumentSelection.dataset.clearInboundDocumentSelection || "");
+                delete portalState.inboundUploadDocumentFiles[inboundId];
+                renderInboundUploadDocumentSelection(inboundId);
+                return;
+            }
+
             const toggleDetailsButton = event.target.closest("[data-toggle-inbound-details]");
             if (toggleDetailsButton) {
                 const inboundId = toggleDetailsButton.dataset.toggleInboundDetails || "";
@@ -4320,7 +4499,9 @@
             const inboundCard = button?.closest?.(".order-card") || null;
             const fileInput = inboundCard?.querySelector("[data-inbound-documents]");
             try {
-                const documents = await readOrderDocumentFiles(fileInput?.files);
+                const inboundKey = String(inbound.id);
+                const queuedFiles = portalState.inboundUploadDocumentFiles[inboundKey] || [];
+                const documents = await readOrderDocumentFiles(queuedFiles.length ? queuedFiles : fileInput?.files);
                 await runActionWithFeedback({
                     button,
                     busyLabel: "Uploading...",
@@ -4330,6 +4511,7 @@
                         method: "POST",
                         body: JSON.stringify({ documents })
                     });
+                    delete portalState.inboundUploadDocumentFiles[inboundKey];
                     if (fileInput) fileInput.value = "";
                     await loadPortalData();
                     setView("inbounds");
