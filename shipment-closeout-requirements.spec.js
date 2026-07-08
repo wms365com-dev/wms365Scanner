@@ -7,7 +7,9 @@ const {
     assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,
-    buildPortalShipmentQuantityWarnings
+    buildPortalShipmentQuantityWarnings,
+    buildPortalShipmentEmailText,
+    buildPortalShipmentEmailHtml
 } = require("./server");
 
 const sampleOrder = {
@@ -118,6 +120,35 @@ test("shipment closeout allows lower shipped quantity and records a warning", ()
             message: "SKU-B shipped 1 of 2."
         }
     ]);
+});
+
+test("shipment email highlights short shipped lines", () => {
+    const shortOrder = {
+        id: "101",
+        orderCode: "ORD-SHORT",
+        accountName: "TEST CUSTOMER",
+        status: "SHIPPED",
+        lines: [
+            { id: "11", sku: "SKU-A", quantity: 5, trackingLevel: "UNIT", description: "Exact item", upc: "" },
+            { id: "12", sku: "SKU-B", quantity: 2, trackingLevel: "UNIT", description: "Short item", upc: "" }
+        ],
+        shipmentLines: [
+            { orderLineId: "11", sku: "SKU-A", orderedQuantity: 5, shippedQuantity: 5 },
+            { orderLineId: "12", sku: "SKU-B", orderedQuantity: 2, shippedQuantity: 1 }
+        ]
+    };
+    const confirmation = { documents: [] };
+
+    const text = buildPortalShipmentEmailText(shortOrder, confirmation);
+    const html = buildPortalShipmentEmailHtml(shortOrder, confirmation);
+
+    assert.match(text, /SHORT SHIPMENT NOTICE/);
+    assert.match(text, /SKU-B short 1 unit/);
+    assert.match(text, /SKU-B \| Ordered: 2 units \| Shipped: 1 unit \| SHORT: 1 unit/);
+    assert.match(html, /Short shipment notice/);
+    assert.match(html, /background:#fef2f2/);
+    assert.match(html, /color:#991b1b/);
+    assert.match(html, /Short 1 unit/);
 });
 
 test("shipment closeout rejects shipped quantity above ordered quantity", () => {

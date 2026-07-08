@@ -19538,7 +19538,31 @@ function formatPortalOrderShipToAddress(order) {
     ].filter(Boolean).join(" | ");
 }
 
+function buildPortalShipmentEmailLineSummaries(order) {
+    const orderLines = Array.isArray(order?.lines) ? order.lines : [];
+    const shipmentLines = Array.isArray(order?.shipmentLines) ? order.shipmentLines : [];
+    const shipmentByOrderLineId = new Map(shipmentLines.map((line) => [String(line.orderLineId), line]));
+
+    return orderLines.map((line) => {
+        const orderedQuantity = Number(line.quantity) || 0;
+        const shipmentLine = shipmentByOrderLineId.get(String(line.id));
+        const shippedQuantity = shipmentLine
+            ? Number(shipmentLine.shippedQuantity) || 0
+            : orderedQuantity;
+        const shortQuantity = Math.max(orderedQuantity - shippedQuantity, 0);
+        return {
+            line,
+            orderedQuantity,
+            shippedQuantity,
+            shortQuantity,
+            isShort: shortQuantity > 0
+        };
+    });
+}
+
 function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } = {}) {
+    const shipmentLineSummaries = buildPortalShipmentEmailLineSummaries(order);
+    const shortLineSummaries = shipmentLineSummaries.filter((summary) => summary.isShort);
     const lines = [
         `${isUpdate ? "Shipment confirmation updated" : "Shipment confirmation"} for ${order.orderCode}`,
         `Company: ${order.accountName}`,
@@ -19552,13 +19576,23 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
         order.contactName ? `Warehouse Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         confirmation.shippedConfirmationNote ? `Shipping Note: ${confirmation.shippedConfirmationNote}` : "",
-        "",
-        "Order Lines:"
+        ""
     ];
 
-    order.lines.forEach((line) => {
+    if (shortLineSummaries.length) {
+        lines.push("", "SHORT SHIPMENT NOTICE:");
+        shortLineSummaries.forEach(({ line, orderedQuantity, shippedQuantity, shortQuantity }) => {
+            lines.push(
+                `- ${line.sku} short ${formatTrackedQuantity(shortQuantity, line.trackingLevel)} (ordered ${formatTrackedQuantity(orderedQuantity, line.trackingLevel)}, shipped ${formatTrackedQuantity(shippedQuantity, line.trackingLevel)})`
+            );
+        });
+        lines.push("");
+    }
+
+    lines.push("Order Lines:");
+    shipmentLineSummaries.forEach(({ line, orderedQuantity, shippedQuantity, shortQuantity, isShort }) => {
         lines.push(
-            `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
+            `- ${line.sku} | Ordered: ${formatTrackedQuantity(orderedQuantity, line.trackingLevel)} | Shipped: ${formatTrackedQuantity(shippedQuantity, line.trackingLevel)}${isShort ? ` | SHORT: ${formatTrackedQuantity(shortQuantity, line.trackingLevel)}` : ""}${line.description ? ` | ${line.description}` : ""}${line.upc ? ` | UPC ${line.upc}` : ""}`
         );
     });
 
@@ -19571,14 +19605,29 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
 }
 
 function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } = {}) {
-    const linesHtml = order.lines.map((line) => `
-        <tr>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "-")}</td>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.upc || "-")}</td>
+    const shipmentLineSummaries = buildPortalShipmentEmailLineSummaries(order);
+    const shortLineSummaries = shipmentLineSummaries.filter((summary) => summary.isShort);
+    const shortageBanner = shortLineSummaries.length
+        ? `
+            <div style="margin:18px 0 14px;padding:12px 14px;border:1px solid #ef4444;background:#fef2f2;color:#991b1b;">
+                <strong>Short shipment notice</strong>
+                <div>${escapeHtml(formatCount(shortLineSummaries.length, "line"))} shipped below the ordered quantity. Short lines are highlighted in red below.</div>
+            </div>
+        `
+        : "";
+    const linesHtml = shipmentLineSummaries.map(({ line, orderedQuantity, shippedQuantity, shortQuantity, isShort }) => {
+        const cellStyle = `padding:8px;border-bottom:1px solid ${isShort ? "#fecaca" : "#e5e7eb"};${isShort ? "background:#fef2f2;color:#991b1b;font-weight:700;" : ""}`;
+        return `
+        <tr style="${isShort ? "background:#fef2f2;color:#991b1b;" : ""}">
+            <td style="${cellStyle}">${escapeHtml(line.sku)}</td>
+            <td style="${cellStyle}">${escapeHtml(formatTrackedQuantity(orderedQuantity, line.trackingLevel))}</td>
+            <td style="${cellStyle}">${escapeHtml(formatTrackedQuantity(shippedQuantity, line.trackingLevel))}</td>
+            <td style="${cellStyle}">${isShort ? escapeHtml(`Short ${formatTrackedQuantity(shortQuantity, line.trackingLevel)}`) : "-"}</td>
+            <td style="${cellStyle}">${escapeHtml(line.description || "-")}</td>
+            <td style="${cellStyle}">${escapeHtml(line.upc || "-")}</td>
         </tr>
-    `).join("");
+    `;
+    }).join("");
 
     const documentList = confirmation.documents.length
         ? `
@@ -19604,12 +19653,15 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
                 <tr><td style="padding:6px 0;font-weight:600;">Warehouse Contact</td><td style="padding:6px 0;">${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</td></tr>
                 ${confirmation.shippedConfirmationNote ? `<tr><td style="padding:6px 0;font-weight:600;">Shipping Note</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedConfirmationNote)}</td></tr>` : ""}
             </table>
+            ${shortageBanner}
             <p style="margin:20px 0 8px;font-weight:600;">Order Lines</p>
             <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
                 <thead>
                     <tr style="background:#f9fafb;">
                         <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
-                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Quantity</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Ordered Qty</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Shipped Qty</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Short</th>
                         <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
                         <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">UPC</th>
                     </tr>
@@ -31176,6 +31228,9 @@ module.exports = {
     buildPortalOrderUcc128LabelPdfAttachment,
     buildSscc18,
     calculateGs1Modulo10CheckDigit,
+    buildPortalShipmentEmailLineSummaries,
+    buildPortalShipmentEmailText,
+    buildPortalShipmentEmailHtml,
     buildPortalReleaseEmailText,
     buildPortalReleaseEmailHtml,
     normalizePortalOrderPrintDocumentType,
