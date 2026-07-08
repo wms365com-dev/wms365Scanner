@@ -331,6 +331,41 @@
             font-weight: 700;
             line-height: 1.35;
         }
+        .warehouse-confirmation-card {
+            display: grid;
+            gap: 0.55rem;
+            padding: 0.95rem 1rem;
+            border: 1px solid #e8cf92;
+            border-left: 5px solid #d97706;
+            border-radius: 12px;
+            background: #fffaf0;
+            color: var(--text);
+        }
+        .warehouse-confirmation-card strong {
+            color: #6f4700;
+        }
+        .warehouse-confirmation-card .warehouse-title {
+            font-size: 1rem;
+            font-weight: 800;
+        }
+        .warehouse-confirmation-card .warehouse-address {
+            color: #4f6171;
+            line-height: 1.45;
+        }
+        .warehouse-confirmation-card .warehouse-note {
+            color: #9a5a00;
+            font-weight: 700;
+            line-height: 1.45;
+        }
+        .warehouse-confirmation-card.is-missing {
+            border-color: #f0c7c7;
+            border-left-color: #dc2626;
+            background: #fff5f5;
+        }
+        .warehouse-confirmation-card.is-missing strong,
+        .warehouse-confirmation-card.is-missing .warehouse-note {
+            color: #991b1b;
+        }
         .service-grid {
             display: grid;
             gap: 0.85rem;
@@ -1365,8 +1400,16 @@
                         <div><strong id="portalReleaseOrderCode">Draft order</strong></div>
                         <div class="meta" id="portalReleaseReference">Reference: Not set</div>
                         <div class="meta" id="portalReleaseShipTo">Ship to: Not set</div>
+                        <div class="meta" id="portalReleaseWarehouse">Ship from: Not selected</div>
                     </div>
                     <form id="portalReleaseForm" class="form-grid" autocomplete="off">
+                        <label class="toggle-card span-2">
+                            <input id="portalReleaseWarehouseConfirmed" type="checkbox" required>
+                            <span class="toggle-copy">
+                                <strong>I confirm the ship-from warehouse and address are correct</strong>
+                                <span class="meta">Check this before releasing the order to the warehouse team.</span>
+                            </span>
+                        </label>
                         <label class="toggle-card span-2">
                             <input id="portalReleaseEmailWarehouse" type="checkbox" checked>
                             <span class="toggle-copy">
@@ -1635,6 +1678,8 @@
             portalReleaseOrderCode: document.getElementById("portalReleaseOrderCode"),
             portalReleaseReference: document.getElementById("portalReleaseReference"),
             portalReleaseShipTo: document.getElementById("portalReleaseShipTo"),
+            portalReleaseWarehouse: document.getElementById("portalReleaseWarehouse"),
+            portalReleaseWarehouseConfirmed: document.getElementById("portalReleaseWarehouseConfirmed"),
             portalReleaseEmailWarehouse: document.getElementById("portalReleaseEmailWarehouse"),
             portalReleaseLabelAttached: document.getElementById("portalReleaseLabelAttached"),
             portalReleaseCcEmails: document.getElementById("portalReleaseCcEmails"),
@@ -1723,12 +1768,70 @@
             return `wms365.portal.warehouse.${norm(portalState.account?.accountName || "account")}`;
         }
 
+        function shouldUseGreyWolfEdwardsAlias(location) {
+            const accountName = norm(portalState.account?.accountName || "");
+            if (!accountName.includes("PURE FOODS")) return false;
+            const code = norm(location?.locationCode || location?.code || location?.fulfillmentLocationCode || "");
+            const address = norm(location?.address1 || location?.locationAddress1 || "");
+            return code === "WHS01" || address.includes("6300 EDWARDS");
+        }
+
+        function getCustomerFulfillmentLocationName(location) {
+            if (!location) return "Warehouse";
+            if (shouldUseGreyWolfEdwardsAlias(location)) return "Grey Wolf Edwards Warehouse";
+            return location.locationName || location.partnerName || location.fulfillmentLocationName || location.fulfillmentPartnerName || location.locationCode || location.code || "Warehouse";
+        }
+
         function getFulfillmentLocationLabel(location) {
             if (!location) return "No warehouse selected";
-            const name = location.partnerName || location.locationName || location.locationCode || location.code || "Warehouse";
-            const code = location.locationCode || location.code || "";
-            const region = [location.city, location.state].filter(Boolean).join(", ");
+            const name = getCustomerFulfillmentLocationName(location);
+            const code = location.locationCode || location.code || location.fulfillmentLocationCode || "";
+            const region = [location.city || location.fulfillmentCity || "", location.state || location.fulfillmentState || ""].filter(Boolean).join(", ");
             return [name, code && code !== name ? `(${code})` : "", region].filter(Boolean).join(" ");
+        }
+
+        function getFulfillmentLocationAddressParts(location) {
+            if (!location) return [];
+            const street = [location.address1 || location.locationAddress1 || "", location.address2 || location.locationAddress2 || ""]
+                .filter(Boolean)
+                .join(" ");
+            const city = location.city || location.fulfillmentCity || "";
+            const state = location.state || location.fulfillmentState || "";
+            const postalCode = location.postalCode || location.postal_code || location.fulfillmentPostalCode || "";
+            const cityLine = [
+                city,
+                [state, postalCode].filter(Boolean).join(" ")
+            ].filter(Boolean).join(", ");
+            return [street, cityLine, location.country || location.fulfillmentCountry || ""].filter(Boolean);
+        }
+
+        function formatFulfillmentLocationAddress(location) {
+            return getFulfillmentLocationAddressParts(location).join(" | ");
+        }
+
+        function formatFulfillmentLocationSummary(location) {
+            if (!location) return "No warehouse selected";
+            return [getFulfillmentLocationLabel(location), formatFulfillmentLocationAddress(location)].filter(Boolean).join(" | ");
+        }
+
+        function renderFulfillmentLocationNotice(location, heading, emptyText, noteText) {
+            if (!location) {
+                return `
+                    <div class="warehouse-confirmation-card is-missing">
+                        <strong>${esc(heading)}</strong>
+                        <div class="warehouse-note">${esc(emptyText)}</div>
+                    </div>
+                `;
+            }
+            const address = formatFulfillmentLocationAddress(location);
+            return `
+                <div class="warehouse-confirmation-card">
+                    <strong>${esc(heading)}</strong>
+                    <div class="warehouse-title">${esc(getFulfillmentLocationLabel(location))}</div>
+                    ${address ? `<div class="warehouse-address">${esc(address)}</div>` : ""}
+                    <div class="warehouse-note">${esc(noteText)}</div>
+                </div>
+            `;
         }
 
         function getActiveFulfillmentLocation() {
@@ -1784,17 +1887,24 @@
             }
             if (ui.portalWarehouseCurrent) {
                 ui.portalWarehouseCurrent.textContent = active
-                    ? `New orders, purchase orders, and delivery appointments will be routed to ${getFulfillmentLocationLabel(active)}.`
+                    ? `New orders, purchase orders, and delivery appointments will be routed to ${formatFulfillmentLocationSummary(active)}.`
                     : "Select the warehouse location for this account before creating work.";
             }
-            const noticeText = active
-                ? `Warehouse: ${getFulfillmentLocationLabel(active)}`
-                : "Select the active warehouse at the top right before submitting.";
             if (ui.orderWarehouseNotice) {
-                ui.orderWarehouseNotice.innerHTML = `<strong>Fulfillment Warehouse</strong><p class="meta">${esc(noticeText)}</p>`;
+                ui.orderWarehouseNotice.innerHTML = renderFulfillmentLocationNotice(
+                    active,
+                    "Ship From Warehouse",
+                    "Select the active warehouse at the top right before saving or releasing this sales order.",
+                    "Goods for this order are stored at this ship-from location. Confirm labels and routing match this address before release."
+                );
             }
             if (ui.inboundWarehouseNotice) {
-                ui.inboundWarehouseNotice.innerHTML = `<strong>Receiving Warehouse</strong><p class="meta">${esc(noticeText)}</p>`;
+                ui.inboundWarehouseNotice.innerHTML = renderFulfillmentLocationNotice(
+                    active,
+                    "Receiving Warehouse",
+                    "Select the active warehouse at the top right before submitting this purchase order.",
+                    "Inbound inventory and appointments must be directed to this warehouse address."
+                );
             }
         }
 
@@ -3520,12 +3630,14 @@
             const linked = record.fulfillmentLocationId
                 ? portalState.fulfillmentLocations.find((location) => String(location.fulfillmentLocationId) === String(record.fulfillmentLocationId))
                 : null;
-            if (linked) return getFulfillmentLocationLabel(linked);
-            return [
-                record.fulfillmentPartnerName || record.fulfillmentLocationName || record.fulfillmentLocationCode || "Assigned warehouse",
-                record.fulfillmentCity || "",
-                record.fulfillmentState || ""
-            ].filter(Boolean).join(" - ");
+            if (linked) return formatFulfillmentLocationSummary(linked);
+            return getFulfillmentLocationLabel({
+                locationCode: record.fulfillmentLocationCode || "",
+                locationName: record.fulfillmentLocationName || "",
+                partnerName: record.fulfillmentPartnerName || "",
+                city: record.fulfillmentCity || "",
+                state: record.fulfillmentState || ""
+            });
         }
 
         function resetDeliveryForm({ keepMessage = false } = {}) {
@@ -3831,6 +3943,9 @@
         }
 
         function collectPortalReleaseOptions() {
+            if (!ui.portalReleaseWarehouseConfirmed?.checked) {
+                throw new Error("Confirm the ship-from warehouse and address before releasing this order.");
+            }
             const notifyWarehouse = ui.portalReleaseEmailWarehouse.checked;
             const shippingLabelAttached = ui.portalReleaseLabelAttached.checked;
             const ccEmails = splitPortalEmailList(ui.portalReleaseCcEmails.value);
@@ -3859,17 +3974,24 @@
                 orderCode: currentOrder?.orderCode || "New draft order",
                 reference: ui.orderShippingReference.value.trim() || currentOrder?.shippingReference || "Not set",
                 shipTo: shipToSummary || "Not set",
+                shipFrom: formatFulfillmentLocationSummary(getActiveFulfillmentLocation()),
                 documentCount: (Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0) + pendingOrderDocumentCount()
             };
         }
 
-        function openPortalReleaseModal({ orderCode = "Draft order", reference = "Not set", shipTo = "Not set", orderId = "", documentCount = 0, onConfirm = null } = {}) {
+        function openPortalReleaseModal({ orderCode = "Draft order", reference = "Not set", shipTo = "Not set", shipFrom = "No warehouse selected", orderId = "", documentCount = 0, onConfirm = null } = {}) {
             portalState.pendingReleaseHandler = typeof onConfirm === "function" ? onConfirm : null;
             portalState.pendingReleaseOrderId = String(orderId || "");
             portalState.pendingReleaseDocumentCount = Number(documentCount) || 0;
             ui.portalReleaseOrderCode.textContent = orderCode || "Draft order";
             ui.portalReleaseReference.textContent = `Reference: ${reference || "Not set"}`;
             ui.portalReleaseShipTo.textContent = `Ship to: ${shipTo || "Not set"}`;
+            if (ui.portalReleaseWarehouse) {
+                ui.portalReleaseWarehouse.textContent = `Ship from: ${shipFrom || "No warehouse selected"}`;
+            }
+            if (ui.portalReleaseWarehouseConfirmed) {
+                ui.portalReleaseWarehouseConfirmed.checked = false;
+            }
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseLabelAttached.checked = false;
             ui.portalReleaseCcEmails.value = "";
@@ -3885,6 +4007,12 @@
             portalState.pendingReleaseDocumentCount = 0;
             ui.portalReleaseModal.classList.add("hidden");
             ui.portalReleaseModal.setAttribute("aria-hidden", "true");
+            if (ui.portalReleaseWarehouse) {
+                ui.portalReleaseWarehouse.textContent = "Ship from: Not selected";
+            }
+            if (ui.portalReleaseWarehouseConfirmed) {
+                ui.portalReleaseWarehouseConfirmed.checked = false;
+            }
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseLabelAttached.checked = false;
             ui.portalReleaseCcEmails.value = "";
@@ -3978,6 +4106,7 @@
                 orderCode: preview.orderCode,
                 reference: preview.reference,
                 shipTo: preview.shipTo,
+                shipFrom: preview.shipFrom,
                 documentCount: preview.documentCount,
                 onConfirm: async (releaseOptions) => releaseCurrentOrderFlow({ releaseOptions, resetForm: true, nextView: "orders" })
             });
@@ -4083,6 +4212,7 @@
                 orderCode: order.orderCode,
                 reference: order.shippingReference || "Not set",
                 shipTo: [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not set",
+                shipFrom: formatRecordFulfillmentLocation(order),
                 documentCount: Array.isArray(order.documents) ? order.documents.length : 0,
                 onConfirm: async (releaseOptions) => releaseOrderByIdFlow(order.id, {
                     releaseOptions,
@@ -4589,8 +4719,11 @@
                 locationCode,
                 locationName: String(location.locationName || location.location_name || location.name || "").trim(),
                 partnerName: String(location.partnerName || location.partner_name || "").trim(),
+                address1: String(location.address1 || location.address_1 || "").trim(),
+                address2: String(location.address2 || location.address_2 || "").trim(),
                 city: String(location.city || "").trim(),
                 state: String(location.state || "").trim(),
+                postalCode: String(location.postalCode || location.postal_code || "").trim(),
                 country: String(location.country || "").trim(),
                 allowInbound: location.allowInbound !== false && location.allow_inbound !== false,
                 allowOutbound: location.allowOutbound !== false && location.allow_outbound !== false
