@@ -1,0 +1,10 @@
+.git/
+.agents/
+.codex/
+node_modules/
+.npm-cache/
+test-results/
+reports/
+docs/
+android-app/
+bluehost-site/

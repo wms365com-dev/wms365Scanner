@@ -11779,6 +11779,10 @@
                 if (event.target.closest(".module-menu")) return;
                 document.querySelectorAll(".module-menu[open]").forEach((menu) => menu.removeAttribute("open"));
             });
+            document.addEventListener("change", (event) => {
+                const shipmentMethodSelect = event.target.closest("[data-portal-ship-method]");
+                if (shipmentMethodSelect) updatePortalShipmentMethodPanel(shipmentMethodSelect);
+            });
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button === ui.desktopCommandNewBtn && handleDesktopNewCommand()) return;
                 const masterListTarget = String(button.dataset.masterList || "").trim().toUpperCase();
@@ -20974,6 +20978,10 @@
             const canPrintUcc128Labels = canPrintWorkflowDocuments && norm(order.accountName) === "PACKFIRE";
             const shipmentMethod = normalizeShipmentMethod(order.shipmentMethod || "LTL_FREIGHT");
             const isParcelShipment = shipmentMethod === "PARCEL";
+            const isFreightShipment = shipmentMethodRequiresFreightProof(shipmentMethod);
+            const shippingHelpText = insufficientLines.length
+                ? "Shipping stays blocked until every line has enough available stock."
+                : shipmentCloseoutHelpText(shipmentMethod);
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="form-grid compact-grid">
@@ -20985,31 +20993,32 @@
                             <span>Shipment Type</span>
                             <select data-portal-ship-method="${attr(order.id)}">
                                 <option value="PARCEL" ${shipmentMethod === "PARCEL" ? "selected" : ""}>Parcel service</option>
-                                <option value="LTL_FREIGHT" ${shipmentMethod === "LTL_FREIGHT" ? "selected" : ""}>LTL / freight</option>
+                                <option value="LTL_FREIGHT" ${shipmentMethod === "LTL_FREIGHT" ? "selected" : ""}>LTL freight</option>
+                                <option value="FTL_FREIGHT" ${shipmentMethod === "FTL_FREIGHT" ? "selected" : ""}>FTL freight</option>
                                 <option value="CUSTOMER_PICKUP" ${shipmentMethod === "CUSTOMER_PICKUP" ? "selected" : ""}>Customer pickup</option>
                             </select>
                         </label>
-                        <label class="field">
+                        <label class="field" data-portal-parcel-fields="${attr(order.id)}" ${isParcelShipment ? "" : "hidden"}>
                             <span>Carrier</span>
-                            <input data-portal-ship-carrier="${attr(order.id)}" type="text" placeholder="${isParcelShipment ? "UPS, FedEx, Canada Post" : "LTL carrier, pickup method, courier"}" value="${attr(order.shippedCarrierName || "")}">
+                            <input data-portal-ship-carrier="${attr(order.id)}" type="text" placeholder="UPS, FedEx, Canada Post" value="${attr(order.shippedCarrierName || "")}">
                         </label>
-                        <label class="field">
-                            <span>${isParcelShipment ? "Tracking Number" : "Tracking / PRO / BOL"}</span>
-                            <input data-portal-ship-tracking="${attr(order.id)}" type="text" placeholder="${isParcelShipment ? "Parcel tracking number" : "Tracking, PRO, pickup ref, or BOL #"}" value="${attr(order.shippedTrackingReference || "")}">
+                        <label class="field" data-portal-parcel-fields="${attr(order.id)}" ${isParcelShipment ? "" : "hidden"}>
+                            <span>Tracking Number</span>
+                            <input data-portal-ship-tracking="${attr(order.id)}" type="text" placeholder="Parcel tracking number" value="${attr(order.shippedTrackingReference || "")}">
                         </label>
                         <label class="field span-2">
                             <span>Shipping Note</span>
                             <input data-portal-ship-note="${attr(order.id)}" type="text" placeholder="Optional shipped confirmation note" value="${attr(order.shippedConfirmationNote || "")}">
                         </label>
-                        <label class="field span-2">
+                        <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Signed BOL / POD</span>
                             <input data-portal-ship-documents="${attr(order.id)}" data-document-category="SHIPMENT_BOL" type="file" accept="application/pdf,image/*">
                         </label>
-                        <label class="field span-2">
+                        <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Checked Packing Slip</span>
                             <input data-portal-ship-documents="${attr(order.id)}" data-document-category="SHIPMENT_PACKING_SLIP" type="file" accept="application/pdf,image/*">
                         </label>
-                        <label class="field span-2">
+                        <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Loaded Freight Photo</span>
                             <input data-portal-ship-photos="${attr(order.id)}" data-document-category="SHIPMENT_LOAD_PHOTO" type="file" accept="image/*" capture="environment">
                         </label>
@@ -21022,7 +21031,7 @@
                             <tbody>${shippedQuantityRows || `<tr><td colspan="4">No lines to confirm.</td></tr>`}</tbody>
                         </table>
                     </div>
-                    <div class="quick-meta">${insufficientLines.length ? "Shipping stays blocked until every line has enough available stock." : (isParcelShipment ? "Parcel closeout requires carrier, tracking number, and quantity shipped by SKU. Photos are not required." : "LTL/freight closeout requires signed BOL/POD, checked packing slip, loaded freight photo, and quantity shipped by SKU.")}</div>
+                    <div class="quick-meta" data-portal-ship-help="${attr(order.id)}">${esc(shippingHelpText)}</div>
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>
@@ -23497,12 +23506,42 @@
         function normalizeShipmentMethod(value) {
             const normalized = norm(value || "").replace(/[\s-]+/g, "_");
             if (["PARCEL", "SMALL_PARCEL", "COURIER", "PACKAGE"].includes(normalized)) return "PARCEL";
+            if (["FTL", "FTL_FREIGHT", "FULL_TRUCKLOAD", "FULL_TRUCKLOAD_FREIGHT", "TRUCKLOAD"].includes(normalized)) return "FTL_FREIGHT";
+            if (["LTL", "LTL_FREIGHT", "LESS_THAN_TRUCKLOAD", "LESS_THAN_TRUCKLOAD_FREIGHT", "FREIGHT"].includes(normalized)) return "LTL_FREIGHT";
             if (["PICKUP", "CUSTOMER_PICKUP", "WILL_CALL", "SELF_PICKUP"].includes(normalized)) return "CUSTOMER_PICKUP";
             return "LTL_FREIGHT";
         }
 
         function shipmentMethodRequiresFreightProof(value) {
-            return normalizeShipmentMethod(value) !== "PARCEL";
+            const method = normalizeShipmentMethod(value);
+            return method === "LTL_FREIGHT" || method === "FTL_FREIGHT";
+        }
+
+        function shipmentCloseoutHelpText(value) {
+            const method = normalizeShipmentMethod(value);
+            if (method === "PARCEL") return "Parcel closeout requires a tracking number and quantity shipped by SKU. Carrier is optional.";
+            if (shipmentMethodRequiresFreightProof(method)) return "LTL/FTL closeout requires signed BOL/POD, checked packing slip, loaded freight photo, and quantity shipped by SKU.";
+            return "Customer pickup closeout records quantity shipped by SKU. Shipment proof is not required.";
+        }
+
+        function updatePortalShipmentMethodPanel(select) {
+            const orderId = select?.dataset?.portalShipMethod || "";
+            const method = normalizeShipmentMethod(select?.value || "");
+            const panel = select?.closest(".erp-document-shipping-panel") || select?.closest(".erp-list-shipping-panel") || select?.closest(".quick-detail-stack") || select?.closest(".quick-row");
+            if (!orderId || !panel) return;
+            const showParcel = method === "PARCEL";
+            const showFreight = shipmentMethodRequiresFreightProof(method);
+            const escapedOrderId = window.CSS && typeof CSS.escape === "function"
+                ? CSS.escape(orderId)
+                : String(orderId).replace(/["\\]/g, "\\$&");
+            panel.querySelectorAll(`[data-portal-parcel-fields="${escapedOrderId}"]`).forEach((field) => {
+                field.hidden = !showParcel;
+            });
+            panel.querySelectorAll(`[data-portal-freight-proof-fields="${escapedOrderId}"]`).forEach((field) => {
+                field.hidden = !showFreight;
+            });
+            const help = panel.querySelector(`[data-portal-ship-help="${escapedOrderId}"]`);
+            if (help) help.textContent = shipmentCloseoutHelpText(method);
         }
 
         function renderWarehouseDocumentActions(documents = [], emptyText = "No documents uploaded yet.") {
@@ -23924,7 +23963,9 @@
                         }));
                         const requiresShipmentCloseout = currentOrder?.status === "STAGED";
                         if (requiresShipmentCloseout) {
-                            if (shipmentMethodRequiresFreightProof(shipmentMethod)) {
+                            if (shipmentMethod === "PARCEL" && !trackingNumber.trim()) {
+                                throw new Error("Enter the parcel tracking number before marking shipped.");
+                            } else if (shipmentMethodRequiresFreightProof(shipmentMethod)) {
                                 const requiredCategories = new Set(["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP", "SHIPMENT_LOAD_PHOTO"]);
                                 const uploadedCategories = new Set(documents.map((document) => norm(document.documentCategory || "")));
                                 const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
@@ -23932,12 +23973,42 @@
                                     throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
                                 }
                             }
-                            const mismatchedLine = shippedLines.find((entry) => {
+                            const invalidLine = shippedLines.find((entry) => {
                                 const line = (currentOrder?.lines || []).find((candidate) => String(candidate.id) === String(entry.orderLineId));
-                                return !line || Number(entry.shippedQuantity) !== (Number(line.quantity) || 0);
+                                return !line || !Number.isInteger(Number(entry.shippedQuantity)) || Number(entry.shippedQuantity) < 0;
                             });
-                            if (mismatchedLine) {
-                                throw new Error(`Qty shipped must match the order before closeout. Check ${mismatchedLine.sku || "the shipment lines"}.`);
+                            if (invalidLine) {
+                                throw new Error(`Enter a valid shipped quantity for ${invalidLine.sku || "the shipment lines"}.`);
+                            }
+                            const overShippedLine = shippedLines.find((entry) => {
+                                const line = (currentOrder?.lines || []).find((candidate) => String(candidate.id) === String(entry.orderLineId));
+                                return line && Number(entry.shippedQuantity) > (Number(line.quantity) || 0);
+                            });
+                            if (overShippedLine) {
+                                throw new Error(`${overShippedLine.sku || "This line"} cannot ship more than the ordered quantity.`);
+                            }
+                            const shortShippedLines = shippedLines.map((entry) => {
+                                const line = (currentOrder?.lines || []).find((candidate) => String(candidate.id) === String(entry.orderLineId));
+                                const orderedQuantity = Number(line?.quantity) || 0;
+                                const shippedQuantity = Number(entry.shippedQuantity) || 0;
+                                return line && shippedQuantity < orderedQuantity
+                                    ? { sku: entry.sku || line.sku || "", shippedQuantity, orderedQuantity, trackingLevel: line.trackingLevel || "UNIT" }
+                                    : null;
+                            }).filter(Boolean);
+                            if (shortShippedLines.length) {
+                                const warningLines = shortShippedLines
+                                    .slice(0, 5)
+                                    .map((line) => `${line.sku || "Line"}: ${formatTrackedQuantity(line.shippedQuantity, line.trackingLevel)} shipped of ${formatTrackedQuantity(line.orderedQuantity, line.trackingLevel)} ordered`);
+                                if (shortShippedLines.length > 5) {
+                                    warningLines.push(`${shortShippedLines.length - 5} more line${shortShippedLines.length - 5 === 1 ? "" : "s"}`);
+                                }
+                                const confirmed = window.confirm(
+                                    `Shipped quantity is less than ordered:\n\n${warningLines.join("\n")}\n\nMark this order shipped anyway? Inventory will be deducted using the shipped quantities entered.`
+                                );
+                                if (!confirmed) {
+                                    showMessage(actionMessageElement, "Shipment was not marked shipped. Review the shipped quantities and try again when ready.", "info");
+                                    return;
+                                }
                             }
                         }
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
@@ -23956,11 +24027,14 @@
                         const emailQueuedNote = response?.shipmentEmailQueued
                             ? " Customer shipment email is sending in the background."
                             : "";
+                        const shipmentWarningNote = Array.isArray(response?.shipmentQuantityWarnings) && response.shipmentQuantityWarnings.length
+                            ? ` Shipment quantity warning recorded for ${response.shipmentQuantityWarnings.length} line${response.shipmentQuantityWarnings.length === 1 ? "" : "s"}.`
+                            : "";
                         const savedOrder = applyPortalOrderUpdate(
                             response?.order,
                             currentOrder?.status === "STAGED"
-                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.${emailQueuedNote}`
-                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}`,
+                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.${emailQueuedNote}${shipmentWarningNote}`
+                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}${shipmentWarningNote}`,
                             actionMessageElement
                         );
                         if (savedOrder?.status === "SHIPPED") {

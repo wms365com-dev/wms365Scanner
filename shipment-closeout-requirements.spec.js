@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 const {
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     assertPortalShipmentProofRequirements,
-    validatePortalShipmentLineConfirmations
+    validatePortalShipmentLineConfirmations,
+    buildPortalShipmentQuantityWarnings
 } = require("./server");
 
 const sampleOrder = {
@@ -31,30 +32,80 @@ test("shipment closeout requires BOL, checked packing slip, and load photo", () 
     );
 });
 
-test("parcel shipment closeout only requires carrier and tracking", () => {
+test("parcel shipment closeout only requires tracking", () => {
     assert.doesNotThrow(() => assertPortalShipmentProofRequirements(
         { documents: [] },
-        { shipmentMethod: "PARCEL", shippedCarrierName: "UPS", shippedTrackingReference: "1Z123" }
+        { shipmentMethod: "PARCEL", shippedCarrierName: "", shippedTrackingReference: "1Z123" }
     ));
+});
+
+test("parcel shipment closeout rejects missing tracking", () => {
+    assert.throws(
+        () => assertPortalShipmentProofRequirements(
+            { documents: [] },
+            { shipmentMethod: "PARCEL", shippedCarrierName: "UPS", shippedTrackingReference: "" }
+        ),
+        /parcel tracking number/i
+    );
 });
 
 test("ltl shipment closeout still requires freight proof", () => {
     assert.throws(
         () => assertPortalShipmentProofRequirements(
             { documents: [] },
-            { shipmentMethod: "LTL_FREIGHT", shippedCarrierName: "Day & Ross", shippedTrackingReference: "PRO-123" }
+            { shipmentMethod: "LTL_FREIGHT", shippedCarrierName: "", shippedTrackingReference: "" }
         ),
         /signed BOL|checked packing slip|loaded freight/i
     );
 });
 
-test("shipment closeout rejects shipped quantity mismatch", () => {
+test("ftl shipment closeout accepts freight proof without carrier or tracking", () => {
+    assert.doesNotThrow(() => assertPortalShipmentProofRequirements(
+        {
+            documents: [
+                { documentCategory: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL },
+                { documentCategory: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP },
+                { documentCategory: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO }
+            ]
+        },
+        { shipmentMethod: "FTL_FREIGHT", shippedCarrierName: "", shippedTrackingReference: "" }
+    ));
+});
+
+test("shipment closeout allows lower shipped quantity and records a warning", () => {
+    const lines = validatePortalShipmentLineConfirmations(sampleOrder, [
+        { orderLineId: "11", sku: "SKU-A", shippedQuantity: 5 },
+        { orderLineId: "12", sku: "SKU-B", shippedQuantity: 1 }
+    ], { required: true });
+
+    assert.deepEqual(lines.map((line) => ({
+        orderLineId: line.orderLineId,
+        sku: line.sku,
+        orderedQuantity: line.orderedQuantity,
+        shippedQuantity: line.shippedQuantity
+    })), [
+        { orderLineId: 11, sku: "SKU-A", orderedQuantity: 5, shippedQuantity: 5 },
+        { orderLineId: 12, sku: "SKU-B", orderedQuantity: 2, shippedQuantity: 1 }
+    ]);
+    assert.deepEqual(buildPortalShipmentQuantityWarnings(lines), [
+        {
+            orderLineId: 12,
+            sku: "SKU-B",
+            orderedQuantity: 2,
+            shippedQuantity: 1,
+            shortQuantity: 1,
+            message: "SKU-B shipped 1 of 2."
+        }
+    ]);
+});
+
+test("shipment closeout rejects shipped quantity above ordered quantity", () => {
     assert.throws(
         () => validatePortalShipmentLineConfirmations(sampleOrder, [
-            { orderLineId: "11", sku: "SKU-A", shippedQuantity: 5 },
-            { orderLineId: "12", sku: "SKU-B", shippedQuantity: 1 }
+            { orderLineId: "11", sku: "SKU-A", shippedQuantity: 6 },
+            { orderLineId: "12", sku: "SKU-B", shippedQuantity: 2 }
         ], { required: true }),
-        /ordered for 2.*shipped quantity.*1/i
+        /cannot be greater than the order quantity/i
     );
 });
 

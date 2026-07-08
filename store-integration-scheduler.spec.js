@@ -94,6 +94,171 @@ test("Shopify inventory export fails closed without a company scope", async () =
     assert.match(summary.detailMessages[0], /company scope is required/);
 });
 
+test("Shopify inventory export enforces tracked inventory and deny overselling", async () => {
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+        calls.push({ url: String(url), method: options.method || "GET", body: options.body || "" });
+        if (String(url).includes("/variants.json")) {
+            return new Response(JSON.stringify({
+                variants: [{
+                    id: 111,
+                    sku: "SKU-1",
+                    inventory_item_id: 222,
+                    inventory_management: null,
+                    inventory_policy: "continue"
+                }]
+            }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (String(url).includes("/variants/111.json")) {
+            return new Response(JSON.stringify({ variant: { id: 111, inventory_management: "shopify", inventory_policy: "deny" } }), {
+                status: 200,
+                headers: { "content-type": "application/json" }
+            });
+        }
+        if (String(url).includes("/inventory_levels/set.json")) {
+            return new Response(JSON.stringify({ inventory_level: { inventory_item_id: 222, available: 7 } }), {
+                status: 200,
+                headers: { "content-type": "application/json" }
+            });
+        }
+        return new Response(JSON.stringify({ errors: "unexpected request" }), { status: 500, headers: { "content-type": "application/json" } });
+    };
+
+    const queryLog = [];
+    const client = {
+        async query(sql, params = []) {
+            queryLog.push({ sql: String(sql), params });
+            if (String(sql).includes("with known_skus")) {
+                return { rows: [{ sku: "SKU-1", on_hand_quantity: 10, available_quantity: 7 }], rowCount: 1 };
+            }
+            if (String(sql).includes("from store_sku_mappings")) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (String(sql).includes("from store_sync_exports")) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (String(sql).includes("insert into store_sync_exports")) {
+                return { rows: [], rowCount: 1 };
+            }
+            throw new Error(`Unexpected query: ${String(sql).slice(0, 80)}`);
+        }
+    };
+
+    try {
+        const summary = await exportShopifyInventoryLevels(client, {
+            id: 9,
+            account_name: "TEST COMPANY",
+            provider: "SHOPIFY",
+            store_identifier: "test-store.myshopify.com",
+            access_token: "shpat_test",
+            settings: {
+                syncInventory: true,
+                shopifyLocationId: "333"
+            }
+        });
+
+        assert.equal(summary.exportedCount, 1);
+        assert.equal(summary.failedCount, 0);
+
+        const policyCall = calls.find((call) => call.url.includes("/variants/111.json"));
+        assert.ok(policyCall, "variant policy update was sent");
+        assert.equal(policyCall.method, "PUT");
+        assert.deepEqual(JSON.parse(policyCall.body), {
+            variant: {
+                id: 111,
+                inventory_management: "shopify",
+                inventory_policy: "deny"
+            }
+        });
+
+        const levelCall = calls.find((call) => call.url.includes("/inventory_levels/set.json"));
+        assert.ok(levelCall, "inventory level update was sent");
+        assert.deepEqual(JSON.parse(levelCall.body), {
+            location_id: 333,
+            inventory_item_id: 222,
+            available: 7,
+            disconnect_if_necessary: false
+        });
+    } finally {
+        global.fetch = originalFetch;
+    }
+});
+
+test("Shopify inventory export still enforces oversell policy when quantity export is unchanged", async () => {
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+        calls.push({ url: String(url), method: options.method || "GET", body: options.body || "" });
+        if (String(url).includes("/variants.json")) {
+            return new Response(JSON.stringify({
+                variants: [{
+                    id: 111,
+                    sku: "SKU-1",
+                    inventory_item_id: 222,
+                    inventory_management: null,
+                    inventory_policy: "continue"
+                }]
+            }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (String(url).includes("/variants/111.json")) {
+            return new Response(JSON.stringify({ variant: { id: 111, inventory_management: "shopify", inventory_policy: "deny" } }), {
+                status: 200,
+                headers: { "content-type": "application/json" }
+            });
+        }
+        if (String(url).includes("/inventory_levels/set.json")) {
+            return new Response(JSON.stringify({ inventory_level: { inventory_item_id: 222, available: 7 } }), {
+                status: 200,
+                headers: { "content-type": "application/json" }
+            });
+        }
+        return new Response(JSON.stringify({ errors: "unexpected request" }), { status: 500, headers: { "content-type": "application/json" } });
+    };
+
+    const client = {
+        async query(sql, params = []) {
+            if (String(sql).includes("with known_skus")) {
+                return { rows: [{ sku: "SKU-1", on_hand_quantity: 10, available_quantity: 7 }], rowCount: 1 };
+            }
+            if (String(sql).includes("from store_sku_mappings")) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (String(sql).includes("from store_sync_exports")) {
+                return params[1] === "SHOPIFY_INVENTORY_LEVEL"
+                    ? { rows: [{ "?column?": 1 }], rowCount: 1 }
+                    : { rows: [], rowCount: 0 };
+            }
+            if (String(sql).includes("insert into store_sync_exports")) {
+                return { rows: [], rowCount: 1 };
+            }
+            throw new Error(`Unexpected query: ${String(sql).slice(0, 80)}`);
+        }
+    };
+
+    try {
+        const summary = await exportShopifyInventoryLevels(client, {
+            id: 9,
+            account_name: "TEST COMPANY",
+            provider: "SHOPIFY",
+            store_identifier: "test-store.myshopify.com",
+            access_token: "shpat_test",
+            settings: {
+                syncInventory: true,
+                shopifyLocationId: "333"
+            }
+        });
+
+        assert.equal(summary.exportedCount, 0);
+        assert.equal(summary.skippedCount, 1);
+        assert.equal(summary.failedCount, 0);
+        assert.ok(calls.find((call) => call.url.includes("/variants/111.json")), "variant policy update was sent even though quantity was skipped");
+        assert.equal(calls.some((call) => call.url.includes("/inventory_levels/set.json")), false);
+    } finally {
+        global.fetch = originalFetch;
+    }
+});
+
 test("secure integration credential request renders one-time noindex form", () => {
     const token = createIntegrationCredentialRequestToken();
     assert.ok(token.length >= 40);

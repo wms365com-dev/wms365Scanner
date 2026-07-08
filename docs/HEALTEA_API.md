@@ -103,6 +103,8 @@ Payload:
 }
 ```
 
+For parcel shipments, `tracking` is required and `carrier` is optional. For LTL/FTL shipments, WMS365 requires shipment proof documents: signed BOL/POD, checked packing slip, and loaded freight photo.
+
 If `shippedLines` is omitted, WMS365 closes the full order quantity for every line. To send explicit line quantities:
 
 ```json

@@ -251,6 +251,7 @@ const REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES = Object.freeze([
 const PORTAL_ORDER_SHIPMENT_METHODS = Object.freeze({
     PARCEL: "PARCEL",
     LTL_FREIGHT: "LTL_FREIGHT",
+    FTL_FREIGHT: "FTL_FREIGHT",
     CUSTOMER_PICKUP: "CUSTOMER_PICKUP"
 });
 const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"];
@@ -279,6 +280,7 @@ const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
 const SFTP_SYNC_PROVIDER = "SFTP";
 const BUSINESS_CENTRAL_SYNC_PROVIDER = "BUSINESS_CENTRAL";
 const SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE = "SHOPIFY_FULFILLMENT";
+const SHOPIFY_INVENTORY_POLICY_EXPORT_ENTITY_TYPE = "SHOPIFY_INVENTORY_POLICY";
 const FEEDBACK_REQUEST_TYPES = ["BUG", "FEATURE", "OTHER"];
 const FEEDBACK_SOURCES = ["WAREHOUSE", "PORTAL"];
 const FEEDBACK_STATUSES = ["NEW", "REVIEWING", "PLANNED", "FIXED", "CLOSED"];
@@ -433,7 +435,7 @@ const SHOPIFY_APP_CLIENT_ID = readEnv("SHOPIFY_APP_CLIENT_ID", "") || readEnv("S
 const SHOPIFY_APP_CLIENT_SECRET = readEnv("SHOPIFY_APP_CLIENT_SECRET", "") || readEnv("SHOPIFY_API_SECRET", "") || readEnv("SHOPIFY_CLIENT_SECRET", "");
 const SHOPIFY_APP_SCOPES = readEnv(
     "SHOPIFY_APP_SCOPES",
-    "read_orders,read_products,read_inventory,write_inventory,read_locations,write_fulfillments,read_fulfillments"
+    "read_orders,read_products,write_products,read_inventory,write_inventory,read_locations,write_fulfillments,read_fulfillments"
 );
 const SHOPIFY_OAUTH_STATE_TTL_MS = Math.max(5 * 60 * 1000, Number.parseInt(readEnv("SHOPIFY_OAUTH_STATE_TTL_MS", "900000") || "900000", 10) || 900000);
 const INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS = Math.max(1, Number.parseInt(readEnv("INTEGRATION_CREDENTIAL_REQUEST_TTL_HOURS", "72") || "72", 10) || 72);
@@ -5584,7 +5586,13 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
         const shipmentEmailQueued = nextStatus === "SHIPPED"
             && ["SCHEDULED", "SENDING"].includes(normalizeText(order.shipmentEmailStatus || ""));
         const storeShipmentConfirmationQueued = nextStatus === "SHIPPED";
-        res.json({ success: true, order, shipmentEmailQueued, storeShipmentConfirmationQueued });
+        res.json({
+            success: true,
+            order,
+            shipmentEmailQueued,
+            storeShipmentConfirmationQueued,
+            shipmentQuantityWarnings: order.shipmentQuantityWarnings || []
+        });
         if (shipmentEmailQueued) {
             queuePortalShipmentConfirmationEmail(order);
             queueStoreShipmentConfirmation(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
@@ -7248,7 +7256,7 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists shipment_method text not null default 'LTL_FREIGHT'");
     await pool.query("update portal_orders set shipment_method = 'LTL_FREIGHT' where shipment_method is null or shipment_method = ''");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_shipment_method_check");
-    await pool.query("alter table portal_orders add constraint portal_orders_shipment_method_check check (shipment_method in ('PARCEL', 'LTL_FREIGHT', 'CUSTOMER_PICKUP'))");
+    await pool.query("alter table portal_orders add constraint portal_orders_shipment_method_check check (shipment_method in ('PARCEL', 'LTL_FREIGHT', 'FTL_FREIGHT', 'CUSTOMER_PICKUP'))");
     await pool.query("alter table portal_orders add column if not exists shipped_carrier_name text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
@@ -9758,9 +9766,13 @@ async function createPortalOrderBillingEvents(client, order) {
     let unitQuantity = 0;
     let caseQuantity = 0;
     let palletQuantity = 0;
+    const shippedQuantityByLineId = new Map((Array.isArray(order.shipmentLines) ? order.shipmentLines : [])
+        .map((line) => [String(line.orderLineId), Number(line.shippedQuantity) || 0]));
 
     for (const line of Array.isArray(order.lines) ? order.lines : []) {
-        const quantity = Number(line?.quantity) || 0;
+        const quantity = shippedQuantityByLineId.has(String(line.id))
+            ? Number(shippedQuantityByLineId.get(String(line.id))) || 0
+            : Number(line?.quantity) || 0;
         const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
         if (quantity <= 0) continue;
         if (trackingLevel === "PALLET") palletQuantity += quantity;
@@ -12306,7 +12318,7 @@ async function fetchShopifyVariantInventoryItemsForIntegration(integrationRow) {
 
         let nextUrl = new URL(`https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/variants.json`);
         nextUrl.searchParams.set("limit", String(SHOPIFY_VARIANT_PAGE_LIMIT));
-        nextUrl.searchParams.set("fields", "id,sku,inventory_item_id");
+        nextUrl.searchParams.set("fields", "id,sku,inventory_item_id,inventory_management,inventory_policy");
 
         const variants = [];
         let pageCount = 0;
@@ -12353,7 +12365,9 @@ async function fetchShopifyVariantInventoryItemsForIntegration(integrationRow) {
                     .map((variant) => ({
                         id: String(variant?.id || "").trim(),
                         sku: normalizeText(variant?.sku || ""),
-                        inventoryItemId: String(variant?.inventory_item_id || "").trim()
+                        inventoryItemId: String(variant?.inventory_item_id || "").trim(),
+                        inventoryManagement: normalizeText(variant?.inventory_management || ""),
+                        inventoryPolicy: normalizeText(variant?.inventory_policy || "")
                     }))
                     .filter((variant) => variant.sku && variant.inventoryItemId)
             };
@@ -12364,6 +12378,51 @@ async function fetchShopifyVariantInventoryItemsForIntegration(integrationRow) {
     }
 
     throw httpError(401, "Shopify access token refresh failed.");
+}
+
+async function ensureShopifyVariantInventoryPolicy(client, integrationRow, variant, { force = false } = {}) {
+    const variantId = toPositiveInt(variant?.id);
+    const inventoryManagement = normalizeText(variant?.inventoryManagement || "");
+    const inventoryPolicy = normalizeText(variant?.inventoryPolicy || "");
+    if (!variantId) {
+        return { skipped: true, reason: "Shopify variant id is missing." };
+    }
+    if (!force && inventoryManagement === "SHOPIFY" && inventoryPolicy === "DENY") {
+        return { skipped: true, reason: "Already denies overselling." };
+    }
+
+    const contentHash = computeStoreSyncContentHash({
+        entityType: SHOPIFY_INVENTORY_POLICY_EXPORT_ENTITY_TYPE,
+        variantId,
+        sku: variant?.sku || "",
+        inventoryManagement: "shopify",
+        inventoryPolicy: "deny"
+    });
+    const entityRef = String(variantId);
+    if (!force && await hasStoreSyncExport(client, integrationRow.id, SHOPIFY_INVENTORY_POLICY_EXPORT_ENTITY_TYPE, entityRef, contentHash)) {
+        return { skipped: true, reason: "Policy already exported." };
+    }
+
+    const result = await shopifyAdminRequestForIntegration(integrationRow, `/variants/${variantId}.json`, {
+        method: "PUT",
+        body: {
+            variant: {
+                id: variantId,
+                inventory_management: "shopify",
+                inventory_policy: "deny"
+            }
+        }
+    });
+    const shopDomain = result.shopDomain || normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, integrationRow.store_identifier);
+    await recordStoreSyncExport(
+        client,
+        integrationRow.id,
+        SHOPIFY_INVENTORY_POLICY_EXPORT_ENTITY_TYPE,
+        entityRef,
+        contentHash,
+        `shopify://${shopDomain}/variants/${variantId}/inventory_policy`
+    );
+    return { skipped: false };
 }
 
 async function buildShopifyInventoryAvailabilityLookup(client, accountName) {
@@ -12474,6 +12533,15 @@ async function exportShopifyInventoryLevels(client, integrationRow, options = {}
             continue;
         }
 
+        try {
+            await ensureShopifyVariantInventoryPolicy(client, integrationRow, variant, {
+                force: options.force === true
+            });
+        } catch (error) {
+            summary.failedCount += 1;
+            summary.detailMessages.push(`${variant.sku}: inventory oversell policy was not updated (${error.message}). Add Shopify write_products scope or set the variant to deny overselling in Shopify.`);
+        }
+
         const entityRef = `${variant.id || variant.sku}:${locationId}`;
         const contentHash = computeStoreSyncContentHash({
             entityType: SHOPIFY_INVENTORY_EXPORT_ENTITY_TYPE,
@@ -12572,6 +12640,8 @@ function buildShopifyFulfillmentRequestBody(order, fulfillmentOrders, { notifyCu
 }
 
 function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
+    const shippedQuantityByLineId = new Map((Array.isArray(order?.shipmentLines) ? order.shipmentLines : [])
+        .map((line) => [String(line.orderLineId), Number(line.shippedQuantity) || 0]));
     return {
         messageType: SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE,
         externalOrderId: String(externalOrderId || ""),
@@ -12585,7 +12655,9 @@ function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
         lines: Array.isArray(order?.lines)
             ? order.lines.map((line) => ({
                 sku: line.sku || "",
-                quantity: Number(line.quantity) || 0
+                quantity: shippedQuantityByLineId.has(String(line.id))
+                    ? Number(shippedQuantityByLineId.get(String(line.id))) || 0
+                    : Number(line.quantity) || 0
             }))
             : []
     };
@@ -20684,10 +20756,10 @@ async function assertIntegratedStoreShipmentRequirements(client, order, shipment
     const hasShopifyImport = integrations.some((integration) => normalizeStoreIntegrationProvider(integration.provider) === SHOPIFY_SYNC_PROVIDER);
     if (!hasShopifyImport) return;
 
-    const carrier = normalizeFreeText(shipmentDetails?.shippedCarrierName || "");
     const tracking = normalizeFreeText(shipmentDetails?.shippedTrackingReference || "");
-    if (!carrier || !tracking) {
-        throw httpError(400, "Shopify imported orders require carrier and tracking before marking shipped so WMS365 can mark the Shopify order fulfilled.");
+    const shipmentMethod = normalizePortalShipmentMethod(shipmentDetails?.shipmentMethod || order?.shipmentMethod || "");
+    if (shipmentMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && !tracking) {
+        throw httpError(400, "Shopify imported parcel orders require a tracking number before marking shipped so WMS365 can mark the Shopify order fulfilled.");
     }
 }
 
@@ -20763,10 +20835,9 @@ async function sendShopifyShipmentConfirmationForImport(client, integrationRow, 
     await assertCompanyFeatureEnabled(client, normalizedAccount, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
     await assertCompanyFeatureEnabled(client, normalizedAccount, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
 
-    const carrier = normalizeFreeText(order?.shippedCarrierName || "");
     const tracking = normalizeFreeText(order?.shippedTrackingReference || "");
-    if (!carrier || !tracking) {
-        throw httpError(400, "Shopify fulfillment requires carrier and tracking.");
+    if (normalizePortalShipmentMethod(order?.shipmentMethod || "") === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && !tracking) {
+        throw httpError(400, "Shopify parcel fulfillment requires a tracking number.");
     }
 
     const exportPayload = buildShopifyFulfillmentExportPayload(order, externalOrderId);
@@ -20873,6 +20944,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
     const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
     const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
+    const shipmentQuantityWarnings = buildPortalShipmentQuantityWarnings(shipmentLineConfirmations);
     if (transitionToShipped) {
         assertPortalShipmentProofRequirements(confirmation, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
     }
@@ -20884,13 +20956,14 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
         && shippedTrackingReference === (order.shippedTrackingReference || "")
         && shippedConfirmationNote === (order.shippedConfirmationNote || "");
 
-    await assertIntegratedStoreShipmentRequirements(client, order, { shippedCarrierName, shippedTrackingReference });
+    await assertIntegratedStoreShipmentRequirements(client, order, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
     if (transitionToShipped || !shippingConfirmationUnchanged) {
         await assertPortalShipmentEmailReady(client, order);
     }
 
     if (transitionToShipped) {
         await consumePortalOrderInventory(client, order, {
+            shipmentLines: shipmentLineConfirmations,
             appUser,
             source: "web_admin",
             sourceType: "PORTAL_ORDER",
@@ -20953,18 +21026,24 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             `Method ${shipmentMethodLabel(updatedOrder.shipmentMethod)}`,
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
+            shipmentQuantityWarnings.length ? `Shipment qty warning: ${shipmentQuantityWarnings.map((warning) => `${warning.sku} ${warning.shippedQuantity}/${warning.orderedQuantity}`).join(", ")}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
             "Shipment email scheduled",
             actor
         ].filter(Boolean).join(" | ")
     );
     await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
+    if (shipmentQuantityWarnings.length) {
+        updatedOrder.shipmentQuantityWarnings = shipmentQuantityWarnings;
+    }
     return updatedOrder;
 }
 
 function normalizePortalShipmentMethod(value) {
     const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
     if (["PARCEL", "SMALL_PARCEL", "COURIER", "PACKAGE"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+    if (["FTL", "FTL_FREIGHT", "FULL_TRUCKLOAD", "FULL_TRUCKLOAD_FREIGHT", "TRUCKLOAD"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT;
+    if (["LTL", "LTL_FREIGHT", "LESS_THAN_TRUCKLOAD", "LESS_THAN_TRUCKLOAD_FREIGHT", "FREIGHT"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT;
     if (["PICKUP", "CUSTOMER_PICKUP", "WILL_CALL", "SELF_PICKUP"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
     return PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT;
 }
@@ -20972,25 +21051,21 @@ function normalizePortalShipmentMethod(value) {
 function shipmentMethodLabel(value) {
     const normalized = normalizePortalShipmentMethod(value);
     if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) return "Parcel";
+    if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT) return "FTL freight";
     if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP) return "Customer pickup";
-    return "LTL / freight";
+    return "LTL freight";
 }
 
 function shipmentMethodRequiresFreightProof(value) {
-    return normalizePortalShipmentMethod(value) !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+    const normalized = normalizePortalShipmentMethod(value);
+    return normalized === PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT
+        || normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT;
 }
 
 function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = "LTL_FREIGHT", shippedCarrierName = "", shippedTrackingReference = "" } = {}) {
     const normalizedMethod = normalizePortalShipmentMethod(shipmentMethod);
-    if (!normalizeFreeText(shippedCarrierName)) {
-        throw httpError(400, normalizedMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL
-            ? "Enter the parcel carrier before marking the order shipped."
-            : "Enter the carrier or pickup method before marking the order shipped.");
-    }
-    if (!normalizeFreeText(shippedTrackingReference)) {
-        throw httpError(400, normalizedMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL
-            ? "Enter the parcel tracking number before marking the order shipped."
-            : "Enter the tracking, PRO, pickup reference, or BOL number before marking the order shipped.");
+    if (normalizedMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && !normalizeFreeText(shippedTrackingReference)) {
+        throw httpError(400, "Enter the parcel tracking number before marking the order shipped.");
     }
     if (!shipmentMethodRequiresFreightProof(normalizedMethod)) {
         return;
@@ -21946,16 +22021,29 @@ function validatePortalShipmentLineConfirmations(order, shippedLines = [], { req
             }
             const confirmed = confirmedByLineId.get(lineId);
             const orderedQuantity = Number(line.quantity) || 0;
-            if (confirmed.shippedQuantity !== orderedQuantity) {
+            if (confirmed.shippedQuantity > orderedQuantity) {
                 throw httpError(
                     400,
-                    `${line.sku} was ordered for ${orderedQuantity}, but shipped quantity was entered as ${confirmed.shippedQuantity}. Correct the order or resolve the exception before marking shipped.`
+                    `${line.sku} was ordered for ${orderedQuantity}, but shipped quantity was entered as ${confirmed.shippedQuantity}. Shipped quantity cannot be greater than the order quantity.`
                 );
             }
         }
     }
 
     return [...confirmedByLineId.values()];
+}
+
+function buildPortalShipmentQuantityWarnings(shipmentLines = []) {
+    return (Array.isArray(shipmentLines) ? shipmentLines : [])
+        .filter((line) => Number(line.shippedQuantity) < Number(line.orderedQuantity))
+        .map((line) => ({
+            orderLineId: line.orderLineId,
+            sku: line.sku,
+            orderedQuantity: Number(line.orderedQuantity) || 0,
+            shippedQuantity: Number(line.shippedQuantity) || 0,
+            shortQuantity: Math.max((Number(line.orderedQuantity) || 0) - (Number(line.shippedQuantity) || 0), 0),
+            message: `${line.sku} shipped ${Number(line.shippedQuantity) || 0} of ${Number(line.orderedQuantity) || 0}.`
+        }));
 }
 
 async function savePortalShipmentLineConfirmations(client, orderId, shipmentLines, actor = "") {
@@ -24382,7 +24470,21 @@ async function updateWarehouseTaskStatus(client, taskId, rawInput = {}, appUser 
     return mapWarehouseTaskRow(refreshed || result.rows[0]);
 }
 
-async function consumePortalOrderInventory(client, order, ledgerOptions = {}) {
+function buildPortalShipmentQuantityByLineId(order, shipmentLines = []) {
+    const quantityByLineId = new Map();
+    for (const line of Array.isArray(order?.lines) ? order.lines : []) {
+        quantityByLineId.set(String(line.id), Number(line.quantity) || 0);
+    }
+    for (const line of Array.isArray(shipmentLines) ? shipmentLines : []) {
+        if (!line?.orderLineId) continue;
+        quantityByLineId.set(String(line.orderLineId), Number(line.shippedQuantity) || 0);
+    }
+    return quantityByLineId;
+}
+
+async function consumePortalOrderInventory(client, order, { shipmentLines = [], ...ledgerOptions } = {}) {
+    const shipmentQuantityByLineId = buildPortalShipmentQuantityByLineId(order, shipmentLines);
+    const orderLineById = new Map((Array.isArray(order?.lines) ? order.lines : []).map((line) => [String(line.id), line]));
     const allocationResult = await client.query(
         `
             select *
@@ -24395,9 +24497,15 @@ async function consumePortalOrderInventory(client, order, ledgerOptions = {}) {
     );
 
     if (allocationResult.rowCount > 0) {
+        const remainingByLineId = new Map(shipmentQuantityByLineId);
         for (const allocation of allocationResult.rows) {
             const inventoryLineId = allocation.inventory_line_id ? String(allocation.inventory_line_id) : "";
-            const requiredQuantity = Number(allocation.allocated_quantity) || 0;
+            const lineId = String(allocation.order_line_id || "");
+            const remainingForLine = remainingByLineId.has(lineId)
+                ? Number(remainingByLineId.get(lineId)) || 0
+                : Number(allocation.allocated_quantity) || 0;
+            const requiredQuantity = Math.min(Number(allocation.allocated_quantity) || 0, Math.max(remainingForLine, 0));
+            remainingByLineId.set(lineId, Math.max(remainingForLine - requiredQuantity, 0));
             if (!inventoryLineId || requiredQuantity <= 0) continue;
 
             const inventoryResult = await client.query("select * from inventory_lines where id = $1 limit 1 for update", [inventoryLineId]);
@@ -24425,11 +24533,22 @@ async function consumePortalOrderInventory(client, order, ledgerOptions = {}) {
                 ...ledgerOptions
             });
         }
+        const underAllocatedLines = [...remainingByLineId.entries()].filter(([, remaining]) => Number(remaining) > 0);
+        if (underAllocatedLines.length) {
+            const [lineId, remaining] = underAllocatedLines[0];
+            const line = orderLineById.get(String(lineId));
+            throw httpError(
+                409,
+                `Order ${order.orderCode} cannot be marked shipped because ${line?.sku || "one line"} is only allocated for less than the entered shipped quantity. Reopen or re-release the order before shipping ${formatTrackedQuantity(Number(remaining), line?.trackingLevel || "UNIT")} more.`
+            );
+        }
         return;
     }
 
     for (const line of order.lines) {
-        let remaining = Number(line.quantity) || 0;
+        let remaining = shipmentQuantityByLineId.has(String(line.id))
+            ? Number(shipmentQuantityByLineId.get(String(line.id))) || 0
+            : Number(line.quantity) || 0;
         if (remaining <= 0) continue;
 
         const result = await client.query(
@@ -31042,6 +31161,7 @@ module.exports = {
     sanitizePortalShippingConfirmationInput,
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,
+    buildPortalShipmentQuantityWarnings,
     resolvePortalPermissions,
     portalSessionHasPermission,
     assertPortalPermission,
