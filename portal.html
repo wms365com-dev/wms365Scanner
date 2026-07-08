@@ -1416,7 +1416,7 @@
                 <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="portalReleaseTitle">
                     <div class="header-copy">
                         <h2 id="portalReleaseTitle">Release Order</h2>
-                        <p class="lead">Choose whether to schedule the warehouse pick-ticket email after a 30-minute review window and add CC recipients.</p>
+                        <p class="lead">Choose whether to email the warehouse team right away and add CC recipients.</p>
                     </div>
                     <div class="mini-context">
                         <div><strong id="portalReleaseOrderCode">Draft order</strong></div>
@@ -1436,7 +1436,7 @@
                             <input id="portalReleaseEmailWarehouse" type="checkbox" checked>
                             <span class="toggle-copy">
                                 <strong>Email the warehouse team</strong>
-                                <span class="meta">Schedule the pick ticket for the warehouse after 30 minutes so changes can still be made first.</span>
+                                <span class="meta">Send the warehouse order notification immediately after release.</span>
                             </span>
                         </label>
                         <label class="toggle-card span-2">
@@ -4165,10 +4165,10 @@
                 } else if (actions.warehouseEmailScheduled) {
                     const delayText = actions.warehouseEmailDelayMinutes
                         ? `in about ${actions.warehouseEmailDelayMinutes} minutes`
-                        : "shortly";
-                    successNotes.push(`scheduled the pick-ticket email to the warehouse ${delayText}${actions.ccRecipients?.length ? ` and will copy ${actions.ccRecipients.join(", ")}` : ""}`);
+                        : "as soon as the server can send it";
+                    successNotes.push(`queued the pick-ticket email to the warehouse ${delayText}${actions.ccRecipients?.length ? ` and will copy ${actions.ccRecipients.join(", ")}` : ""}`);
                 } else if (actions.warehouseEmailError) {
-                    warningNotes.push(`the warehouse email could not be scheduled (${actions.warehouseEmailError})`);
+                    warningNotes.push(`the warehouse email could not be sent (${actions.warehouseEmailError})`);
                 }
             }
 

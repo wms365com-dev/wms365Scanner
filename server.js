@@ -200,7 +200,7 @@ const RESEND_API_KEY = readEnv("RESEND_API_KEY", "");
 const RESEND_API_URL = readEnv("RESEND_API_URL", "https://api.resend.com").replace(/\/+$/, "");
 const SENDGRID_API_KEY = readEnv("SENDGRID_API_KEY", "");
 const SENDGRID_API_URL = readEnv("SENDGRID_API_URL", "https://api.sendgrid.com").replace(/\/+$/, "");
-const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES = Math.max(0, Number.parseInt(readEnv("PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES", "30") || "30", 10) || 0);
+const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES = Math.max(0, Number.parseInt(readEnv("PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES", "0") || "0", 10) || 0);
 const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES * 60 * 1000;
 const PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const PORTAL_ORDER_SHIPMENT_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
@@ -5531,17 +5531,19 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
                     actorLabel: session.access.email || "Company portal",
                     reason: "Customer portal release"
                 });
-                releaseActions.warehouseEmailScheduled = true;
+                releaseActions.warehouseEmailSent = scheduleResult.sent === true;
+                releaseActions.warehouseEmailScheduled = scheduleResult.scheduled !== false && !scheduleResult.sent;
                 releaseActions.warehouseEmailScheduledAt = scheduleResult.scheduledAt;
+                releaseActions.warehouseEmailDelayMinutes = scheduleResult.delayMinutes;
                 releaseActions.warehouseRecipients = scheduleResult.recipients;
                 releaseActions.ccRecipients = scheduleResult.ccRecipients;
             } catch (error) {
-                releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be scheduled.";
+                releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be sent.";
                 try {
                     await withTransaction((client) => insertActivity(
                         client,
                         "order",
-                        `Warehouse order notification schedule failed for portal order ${order.orderCode}`,
+                        `Warehouse order notification failed for portal order ${order.orderCode}`,
                         [
                             order.accountName,
                             releaseActions.warehouseEmailError,
@@ -20276,7 +20278,9 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
     }
 
     const normalizedDelayMs = normalizePickTicketEmailDelayMs(delayMs);
+    const dueImmediately = normalizedDelayMs <= 0;
     const scheduledAt = new Date(Date.now() + normalizedDelayMs);
+    let persistedScheduledAt = scheduledAt.toISOString();
     const normalizedCcRecipients = normalizeEmailList(ccRecipients);
     const orderLabel = order.orderCode || String(order.id);
     const actor = normalizeFreeText(actorLabel || "System");
@@ -20291,7 +20295,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
                 update portal_orders
                 set
                     pick_ticket_email_status = 'SCHEDULED',
-                    pick_ticket_email_scheduled_at = $3,
+                    pick_ticket_email_scheduled_at = case when $6::boolean then now() else $3::timestamptz end,
                     pick_ticket_email_sent_at = null,
                     pick_ticket_email_last_error = '',
                     pick_ticket_email_cc = $4,
@@ -20300,20 +20304,25 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
                 where id = $1
                   and account_name = $2
                   and status = 'RELEASED'
-                returning id
+                returning id, pick_ticket_email_scheduled_at
             `,
-            [order.id, order.accountName, scheduledAt.toISOString(), normalizedCcRecipients.join(","), actor]
+            [order.id, order.accountName, scheduledAt.toISOString(), normalizedCcRecipients.join(","), actor, dueImmediately]
         );
         if (result.rowCount !== 1) {
             throw httpError(409, "The order must still be released before a warehouse order notification can be scheduled.");
         }
+        persistedScheduledAt = result.rows[0].pick_ticket_email_scheduled_at
+            ? new Date(result.rows[0].pick_ticket_email_scheduled_at).toISOString()
+            : scheduledAt.toISOString();
         await insertActivity(
             client,
             "order",
-            `Scheduled warehouse order notification for ${orderLabel}`,
+            dueImmediately
+                ? `Queued immediate warehouse order notification for ${orderLabel}`
+                : `Scheduled warehouse order notification for ${orderLabel}`,
             [
                 order.accountName,
-                `Due ${scheduledAt.toISOString()}`,
+                dueImmediately ? "Due immediately" : `Due ${persistedScheduledAt}`,
                 recipients.join(", "),
                 normalizedCcRecipients.length ? `CC ${normalizedCcRecipients.join(", ")}` : "",
                 note,
@@ -20322,12 +20331,41 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
         );
     });
 
-    armPortalOrderReleaseEmailTimer(order.id, scheduledAt);
+    if (dueImmediately) {
+        const sendResult = await processScheduledPortalOrderReleaseEmail(order.id);
+        if (sendResult.sent) {
+            return {
+                scheduledAt: persistedScheduledAt,
+                delayMinutes: 0,
+                recipients: sendResult.recipients?.length ? sendResult.recipients : recipients,
+                ccRecipients: sendResult.ccRecipients?.length ? sendResult.ccRecipients : normalizedCcRecipients,
+                sent: true,
+                scheduled: false
+            };
+        }
+        if (sendResult.reason === "error") {
+            throw httpError(500, `Warehouse email could not be sent immediately: ${sendResult.error || "Unknown email error"}`);
+        }
+        armPortalOrderReleaseEmailTimer(order.id, persistedScheduledAt);
+        return {
+            scheduledAt: persistedScheduledAt,
+            delayMinutes: 0,
+            recipients,
+            ccRecipients: normalizedCcRecipients,
+            sent: false,
+            scheduled: true,
+            immediateAttemptReason: sendResult.reason || "not-sent"
+        };
+    }
+
+    armPortalOrderReleaseEmailTimer(order.id, persistedScheduledAt);
     return {
-        scheduledAt: scheduledAt.toISOString(),
+        scheduledAt: persistedScheduledAt,
         delayMinutes: Math.round(normalizedDelayMs / 60000),
         recipients,
-        ccRecipients: normalizedCcRecipients
+        ccRecipients: normalizedCcRecipients,
+        sent: false,
+        scheduled: true
     };
 }
 
@@ -20437,7 +20475,12 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
                 ].filter(Boolean).join(" | ")
             );
         });
-        return { sent: true, orderCode: order.orderCode, recipients: emailResult.recipients };
+        return {
+            sent: true,
+            orderCode: order.orderCode,
+            recipients: emailResult.recipients,
+            ccRecipients: emailResult.ccRecipients
+        };
     } catch (error) {
         console.error(`Warehouse order notification failed for portal order ${normalizedOrderId}:`, error);
         try {

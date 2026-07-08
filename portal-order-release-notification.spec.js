@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
     buildPortalReleaseEmailText,
@@ -58,4 +60,18 @@ test("warehouse release email is notification-only without pick lines or documen
     assert.doesNotMatch(html, /customer-label\.pdf/);
     assert.doesNotMatch(html, /pick-ticket\.pdf/);
     assert.doesNotMatch(html, /Pick Lines/);
+});
+
+test("customer portal release notification defaults to immediate warehouse email", () => {
+    const serverSource = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    const portalSource = fs.readFileSync(path.join(__dirname, "portal.html"), "utf8");
+
+    assert.match(
+        serverSource,
+        /readEnv\("PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES", "0"\)/
+    );
+    assert.match(portalSource, /email the warehouse team right away/i);
+    assert.match(portalSource, /immediately after release/i);
+    assert.doesNotMatch(portalSource, /30-minute review window/i);
+    assert.doesNotMatch(portalSource, /after 30 minutes/i);
 });
