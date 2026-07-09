@@ -247,6 +247,10 @@ test("carrier tracking URLs are generated for recognized parcel carriers", () =>
         buildCarrierTrackingUrl("Canpar", "D420352470002433984001"),
         "https://www.canpar.com/en/tracking/track.htm?barcode=D420352470002433984001"
     );
+    assert.equal(
+        buildCarrierTrackingUrl("CanadaPost", "1234567890123456"),
+        "https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=1234567890123456"
+    );
 });
 
 test("shipment closeout rejects shipped quantity above ordered quantity", () => {

@@ -20197,7 +20197,12 @@ function inferCarrierForTrackingNumber(carrierName = "", trackingNumber = "") {
     if (normalizedCarrier.includes("UPS") || normalizedCarrier.includes("UNITED_PARCEL")) return "UPS";
     if (normalizedCarrier.includes("CANPAR")) return "CANPAR";
     if (normalizedCarrier.includes("FEDEX") || normalizedCarrier.includes("FED_EX") || normalizedCarrier.includes("FEDERAL_EXPRESS")) return "FEDEX";
-    if (normalizedCarrier.includes("CANADA_POST") || normalizedCarrier.includes("POSTES_CANADA")) return "CANADA_POST";
+    if (
+        normalizedCarrier.includes("CANADA_POST")
+        || normalizedCarrier.includes("CANADAPOST")
+        || normalizedCarrier.includes("POSTES_CANADA")
+        || normalizedCarrier.includes("POSTESCANADA")
+    ) return "CANADA_POST";
     if (/^1Z[0-9A-Z]{16}$/.test(normalizedTracking)) return "UPS";
     if (/^D\d{18,24}$/.test(normalizedTracking)) return "CANPAR";
     return "";
