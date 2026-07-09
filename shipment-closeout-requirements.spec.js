@@ -234,7 +234,7 @@ test("shipment email lists multiple tracking numbers and customer label support 
     assert.match(html, /Customer-provided shipping label/);
 });
 
-test("carrier tracking URLs are generated for recognized parcel carriers", () => {
+test("carrier tracking URLs are generated for recognized parcel and freight carriers", () => {
     assert.equal(
         buildCarrierTrackingUrl("Purolator", "520641667354"),
         "https://www.purolator.com/en/shipping/tracker?pins=520641667354"
@@ -251,6 +251,51 @@ test("carrier tracking URLs are generated for recognized parcel carriers", () =>
         buildCarrierTrackingUrl("CanadaPost", "1234567890123456"),
         "https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=1234567890123456"
     );
+    assert.equal(
+        buildCarrierTrackingUrl("DHL Express", "JD014600006018545819"),
+        "https://www.dhl.com/us-en/home/tracking.html?tracking-id=JD014600006018545819"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("USPS", "9400111206212345678901"),
+        "https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111206212345678901"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("Loomis Express", "123456789"),
+        "https://www.loomisexpress.com/loomship/Track/Track.aspx?PieceNumber=123456789"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("GLS Canada", "GLS123456789"),
+        "https://gls-group.com/GROUP/en/parcel-tracking?match=GLS123456789"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("TForce Freight", "123456789"),
+        "https://www.tforcefreight.com/ltl/apps/Tracking?proNumbers=123456789"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("XPO Freight", "987654321"),
+        "https://app.ltl.xpo.com/appjs/tracking/#/search/shipments?referenceNumber=987654321"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("Old Dominion Freight Line", "1122334455"),
+        "https://www.odfl.com/us/en/tools/trace-track-ltl-freight/trace-track.html?pro=1122334455"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("Estes Express", "11223344"),
+        "https://www.estes-express.com/myestes/shipment-tracking/?type=PRO&query=11223344"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("R+L Carriers", "44556677"),
+        "https://www.rlcarriers.com/freight/shipping/shipment-tracing?pro=44556677"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("ArcBest", "77889900"),
+        "https://arcb.com/tools/tracking.html?pro=77889900"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("Saia LTL", "55443322"),
+        "https://www.saia.com/track/details;pro=55443322"
+    );
+    assert.equal(buildCarrierTrackingUrl("Unknown Freight", "123456789"), "");
 });
 
 test("shipment closeout rejects shipped quantity above ordered quantity", () => {

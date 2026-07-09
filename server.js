@@ -20190,19 +20190,111 @@ function splitShipmentTrackingReferences(value) {
         .filter(Boolean);
 }
 
+const TRACKING_CARRIER_LINKS = [
+    {
+        key: "PUROLATOR",
+        aliases: ["PUROLATOR"],
+        buildUrl: (tracking) => `https://www.purolator.com/en/shipping/tracker?pins=${tracking}`
+    },
+    {
+        key: "UPS",
+        aliases: ["UPS", "UNITED PARCEL", "UNITED PARCEL SERVICE"],
+        buildUrl: (tracking) => `https://www.ups.com/track?tracknum=${tracking}`
+    },
+    {
+        key: "CANPAR",
+        aliases: ["CANPAR"],
+        buildUrl: (tracking) => `https://www.canpar.com/en/tracking/track.htm?barcode=${tracking}`
+    },
+    {
+        key: "FEDEX",
+        aliases: ["FEDEX", "FED EX", "FEDERAL EXPRESS", "FEDEX FREIGHT"],
+        buildUrl: (tracking) => `https://www.fedex.com/fedextrack/?trknbr=${tracking}`
+    },
+    {
+        key: "CANADA_POST",
+        aliases: ["CANADA POST", "CANADAPOST", "POSTES CANADA", "POSTESCANADA"],
+        buildUrl: (tracking) => `https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=${tracking}`
+    },
+    {
+        key: "DHL",
+        aliases: ["DHL", "DHL EXPRESS", "DHL ECOMMERCE", "DHL GLOBAL"],
+        buildUrl: (tracking) => `https://www.dhl.com/us-en/home/tracking.html?tracking-id=${tracking}`
+    },
+    {
+        key: "USPS",
+        aliases: ["USPS", "US POSTAL", "US POSTAL SERVICE", "UNITED STATES POSTAL", "UNITED STATES POSTAL SERVICE"],
+        buildUrl: (tracking) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${tracking}`
+    },
+    {
+        key: "LOOMIS",
+        aliases: ["LOOMIS", "LOOMIS EXPRESS"],
+        buildUrl: (tracking) => `https://www.loomisexpress.com/loomship/Track/Track.aspx?PieceNumber=${tracking}`
+    },
+    {
+        key: "GLS",
+        aliases: ["GLS", "GLS CANADA", "GLS US", "DICOM", "DICOM EXPRESS"],
+        buildUrl: (tracking) => `https://gls-group.com/GROUP/en/parcel-tracking?match=${tracking}`
+    },
+    {
+        key: "TFORCE_FREIGHT",
+        aliases: ["TFORCE", "T FORCE", "TFORCE FREIGHT", "T FORCE FREIGHT", "UPS FREIGHT"],
+        buildUrl: (tracking) => `https://www.tforcefreight.com/ltl/apps/Tracking?proNumbers=${tracking}`
+    },
+    {
+        key: "XPO",
+        aliases: ["XPO", "XPO LOGISTICS", "XPO FREIGHT"],
+        buildUrl: (tracking) => `https://app.ltl.xpo.com/appjs/tracking/#/search/shipments?referenceNumber=${tracking}`
+    },
+    {
+        key: "OLD_DOMINION",
+        aliases: ["ODFL", "OLD DOMINION", "OLD DOMINION FREIGHT", "OLD DOMINION FREIGHT LINE"],
+        buildUrl: (tracking) => `https://www.odfl.com/us/en/tools/trace-track-ltl-freight/trace-track.html?pro=${tracking}`
+    },
+    {
+        key: "ESTES",
+        aliases: ["ESTES", "ESTES EXPRESS"],
+        buildUrl: (tracking) => `https://www.estes-express.com/myestes/shipment-tracking/?type=PRO&query=${tracking}`
+    },
+    {
+        key: "RL_CARRIERS",
+        aliases: ["RL", "R L", "RL CARRIERS", "R L CARRIERS"],
+        buildUrl: (tracking) => `https://www.rlcarriers.com/freight/shipping/shipment-tracing?pro=${tracking}`
+    },
+    {
+        key: "ABF",
+        aliases: ["ABF", "ABF FREIGHT", "ARCBEST", "ARC BEST"],
+        buildUrl: (tracking) => `https://arcb.com/tools/tracking.html?pro=${tracking}`
+    },
+    {
+        key: "SAIA",
+        aliases: ["SAIA", "SAIA LTL", "SAIA FREIGHT"],
+        buildUrl: (tracking) => `https://www.saia.com/track/details;pro=${tracking}`
+    }
+];
+
+function normalizeCarrierLookupText(value) {
+    return normalizeText(value).replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function carrierAliasMatches(normalizedCarrier, alias) {
+    const normalizedAlias = normalizeCarrierLookupText(alias);
+    return Boolean(normalizedAlias && normalizedCarrier && (
+        normalizedCarrier === normalizedAlias || normalizedCarrier.includes(normalizedAlias)
+    ));
+}
+
+function getCarrierTrackingConfig(carrierKey) {
+    return TRACKING_CARRIER_LINKS.find((config) => config.key === carrierKey);
+}
+
 function inferCarrierForTrackingNumber(carrierName = "", trackingNumber = "") {
-    const normalizedCarrier = normalizeText(carrierName).replace(/[\s-]+/g, "_");
+    const normalizedCarrier = normalizeCarrierLookupText(carrierName);
     const normalizedTracking = normalizeExtractedTrackingNumber(trackingNumber);
-    if (normalizedCarrier.includes("PUROLATOR")) return "PUROLATOR";
-    if (normalizedCarrier.includes("UPS") || normalizedCarrier.includes("UNITED_PARCEL")) return "UPS";
-    if (normalizedCarrier.includes("CANPAR")) return "CANPAR";
-    if (normalizedCarrier.includes("FEDEX") || normalizedCarrier.includes("FED_EX") || normalizedCarrier.includes("FEDERAL_EXPRESS")) return "FEDEX";
-    if (
-        normalizedCarrier.includes("CANADA_POST")
-        || normalizedCarrier.includes("CANADAPOST")
-        || normalizedCarrier.includes("POSTES_CANADA")
-        || normalizedCarrier.includes("POSTESCANADA")
-    ) return "CANADA_POST";
+    const carrierConfig = TRACKING_CARRIER_LINKS.find((config) => (
+        config.aliases.some((alias) => carrierAliasMatches(normalizedCarrier, alias))
+    ));
+    if (carrierConfig) return carrierConfig.key;
     if (/^1Z[0-9A-Z]{16}$/.test(normalizedTracking)) return "UPS";
     if (/^D\d{18,24}$/.test(normalizedTracking)) return "CANPAR";
     return "";
@@ -20213,12 +20305,7 @@ function buildCarrierTrackingUrl(carrierName = "", trackingNumber = "") {
     if (!tracking) return "";
     const carrier = inferCarrierForTrackingNumber(carrierName, tracking);
     const encodedTracking = encodeURIComponent(tracking);
-    if (carrier === "PUROLATOR") return `https://www.purolator.com/en/shipping/tracker?pins=${encodedTracking}`;
-    if (carrier === "UPS") return `https://www.ups.com/track?tracknum=${encodedTracking}`;
-    if (carrier === "CANPAR") return `https://www.canpar.com/en/tracking/track.htm?barcode=${encodedTracking}`;
-    if (carrier === "FEDEX") return `https://www.fedex.com/fedextrack/?trknbr=${encodedTracking}`;
-    if (carrier === "CANADA_POST") return `https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=${encodedTracking}`;
-    return "";
+    return getCarrierTrackingConfig(carrier)?.buildUrl(encodedTracking) || "";
 }
 
 function formatTrackingReferenceForEmailText(carrierName = "", trackingNumber = "") {
