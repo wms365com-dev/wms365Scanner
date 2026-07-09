@@ -22073,9 +22073,17 @@ async function resolveWarehousePrinterForJob(client, { fulfillmentLocationId, pr
     return printer;
 }
 
-function buildPortalOrderPackingSlipPdfAttachment(order) {
+function buildPortalOrderPackingSlipPdfAttachment(order, { fulfillmentGroup = null, groupIndex = 0, groupCount = 0 } = {}) {
+    const documentGroups = fulfillmentGroup ? [fulfillmentGroup] : getPortalOrderDocumentFulfillmentGroups(order);
+    const selectedGroup = fulfillmentGroup || (documentGroups.length === 1 ? documentGroups[0] : null);
+    const slipLocation = selectedGroup?.location || null;
+    const slipLines = selectedGroup?.lines || order.lines || [];
+    const isSplitSlip = Boolean(fulfillmentGroup && groupCount > 1);
+    const slipLabel = slipLocation
+        ? `${getFulfillmentLocationDisplayName(slipLocation)}${isSplitSlip ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
+        : "";
     const lines = [
-        "WMS365 PACKING SLIP",
+        isSplitSlip ? "WMS365 PACKING SLIP - SPLIT LOCATION" : "WMS365 PACKING SLIP",
         "",
         `Order: ${order.orderCode || ""}`,
         `Company: ${order.accountName || ""}`,
@@ -22090,20 +22098,37 @@ function buildPortalOrderPackingSlipPdfAttachment(order) {
         .map((line) => line.trim())
         .filter(Boolean)
         .forEach((line) => lines.push(`  ${line}`));
-    appendPortalOrderShipFromSection(lines, getPortalOrderDocumentFulfillmentGroups(order));
+    if (slipLocation && hasFulfillmentLocationDocumentDetails(slipLocation)) {
+        appendPortalOrderShipFromSection(lines, [{ location: slipLocation, label: slipLabel }], { includeLocationNumbers: false });
+    }
     lines.push("", "Items:", "SKU                 QTY            DESCRIPTION", "------------------- -------------- -----------------------------------------------");
-    (order.lines || []).forEach((line) => {
+    slipLines.forEach((line) => {
         const prefix = `${pdfSafeText(line.sku).slice(0, 19).padEnd(19)} ${pdfSafeText(formatTrackedQuantity(line.quantity, line.trackingLevel)).slice(0, 14).padEnd(14)} `;
         const descriptionLines = wrapPdfText(line.description || "", 47);
         lines.push(`${prefix}${descriptionLines[0] || ""}`);
         descriptionLines.slice(1).forEach((descriptionLine) => lines.push(`${"".padEnd(34)}${descriptionLine}`));
     });
+    const locationSegment = fulfillmentGroup
+        ? `-${sanitizeFilenameSegment(fulfillmentGroup.location?.publicName || fulfillmentGroup.location?.code || `location-${(groupIndex || 0) + 1}`, "warehouse")}`
+        : "";
     lines.push("", `Generated: ${new Date().toISOString()}`);
     return {
-        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-packing-slip.pdf`),
+        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-packing-slip${locationSegment}.pdf`),
         content: buildSimpleTextPdfBuffer(lines),
         contentType: "application/pdf"
     };
+}
+
+function buildPortalOrderPackingSlipPdfAttachments(order) {
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    if (groups.length <= 1) {
+        return [buildPortalOrderPackingSlipPdfAttachment(order)];
+    }
+    return groups.map((group, index) => buildPortalOrderPackingSlipPdfAttachment(order, {
+        fulfillmentGroup: group,
+        groupIndex: index,
+        groupCount: groups.length
+    }));
 }
 
 const CODE128_PATTERNS = [
@@ -22428,19 +22453,24 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
         };
     };
 
-    const splitGroups = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET
+    const usesLocationSplitDocuments = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET
+        || documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP;
+    const splitGroups = usesLocationSplitDocuments
         ? getPortalOrderSplitFulfillmentGroups(order)
         : [];
 
-    if (documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET && splitGroups.length > 1) {
+    if (usesLocationSplitDocuments && splitGroups.length > 1) {
         const created = [];
         for (const [index, group] of splitGroups.entries()) {
             const fulfillmentLocationId = toPositiveInt(group.location?.id) || await resolvePortalOrderPrintFulfillmentLocationId(client, order);
-            const attachment = buildPortalOrderPickTicketPdfAttachment(order, {
+            const attachmentOptions = {
                 fulfillmentGroup: group,
                 groupIndex: index,
                 groupCount: splitGroups.length
-            });
+            };
+            const attachment = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
+                ? buildPortalOrderPackingSlipPdfAttachment(order, attachmentOptions)
+                : buildPortalOrderPickTicketPdfAttachment(order, attachmentOptions);
             created.push(await createPrintJob({
                 fulfillmentLocationId,
                 attachment,
@@ -31861,6 +31891,7 @@ module.exports = {
     hashWarehousePrintStationToken,
     mapWarehousePrintJobRow,
     buildPortalOrderPackingSlipPdfAttachment,
+    buildPortalOrderPackingSlipPdfAttachments,
     buildPortalOrderPickTicketPdfAttachment,
     buildPortalOrderPickTicketPdfAttachments,
     buildPortalOrderBatchPickTicketPdfAttachment,
