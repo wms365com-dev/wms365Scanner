@@ -19972,7 +19972,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
         ? `
             <div style="margin:0 0 18px;padding:14px 16px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
                 <p style="margin:0 0 8px;font-weight:700;">Split pickup / ship-from required</p>
-                <p style="margin:0 0 10px;">This order has inventory allocated from ${escapeHtml(formatCount(fulfillmentGroups.length, "warehouse address"))}. A separate pick ticket is attached for each location.</p>
+                <p style="margin:0 0 10px;">This order has inventory allocated from ${escapeHtml(formatCount(fulfillmentGroups.length, "warehouse location"))}. A separate pick ticket is attached for each location.</p>
                 <ul style="margin:0 0 0 18px;padding:0;">
                     ${fulfillmentGroups.map((group) => `<li><strong>${escapeHtml(group.location.publicName)}</strong>: ${escapeHtml(group.location.address || group.location.code || "Address not listed")} (${escapeHtml(String(group.totalQuantity))} total)</li>`).join("")}
                 </ul>
@@ -20482,7 +20482,7 @@ function queuePortalOrderSplitFulfillmentNotice(order, { actorLabel = "System", 
                 [
                     accountName,
                     `Sent to ${formatCount(result.recipients.length, "recipient")}`,
-                    `${formatCount(result.groups.length, "warehouse address")}`,
+                    `${formatCount(result.groups.length, "warehouse location")}`,
                     actorLabel || ""
                 ].filter(Boolean).join(" | ")
             ));
