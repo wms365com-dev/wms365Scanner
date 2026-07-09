@@ -11912,6 +11912,7 @@ async function syncShopifyIntegration(integrationRow, appUser = null, options = 
 
 async function importStoreOrdersForIntegration(client, integrationRow, orders, appUser = null) {
     const normalizedProvider = normalizeStoreIntegrationProvider(integrationRow.provider);
+    const integrationSettings = sanitizeStoreIntegrationSettingsInput(normalizedProvider, integrationRow.settings || {});
     const externalIds = orders
         .map((order) => String(order?.id || "").trim())
         .filter(Boolean);
@@ -11942,6 +11943,14 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
         if (existingIds.has(externalOrderId)) {
             skippedCount += 1;
             continue;
+        }
+        if (normalizedProvider === SHOPIFY_SYNC_PROVIDER) {
+            const countryDecision = getShopifyOrderShipCountryDecision(order, integrationSettings);
+            if (!countryDecision.allowed) {
+                skippedCount += 1;
+                detailMessages.push(`${orderLabel} skipped: ship-to country ${countryDecision.shipCountry || "not set"} is outside ${countryDecision.allowedShipCountries.join(", ")}.`);
+                continue;
+            }
         }
 
         try {
@@ -12284,6 +12293,47 @@ function parseShopifyNextLink(linkHeader) {
     if (!text) return null;
     const match = text.match(/<([^>]+)>;\s*rel="next"/i);
     return match?.[1] ? new URL(match[1]) : null;
+}
+
+function normalizeStoreOrderCountry(value = "") {
+    const normalized = normalizeText(value).replace(/[^A-Z]/g, "");
+    const aliases = {
+        CA: "CA",
+        CAN: "CA",
+        CANADA: "CA",
+        US: "US",
+        USA: "US",
+        UNITEDSTATES: "US",
+        UNITEDSTATESOFAMERICA: "US"
+    };
+    return aliases[normalized] || normalized;
+}
+
+function normalizeStoreOrderAllowedCountries(value = []) {
+    const rawValues = Array.isArray(value)
+        ? value
+        : String(value || "").split(/[,;\n|]+/);
+    return [...new Set(rawValues
+        .map(normalizeStoreOrderCountry)
+        .filter(Boolean))];
+}
+
+function getShopifyOrderShipCountry(order = {}) {
+    const shipping = order?.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : null;
+    return normalizeStoreOrderCountry(shipping?.country_code || shipping?.country || "");
+}
+
+function getShopifyOrderShipCountryDecision(order = {}, settings = {}) {
+    const allowedShipCountries = normalizeStoreOrderAllowedCountries(settings?.allowedShipCountries || settings?.allowed_ship_countries || []);
+    if (!allowedShipCountries.length) {
+        return { allowed: true, shipCountry: getShopifyOrderShipCountry(order), allowedShipCountries };
+    }
+    const shipCountry = getShopifyOrderShipCountry(order);
+    return {
+        allowed: Boolean(shipCountry && allowedShipCountries.includes(shipCountry)),
+        shipCountry,
+        allowedShipCountries
+    };
 }
 
 function buildShopifyAdminApiUrl(shopDomain, resourcePath) {
@@ -28500,9 +28550,25 @@ function sanitizeStoreIntegrationSettingsInput(provider, settings = {}, rawInput
             || rawInput?.location_id
             || ""
         );
+        const allowedShipCountries = normalizeStoreOrderAllowedCountries(
+            source.allowedShipCountries
+            || source.allowed_ship_countries
+            || source.shipToCountries
+            || source.ship_to_countries
+            || source.allowedCountries
+            || source.allowed_countries
+            || rawInput?.allowedShipCountries
+            || rawInput?.allowed_ship_countries
+            || rawInput?.shipToCountries
+            || rawInput?.ship_to_countries
+            || rawInput?.allowedCountries
+            || rawInput?.allowed_countries
+            || []
+        );
         return {
             shopifyLocationId: locationId,
             primaryLocationName: normalizeFreeText(source.primaryLocationName || source.primary_location_name || rawInput?.primaryLocationName || rawInput?.primary_location_name || ""),
+            allowedShipCountries,
             syncOrders: toBooleanFlag(source.syncOrders ?? source.sync_orders ?? rawInput?.syncOrders ?? rawInput?.sync_orders, true),
             syncShipmentConfirmations: toBooleanFlag(
                 source.syncShipmentConfirmations
@@ -32370,6 +32436,8 @@ module.exports = {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
     sanitizeStoreIntegrationSettingsInput,
+    normalizeStoreOrderCountry,
+    getShopifyOrderShipCountryDecision,
     normalizeShopifyShopDomain,
     buildShopifyHmacMessage,
     verifyShopifyRequestHmac,

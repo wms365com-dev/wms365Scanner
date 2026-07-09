@@ -6,6 +6,8 @@ const {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
     computeNextStoreIntegrationSyncAt,
     sanitizeStoreIntegrationSettingsInput,
+    normalizeStoreOrderCountry,
+    getShopifyOrderShipCountryDecision,
     exportShopifyInventoryLevels,
     createIntegrationCredentialRequestToken,
     hashIntegrationCredentialRequestToken,
@@ -54,11 +56,50 @@ test("Shopify settings support inventory-only sync lanes", () => {
     assert.deepEqual(settings, {
         shopifyLocationId: "91373928677",
         primaryLocationName: "Justeefy Canada",
+        allowedShipCountries: [],
         syncOrders: false,
         syncShipmentConfirmations: false,
         syncInventory: true,
         notifyCustomerOnFulfillment: true,
         inventoryDisconnectIfNecessary: true
+    });
+});
+
+test("Shopify settings preserve allowed ship-to country filters", () => {
+    const settings = sanitizeStoreIntegrationSettingsInput("SHOPIFY", {
+        allowed_ship_countries: ["Canada", "CA", "United States"]
+    });
+
+    assert.deepEqual(settings.allowedShipCountries, ["CA", "US"]);
+});
+
+test("Shopify ship country guard accepts Canada and rejects non-Canada orders", () => {
+    const settings = sanitizeStoreIntegrationSettingsInput("SHOPIFY", {
+        allowedShipCountries: ["Canada"]
+    });
+
+    assert.equal(normalizeStoreOrderCountry("Canada"), "CA");
+    assert.equal(normalizeStoreOrderCountry("CA"), "CA");
+    assert.deepEqual(getShopifyOrderShipCountryDecision({
+        shipping_address: { country: "Canada" }
+    }, settings), {
+        allowed: true,
+        shipCountry: "CA",
+        allowedShipCountries: ["CA"]
+    });
+    assert.deepEqual(getShopifyOrderShipCountryDecision({
+        shipping_address: { country_code: "US" }
+    }, settings), {
+        allowed: false,
+        shipCountry: "US",
+        allowedShipCountries: ["CA"]
+    });
+    assert.deepEqual(getShopifyOrderShipCountryDecision({
+        billing_address: { country_code: "CA" }
+    }, settings), {
+        allowed: false,
+        shipCountry: "",
+        allowedShipCountries: ["CA"]
     });
 });
 
