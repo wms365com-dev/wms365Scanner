@@ -20190,6 +20190,47 @@ function splitShipmentTrackingReferences(value) {
         .filter(Boolean);
 }
 
+function inferCarrierForTrackingNumber(carrierName = "", trackingNumber = "") {
+    const normalizedCarrier = normalizeText(carrierName).replace(/[\s-]+/g, "_");
+    const normalizedTracking = normalizeExtractedTrackingNumber(trackingNumber);
+    if (normalizedCarrier.includes("PUROLATOR")) return "PUROLATOR";
+    if (normalizedCarrier.includes("UPS") || normalizedCarrier.includes("UNITED_PARCEL")) return "UPS";
+    if (normalizedCarrier.includes("CANPAR")) return "CANPAR";
+    if (normalizedCarrier.includes("FEDEX") || normalizedCarrier.includes("FED_EX") || normalizedCarrier.includes("FEDERAL_EXPRESS")) return "FEDEX";
+    if (normalizedCarrier.includes("CANADA_POST") || normalizedCarrier.includes("POSTES_CANADA")) return "CANADA_POST";
+    if (/^1Z[0-9A-Z]{16}$/.test(normalizedTracking)) return "UPS";
+    if (/^D\d{18,24}$/.test(normalizedTracking)) return "CANPAR";
+    return "";
+}
+
+function buildCarrierTrackingUrl(carrierName = "", trackingNumber = "") {
+    const tracking = normalizeExtractedTrackingNumber(trackingNumber);
+    if (!tracking) return "";
+    const carrier = inferCarrierForTrackingNumber(carrierName, tracking);
+    const encodedTracking = encodeURIComponent(tracking);
+    if (carrier === "PUROLATOR") return `https://www.purolator.com/en/shipping/tracker?pins=${encodedTracking}`;
+    if (carrier === "UPS") return `https://www.ups.com/track?tracknum=${encodedTracking}`;
+    if (carrier === "CANPAR") return `https://www.canpar.com/en/tracking/track.htm?barcode=${encodedTracking}`;
+    if (carrier === "FEDEX") return `https://www.fedex.com/fedextrack/?trknbr=${encodedTracking}`;
+    if (carrier === "CANADA_POST") return `https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=${encodedTracking}`;
+    return "";
+}
+
+function formatTrackingReferenceForEmailText(carrierName = "", trackingNumber = "") {
+    const tracking = normalizeFreeText(trackingNumber);
+    if (!tracking) return "";
+    const trackingUrl = buildCarrierTrackingUrl(carrierName, tracking);
+    return trackingUrl ? `${tracking} (${trackingUrl})` : tracking;
+}
+
+function buildTrackingReferenceLinkHtml(carrierName = "", trackingNumber = "") {
+    const tracking = normalizeFreeText(trackingNumber);
+    if (!tracking) return "";
+    const trackingUrl = buildCarrierTrackingUrl(carrierName, tracking);
+    if (!trackingUrl) return escapeHtml(tracking);
+    return `<a href="${escapeHtml(trackingUrl)}" style="color:#0f6f8c;text-decoration:underline;font-weight:600;">${escapeHtml(tracking)}</a>`;
+}
+
 function shipmentConfirmationHasCustomerProvidedShippingLabel(confirmation = {}) {
     const documents = Array.isArray(confirmation.documents) ? confirmation.documents : [];
     return documents.some((document) => looksLikeShippingLabelDocument(document));
@@ -20199,16 +20240,16 @@ function customerProvidedShippingLabelNotice() {
     return "This shipment is using the shipping label provided with the order. For carrier service questions, delivery changes, or claims, please contact the carrier or the account that created the label directly, as they have the shipment account details needed to help.";
 }
 
-function buildShipmentTrackingHtml(value) {
+function buildShipmentTrackingHtml(value, carrierName = "") {
     const trackingNumbers = splitShipmentTrackingReferences(value);
     if (trackingNumbers.length > 1) {
         return `
             <ul style="margin:0;padding-left:18px;">
-                ${trackingNumbers.map((trackingNumber) => `<li>${escapeHtml(trackingNumber)}</li>`).join("")}
+                ${trackingNumbers.map((trackingNumber) => `<li>${buildTrackingReferenceLinkHtml(carrierName, trackingNumber)}</li>`).join("")}
             </ul>
         `;
     }
-    return escapeHtml(value || "-");
+    return trackingNumbers.length === 1 ? buildTrackingReferenceLinkHtml(carrierName, trackingNumbers[0]) : escapeHtml(value || "-");
 }
 
 function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } = {}) {
@@ -20226,7 +20267,7 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
         confirmation.confirmedShipDate ? `Confirmed Ship Date: ${confirmation.confirmedShipDate}` : "",
         confirmation.shipmentMethod ? `Shipment Type: ${shipmentMethodLabel(confirmation.shipmentMethod)}` : "",
         confirmation.shippedCarrierName ? `Carrier: ${confirmation.shippedCarrierName}` : "",
-        trackingNumbers.length === 1 ? `Tracking / PRO / BOL: ${trackingNumbers[0]}` : "",
+        trackingNumbers.length === 1 ? `Tracking / PRO / BOL: ${formatTrackingReferenceForEmailText(confirmation.shippedCarrierName, trackingNumbers[0])}` : "",
         order.contactName ? `Warehouse Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         confirmation.shippedConfirmationNote ? `Shipping Note: ${confirmation.shippedConfirmationNote}` : "",
@@ -20235,7 +20276,7 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
 
     if (trackingNumbers.length > 1) {
         lines.push("Tracking Numbers:");
-        trackingNumbers.forEach((trackingNumber) => lines.push(`- ${trackingNumber}`));
+        trackingNumbers.forEach((trackingNumber) => lines.push(`- ${formatTrackingReferenceForEmailText(confirmation.shippedCarrierName, trackingNumber)}`));
         lines.push("");
     }
 
@@ -20322,7 +20363,7 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
                 <tr><td style="padding:6px 0;font-weight:600;">Confirmed Ship Date</td><td style="padding:6px 0;">${escapeHtml(confirmation.confirmedShipDate || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Shipment Type</td><td style="padding:6px 0;">${escapeHtml(confirmation.shipmentMethod ? shipmentMethodLabel(confirmation.shipmentMethod) : "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Carrier</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedCarrierName || "-")}</td></tr>
-                <tr><td style="padding:6px 0;font-weight:600;">Tracking / PRO / BOL</td><td style="padding:6px 0;">${buildShipmentTrackingHtml(confirmation.shippedTrackingReference)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Tracking / PRO / BOL</td><td style="padding:6px 0;">${buildShipmentTrackingHtml(confirmation.shippedTrackingReference, confirmation.shippedCarrierName)}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Ship To</td><td style="padding:6px 0;">${escapeHtml(formatPortalOrderShipToAddress(order) || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Warehouse Contact</td><td style="padding:6px 0;">${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</td></tr>
                 ${confirmation.shippedConfirmationNote ? `<tr><td style="padding:6px 0;font-weight:600;">Shipping Note</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedConfirmationNote)}</td></tr>` : ""}
@@ -32272,6 +32313,7 @@ module.exports = {
     calculateGs1Modulo10CheckDigit,
     buildPortalShipmentEmailLineSummaries,
     splitShipmentTrackingReferences,
+    buildCarrierTrackingUrl,
     extractPortalParcelTrackingFromText,
     extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,

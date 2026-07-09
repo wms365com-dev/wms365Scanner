@@ -9,6 +9,7 @@ const {
     validatePortalShipmentLineConfirmations,
     buildPortalShipmentQuantityWarnings,
     splitShipmentTrackingReferences,
+    buildCarrierTrackingUrl,
     extractPortalParcelTrackingFromText,
     extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
@@ -224,11 +225,28 @@ test("shipment email lists multiple tracking numbers and customer label support 
     assert.match(text, /Shipment Type: Parcel/);
     assert.match(text, /Tracking Numbers:/);
     assert.match(text, /520641667354/);
+    assert.match(text, /https:\/\/www\.purolator\.com\/en\/shipping\/tracker\?pins=520641667354/);
     assert.match(text, /customer-provided label note/i);
     assert.match(text, /contact the carrier or the account that created the label directly/i);
     assert.match(html, /Shipment Type/);
-    assert.match(html, /<li>520641667354<\/li>/);
+    assert.match(html, /href="https:\/\/www\.purolator\.com\/en\/shipping\/tracker\?pins=520641667354"/);
+    assert.match(html, />520641667354<\/a>/);
     assert.match(html, /Customer-provided shipping label/);
+});
+
+test("carrier tracking URLs are generated for recognized parcel carriers", () => {
+    assert.equal(
+        buildCarrierTrackingUrl("Purolator", "520641667354"),
+        "https://www.purolator.com/en/shipping/tracker?pins=520641667354"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("UPS", "1ZV56D262012289736"),
+        "https://www.ups.com/track?tracknum=1ZV56D262012289736"
+    );
+    assert.equal(
+        buildCarrierTrackingUrl("Canpar", "D420352470002433984001"),
+        "https://www.canpar.com/en/tracking/track.htm?barcode=D420352470002433984001"
+    );
 });
 
 test("shipment closeout rejects shipped quantity above ordered quantity", () => {
