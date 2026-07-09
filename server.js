@@ -19790,6 +19790,69 @@ function getPortalOrderSplitFulfillmentGroups(order = {}) {
         .filter((group) => group.lines.length && Number(group.totalQuantity) > 0);
 }
 
+function hasFulfillmentLocationDocumentDetails(location = {}) {
+    const displayName = normalizeText(
+        location.publicName
+        || location.name
+        || location.partnerName
+        || location.code
+        || location.fulfillmentLocationName
+        || location.fulfillmentPartnerName
+        || location.fulfillmentLocationCode
+    );
+    return Boolean(
+        location.id
+        || location.fulfillmentLocationId
+        || normalizeText(location.code || location.fulfillmentLocationCode || location.fulfillment_location_code)
+        || (displayName && displayName !== "ASSIGNED WAREHOUSE")
+        || getFulfillmentLocationDisplayAddress(location)
+    );
+}
+
+function getFulfillmentLocationDisplayName(location = {}) {
+    return normalizeFreeText(getPublicFulfillmentLocationName(location) || location.code || "Assigned warehouse");
+}
+
+function getFulfillmentLocationDisplayAddress(location = {}) {
+    return normalizeFreeText(location.address || formatFulfillmentLocationAddress(location));
+}
+
+function getPortalOrderDocumentFulfillmentGroups(order = {}) {
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    if (groups.length) {
+        return groups.filter((group) => hasFulfillmentLocationDocumentDetails(group.location));
+    }
+
+    const location = mapFulfillmentLocationForGroup(buildOrderDefaultFulfillmentLocation(order));
+    if (!hasFulfillmentLocationDocumentDetails(location)) return [];
+    return [{
+        key: fulfillmentLocationGroupKey(location),
+        location,
+        lines: Array.isArray(order.lines) ? order.lines : [],
+        totalQuantity: (Array.isArray(order.lines) ? order.lines : [])
+            .reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
+    }];
+}
+
+function appendPortalOrderShipFromSection(lines, groups = [], { includeLocationNumbers = true } = {}) {
+    const documentGroups = (Array.isArray(groups) ? groups : [])
+        .filter((group) => hasFulfillmentLocationDocumentDetails(group?.location));
+    if (!documentGroups.length) return;
+
+    const isSplit = documentGroups.length > 1;
+    lines.push("", isSplit ? "Ship From / Pickup Locations:" : "Ship From / Pickup Location:");
+    documentGroups.forEach((group, index) => {
+        const location = group.location || {};
+        const name = normalizeFreeText(group.label || getFulfillmentLocationDisplayName(location));
+        const address = getFulfillmentLocationDisplayAddress(location);
+        const label = isSplit && includeLocationNumbers ? `${index + 1}. ${name}` : name;
+        lines.push(`  ${label}`);
+        if (address) {
+            wrapPdfText(address, 86).forEach((line) => lines.push(`  ${line}`));
+        }
+    });
+}
+
 function buildPortalShipmentEmailLineSummaries(order) {
     const orderLines = Array.isArray(order?.lines) ? order.lines : [];
     const shipmentLines = Array.isArray(order?.shipmentLines) ? order.shipmentLines : [];
@@ -20162,14 +20225,15 @@ function formatPickTicketWorkflowStatus(order) {
 }
 
 function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, groupIndex = 0, groupCount = 0 } = {}) {
-    const ticketLocation = fulfillmentGroup?.location || null;
+    const documentGroups = fulfillmentGroup ? [fulfillmentGroup] : getPortalOrderDocumentFulfillmentGroups(order);
+    const ticketLocation = fulfillmentGroup?.location || documentGroups[0]?.location || null;
     const ticketLines = fulfillmentGroup?.lines || order.lines || [];
+    const isSplitTicket = Boolean(fulfillmentGroup && groupCount > 1);
     const ticketLabel = ticketLocation
-        ? `${ticketLocation.publicName || "Assigned warehouse"}${groupCount > 1 ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
+        ? `${getFulfillmentLocationDisplayName(ticketLocation)}${isSplitTicket ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
         : "";
-    const ticketAddress = ticketLocation ? formatFulfillmentLocationAddress(ticketLocation) : "";
     const lines = [
-        fulfillmentGroup ? "WMS365 PICK TICKET - SPLIT LOCATION" : "WMS365 PICK TICKET",
+        isSplitTicket ? "WMS365 PICK TICKET - SPLIT LOCATION" : "WMS365 PICK TICKET",
         "",
         `Order: ${order.orderCode || ""}`,
         `Company: ${order.accountName || ""}`,
@@ -20193,12 +20257,8 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
         wrapPdfText(order.orderNotes, 88).forEach((line) => lines.push(`  ${line}`));
     }
 
-    if (ticketLocation) {
-        lines.push("", "Ship From / Pickup Location:");
-        lines.push(`  ${ticketLabel || ticketLocation.code || "Assigned warehouse"}`);
-        if (ticketAddress) {
-            wrapPdfText(ticketAddress, 88).forEach((line) => lines.push(`  ${line}`));
-        }
+    if (ticketLocation && hasFulfillmentLocationDocumentDetails(ticketLocation)) {
+        appendPortalOrderShipFromSection(lines, [{ location: ticketLocation, label: ticketLabel }], { includeLocationNumbers: false });
     }
 
     lines.push("", "Order Lines:", "LN  SKU                 QTY            PICK LOCATION / LOT / EXPIRATION", "--- ------------------- -------------- -----------------------------------------------");
@@ -22030,6 +22090,7 @@ function buildPortalOrderPackingSlipPdfAttachment(order) {
         .map((line) => line.trim())
         .filter(Boolean)
         .forEach((line) => lines.push(`  ${line}`));
+    appendPortalOrderShipFromSection(lines, getPortalOrderDocumentFulfillmentGroups(order));
     lines.push("", "Items:", "SKU                 QTY            DESCRIPTION", "------------------- -------------- -----------------------------------------------");
     (order.lines || []).forEach((line) => {
         const prefix = `${pdfSafeText(line.sku).slice(0, 19).padEnd(19)} ${pdfSafeText(formatTrackedQuantity(line.quantity, line.trackingLevel)).slice(0, 14).padEnd(14)} `;
