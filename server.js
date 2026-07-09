@@ -3,6 +3,7 @@ const express = require("express");
 const fs = require("fs");
 const nodemailer = require("nodemailer");
 const path = require("path");
+const zlib = require("zlib");
 const { Pool } = require("pg");
 let Stripe = null;
 try {
@@ -219,6 +220,7 @@ const NON_PICKABLE_LOCATION_TYPES = new Set(["RECEIVING_STAGE", "DOCK", "QA_HOLD
 const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
     GENERAL: "GENERAL",
     RELEASE_COPY: "RELEASE_COPY",
+    SHIPPING_LABEL: "SHIPPING_LABEL",
     SHIPMENT_BOL: "SHIPMENT_BOL",
     SHIPMENT_PACKING_SLIP: "SHIPMENT_PACKING_SLIP",
     SHIPMENT_LOAD_PHOTO: "SHIPMENT_LOAD_PHOTO"
@@ -4404,6 +4406,34 @@ app.post("/api/admin/portal-orders/:id/documents", async (req, res, next) => {
             });
         });
         res.json({ success: true, order });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/portal-orders/:id/extract-shipping-label", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            throw httpError(400, "A valid order id is required.");
+        }
+        const result = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+            const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+            if (!order) {
+                throw httpError(404, "That sales order could not be found.");
+            }
+            const documents = await getPortalOrderDocumentsForExtraction(client, order.id);
+            const extraction = await autofillPortalOrderShipmentFromShippingLabels(client, order, documents, {
+                actor: req.appUser?.full_name || req.appUser?.email || "Warehouse",
+                force: toBooleanFlag(req.body?.force || req.body?.overwrite, false)
+            });
+            const updatedOrder = await getPortalOrderById(client, order.id, accountName, "/api/admin/portal-order-documents");
+            return { order: updatedOrder, extraction };
+        });
+        res.json({ success: true, ...result });
     } catch (error) {
         next(error);
     }
@@ -15343,8 +15373,13 @@ async function savePortalOrderDraftForAccount(
         );
     }
     await upsertShipToAddressFromOrder(client, normalizedAccount, order);
+    let autoFillResult = null;
     if (documents.length) {
-        await insertPortalOrderDocuments(client, savedOrderId, documents, uploadedBy || activityActor || "");
+        const insertedDocuments = await insertPortalOrderDocuments(client, savedOrderId, documents, uploadedBy || activityActor || "");
+        const savedOrderForAutofill = await getPortalOrderById(client, savedOrderId, normalizedAccount, downloadPathPrefix);
+        autoFillResult = await autofillPortalOrderShipmentFromShippingLabels(client, savedOrderForAutofill, insertedDocuments, {
+            actor: activityActor || uploadedBy || ""
+        });
     }
 
     const savedOrder = await getPortalOrderById(client, savedOrderId, normalizedAccount, downloadPathPrefix);
@@ -15356,6 +15391,7 @@ async function savePortalOrderDraftForAccount(
             savedOrder.accountName,
             `${formatCount(savedOrder.lines.length, "line")}`,
             documents.length ? `${formatCount(documents.length, "document")} attached` : "",
+            autoFillResult?.applied ? "Parcel shipment details auto-filled" : "",
             `PO ${savedOrder.poNumber}`,
             `Requested ${savedOrder.requestedShipDate || "No ship date"}`,
             activityActor || ""
@@ -15518,7 +15554,10 @@ async function savePortalOrderDocumentsForAccount(
         throw httpError(400, "Upload up to 5 documents at a time.");
     }
 
-    await insertPortalOrderDocuments(client, order.id, documents, uploadedBy || activityActor || "");
+    const insertedDocuments = await insertPortalOrderDocuments(client, order.id, documents, uploadedBy || activityActor || "");
+    const autoFillResult = await autofillPortalOrderShipmentFromShippingLabels(client, order, insertedDocuments, {
+        actor: activityActor || uploadedBy || ""
+    });
     const updatedOrder = await getPortalOrderById(client, order.id, normalizedAccount, downloadPathPrefix);
     await insertActivity(
         client,
@@ -15527,6 +15566,7 @@ async function savePortalOrderDocumentsForAccount(
         [
             updatedOrder.accountName,
             `${formatCount(documents.length, "document")}`,
+            autoFillResult.applied ? "Parcel shipment details auto-filled" : "",
             activityActor || uploadedBy || ""
         ].filter(Boolean).join(" | ")
     );
@@ -15541,6 +15581,270 @@ function assertPortalOrderCanReceiveDocuments(status, { allowShippedDocuments = 
     if (!allowShippedDocuments && normalizedStatus === "SHIPPED") {
         throw httpError(400, "Shipped orders are locked. New documents cannot be uploaded from the customer portal after shipment.");
     }
+}
+
+function looksLikeShippingLabelDocument(document = {}) {
+    const category = normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category);
+    if (category === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPPING_LABEL) return true;
+    const fileName = normalizeText(document.fileName || document.file_name || "");
+    return /\b(SHIPPING\s+LABEL|SHIP\s+LABEL|PUROLATOR|UPS|FEDEX|FED\s*EX|CANPAR|CANADA\s+POST)\b/.test(fileName);
+}
+
+function inferPortalOrderDocumentCategory(document = {}) {
+    const rawType = normalizeFreeText(document.type || "");
+    const rawExplicitCategory = document.documentCategory
+        || document.document_category
+        || document.category
+        || (rawType && !rawType.includes("/") ? rawType : "");
+    const explicitCategory = normalizeText(rawExplicitCategory || "").replace(/[\s-]+/g, "_");
+    if (explicitCategory) return normalizePortalOrderDocumentCategory(explicitCategory);
+    const fileName = normalizeText(document.fileName || document.file_name || document.name || "");
+    if (/\b(SHIPPING\s+LABEL|SHIP\s+LABEL|PUROLATOR|UPS|FEDEX|FED\s*EX|CANPAR|CANADA\s+POST)\b/.test(fileName)) {
+        return PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPPING_LABEL;
+    }
+    if (/\b(BOL|BILL\s+OF\s+LADING|POD|PROOF\s+OF\s+DELIVERY)\b/.test(fileName)) {
+        return PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL;
+    }
+    if (/\b(PACKING\s+SLIP|PACK\s+SLIP)\b/.test(fileName)) {
+        return PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP;
+    }
+    if (/\b(LOAD\s+PHOTO|LOADED\s+PHOTO|TRUCK\s+PHOTO|FREIGHT\s+PHOTO)\b/.test(fileName)) {
+        return PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO;
+    }
+    return PORTAL_ORDER_DOCUMENT_CATEGORIES.GENERAL;
+}
+
+function normalizeExtractedTrackingNumber(value) {
+    return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function addTrackingMatch(matches, seen, value, carrier) {
+    const trackingNumber = normalizeExtractedTrackingNumber(value);
+    if (!trackingNumber || seen.has(trackingNumber)) return;
+    seen.add(trackingNumber);
+    matches.push({ trackingNumber, carrier });
+}
+
+function collectTrackingMatches(matches, seen, text, regex, carrier, groupIndex = 0) {
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        addTrackingMatch(matches, seen, match[groupIndex] || match[0], carrier);
+    }
+}
+
+function inflatePdfStreamContent(buffer) {
+    if (!Buffer.isBuffer(buffer) || !buffer.length) return [];
+    const source = buffer.toString("latin1");
+    const streams = [];
+    const streamPattern = /<<(?:.|\r|\n){0,2500}?\/Filter\s*(?:\[[^\]]*)?\/FlateDecode(?:[^\]]*\])?(?:.|\r|\n){0,2500}?>>\s*stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let match;
+    while ((match = streamPattern.exec(source)) !== null) {
+        try {
+            const inflated = zlib.inflateSync(Buffer.from(match[1], "latin1"));
+            streams.push(inflated.toString("utf8"));
+            streams.push(inflated.toString("latin1"));
+        } catch (_error) {
+            // Some PDFs wrap image or binary streams that are not useful for text extraction.
+        }
+    }
+    return streams;
+}
+
+function buildPortalOrderDocumentExtractionText(document = {}) {
+    const fileName = document.fileName || document.file_name || document.name || "";
+    const fileType = document.fileType || document.file_type || "";
+    const uploadedBy = document.uploadedBy || document.uploaded_by || "";
+    const buffer = document.fileBuffer || document.file_data || document.fileData;
+    const chunks = [fileName, fileType, uploadedBy];
+    if (Buffer.isBuffer(buffer) && buffer.length) {
+        chunks.push(buffer.toString("utf8"));
+        chunks.push(buffer.toString("latin1"));
+        if (detectSafeUploadMimeType(buffer) === "application/pdf" || normalizeFreeText(fileType).toLowerCase() === "application/pdf") {
+            chunks.push(...inflatePdfStreamContent(buffer));
+        }
+    }
+    return chunks.filter(Boolean).join("\n");
+}
+
+function extractPortalParcelTrackingFromText(text = "") {
+    const source = String(text || "");
+    const matches = [];
+    const seen = new Set();
+    const carrierHits = new Set();
+    const addCarrierMatches = (carrier, regex, groupIndex = 0) => {
+        const beforeCount = matches.length;
+        collectTrackingMatches(matches, seen, source, regex, carrier, groupIndex);
+        if (matches.length > beforeCount) carrierHits.add(carrier);
+    };
+
+    addCarrierMatches("UPS", /\b1Z[0-9A-Z]{16}\b/gi);
+    addCarrierMatches("Canpar", /\bD\d{18,24}\b/gi);
+
+    if (/PUROLATOR/i.test(source)) {
+        addCarrierMatches("Purolator", /PUROLATOR[\s\S]{0,100}?(?:PIN|TRACKING(?:\s+NUMBER)?)[^A-Z0-9]{0,20}([0-9][0-9\s-]{8,24}[0-9])/gi, 1);
+        addCarrierMatches("Purolator", /\bPIN[^A-Z0-9]{0,20}([0-9][0-9\s-]{8,24}[0-9])\b/gi, 1);
+        addCarrierMatches("Purolator", /\b\d{12}\b/g);
+    }
+    if (/FEDEX|FED\s*EX/i.test(source)) {
+        addCarrierMatches("FedEx", /\b\d{12,22}\b/g);
+    }
+    if (/CANADA\s+POST/i.test(source)) {
+        addCarrierMatches("Canada Post", /\b(?:\d{13}|\d{16})\b/g);
+    }
+
+    const trackingNumbers = matches.map((entry) => entry.trackingNumber);
+    if (!trackingNumbers.length) {
+        return {
+            shipmentMethod: "",
+            shippedCarrierName: "",
+            shippedTrackingReference: "",
+            trackingNumbers: []
+        };
+    }
+
+    const carrierName = carrierHits.size === 1 ? [...carrierHits][0] : (matches[0]?.carrier || "");
+    return {
+        shipmentMethod: PORTAL_ORDER_SHIPMENT_METHODS.PARCEL,
+        shippedCarrierName: carrierName,
+        shippedTrackingReference: trackingNumbers.join(", "),
+        trackingNumbers
+    };
+}
+
+function extractPortalShippingLabelDetailsFromDocuments(documents = []) {
+    const combinedMatches = [];
+    const seen = new Set();
+    const carrierHits = new Set();
+    const sourceDocumentIds = [];
+    const sourceFileNames = [];
+
+    (Array.isArray(documents) ? documents : []).forEach((document) => {
+        const text = buildPortalOrderDocumentExtractionText(document);
+        const details = extractPortalParcelTrackingFromText(text);
+        if (!details.trackingNumbers.length) return;
+        const documentId = document.id || document.documentId || "";
+        if (documentId) sourceDocumentIds.push(documentId);
+        const fileName = normalizeUploadFileName(document.fileName || document.file_name || document.name || "");
+        if (fileName) sourceFileNames.push(fileName);
+        if (details.shippedCarrierName) carrierHits.add(details.shippedCarrierName);
+        details.trackingNumbers.forEach((trackingNumber) => {
+            const normalizedTracking = normalizeExtractedTrackingNumber(trackingNumber);
+            if (!normalizedTracking || seen.has(normalizedTracking)) return;
+            seen.add(normalizedTracking);
+            combinedMatches.push(normalizedTracking);
+        });
+    });
+
+    if (!combinedMatches.length) {
+        return {
+            shipmentMethod: "",
+            shippedCarrierName: "",
+            shippedTrackingReference: "",
+            trackingNumbers: [],
+            sourceDocumentIds: [],
+            sourceFileNames: []
+        };
+    }
+
+    return {
+        shipmentMethod: PORTAL_ORDER_SHIPMENT_METHODS.PARCEL,
+        shippedCarrierName: carrierHits.size === 1 ? [...carrierHits][0] : "",
+        shippedTrackingReference: combinedMatches.join(", "),
+        trackingNumbers: combinedMatches,
+        sourceDocumentIds: [...new Set(sourceDocumentIds.map(String))],
+        sourceFileNames: [...new Set(sourceFileNames)]
+    };
+}
+
+async function getPortalOrderDocumentsForExtraction(client, orderId) {
+    const result = await client.query(
+        `
+            select id, order_id, file_name, file_type, file_size, file_data, document_category, uploaded_by, created_at
+            from portal_order_documents
+            where order_id = $1
+            order by created_at asc, id asc
+        `,
+        [orderId]
+    );
+    return result.rows;
+}
+
+async function autofillPortalOrderShipmentFromShippingLabels(client, order, documents = [], { actor = "", force = false } = {}) {
+    const extraction = extractPortalShippingLabelDetailsFromDocuments(documents);
+    if (!extraction.trackingNumbers.length) {
+        return {
+            applied: false,
+            reason: "no-tracking-found",
+            extraction
+        };
+    }
+
+    const currentMethod = normalizePortalShipmentMethod(order.shipmentMethod || order.shipment_method || "");
+    const currentCarrier = normalizeFreeText(order.shippedCarrierName || order.shipped_carrier_name || "");
+    const currentTracking = normalizeFreeText(order.shippedTrackingReference || order.shipped_tracking_reference || "");
+    const nextMethod = PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+    const nextCarrier = force || !currentCarrier ? extraction.shippedCarrierName : currentCarrier;
+    const nextTracking = force || !currentTracking ? extraction.shippedTrackingReference : currentTracking;
+    const methodChanged = force || currentMethod !== nextMethod;
+    const carrierChanged = nextCarrier !== currentCarrier;
+    const trackingChanged = nextTracking !== currentTracking;
+
+    if (extraction.sourceDocumentIds.length) {
+        await client.query(
+            `
+                update portal_order_documents
+                set document_category = $2
+                where order_id = $1
+                  and id = any($3::int[])
+                  and document_category = 'GENERAL'
+            `,
+            [order.id, PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPPING_LABEL, extraction.sourceDocumentIds.map((id) => Number(id)).filter(Number.isFinite)]
+        );
+    }
+
+    if (!methodChanged && !carrierChanged && !trackingChanged) {
+        return {
+            applied: false,
+            reason: "already-filled",
+            extraction
+        };
+    }
+
+    await client.query(
+        `
+            update portal_orders
+            set
+                shipment_method = $2,
+                shipped_carrier_name = $3,
+                shipped_tracking_reference = $4,
+                updated_at = now()
+            where id = $1
+        `,
+        [order.id, nextMethod, nextCarrier, nextTracking]
+    );
+
+    await insertActivity(
+        client,
+        "order",
+        `Auto-filled parcel shipment details for ${order.orderCode}`,
+        [
+            order.accountName,
+            `Method ${shipmentMethodLabel(nextMethod)}`,
+            nextCarrier ? `Carrier ${nextCarrier}` : "",
+            nextTracking ? `Tracking ${nextTracking}` : "",
+            extraction.sourceFileNames.length ? `From ${extraction.sourceFileNames.join(", ")}` : "",
+            actor || ""
+        ].filter(Boolean).join(" | ")
+    );
+
+    return {
+        applied: true,
+        shipmentMethod: nextMethod,
+        shippedCarrierName: nextCarrier,
+        shippedTrackingReference: nextTracking,
+        extraction
+    };
 }
 
 async function savePortalOrderDocuments(client, accessRow, orderId, rawPayload) {
@@ -16092,13 +16396,15 @@ async function savePortalCatalogItem(client, accessRow, rawItem, originalSku = "
 }
 
 async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy = "") {
+    const insertedDocuments = [];
     for (const document of documents) {
-        await client.query(
+        const insertResult = await client.query(
             `
                 insert into portal_order_documents (
                     order_id, file_name, file_type, file_size, file_data, document_category, uploaded_by
                 )
                 values ($1, $2, $3, $4, $5, $6, $7)
+                returning id, order_id, file_name, file_type, file_size, file_data, document_category, uploaded_by, created_at
             `,
             [
                 orderId,
@@ -16106,11 +16412,13 @@ async function insertPortalOrderDocuments(client, orderId, documents, uploadedBy
                 document.fileType,
                 document.fileSize,
                 document.fileBuffer,
-                normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category),
+                inferPortalOrderDocumentCategory(document),
                 normalizeFreeText(uploadedBy)
             ]
         );
+        insertedDocuments.push(insertResult.rows[0]);
     }
+    return insertedDocuments;
 }
 
 async function insertPortalInboundDocuments(client, inboundId, documents, uploadedBy = "") {
@@ -19875,9 +20183,39 @@ function buildPortalShipmentEmailLineSummaries(order) {
     });
 }
 
+function splitShipmentTrackingReferences(value) {
+    return String(value || "")
+        .split(/[\n,;|]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+}
+
+function shipmentConfirmationHasCustomerProvidedShippingLabel(confirmation = {}) {
+    const documents = Array.isArray(confirmation.documents) ? confirmation.documents : [];
+    return documents.some((document) => looksLikeShippingLabelDocument(document));
+}
+
+function customerProvidedShippingLabelNotice() {
+    return "This shipment is using the shipping label provided with the order. For carrier service questions, delivery changes, or claims, please contact the carrier or the account that created the label directly, as they have the shipment account details needed to help.";
+}
+
+function buildShipmentTrackingHtml(value) {
+    const trackingNumbers = splitShipmentTrackingReferences(value);
+    if (trackingNumbers.length > 1) {
+        return `
+            <ul style="margin:0;padding-left:18px;">
+                ${trackingNumbers.map((trackingNumber) => `<li>${escapeHtml(trackingNumber)}</li>`).join("")}
+            </ul>
+        `;
+    }
+    return escapeHtml(value || "-");
+}
+
 function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } = {}) {
     const shipmentLineSummaries = buildPortalShipmentEmailLineSummaries(order);
     const shortLineSummaries = shipmentLineSummaries.filter((summary) => summary.isShort);
+    const trackingNumbers = splitShipmentTrackingReferences(confirmation.shippedTrackingReference);
+    const hasCustomerProvidedShippingLabel = shipmentConfirmationHasCustomerProvidedShippingLabel(confirmation);
     const lines = [
         `${isUpdate ? "Shipment confirmation updated" : "Shipment confirmation"} for ${order.orderCode}`,
         `Company: ${order.accountName}`,
@@ -19886,13 +20224,24 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
         order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
         order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
         confirmation.confirmedShipDate ? `Confirmed Ship Date: ${confirmation.confirmedShipDate}` : "",
+        confirmation.shipmentMethod ? `Shipment Type: ${shipmentMethodLabel(confirmation.shipmentMethod)}` : "",
         confirmation.shippedCarrierName ? `Carrier: ${confirmation.shippedCarrierName}` : "",
-        confirmation.shippedTrackingReference ? `Tracking / PRO / BOL: ${confirmation.shippedTrackingReference}` : "",
+        trackingNumbers.length === 1 ? `Tracking / PRO / BOL: ${trackingNumbers[0]}` : "",
         order.contactName ? `Warehouse Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         confirmation.shippedConfirmationNote ? `Shipping Note: ${confirmation.shippedConfirmationNote}` : "",
         ""
     ];
+
+    if (trackingNumbers.length > 1) {
+        lines.push("Tracking Numbers:");
+        trackingNumbers.forEach((trackingNumber) => lines.push(`- ${trackingNumber}`));
+        lines.push("");
+    }
+
+    if (hasCustomerProvidedShippingLabel) {
+        lines.push("Customer-provided label note:", customerProvidedShippingLabelNotice(), "");
+    }
 
     if (shortLineSummaries.length) {
         lines.push("", "SHORT SHIPMENT NOTICE:");
@@ -19922,11 +20271,20 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
 function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } = {}) {
     const shipmentLineSummaries = buildPortalShipmentEmailLineSummaries(order);
     const shortLineSummaries = shipmentLineSummaries.filter((summary) => summary.isShort);
+    const hasCustomerProvidedShippingLabel = shipmentConfirmationHasCustomerProvidedShippingLabel(confirmation);
     const shortageBanner = shortLineSummaries.length
         ? `
             <div style="margin:18px 0 14px;padding:12px 14px;border:1px solid #ef4444;background:#fef2f2;color:#991b1b;">
                 <strong>Short shipment notice</strong>
                 <div>${escapeHtml(formatCount(shortLineSummaries.length, "line"))} shipped below the ordered quantity. Short lines are highlighted in red below.</div>
+            </div>
+        `
+        : "";
+    const customerProvidedLabelNotice = hasCustomerProvidedShippingLabel
+        ? `
+            <div style="margin:18px 0 14px;padding:12px 14px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;">
+                <strong>Customer-provided shipping label</strong>
+                <div>${escapeHtml(customerProvidedShippingLabelNotice())}</div>
             </div>
         `
         : "";
@@ -19962,12 +20320,14 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
                 <tr><td style="padding:6px 0;font-weight:600;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Confirmed Ship Date</td><td style="padding:6px 0;">${escapeHtml(confirmation.confirmedShipDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Shipment Type</td><td style="padding:6px 0;">${escapeHtml(confirmation.shipmentMethod ? shipmentMethodLabel(confirmation.shipmentMethod) : "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Carrier</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedCarrierName || "-")}</td></tr>
-                <tr><td style="padding:6px 0;font-weight:600;">Tracking / PRO / BOL</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedTrackingReference || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Tracking / PRO / BOL</td><td style="padding:6px 0;">${buildShipmentTrackingHtml(confirmation.shippedTrackingReference)}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Ship To</td><td style="padding:6px 0;">${escapeHtml(formatPortalOrderShipToAddress(order) || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:600;">Warehouse Contact</td><td style="padding:6px 0;">${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</td></tr>
                 ${confirmation.shippedConfirmationNote ? `<tr><td style="padding:6px 0;font-weight:600;">Shipping Note</td><td style="padding:6px 0;">${escapeHtml(confirmation.shippedConfirmationNote)}</td></tr>` : ""}
             </table>
+            ${customerProvidedLabelNotice}
             ${shortageBanner}
             <p style="margin:20px 0 8px;font-weight:600;">Order Lines</p>
             <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
@@ -20348,7 +20708,7 @@ async function getPortalOrderReleaseDocumentAttachments(orderId, client = pool) 
     if (!normalizedOrderId) return [];
     const result = await client.query(
         `
-            select id, file_name, file_type, file_size, file_data
+            select id, file_name, file_type, file_size, file_data, document_category, uploaded_by
             from portal_order_documents
             where order_id = $1
             order by created_at asc, id asc
@@ -20361,7 +20721,9 @@ async function getPortalOrderReleaseDocumentAttachments(orderId, client = pool) 
             filename: normalizeUploadFileName(row.file_name || `order-document-${row.id}`),
             content: row.file_data,
             contentType: row.file_type || "application/octet-stream",
-            fileSize: Number(row.file_size) || Number(row.file_data?.length) || 0
+            fileSize: Number(row.file_size) || Number(row.file_data?.length) || 0,
+            documentCategory: normalizePortalOrderDocumentCategory(row.document_category || ""),
+            uploadedBy: row.uploaded_by || ""
         }))
         .filter((attachment) => attachment.filename && attachment.content);
 }
@@ -20373,7 +20735,9 @@ async function getPortalOrderShipmentDocumentAttachments(orderId, client = pool)
             fileName: attachment.filename,
             fileBuffer: attachment.content,
             fileType: attachment.contentType,
-            fileSize: attachment.fileSize
+            fileSize: attachment.fileSize,
+            documentCategory: attachment.documentCategory,
+            uploadedBy: attachment.uploadedBy
         }))
         .filter((attachment) => attachment.fileName && attachment.fileBuffer);
 }
@@ -21142,6 +21506,7 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
 function getPortalShipmentEmailConfirmationFromOrder(order) {
     return {
         confirmedShipDate: order?.confirmedShipDate || "",
+        shipmentMethod: order?.shipmentMethod || "",
         shippedCarrierName: order?.shippedCarrierName || "",
         shippedTrackingReference: order?.shippedTrackingReference || "",
         shippedConfirmationNote: order?.shippedConfirmationNote || "",
@@ -21728,6 +22093,7 @@ function shipmentDocumentCategoryLabel(category) {
     if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP) return "checked packing slip";
     if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO) return "loaded freight/truck photo";
     if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.RELEASE_COPY) return "release copy";
+    if (normalized === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPPING_LABEL) return "shipping label";
     return "general document";
 }
 
@@ -29221,7 +29587,10 @@ function sanitizePortalOrderDocumentInput(document) {
         fileType,
         fileSize: buffer.length,
         fileBuffer: buffer,
-        documentCategory: normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category || document.category || document.type)
+        documentCategory: inferPortalOrderDocumentCategory({
+            ...document,
+            fileName
+        })
     };
 }
 
@@ -31902,6 +32271,9 @@ module.exports = {
     buildSscc18,
     calculateGs1Modulo10CheckDigit,
     buildPortalShipmentEmailLineSummaries,
+    splitShipmentTrackingReferences,
+    extractPortalParcelTrackingFromText,
+    extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
     buildPortalShipmentEmailHtml,
     buildPortalReleaseEmailText,

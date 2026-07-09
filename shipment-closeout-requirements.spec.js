@@ -8,6 +8,9 @@ const {
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,
     buildPortalShipmentQuantityWarnings,
+    splitShipmentTrackingReferences,
+    extractPortalParcelTrackingFromText,
+    extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
     buildPortalShipmentEmailHtml
 } = require("./server");
@@ -149,6 +152,83 @@ test("shipment email highlights short shipped lines", () => {
     assert.match(html, /background:#fef2f2/);
     assert.match(html, /color:#991b1b/);
     assert.match(html, /Short 1 unit/);
+});
+
+test("shipping label extractor captures parcel shipment type and all Purolator PINs", () => {
+    const details = extractPortalParcelTrackingFromText(`
+        PUROLATOR EXPRESS
+        PUROLATOR PIN: 520641667354
+        PUROLATOR PIN: 520641667362
+        PUROLATOR PIN: 520641667370
+        PUROLATOR PIN: 520641667388
+    `);
+
+    assert.equal(details.shipmentMethod, "PARCEL");
+    assert.equal(details.shippedCarrierName, "Purolator");
+    assert.deepEqual(details.trackingNumbers, [
+        "520641667354",
+        "520641667362",
+        "520641667370",
+        "520641667388"
+    ]);
+    assert.equal(details.shippedTrackingReference, "520641667354, 520641667362, 520641667370, 520641667388");
+});
+
+test("shipping label document extraction treats readable label uploads as parcel shipments", () => {
+    const details = extractPortalShippingLabelDetailsFromDocuments([
+        {
+            fileName: "Shipping Labels.pdf",
+            fileType: "application/pdf",
+            fileBuffer: Buffer.from("UPS TRACKING 1ZV56D262012289736", "utf8")
+        }
+    ]);
+
+    assert.equal(details.shipmentMethod, "PARCEL");
+    assert.equal(details.shippedCarrierName, "UPS");
+    assert.equal(details.shippedTrackingReference, "1ZV56D262012289736");
+});
+
+test("shipment email lists multiple tracking numbers and customer label support note", () => {
+    const order = {
+        id: "101",
+        orderCode: "ORD-LABEL",
+        accountName: "TEST CUSTOMER",
+        status: "SHIPPED",
+        lines: [
+            { id: "11", sku: "SKU-A", quantity: 1, trackingLevel: "CASE", description: "Exact item", upc: "" }
+        ],
+        shipmentLines: [
+            { orderLineId: "11", sku: "SKU-A", orderedQuantity: 1, shippedQuantity: 1 }
+        ]
+    };
+    const confirmation = {
+        shipmentMethod: "PARCEL",
+        shippedCarrierName: "Purolator",
+        shippedTrackingReference: "520641667354, 520641667362",
+        documents: [
+            {
+                fileName: "Shipping Labels.pdf",
+                documentCategory: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPPING_LABEL,
+                uploadedBy: "customer@example.com"
+            }
+        ]
+    };
+
+    const text = buildPortalShipmentEmailText(order, confirmation);
+    const html = buildPortalShipmentEmailHtml(order, confirmation);
+
+    assert.deepEqual(splitShipmentTrackingReferences(confirmation.shippedTrackingReference), [
+        "520641667354",
+        "520641667362"
+    ]);
+    assert.match(text, /Shipment Type: Parcel/);
+    assert.match(text, /Tracking Numbers:/);
+    assert.match(text, /520641667354/);
+    assert.match(text, /customer-provided label note/i);
+    assert.match(text, /contact the carrier or the account that created the label directly/i);
+    assert.match(html, /Shipment Type/);
+    assert.match(html, /<li>520641667354<\/li>/);
+    assert.match(html, /Customer-provided shipping label/);
 });
 
 test("shipment closeout rejects shipped quantity above ordered quantity", () => {
