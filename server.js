@@ -4377,6 +4377,10 @@ app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
             return releaseWarehousePortalOrder(client, orderId, req.appUser);
         });
         res.json({ success: true, order });
+        queuePortalOrderSplitFulfillmentNotice(order, {
+            actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse",
+            reason: "Warehouse order release"
+        });
     } catch (error) {
         next(error);
     }
@@ -5557,6 +5561,10 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
         }
 
         res.json({ success: true, order, releaseActions });
+        queuePortalOrderSplitFulfillmentNotice(order, {
+            actorLabel: session.access.email || "Company portal",
+            reason: "Customer portal order release"
+        });
     } catch (error) {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
@@ -5606,6 +5614,12 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
         if (shipmentEmailQueued) {
             queuePortalShipmentConfirmationEmail(order);
             queueStoreShipmentConfirmation(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
+        }
+        if (nextStatus === "STAGED") {
+            queuePortalOrderSplitFulfillmentNotice(order, {
+                actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse",
+                reason: "Order staged"
+            });
         }
     } catch (error) {
         next(error);
@@ -11933,6 +11947,10 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
                         actorLabel: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
                         reason: "Auto-released from store integration"
                     });
+                    queuePortalOrderSplitFulfillmentNotice(finalOrder, {
+                        actorLabel: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        reason: "Auto-released from store integration"
+                    });
                 } catch (error) {
                     draftCount += 1;
                     detailMessages.push(`${orderLabel} imported as draft: ${error.message}`);
@@ -13275,6 +13293,10 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
                         actorLabel: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
                         reason: "Auto-released from SFTP integration"
                     });
+                    queuePortalOrderSplitFulfillmentNotice(importedOrder, {
+                        actorLabel: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        reason: "Auto-released from SFTP integration"
+                    });
                 } catch (error) {
                     draftCount += 1;
                     detailMessages.push(`${entry.label || entry.externalOrderId} imported as draft: ${error.message}`);
@@ -14602,16 +14624,30 @@ async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
 
     const result = await client.query(
         `
-            select *
-            from portal_order_allocations
-            where order_line_id = any($1::bigint[])
+            select
+                a.*,
+                fl.id as pick_fulfillment_location_id,
+                fl.code as pick_fulfillment_location_code,
+                fl.name as pick_fulfillment_location_name,
+                fl.partner_name as pick_fulfillment_partner_name,
+                fl.address1 as pick_fulfillment_address1,
+                fl.address2 as pick_fulfillment_address2,
+                fl.city as pick_fulfillment_city,
+                fl.state as pick_fulfillment_state,
+                fl.postal_code as pick_fulfillment_postal_code,
+                fl.country as pick_fulfillment_country
+            from portal_order_allocations a
+            left join fulfillment_locations fl
+              on fl.code = a.location
+             and fl.is_active = true
+            where a.order_line_id = any($1::bigint[])
             order by
-                order_line_id asc,
-                case when expiration_date <> '' then 0 else 1 end asc,
-                expiration_date asc,
-                location asc,
-                lot_number asc,
-                id asc
+                a.order_line_id asc,
+                case when a.expiration_date <> '' then 0 else 1 end asc,
+                a.expiration_date asc,
+                a.location asc,
+                a.lot_number asc,
+                a.id asc
         `,
         [lineIds]
     );
@@ -14633,7 +14669,17 @@ async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
             quantity,
             trackingLevel: normalizeTrackingLevel(row.tracking_level || "UNIT"),
             lotNumber: row.lot_number || "",
-            expirationDate: normalizeDateOnly(row.expiration_date)
+            expirationDate: normalizeDateOnly(row.expiration_date),
+            fulfillmentLocationId: row.pick_fulfillment_location_id ? String(row.pick_fulfillment_location_id) : "",
+            fulfillmentLocationCode: row.pick_fulfillment_location_code || "",
+            fulfillmentLocationName: row.pick_fulfillment_location_name || "",
+            fulfillmentPartnerName: row.pick_fulfillment_partner_name || "",
+            fulfillmentAddress1: row.pick_fulfillment_address1 || "",
+            fulfillmentAddress2: row.pick_fulfillment_address2 || "",
+            fulfillmentCity: row.pick_fulfillment_city || "",
+            fulfillmentState: row.pick_fulfillment_state || "",
+            fulfillmentPostalCode: row.pick_fulfillment_postal_code || "",
+            fulfillmentCountry: row.pick_fulfillment_country || ""
         });
     });
 
@@ -15014,7 +15060,24 @@ async function getMobilePickOrdersForAppUser(client, appUser, { accountName = ""
 async function getPortalOrderById(client, orderId, accountName, downloadPathPrefix = "/api/admin/portal-order-documents") {
     const normalizedAccount = normalizeText(accountName);
     const orderResult = await client.query(
-        "select * from portal_orders where id = $1 and account_name = $2 limit 1",
+        `
+            select
+                o.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name,
+                fl.address1 as fulfillment_address1,
+                fl.address2 as fulfillment_address2,
+                fl.city as fulfillment_city,
+                fl.state as fulfillment_state,
+                fl.postal_code as fulfillment_postal_code,
+                fl.country as fulfillment_country
+            from portal_orders o
+            left join fulfillment_locations fl on fl.id = o.fulfillment_location_id
+            where o.id = $1
+              and o.account_name = $2
+            limit 1
+        `,
         [orderId, normalizedAccount]
     );
     if (orderResult.rowCount !== 1) {
@@ -19540,6 +19603,193 @@ function formatPortalOrderShipToAddress(order) {
     ].filter(Boolean).join(" | ");
 }
 
+function getPublicFulfillmentLocationName(location = {}) {
+    const code = normalizeText(location.code || location.fulfillmentLocationCode || location.fulfillment_location_code);
+    const address = normalizeText(location.address1 || location.fulfillmentAddress1 || location.fulfillment_address1);
+    if (code === "WHS01" || address.includes("6300 EDWARDS")) {
+        return "Grey Wolf Edwards Warehouse";
+    }
+    if (code === "GW3PL-MISS" || address.includes("1330 COURTNEY")) {
+        return "Grey Wolf Main Warehouse";
+    }
+    return normalizeFreeText(
+        location.publicName
+        || location.public_name
+        || location.partnerName
+        || location.fulfillmentPartnerName
+        || location.partner_name
+        || location.name
+        || location.fulfillmentLocationName
+        || location.fulfillment_location_name
+        || location.code
+        || location.fulfillmentLocationCode
+        || "Assigned warehouse"
+    );
+}
+
+function formatFulfillmentLocationAddress(location = {}) {
+    return [
+        normalizeFreeText(location.address1 || location.fulfillmentAddress1 || location.fulfillment_address1 || ""),
+        normalizeFreeText(location.address2 || location.fulfillmentAddress2 || location.fulfillment_address2 || ""),
+        [
+            normalizeFreeText(location.city || location.fulfillmentCity || location.fulfillment_city || ""),
+            normalizeFreeText(location.state || location.fulfillmentState || location.fulfillment_state || ""),
+            normalizeFreeText(location.postalCode || location.fulfillmentPostalCode || location.fulfillment_postal_code || "")
+        ].filter(Boolean).join(", "),
+        normalizeFreeText(location.country || location.fulfillmentCountry || location.fulfillment_country || "")
+    ].filter(Boolean).join(" | ");
+}
+
+function buildOrderDefaultFulfillmentLocation(order = {}) {
+    return {
+        id: order.fulfillmentLocationId || order.fulfillment_location_id || "",
+        code: order.fulfillmentLocationCode || order.fulfillment_location_code || "",
+        name: order.fulfillmentLocationName || order.fulfillment_location_name || "",
+        partnerName: order.fulfillmentPartnerName || order.fulfillment_partner_name || "",
+        address1: order.fulfillmentAddress1 || order.fulfillment_address1 || "",
+        address2: order.fulfillmentAddress2 || order.fulfillment_address2 || "",
+        city: order.fulfillmentCity || order.fulfillment_city || "",
+        state: order.fulfillmentState || order.fulfillment_state || "",
+        postalCode: order.fulfillmentPostalCode || order.fulfillment_postal_code || "",
+        country: order.fulfillmentCountry || order.fulfillment_country || ""
+    };
+}
+
+function buildPickLocationFulfillmentLocation(order = {}, pickLocation = {}) {
+    const matchedLocation = {
+        id: pickLocation.fulfillmentLocationId || pickLocation.fulfillment_location_id || "",
+        code: pickLocation.fulfillmentLocationCode || pickLocation.fulfillment_location_code || "",
+        name: pickLocation.fulfillmentLocationName || pickLocation.fulfillment_location_name || "",
+        partnerName: pickLocation.fulfillmentPartnerName || pickLocation.fulfillment_partner_name || "",
+        address1: pickLocation.fulfillmentAddress1 || pickLocation.fulfillment_address1 || "",
+        address2: pickLocation.fulfillmentAddress2 || pickLocation.fulfillment_address2 || "",
+        city: pickLocation.fulfillmentCity || pickLocation.fulfillment_city || "",
+        state: pickLocation.fulfillmentState || pickLocation.fulfillment_state || "",
+        postalCode: pickLocation.fulfillmentPostalCode || pickLocation.fulfillment_postal_code || "",
+        country: pickLocation.fulfillmentCountry || pickLocation.fulfillment_country || ""
+    };
+    if (matchedLocation.id || matchedLocation.code || matchedLocation.name || matchedLocation.address1) {
+        return matchedLocation;
+    }
+
+    const fallback = buildOrderDefaultFulfillmentLocation(order);
+    if (fallback.id || fallback.code || fallback.name || fallback.address1) {
+        return fallback;
+    }
+
+    return {
+        id: "",
+        code: normalizeText(pickLocation.location || ""),
+        name: normalizeFreeText(pickLocation.location || "Assigned warehouse"),
+        partnerName: "",
+        address1: "",
+        address2: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: ""
+    };
+}
+
+function fulfillmentLocationGroupKey(location = {}) {
+    const id = normalizeText(location.id || location.fulfillmentLocationId || location.fulfillment_location_id);
+    if (id) return `ID:${id}`;
+    const code = normalizeText(location.code || location.fulfillmentLocationCode || location.fulfillment_location_code);
+    if (code) return `CODE:${code}`;
+    return `LOCATION:${normalizeText(getPublicFulfillmentLocationName(location))}:${normalizeText(formatFulfillmentLocationAddress(location))}`;
+}
+
+function mapFulfillmentLocationForGroup(location = {}) {
+    const publicName = getPublicFulfillmentLocationName(location);
+    const address = formatFulfillmentLocationAddress(location);
+    return {
+        id: location.id ? String(location.id) : "",
+        code: normalizeText(location.code || ""),
+        name: normalizeFreeText(location.name || ""),
+        partnerName: normalizeFreeText(location.partnerName || ""),
+        publicName,
+        address,
+        address1: normalizeFreeText(location.address1 || ""),
+        address2: normalizeFreeText(location.address2 || ""),
+        city: normalizeFreeText(location.city || ""),
+        state: normalizeFreeText(location.state || ""),
+        postalCode: normalizeFreeText(location.postalCode || ""),
+        country: normalizeFreeText(location.country || "")
+    };
+}
+
+function addPickLineToFulfillmentGroup(group, line, pickLocation = {}) {
+    const lineKey = String(line?.id || line?.lineId || line?.sku || group.lines.length);
+    let groupedLine = group.lineMap.get(lineKey);
+    if (!groupedLine) {
+        groupedLine = {
+            ...line,
+            quantity: 0,
+            pickLocations: []
+        };
+        group.lineMap.set(lineKey, groupedLine);
+        group.lines.push(groupedLine);
+    }
+
+    const quantity = Number(pickLocation.quantity || line.quantity) || 0;
+    groupedLine.quantity += quantity;
+    groupedLine.pickLocations.push({
+        ...pickLocation,
+        quantity,
+        trackingLevel: pickLocation.trackingLevel || line.trackingLevel || "UNIT"
+    });
+    group.totalQuantity += quantity;
+}
+
+function buildPortalOrderSplitFulfillmentGroups(order = {}) {
+    const groupsByKey = new Map();
+    const sourceLines = Array.isArray(order.lines) ? order.lines : [];
+
+    const ensureGroup = (location) => {
+        const mappedLocation = mapFulfillmentLocationForGroup(location);
+        const key = fulfillmentLocationGroupKey(mappedLocation);
+        if (!groupsByKey.has(key)) {
+            groupsByKey.set(key, {
+                key,
+                location: mappedLocation,
+                lines: [],
+                lineMap: new Map(),
+                totalQuantity: 0
+            });
+        }
+        return groupsByKey.get(key);
+    };
+
+    sourceLines.forEach((line) => {
+        const pickLocations = Array.isArray(line.pickLocations) ? line.pickLocations.filter((entry) => Number(entry?.quantity || 0) > 0) : [];
+        if (!pickLocations.length) {
+            const location = buildOrderDefaultFulfillmentLocation(order);
+            addPickLineToFulfillmentGroup(ensureGroup(location), line, {
+                location: line.receivedLocation || location.code || "",
+                quantity: Number(line.quantity) || 0,
+                trackingLevel: line.trackingLevel || "UNIT"
+            });
+            return;
+        }
+
+        pickLocations.forEach((pickLocation) => {
+            const location = buildPickLocationFulfillmentLocation(order, pickLocation);
+            addPickLineToFulfillmentGroup(ensureGroup(location), line, pickLocation);
+        });
+    });
+
+    return [...groupsByKey.values()].map((group) => {
+        group.lines.sort((left, right) => (Number(left.lineNumber) || 0) - (Number(right.lineNumber) || 0));
+        delete group.lineMap;
+        return group;
+    });
+}
+
+function getPortalOrderSplitFulfillmentGroups(order = {}) {
+    return buildPortalOrderSplitFulfillmentGroups(order)
+        .filter((group) => group.lines.length && Number(group.totalQuantity) > 0);
+}
+
 function buildPortalShipmentEmailLineSummaries(order) {
     const orderLines = Array.isArray(order?.lines) ? order.lines : [];
     const shipmentLines = Array.isArray(order?.shipmentLines) ? order.shipmentLines : [];
@@ -19681,6 +19931,14 @@ function buildWarehouseOrderNotificationUrl() {
 
 function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
     const orderUrl = buildWarehouseOrderNotificationUrl();
+    const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
+    const isSplitFulfillment = fulfillmentGroups.length > 1;
+    const ticketNoticeLines = isSplitFulfillment
+        ? [
+            `Split Fulfillment: ${fulfillmentGroups.length} pick tickets are attached because this order ships/picks up from multiple warehouse addresses.`,
+            ...fulfillmentGroups.map((group) => `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} | ${group.totalQuantity} total`)
+        ]
+        : ["Pick ticket PDF is attached to this notification."];
     const lines = [
         testMode ? "TEST EMAIL ONLY - no order status was changed." : "",
         testMode && testRequestedBy ? `Requested by: ${testRequestedBy}` : "",
@@ -19696,8 +19954,9 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
         `Line Count: ${formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line")}`,
         ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
         "",
-        "No order documents are attached to this notification.",
-        "Log in to WMS365 to review the order, view uploaded documents, and print the pick ticket or packing slip from the system.",
+        ...ticketNoticeLines,
+        "",
+        "Log in to WMS365 to review the order, view uploaded documents, and print/reprint the pick ticket or packing slip from the system.",
         `Open WMS365: ${orderUrl}`
     ];
 
@@ -19707,6 +19966,23 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
 function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
     const orderUrl = buildWarehouseOrderNotificationUrl();
     const lineCount = formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line");
+    const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
+    const isSplitFulfillment = fulfillmentGroups.length > 1;
+    const splitNoticeHtml = isSplitFulfillment
+        ? `
+            <div style="margin:0 0 18px;padding:14px 16px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
+                <p style="margin:0 0 8px;font-weight:700;">Split pickup / ship-from required</p>
+                <p style="margin:0 0 10px;">This order has inventory allocated from ${escapeHtml(formatCount(fulfillmentGroups.length, "warehouse address"))}. A separate pick ticket is attached for each location.</p>
+                <ul style="margin:0 0 0 18px;padding:0;">
+                    ${fulfillmentGroups.map((group) => `<li><strong>${escapeHtml(group.location.publicName)}</strong>: ${escapeHtml(group.location.address || group.location.code || "Address not listed")} (${escapeHtml(String(group.totalQuantity))} total)</li>`).join("")}
+                </ul>
+            </div>
+        `
+        : `
+            <div style="margin:0 0 18px;padding:14px 16px;border:1px solid #d1d5db;background:#f9fafb;">
+                <p style="margin:0;font-weight:700;">Pick ticket PDF is attached to this notification.</p>
+            </div>
+        `;
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:860px;">
             ${testMode ? `
@@ -19750,9 +20026,9 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                     </tr>
                 ` : ""}
             </table>
+            ${splitNoticeHtml}
             <div style="margin:18px 0 0;padding:16px 18px;border:1px solid #d1d5db;background:#f9fafb;">
-                <p style="margin:0 0 12px;font-weight:700;">No order documents are attached to this notification.</p>
-                <p style="margin:0 0 16px;">Log in to WMS365 to review the order, view uploaded documents, and print the pick ticket or packing slip from the system.</p>
+                <p style="margin:0 0 16px;">Log in to WMS365 to review the order, view uploaded documents, and print/reprint the pick ticket or packing slip from the system.</p>
                 <a href="${escapeHtml(orderUrl)}" style="display:inline-block;background:#0f6f8c;color:#ffffff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:6px;">Open WMS365</a>
             </div>
         </div>
@@ -19885,9 +20161,15 @@ function formatPickTicketWorkflowStatus(order) {
     return status || "READY TO PICK";
 }
 
-function buildPortalOrderPickTicketLines(order) {
+function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, groupIndex = 0, groupCount = 0 } = {}) {
+    const ticketLocation = fulfillmentGroup?.location || null;
+    const ticketLines = fulfillmentGroup?.lines || order.lines || [];
+    const ticketLabel = ticketLocation
+        ? `${ticketLocation.publicName || "Assigned warehouse"}${groupCount > 1 ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
+        : "";
+    const ticketAddress = ticketLocation ? formatFulfillmentLocationAddress(ticketLocation) : "";
     const lines = [
-        "WMS365 PICK TICKET",
+        fulfillmentGroup ? "WMS365 PICK TICKET - SPLIT LOCATION" : "WMS365 PICK TICKET",
         "",
         `Order: ${order.orderCode || ""}`,
         `Company: ${order.accountName || ""}`,
@@ -19911,9 +20193,18 @@ function buildPortalOrderPickTicketLines(order) {
         wrapPdfText(order.orderNotes, 88).forEach((line) => lines.push(`  ${line}`));
     }
 
+    if (ticketLocation) {
+        lines.push("", "Ship From / Pickup Location:");
+        lines.push(`  ${ticketLabel || ticketLocation.code || "Assigned warehouse"}`);
+        if (ticketAddress) {
+            wrapPdfText(ticketAddress, 88).forEach((line) => lines.push(`  ${line}`));
+        }
+    }
+
     lines.push("", "Order Lines:", "LN  SKU                 QTY            PICK LOCATION / LOT / EXPIRATION", "--- ------------------- -------------- -----------------------------------------------");
-    (order.lines || []).forEach((line, index) => {
-        const linePrefix = `${String(index + 1).padEnd(3)} ${pdfSafeText(line.sku).slice(0, 19).padEnd(19)} ${pdfSafeText(formatTrackedQuantity(line.quantity, line.trackingLevel)).slice(0, 14).padEnd(14)} `;
+    ticketLines.forEach((line, index) => {
+        const lineNumber = Number(line.lineNumber) || (index + 1);
+        const linePrefix = `${String(lineNumber).padEnd(3)} ${pdfSafeText(line.sku).slice(0, 19).padEnd(19)} ${pdfSafeText(formatTrackedQuantity(line.quantity, line.trackingLevel)).slice(0, 14).padEnd(14)} `;
         const locationLines = wrapPdfText(formatPickTicketLocationText(line), 47);
         lines.push(`${linePrefix}${locationLines[0] || ""}`);
         locationLines.slice(1).forEach((locationLine) => lines.push(`${"".padEnd(41)}${locationLine}`));
@@ -19936,13 +20227,29 @@ function buildPortalOrderPickTicketLines(order) {
     return lines;
 }
 
-function buildPortalOrderPickTicketPdfAttachment(order) {
-    const lines = buildPortalOrderPickTicketLines(order);
+function buildPortalOrderPickTicketPdfAttachment(order, options = {}) {
+    const lines = buildPortalOrderPickTicketLines(order, options);
+    const group = options.fulfillmentGroup || null;
+    const locationSegment = group
+        ? `-${sanitizeFilenameSegment(group.location?.publicName || group.location?.code || `location-${(options.groupIndex || 0) + 1}`, "warehouse")}`
+        : "";
     return {
-        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket.pdf`),
+        filename: normalizeUploadFileName(`wms365-${order.orderCode || "order"}-pick-ticket${locationSegment}.pdf`),
         content: buildSimpleTextPdfBuffer(lines),
         contentType: "application/pdf"
     };
+}
+
+function buildPortalOrderPickTicketPdfAttachments(order) {
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    if (groups.length <= 1) {
+        return [buildPortalOrderPickTicketPdfAttachment(order)];
+    }
+    return groups.map((group, index) => buildPortalOrderPickTicketPdfAttachment(order, {
+        fulfillmentGroup: group,
+        groupIndex: index,
+        groupCount: groups.length
+    }));
 }
 
 function buildPortalOrderBatchPickTicketPdfAttachment(orders = []) {
@@ -19951,8 +20258,20 @@ function buildPortalOrderBatchPickTicketPdfAttachment(orders = []) {
     (Array.isArray(orders) ? orders : []).forEach((order) => {
         if (!order) return;
         orderCodes.push(order.orderCode || String(order.id || "order"));
-        const { pages } = paginateSimpleTextPdfLines(buildPortalOrderPickTicketLines(order));
-        pdfPages.push(...pages);
+        const groups = getPortalOrderSplitFulfillmentGroups(order);
+        if (groups.length <= 1) {
+            const { pages } = paginateSimpleTextPdfLines(buildPortalOrderPickTicketLines(order));
+            pdfPages.push(...pages);
+            return;
+        }
+        groups.forEach((group, index) => {
+            const { pages } = paginateSimpleTextPdfLines(buildPortalOrderPickTicketLines(order, {
+                fulfillmentGroup: group,
+                groupIndex: index,
+                groupCount: groups.length
+            }));
+            pdfPages.push(...pages);
+        });
     });
     if (!pdfPages.length) {
         throw httpError(400, "Choose at least one order to print pick tickets.");
@@ -20010,6 +20329,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     }
 
     const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
+    const attachments = testMode ? [] : buildPortalOrderPickTicketPdfAttachments(order);
     await sendSystemEmail({
         from: SMTP_FROM,
         to: recipients.join(", "),
@@ -20018,6 +20338,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
         subject: `${subjectPrefix || ""}Order Released - ${order.orderCode} - ${order.accountName}`,
         text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
         html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
+        attachments,
         emailContext: {
             accountName: order.accountName,
             sourceType: testMode ? "PORTAL_ORDER_TEST" : "PORTAL_ORDER",
@@ -20028,8 +20349,162 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     return {
         recipients,
         ccRecipients: normalizedCcRecipients,
-        attachments: []
+        attachments
     };
+}
+
+async function hasPortalOrderSplitFulfillmentNoticeSent(client, order) {
+    const sourceRef = normalizeFreeText(order?.orderCode || order?.order_code || order?.id || "");
+    const accountName = normalizeText(order?.accountName || order?.account_name || "");
+    if (!sourceRef || !accountName) return false;
+    const result = await client.query(
+        `
+            select 1
+            from email_delivery_log
+            where account_name = $1
+              and source_type = 'SPLIT_FULFILLMENT_NOTICE'
+              and source_ref = $2
+              and status = 'SENT'
+            limit 1
+        `,
+        [accountName, sourceRef]
+    );
+    return result.rowCount > 0;
+}
+
+function buildPortalOrderSplitFulfillmentNoticeText(order, groups, { reason = "" } = {}) {
+    return [
+        `Order ${order.orderCode} will be fulfilled from multiple warehouse addresses.`,
+        "",
+        `Company: ${order.accountName}`,
+        order.poNumber ? `PO Number: ${order.poNumber}` : "",
+        order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
+        order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        reason ? `Notice Trigger: ${reason}` : "",
+        "",
+        "Pickup / ship-from locations:",
+        ...groups.map((group) => `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} (${group.totalQuantity} total)`),
+        "",
+        "Please plan pickup or carrier routing for each listed address. WMS365 will keep the order under the same order number, but the warehouse team will process separate pick tickets by location.",
+        "",
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
+    ].filter(Boolean).join("\n");
+}
+
+function buildPortalOrderSplitFulfillmentNoticeHtml(order, groups, { reason = "" } = {}) {
+    const locationRows = groups.map((group) => `
+        <tr>
+            <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;font-weight:700;">${escapeHtml(group.location.publicName)}</td>
+            <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(group.location.address || group.location.code || "Address not listed")}</td>
+            <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(String(group.totalQuantity))}</td>
+        </tr>
+    `).join("");
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:760px;">
+            <h2 style="margin:0 0 12px;">Multiple pickup / ship-from locations</h2>
+            <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> will be fulfilled from more than one warehouse address.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;margin-bottom:18px;">
+                <tr><td style="padding:6px 0;font-weight:700;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
+                ${reason ? `<tr><td style="padding:6px 0;font-weight:700;">Notice Trigger</td><td style="padding:6px 0;">${escapeHtml(reason)}</td></tr>` : ""}
+            </table>
+            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
+                Please plan pickup or carrier routing for each listed address. WMS365 will keep this under the same order number, but the warehouse team will use separate pick tickets by location.
+            </div>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Location</th>
+                        <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Address</th>
+                        <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Total Qty</th>
+                    </tr>
+                </thead>
+                <tbody>${locationRows}</tbody>
+            </table>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
+        </div>
+    `;
+}
+
+async function sendPortalOrderSplitFulfillmentNoticeIfNeeded(client, orderId, accountName, { actorLabel = "System", reason = "" } = {}) {
+    const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+    if (!order) return { sent: false, reason: "missing-order" };
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    if (groups.length <= 1) {
+        return { sent: false, reason: "single-location", groups };
+    }
+    if (await hasPortalOrderSplitFulfillmentNoticeSent(client, order)) {
+        return { sent: false, reason: "already-sent", groups };
+    }
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Split-location customer email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    }
+    const recipients = await getPortalShipmentRecipients(client, order.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No active portal user or company email is available for the split-location notice.");
+    }
+
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `Multiple Pickup / Ship-From Locations - ${order.orderCode}`,
+        text: buildPortalOrderSplitFulfillmentNoticeText(order, groups, { reason }),
+        html: buildPortalOrderSplitFulfillmentNoticeHtml(order, groups, { reason }),
+        emailContext: {
+            accountName: order.accountName,
+            sourceType: "SPLIT_FULFILLMENT_NOTICE",
+            sourceRef: order.orderCode || order.id,
+            splitLocationCount: groups.length,
+            actorLabel
+        }
+    }, "Split-location customer email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+
+    return { sent: true, order, recipients, groups };
+}
+
+function queuePortalOrderSplitFulfillmentNotice(order, { actorLabel = "System", reason = "" } = {}) {
+    const orderId = toPositiveInt(order?.id);
+    const accountName = normalizeText(order?.accountName || order?.account_name || "");
+    if (!orderId || !accountName) return;
+    const orderLabel = order.orderCode || order.order_code || String(orderId);
+    setTimeout(async () => {
+        try {
+            const result = await sendPortalOrderSplitFulfillmentNoticeIfNeeded(pool, orderId, accountName, { actorLabel, reason });
+            if (!result.sent) return;
+            await withTransaction((client) => insertActivity(
+                client,
+                "order",
+                `Split-location customer notice sent for ${orderLabel}`,
+                [
+                    accountName,
+                    `Sent to ${formatCount(result.recipients.length, "recipient")}`,
+                    `${formatCount(result.groups.length, "warehouse address")}`,
+                    actorLabel || ""
+                ].filter(Boolean).join(" | ")
+            ));
+        } catch (error) {
+            console.error(`Split-location customer notice failed for ${orderLabel}:`, error);
+            try {
+                await withTransaction((client) => insertActivity(
+                    client,
+                    "order",
+                    `Split-location customer notice failed for ${orderLabel}`,
+                    [
+                        accountName,
+                        reason || "",
+                        actorLabel || "",
+                        error.message || "Unknown email error"
+                    ].filter(Boolean).join(" | ")
+                ));
+            } catch (logError) {
+                console.error(`Unable to record split-location customer notice failure for ${orderLabel}:`, logError);
+            }
+        }
+    }, 0);
 }
 
 function formatKittingRequestSummary(request) {
@@ -21834,62 +22309,104 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
     if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
         throw httpError(400, `Orders in ${order.status} cannot be printed for warehouse processing.`);
     }
+    const actor = appUser?.full_name || appUser?.email || "Warehouse";
+
+    const createPrintJob = async ({ fulfillmentLocationId, attachment, printerId = 0, titleSuffix = "" }) => {
+        if (!fulfillmentLocationId) throw httpError(400, "No warehouse is assigned to this print job.");
+        await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocationId);
+        const printer = await resolveWarehousePrinterForJob(client, {
+            fulfillmentLocationId,
+            printerId,
+            documentType
+        });
+        const documentTitle = [
+            `${portalOrderPrintDocumentLabel(documentType)} ${order.orderCode}`,
+            titleSuffix
+        ].filter(Boolean).join(" - ");
+        const result = await client.query(
+            `
+                insert into warehouse_print_jobs (
+                    fulfillment_location_id, station_id, printer_id, document_type, document_title,
+                    source_type, source_id, source_ref, account_name, payload_type, content_type,
+                    file_name, payload_base64, status, requested_by
+                )
+                values ($1, $2, $3, $4, $5, 'PORTAL_ORDER', $6, $7, $8, 'PDF', $9, $10, $11, 'QUEUED', $12)
+                returning *
+            `,
+            [
+                fulfillmentLocationId,
+                printer.station_id,
+                printer.id,
+                documentType,
+                documentTitle,
+                String(order.id),
+                order.orderCode,
+                order.accountName,
+                attachment.contentType,
+                attachment.filename,
+                attachment.content.toString("base64"),
+                actor
+            ]
+        );
+        await insertWarehousePrintJobEvent(client, result.rows[0].id, "QUEUED", actor, `${attachment.filename} queued for ${printer.printer_name}`);
+        await insertActivity(
+            client,
+            "printer",
+            `Queued ${portalOrderPrintDocumentLabel(documentType)} for ${order.orderCode}`,
+            [order.accountName, titleSuffix, printer.printer_name, actor].filter(Boolean).join(" | ")
+        );
+        return {
+            job: mapWarehousePrintJobRow({
+                ...result.rows[0],
+                printer_name: printer.printer_name,
+                printer_code: printer.printer_code,
+                station_name: printer.station_name,
+                station_code: printer.station_code
+            }),
+            printer: mapWarehousePrinterRow(printer)
+        };
+    };
+
+    const splitGroups = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET
+        ? getPortalOrderSplitFulfillmentGroups(order)
+        : [];
+
+    if (documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET && splitGroups.length > 1) {
+        const created = [];
+        for (const [index, group] of splitGroups.entries()) {
+            const fulfillmentLocationId = toPositiveInt(group.location?.id) || await resolvePortalOrderPrintFulfillmentLocationId(client, order);
+            const attachment = buildPortalOrderPickTicketPdfAttachment(order, {
+                fulfillmentGroup: group,
+                groupIndex: index,
+                groupCount: splitGroups.length
+            });
+            created.push(await createPrintJob({
+                fulfillmentLocationId,
+                attachment,
+                printerId: 0,
+                titleSuffix: group.location?.publicName || group.location?.code || `Location ${index + 1}`
+            }));
+        }
+        return {
+            job: created[0]?.job || null,
+            printer: created[0]?.printer || null,
+            jobs: created.map((entry) => entry.job),
+            printers: created.map((entry) => entry.printer),
+            splitLocationCount: created.length
+        };
+    }
+
     const fulfillmentLocationId = await resolvePortalOrderPrintFulfillmentLocationId(client, order);
-    if (!fulfillmentLocationId) throw httpError(400, "No warehouse is assigned to this order.");
-    await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocationId);
-    const printer = await resolveWarehousePrinterForJob(client, {
-        fulfillmentLocationId,
-        printerId: input.printerId || input.printer_id,
-        documentType
-    });
     const attachment = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.UCC128_LABELS
         ? buildPortalOrderUcc128LabelPdfAttachment(order, input)
         : (documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
             ? buildPortalOrderPackingSlipPdfAttachment(order)
             : buildPortalOrderPickTicketPdfAttachment(order));
-    const actor = appUser?.full_name || appUser?.email || "Warehouse";
-    const result = await client.query(
-        `
-            insert into warehouse_print_jobs (
-                fulfillment_location_id, station_id, printer_id, document_type, document_title,
-                source_type, source_id, source_ref, account_name, payload_type, content_type,
-                file_name, payload_base64, status, requested_by
-            )
-            values ($1, $2, $3, $4, $5, 'PORTAL_ORDER', $6, $7, $8, 'PDF', $9, $10, $11, 'QUEUED', $12)
-            returning *
-        `,
-        [
-            fulfillmentLocationId,
-            printer.station_id,
-            printer.id,
-            documentType,
-            `${portalOrderPrintDocumentLabel(documentType)} ${order.orderCode}`,
-            String(order.id),
-            order.orderCode,
-            order.accountName,
-            attachment.contentType,
-            attachment.filename,
-            attachment.content.toString("base64"),
-            actor
-        ]
-    );
-    await insertWarehousePrintJobEvent(client, result.rows[0].id, "QUEUED", actor, `${attachment.filename} queued for ${printer.printer_name}`);
-    await insertActivity(
-        client,
-        "printer",
-        `Queued ${portalOrderPrintDocumentLabel(documentType)} for ${order.orderCode}`,
-        [order.accountName, printer.printer_name, actor].filter(Boolean).join(" | ")
-    );
-    return {
-        job: mapWarehousePrintJobRow({
-            ...result.rows[0],
-            printer_name: printer.printer_name,
-            printer_code: printer.printer_code,
-            station_name: printer.station_name,
-            station_code: printer.station_code
-        }),
-        printer: mapWarehousePrinterRow(printer)
-    };
+    return await createPrintJob({
+        fulfillmentLocationId,
+        attachment,
+        printerId: input.printerId || input.printer_id
+    });
 }
 
 async function claimNextWarehousePrintJob(client, station, input = {}) {
@@ -28134,6 +28651,12 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         fulfillmentLocationCode: row.fulfillment_location_code || "",
         fulfillmentLocationName: row.fulfillment_location_name || "",
         fulfillmentPartnerName: row.fulfillment_partner_name || "",
+        fulfillmentAddress1: row.fulfillment_address1 || "",
+        fulfillmentAddress2: row.fulfillment_address2 || "",
+        fulfillmentCity: row.fulfillment_city || "",
+        fulfillmentState: row.fulfillment_state || "",
+        fulfillmentPostalCode: row.fulfillment_postal_code || "",
+        fulfillmentCountry: row.fulfillment_country || "",
         shipToName: row.ship_to_name || "",
         shipToAddress1: row.ship_to_address1 || "",
         shipToAddress2: row.ship_to_address2 || "",
@@ -28310,7 +28833,17 @@ function mapPortalOrderLineRow(row, locationSummary = null, allocationSummary = 
             quantity: Number(entry.quantity) || 0,
             trackingLevel: normalizeTrackingLevel(entry.trackingLevel || row.item_tracking_level || "UNIT"),
             lotNumber: entry.lotNumber || "",
-            expirationDate: normalizeDateOnly(entry.expirationDate)
+            expirationDate: normalizeDateOnly(entry.expirationDate),
+            fulfillmentLocationId: entry.fulfillmentLocationId || "",
+            fulfillmentLocationCode: entry.fulfillmentLocationCode || "",
+            fulfillmentLocationName: entry.fulfillmentLocationName || "",
+            fulfillmentPartnerName: entry.fulfillmentPartnerName || "",
+            fulfillmentAddress1: entry.fulfillmentAddress1 || "",
+            fulfillmentAddress2: entry.fulfillmentAddress2 || "",
+            fulfillmentCity: entry.fulfillmentCity || "",
+            fulfillmentState: entry.fulfillmentState || "",
+            fulfillmentPostalCode: entry.fulfillmentPostalCode || "",
+            fulfillmentCountry: entry.fulfillmentCountry || ""
         })).filter((entry) => entry.location)
         : [];
 
@@ -31267,8 +31800,13 @@ module.exports = {
     hashWarehousePrintStationToken,
     mapWarehousePrintJobRow,
     buildPortalOrderPackingSlipPdfAttachment,
+    buildPortalOrderPickTicketPdfAttachment,
+    buildPortalOrderPickTicketPdfAttachments,
     buildPortalOrderBatchPickTicketPdfAttachment,
     buildPortalOrderUcc128LabelPdfAttachment,
+    getPortalOrderSplitFulfillmentGroups,
+    buildPortalOrderSplitFulfillmentNoticeText,
+    buildPortalOrderSplitFulfillmentNoticeHtml,
     buildSscc18,
     calculateGs1Modulo10CheckDigit,
     buildPortalShipmentEmailLineSummaries,
