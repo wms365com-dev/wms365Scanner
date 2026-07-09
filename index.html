@@ -22889,6 +22889,8 @@
                     order.orderNotes,
                     order.requestedShipDate,
                     order.confirmedShipDate,
+                    dashboardDateKey(order.shippedAt),
+                    order.shippedAt,
                     order.shippedCarrierName,
                     order.shippedTrackingReference,
                     order.shippedConfirmationNote,
@@ -22962,6 +22964,7 @@
                         <td>${esc(order.accountName || "")}</td>
                         <td>${esc(order.poNumber || "None")}</td>
                         <td>${esc(order.requestedShipDate || "Not set")}</td>
+                        <td>${esc(dashboardDateKey(order.shippedAt) || "-")}</td>
                         <td>${num(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</td>
                         <td>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</td>
                         <td>${statusHtml}</td>
@@ -22991,6 +22994,7 @@
                                 <th>Customer</th>
                                 <th>External Document No.</th>
                                 <th>Requested Ship Date</th>
+                                <th>Shipped Date</th>
                                 <th>Lines</th>
                                 <th>Ordered Qty</th>
                                 <th>Status</th>
