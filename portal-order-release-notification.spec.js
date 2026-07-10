@@ -47,7 +47,7 @@ test("warehouse release email is notification-only without pick lines or documen
     });
 
     assert.match(text, /WMS365 ORDER RELEASED: ORD-TEST/);
-    assert.match(text, /No order documents are attached to this notification\./);
+    assert.match(text, /Pick ticket PDF is attached to this notification\./);
     assert.match(text, /Open WMS365: .*\/desktop\?section=orders/);
     assert.doesNotMatch(text, /SKU-SHOULD-NOT-BE-IN-EMAIL/);
     assert.doesNotMatch(text, /customer-label\.pdf/);
