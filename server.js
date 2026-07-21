@@ -190,6 +190,8 @@ const SMTP_USER = readEnv("SMTP_USER", "");
 const SMTP_PASS = normalizeSmtpPassword(SMTP_HOST, readEnv("SMTP_PASS", ""));
 const WMS365_SYSTEM_EMAIL_ADDRESS = "support@wms365.co";
 const WMS365_SYSTEM_EMAIL_FROM = "WMS365 <support@wms365.co>";
+const WMS365_BILLING_CONTACT_EMAIL = normalizeEmail(readEnv("WMS365_BILLING_CONTACT_EMAIL", "")) || WMS365_SYSTEM_EMAIL_ADDRESS;
+const WMS365_SALES_CONTACT_EMAIL = normalizeEmail(readEnv("WMS365_SALES_CONTACT_EMAIL", "")) || WMS365_SYSTEM_EMAIL_ADDRESS;
 const SMTP_FROM = WMS365_SYSTEM_EMAIL_FROM;
 const SMTP_REPLY_TO = WMS365_SYSTEM_EMAIL_ADDRESS;
 const FORBIDDEN_OUTBOUND_EMAIL_SENDERS = new Set([
@@ -216,6 +218,10 @@ const STORE_INTEGRATION_SCHEDULE_TIME_ZONE = readEnv("STORE_INTEGRATION_SCHEDULE
 const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
 const DEFAULT_RECEIVING_STAGE_LOCATION = "RECEIVING-STAGE";
+const WAREHOUSE_RECEIVING_STAGE_SUFFIX = "REC";
+const WAREHOUSE_INVESTIGATION_HOLD_SUFFIX = "INV";
+const MAX_LOCATION_CODE_LENGTH = 32;
+const LOCATION_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]*$/;
 const NON_PICKABLE_LOCATION_TYPES = new Set(["RECEIVING_STAGE", "DOCK", "QA_HOLD", "STAGING"]);
 const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
     GENERAL: "GENERAL",
@@ -256,6 +262,20 @@ const PORTAL_ORDER_SHIPMENT_METHODS = Object.freeze({
     FTL_FREIGHT: "FTL_FREIGHT",
     CUSTOMER_PICKUP: "CUSTOMER_PICKUP"
 });
+const PORTAL_ORDER_TYPES = Object.freeze({
+    B2C_ONLINE: "B2C_ONLINE",
+    RETAIL_WHOLESALE: "RETAIL_WHOLESALE",
+    FREIGHT_RETAIL: "FREIGHT_RETAIL"
+});
+const PORTAL_RUSH_APPROVAL_MINIMUM_FEE = 25;
+const PORTAL_RUSH_APPROVAL_WINDOW_DAYS = 3;
+const PORTAL_BUSINESS_TIME_ZONE = "America/New_York";
+const PORTAL_BUSINESS_START_HOUR = 8;
+const PORTAL_BUSINESS_END_HOUR = 16;
+const PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR = 9;
+const PORTAL_B2B_MINIMUM_BUSINESS_DAYS = 2;
+const PORTAL_RUSH_FEE_CONTACT_EMAIL = "info@greywolf3pl.com";
+const PORTAL_STANDARD_PROCESSING_NOTE = "Standard processing selected in customer portal; requested ship/pickup date is before the earliest ready date.";
 const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"];
 const INVENTORY_TRANSACTION_MAX_RETRIES = 3;
 const INVENTORY_RETRYABLE_ERROR_CODES = new Set(["40001", "40P01", "55P03"]);
@@ -2283,6 +2303,19 @@ app.post("/api/mobile/receiving-confirmations", requireMobileWorkerAction(), asy
     }
 });
 
+app.post("/api/mobile/investigation-hold", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const result = await withTransaction(
+            (client) => moveInventoryToInvestigationHold(client, req.body || {}, req.appUser, req),
+            { context: { action: "mobile_investigation_hold", accountName: req.body?.accountName || req.body?.account_name, skuOrUpc: req.body?.skuOrUpc || req.body?.sku_or_upc || req.body?.sku } }
+        );
+        res.status(result.duplicate ? 200 : 201).json({ success: true, ...result });
+    } catch (error) {
+        await auditMobileExecutionException(error, req, "INVESTIGATION_HOLD", req.body || {});
+        next(error);
+    }
+});
+
 app.get("/api/export", requireSuperAdmin(), async (req, res, next) => {
     try {
         res.json({
@@ -4023,12 +4056,28 @@ app.get("/api/pallets/:palletCode", async (req, res, next) => {
         }
 
         const pallet = await getPalletRecordByCode(pool, palletCode);
-        if (!pallet) {
+        if (pallet) {
+            await assertAppUserCompanyAccess(pool, req.appUser, pallet.accountName);
+            res.json({ pallet });
+            return;
+        }
+
+        const inboundPallet = await getPortalInboundPalletLabelByCode(pool, palletCode);
+        if (!inboundPallet) {
             throw httpError(404, `Pallet ${palletCode} could not be found.`);
         }
-        await assertAppUserCompanyAccess(pool, req.appUser, pallet.accountName);
+        await assertAppUserCompanyAccess(pool, req.appUser, inboundPallet.accountName);
 
-        res.json({ pallet });
+        res.json({
+            pallet: {
+                ...inboundPallet,
+                sourceType: "PORTAL_INBOUND",
+                date: inboundPallet.labelDate,
+                location: inboundPallet.fulfillmentLocationName || inboundPallet.fulfillmentLocationCode || "INBOUND",
+                inventoryTrackingLevel: "CASE",
+                inventoryQuantity: inboundPallet.expectedQuantity
+            }
+        });
     } catch (error) {
         next(error);
     }
@@ -4378,7 +4427,11 @@ app.post("/api/admin/portal-orders/:id/release", async (req, res, next) => {
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
             return releaseWarehousePortalOrder(client, orderId, req.appUser);
         });
-        res.json({ success: true, order });
+        const customerConfirmation = await sendPortalOrderConfirmationForReleaseAction(order, {
+            actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse",
+            reason: "Warehouse order release"
+        });
+        res.json({ success: true, order, customerConfirmation });
         queuePortalOrderSplitFulfillmentNotice(order, {
             actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse",
             reason: "Warehouse order release"
@@ -5041,23 +5094,27 @@ app.post("/api/portal/login", async (req, res, next) => {
                 throw httpError(401, "That company portal login is not active.");
             }
             assertCompanyFeatureEnabledForOwnerRow(vendorAccess, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
-            await assertCompanyPaywallAccess(client, vendorAccess.account_name);
             if (!verifyPortalPassword(password, vendorAccess.password_hash)) {
                 throw httpError(401, "The company portal password was not accepted.");
             }
 
             const token = await createPortalSession(client, vendorAccess.id);
             await client.query("update portal_vendor_access set last_login_at = now(), updated_at = now() where id = $1", [vendorAccess.id]);
+            const paywallStatus = await getCompanyPaywallStatus(client, vendorAccess.account_name);
             return {
                 token,
-                access: await getPortalAccessById(client, vendorAccess.id)
+                access: await getPortalAccessById(client, vendorAccess.id),
+                paywallStatus
             };
         });
 
         setPortalSessionCookie(res, access.token, req);
         res.json({
             success: true,
-            account: mapPortalAccessRow(access.access)
+            account: mapPortalAccessRow(access.access),
+            billingHold: isCompanyPaywallStatusAllowed(access.paywallStatus)
+                ? { active: false }
+                : buildCompanyBillingHoldPayload(access.paywallStatus)
         });
     } catch (error) {
         next(error);
@@ -5099,9 +5156,13 @@ app.get("/api/portal/me", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.CUSTOMER_PORTAL);
+        const paywallStatus = await getCompanyPaywallStatus(pool, session.access.accountName);
         res.json({
             authenticated: true,
-            account: session.access
+            account: session.access,
+            billingHold: isCompanyPaywallStatusAllowed(paywallStatus)
+                ? { active: false }
+                : buildCompanyBillingHoldPayload(paywallStatus)
         });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -5348,6 +5409,24 @@ app.post("/api/portal/inbounds/:id/documents", async (req, res, next) => {
     }
 });
 
+app.post("/api/portal/inbounds/:id/pallet-labels", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        const inboundId = toPositiveInt(req.params.id);
+        if (!inboundId) {
+            throw httpError(400, "A valid purchase order id is required.");
+        }
+        const inbound = await withTransaction(async (client) => savePortalInboundPalletLabels(client, session.accessRow, inboundId, req.body || {}));
+        res.json({ success: true, inbound });
+    } catch (error) {
+        if (error.statusCode === 401) {
+            clearPortalSessionCookie(res, req);
+        }
+        next(error);
+    }
+});
+
 app.get("/api/portal/kitting-requests", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -5545,7 +5624,7 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
             if (releaseOptions.shippingLabelAttached) {
                 await assertPortalOrderHasCustomerDocuments(client, orderId, session.access.accountName);
             }
-            return releasePortalOrder(client, session.accessRow, orderId);
+            return releasePortalOrder(client, session.accessRow, orderId, releaseOptions);
         });
         const releaseActions = {
             warehouseEmailRequested: releaseOptions.notifyWarehouse,
@@ -5555,7 +5634,12 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
             warehouseEmailDelayMinutes: PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES,
             warehouseRecipients: [],
             ccRecipients: [...releaseOptions.ccEmails],
-            warehouseEmailError: ""
+            warehouseEmailError: "",
+            customerConfirmationRequested: true,
+            customerConfirmationSent: false,
+            customerConfirmationAlreadySent: false,
+            customerConfirmationRecipients: [],
+            customerConfirmationError: ""
         };
 
         if (releaseOptions.notifyWarehouse) {
@@ -5589,6 +5673,11 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
                 }
             }
         }
+
+        Object.assign(releaseActions, await sendPortalOrderConfirmationForReleaseAction(order, {
+            actorLabel: session.access.email || "Company portal",
+            reason: "Customer portal order release"
+        }));
 
         res.json({ success: true, order, releaseActions });
         queuePortalOrderSplitFulfillmentNotice(order, {
@@ -5639,7 +5728,10 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
             order,
             shipmentEmailQueued,
             storeShipmentConfirmationQueued,
-            shipmentQuantityWarnings: order.shipmentQuantityWarnings || []
+            shipmentQuantityWarnings: order.shipmentQuantityWarnings || [],
+            shortageInvestigationMoves: order.shortageInvestigationMoves || [],
+            shortageInvestigationSkipped: order.shortageInvestigationSkipped || [],
+            shortageInvestigationHoldLocation: order.shortageInvestigationHoldLocation || ""
         });
         if (shipmentEmailQueued) {
             queuePortalShipmentConfirmationEmail(order);
@@ -6340,9 +6432,12 @@ app.use((error, _req, res, _next) => {
     if (statusCode >= 500) {
         console.error(error);
     }
-    res.status(statusCode).json({
+    const payload = {
         error: error.message || "An unexpected server error occurred."
-    });
+    };
+    if (error.code) payload.code = error.code;
+    if (error.billingHold) payload.billingHold = error.billingHold;
+    res.status(statusCode).json(payload);
 });
 
 function renderDeliveryAppointmentActionPage(appointment, token = "", errorMessage = "") {
@@ -7265,6 +7360,13 @@ async function initializeDatabase() {
             contact_name text not null default '',
             contact_phone text not null default '',
             requested_ship_date date,
+            order_type text not null default 'RETAIL_WHOLESALE',
+            rush_approved boolean not null default false,
+            rush_fee_minimum numeric(10,2) not null default 0,
+            rush_approved_at timestamptz,
+            rush_approved_by text not null default '',
+            rush_exempt boolean not null default false,
+            rush_exempt_note text not null default '',
             order_notes text not null default '',
             ship_to_name text not null default '',
             ship_to_address1 text not null default '',
@@ -7305,6 +7407,16 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists staged_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists shipped_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists requested_ship_date date");
+    await pool.query("alter table portal_orders add column if not exists order_type text not null default 'RETAIL_WHOLESALE'");
+    await pool.query("update portal_orders set order_type = 'RETAIL_WHOLESALE' where order_type is null or order_type = ''");
+    await pool.query("alter table portal_orders drop constraint if exists portal_orders_order_type_check");
+    await pool.query("alter table portal_orders add constraint portal_orders_order_type_check check (order_type in ('B2C_ONLINE', 'RETAIL_WHOLESALE', 'FREIGHT_RETAIL'))");
+    await pool.query("alter table portal_orders add column if not exists rush_approved boolean not null default false");
+    await pool.query("alter table portal_orders add column if not exists rush_fee_minimum numeric(10,2) not null default 0");
+    await pool.query("alter table portal_orders add column if not exists rush_approved_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists rush_approved_by text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists rush_exempt boolean not null default false");
+    await pool.query("alter table portal_orders add column if not exists rush_exempt_note text not null default ''");
     await pool.query("alter table portal_orders add column if not exists order_notes text not null default ''");
     await pool.query("alter table portal_orders add column if not exists confirmed_ship_date date");
     await pool.query("alter table portal_orders add column if not exists shipment_method text not null default 'LTL_FREIGHT'");
@@ -7592,7 +7704,7 @@ async function initializeDatabase() {
     await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_sync_status_check");
     await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_sync_status_check check (sync_status in ('PENDING', 'SYNCED', 'FAILED'))");
     await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_type_check");
-    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING', 'PICK_ARRIVAL', 'PICK_EXCEPTION'))");
+    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING', 'PICK_ARRIVAL', 'PICK_EXCEPTION', 'INVESTIGATION_HOLD'))");
     await pool.query("create unique index if not exists idx_mobile_execution_confirmations_idempotency on mobile_execution_confirmations (idempotency_key)");
     await pool.query("create index if not exists idx_mobile_execution_confirmations_source on mobile_execution_confirmations (source_type, source_id, confirmation_type)");
     await pool.query("create index if not exists idx_mobile_execution_confirmations_worker_time on mobile_execution_confirmations (worker_id, timestamp desc)");
@@ -7778,6 +7890,24 @@ async function initializeDatabase() {
             file_data bytea not null,
             uploaded_by text not null default '',
             created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query(`
+        create table if not exists portal_inbound_pallet_labels (
+            id bigserial primary key,
+            inbound_id bigint not null references portal_inbounds(id) on delete cascade,
+            line_id bigint references portal_inbound_lines(id) on delete set null,
+            pallet_code text not null unique,
+            account_name text not null,
+            sku text not null,
+            upc text not null default '',
+            description text not null default '',
+            cases_on_pallet integer not null check (cases_on_pallet > 0),
+            expected_quantity integer not null default 0 check (expected_quantity >= 0),
+            label_date date not null default current_date,
+            created_by text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
         );
     `);
     await pool.query(`
@@ -7992,6 +8122,36 @@ async function initializeDatabase() {
             unique (integration_id, entity_type, entity_ref, content_hash)
         );
     `);
+    await pool.query(
+        `
+            update portal_orders o
+            set
+                order_type = 'B2C_ONLINE',
+                shipment_method = 'PARCEL',
+                rush_approved = false,
+                rush_fee_minimum = 0,
+                rush_approved_at = null,
+                rush_approved_by = '',
+                rush_exempt = false,
+                rush_exempt_note = '',
+                updated_at = now()
+            from store_order_imports imports
+            join store_integrations integrations on integrations.id = imports.integration_id
+            where imports.portal_order_id = o.id
+              and upper(coalesce(integrations.provider, '')) = $1
+              and (
+                    coalesce(o.order_type, '') <> 'B2C_ONLINE'
+                 or coalesce(o.shipment_method, '') <> 'PARCEL'
+                 or o.rush_approved = true
+                 or coalesce(o.rush_fee_minimum, 0) <> 0
+                 or o.rush_approved_at is not null
+                 or coalesce(o.rush_approved_by, '') <> ''
+                 or coalesce(o.rush_exempt, false) = true
+                 or coalesce(o.rush_exempt_note, '') <> ''
+              )
+        `,
+        [SHOPIFY_SYNC_PROVIDER]
+    );
     await pool.query("update portal_orders set order_code = null where order_code = ''");
     await pool.query("update portal_orders set order_code = concat('ORD-', lpad(id::text, 6, '0')) where order_code is null");
     await pool.query("delete from portal_sessions where expires_at <= now()");
@@ -8081,6 +8241,9 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_inbounds_fulfillment_location on portal_inbounds (fulfillment_location_id);");
     await pool.query("create index if not exists idx_portal_inbound_lines_inbound_id on portal_inbound_lines (inbound_id);");
     await pool.query("create index if not exists idx_portal_inbound_documents_inbound_id on portal_inbound_documents (inbound_id);");
+    await pool.query("create index if not exists idx_portal_inbound_pallet_labels_inbound_id on portal_inbound_pallet_labels (inbound_id);");
+    await pool.query("create index if not exists idx_portal_inbound_pallet_labels_account_sku on portal_inbound_pallet_labels (account_name, sku);");
+    await pool.query("create unique index if not exists idx_portal_inbound_pallet_labels_code_unique on portal_inbound_pallet_labels (pallet_code);");
     await pool.query("create unique index if not exists idx_portal_delivery_appointments_code_unique on portal_delivery_appointments (appointment_code);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_account_name on portal_delivery_appointments (account_name);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_inbound_id on portal_delivery_appointments (inbound_id);");
@@ -8204,6 +8367,10 @@ async function initializeDatabase() {
         on conflict (code) do nothing
     `);
     await ensureReceivingStageLocation(pool, DEFAULT_RECEIVING_STAGE_LOCATION);
+    const receivingStageLocationResult = await pool.query("select code from fulfillment_locations where btrim(code) <> '' and is_active = true order by code asc");
+    for (const row of receivingStageLocationResult.rows) {
+        await ensureReceivingStageLocation(pool, getWarehouseReceivingStageLocationCode(row));
+    }
 
     await pool.query(`
         insert into item_catalog (account_name, sku, upc, tracking_level)
@@ -10508,13 +10675,21 @@ function portalAccountScopeMiddleware() {
     return async (req, res, next) => {
         try {
             const pathName = req.path || req.url || "";
+            const pathOnly = String(pathName || "").split("?")[0];
             const rule = getPortalRouteRule(req.method, pathName);
             if (!rule) return next();
             const session = await requirePortalSession(req);
+            req.portalSession = session;
+            if (pathOnly !== "/me" && pathOnly !== "/logout") {
+                const paywallStatus = await getCompanyPaywallStatus(pool, session.access.accountName);
+                req.portalBillingHold = paywallStatus;
+                if (!isCompanyPaywallStatusAllowed(paywallStatus)) {
+                    throw createCompanyBillingHoldError(paywallStatus);
+                }
+            }
             assertCompanyFeatureEnabledForOwnerRow(session.accessRow, rule.featureKey);
             if (rule.permission) assertPortalPermission(session, rule.permission);
             await assertPortalRequestAccountScope(req, session);
-            req.portalSession = session;
             return next();
         } catch (error) {
             if (error.statusCode === 401) clearPortalSessionCookie(res, req);
@@ -11986,6 +12161,10 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
                         actorLabel: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
                         reason: "Auto-released from store integration"
                     });
+                    queuePortalOrderConfirmationEmail(finalOrder, {
+                        actorLabel: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        reason: "Auto-released from store integration"
+                    });
                     queuePortalOrderSplitFulfillmentNotice(finalOrder, {
                         actorLabel: `${describeStoreIntegrationProvider(normalizedProvider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
                         reason: "Auto-released from store integration"
@@ -12843,6 +13022,8 @@ function mapShopifyOrderToPortalDraft(accountName, order, integrationRow) {
         contactName: shipToName,
         contactPhone,
         requestedShipDate: normalizeDateInput(order?.processed_at || order?.created_at || new Date().toISOString()),
+        orderType: PORTAL_ORDER_TYPES.B2C_ONLINE,
+        shipmentMethod: PORTAL_ORDER_SHIPMENT_METHODS.PARCEL,
         orderNotes: normalizeFreeText([
             `Imported from Shopify`,
             integrationRow?.store_identifier || "",
@@ -13373,6 +13554,10 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
                         actorLabel: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
                         reason: "Auto-released from SFTP integration"
                     });
+                    queuePortalOrderConfirmationEmail(importedOrder, {
+                        actorLabel: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
+                        reason: "Auto-released from SFTP integration"
+                    });
                     queuePortalOrderSplitFulfillmentNotice(importedOrder, {
                         actorLabel: `${describeStoreIntegrationProvider(integrationRow.provider)} ${integrationRow.integration_name || integrationRow.store_identifier}`,
                         reason: "Auto-released from SFTP integration"
@@ -13671,7 +13856,20 @@ function buildSftpReceiptConfirmationPayload(inbound, externalInboundId = "") {
 }
 
 async function getPortalInboundById(client, inboundId, downloadPathPrefix = "/api/admin/portal-inbound-documents") {
-    const result = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
+    const result = await client.query(
+        `
+            select
+                i.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from portal_inbounds i
+            left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+            where i.id = $1
+            limit 1
+        `,
+        [inboundId]
+    );
     if (result.rowCount !== 1) {
         return null;
     }
@@ -13705,11 +13903,32 @@ async function getPortalInboundById(client, inboundId, downloadPathPrefix = "/ap
         `,
         [inboundId]
     );
+    const palletLabelsResult = await client.query(
+        `
+            select
+                pl.*,
+                l.line_number,
+                i.inbound_code,
+                i.reference_number,
+                i.fulfillment_location_id,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from portal_inbound_pallet_labels pl
+            join portal_inbounds i on i.id = pl.inbound_id
+            left join portal_inbound_lines l on l.id = pl.line_id
+            left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+            where pl.inbound_id = $1
+            order by pl.created_at asc, pl.id asc
+        `,
+        [inboundId]
+    );
     return mapPortalInboundRow(
         inboundRow,
         linesResult.rows.map(mapPortalInboundLineRow),
         documentsResult.rows,
-        downloadPathPrefix
+        downloadPathPrefix,
+        palletLabelsResult.rows
     );
 }
 
@@ -14192,8 +14411,6 @@ async function requirePortalSession(req, client = pool) {
     if (!normalizeText(row.account_name) || !normalizeEmail(row.email || "")) {
         throw httpError(401, "Portal session is not linked to a valid customer account.");
     }
-    await assertCompanyPaywallAccess(client, row.account_name);
-
     await client.query("update portal_sessions set last_seen_at = now() where id = $1", [row.session_id]);
     return {
         sessionId: String(row.session_id),
@@ -14552,9 +14769,14 @@ function buildPortalInventoryExportFilename(accountName) {
 async function getAdminPortalInbounds(client = pool) {
     const inboundResult = await client.query(
         `
-            select *
-            from portal_inbounds
-            order by created_at desc, id desc
+            select
+                i.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from portal_inbounds i
+            left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+            order by i.created_at desc, i.id desc
             limit 200
         `
     );
@@ -14592,7 +14814,29 @@ async function getAdminPortalInbounds(client = pool) {
             [inboundIds]
         )
         : { rows: [] };
-    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-inbound-documents");
+    const palletLabelsResult = inboundIds.length
+        ? await client.query(
+            `
+                select
+                    pl.*,
+                    l.line_number,
+                    i.inbound_code,
+                    i.reference_number,
+                    i.fulfillment_location_id,
+                    fl.code as fulfillment_location_code,
+                    fl.name as fulfillment_location_name,
+                    fl.partner_name as fulfillment_partner_name
+                from portal_inbound_pallet_labels pl
+                join portal_inbounds i on i.id = pl.inbound_id
+                left join portal_inbound_lines l on l.id = pl.line_id
+                left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+                where pl.inbound_id = any($1::bigint[])
+                order by pl.inbound_id desc, pl.created_at asc, pl.id asc
+            `,
+            [inboundIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-inbound-documents", palletLabelsResult.rows);
 }
 
 
@@ -15308,7 +15552,6 @@ async function savePortalOrderDraftForAccount(
     if (!order.lines.length) {
         throw httpError(400, "Add at least one order line before saving.");
     }
-
     if (enforceInventoryAvailability) {
         for (const line of order.lines) {
             await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
@@ -15318,6 +15561,24 @@ async function savePortalOrderDraftForAccount(
         direction: "OUTBOUND",
         requiredLabel: "ship-from warehouse"
     });
+    const processingTiming = buildPortalOrderProcessingTiming(order, { location: fulfillmentLocation });
+    const needsProcessingChoice = processingTiming.requestedBeforeReady === true;
+    if (portalAccessId && needsProcessingChoice && !order.rushApproved && !order.rushExempt) {
+        const readyText = processingTiming.expectedReadyLabel ? ` ${processingTiming.expectedReadyLabel}.` : "";
+        throw httpError(
+            400,
+            `This ${portalRushApprovalReason(order)} is before the earliest ready date.${readyText} Standard processing requires a minimum of 48 hours / 2 business days, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays. Select RUSH processing or continue with Standard processing before submitting. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
+        );
+    }
+    const rushApproved = needsProcessingChoice && order.rushApproved === true;
+    const rushFeeMinimum = rushApproved ? PORTAL_RUSH_APPROVAL_MINIMUM_FEE : 0;
+    const rushApprovedBy = rushApproved
+        ? normalizeFreeText(order.rushApprovedBy || activityActor || uploadedBy || "Company portal")
+        : "";
+    const rushExempt = needsProcessingChoice && !rushApproved && order.rushExempt === true;
+    const rushExemptNote = rushExempt
+        ? normalizeFreeText(order.rushExemptNote || PORTAL_STANDARD_PROCESSING_NOTE)
+        : "";
 
     let savedOrderId = orderId;
     if (savedOrderId) {
@@ -15333,22 +15594,30 @@ async function savePortalOrderDraftForAccount(
             `
                 update portal_orders
                 set
-                    portal_access_id = $17,
+                    portal_access_id = $22,
                     po_number = $2,
                     shipping_reference = $3,
                     contact_name = $4,
                     contact_phone = $5,
                     requested_ship_date = $6,
-                    order_notes = $7,
-                    ship_to_name = $8,
-                    ship_to_address1 = $9,
-                    ship_to_address2 = $10,
-                    ship_to_city = $11,
-                    ship_to_state = $12,
-                    ship_to_postal_code = $13,
-                    ship_to_country = $14,
-                    ship_to_phone = $15,
-                    fulfillment_location_id = $16,
+                    order_type = $7,
+                    shipment_method = $8,
+                    rush_approved = $9,
+                    rush_fee_minimum = $10,
+                    rush_approved_at = case when $9::boolean then coalesce(rush_approved_at, now()) else null end,
+                    rush_approved_by = $11,
+                    order_notes = $12,
+                    ship_to_name = $13,
+                    ship_to_address1 = $14,
+                    ship_to_address2 = $15,
+                    ship_to_city = $16,
+                    ship_to_state = $17,
+                    ship_to_postal_code = $18,
+                    ship_to_country = $19,
+                    ship_to_phone = $20,
+                    fulfillment_location_id = $21,
+                    rush_exempt = $23,
+                    rush_exempt_note = $24,
                     updated_at = now()
                 where id = $1
             `,
@@ -15359,6 +15628,11 @@ async function savePortalOrderDraftForAccount(
                 order.contactName,
                 order.contactPhone,
                 order.requestedShipDate,
+                order.orderType,
+                order.shipmentMethod,
+                rushApproved,
+                rushFeeMinimum,
+                rushApprovedBy,
                 order.orderNotes,
                 order.shipToName,
                 order.shipToAddress1,
@@ -15369,7 +15643,9 @@ async function savePortalOrderDraftForAccount(
                 order.shipToCountry,
                 order.shipToPhone,
                 toPositiveInt(fulfillmentLocation.fulfillmentLocationId) || null,
-                portalAccessId
+                portalAccessId,
+                rushExempt,
+                rushExemptNote
             ]
         );
         await client.query("delete from portal_order_lines where order_id = $1", [savedOrderId]);
@@ -15378,12 +15654,13 @@ async function savePortalOrderDraftForAccount(
             `
                 insert into portal_orders (
                     account_name, portal_access_id, po_number, shipping_reference,
-                    contact_name, contact_phone, requested_ship_date, order_notes,
+                    contact_name, contact_phone, requested_ship_date, order_type, shipment_method,
+                    rush_approved, rush_fee_minimum, rush_approved_at, rush_approved_by, order_notes,
                     ship_to_name, ship_to_address1, ship_to_address2,
                     ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country, ship_to_phone,
-                    fulfillment_location_id
+                    fulfillment_location_id, rush_exempt, rush_exempt_note
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $10::boolean then now() else null end, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
                 returning id
             `,
             [
@@ -15394,6 +15671,11 @@ async function savePortalOrderDraftForAccount(
                 order.contactName,
                 order.contactPhone,
                 order.requestedShipDate,
+                order.orderType,
+                order.shipmentMethod,
+                rushApproved,
+                rushFeeMinimum,
+                rushApprovedBy,
                 order.orderNotes,
                 order.shipToName,
                 order.shipToAddress1,
@@ -15403,7 +15685,9 @@ async function savePortalOrderDraftForAccount(
                 order.shipToPostalCode,
                 order.shipToCountry,
                 order.shipToPhone,
-                toPositiveInt(fulfillmentLocation.fulfillmentLocationId) || null
+                toPositiveInt(fulfillmentLocation.fulfillmentLocationId) || null,
+                rushExempt,
+                rushExemptNote
             ]
         );
         savedOrderId = insertResult.rows[0].id;
@@ -15960,7 +16244,11 @@ function sortInventoryRowsForAllocation(rows = [], { expirationTracked = false }
     });
 }
 
-async function buildAvailableInventoryRowsForManualPick(client, { accountName, sku }) {
+async function buildAvailableInventoryRowsForManualPick(client, { accountName, sku, fulfillmentLocation = null }) {
+    const locationPrefix = await getWarehouseLocationFilterPrefix(client, accountName, fulfillmentLocation, { direction: "OUTBOUND" });
+    const params = [normalizeText(accountName), normalizeText(sku), [...NON_PICKABLE_LOCATION_TYPES]];
+    const warehouseLocationSql = locationPrefix ? `and i.location like $${params.length + 1}` : "";
+    if (locationPrefix) params.push(`${locationPrefix}%`);
     const result = await client.query(
         `
             select
@@ -15976,10 +16264,11 @@ async function buildAvailableInventoryRowsForManualPick(client, { accountName, s
               and i.sku = $2
               and coalesce(bl.is_pickable, true) = true
               and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+              ${warehouseLocationSql}
             order by i.location asc, i.expiration_date asc, i.updated_at asc, i.id asc
             for update of i
         `,
-        [normalizeText(accountName), normalizeText(sku), [...NON_PICKABLE_LOCATION_TYPES]]
+        params
     );
 
     const rows = [];
@@ -16013,7 +16302,15 @@ async function createManualPickAllocationFromScan(client, { orderRow, line, loca
         throw mobileValidationError(400, "Expiration date is required for this manual pick.", "manual_pick_missing_expiry");
     }
 
-    const availableRows = await buildAvailableInventoryRowsForManualPick(client, { accountName, sku: normalizedSku });
+    const fulfillmentLocation = await resolveFulfillmentLocationForWarehouseRule(client, orderRow);
+    await assertWarehouseLocationIsolation(client, {
+        accountName,
+        fulfillmentLocation,
+        location: normalizedLocation,
+        direction: "OUTBOUND",
+        purpose: "Pick location"
+    });
+    const availableRows = await buildAvailableInventoryRowsForManualPick(client, { accountName, sku: normalizedSku, fulfillmentLocation });
     if (!availableRows.length) {
         throw mobileValidationError(409, "No available inventory exists for this SKU. Ask a lead to receive or adjust stock before picking.", "manual_pick_no_available_inventory");
     }
@@ -16105,6 +16402,11 @@ async function allocatePortalOrderInventory(client, order) {
     }
 
     const skus = [...new Set(order.lines.map((line) => normalizeText(line.sku)).filter(Boolean))];
+    const fulfillmentLocation = await resolveFulfillmentLocationForWarehouseRule(client, order);
+    const warehouseLocationPrefix = await getWarehouseLocationFilterPrefix(client, normalizedAccount, fulfillmentLocation, { direction: "OUTBOUND" });
+    const inventoryParams = [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]];
+    const warehouseLocationSql = warehouseLocationPrefix ? `and i.location like $${inventoryParams.length + 1}` : "";
+    if (warehouseLocationPrefix) inventoryParams.push(`${warehouseLocationPrefix}%`);
     const inventoryResult = skus.length
         ? await client.query(
             `
@@ -16121,10 +16423,11 @@ async function allocatePortalOrderInventory(client, order) {
                   and i.sku = any($2::text[])
                   and coalesce(bl.is_pickable, true) = true
                   and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+                  ${warehouseLocationSql}
                 order by i.sku asc, i.location asc, i.id asc
                 for update of i
             `,
-            [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]]
+            inventoryParams
         )
         : { rows: [] };
 
@@ -16281,7 +16584,11 @@ async function releasePortalOrderForAccount(
     {
         downloadPathPrefix = "/api/admin/portal-order-documents",
         activityTitlePrefix = "portal",
-        activityActor = ""
+        activityActor = "",
+        rushApproved = false,
+        rushApprovedBy = "",
+        rushExempt = false,
+        rushExemptNote = ""
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -16292,7 +16599,7 @@ async function releasePortalOrderForAccount(
     if (lockResult.rowCount !== 1) {
         throw httpError(404, "That order could not be found.");
     }
-    const order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    let order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
     if (!order) {
         throw httpError(404, "That order could not be found.");
     }
@@ -16305,6 +16612,52 @@ async function releasePortalOrderForAccount(
     }
     if (!order.lines.length) {
         throw httpError(400, "Add at least one line before releasing the order.");
+    }
+    const processingTiming = buildPortalOrderProcessingTiming(order);
+    const needsProcessingChoice = processingTiming.requestedBeforeReady === true;
+    if (needsProcessingChoice && (!order.rushApproved || rushApproved)) {
+        if (rushApproved) {
+            const approvalActor = normalizeFreeText(rushApprovedBy || activityActor || "Company portal");
+            await client.query(
+                `
+                    update portal_orders
+                    set
+                        rush_approved = true,
+                        rush_fee_minimum = $2,
+                        rush_approved_at = coalesce(rush_approved_at, now()),
+                        rush_approved_by = $3,
+                        rush_exempt = false,
+                        rush_exempt_note = '',
+                        updated_at = now()
+                    where id = $1
+                `,
+                [orderId, PORTAL_RUSH_APPROVAL_MINIMUM_FEE, approvalActor]
+            );
+            order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+        } else if (!order.rushExempt && !rushExempt) {
+            const readyText = processingTiming.expectedReadyLabel ? ` ${processingTiming.expectedReadyLabel}.` : "";
+            throw httpError(
+                400,
+                `This ${portalRushApprovalReason(order)} is before the earliest ready date.${readyText} Standard processing requires a minimum of 48 hours / 2 business days, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays. Select RUSH processing or continue with Standard processing before releasing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
+            );
+        } else if (!order.rushExempt) {
+            await client.query(
+                `
+                    update portal_orders
+                    set
+                        rush_approved = false,
+                        rush_fee_minimum = 0,
+                        rush_approved_at = null,
+                        rush_approved_by = '',
+                        rush_exempt = true,
+                        rush_exempt_note = $2,
+                        updated_at = now()
+                    where id = $1
+                `,
+                [orderId, normalizeFreeText(rushExemptNote || PORTAL_STANDARD_PROCESSING_NOTE)]
+            );
+            order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+        }
     }
 
     for (const line of order.lines) {
@@ -16347,12 +16700,16 @@ async function releasePortalOrderForAccount(
     return releasedOrder;
 }
 
-async function releasePortalOrder(client, accessRow, orderId) {
+async function releasePortalOrder(client, accessRow, orderId, releaseOptions = {}) {
     const access = mapPortalAccessRow(accessRow);
     return releasePortalOrderForAccount(client, access.accountName, orderId, {
         downloadPathPrefix: "/api/portal/order-documents",
         activityTitlePrefix: "portal",
-        activityActor: "Company portal"
+        activityActor: "Company portal",
+        rushApproved: releaseOptions.rushApproved === true,
+        rushApprovedBy: releaseOptions.rushApprovedBy || access.email || "Company portal",
+        rushExempt: releaseOptions.rushExempt === true,
+        rushExemptNote: releaseOptions.rushExemptNote || PORTAL_STANDARD_PROCESSING_NOTE
     });
 }
 
@@ -16377,7 +16734,9 @@ async function releaseWarehousePortalOrder(client, orderId, appUser = null) {
     return releasePortalOrderForAccount(client, orderResult.rows[0].account_name, orderId, {
         downloadPathPrefix: "/api/admin/portal-order-documents",
         activityTitlePrefix: "warehouse sales",
-        activityActor: actor
+        activityActor: actor,
+        rushApproved: true,
+        rushApprovedBy: actor
     });
 }
 
@@ -17421,8 +17780,8 @@ async function recoverPortalUsername(req) {
         throw noRegisteredUserRecoveryError("portal");
     }
     const paywallStatus = await getCompanyPaywallStatus(pool, access.account_name);
-    if (!paywallStatus.allowed) {
-        throw noRegisteredUserRecoveryError("portal");
+    if (!isCompanyPaywallStatusAllowed(paywallStatus)) {
+        throw createCompanyBillingHoldError(paywallStatus);
     }
     await sendRecoveryEmail({
         to: email,
@@ -17444,8 +17803,8 @@ async function recoverPortalPassword(req) {
             throw noRegisteredUserRecoveryError("portal");
         }
         const paywallStatus = await getCompanyPaywallStatus(client, existing.account_name);
-        if (!paywallStatus.allowed) {
-            throw noRegisteredUserRecoveryError("portal");
+        if (!isCompanyPaywallStatusAllowed(paywallStatus)) {
+            throw createCompanyBillingHoldError(paywallStatus);
         }
         await client.query(
             "update portal_vendor_access set password_hash = $2, updated_at = now() where id = $1",
@@ -17522,6 +17881,10 @@ function sanitizePortalOrderReleaseOptions(raw) {
     const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const notifyWarehouse = toBooleanFlag(input.notifyWarehouse, false);
     const shippingLabelAttached = toBooleanFlag(input.shippingLabelAttached ?? input.shipping_label_attached, false);
+    const rushApproved = toBooleanFlag(input.rushApproved ?? input.rush_approved ?? input.rushChargeApproved ?? input.rush_charge_approved, false);
+    const rushApprovedBy = normalizeFreeText(input.rushApprovedBy || input.rush_approved_by || input.approvedBy || "");
+    const rushExempt = toBooleanFlag(input.rushExempt ?? input.rush_exempt ?? input.standardProcessing ?? input.standard_processing, false);
+    const rushExemptNote = normalizeFreeText(input.rushExemptNote || input.rush_exempt_note || "");
     const ccEmails = normalizeEmailList(input.ccEmails, { throwOnInvalid: true });
 
     if (!notifyWarehouse && ccEmails.length) {
@@ -17531,7 +17894,11 @@ function sanitizePortalOrderReleaseOptions(raw) {
     return {
         notifyWarehouse,
         ccEmails,
-        shippingLabelAttached
+        shippingLabelAttached,
+        rushApproved,
+        rushApprovedBy,
+        rushExempt: rushApproved ? false : rushExempt,
+        rushExemptNote: rushApproved ? "" : rushExemptNote
     };
 }
 
@@ -18205,10 +18572,49 @@ async function getCompanyPaywallStatus(client, accountName) {
     };
 }
 
+function isCompanyPaywallStatusAllowed(status = {}) {
+    return status?.allowed === true;
+}
+
+function buildCompanyBillingHoldPayload(status = {}) {
+    const accountName = normalizeText(status.accountName || status.account_name || "");
+    const statusKey = normalizeText(status.status || "BLOCKED") || "BLOCKED";
+    const planKey = normalizeCompanyWmsPricingPlanKey(status.planKey || status.plan_key || "");
+    const reason = normalizeFreeText(status.reason || "");
+    const paymentIssueStatuses = new Set(["PAST_DUE", "UNPAID", "CANCELED", "BLOCKED"]);
+    const title = "Account access is temporarily on hold";
+    const message = paymentIssueStatuses.has(statusKey)
+        ? `Access for ${accountName || "this company"} is temporarily limited because the account needs billing review. Please contact WMS365 Billing or Sales to restore access.`
+        : `Access for ${accountName || "this company"} is temporarily limited until billing or sales setup is complete. Please contact WMS365 Billing or Sales.`;
+    return {
+        active: true,
+        code: "BILLING_HOLD",
+        accountName,
+        status: statusKey,
+        planKey,
+        title,
+        message,
+        reason,
+        billingEmail: WMS365_BILLING_CONTACT_EMAIL,
+        salesEmail: WMS365_SALES_CONTACT_EMAIL,
+        supportEmail: WMS365_SYSTEM_EMAIL_ADDRESS,
+        actionsDisabled: true,
+        passwordRecoveryDisabled: true
+    };
+}
+
+function createCompanyBillingHoldError(status = {}) {
+    const billingHold = buildCompanyBillingHoldPayload(status);
+    const error = httpError(402, billingHold.message);
+    error.code = "PORTAL_BILLING_HOLD";
+    error.billingHold = billingHold;
+    return error;
+}
+
 async function assertCompanyPaywallAccess(client, accountName) {
     const status = await getCompanyPaywallStatus(client, accountName);
-    if (!status.allowed) {
-        throw httpError(402, `${status.reason} Visit wms365.co/pricing or contact support@wms365.co.`);
+    if (!isCompanyPaywallStatusAllowed(status)) {
+        throw createCompanyBillingHoldError(status);
     }
     return status;
 }
@@ -19985,6 +20391,33 @@ function getPublicFulfillmentLocationName(location = {}) {
     );
 }
 
+function isGreyWolfEdwardsFulfillmentLocation(location = {}) {
+    const code = normalizeText(location.code || location.fulfillmentLocationCode || location.fulfillment_location_code);
+    const address = normalizeText(
+        location.address
+        || location.address1
+        || location.fulfillmentAddress1
+        || location.fulfillment_address1
+        || ""
+    );
+    const name = normalizeText(
+        location.name
+        || location.publicName
+        || location.fulfillmentLocationName
+        || location.fulfillment_location_name
+        || ""
+    );
+    return code === "WHS01" || address.includes("6300 EDWARDS") || name.includes("EDWARDS");
+}
+
+function getPortalOrderShipFromDisplayName(accountName, location = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    if (normalizedAccount === "ALCONA TRADING LTD" && isGreyWolfEdwardsFulfillmentLocation(location)) {
+        return "Alcona Trading Ltd. c/o Grey Wolf 3PL & Logistics Inc";
+    }
+    return getPublicFulfillmentLocationName(location);
+}
+
 function formatFulfillmentLocationAddress(location = {}) {
     return [
         normalizeFreeText(location.address1 || location.fulfillmentAddress1 || location.fulfillment_address1 || ""),
@@ -20167,8 +20600,8 @@ function hasFulfillmentLocationDocumentDetails(location = {}) {
     );
 }
 
-function getFulfillmentLocationDisplayName(location = {}) {
-    return normalizeFreeText(getPublicFulfillmentLocationName(location) || location.code || "Assigned warehouse");
+function getFulfillmentLocationDisplayName(location = {}, { accountName = "" } = {}) {
+    return normalizeFreeText(getPortalOrderShipFromDisplayName(accountName, location) || location.code || "Assigned warehouse");
 }
 
 function getFulfillmentLocationDisplayAddress(location = {}) {
@@ -20192,7 +20625,7 @@ function getPortalOrderDocumentFulfillmentGroups(order = {}) {
     }];
 }
 
-function appendPortalOrderShipFromSection(lines, groups = [], { includeLocationNumbers = true } = {}) {
+function appendPortalOrderShipFromSection(lines, groups = [], { includeLocationNumbers = true, accountName = "" } = {}) {
     const documentGroups = (Array.isArray(groups) ? groups : [])
         .filter((group) => hasFulfillmentLocationDocumentDetails(group?.location));
     if (!documentGroups.length) return;
@@ -20201,7 +20634,7 @@ function appendPortalOrderShipFromSection(lines, groups = [], { includeLocationN
     lines.push("", isSplit ? "Ship From / Pickup Locations:" : "Ship From / Pickup Location:");
     documentGroups.forEach((group, index) => {
         const location = group.location || {};
-        const name = normalizeFreeText(group.label || getFulfillmentLocationDisplayName(location));
+        const name = normalizeFreeText(group.label || getFulfillmentLocationDisplayName(location, { accountName }));
         const address = getFulfillmentLocationDisplayAddress(location);
         const label = isSplit && includeLocationNumbers ? `${index + 1}. ${name}` : name;
         lines.push(`  ${label}`);
@@ -20539,10 +20972,18 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
     const orderUrl = buildWarehouseOrderNotificationUrl();
     const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
     const isSplitFulfillment = fulfillmentGroups.length > 1;
+    const orderTiming = buildPortalOrderProcessingTiming(order);
+    const rushLine = order.rushApproved
+        ? `RUSH Approved: expedited processing was approved. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
+        : (orderTiming.rushRequired ? "RUSH Required: requested ship/pickup date is before the earliest ready date." : "");
     const ticketNoticeLines = isSplitFulfillment
         ? [
             `Split Fulfillment: ${fulfillmentGroups.length} pick tickets are attached because this order ships/picks up from multiple warehouse addresses.`,
-            ...fulfillmentGroups.map((group) => `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} | ${group.totalQuantity} total`)
+            ...fulfillmentGroups.map((group) => {
+                const timing = buildPortalOrderProcessingTiming(order, { location: group.location });
+                const readyText = [timing.expectedReadyLabel, timing.holidayWarning].filter(Boolean).join(" | ");
+                return `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} | ${group.totalQuantity} total | ${readyText}`;
+            })
         ]
         : ["Pick ticket PDF is attached to this notification."];
     const lines = [
@@ -20554,6 +20995,10 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
         order.poNumber ? `PO Number: ${order.poNumber}` : "",
         order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
         order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        orderTiming.expectedReadyLabel,
+        rushLine,
+        orderTiming.holidayWarning || "",
+        buildPortalOrderEditReadyDateWarning(),
         order.contactName ? `Customer Contact: ${order.contactName}${order.contactPhone ? ` | ${order.contactPhone}` : ""}` : "",
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         order.orderNotes ? `Order Notes: ${order.orderNotes}` : "",
@@ -20574,13 +21019,33 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
     const lineCount = formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line");
     const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
     const isSplitFulfillment = fulfillmentGroups.length > 1;
+    const orderTiming = buildPortalOrderProcessingTiming(order);
+    const rushNoticeHtml = order.rushApproved || orderTiming.rushRequired
+        ? `
+            <div style="margin:0 0 18px;padding:14px 16px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
+                <p style="margin:0 0 6px;font-weight:700;">${escapeHtml(order.rushApproved ? "RUSH approved" : "RUSH required")}</p>
+                <p style="margin:0;">${escapeHtml(order.rushApproved ? `Expedited processing was approved. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.` : "Requested ship/pickup date is before the earliest ready date.")}</p>
+            </div>
+        `
+        : "";
+    const holidayHtml = orderTiming.holidayClosures.length
+        ? `
+            <div style="margin:0 0 18px;padding:12px 14px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;">
+                <strong>Holiday warning:</strong> ${escapeHtml(orderTiming.holidayWarning)}
+            </div>
+        `
+        : "";
     const splitNoticeHtml = isSplitFulfillment
         ? `
             <div style="margin:0 0 18px;padding:14px 16px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
                 <p style="margin:0 0 8px;font-weight:700;">Split pickup / ship-from required</p>
                 <p style="margin:0 0 10px;">This order has inventory allocated from ${escapeHtml(formatCount(fulfillmentGroups.length, "warehouse location"))}. A separate pick ticket is attached for each location.</p>
                 <ul style="margin:0 0 0 18px;padding:0;">
-                    ${fulfillmentGroups.map((group) => `<li><strong>${escapeHtml(group.location.publicName)}</strong>: ${escapeHtml(group.location.address || group.location.code || "Address not listed")} (${escapeHtml(String(group.totalQuantity))} total)</li>`).join("")}
+                    ${fulfillmentGroups.map((group) => {
+                        const timing = buildPortalOrderProcessingTiming(order, { location: group.location });
+                        const warningHtml = timing.holidayWarning ? `<br><span style="color:#92400e;">${escapeHtml(timing.holidayWarning)}</span>` : "";
+                        return `<li><strong>${escapeHtml(group.location.publicName)}</strong>: ${escapeHtml(group.location.address || group.location.code || "Address not listed")} (${escapeHtml(String(group.totalQuantity))} total) - ${escapeHtml(timing.expectedReadyLabel)}${warningHtml}</li>`;
+                    }).join("")}
                 </ul>
             </div>
         `
@@ -20608,6 +21073,7 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                         <div><strong>PO:</strong> ${escapeHtml(order.poNumber || "-")}</div>
                         <div><strong>Ship Ref:</strong> ${escapeHtml(order.shippingReference || "-")}</div>
                         <div><strong>Requested Ship Date:</strong> ${escapeHtml(order.requestedShipDate || "-")}</div>
+                        <div><strong>Expected Ready:</strong> ${escapeHtml(orderTiming.expectedReadyLabel || "-")}</div>
                         <div><strong>Customer Contact:</strong> ${escapeHtml(order.contactName || "-")}${order.contactPhone ? ` | ${escapeHtml(order.contactPhone)}` : ""}</div>
                         <div><strong>Lines:</strong> ${escapeHtml(lineCount)}</div>
                     </td>
@@ -20632,7 +21098,12 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                     </tr>
                 ` : ""}
             </table>
+            ${rushNoticeHtml}
+            ${holidayHtml}
             ${splitNoticeHtml}
+            <div style="margin:0 0 18px;padding:12px 14px;border:1px solid #dbe4ee;background:#f8fafc;color:#334155;">
+                ${escapeHtml(buildPortalOrderEditReadyDateWarning())}
+            </div>
             <div style="margin:18px 0 0;padding:16px 18px;border:1px solid #d1d5db;background:#f9fafb;">
                 <p style="margin:0 0 16px;">Log in to WMS365 to review the order, view uploaded documents, and print/reprint the pick ticket or packing slip from the system.</p>
                 <a href="${escapeHtml(orderUrl)}" style="display:inline-block;background:#0f6f8c;color:#ffffff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:6px;">Open WMS365</a>
@@ -20773,8 +21244,9 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
     const ticketLines = fulfillmentGroup?.lines || order.lines || [];
     const isSplitTicket = Boolean(fulfillmentGroup && groupCount > 1);
     const ticketLabel = ticketLocation
-        ? `${getFulfillmentLocationDisplayName(ticketLocation)}${isSplitTicket ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
+        ? `${getFulfillmentLocationDisplayName(ticketLocation, { accountName: order.accountName })}${isSplitTicket ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
         : "";
+    const timing = buildPortalOrderProcessingTiming(order, { location: ticketLocation });
     const lines = [
         isSplitTicket ? "WMS365 PICK TICKET - SPLIT LOCATION" : "WMS365 PICK TICKET",
         "",
@@ -20784,6 +21256,11 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
         `PO Number: ${order.poNumber || "-"}`,
         `Shipping Reference: ${order.shippingReference || "-"}`,
         `Requested Ship Date: ${order.requestedShipDate || "-"}`,
+        timing.expectedReadyLabel || "Expected Ready: -",
+        order.rushApproved ? "RUSH APPROVED: Expedited processing was approved for this order." : "",
+        timing.rushRequired ? "RUSH REQUIRED: Requested ship/pickup date is before the earliest ready date." : "",
+        timing.holidayWarning || "",
+        buildPortalOrderEditReadyDateWarning(),
         "",
         `Customer Contact: ${[order.contactName, order.contactPhone].filter(Boolean).join(" | ") || "-"}`,
         "Ship To:"
@@ -20801,7 +21278,7 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
     }
 
     if (ticketLocation && hasFulfillmentLocationDocumentDetails(ticketLocation)) {
-        appendPortalOrderShipFromSection(lines, [{ location: ticketLocation, label: ticketLabel }], { includeLocationNumbers: false });
+        appendPortalOrderShipFromSection(lines, [{ location: ticketLocation, label: ticketLabel }], { includeLocationNumbers: false, accountName: order.accountName });
     }
 
     lines.push("", "Order Lines:", "LN  SKU                 QTY            PICK LOCATION / LOT / EXPIRATION", "--- ------------------- -------------- -----------------------------------------------");
@@ -20960,6 +21437,242 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
     };
 }
 
+async function hasPortalOrderConfirmationEmailSent(client, order) {
+    const sourceRef = normalizeFreeText(order?.orderCode || order?.order_code || order?.id || "");
+    const accountName = normalizeText(order?.accountName || order?.account_name || "");
+    if (!sourceRef || !accountName) return false;
+    const result = await client.query(
+        `
+            select 1
+            from email_delivery_log
+            where account_name = $1
+              and source_type = 'PORTAL_ORDER_CONFIRMATION'
+              and source_ref = $2
+              and status = 'SENT'
+            limit 1
+        `,
+        [accountName, sourceRef]
+    );
+    return result.rowCount > 0;
+}
+
+function buildPortalOrderConfirmationEmailText(order, groups = [], { reason = "" } = {}) {
+    const orderTiming = buildPortalOrderProcessingTiming(order);
+    const isSplitFulfillment = Array.isArray(groups) && groups.length > 1;
+    const rushLine = order.rushApproved
+        ? `RUSH Approved: expedited processing was approved. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
+        : (orderTiming.rushRequired ? "RUSH Required: requested ship/pickup date is before the earliest ready date." : "");
+    const splitLines = isSplitFulfillment
+        ? [
+            "",
+            "Pickup / ship-from locations and ready dates:",
+            ...groups.map((group) => {
+                const timing = buildPortalOrderProcessingTiming(order, { location: group.location });
+                const readyText = [timing.expectedReadyLabel, timing.holidayWarning].filter(Boolean).join(" | ");
+                return `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} (${group.totalQuantity} total) | ${readyText}`;
+            })
+        ]
+        : [];
+    return [
+        `Order Confirmation: ${order.orderCode}`,
+        "",
+        `Company: ${order.accountName}`,
+        order.poNumber ? `PO Number: ${order.poNumber}` : "",
+        order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
+        order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        orderTiming.expectedReadyLabel,
+        rushLine,
+        orderTiming.holidayWarning || "",
+        reason ? `Confirmation Trigger: ${reason}` : "",
+        "",
+        buildPortalOrderEditReadyDateWarning(),
+        ...splitLines,
+        "",
+        "Order Lines:",
+        ...(Array.isArray(order.lines) ? order.lines.map((line) => `- ${line.sku} | ${formatTrackedQuantity(line.quantity, line.trackingLevel)}${line.description ? ` | ${line.description}` : ""}`) : []),
+        "",
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
+    ].filter(Boolean).join("\n");
+}
+
+function buildPortalOrderConfirmationEmailHtml(order, groups = [], { reason = "" } = {}) {
+    const orderTiming = buildPortalOrderProcessingTiming(order);
+    const isSplitFulfillment = Array.isArray(groups) && groups.length > 1;
+    const rushHtml = order.rushApproved || orderTiming.rushRequired
+        ? `
+            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
+                <strong>${escapeHtml(order.rushApproved ? "RUSH approved" : "RUSH required")}</strong>
+                <div>${escapeHtml(order.rushApproved ? `Expedited processing was approved. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.` : "Requested ship/pickup date is before the earliest ready date.")}</div>
+            </div>
+        `
+        : "";
+    const holidayHtml = orderTiming.holidayWarning
+        ? `
+            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;">
+                <strong>Holiday warning:</strong> ${escapeHtml(orderTiming.holidayWarning)}
+            </div>
+        `
+        : "";
+    const splitHtml = isSplitFulfillment
+        ? `
+            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
+                <strong>Multiple pickup / ship-from locations</strong>
+                <p style="margin:6px 0 10px;">This order will be processed with separate pick tickets by warehouse/location.</p>
+                <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #fed7aa;background:#fff;">
+                    <thead>
+                        <tr style="background:#ffedd5;">
+                            <th style="padding:8px;text-align:left;border-bottom:1px solid #fed7aa;">Location</th>
+                            <th style="padding:8px;text-align:left;border-bottom:1px solid #fed7aa;">Address</th>
+                            <th style="padding:8px;text-align:left;border-bottom:1px solid #fed7aa;">Qty</th>
+                            <th style="padding:8px;text-align:left;border-bottom:1px solid #fed7aa;">Expected Ready</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${groups.map((group) => {
+                            const timing = buildPortalOrderProcessingTiming(order, { location: group.location });
+                            const readyHtml = timing.holidayWarning
+                                ? `${escapeHtml(timing.expectedReadyLabel || "-")}<br><span style="color:#92400e;font-weight:700;">${escapeHtml(timing.holidayWarning)}</span>`
+                                : escapeHtml(timing.expectedReadyLabel || "-");
+                            return `
+                                <tr>
+                                    <td style="padding:8px;border-bottom:1px solid #fed7aa;">${escapeHtml(group.location.publicName)}</td>
+                                    <td style="padding:8px;border-bottom:1px solid #fed7aa;">${escapeHtml(group.location.address || group.location.code || "Address not listed")}</td>
+                                    <td style="padding:8px;border-bottom:1px solid #fed7aa;">${escapeHtml(String(group.totalQuantity))}</td>
+                                    <td style="padding:8px;border-bottom:1px solid #fed7aa;">${readyHtml}</td>
+                                </tr>
+                            `;
+                        }).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `
+        : "";
+    const lineRows = (Array.isArray(order.lines) ? order.lines : []).map((line) => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.sku)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.description || "-")}</td>
+        </tr>
+    `).join("");
+
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:760px;">
+            <h2 style="margin:0 0 12px;">Order Confirmation ${escapeHtml(order.orderCode || "")}</h2>
+            <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderCode)}</strong> for <strong>${escapeHtml(order.accountName)}</strong> has been submitted to WMS365.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;margin-bottom:16px;">
+                <tr><td style="padding:6px 0;font-weight:700;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Expected Ready</td><td style="padding:6px 0;">${escapeHtml(orderTiming.expectedReadyLabel || "-")}</td></tr>
+                ${reason ? `<tr><td style="padding:6px 0;font-weight:700;">Confirmation Trigger</td><td style="padding:6px 0;">${escapeHtml(reason)}</td></tr>` : ""}
+            </table>
+            ${rushHtml}
+            ${holidayHtml}
+            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #dbe4ee;background:#f8fafc;color:#334155;">
+                ${escapeHtml(buildPortalOrderEditReadyDateWarning())}
+            </div>
+            ${splitHtml}
+            <p style="margin:18px 0 8px;font-weight:700;">Order Lines</p>
+            <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">SKU</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Qty</th>
+                        <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;">Description</th>
+                    </tr>
+                </thead>
+                <tbody>${lineRows}</tbody>
+            </table>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
+        </div>
+    `;
+}
+
+async function sendPortalOrderConfirmationEmailIfNeeded(client, orderId, accountName, { actorLabel = "System", reason = "" } = {}) {
+    const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+    if (!order) return { sent: false, reason: "missing-order" };
+    if (await hasPortalOrderConfirmationEmailSent(client, order)) {
+        return { sent: false, reason: "already-sent", recipients: [] };
+    }
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Customer order confirmation email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+    }
+    const recipients = await getPortalShipmentRecipients(client, order.accountName);
+    if (!recipients.length) {
+        throw httpError(400, "No active portal user or company email is available for the order confirmation.");
+    }
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    await sendSystemEmail({
+        from: SMTP_FROM,
+        to: recipients.join(", "),
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: `Order Confirmation - ${order.orderCode} - ${order.accountName}`,
+        text: buildPortalOrderConfirmationEmailText(order, groups, { reason }),
+        html: buildPortalOrderConfirmationEmailHtml(order, groups, { reason }),
+        emailContext: {
+            accountName: order.accountName,
+            sourceType: "PORTAL_ORDER_CONFIRMATION",
+            sourceRef: order.orderCode || String(order.id),
+            orderId: String(order.id),
+            reason,
+            requestedBy: actorLabel
+        }
+    }, "Customer order confirmation email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+
+    return { sent: true, recipients, groups };
+}
+
+async function logPortalOrderCustomerConfirmationFailure(order, error, actorLabel = "System", reason = "") {
+    const orderLabel = order?.orderCode || order?.id || "portal order";
+    try {
+        await withTransaction((client) => insertActivity(
+            client,
+            "order",
+            `Customer order confirmation failed for ${orderLabel}`,
+            [
+                order?.accountName || "",
+                reason || "",
+                actorLabel || "",
+                error?.message || "Unknown email error"
+            ].filter(Boolean).join(" | ")
+        ));
+    } catch (logError) {
+        console.error(`Unable to record customer order confirmation failure for ${orderLabel}:`, logError);
+    }
+}
+
+function queuePortalOrderConfirmationEmail(order, { actorLabel = "System", reason = "" } = {}) {
+    if (!order?.id || !order?.accountName) return;
+    const orderId = toPositiveInt(order.id);
+    const accountName = normalizeText(order.accountName);
+    if (!orderId || !accountName) return;
+    void sendPortalOrderConfirmationEmailIfNeeded(pool, orderId, accountName, { actorLabel, reason }).catch(async (error) => {
+        console.error(`Unable to send customer order confirmation for portal order ${order.orderCode || order.id}:`, error);
+        await logPortalOrderCustomerConfirmationFailure(order, error, actorLabel, reason);
+    });
+}
+
+async function sendPortalOrderConfirmationForReleaseAction(order, { actorLabel = "System", reason = "" } = {}) {
+    const action = {
+        customerConfirmationRequested: true,
+        customerConfirmationSent: false,
+        customerConfirmationAlreadySent: false,
+        customerConfirmationRecipients: [],
+        customerConfirmationError: ""
+    };
+    try {
+        const result = await sendPortalOrderConfirmationEmailIfNeeded(pool, order.id, order.accountName, { actorLabel, reason });
+        action.customerConfirmationSent = result.sent === true;
+        action.customerConfirmationAlreadySent = result.reason === "already-sent";
+        action.customerConfirmationRecipients = result.recipients || [];
+    } catch (error) {
+        action.customerConfirmationError = error?.message || "The customer confirmation email could not be sent.";
+        await logPortalOrderCustomerConfirmationFailure(order, error, actorLabel, reason);
+    }
+    return action;
+}
+
 async function hasPortalOrderSplitFulfillmentNoticeSent(client, order) {
     const sourceRef = normalizeFreeText(order?.orderCode || order?.order_code || order?.id || "");
     const accountName = normalizeText(order?.accountName || order?.account_name || "");
@@ -20980,6 +21693,7 @@ async function hasPortalOrderSplitFulfillmentNoticeSent(client, order) {
 }
 
 function buildPortalOrderSplitFulfillmentNoticeText(order, groups, { reason = "" } = {}) {
+    const orderTiming = buildPortalOrderProcessingTiming(order);
     return [
         `Order ${order.orderCode} will be fulfilled from multiple warehouse addresses.`,
         "",
@@ -20987,10 +21701,18 @@ function buildPortalOrderSplitFulfillmentNoticeText(order, groups, { reason = ""
         order.poNumber ? `PO Number: ${order.poNumber}` : "",
         order.shippingReference ? `Shipping Reference: ${order.shippingReference}` : "",
         order.requestedShipDate ? `Requested Ship Date: ${order.requestedShipDate}` : "",
+        orderTiming.expectedReadyLabel,
+        orderTiming.holidayWarning || "",
+        order.rushApproved ? `RUSH Approved: expedited processing was approved. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.` : "",
+        buildPortalOrderEditReadyDateWarning(),
         reason ? `Notice Trigger: ${reason}` : "",
         "",
         "Pickup / ship-from locations:",
-        ...groups.map((group) => `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} (${group.totalQuantity} total)`),
+        ...groups.map((group) => {
+            const timing = buildPortalOrderProcessingTiming(order, { location: group.location });
+            const readyText = [timing.expectedReadyLabel, timing.holidayWarning].filter(Boolean).join(" | ");
+            return `- ${group.location.publicName}: ${group.location.address || group.location.code || "Address not listed"} (${group.totalQuantity} total) | ${readyText}`;
+        }),
         "",
         "Please plan pickup or carrier routing for each listed address. WMS365 will keep the order under the same order number, but the warehouse team will process separate pick tickets by location.",
         "",
@@ -21000,13 +21722,21 @@ function buildPortalOrderSplitFulfillmentNoticeText(order, groups, { reason = ""
 }
 
 function buildPortalOrderSplitFulfillmentNoticeHtml(order, groups, { reason = "" } = {}) {
-    const locationRows = groups.map((group) => `
-        <tr>
-            <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;font-weight:700;">${escapeHtml(group.location.publicName)}</td>
-            <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(group.location.address || group.location.code || "Address not listed")}</td>
-            <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(String(group.totalQuantity))}</td>
-        </tr>
-    `).join("");
+    const orderTiming = buildPortalOrderProcessingTiming(order);
+    const locationRows = groups.map((group) => {
+        const timing = buildPortalOrderProcessingTiming(order, { location: group.location });
+        const readyHtml = timing.holidayWarning
+            ? `${escapeHtml(timing.expectedReadyLabel || "-")}<br><span style="color:#92400e;font-weight:700;">${escapeHtml(timing.holidayWarning)}</span>`
+            : escapeHtml(timing.expectedReadyLabel || "-");
+        return `
+            <tr>
+                <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;font-weight:700;">${escapeHtml(group.location.publicName)}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(group.location.address || group.location.code || "Address not listed")}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(String(group.totalQuantity))}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #e5e7eb;">${readyHtml}</td>
+            </tr>
+        `;
+    }).join("");
 
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:760px;">
@@ -21016,8 +21746,14 @@ function buildPortalOrderSplitFulfillmentNoticeHtml(order, groups, { reason = ""
                 <tr><td style="padding:6px 0;font-weight:700;">PO Number</td><td style="padding:6px 0;">${escapeHtml(order.poNumber || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:700;">Shipping Reference</td><td style="padding:6px 0;">${escapeHtml(order.shippingReference || "-")}</td></tr>
                 <tr><td style="padding:6px 0;font-weight:700;">Requested Ship Date</td><td style="padding:6px 0;">${escapeHtml(order.requestedShipDate || "-")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:700;">Expected Ready</td><td style="padding:6px 0;">${escapeHtml(orderTiming.expectedReadyLabel || "-")}</td></tr>
+                ${orderTiming.holidayWarning ? `<tr><td style="padding:6px 0;font-weight:700;">Holiday Warning</td><td style="padding:6px 0;">${escapeHtml(orderTiming.holidayWarning)}</td></tr>` : ""}
+                ${order.rushApproved ? `<tr><td style="padding:6px 0;font-weight:700;color:#9a3412;">RUSH Approved</td><td style="padding:6px 0;color:#9a3412;">Expedited processing was approved. For rush charge questions, contact ${escapeHtml(PORTAL_RUSH_FEE_CONTACT_EMAIL)}.</td></tr>` : ""}
                 ${reason ? `<tr><td style="padding:6px 0;font-weight:700;">Notice Trigger</td><td style="padding:6px 0;">${escapeHtml(reason)}</td></tr>` : ""}
             </table>
+            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #dbe4ee;background:#f8fafc;color:#334155;">
+                ${escapeHtml(buildPortalOrderEditReadyDateWarning())}
+            </div>
             <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12;">
                 Please plan pickup or carrier routing for each listed address. WMS365 will keep this under the same order number, but the warehouse team will use separate pick tickets by location.
             </div>
@@ -21027,6 +21763,7 @@ function buildPortalOrderSplitFulfillmentNoticeHtml(order, groups, { reason = ""
                         <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Location</th>
                         <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Address</th>
                         <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Total Qty</th>
+                        <th style="padding:9px 10px;text-align:left;border-bottom:1px solid #e5e7eb;">Expected Ready</th>
                     </tr>
                 </thead>
                 <tbody>${locationRows}</tbody>
@@ -22148,7 +22885,13 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
         await assertPortalShipmentEmailReady(client, order);
     }
 
+    let shortageInvestigationResult = { moves: [], skipped: [], holdLocation: "" };
     if (transitionToShipped) {
+        if (confirmation.moveShortageToInvestigation && shipmentQuantityWarnings.length) {
+            shortageInvestigationResult = await movePortalShipmentShortagesToInvestigationHold(client, order, shipmentLineConfirmations, {
+                appUser
+            });
+        }
         await consumePortalOrderInventory(client, order, {
             shipmentLines: shipmentLineConfirmations,
             appUser,
@@ -22214,6 +22957,8 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
             shipmentQuantityWarnings.length ? `Shipment qty warning: ${shipmentQuantityWarnings.map((warning) => `${warning.sku} ${warning.shippedQuantity}/${warning.orderedQuantity}`).join(", ")}` : "",
+            shortageInvestigationResult.moves.length ? `Investigation hold moved ${shortageInvestigationResult.moves.map((move) => `${move.sku} ${move.quantity}`).join(", ")}` : "",
+            shortageInvestigationResult.skipped.length ? `Investigation hold skipped ${shortageInvestigationResult.skipped.length}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
             "Shipment email scheduled",
             actor
@@ -22222,6 +22967,11 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
     if (shipmentQuantityWarnings.length) {
         updatedOrder.shipmentQuantityWarnings = shipmentQuantityWarnings;
+    }
+    if (shortageInvestigationResult.moves.length || shortageInvestigationResult.skipped.length) {
+        updatedOrder.shortageInvestigationMoves = shortageInvestigationResult.moves;
+        updatedOrder.shortageInvestigationSkipped = shortageInvestigationResult.skipped;
+        updatedOrder.shortageInvestigationHoldLocation = shortageInvestigationResult.holdLocation || "";
     }
     return updatedOrder;
 }
@@ -22233,6 +22983,500 @@ function normalizePortalShipmentMethod(value) {
     if (["LTL", "LTL_FREIGHT", "LESS_THAN_TRUCKLOAD", "LESS_THAN_TRUCKLOAD_FREIGHT", "FREIGHT"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT;
     if (["PICKUP", "CUSTOMER_PICKUP", "WILL_CALL", "SELF_PICKUP"].includes(normalized)) return PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
     return PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT;
+}
+
+function normalizePortalOrderType(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (["B2C", "B2C_ONLINE", "ONLINE", "ONLINE_ORDER", "ECOMMERCE", "E_COMMERCE", "SHOPIFY"].includes(normalized)) return PORTAL_ORDER_TYPES.B2C_ONLINE;
+    if (["FREIGHT", "LTL", "FTL", "LTL_FREIGHT", "FTL_FREIGHT", "RETAIL_FREIGHT"].includes(normalized)) return PORTAL_ORDER_TYPES.FREIGHT_RETAIL;
+    return PORTAL_ORDER_TYPES.RETAIL_WHOLESALE;
+}
+
+function portalOrderTypeLabel(value) {
+    const normalized = normalizePortalOrderType(value);
+    if (normalized === PORTAL_ORDER_TYPES.B2C_ONLINE) return "Online";
+    return "Non-online";
+}
+
+function daysUntilRequestedShipDate(requestedShipDate, now = new Date()) {
+    const normalizedDate = normalizeDateOnly(requestedShipDate);
+    if (!normalizedDate) return Number.POSITIVE_INFINITY;
+    const [year, month, day] = normalizedDate.split("-").map((part) => Number.parseInt(part, 10));
+    if (!year || !month || !day) return Number.POSITIVE_INFINITY;
+    const targetUtc = Date.UTC(year, month - 1, day);
+    const currentUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return Math.floor((targetUtc - currentUtc) / (24 * 60 * 60 * 1000));
+}
+
+function padDatePart(value) {
+    return String(value).padStart(2, "0");
+}
+
+function dateKeyFromParts(year, month, day) {
+    return `${String(year).padStart(4, "0")}-${padDatePart(month)}-${padDatePart(day)}`;
+}
+
+function parseDateKey(value) {
+    const normalized = normalizeDateOnly(value);
+    if (!normalized) return null;
+    const [year, month, day] = normalized.split("-").map((part) => Number.parseInt(part, 10));
+    return year && month && day ? { year, month, day, dateKey: normalized } : null;
+}
+
+function addCalendarDaysToDateKey(dateKey, days) {
+    const parts = parseDateKey(dateKey);
+    if (!parts) return "";
+    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+    return dateKeyFromParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+}
+
+function compareDateKeys(left, right) {
+    const leftKey = normalizeDateOnly(left);
+    const rightKey = normalizeDateOnly(right);
+    if (!leftKey && !rightKey) return 0;
+    if (!leftKey) return -1;
+    if (!rightKey) return 1;
+    return leftKey.localeCompare(rightKey);
+}
+
+function getDayOfWeekForDateKey(dateKey) {
+    const parts = parseDateKey(dateKey);
+    if (!parts) return -1;
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+}
+
+function isWeekendDateKey(dateKey) {
+    const day = getDayOfWeekForDateKey(dateKey);
+    return day === 0 || day === 6;
+}
+
+function getEasternTimeParts(date = new Date()) {
+    const parsedDate = date instanceof Date ? date : new Date(date);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: PORTAL_BUSINESS_TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+        timeZoneName: "shortOffset"
+    }).formatToParts(parsedDate).reduce((accumulator, part) => {
+        accumulator[part.type] = part.value;
+        return accumulator;
+    }, {});
+    return {
+        year: Number.parseInt(parts.year || "0", 10),
+        month: Number.parseInt(parts.month || "0", 10),
+        day: Number.parseInt(parts.day || "0", 10),
+        dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+        hour: Number.parseInt(parts.hour || "0", 10),
+        minute: Number.parseInt(parts.minute || "0", 10),
+        timeZoneName: parts.timeZoneName || ""
+    };
+}
+
+function getEasternOffsetMinutes(date = new Date()) {
+    const timeZoneName = getEasternTimeParts(date).timeZoneName || "";
+    const match = timeZoneName.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+    if (!match) return -300;
+    const sign = match[1] === "-" ? -1 : 1;
+    const hours = Number.parseInt(match[2] || "0", 10);
+    const minutes = Number.parseInt(match[3] || "0", 10);
+    return sign * ((hours * 60) + minutes);
+}
+
+function easternWallTimeToUtcDate(dateKey, hour = 0, minute = 0) {
+    const parts = parseDateKey(dateKey);
+    if (!parts) return new Date(NaN);
+    const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, hour, minute, 0, 0);
+    let offsetMinutes = getEasternOffsetMinutes(new Date(localAsUtc));
+    let utcDate = new Date(localAsUtc - (offsetMinutes * 60 * 1000));
+    const secondOffset = getEasternOffsetMinutes(utcDate);
+    if (secondOffset !== offsetMinutes) {
+        offsetMinutes = secondOffset;
+        utcDate = new Date(localAsUtc - (offsetMinutes * 60 * 1000));
+    }
+    return utcDate;
+}
+
+function observedFixedHolidayDateKey(year, month, day) {
+    const dateKey = dateKeyFromParts(year, month, day);
+    const weekday = getDayOfWeekForDateKey(dateKey);
+    if (weekday === 6) return addCalendarDaysToDateKey(dateKey, -1);
+    if (weekday === 0) return addCalendarDaysToDateKey(dateKey, 1);
+    return dateKey;
+}
+
+function nthWeekdayOfMonthDateKey(year, month, weekday, nth) {
+    let count = 0;
+    for (let day = 1; day <= 31; day += 1) {
+        const candidate = new Date(Date.UTC(year, month - 1, day));
+        if (candidate.getUTCMonth() !== month - 1) break;
+        if (candidate.getUTCDay() === weekday) {
+            count += 1;
+            if (count === nth) return dateKeyFromParts(year, month, day);
+        }
+    }
+    return "";
+}
+
+function lastWeekdayOfMonthDateKey(year, month, weekday) {
+    for (let day = 31; day >= 1; day -= 1) {
+        const candidate = new Date(Date.UTC(year, month - 1, day));
+        if (candidate.getUTCMonth() !== month - 1) continue;
+        if (candidate.getUTCDay() === weekday) return dateKeyFromParts(year, month, day);
+    }
+    return "";
+}
+
+function easterSundayDateKey(year) {
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = ((19 * a) + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + (2 * e) + (2 * i) - h - k) % 7;
+    const m = Math.floor((a + (11 * h) + (22 * l)) / 451);
+    const month = Math.floor((h + l - (7 * m) + 114) / 31);
+    const day = ((h + l - (7 * m) + 114) % 31) + 1;
+    return dateKeyFromParts(year, month, day);
+}
+
+function normalizeHolidayCountry(value = "") {
+    const normalized = normalizeText(value || DEFAULT_FULFILLMENT_LOCATION.country);
+    if (/\b(US|USA|UNITED STATES|AMERICA)\b/.test(normalized)) return "US";
+    return "CA";
+}
+
+function normalizeHolidayProvinceState(value = "") {
+    const normalized = normalizeText(value || DEFAULT_FULFILLMENT_LOCATION.state);
+    if (["ON", "ONT", "ONTARIO"].includes(normalized)) return "ON";
+    if (["BC", "B C", "B.C.", "BRITISH COLUMBIA", "BRITISH-COLUMBIA"].includes(normalized)) return "BC";
+    if (["OH", "OHIO"].includes(normalized)) return "OH";
+    return normalized;
+}
+
+function normalizeHolidayCalendarContext(calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    if (calendar && typeof calendar === "object") {
+        const country = normalizeHolidayCountry(
+            calendar.country
+            || calendar.fulfillmentCountry
+            || calendar.fulfillment_country
+            || DEFAULT_FULFILLMENT_LOCATION.country
+        );
+        const provinceState = normalizeHolidayProvinceState(
+            calendar.state
+            || calendar.province
+            || calendar.region
+            || calendar.fulfillmentState
+            || calendar.fulfillment_state
+            || DEFAULT_FULFILLMENT_LOCATION.state
+        );
+        return { country, provinceState };
+    }
+    return {
+        country: normalizeHolidayCountry(calendar),
+        provinceState: normalizeHolidayProvinceState(DEFAULT_FULFILLMENT_LOCATION.state)
+    };
+}
+
+function addObservedHoliday(holidays, dateKey, year, month, day, name, { avoidCollisions = false } = {}) {
+    let holidayDate = observedFixedHolidayDateKey(year, month, day);
+    if (avoidCollisions && holidays.some((holiday) => holiday.date === holidayDate)) {
+        while (isWeekendDateKey(holidayDate) || holidays.some((holiday) => holiday.date === holidayDate)) {
+            holidayDate = addCalendarDaysToDateKey(holidayDate, 1);
+        }
+    }
+    if (holidayDate && name) holidays.push({ date: holidayDate, name });
+}
+
+function getHolidayClosuresForDateKey(dateKey, calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    const parts = parseDateKey(dateKey);
+    if (!parts) return [];
+    const { country, provinceState } = normalizeHolidayCalendarContext(calendar);
+    const year = parts.year;
+    const holidays = [];
+    const addHoliday = (holidayDate, name) => {
+        if (holidayDate && name) holidays.push({ date: holidayDate, name });
+    };
+    const addFixedHoliday = (month, day, name, options) => addObservedHoliday(holidays, dateKey, year, month, day, name, options);
+    const addCanadianCommonHolidays = () => {
+        addFixedHoliday(1, 1, "New Year's Day");
+        addHoliday(addCalendarDaysToDateKey(easterSundayDateKey(year), -2), "Good Friday");
+        addHoliday(lastWeekdayOfMonthDateKey(year, 5, 1) < dateKeyFromParts(year, 5, 25) ? lastWeekdayOfMonthDateKey(year, 5, 1) : addCalendarDaysToDateKey(lastWeekdayOfMonthDateKey(year, 5, 1), -7), "Victoria Day");
+        addFixedHoliday(7, 1, "Canada Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 9, 1, 1), "Labour Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 10, 1, 2), "Thanksgiving Day");
+        addFixedHoliday(12, 25, "Christmas Day");
+    };
+
+    if (country === "US") {
+        addFixedHoliday(1, 1, "New Year's Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 1, 1, 3), "Martin Luther King Jr. Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 2, 1, 3), "Presidents' Day");
+        addHoliday(lastWeekdayOfMonthDateKey(year, 5, 1), "Memorial Day");
+        addFixedHoliday(6, 19, "Juneteenth");
+        addFixedHoliday(7, 4, "Independence Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 9, 1, 1), "Labor Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 10, 1, 2), "Columbus Day");
+        addFixedHoliday(11, 11, "Veterans Day");
+        addHoliday(nthWeekdayOfMonthDateKey(year, 11, 4, 4), "Thanksgiving Day");
+        addHoliday(addCalendarDaysToDateKey(nthWeekdayOfMonthDateKey(year, 11, 4, 4), 1), "Day after Thanksgiving");
+        addFixedHoliday(12, 25, "Christmas Day");
+    } else {
+        addCanadianCommonHolidays();
+        if (provinceState === "BC") {
+            addHoliday(nthWeekdayOfMonthDateKey(year, 2, 1, 3), "Family Day");
+            addHoliday(nthWeekdayOfMonthDateKey(year, 8, 1, 1), "B.C. Day");
+            addFixedHoliday(9, 30, "National Day for Truth and Reconciliation");
+            addFixedHoliday(11, 11, "Remembrance Day");
+        } else if (provinceState === "ON") {
+            addHoliday(nthWeekdayOfMonthDateKey(year, 2, 1, 3), "Family Day");
+            addHoliday(nthWeekdayOfMonthDateKey(year, 8, 1, 1), "Civic Holiday");
+            addFixedHoliday(12, 26, "Boxing Day", { avoidCollisions: true });
+        }
+    }
+    const seen = new Set();
+    return holidays
+        .filter((holiday) => holiday.date === dateKey)
+        .filter((holiday) => {
+            const key = `${holiday.date}|${holiday.name}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
+        .map((holiday) => holiday.name);
+}
+
+function isPortalBusinessDate(dateKey, calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    return Boolean(normalizeDateOnly(dateKey))
+        && !isWeekendDateKey(dateKey)
+        && getHolidayClosuresForDateKey(dateKey, calendar).length === 0;
+}
+
+function nextPortalBusinessDate(dateKey, calendar = DEFAULT_FULFILLMENT_LOCATION.country, { includeCurrent = false } = {}) {
+    let candidate = normalizeDateOnly(dateKey);
+    if (!candidate) {
+        candidate = getEasternTimeParts(new Date()).dateKey;
+    }
+    if (!includeCurrent) candidate = addCalendarDaysToDateKey(candidate, 1);
+    for (let guard = 0; guard < 370; guard += 1) {
+        if (isPortalBusinessDate(candidate, calendar)) return candidate;
+        candidate = addCalendarDaysToDateKey(candidate, 1);
+    }
+    return candidate;
+}
+
+function collectHolidayClosuresBetween(startDateKey, endDateKey, calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    const closures = [];
+    let candidate = normalizeDateOnly(startDateKey);
+    const end = normalizeDateOnly(endDateKey);
+    for (let guard = 0; candidate && end && compareDateKeys(candidate, end) <= 0 && guard < 370; guard += 1) {
+        getHolidayClosuresForDateKey(candidate, calendar).forEach((name) => {
+            closures.push({ date: candidate, name });
+        });
+        candidate = addCalendarDaysToDateKey(candidate, 1);
+    }
+    const seen = new Set();
+    return closures.filter((closure) => {
+        const key = `${closure.date}|${closure.name}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function normalizePortalBusinessStart(date = new Date(), calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    const eastern = getEasternTimeParts(date);
+    let dateKey = eastern.dateKey;
+    let hour = eastern.hour;
+    let minute = eastern.minute;
+    if (!isPortalBusinessDate(dateKey, calendar)) {
+        dateKey = nextPortalBusinessDate(dateKey, calendar, { includeCurrent: false });
+        hour = PORTAL_BUSINESS_START_HOUR;
+        minute = 0;
+    } else if (hour < PORTAL_BUSINESS_START_HOUR) {
+        hour = PORTAL_BUSINESS_START_HOUR;
+        minute = 0;
+    } else if (hour >= PORTAL_BUSINESS_END_HOUR) {
+        dateKey = nextPortalBusinessDate(dateKey, calendar, { includeCurrent: false });
+        hour = PORTAL_BUSINESS_START_HOUR;
+        minute = 0;
+    }
+    return {
+        dateKey,
+        hour,
+        minute,
+        date: easternWallTimeToUtcDate(dateKey, hour, minute)
+    };
+}
+
+function addPortalBusinessDays(startDate, businessDays, calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    const normalizedStart = normalizePortalBusinessStart(startDate, calendar);
+    let candidate = normalizedStart.dateKey;
+    let remaining = Math.max(0, Number.parseInt(businessDays, 10) || 0);
+    while (remaining > 0) {
+        candidate = nextPortalBusinessDate(candidate, calendar, { includeCurrent: false });
+        remaining -= 1;
+    }
+    return {
+        dateKey: candidate,
+        date: easternWallTimeToUtcDate(candidate, normalizedStart.hour, normalizedStart.minute),
+        start: normalizedStart,
+        holidayClosures: collectHolidayClosuresBetween(normalizedStart.dateKey, candidate, calendar)
+    };
+}
+
+function getPortalTimingCalendar(order = {}, location = null) {
+    return {
+        country: normalizeFreeText(
+            location?.country
+            || location?.fulfillmentCountry
+            || location?.fulfillment_country
+            || order.fulfillmentCountry
+            || order.fulfillment_country
+            || DEFAULT_FULFILLMENT_LOCATION.country
+        ) || DEFAULT_FULFILLMENT_LOCATION.country,
+        state: normalizeFreeText(
+            location?.state
+            || location?.province
+            || location?.fulfillmentState
+            || location?.fulfillment_state
+            || order.fulfillmentState
+            || order.fulfillment_state
+            || DEFAULT_FULFILLMENT_LOCATION.state
+        ) || DEFAULT_FULFILLMENT_LOCATION.state
+    };
+}
+
+function getPortalOrderSubmittedAt(order = {}, now = new Date()) {
+    const status = normalizeText(order.status || "");
+    const source = status === "DRAFT"
+        ? ""
+        : (order.releasedAt || order.released_at || order.submittedAt || order.submitted_at || "");
+    const parsed = source ? new Date(source) : null;
+    if (parsed && !Number.isNaN(parsed.getTime())) return parsed;
+    const fallback = order.createdAt || order.created_at || "";
+    const fallbackDate = fallback ? new Date(fallback) : null;
+    return fallbackDate && !Number.isNaN(fallbackDate.getTime()) && status !== "DRAFT" ? fallbackDate : now;
+}
+
+function calculatePortalOnlineProcessingTiming(submittedAt, calendar = DEFAULT_FULFILLMENT_LOCATION.country) {
+    const eastern = getEasternTimeParts(submittedAt);
+    let processingDate = eastern.dateKey;
+    let sameDay = false;
+    if (isPortalBusinessDate(processingDate, calendar)) {
+        sameDay = eastern.hour < PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR
+            || (eastern.hour === PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR && eastern.minute === 0);
+        if (!sameDay) {
+            processingDate = nextPortalBusinessDate(processingDate, calendar, { includeCurrent: false });
+        }
+    } else {
+        processingDate = nextPortalBusinessDate(processingDate, calendar, { includeCurrent: false });
+    }
+    return {
+        dateKey: processingDate,
+        date: easternWallTimeToUtcDate(processingDate, PORTAL_BUSINESS_END_HOUR, 0),
+        sameDay,
+        holidayClosures: collectHolidayClosuresBetween(eastern.dateKey, processingDate, calendar)
+    };
+}
+
+function formatPortalReadyDateTime(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("en-US", {
+        timeZone: PORTAL_BUSINESS_TIME_ZONE,
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short"
+    }).format(date);
+}
+
+function formatPortalReadyDateOnly(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("en-US", {
+        timeZone: PORTAL_BUSINESS_TIME_ZONE,
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric"
+    }).format(date);
+}
+
+function formatPortalHolidayClosureList(holidayClosures = []) {
+    return (Array.isArray(holidayClosures) ? holidayClosures : [])
+        .map((holiday) => `${holiday.name || "Holiday"} (${holiday.date || ""})`.trim())
+        .filter(Boolean)
+        .join(", ");
+}
+
+function buildPortalHolidayClosureWarning(holidayClosures = []) {
+    const closureText = formatPortalHolidayClosureList(holidayClosures);
+    return closureText
+        ? `Holiday closure affects this order; earliest ready date has been pushed. Closure included: ${closureText}.`
+        : "";
+}
+
+function buildPortalOrderEditReadyDateWarning() {
+    return "If this order is edited after submission, the expected ready date will recalculate. If adding extra items, creating a new order is usually better so the original order keeps its processing timeline.";
+}
+
+function buildPortalOrderProcessingTiming(order = {}, { location = null, now = new Date() } = {}) {
+    const orderType = normalizePortalOrderType(order.orderType || order.order_type);
+    const shipmentMethod = normalizePortalShipmentMethod(order.shipmentMethod || order.shipment_method);
+    const rushExempt = order.rushExempt === true || order.rush_exempt === true;
+    const calendar = getPortalTimingCalendar(order, location);
+    const submittedAt = getPortalOrderSubmittedAt(order, now);
+    const requestedShipDate = normalizeDateOnly(order.requestedShipDate || order.requested_ship_date);
+    const isOnlineParcel = orderType === PORTAL_ORDER_TYPES.B2C_ONLINE
+        && shipmentMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+    const timing = isOnlineParcel
+        ? calculatePortalOnlineProcessingTiming(submittedAt, calendar)
+        : addPortalBusinessDays(submittedAt, PORTAL_B2B_MINIMUM_BUSINESS_DAYS, calendar);
+    const expectedReadyAt = timing.date;
+    const expectedReadyDate = timing.dateKey;
+    const requestedBeforeReady = Boolean(requestedShipDate && !isOnlineParcel && compareDateKeys(requestedShipDate, expectedReadyDate) < 0);
+    const holidayClosures = timing.holidayClosures || [];
+    const holidayWarning = buildPortalHolidayClosureWarning(holidayClosures);
+    const holidayNote = holidayWarning ? ` ${holidayWarning}` : "";
+    const policyLabel = isOnlineParcel
+        ? "Online parcel"
+        : "Non-online / truck / freight / pickup";
+    const expectedReadyLabel = isOnlineParcel
+        ? `Expected processing cycle: ${formatPortalReadyDateOnly(expectedReadyAt)}`
+        : `Earliest ready date: ${formatPortalReadyDateTime(expectedReadyAt)}`;
+    const summary = isOnlineParcel
+        ? `${expectedReadyLabel}. Online parcel orders released before 9:00 AM Eastern are eligible to ship in the same-day parcel cycle; after 9:00 AM Eastern, the warehouse will do its best to ship same day, otherwise the order is pooled into the next business-day parcel cycle.${holidayNote}`
+        : `${expectedReadyLabel}. Non-online, truck, LTL/FTL, and customer pickup orders require a minimum of 48 hours / 2 business days to process, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays.${holidayNote}`;
+    return {
+        policyLabel,
+        isOnlineParcel,
+        submittedAt: submittedAt.toISOString(),
+        businessStartAt: timing.start?.date ? timing.start.date.toISOString() : "",
+        expectedReadyAt: expectedReadyAt.toISOString(),
+        expectedReadyDate,
+        expectedReadyLabel,
+        summary,
+        requestedBeforeReady,
+        rushRequired: requestedBeforeReady && order.rushApproved !== true && !rushExempt,
+        rushApproved: order.rushApproved === true,
+        rushExempt,
+        holidayClosures,
+        holidayWarning,
+        calendar
+    };
 }
 
 function shipmentMethodLabel(value) {
@@ -22247,6 +23491,19 @@ function shipmentMethodRequiresFreightProof(value) {
     const normalized = normalizePortalShipmentMethod(value);
     return normalized === PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT
         || normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT;
+}
+
+function portalOrderRequiresRushApproval(order = {}, now = new Date()) {
+    return buildPortalOrderProcessingTiming(order, { now }).rushRequired === true;
+}
+
+function portalRushApprovalReason(order = {}) {
+    const orderType = normalizePortalOrderType(order.orderType || order.order_type);
+    const shipmentMethod = normalizePortalShipmentMethod(order.shipmentMethod || order.shipment_method);
+    const reasons = [];
+    if (orderType !== PORTAL_ORDER_TYPES.B2C_ONLINE) reasons.push(`${portalOrderTypeLabel(orderType)} order`);
+    if (shipmentMethod !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) reasons.push(`${shipmentMethodLabel(shipmentMethod)} request`);
+    return reasons.join(" and ") || "rush-sensitive order";
 }
 
 function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = "LTL_FREIGHT", shippedCarrierName = "", shippedTrackingReference = "" } = {}) {
@@ -22629,7 +23886,7 @@ function buildPortalOrderPackingSlipPdfAttachment(order, { fulfillmentGroup = nu
     const slipLines = selectedGroup?.lines || order.lines || [];
     const isSplitSlip = Boolean(fulfillmentGroup && groupCount > 1);
     const slipLabel = slipLocation
-        ? `${getFulfillmentLocationDisplayName(slipLocation)}${isSplitSlip ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
+        ? `${getFulfillmentLocationDisplayName(slipLocation, { accountName: order.accountName })}${isSplitSlip ? ` (${groupIndex + 1} of ${groupCount})` : ""}`
         : "";
     const lines = [
         isSplitSlip ? "WMS365 PACKING SLIP - SPLIT LOCATION" : "WMS365 PACKING SLIP",
@@ -22648,7 +23905,7 @@ function buildPortalOrderPackingSlipPdfAttachment(order, { fulfillmentGroup = nu
         .filter(Boolean)
         .forEach((line) => lines.push(`  ${line}`));
     if (slipLocation && hasFulfillmentLocationDocumentDetails(slipLocation)) {
-        appendPortalOrderShipFromSection(lines, [{ location: slipLocation, label: slipLabel }], { includeLocationNumbers: false });
+        appendPortalOrderShipFromSection(lines, [{ location: slipLocation, label: slipLabel }], { includeLocationNumbers: false, accountName: order.accountName });
     }
     lines.push("", "Items:", "SKU                 QTY            DESCRIPTION", "------------------- -------------- -----------------------------------------------");
     slipLines.forEach((line) => {
@@ -23783,10 +25040,15 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const inboundResult = await client.query(
         `
-            select *
-            from portal_inbounds
-            where account_name = $1
-            order by created_at desc, id desc
+            select
+                i.*,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from portal_inbounds i
+            left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+            where i.account_name = $1
+            order by i.created_at desc, i.id desc
             limit 100
         `,
         [normalizedAccount]
@@ -23825,7 +25087,29 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
             [inboundIds]
         )
         : { rows: [] };
-    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/inbound-documents");
+    const palletLabelsResult = inboundIds.length
+        ? await client.query(
+            `
+                select
+                    pl.*,
+                    l.line_number,
+                    i.inbound_code,
+                    i.reference_number,
+                    i.fulfillment_location_id,
+                    fl.code as fulfillment_location_code,
+                    fl.name as fulfillment_location_name,
+                    fl.partner_name as fulfillment_partner_name
+                from portal_inbound_pallet_labels pl
+                join portal_inbounds i on i.id = pl.inbound_id
+                left join portal_inbound_lines l on l.id = pl.line_id
+                left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+                where pl.inbound_id = any($1::bigint[])
+                order by pl.inbound_id desc, pl.created_at asc, pl.id asc
+            `,
+            [inboundIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/inbound-documents", palletLabelsResult.rows);
 }
 
 async function savePortalInboundForAccount(
@@ -23973,6 +25257,133 @@ async function savePortalInboundDocuments(client, accessRow, inboundId, rawPaylo
     });
 }
 
+function sanitizePortalInboundPalletLabelInputs(rawPayload) {
+    const rawLabels = Array.isArray(rawPayload?.labels)
+        ? rawPayload.labels
+        : (Array.isArray(rawPayload?.palletLabels) ? rawPayload.palletLabels : [rawPayload]);
+    return rawLabels.map((item) => {
+        const lineId = toPositiveInt(item?.lineId || item?.line_id || item?.inboundLineId || item?.inbound_line_id);
+        const sku = normalizeText(item?.sku);
+        const cases = toPositiveInt(item?.casesOnPallet ?? item?.cases_on_pallet ?? item?.cases ?? item?.caseQuantity ?? item?.quantity);
+        const palletCount = Math.min(toPositiveInt(item?.palletCount ?? item?.pallet_count ?? item?.count ?? item?.labels) || 1, 100);
+        return { lineId, sku, cases, palletCount };
+    }).filter((item) => (item.lineId || item.sku) && item.cases > 0 && item.palletCount > 0);
+}
+
+async function derivePortalInboundPalletLabelDetails(client, inbound, line, cases) {
+    const master = await findCatalogItem(client, inbound.accountName, line.sku, line.upc);
+    const trackingLevel = normalizeTrackingLevel(master?.trackingLevel || line.trackingLevel || "CASE");
+    const unitsPerCase = toPositiveInt(master?.unitsPerCase);
+    let expectedQuantity = cases;
+    if (trackingLevel === "PALLET") {
+        expectedQuantity = 1;
+    } else if (trackingLevel === "UNIT" && unitsPerCase) {
+        expectedQuantity = cases * unitsPerCase;
+    }
+    return {
+        upc: master?.upc || line.upc || "",
+        description: master?.description || line.description || "",
+        expectedQuantity
+    };
+}
+
+async function savePortalInboundPalletLabelsForAccount(
+    client,
+    accountName,
+    inboundId,
+    rawPayload,
+    {
+        downloadPathPrefix = "/api/admin/portal-inbound-documents",
+        activityActor = "",
+        createdBy = ""
+    } = {}
+) {
+    const normalizedAccount = normalizeText(accountName);
+    const inbound = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    if (!inbound || normalizeText(inbound.accountName) !== normalizedAccount) {
+        throw httpError(404, "That purchase order could not be found.");
+    }
+    if (["CANCELLED", "RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"].includes(inbound.status)) {
+        throw httpError(400, "Pallet labels can only be generated before the purchase order is received or cancelled.");
+    }
+
+    const labelInputs = sanitizePortalInboundPalletLabelInputs(rawPayload);
+    if (!labelInputs.length) {
+        throw httpError(400, "Choose a SKU, enter cases on pallet, and enter at least one pallet.");
+    }
+    const totalLabels = labelInputs.reduce((sum, item) => sum + item.palletCount, 0);
+    if (totalLabels > 100) {
+        throw httpError(400, "Generate up to 100 pallet labels at a time.");
+    }
+
+    const linesById = new Map();
+    const linesBySku = new Map();
+    inbound.lines.forEach((line) => {
+        linesById.set(String(line.id), line);
+        const skuKey = normalizeText(line.sku);
+        if (skuKey && !linesBySku.has(skuKey)) linesBySku.set(skuKey, line);
+    });
+
+    for (const labelInput of labelInputs) {
+        const line = labelInput.lineId
+            ? linesById.get(String(labelInput.lineId))
+            : linesBySku.get(labelInput.sku);
+        if (!line) {
+            throw httpError(400, "Pallet labels must be tied to a SKU on this purchase order.");
+        }
+        if (labelInput.sku && normalizeText(line.sku) !== labelInput.sku) {
+            throw httpError(400, "The selected pallet label SKU does not match the purchase order line.");
+        }
+        const details = await derivePortalInboundPalletLabelDetails(client, inbound, line, labelInput.cases);
+        for (let index = 0; index < labelInput.palletCount; index += 1) {
+            const palletCode = await generatePalletCode(client);
+            await client.query(
+                `
+                    insert into portal_inbound_pallet_labels (
+                        inbound_id, line_id, pallet_code, account_name, sku, upc, description,
+                        cases_on_pallet, expected_quantity, label_date, created_by
+                    )
+                    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, current_date, $10)
+                `,
+                [
+                    inbound.id,
+                    Number(line.id) || null,
+                    palletCode,
+                    inbound.accountName,
+                    line.sku,
+                    details.upc,
+                    details.description,
+                    labelInput.cases,
+                    details.expectedQuantity,
+                    createdBy || activityActor || ""
+                ]
+            );
+        }
+    }
+
+    const updatedInbound = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    await insertActivity(
+        client,
+        "receipt",
+        `Generated ${formatCount(totalLabels, "pallet label")} for ${updatedInbound.inboundCode}`,
+        [
+            updatedInbound.accountName,
+            `Ref ${updatedInbound.referenceNumber}`,
+            activityActor || createdBy || ""
+        ].filter(Boolean).join(" | ")
+    );
+    return updatedInbound;
+}
+
+async function savePortalInboundPalletLabels(client, accessRow, inboundId, rawPayload) {
+    const access = mapPortalAccessRow(accessRow);
+    return savePortalInboundPalletLabelsForAccount(client, access.accountName, inboundId, rawPayload, {
+        downloadPathPrefix: "/api/portal/inbound-documents",
+        activityActor: "Company portal",
+        createdBy: access.email || "Company portal"
+    });
+}
+
 async function saveWarehousePortalInbound(client, accountName, rawInbound, appUser = null) {
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     await upsertOwnerMaster(client, accountName);
@@ -24093,9 +25504,17 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     let storedStatus = nextStatus;
     if (nextStatus === "RECEIVED") {
         storedStatus = "RECEIVED_PENDING_PUTAWAY";
-        await ensureReceivingDestinationLocation(client, details?.receivingLocation || details?.location || DEFAULT_RECEIVING_STAGE_LOCATION);
+        const defaultReceivingLocation = getWarehouseReceivingStageLocationCode(currentInbound);
+        await ensureReceivingDestinationLocation(client, details?.receivingLocation || details?.location || defaultReceivingLocation);
         const receivedLines = sanitizePortalInboundReceivingInput(details, currentInbound);
         for (const line of receivedLines) {
+            await assertWarehouseLocationIsolation(client, {
+                accountName: currentInbound.accountName,
+                fulfillmentLocation: currentInbound,
+                location: line.receivedLocation,
+                direction: "INBOUND",
+                purpose: "Receiving location"
+            });
             await ensureReceivingDestinationLocation(client, line.receivedLocation);
             await client.query(
                 `
@@ -24728,7 +26147,7 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
 
 async function saveMobileExecutionConfirmation(client, confirmationType, input = {}, appUser = null, req = null) {
     const normalizedType = normalizeText(confirmationType);
-    if (!["PUT_AWAY", "MOVE", "RECEIVING", "PICK_ARRIVAL", "PICK_EXCEPTION"].includes(normalizedType)) {
+    if (!["PUT_AWAY", "MOVE", "RECEIVING", "PICK_ARRIVAL", "PICK_EXCEPTION", "INVESTIGATION_HOLD"].includes(normalizedType)) {
         throw mobileValidationError(400, "Unsupported mobile confirmation type.", "unsupported_confirmation_type");
     }
     const idempotencyKey = getMobileIdempotencyKey(input);
@@ -24747,7 +26166,8 @@ async function saveMobileExecutionConfirmation(client, confirmationType, input =
         PUT_AWAY: ["PUT_AWAY"],
         MOVE: ["REPLENISHMENT"],
         PICK_ARRIVAL: ["PICK"],
-        PICK_EXCEPTION: ["PICK"]
+        PICK_EXCEPTION: ["PICK"],
+        INVESTIGATION_HOLD: []
     };
     if (sourceType && sourceId) {
         await assertAssignedMobileTaskForWorker(client, req || { appUser }, {
@@ -24939,6 +26359,24 @@ async function approvePortalOrderShortPick(client, orderId, rawInput = {}, appUs
         throw httpError(400, `${line.sku} is currently allocated for ${currentAllocated}. Short-pick approval can reduce the picked quantity, not increase it.`);
     }
 
+    const moveShortageToInvestigation = toBooleanFlag(
+        rawInput.moveShortageToInvestigation
+        ?? rawInput.move_shortage_to_investigation
+        ?? rawInput.moveShortageToInvestigationHold
+        ?? rawInput.move_shortage_to_investigation_hold
+        ?? rawInput.investigateShortage
+        ?? rawInput.investigate_shortage,
+        false
+    );
+    let shortageInvestigationResult = { moves: [], skipped: [], holdLocation: "" };
+    if (moveShortageToInvestigation && approvedQuantity < currentAllocated) {
+        shortageInvestigationResult = await movePortalShortPickShortagesToInvestigationHold(client, {
+            id: orderId,
+            orderCode: orderRow.order_code || makePortalOrderCode(orderId),
+            accountName: orderRow.account_name
+        }, allocations, approvedQuantity, { appUser });
+    }
+
     let remaining = approvedQuantity;
     for (const allocation of allocations) {
         const existingQuantity = Number(allocation.allocated_quantity) || 0;
@@ -25032,7 +26470,13 @@ async function approvePortalOrderShortPick(client, orderId, rawInput = {}, appUs
                     previousAllocatedQuantity: currentAllocated,
                     approvedBy: actor,
                     approvedAt: new Date().toISOString(),
-                    note
+                    note,
+                    moveShortageToInvestigation,
+                    shortageInvestigationHold: {
+                        holdLocation: shortageInvestigationResult.holdLocation || "",
+                        movedQuantity: shortageInvestigationResult.moves.reduce((sum, move) => sum + (Number(move.quantity) || 0), 0),
+                        skippedQuantity: shortageInvestigationResult.skipped.reduce((sum, skip) => sum + (Number(skip.quantity) || 0), 0)
+                    }
                 }
             })
         ]
@@ -25045,6 +26489,8 @@ async function approvePortalOrderShortPick(client, orderId, rawInput = {}, appUs
             updatedOrder.accountName,
             `${line.sku}: ${currentAllocated} -> ${approvedQuantity}`,
             location ? `Location ${location}` : "",
+            shortageInvestigationResult.moves.length ? `Investigation hold moved ${shortageInvestigationResult.moves.map((move) => `${move.sku} ${move.quantity}`).join(", ")}` : "",
+            shortageInvestigationResult.skipped.length ? `Investigation hold skipped ${shortageInvestigationResult.skipped.length}` : "",
             note,
             actor
         ].filter(Boolean).join(" | ")
@@ -25056,6 +26502,9 @@ async function approvePortalOrderShortPick(client, orderId, rawInput = {}, appUs
         task: refreshedTask ? mapWarehouseTaskRow(refreshedTask) : null,
         approvedQuantity,
         previousAllocatedQuantity: currentAllocated,
+        shortageInvestigationMoves: shortageInvestigationResult.moves,
+        shortageInvestigationSkipped: shortageInvestigationResult.skipped,
+        shortageInvestigationHoldLocation: shortageInvestigationResult.holdLocation || "",
         confirmation
     };
 }
@@ -25748,6 +27197,207 @@ function buildPortalShipmentQuantityByLineId(order, shipmentLines = []) {
     return quantityByLineId;
 }
 
+async function getInventoryLineActiveCommitmentExcludingOrder(client, inventoryLineId, orderId) {
+    const lineId = toPositiveInt(inventoryLineId);
+    const excludedOrderId = toPositiveInt(orderId);
+    if (!lineId) return 0;
+
+    const result = await client.query(
+        `
+            select coalesce(sum(a.allocated_quantity), 0)::integer as active_quantity
+            from portal_order_allocations a
+            join portal_orders o on o.id = a.order_id
+            where a.inventory_line_id = $1
+              and ($2::bigint is null or a.order_id <> $2)
+              and o.status = any($3::text[])
+        `,
+        [lineId, excludedOrderId || null, ACTIVE_PORTAL_ORDER_STATUSES]
+    );
+    return Number(result.rows[0]?.active_quantity) || 0;
+}
+
+function addAllocationShortageGroup(groups, allocation, { shortageQuantity = 0, keepQuantity = 0 } = {}) {
+    const inventoryLineId = toPositiveInt(allocation?.inventory_line_id);
+    const shortage = Math.max(Number(shortageQuantity) || 0, 0);
+    const keep = Math.max(Number(keepQuantity) || 0, 0);
+    if (!inventoryLineId || (!shortage && !keep)) return;
+
+    const key = String(inventoryLineId);
+    const current = groups.get(key) || {
+        inventoryLineId,
+        sku: normalizeText(allocation?.sku || ""),
+        location: normalizeText(allocation?.location || ""),
+        lotNumber: normalizeText(allocation?.lot_number || ""),
+        expirationDate: normalizeDateOnly(allocation?.expiration_date || ""),
+        trackingLevel: normalizeTrackingLevel(allocation?.tracking_level || "UNIT"),
+        shortageQuantity: 0,
+        keepQuantity: 0
+    };
+    current.shortageQuantity += shortage;
+    current.keepQuantity += keep;
+    groups.set(key, current);
+}
+
+async function moveAllocationShortageGroupsToInvestigationHold(client, order, groups, { appUser = null, reason = "Order shortage accepted", sourceType = "PORTAL_ORDER_SHORTAGE" } = {}) {
+    const orderId = toPositiveInt(order?.id);
+    const orderCode = order?.orderCode || order?.order_code || (orderId ? makePortalOrderCode(orderId) : "portal order");
+    const accountName = normalizeText(order?.accountName || order?.account_name || "");
+    const result = { moves: [], skipped: [], holdLocation: "" };
+    if (!orderId || !accountName || !(groups instanceof Map) || groups.size < 1) return result;
+
+    const fulfillmentLocation = await resolveFulfillmentLocationForWarehouseRule(client, order);
+    const holdLocation = await ensureInvestigationHoldLocation(client, accountName, "", { fulfillmentLocation });
+    result.holdLocation = holdLocation;
+
+    for (const group of groups.values()) {
+        const requestedQuantity = toPositiveInt(group.shortageQuantity);
+        if (!requestedQuantity) continue;
+
+        const inventoryResult = await client.query("select * from inventory_lines where id = $1 limit 1 for update", [group.inventoryLineId]);
+        if (inventoryResult.rowCount !== 1) {
+            result.skipped.push({
+                sku: group.sku,
+                quantity: requestedQuantity,
+                reason: "Allocated inventory line was not found."
+            });
+            continue;
+        }
+
+        const inventoryLine = inventoryResult.rows[0];
+        const sourceLocation = normalizeText(inventoryLine.location || group.location || "");
+        const trackingLevel = normalizeTrackingLevel(inventoryLine.tracking_level || group.trackingLevel || "UNIT");
+        if (sourceLocation === holdLocation) {
+            result.skipped.push({
+                sku: inventoryLine.sku || group.sku,
+                quantity: requestedQuantity,
+                reason: "Stock is already in Investigation Hold."
+            });
+            continue;
+        }
+
+        const currentQuantity = Number(inventoryLine.quantity) || 0;
+        const otherActiveQuantity = await getInventoryLineActiveCommitmentExcludingOrder(client, inventoryLine.id, orderId);
+        const keepQuantity = Math.max(Number(group.keepQuantity) || 0, 0);
+        const safeMoveQuantity = Math.min(requestedQuantity, Math.max(currentQuantity - otherActiveQuantity - keepQuantity, 0));
+        if (safeMoveQuantity <= 0) {
+            result.skipped.push({
+                sku: inventoryLine.sku || group.sku,
+                quantity: requestedQuantity,
+                reason: "No unneeded allocated quantity was safe to move after protecting shipment quantity and other active orders."
+            });
+            continue;
+        }
+
+        await safeTransferInventoryQuantity(client, inventoryLine, {
+            accountName,
+            location: holdLocation,
+            sku: inventoryLine.sku || group.sku,
+            upc: inventoryLine.upc || "",
+            lotNumber: inventoryLine.lot_number || group.lotNumber || "",
+            expirationDate: normalizeDateOnly(inventoryLine.expiration_date || group.expirationDate || ""),
+            trackingLevel
+        }, safeMoveQuantity, {
+            actionLabel: "move shorted stock to investigation hold",
+            transactionType: "TRANSFER",
+            sourceType,
+            sourceId: orderId,
+            appUser,
+            source: "web_admin"
+        });
+
+        result.moves.push({
+            accountName,
+            orderId: String(orderId),
+            orderCode,
+            fromLocation: sourceLocation,
+            toLocation: holdLocation,
+            sku: inventoryLine.sku || group.sku,
+            lotNumber: inventoryLine.lot_number || group.lotNumber || "",
+            expirationDate: normalizeDateOnly(inventoryLine.expiration_date || group.expirationDate || ""),
+            quantity: safeMoveQuantity,
+            trackingLevel
+        });
+        if (safeMoveQuantity < requestedQuantity) {
+            result.skipped.push({
+                sku: inventoryLine.sku || group.sku,
+                quantity: requestedQuantity - safeMoveQuantity,
+                reason: "Only part of the short quantity was safe to move."
+            });
+        }
+    }
+
+    if (result.moves.length || result.skipped.length) {
+        const actor = appUser?.full_name || appUser?.email || "Warehouse";
+        await insertActivity(
+            client,
+            "inventory",
+            `Investigation hold reviewed for shorted order ${orderCode}`,
+            [
+                accountName,
+                reason,
+                result.moves.length ? `Moved ${result.moves.map((move) => `${move.sku} ${formatTrackedQuantity(move.quantity, move.trackingLevel)} ${move.fromLocation}->${move.toLocation}`).join(", ")}` : "",
+                result.skipped.length ? `Skipped ${result.skipped.map((skip) => `${skip.sku || "SKU"} ${skip.quantity}: ${skip.reason}`).join(", ")}` : "",
+                actor
+            ].filter(Boolean).join(" | ")
+        );
+    }
+
+    return result;
+}
+
+async function movePortalShipmentShortagesToInvestigationHold(client, order, shipmentLines = [], { appUser = null } = {}) {
+    const shipmentQuantityByLineId = buildPortalShipmentQuantityByLineId(order, shipmentLines);
+    const allocationResult = await client.query(
+        `
+            select *
+            from portal_order_allocations
+            where order_id = $1
+            order by order_line_id asc, id asc
+            for update
+        `,
+        [order.id]
+    );
+    const groups = new Map();
+    const remainingByLineId = new Map(shipmentQuantityByLineId);
+    for (const allocation of allocationResult.rows) {
+        const allocatedQuantity = Number(allocation.allocated_quantity) || 0;
+        const lineId = String(allocation.order_line_id || "");
+        const remainingForLine = remainingByLineId.has(lineId)
+            ? Number(remainingByLineId.get(lineId)) || 0
+            : allocatedQuantity;
+        const requiredQuantity = Math.min(allocatedQuantity, Math.max(remainingForLine, 0));
+        remainingByLineId.set(lineId, Math.max(remainingForLine - requiredQuantity, 0));
+        addAllocationShortageGroup(groups, allocation, {
+            shortageQuantity: allocatedQuantity - requiredQuantity,
+            keepQuantity: requiredQuantity
+        });
+    }
+    return moveAllocationShortageGroupsToInvestigationHold(client, order, groups, {
+        appUser,
+        reason: "Shipment accepted with a short quantity.",
+        sourceType: "PORTAL_ORDER_SHIPMENT_SHORT"
+    });
+}
+
+async function movePortalShortPickShortagesToInvestigationHold(client, order, allocations = [], approvedQuantity = 0, { appUser = null } = {}) {
+    const groups = new Map();
+    let remainingApproved = Math.max(Number(approvedQuantity) || 0, 0);
+    for (const allocation of allocations) {
+        const allocatedQuantity = Number(allocation.allocated_quantity) || 0;
+        const keepQuantity = Math.min(allocatedQuantity, remainingApproved);
+        remainingApproved = Math.max(remainingApproved - keepQuantity, 0);
+        addAllocationShortageGroup(groups, allocation, {
+            shortageQuantity: allocatedQuantity - keepQuantity,
+            keepQuantity
+        });
+    }
+    return moveAllocationShortageGroupsToInvestigationHold(client, order, groups, {
+        appUser,
+        reason: "Short pick approved with reduced quantity.",
+        sourceType: "PORTAL_ORDER_PICK_SHORT"
+    });
+}
+
 async function consumePortalOrderInventory(client, order, { shipmentLines = [], ...ledgerOptions } = {}) {
     const shipmentQuantityByLineId = buildPortalShipmentQuantityByLineId(order, shipmentLines);
     const orderLineById = new Map((Array.isArray(order?.lines) ? order.lines : []).map((line) => [String(line.id), line]));
@@ -25912,7 +27562,13 @@ async function assertPortalInboundSkuAllowed(client, accountName, sku) {
     }
 }
 
-function mapPortalInbounds(inboundRows, lineRows, documentRows = [], downloadPathPrefix = "/api/admin/portal-inbound-documents") {
+function mapPortalInbounds(
+    inboundRows,
+    lineRows,
+    documentRows = [],
+    downloadPathPrefix = "/api/admin/portal-inbound-documents",
+    palletLabelRows = []
+) {
     const linesByInboundId = new Map();
     lineRows.forEach((row) => {
         const key = String(row.inbound_id);
@@ -25925,11 +27581,18 @@ function mapPortalInbounds(inboundRows, lineRows, documentRows = [], downloadPat
         if (!documentsByInboundId.has(key)) documentsByInboundId.set(key, []);
         documentsByInboundId.get(key).push(row);
     });
+    const palletLabelsByInboundId = new Map();
+    palletLabelRows.forEach((row) => {
+        const key = String(row.inbound_id);
+        if (!palletLabelsByInboundId.has(key)) palletLabelsByInboundId.set(key, []);
+        palletLabelsByInboundId.get(key).push(row);
+    });
     return inboundRows.map((row) => mapPortalInboundRow(
         row,
         linesByInboundId.get(String(row.id)) || [],
         documentsByInboundId.get(String(row.id)) || [],
-        downloadPathPrefix
+        downloadPathPrefix,
+        palletLabelsByInboundId.get(String(row.id)) || []
     ));
 }
 
@@ -26122,6 +27785,22 @@ async function savePalletRecord(client, palletInput) {
 async function upsertInventoryLine(client, item, { recordLedger = true, ...ledgerOptions } = {}) {
     const entry = sanitizeInventoryLineInput(item);
     if (!entry) return;
+    const fulfillmentLocationId = ledgerOptions.fulfillmentLocationId || ledgerOptions.fulfillment_location_id;
+    if (fulfillmentLocationId) {
+        await assertWarehouseLocationIsolation(client, {
+            accountName: entry.accountName,
+            fulfillmentLocationId,
+            location: entry.location,
+            direction: ledgerOptions.warehouseDirection || ledgerOptions.direction || "",
+            purpose: "Inventory location"
+        });
+    } else {
+        await assertCompanyLocationScopedForMultiWarehouse(client, {
+            accountName: entry.accountName,
+            location: entry.location,
+            purpose: "Inventory location"
+        });
+    }
 
     const result = await client.query(
         `
@@ -26205,7 +27884,7 @@ async function removeInventoryContribution(client, item) {
 }
 
 async function upsertLocationMaster(client, code, note = "") {
-    const normalizedCode = normalizeText(code);
+    const normalizedCode = assertStructuredLocationCode(code);
     if (!normalizedCode) return;
     const normalizedNote = normalizeFreeText(note);
 
@@ -26245,11 +27924,162 @@ async function ensureReceivingStageLocation(client, code = DEFAULT_RECEIVING_STA
     );
 }
 
+function getWarehouseReceivingStageLocationCode(fulfillmentLocation = null) {
+    const fulfillmentCode = normalizeText(
+        fulfillmentLocation?.fulfillmentLocationCode
+        || fulfillmentLocation?.fulfillment_location_code
+        || fulfillmentLocation?.warehouseCode
+        || fulfillmentLocation?.warehouse_code
+        || fulfillmentLocation?.code
+        || ""
+    );
+    return fulfillmentCode ? `${fulfillmentCode}-${WAREHOUSE_RECEIVING_STAGE_SUFFIX}` : DEFAULT_RECEIVING_STAGE_LOCATION;
+}
+
+function getWarehouseInvestigationHoldLocationCode(fulfillmentLocation = null) {
+    const fulfillmentCode = getFulfillmentLocationCodeForWarehouseRule(fulfillmentLocation);
+    return fulfillmentCode ? `${fulfillmentCode}-${WAREHOUSE_INVESTIGATION_HOLD_SUFFIX}` : "";
+}
+
+function getFulfillmentLocationCodeForWarehouseRule(fulfillmentLocation = null) {
+    return normalizeText(
+        fulfillmentLocation?.fulfillmentLocationCode
+        || fulfillmentLocation?.fulfillment_location_code
+        || fulfillmentLocation?.warehouseCode
+        || fulfillmentLocation?.warehouse_code
+        || fulfillmentLocation?.locationCode
+        || fulfillmentLocation?.location_code
+        || fulfillmentLocation?.code
+        || ""
+    );
+}
+
+function isLocationScopedToFulfillmentWarehouse(location, fulfillmentLocation = null) {
+    const normalizedLocation = normalizeText(location);
+    const fulfillmentCode = getFulfillmentLocationCodeForWarehouseRule(fulfillmentLocation);
+    if (!normalizedLocation || !fulfillmentCode) return true;
+    return normalizedLocation === fulfillmentCode || normalizedLocation.startsWith(`${fulfillmentCode}-`);
+}
+
+async function getCompanyFulfillmentWarehousesForLocationRule(client, accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return [];
+    const result = await client.query(
+        `
+            select
+                fl.id,
+                fl.code,
+                fl.name,
+                fl.partner_name,
+                cfl.allow_inbound,
+                cfl.allow_outbound,
+                cfl.is_primary
+            from company_fulfillment_locations cfl
+            join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id
+            where cfl.account_name = $1
+              and fl.is_active = true
+              and coalesce(fl.code, '') <> ''
+            order by cfl.is_primary desc, fl.code asc
+        `,
+        [normalizedAccount]
+    );
+    return result.rows;
+}
+
+async function companyHasMultipleFulfillmentWarehouses(client, accountName, _options = {}) {
+    const warehouses = await getCompanyFulfillmentWarehousesForLocationRule(client, accountName);
+    return warehouses.length > 1;
+}
+
+async function resolveFulfillmentLocationFromScopedLocation(client, accountName, location) {
+    const normalizedLocation = normalizeText(location);
+    if (!normalizedLocation) return null;
+    const warehouses = await getCompanyFulfillmentWarehousesForLocationRule(client, accountName);
+    return warehouses
+        .sort((left, right) => getFulfillmentLocationCodeForWarehouseRule(right).length - getFulfillmentLocationCodeForWarehouseRule(left).length)
+        .find((warehouse) => isLocationScopedToFulfillmentWarehouse(normalizedLocation, warehouse)) || null;
+}
+
+async function assertCompanyLocationScopedForMultiWarehouse(client, {
+    accountName,
+    location,
+    purpose = "Location"
+} = {}) {
+    const normalizedLocation = normalizeText(location);
+    if (!normalizedLocation) return null;
+    const warehouses = await getCompanyFulfillmentWarehousesForLocationRule(client, accountName);
+    if (warehouses.length <= 1) return warehouses[0] || null;
+    const matchedWarehouse = warehouses.find((warehouse) => isLocationScopedToFulfillmentWarehouse(normalizedLocation, warehouse));
+    if (matchedWarehouse) return matchedWarehouse;
+
+    const warehouseCodes = warehouses.map((warehouse) => getFulfillmentLocationCodeForWarehouseRule(warehouse)).filter(Boolean);
+    const exampleCode = warehouseCodes[0] || "WAREHOUSE";
+    throw httpError(
+        400,
+        `${purpose} ${normalizedLocation} must start with one of this company's warehouse codes: ${warehouseCodes.join(", ")}. Use short structured names such as ${exampleCode}-A01, ${exampleCode}-REC, or ${exampleCode}-INV.`
+    );
+}
+
+async function resolveFulfillmentLocationForWarehouseRule(client, input = {}) {
+    const locationId = toPositiveInt(input?.fulfillmentLocationId || input?.fulfillment_location_id || input?.warehouseId || input?.warehouse_id);
+    const locationCode = getFulfillmentLocationCodeForWarehouseRule(input);
+    if (!locationId && !locationCode) return null;
+    return getFulfillmentLocationByIdOrCode(client, { locationId, locationCode });
+}
+
+async function shouldEnforceWarehouseLocationIsolation(client, accountName, fulfillmentLocation = null, { direction = "" } = {}) {
+    const fulfillmentCode = getFulfillmentLocationCodeForWarehouseRule(fulfillmentLocation);
+    if (!fulfillmentCode) return false;
+    return companyHasMultipleFulfillmentWarehouses(client, accountName, { direction });
+}
+
+async function assertWarehouseLocationIsolation(client, {
+    accountName,
+    fulfillmentLocation = null,
+    fulfillmentLocationId = null,
+    location,
+    direction = "",
+    purpose = "location"
+} = {}) {
+    const normalizedLocation = normalizeText(location);
+    if (!normalizedLocation) return null;
+    const warehouse = fulfillmentLocation || await resolveFulfillmentLocationForWarehouseRule(client, { fulfillmentLocationId });
+    if (!warehouse) {
+        if (await companyHasMultipleFulfillmentWarehouses(client, accountName)) {
+            throw httpError(400, `${purpose} ${normalizedLocation} requires a selected warehouse for multi-warehouse company ${normalizeText(accountName)}.`);
+        }
+        return null;
+    }
+    const enforce = await shouldEnforceWarehouseLocationIsolation(client, accountName, warehouse, { direction });
+    if (!enforce || isLocationScopedToFulfillmentWarehouse(normalizedLocation, warehouse)) return warehouse;
+
+    const fulfillmentCode = getFulfillmentLocationCodeForWarehouseRule(warehouse);
+    throw httpError(
+        400,
+        `${purpose} ${normalizedLocation} cannot be used for warehouse ${fulfillmentCode}. Warehouse locations must not be shared; use a ${fulfillmentCode}- prefixed location.`
+    );
+}
+
+async function getWarehouseLocationFilterPrefix(client, accountName, fulfillmentLocation = null, { direction = "" } = {}) {
+    const fulfillmentCode = getFulfillmentLocationCodeForWarehouseRule(fulfillmentLocation);
+    if (!fulfillmentCode) {
+        if (await companyHasMultipleFulfillmentWarehouses(client, accountName)) {
+            throw httpError(400, `Choose a warehouse before using inventory for multi-warehouse company ${normalizeText(accountName)}.`);
+        }
+        return "";
+    }
+    const enforce = await shouldEnforceWarehouseLocationIsolation(client, accountName, fulfillmentLocation, { direction });
+    if (!enforce) return "";
+    return fulfillmentCode ? `${fulfillmentCode}-` : "";
+}
+
 function isReceivingStageLocationCode(code) {
     const normalizedCode = normalizeText(code) || DEFAULT_RECEIVING_STAGE_LOCATION;
     return normalizedCode === DEFAULT_RECEIVING_STAGE_LOCATION
         || normalizedCode === "RECEIVING"
+        || normalizedCode === WAREHOUSE_RECEIVING_STAGE_SUFFIX
         || normalizedCode === "RECEIVING-STAGE"
+        || normalizedCode.endsWith(`-${WAREHOUSE_RECEIVING_STAGE_SUFFIX}`)
         || normalizedCode.endsWith("-RECEIVING-STAGE");
 }
 
@@ -26283,6 +28113,60 @@ async function ensureReceivingDestinationLocation(client, code = DEFAULT_RECEIVI
         `,
         [normalizedCode]
     );
+}
+
+function buildInvestigationHoldLocationCode(accountName) {
+    const normalizedAccount = normalizeText(accountName);
+    let base = normalizedAccount.replace(/\s+BY\s+.+$/u, "");
+    base = base
+        .replace(/&/g, " AND ")
+        .replace(/\b(INC|INCORPORATED|LTD|LIMITED|LLC|CORP|CORPORATION|COMPANY|CO)\b\.?/g, "")
+        .replace(/[^A-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    if (!base) base = "COMPANY";
+    const suffix = "-INVESTIGATION";
+    const maxBaseLength = MAX_LOCATION_CODE_LENGTH - suffix.length;
+    return `${base.slice(0, maxBaseLength).replace(/-+$/g, "")}${suffix}`;
+}
+
+async function ensureInvestigationHoldLocation(client, accountName, requestedLocation = "", {
+    fulfillmentLocation = null,
+    fulfillmentLocationId = null,
+    sourceLocation = ""
+} = {}) {
+    const warehouse = fulfillmentLocation
+        || await resolveFulfillmentLocationForWarehouseRule(client, { fulfillmentLocationId })
+        || await resolveFulfillmentLocationFromScopedLocation(client, accountName, sourceLocation);
+    const holdLocation = normalizeText(requestedLocation)
+        || getWarehouseInvestigationHoldLocationCode(warehouse)
+        || buildInvestigationHoldLocationCode(accountName);
+    await assertLocationCompatibleForOwner(client, accountName, holdLocation);
+    if (warehouse) {
+        await assertWarehouseLocationIsolation(client, {
+            accountName,
+            fulfillmentLocation: warehouse,
+            location: holdLocation,
+            direction: "",
+            purpose: "Investigation hold location"
+        });
+    }
+    await upsertLocationMaster(client, holdLocation, "Investigation hold - not pickable for released orders.");
+    await client.query(
+        `
+            update bin_locations
+            set
+                location_type = 'QA_HOLD',
+                is_pickable = false,
+                note = case
+                    when btrim(coalesce(note, '')) = '' then 'Investigation hold - not pickable for released orders.'
+                    else note
+                end,
+                updated_at = now()
+            where code = $1
+        `,
+        [holdLocation]
+    );
+    return holdLocation;
 }
 
 async function upsertOwnerMaster(client, ownerInput, legacyNote = "") {
@@ -27260,6 +29144,14 @@ async function setInventoryQuantity(client, lineId, quantity, { actionLabel = "s
         return null;
     }
 
+    if (beforeLine && normalizedQuantity > (Number(beforeLine.quantity) || 0)) {
+        await assertCompanyLocationScopedForMultiWarehouse(client, {
+            accountName: beforeLine.account_name,
+            location: beforeLine.location,
+            purpose: "Inventory location"
+        });
+    }
+
     const result = await client.query(
         "update inventory_lines set quantity = $1, updated_at = now() where id = $2 returning *",
         [normalizedQuantity, normalizedLineId]
@@ -27327,6 +29219,23 @@ async function safeDeductInventoryLineQuantity(client, lineOrId, quantity, { act
 }
 
 async function safeTransferInventoryQuantity(client, sourceLine, destinationItem, quantity, { actionLabel = "transfer inventory", ...ledgerOptions } = {}) {
+    const fulfillmentLocationId = ledgerOptions.fulfillmentLocationId || ledgerOptions.fulfillment_location_id;
+    if (fulfillmentLocationId) {
+        await assertWarehouseLocationIsolation(client, {
+            accountName: sourceLine?.account_name || sourceLine?.accountName || destinationItem?.accountName || destinationItem?.account_name,
+            fulfillmentLocationId,
+            location: sourceLine?.location,
+            direction: "",
+            purpose: "Source location"
+        });
+        await assertWarehouseLocationIsolation(client, {
+            accountName: destinationItem?.accountName || destinationItem?.account_name || sourceLine?.account_name || sourceLine?.accountName,
+            fulfillmentLocationId,
+            location: destinationItem?.location,
+            direction: "",
+            purpose: "Destination location"
+        });
+    }
     const deduction = await safeDeductInventoryLineQuantity(client, sourceLine, quantity, {
         actionLabel,
         transactionType: ledgerOptions.transactionType || "TRANSFER",
@@ -27422,6 +29331,158 @@ async function assertInventoryLineCanChange(client, line, { nextQuantity = Numbe
     }
 
     return commitment;
+}
+
+async function moveInventoryToInvestigationHold(client, input = {}, appUser = null, req = null) {
+    const idempotencyKey = getMobileIdempotencyKey(input);
+    if (!idempotencyKey) {
+        throw mobileValidationError(400, "A mobile confirmation idempotency key is required.", "missing_idempotency_key");
+    }
+
+    const existing = await client.query("select * from mobile_execution_confirmations where idempotency_key = $1 limit 1", [idempotencyKey]);
+    if (existing.rowCount === 1) {
+        const confirmation = mapMobileExecutionConfirmationRow(existing.rows[0]);
+        if (confirmation.accountName) {
+            await assertAppUserCompanyAccess(client, appUser, confirmation.accountName);
+        }
+        return {
+            duplicate: true,
+            holdLocation: confirmation.toLocation || confirmation.location,
+            confirmation
+        };
+    }
+
+    const accountName = normalizeText(input.accountName || input.account_name || input.company || input.customer || input.owner || "");
+    const fromLocation = normalizeText(input.fromLocation || input.from_location || input.location || "");
+    const skuOrUpc = normalizeText(input.skuOrUpc || input.sku_or_upc || input.sku || input.upc || "");
+    const quantity = toPositiveInt(input.quantity || input.qty || input.movedQuantity || input.moved_quantity);
+    const lotNumber = normalizeText(input.lot || input.lotNumber || input.lot_number || "");
+    const expirationDate = normalizeDateOnly(input.expiry || input.expirationDate || input.expiration_date || "");
+    const note = normalizeFreeText(input.note || input.reason || input.comments || "");
+
+    if (!accountName || !fromLocation || !skuOrUpc || !quantity) {
+        throw mobileValidationError(400, "Company, source location, SKU/UPC, and quantity are required.", "missing_investigation_hold_fields");
+    }
+
+    await assertAppUserCompanyAccess(client, appUser, accountName);
+    const sourceFulfillmentLocation = await resolveFulfillmentLocationFromScopedLocation(client, accountName, fromLocation);
+    const holdLocation = await ensureInvestigationHoldLocation(client, accountName, input.holdLocation || input.hold_location || input.toLocation || input.to_location || "", {
+        fulfillmentLocation: sourceFulfillmentLocation,
+        sourceLocation: fromLocation
+    });
+    if (fromLocation === holdLocation) {
+        throw mobileValidationError(400, "That stock is already in the investigation hold location.", "source_is_investigation_hold");
+    }
+
+    const line = await findInventoryLine(client, accountName, fromLocation, skuOrUpc, { lotNumber, expirationDate, lock: true });
+    if (!line) {
+        throw mobileValidationError(404, "No exact inventory line matched that company, source location, and SKU/UPC.", "inventory_line_not_found");
+    }
+
+    const trackingLevel = normalizeTrackingLevel(line.tracking_level || "UNIT");
+    const commitment = await getInventoryLineCommitment(client, line.id);
+    const onHandQuantity = Number(line.quantity) || 0;
+    const availableQuantity = Math.max(onHandQuantity - commitment.activeQuantity, 0);
+    if (quantity > availableQuantity) {
+        throw mobileValidationError(
+            409,
+            `Cannot move ${formatTrackedQuantity(quantity, trackingLevel)} to investigation hold because only ${formatTrackedQuantity(availableQuantity, trackingLevel)} are available.`,
+            "quantity_exceeds_available"
+        );
+    }
+
+    const remaining = onHandQuantity - quantity;
+    await assertInventoryLineCanChange(client, line, {
+        nextQuantity: remaining,
+        actionLabel: "move this stock to investigation hold"
+    });
+
+    await safeTransferInventoryQuantity(client, line, {
+        accountName,
+        location: holdLocation,
+        sku: line.sku,
+        upc: line.upc,
+        lotNumber: line.lot_number || "",
+        expirationDate: normalizeDateOnly(line.expiration_date || ""),
+        trackingLevel
+    }, quantity, {
+        actionLabel: "move this stock to investigation hold",
+        transactionType: "TRANSFER",
+        sourceType: "INVESTIGATION_HOLD",
+        sourceId: idempotencyKey,
+        ...inventoryLedgerContextFromRequest(req || { body: input, appUser }, {
+            appUser,
+            deviceId: getMobileDeviceId(input) || req?.headers?.["x-wms365-device-id"] || "",
+            source: getMobileSource(input)
+        })
+    });
+
+    await upsertLocationMaster(client, fromLocation);
+    await upsertItemMaster(client, {
+        accountName,
+        sku: line.sku,
+        upc: line.upc,
+        trackingLevel,
+        lotTracked: !!line.lot_number,
+        expirationTracked: !!normalizeDateOnly(line.expiration_date || "")
+    });
+
+    const confirmationResult = await client.query(
+        `
+            insert into mobile_execution_confirmations (
+                confirmation_type, source_type, source_id, worker_id, device_id, account_name,
+                location, from_location, to_location, sku, lot, expiry, quantity,
+                sync_status, idempotency_key, source, payload, timestamp, created_at, updated_at
+            )
+            values ('INVESTIGATION_HOLD', 'INVENTORY_LINE', $1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, 'SYNCED', $11, $12, $13::jsonb, now(), now(), now())
+            returning *
+        `,
+        [
+            toPositiveInt(line.id) || null,
+            toPositiveInt(appUser?.id || appUser?.app_user_id) || null,
+            getMobileDeviceId(input),
+            accountName,
+            fromLocation,
+            holdLocation,
+            line.sku,
+            line.lot_number || "",
+            normalizeDateOnly(line.expiration_date || ""),
+            quantity,
+            idempotencyKey,
+            getMobileSource(input),
+            JSON.stringify({
+                ...input,
+                accountName,
+                fromLocation,
+                toLocation: holdLocation,
+                sku: line.sku,
+                quantity,
+                note
+            })
+        ]
+    );
+
+    await insertActivity(
+        client,
+        "inventory",
+        `Moved ${formatTrackedQuantity(quantity, trackingLevel)} of ${accountName} / ${line.sku} to investigation hold`,
+        [fromLocation, holdLocation, note, appUser?.email || appUser?.full_name || "mobile worker"].filter(Boolean).join(" | ")
+    );
+
+    return {
+        duplicate: false,
+        holdLocation,
+        moved: {
+            accountName,
+            fromLocation,
+            toLocation: holdLocation,
+            sku: line.sku,
+            quantity,
+            trackingLevel,
+            remainingQuantity: remaining
+        },
+        confirmation: mapMobileExecutionConfirmationRow(confirmationResult.rows[0])
+    };
 }
 
 function buildInventoryIdentityKey(entry) {
@@ -28038,6 +30099,8 @@ async function findInventoryLine(client, accountName, location, skuOrUpc, { lotN
 }
 
 async function assertLocationCompatibleForOwner(client, accountName, location) {
+    const normalizedLocation = normalizeText(location);
+    if (!normalizedLocation) return;
     const conflicts = await client.query(
         `
             select distinct account_name
@@ -28046,16 +30109,22 @@ async function assertLocationCompatibleForOwner(client, accountName, location) {
             order by account_name asc
             limit 5
         `,
-        [location, accountName]
+        [normalizedLocation, accountName]
     );
 
     if (conflicts.rowCount > 0) {
         const conflictNames = conflicts.rows.map((row) => row.account_name).filter(Boolean);
         throw httpError(
             400,
-            `Location ${location} already contains another company${conflictNames.length ? `: ${conflictNames.join(", ")}` : ""}. Mixed-company locations are not allowed.`
+            `Location ${normalizedLocation} already contains another company${conflictNames.length ? `: ${conflictNames.join(", ")}` : ""}. Mixed-company locations are not allowed.`
         );
     }
+
+    await assertCompanyLocationScopedForMultiWarehouse(client, {
+        accountName,
+        location: normalizedLocation,
+        purpose: "Location"
+    });
 }
 
 function buildItemConversionPlan({ accountName, fromLocation, toLocation, sourceLine, sourceMaster, targetMaster, sourceQuantity }) {
@@ -28185,10 +30254,44 @@ async function getPalletRecordByCode(client, palletCode) {
     return result.rowCount === 1 ? mapPalletRecordRow(result.rows[0]) : null;
 }
 
+async function getPortalInboundPalletLabelByCode(client, palletCode) {
+    const normalizedCode = normalizeText(palletCode);
+    if (!normalizedCode) return null;
+    const result = await client.query(
+        `
+            select
+                pl.*,
+                l.line_number,
+                i.inbound_code,
+                i.reference_number,
+                i.fulfillment_location_id,
+                fl.code as fulfillment_location_code,
+                fl.name as fulfillment_location_name,
+                fl.partner_name as fulfillment_partner_name
+            from portal_inbound_pallet_labels pl
+            join portal_inbounds i on i.id = pl.inbound_id
+            left join portal_inbound_lines l on l.id = pl.line_id
+            left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+            where pl.pallet_code = $1
+            limit 1
+        `,
+        [normalizedCode]
+    );
+    return result.rowCount === 1 ? mapPortalInboundPalletLabelRow(result.rows[0]) : null;
+}
+
 async function generatePalletCode(client) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
         const palletCode = `PLT-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-        const existing = await client.query("select 1 from pallet_records where pallet_code = $1 limit 1", [palletCode]);
+        const existing = await client.query(
+            `
+                select 1 from pallet_records where pallet_code = $1
+                union all
+                select 1 from portal_inbound_pallet_labels where pallet_code = $1
+                limit 1
+            `,
+            [palletCode]
+        );
         if (existing.rowCount === 0) {
             return palletCode;
         }
@@ -28359,7 +30462,7 @@ function groupItemMasterInputs(items) {
 }
 
 function sanitizeLocationMasterInput(item) {
-    const code = normalizeText(item?.code ?? item?.location);
+    const code = assertStructuredLocationCode(item?.code ?? item?.location);
     if (!code) return null;
     return {
         code,
@@ -29292,7 +31395,7 @@ function mapWarehouseTaskRow(row) {
 }
 
 function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-order-documents", shipmentLines = [], printSummaries = []) {
-    return {
+    const mappedOrder = {
         id: String(row.id),
         orderCode: row.order_code || makePortalOrderCode(row.id),
         accountName: row.account_name,
@@ -29302,6 +31405,21 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         contactName: row.contact_name || "",
         contactPhone: row.contact_phone || "",
         requestedShipDate: row.requested_ship_date ? normalizeDateOnly(row.requested_ship_date) : "",
+        orderType: normalizePortalOrderType(row.order_type || "RETAIL_WHOLESALE"),
+        orderTypeLabel: portalOrderTypeLabel(row.order_type || "RETAIL_WHOLESALE"),
+        rushApproved: row.rush_approved === true,
+        rushFeeMinimum: Number(row.rush_fee_minimum) || 0,
+        rushApprovedAt: row.rush_approved_at ? new Date(row.rush_approved_at).toISOString() : null,
+        rushApprovedBy: row.rush_approved_by || "",
+        rushExempt: row.rush_exempt === true,
+        rushExemptNote: row.rush_exempt_note || "",
+        rushApprovalRequired: portalOrderRequiresRushApproval({
+            orderType: row.order_type,
+            shipmentMethod: row.shipment_method,
+            requestedShipDate: row.requested_ship_date,
+            rushApproved: row.rush_approved === true,
+            rushExempt: row.rush_exempt === true
+        }),
         orderNotes: row.order_notes || "",
         fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
         fulfillmentLocationCode: row.fulfillment_location_code || "",
@@ -29323,6 +31441,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         shipToPhone: row.ship_to_phone || "",
         confirmedShipDate: row.confirmed_ship_date ? normalizeDateOnly(row.confirmed_ship_date) : "",
         shipmentMethod: normalizePortalShipmentMethod(row.shipment_method || "LTL_FREIGHT"),
+        shipmentMethodLabel: shipmentMethodLabel(row.shipment_method || "LTL_FREIGHT"),
         shippedCarrierName: row.shipped_carrier_name || "",
         shippedTrackingReference: row.shipped_tracking_reference || "",
         shippedConfirmationNote: row.shipped_confirmation_note || "",
@@ -29350,6 +31469,28 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
             .filter((document) => !isPortalOrderReleaseCopyDocument(document))
             .map((document) => mapPortalOrderDocumentRow(document, downloadPathPrefix))
     };
+    mappedOrder.processingTiming = buildPortalOrderProcessingTiming(mappedOrder);
+    mappedOrder.expectedReadyAt = mappedOrder.processingTiming.expectedReadyAt;
+    mappedOrder.expectedReadyDate = mappedOrder.processingTiming.expectedReadyDate;
+    mappedOrder.expectedReadyLabel = mappedOrder.processingTiming.expectedReadyLabel;
+    mappedOrder.expectedReadySummary = mappedOrder.processingTiming.summary;
+    mappedOrder.holidayClosures = mappedOrder.processingTiming.holidayClosures;
+    mappedOrder.rushRequired = mappedOrder.processingTiming.rushRequired;
+    mappedOrder.rushApprovalRequired = mappedOrder.processingTiming.rushRequired;
+    mappedOrder.fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(mappedOrder).map((group) => {
+        const timing = buildPortalOrderProcessingTiming(mappedOrder, { location: group.location });
+        return {
+            key: group.key,
+            location: group.location,
+            totalQuantity: group.totalQuantity,
+            expectedReadyAt: timing.expectedReadyAt,
+            expectedReadyDate: timing.expectedReadyDate,
+            expectedReadyLabel: timing.expectedReadyLabel,
+            holidayWarning: timing.holidayWarning,
+            rushRequired: timing.rushRequired
+        };
+    });
+    return mappedOrder;
 }
 
 function mapPortalOrderPrintSummaryRows(rows = []) {
@@ -29550,7 +31691,33 @@ function mapPortalInboundDocumentRow(row, downloadPathPrefix = "/api/admin/porta
     };
 }
 
-function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-inbound-documents") {
+function mapPortalInboundPalletLabelRow(row) {
+    return {
+        id: String(row.id),
+        inboundId: String(row.inbound_id),
+        inboundCode: row.inbound_code || "",
+        referenceNumber: row.reference_number || "",
+        accountName: row.account_name || "",
+        palletCode: row.pallet_code || "",
+        lineId: row.line_id ? String(row.line_id) : "",
+        lineNumber: Number(row.line_number) || 0,
+        sku: row.sku || "",
+        upc: row.upc || "",
+        description: row.description || "",
+        cases: Number(row.cases_on_pallet) || 0,
+        expectedQuantity: Number(row.expected_quantity) || 0,
+        labelDate: normalizeDateOnly(row.label_date),
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        fulfillmentLocationCode: row.fulfillment_location_code || "",
+        fulfillmentLocationName: row.fulfillment_location_name || "",
+        fulfillmentPartnerName: row.fulfillment_partner_name || "",
+        createdBy: row.created_by || "",
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+    };
+}
+
+function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-inbound-documents", palletLabels = []) {
     return {
         id: Number(row.id),
         inboundCode: row.inbound_code || makePortalInboundCode(row.id),
@@ -29573,7 +31740,8 @@ function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
         lines,
-        documents: documents.map((document) => mapPortalInboundDocumentRow(document, downloadPathPrefix))
+        documents: documents.map((document) => mapPortalInboundDocumentRow(document, downloadPathPrefix)),
+        palletLabels: palletLabels.map(mapPortalInboundPalletLabelRow)
     };
 }
 
@@ -29630,7 +31798,11 @@ function sanitizePortalInboundReceivingInput(payload, inbound) {
         if (sku && !bySku.has(sku)) bySku.set(sku, line);
     });
 
-    const defaultLocation = normalizeText(payload?.receivingLocation || payload?.location || DEFAULT_RECEIVING_STAGE_LOCATION) || DEFAULT_RECEIVING_STAGE_LOCATION;
+    const defaultLocation = normalizeText(
+        payload?.receivingLocation
+        || payload?.location
+        || getWarehouseReceivingStageLocationCode(inbound)
+    ) || DEFAULT_RECEIVING_STAGE_LOCATION;
     return (Array.isArray(inbound?.lines) ? inbound.lines : []).map((line) => {
         const rawLine = byId.get(String(line.id || "")) || bySku.get(normalizeText(line.sku || "")) || {};
         const receivedQuantity = toPositiveInt(rawLine?.receivedQuantity ?? rawLine?.received_quantity ?? rawLine?.quantity ?? line.quantity);
@@ -29671,6 +31843,12 @@ function sanitizePortalOrderInput(order, accountName) {
         contactName: normalizeFreeText(order?.contactName),
         contactPhone: normalizeFreeText(order?.contactPhone),
         requestedShipDate: normalizeDateInput(order?.requestedShipDate || order?.shipDate),
+        orderType: normalizePortalOrderType(order?.orderType || order?.order_type || order?.type),
+        shipmentMethod: normalizePortalShipmentMethod(order?.shipmentMethod || order?.shipment_method || order?.shippingMethod || order?.shipping_method),
+        rushApproved: toBooleanFlag(order?.rushApproved ?? order?.rush_approved ?? order?.rushChargeApproved ?? order?.rush_charge_approved, false),
+        rushApprovedBy: normalizeFreeText(order?.rushApprovedBy || order?.rush_approved_by || order?.approvedBy || ""),
+        rushExempt: toBooleanFlag(order?.rushExempt ?? order?.rush_exempt ?? order?.standardProcessing ?? order?.standard_processing, false),
+        rushExemptNote: normalizeFreeText(order?.rushExemptNote || order?.rush_exempt_note || ""),
         orderNotes: normalizeFreeText(order?.orderNotes || order?.notes),
         shipToName: normalizeFreeText(order?.shipToName),
         shipToAddress1: normalizeFreeText(order?.shipToAddress1),
@@ -29693,6 +31871,15 @@ function sanitizePortalShippingConfirmationInput(payload) {
         ?? payload?.shipment_quantity_confirmed,
         false
     );
+    const moveShortageToInvestigation = toBooleanFlag(
+        payload?.moveShortageToInvestigation
+        ?? payload?.move_shortage_to_investigation
+        ?? payload?.moveShortageToInvestigationHold
+        ?? payload?.move_shortage_to_investigation_hold
+        ?? payload?.investigateShortage
+        ?? payload?.investigate_shortage,
+        false
+    );
     return {
         confirmedShipDate: normalizeDateInput(payload?.confirmedShipDate || payload?.shipDate || payload?.actualShipDate),
         shipmentMethod: normalizePortalShipmentMethod(payload?.shipmentMethod || payload?.shipment_method || payload?.shippingMethod || payload?.shipping_method),
@@ -29707,7 +31894,8 @@ function sanitizePortalShippingConfirmationInput(payload) {
         shippedConfirmationNote: normalizeFreeText(payload?.shippedConfirmationNote || payload?.shippingNote || payload?.note),
         documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : []),
         shippedLines: sanitizePortalShippedLinesInput(Array.isArray(payload?.shippedLines) ? payload.shippedLines : []),
-        packingSlipQuantityConfirmed
+        packingSlipQuantityConfirmed,
+        moveShortageToInvestigation
     };
 }
 
@@ -31357,6 +33545,18 @@ function normalizeText(value) {
     return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 }
 
+function assertStructuredLocationCode(value) {
+    const code = normalizeText(value);
+    if (!code) return "";
+    if (code.length > MAX_LOCATION_CODE_LENGTH) {
+        throw httpError(400, `Location code ${code} is too long. Use ${MAX_LOCATION_CODE_LENGTH} characters or less, such as GW3PL-MISS-A01 or GW3PL-MISS-REC.`);
+    }
+    if (!LOCATION_CODE_PATTERN.test(code) || code.includes("--") || code.endsWith("-")) {
+        throw httpError(400, `Location code ${code} must use uppercase letters, numbers, and hyphens only, such as GW3PL-MISS-A01 or GW3PL-MISS-REC.`);
+    }
+    return code;
+}
+
 function normalizeDateOnly(value) {
     if (!value) return "";
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -32422,6 +34622,9 @@ module.exports = {
     detectSafeUploadMimeType,
     assertSafeUploadContent,
     assertPortalOrderCanReceiveDocuments,
+    isCompanyPaywallStatusAllowed,
+    buildCompanyBillingHoldPayload,
+    createCompanyBillingHoldError,
     sanitizePortalOrderDocumentInput,
     sendSafeUploadedDocument,
     encryptSecret,
@@ -32444,6 +34647,7 @@ module.exports = {
     signShopifyOAuthState,
     verifyShopifyOAuthState,
     buildShopifyOAuthAuthorizeUrl,
+    mapShopifyOrderToPortalDraft,
     buildShopifyInventoryAvailabilityLookup,
     exportShopifyInventoryLevels,
     createIntegrationCredentialRequestToken,
@@ -32462,6 +34666,7 @@ module.exports = {
     mapWarehousePrintJobRow,
     buildPortalOrderPackingSlipPdfAttachment,
     buildPortalOrderPackingSlipPdfAttachments,
+    buildPortalOrderPickTicketLines,
     buildPortalOrderPickTicketPdfAttachment,
     buildPortalOrderPickTicketPdfAttachments,
     buildPortalOrderBatchPickTicketPdfAttachment,
@@ -32480,12 +34685,16 @@ module.exports = {
     buildPortalShipmentEmailHtml,
     buildPortalReleaseEmailText,
     buildPortalReleaseEmailHtml,
+    buildPortalOrderConfirmationEmailText,
+    buildPortalOrderConfirmationEmailHtml,
     normalizePortalOrderPrintDocumentType,
     mapPortalOrderPrintSummaryRows,
     recordPortalOrderPrintEvent,
     sanitizePortalShippingConfirmationInput,
     assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
+    buildPortalOrderProcessingTiming,
+    portalOrderRequiresRushApproval,
     validatePortalShipmentLineConfirmations,
     buildPortalShipmentQuantityWarnings,
     resolvePortalPermissions,
@@ -32501,6 +34710,11 @@ module.exports = {
     setInventoryQuantity,
     safeDeductInventoryLineQuantity,
     safeTransferInventoryQuantity,
+    buildInvestigationHoldLocationCode,
+    ensureInvestigationHoldLocation,
+    moveInventoryToInvestigationHold,
+    getWarehouseReceivingStageLocationCode,
+    isLocationScopedToFulfillmentWarehouse,
     recordInventoryTransaction,
     getInventoryTransactionHistory,
     savePickConfirmation,

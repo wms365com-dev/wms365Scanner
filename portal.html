@@ -258,6 +258,44 @@
             font-size: 0.82rem;
             color: #7b8fa2;
         }
+        .billing-hold-card {
+            width: min(680px, 100%);
+            gap: 1rem;
+            border-color: #f4b9b9;
+            background: #fffafa;
+        }
+        .billing-hold-badge {
+            display: inline-flex;
+            align-items: center;
+            width: fit-content;
+            padding: 0.35rem 0.55rem;
+            border-radius: 999px;
+            border: 1px solid #f0b8b8;
+            background: #fff1f1;
+            color: #9a2f2f;
+            font-size: 0.75rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+        .billing-hold-reason {
+            display: none;
+            padding: 0.75rem 0.85rem;
+            border: 1px solid #f0d7a1;
+            border-radius: 8px;
+            background: #fff8e6;
+            color: #694300;
+            font-size: 0.88rem;
+            font-weight: 650;
+            line-height: 1.45;
+        }
+        .billing-hold-reason.show {
+            display: block;
+        }
+        .billing-hold-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem;
+        }
         body.portal-auth-only .shell {
             width: min(980px, 100%);
         }
@@ -580,6 +618,39 @@
             font-weight: 700;
             text-decoration: none;
         }
+        .inbound-pallet-labels {
+            display: grid;
+            gap: 0.75rem;
+            margin-top: 0.85rem;
+            padding: 0.85rem;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #ffffff;
+        }
+        .inbound-pallet-label-form {
+            display: grid;
+            gap: 0.65rem;
+            grid-template-columns: minmax(180px, 1fr) 140px 120px auto;
+            align-items: end;
+        }
+        .inbound-pallet-label-list {
+            display: grid;
+            gap: 0.45rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+        .inbound-pallet-label-chip {
+            display: grid;
+            gap: 0.3rem;
+            padding: 0.65rem;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #f8fbfd;
+            min-width: 0;
+        }
+        .inbound-pallet-label-chip strong,
+        .inbound-pallet-label-chip span {
+            overflow-wrap: anywhere;
+        }
         .document-selection-list {
             display: grid;
             gap: 0.35rem;
@@ -809,7 +880,7 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid { grid-template-columns: 1fr; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid, .inbound-pallet-label-form { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head, .portal-panel-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -942,6 +1013,24 @@
                     <div class="auth-build" id="portalLoginBuildLabel">Deployment: loading...</div>
                 </article>
             </div>
+        </main>
+
+        <main id="billingHoldView" class="auth-wrap hidden" aria-live="polite">
+            <article class="auth-panel billing-hold-card">
+                <div class="billing-hold-badge">Access Hold</div>
+                <div class="card-head">
+                    <h2 id="billingHoldTitle">Account access is temporarily on hold</h2>
+                    <p class="lead" id="billingHoldMessage">This company portal is temporarily limited. Please contact WMS365 Billing or Sales to restore access.</p>
+                </div>
+                <div class="billing-hold-reason" id="billingHoldReason"></div>
+                <div class="billing-hold-actions">
+                    <a class="auth-link" id="billingHoldBillingLink" href="mailto:support@wms365.co">Contact Billing</a>
+                    <a class="auth-link" id="billingHoldSalesLink" href="mailto:support@wms365.co">Contact Sales</a>
+                    <button class="auth-link" id="billingHoldLogoutBtn" type="button">Log Out</button>
+                </div>
+                <p class="small">Password recovery and customer portal actions are disabled while this hold is active.</p>
+                <div class="auth-build" id="portalHoldBuildLabel">Deployment: loading...</div>
+            </article>
         </main>
 
         <main id="portalView" class="hidden">
@@ -1239,6 +1328,32 @@
                     <label class="field"><span>PO #</span><input id="orderPoNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Shipping Reference</span><input id="orderShippingReference" type="text" placeholder="Required"></label>
                     <label class="field"><span>Requested Ship Date</span><input id="orderRequestedShipDate" type="date"></label>
+                    <label class="field">
+                        <span>Order Type</span>
+                        <select id="orderType">
+                            <option value="B2C_ONLINE">Online order</option>
+                            <option value="RETAIL_WHOLESALE" selected>Non-online order</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Shipment Method</span>
+                        <select id="orderShipmentMethod">
+                            <option value="PARCEL">Parcel</option>
+                            <option value="LTL_FREIGHT" selected>LTL freight</option>
+                            <option value="FTL_FREIGHT">FTL freight</option>
+                            <option value="CUSTOMER_PICKUP">Customer pickup</option>
+                        </select>
+                    </label>
+                    <div class="helper span-2" id="orderRushNotice"></div>
+                    <div class="helper span-2" id="orderProcessingNotice"></div>
+                    <label class="field span-2 hidden" id="orderProcessingChoiceField">
+                        <span>Processing Choice</span>
+                        <select id="orderProcessingChoice">
+                            <option value="STANDARD" selected>Standard processing</option>
+                            <option value="RUSH">RUSH processing approved</option>
+                        </select>
+                        <span class="meta">Use RUSH only when expedited handling is approved. For rush charge questions, contact info@greywolf3pl.com.</span>
+                    </label>
                     <label class="field"><span>Contact Name</span><input id="orderContactName" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Tel</span><input id="orderContactPhone" type="text" placeholder="Required"></label>
                     <label class="field span-2"><span>Ship To Company / Receiver</span><input id="orderShipToName" type="text" list="portalShipToAddressList" placeholder="Type to find a saved ship-to"></label>
@@ -1423,6 +1538,7 @@
                         <div class="meta" id="portalReleaseReference">Reference: Not set</div>
                         <div class="meta" id="portalReleaseShipTo">Ship to: Not set</div>
                         <div class="meta" id="portalReleaseWarehouse">Ship from: Not selected</div>
+                        <div class="meta" id="portalReleaseExpectedReady">Expected ready: Not calculated</div>
                     </div>
                     <form id="portalReleaseForm" class="form-grid" autocomplete="off">
                         <label class="toggle-card span-2">
@@ -1444,6 +1560,13 @@
                             <span class="toggle-copy">
                                 <strong>Shipping label is attached</strong>
                                 <span class="meta">Check this only after the label has been uploaded under Shipping Labels / Order Documents.</span>
+                            </span>
+                        </label>
+                        <label class="toggle-card span-2 hidden" id="portalReleaseRushApprovalCard">
+                            <input id="portalReleaseRushApproved" type="checkbox">
+                            <span class="toggle-copy">
+                                <strong>Approve RUSH processing</strong>
+                                <span class="meta" id="portalReleaseRushApprovalText">Standard non-parcel processing requires a minimum of 48 hours / 2 business days, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. Leave unchecked for Standard processing. For rush charge questions, contact info@greywolf3pl.com.</span>
                             </span>
                         </label>
                         <label class="field span-2">
@@ -1540,8 +1663,25 @@
         });
         const DEFAULT_KITTING_COMPONENT_ROWS = 4;
         const MAX_KITTING_COMPONENT_ROWS = 12;
+        const PORTAL_ORDER_TYPES = Object.freeze({
+            B2C_ONLINE: "B2C_ONLINE",
+            RETAIL_WHOLESALE: "RETAIL_WHOLESALE",
+            FREIGHT_RETAIL: "FREIGHT_RETAIL"
+        });
+        const PORTAL_ORDER_SHIPMENT_METHODS = Object.freeze({
+            PARCEL: "PARCEL",
+            LTL_FREIGHT: "LTL_FREIGHT",
+            FTL_FREIGHT: "FTL_FREIGHT",
+            CUSTOMER_PICKUP: "CUSTOMER_PICKUP"
+        });
+        const PORTAL_RUSH_FEE_CONTACT_EMAIL = "info@greywolf3pl.com";
+        const PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR_EASTERN = 9;
+        const PORTAL_BUSINESS_START_HOUR_EASTERN = 8;
+        const PORTAL_BUSINESS_END_HOUR_EASTERN = 16;
+        const PORTAL_B2B_MINIMUM_BUSINESS_DAYS = 2;
         const portalState = {
             account: null,
+            billingHold: null,
             inventory: [],
             catalogItems: [],
             orders: [],
@@ -1566,7 +1706,9 @@
             orderDraftDocumentFiles: [],
             orderUploadDocumentFiles: {},
             inboundUploadDocumentFiles: {},
-            pendingReleaseHandler: null
+            pendingReleaseHandler: null,
+            pendingReleaseRushApprovalRequired: false,
+            pendingReleaseRushApprovalMessage: ""
         };
 
         const ui = {
@@ -1574,11 +1716,19 @@
             accountChip: document.getElementById("accountChip"),
             portalBuildLabel: document.getElementById("portalBuildLabel"),
             portalLoginBuildLabel: document.getElementById("portalLoginBuildLabel"),
+            portalHoldBuildLabel: document.getElementById("portalHoldBuildLabel"),
             portalTopbarActions: document.getElementById("portalTopbarActions"),
             portalWarehouseSwitcher: document.getElementById("portalWarehouseSwitcher"),
             portalWarehouseSelect: document.getElementById("portalWarehouseSelect"),
             portalWarehouseCurrent: document.getElementById("portalWarehouseCurrent"),
             loginView: document.getElementById("loginView"),
+            billingHoldView: document.getElementById("billingHoldView"),
+            billingHoldTitle: document.getElementById("billingHoldTitle"),
+            billingHoldMessage: document.getElementById("billingHoldMessage"),
+            billingHoldReason: document.getElementById("billingHoldReason"),
+            billingHoldBillingLink: document.getElementById("billingHoldBillingLink"),
+            billingHoldSalesLink: document.getElementById("billingHoldSalesLink"),
+            billingHoldLogoutBtn: document.getElementById("billingHoldLogoutBtn"),
             portalView: document.getElementById("portalView"),
             loginForm: document.getElementById("loginForm"),
             loginEmail: document.getElementById("loginEmail"),
@@ -1673,6 +1823,12 @@
             orderPoNumber: document.getElementById("orderPoNumber"),
             orderShippingReference: document.getElementById("orderShippingReference"),
             orderRequestedShipDate: document.getElementById("orderRequestedShipDate"),
+            orderType: document.getElementById("orderType"),
+            orderShipmentMethod: document.getElementById("orderShipmentMethod"),
+            orderRushNotice: document.getElementById("orderRushNotice"),
+            orderProcessingNotice: document.getElementById("orderProcessingNotice"),
+            orderProcessingChoiceField: document.getElementById("orderProcessingChoiceField"),
+            orderProcessingChoice: document.getElementById("orderProcessingChoice"),
             orderContactName: document.getElementById("orderContactName"),
             orderContactPhone: document.getElementById("orderContactPhone"),
             orderShipToName: document.getElementById("orderShipToName"),
@@ -1705,9 +1861,13 @@
             portalReleaseReference: document.getElementById("portalReleaseReference"),
             portalReleaseShipTo: document.getElementById("portalReleaseShipTo"),
             portalReleaseWarehouse: document.getElementById("portalReleaseWarehouse"),
+            portalReleaseExpectedReady: document.getElementById("portalReleaseExpectedReady"),
             portalReleaseWarehouseConfirmed: document.getElementById("portalReleaseWarehouseConfirmed"),
             portalReleaseEmailWarehouse: document.getElementById("portalReleaseEmailWarehouse"),
             portalReleaseLabelAttached: document.getElementById("portalReleaseLabelAttached"),
+            portalReleaseRushApprovalCard: document.getElementById("portalReleaseRushApprovalCard"),
+            portalReleaseRushApproved: document.getElementById("portalReleaseRushApproved"),
+            portalReleaseRushApprovalText: document.getElementById("portalReleaseRushApprovalText"),
             portalReleaseCcEmails: document.getElementById("portalReleaseCcEmails"),
             portalReleaseSubmitBtn: document.getElementById("portalReleaseSubmitBtn"),
             portalReleaseMessage: document.getElementById("portalReleaseMessage"),
@@ -1973,6 +2133,10 @@
             ui.portalWarehouseSelect?.addEventListener("change", () => setActiveFulfillmentLocation(ui.portalWarehouseSelect.value, { announce: true }));
             ui.orderDocumentFiles?.addEventListener("change", () => onDraftOrderDocumentSelection(ui.orderDocumentFiles));
             ui.orderPendingDocuments?.addEventListener("click", onDraftOrderDocumentSelectionClick);
+            [ui.orderType, ui.orderShipmentMethod, ui.orderRequestedShipDate, ui.orderProcessingChoice].forEach((input) => {
+                input?.addEventListener("change", updateOrderRushNotice);
+                input?.addEventListener("input", updateOrderRushNotice);
+            });
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
@@ -1988,6 +2152,7 @@
             ui.portalFeedbackForm.addEventListener("submit", submitPortalFeedback);
             ui.documentPreviewCloseButtons.forEach((button) => button.addEventListener("click", closeDocumentPreviewModal));
             ui.logoutBtn.addEventListener("click", logout);
+            ui.billingHoldLogoutBtn?.addEventListener("click", logout);
             ui.orderPanel.addEventListener("click", onDocumentPreviewClick);
             ui.ordersList.addEventListener("click", onOrdersListClick);
             ui.ordersList.addEventListener("change", onOrderDocumentSelectionChange);
@@ -2032,6 +2197,7 @@
             const safeLabel = String(label || "Build unavailable").trim() || "Build unavailable";
             if (ui.portalBuildLabel) ui.portalBuildLabel.textContent = `Deployment: ${safeLabel}`;
             if (ui.portalLoginBuildLabel) ui.portalLoginBuildLabel.textContent = `Deployment: ${safeLabel}`;
+            if (ui.portalHoldBuildLabel) ui.portalHoldBuildLabel.textContent = `Deployment: ${safeLabel}`;
             if (ui.portalFeedbackBuild) ui.portalFeedbackBuild.textContent = safeLabel;
         }
 
@@ -2044,10 +2210,70 @@
             }
         }
 
+        function sanitizeBillingHold(payload = {}) {
+            if (!payload || payload.active !== true) return { active: false };
+            const cleanText = (value) => String(value || "").trim().replace(/\s+/g, " ");
+            return {
+                active: true,
+                title: cleanText(payload.title) || "Account access is temporarily on hold",
+                message: cleanText(payload.message) || "This company portal is temporarily limited. Please contact WMS365 Billing or Sales to restore access.",
+                reason: cleanText(payload.reason),
+                accountName: cleanText(payload.accountName),
+                billingEmail: String(payload.billingEmail || payload.supportEmail || "support@wms365.co").trim(),
+                salesEmail: String(payload.salesEmail || payload.supportEmail || "support@wms365.co").trim(),
+                status: cleanText(payload.status),
+                actionsDisabled: payload.actionsDisabled !== false,
+                passwordRecoveryDisabled: payload.passwordRecoveryDisabled !== false
+            };
+        }
+
+        function isBillingHoldActive(payload = {}) {
+            return payload?.active === true;
+        }
+
+        function setBillingHoldMailLink(link, email, subject) {
+            if (!link) return;
+            const address = String(email || "support@wms365.co").trim() || "support@wms365.co";
+            link.href = `mailto:${address}?subject=${encodeURIComponent(subject)}`;
+        }
+
+        function showBillingHold(payload = {}) {
+            const hold = sanitizeBillingHold(payload);
+            portalState.billingHold = hold;
+            document.body.classList.add("portal-auth-only");
+            ui.loginView.classList.add("hidden");
+            ui.portalView.classList.add("hidden");
+            ui.billingHoldView?.classList.remove("hidden");
+            ui.portalTopbarActions?.classList.remove("hidden");
+            ui.portalWarehouseSwitcher?.classList.add("hidden");
+            ui.accountChip?.classList.toggle("hidden", !hold.accountName);
+            if (ui.accountChip) ui.accountChip.textContent = hold.accountName;
+            if (ui.billingHoldTitle) ui.billingHoldTitle.textContent = hold.title;
+            if (ui.billingHoldMessage) ui.billingHoldMessage.textContent = hold.message;
+            if (ui.billingHoldReason) {
+                ui.billingHoldReason.textContent = hold.reason ? `Account note: ${hold.reason}` : "";
+                ui.billingHoldReason.classList.toggle("show", Boolean(hold.reason));
+            }
+            const subjectAccount = hold.accountName ? ` for ${hold.accountName}` : "";
+            setBillingHoldMailLink(ui.billingHoldBillingLink, hold.billingEmail, `WMS365 billing hold${subjectAccount}`);
+            setBillingHoldMailLink(ui.billingHoldSalesLink, hold.salesEmail, `WMS365 account access${subjectAccount}`);
+            closePortalFeedbackModal();
+            closeDocumentPreviewModal();
+            setMessage("", "info");
+        }
+
+        function handleBillingHoldPayload(payload = {}) {
+            const hold = sanitizeBillingHold(payload);
+            if (!isBillingHoldActive(hold)) return false;
+            showBillingHold(hold);
+            return true;
+        }
+
         async function restoreSession() {
             try {
                 const payload = await requestJson("/api/portal/me");
                 portalState.account = payload.account;
+                if (handleBillingHoldPayload(payload.billingHold)) return;
                 showPortalShell();
                 await loadPortalData();
             } catch {
@@ -2057,8 +2283,10 @@
 
         function showLogin() {
             portalState.account = null;
+            portalState.billingHold = null;
             document.body.classList.add("portal-auth-only");
             ui.loginView.classList.remove("hidden");
+            ui.billingHoldView?.classList.add("hidden");
             ui.portalView.classList.add("hidden");
             ui.accountChip.classList.add("hidden");
             ui.portalTopbarActions?.classList.add("hidden");
@@ -2070,8 +2298,10 @@
         }
 
         function showPortalShell() {
+            portalState.billingHold = null;
             document.body.classList.remove("portal-auth-only");
             ui.loginView.classList.add("hidden");
+            ui.billingHoldView?.classList.add("hidden");
             ui.portalView.classList.remove("hidden");
             ui.portalTopbarActions?.classList.remove("hidden");
             ui.accountChip.classList.remove("hidden");
@@ -2102,6 +2332,10 @@
                     });
                     portalState.account = payload.account;
                     ui.loginPassword.value = "";
+                    if (handleBillingHoldPayload(payload.billingHold)) {
+                        setMessage("", "info");
+                        return;
+                    }
                     showPortalShell();
                     await loadPortalData();
                     setMessage(`Logged in as ${payload.account.accountName}.`, "success");
@@ -3250,6 +3484,7 @@
                             <div class="detail"><span>PO #</span><strong>${esc(order.poNumber || "None")}</strong></div>
                             <div class="detail"><span>Reference</span><strong>${esc(order.shippingReference || "None")}</strong></div>
                             <div class="detail"><span>Requested Ship</span><strong>${esc(order.requestedShipDate || "Not set")}</strong></div>
+                            <div class="detail"><span>Expected Ready</span><strong>${esc(order.expectedReadyLabel || order.expectedReadyDate || "Not calculated")}</strong></div>
                             <div class="detail"><span>Lines / Qty</span><strong>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} / ${esc(num(orderTotalQuantity(order)))}</strong></div>
                         </div>
                         <div class="button-row">
@@ -3261,6 +3496,9 @@
                             <div class="order-details-panel">
                                 <div class="order-meta">
                                     <div>Ship From Warehouse: ${esc(formatRecordFulfillmentLocation(order))}</div>
+                                    <div>Expected Ready: ${esc(order.expectedReadySummary || order.expectedReadyLabel || "Not calculated")}</div>
+                                    ${order.rushApproved ? `<div>RUSH Approved: Expedited processing was approved. For rush charge questions, contact ${esc(PORTAL_RUSH_FEE_CONTACT_EMAIL)}.</div>` : ""}
+                                    ${order.rushRequired ? `<div>RUSH Required: requested ship/pickup date is before the earliest ready date.</div>` : ""}
                                     <div>Ship To: ${esc(shipToSummary)}${order.shipToPhone ? ` | ${esc(order.shipToPhone)}` : ""}</div>
                                     <div>Contact: ${esc(order.contactName || "Not provided")}${order.contactPhone ? ` | ${esc(order.contactPhone)}` : ""}</div>
                                     ${order.orderNotes ? `<div>Notes: ${esc(order.orderNotes)}</div>` : ""}
@@ -3524,6 +3762,7 @@
                                 <div class="line-items">
                                     ${renderInboundLineCards(inbound.lines)}
                                 </div>
+                                ${renderInboundPalletLabels(inbound)}
                                 ${inbound.documents?.length ? renderDocumentList(inbound.documents, "Purchase Order Documents") : ""}
                                 ${inbound.status !== "CANCELLED" ? `
                                     <div class="order-document-upload">
@@ -3545,6 +3784,294 @@
                     </article>
                 `;
             }).join("");
+        }
+
+        function inboundCanGeneratePalletLabels(inbound) {
+            return !["CANCELLED", "RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"].includes(String(inbound?.status || "").toUpperCase());
+        }
+
+        function renderInboundPalletLabels(inbound) {
+            const labels = Array.isArray(inbound?.palletLabels) ? inbound.palletLabels : [];
+            const canGenerate = inboundCanGeneratePalletLabels(inbound) && inbound.lines.length > 0;
+            const lineOptions = inbound.lines.map((line) => `
+                <option value="${attr(line.id)}" data-sku="${attr(line.sku)}">${esc(line.sku)}${line.description ? ` - ${esc(line.description)}` : ""}</option>
+            `).join("");
+            return `
+                <div class="inbound-pallet-labels">
+                    <div class="line-head">
+                        <div class="header-copy">
+                            <h3>Pallet Labels</h3>
+                        </div>
+                        ${labels.length ? `<button class="btn ghost" type="button" data-print-inbound-pallet-labels="${attr(inbound.id)}">Print Labels</button>` : ""}
+                    </div>
+                    ${labels.length ? `
+                        <div class="inbound-pallet-label-list">
+                            ${labels.map((label) => `
+                                <div class="inbound-pallet-label-chip">
+                                    <strong>${esc(label.palletCode)}</strong>
+                                    <span class="meta">${esc(label.sku)} | ${esc(num(label.cases))} case${label.cases === 1 ? "" : "s"} | ${esc(num(label.expectedQuantity))} expected</span>
+                                </div>
+                            `).join("")}
+                        </div>
+                    ` : `<div class="meta">No pallet labels yet.</div>`}
+                    ${canGenerate ? `
+                        <div class="inbound-pallet-label-form">
+                            <label class="field">
+                                <span>SKU</span>
+                                <select data-inbound-pallet-line="${attr(inbound.id)}">${lineOptions}</select>
+                            </label>
+                            <label class="field">
+                                <span>Cases on Pallet</span>
+                                <input data-inbound-pallet-cases="${attr(inbound.id)}" type="number" min="1" step="1" value="1">
+                            </label>
+                            <label class="field">
+                                <span>Pallets</span>
+                                <input data-inbound-pallet-count="${attr(inbound.id)}" type="number" min="1" step="1" value="1">
+                            </label>
+                            <button class="btn" type="button" data-generate-inbound-pallet-labels="${attr(inbound.id)}">Generate Labels</button>
+                        </div>
+                    ` : ""}
+                </div>
+            `;
+        }
+
+        async function generateInboundPalletLabels(inboundId, button = null) {
+            const inbound = getInboundById(inboundId);
+            if (!inbound) return;
+            const card = button?.closest?.(".order-card") || null;
+            const lineSelect = card?.querySelector("[data-inbound-pallet-line]");
+            const casesInput = card?.querySelector("[data-inbound-pallet-cases]");
+            const countInput = card?.querySelector("[data-inbound-pallet-count]");
+            const selectedOption = lineSelect?.selectedOptions?.[0] || null;
+            const lineId = lineSelect?.value || "";
+            const sku = selectedOption?.dataset?.sku || "";
+            const casesOnPallet = Number(casesInput?.value || 0);
+            const palletCount = Number(countInput?.value || 0);
+            if (!lineId || !sku) {
+                return setMessage("Select a purchase order line before generating pallet labels.", "error");
+            }
+            if (casesOnPallet <= 0 || palletCount <= 0) {
+                return setMessage("Cases on pallet and pallets must be greater than zero.", "error");
+            }
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Generating...",
+                    progressMessage: `Generating pallet labels for ${inbound.inboundCode}...`
+                }, async () => {
+                    const response = await requestJson(`/api/portal/inbounds/${inbound.id}/pallet-labels`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            labels: [{ lineId, sku, casesOnPallet, palletCount }]
+                        })
+                    });
+                    const updatedInbound = sanitizeInbound(response?.inbound);
+                    if (!updatedInbound?.id) {
+                        throw new Error("The pallet labels were generated, but the updated purchase order could not be read. Refresh My Purchase Orders.");
+                    }
+                    const existingIndex = portalState.inbounds.findIndex((entry) => String(entry.id) === String(updatedInbound.id));
+                    if (existingIndex >= 0) {
+                        portalState.inbounds.splice(existingIndex, 1, updatedInbound);
+                    } else {
+                        portalState.inbounds.unshift(updatedInbound);
+                    }
+                    portalState.expandedInboundId = updatedInbound.id;
+                    renderInbounds();
+                    setMessage(`Generated ${palletCount} pallet label${palletCount === 1 ? "" : "s"} for ${updatedInbound.inboundCode}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
+        function buildInboundPalletLabelMarkup(label, inbound, { printable = false } = {}) {
+            const warehouseName = formatRecordFulfillmentLocation(inbound);
+            const barcodeMarkup = buildPortalCode39Svg(label.palletCode, printable ? { height: 54, narrow: 2, wide: 5 } : { height: 42, narrow: 2, wide: 4 });
+            return `
+                <div class="${printable ? "label-card" : "inbound-pallet-label-chip"}">
+                    <div class="pallet-print-label">
+                        <div class="pallet-label-code-row">
+                            <p class="pallet-label-code">${esc(label.palletCode)}</p>
+                            <span class="pallet-label-location">${esc(inbound.inboundCode)}</span>
+                        </div>
+                        <div class="pallet-label-barcode">${barcodeMarkup}</div>
+                        <p class="pallet-label-vendor">${esc(portalState.account?.accountName || inbound.accountName || "")}</p>
+                        <p class="pallet-label-sku">${esc(label.sku)}</p>
+                        <p class="pallet-label-description">${esc(label.description || "NO DESCRIPTION")}</p>
+                        <div class="pallet-label-footer">
+                            <div class="pallet-label-stat">
+                                <span>Cases</span>
+                                <strong>${esc(num(label.cases))}</strong>
+                            </div>
+                            <div class="pallet-label-stat">
+                                <span>Expected Qty</span>
+                                <strong>${esc(num(label.expectedQuantity))}</strong>
+                            </div>
+                            <div class="pallet-label-stat">
+                                <span>Warehouse</span>
+                                <strong>${esc(warehouseName)}</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function buildPortalCode39Svg(value, { height = 42, narrow = 2, wide = 4, quiet = 12 } = {}) {
+            const encoded = `*${String(value || "").trim().toUpperCase()}*`;
+            if (!/^[0-9A-Z.\- $/+%*]+$/.test(encoded)) {
+                return `<div class="meta">Barcode unavailable</div>`;
+            }
+            const modules = [];
+            for (let index = 0; index < encoded.length; index += 1) {
+                const pattern = portalCode39PatternFor(encoded[index]);
+                if (!pattern) return `<div class="meta">Barcode unavailable</div>`;
+                pattern.split("").forEach((token, patternIndex) => {
+                    modules.push({
+                        color: patternIndex % 2 === 0 ? "#111827" : "#ffffff",
+                        width: token === "w" ? wide : narrow
+                    });
+                });
+                if (index < encoded.length - 1) modules.push({ color: "#ffffff", width: narrow });
+            }
+            const totalWidth = modules.reduce((sum, part) => sum + part.width, quiet * 2);
+            let cursor = quiet;
+            const bars = modules.map((part) => {
+                const rect = `<rect x="${cursor}" y="0" width="${part.width}" height="${height}" fill="${part.color}" />`;
+                cursor += part.width;
+                return rect;
+            }).join("");
+            return `
+                <svg viewBox="0 0 ${totalWidth} ${height + 18}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${attr(value)} barcode">
+                    <rect width="${totalWidth}" height="${height + 18}" fill="#ffffff" />
+                    ${bars}
+                    <text x="${totalWidth / 2}" y="${height + 16}" text-anchor="middle" font-size="12" font-family="monospace" fill="#111827">${esc(value)}</text>
+                </svg>
+            `;
+        }
+
+        function portalCode39PatternFor(character) {
+            const patterns = {
+                "0": "nnnwwnwnn", "1": "wnnwnnnnw", "2": "nnwwnnnnw", "3": "wnwwnnnnn", "4": "nnnwwnnnw",
+                "5": "wnnwwnnnn", "6": "nnwwwnnnn", "7": "nnnwnnwnw", "8": "wnnwnnwnn", "9": "nnwwnnwnn",
+                "A": "wnnnnwnnw", "B": "nnwnnwnnw", "C": "wnwnnwnnn", "D": "nnnnwwnnw", "E": "wnnnwwnnn",
+                "F": "nnwnwwnnn", "G": "nnnnnwwnw", "H": "wnnnnwwnn", "I": "nnwnnwwnn", "J": "nnnnwwwnn",
+                "K": "wnnnnnnww", "L": "nnwnnnnww", "M": "wnwnnnnwn", "N": "nnnnwnnww", "O": "wnnnwnnwn",
+                "P": "nnwnwnnwn", "Q": "nnnnnnwww", "R": "wnnnnnwwn", "S": "nnwnnnwwn", "T": "nnnnwnwwn",
+                "U": "wwnnnnnnw", "V": "nwwnnnnnw", "W": "wwwnnnnnn", "X": "nwnnwnnnw", "Y": "wwnnwnnnn",
+                "Z": "nwwnwnnnn", "-": "nwnnnnwnw", ".": "wwnnnnwnn", " ": "nwwnnnwnn", "$": "nwnwnwnnn",
+                "/": "nwnwnnnwn", "+": "nwnnnwnwn", "%": "nnnwnwnwn", "*": "nwnnwnwnn"
+            };
+            return patterns[character] || "";
+        }
+
+        function printInboundPalletLabels(inboundId) {
+            const inbound = getInboundById(inboundId);
+            const labels = Array.isArray(inbound?.palletLabels) ? inbound.palletLabels : [];
+            if (!inbound || !labels.length) {
+                setMessage("Generate at least one pallet label before printing.", "error");
+                return;
+            }
+            const popup = window.open("", "_blank", "width=980,height=720");
+            if (!popup) {
+                setMessage("Pop-up blocking prevented the label print preview from opening.", "error");
+                return;
+            }
+            popup.document.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>${esc(inbound.inboundCode)} Pallet Labels</title>
+                    <style>
+                        * { box-sizing: border-box; }
+                        html, body { background: #fff; margin: 0; padding: 0; width: 6in; }
+                        .labels { display: block; width: 6in; }
+                        .label-card {
+                            width: 6in;
+                            height: 4in;
+                            break-inside: avoid;
+                            page-break-inside: avoid;
+                            break-after: page;
+                            page-break-after: always;
+                            overflow: hidden;
+                        }
+                        .label-card:last-child { break-after: auto; page-break-after: auto; }
+                        .pallet-print-label {
+                            width: 6in;
+                            height: 4in;
+                            padding: 0.22in;
+                            display: grid;
+                            gap: 0.1in;
+                            font-family: Arial, sans-serif;
+                            color: #111827;
+                            background: #ffffff;
+                        }
+                        .pallet-label-code-row {
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 0.15in;
+                            align-items: center;
+                        }
+                        .pallet-label-code {
+                            margin: 0;
+                            font-size: 28pt;
+                            font-weight: 800;
+                            letter-spacing: 0;
+                            overflow-wrap: anywhere;
+                        }
+                        .pallet-label-location {
+                            border: 2px solid #111827;
+                            padding: 0.04in 0.08in;
+                            font-size: 11pt;
+                            font-weight: 800;
+                            white-space: nowrap;
+                        }
+                        .pallet-label-barcode svg { display: block; width: 100%; max-height: 0.75in; }
+                        .pallet-label-vendor, .pallet-label-sku, .pallet-label-description { margin: 0; overflow-wrap: anywhere; }
+                        .pallet-label-vendor { font-size: 16pt; font-weight: 800; }
+                        .pallet-label-sku { font-size: 24pt; font-weight: 900; }
+                        .pallet-label-description { font-size: 11pt; min-height: 0.28in; }
+                        .pallet-label-footer {
+                            display: grid;
+                            grid-template-columns: repeat(3, minmax(0, 1fr));
+                            gap: 0.08in;
+                            margin-top: auto;
+                        }
+                        .pallet-label-stat {
+                            border: 1px solid #111827;
+                            padding: 0.06in;
+                            min-height: 0.5in;
+                        }
+                        .pallet-label-stat span {
+                            display: block;
+                            font-size: 8pt;
+                            text-transform: uppercase;
+                            color: #4b5563;
+                            letter-spacing: 0;
+                        }
+                        .pallet-label-stat strong {
+                            display: block;
+                            margin-top: 0.03in;
+                            font-size: 12pt;
+                            overflow-wrap: anywhere;
+                        }
+                        @page { size: 6in 4in; margin: 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="labels">
+                        ${labels.map((label) => buildInboundPalletLabelMarkup(label, inbound, { printable: true })).join("")}
+                    </div>
+                    <script>
+                        window.addEventListener("load", () => setTimeout(() => window.print(), 250));
+                    <\/script>
+                </body>
+                </html>
+            `);
+            popup.document.close();
+            popup.focus();
         }
 
         function resetInboundForm() {
@@ -3834,12 +4361,501 @@
             }
         }
 
+        function normalizePortalOrderTypeValue(value) {
+            const normalized = norm(value).replace(/[\s-]+/g, "_");
+            if (["B2C", "B2C_ONLINE", "ONLINE", "ONLINE_ORDER", "ECOMMERCE", "E_COMMERCE", "SHOPIFY"].includes(normalized)) {
+                return PORTAL_ORDER_TYPES.B2C_ONLINE;
+            }
+            if (["FREIGHT", "LTL", "FTL", "LTL_FREIGHT", "FTL_FREIGHT", "RETAIL_FREIGHT"].includes(normalized)) {
+                return PORTAL_ORDER_TYPES.RETAIL_WHOLESALE;
+            }
+            return PORTAL_ORDER_TYPES.RETAIL_WHOLESALE;
+        }
+
+        function normalizePortalShipmentMethodValue(value) {
+            const normalized = norm(value).replace(/[\s-]+/g, "_");
+            if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) return PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+            if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT || normalized === "FTL") return PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT;
+            if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP || normalized === "PICKUP") return PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
+            return PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT;
+        }
+
+        function portalOrderTypeLabel(value) {
+            const normalized = normalizePortalOrderTypeValue(value);
+            if (normalized === PORTAL_ORDER_TYPES.B2C_ONLINE) return "online";
+            return "non-online";
+        }
+
+        function portalShipmentMethodLabel(value) {
+            const normalized = normalizePortalShipmentMethodValue(value);
+            if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) return "parcel";
+            if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT) return "FTL freight";
+            if (normalized === PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP) return "customer pickup";
+            return "LTL freight";
+        }
+
+        function portalShipmentMethodIsFreight(value) {
+            const normalized = normalizePortalShipmentMethodValue(value);
+            return normalized === PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT
+                || normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT;
+        }
+
+        function daysUntilPortalRequestedShipDate(value) {
+            const normalized = String(value || "").slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return Number.POSITIVE_INFINITY;
+            const [year, month, day] = normalized.split("-").map((part) => Number.parseInt(part, 10));
+            const target = new Date(year, month - 1, day);
+            const today = new Date();
+            const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            return Math.floor((target.getTime() - current.getTime()) / 86400000);
+        }
+
+        function getEasternTimeParts(date = new Date()) {
+            const parts = new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/New_York",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                hourCycle: "h23"
+            }).formatToParts(date).reduce((accumulator, part) => {
+                accumulator[part.type] = part.value;
+                return accumulator;
+            }, {});
+            return {
+                date: `${parts.year}-${parts.month}-${parts.day}`,
+                hour: Number.parseInt(parts.hour || "0", 10),
+                minute: Number.parseInt(parts.minute || "0", 10)
+            };
+        }
+
+        function onlineSameDayCutoffHasPassed(requestedShipDate, now = new Date()) {
+            const normalizedDate = String(requestedShipDate || "").slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) return false;
+            const eastern = getEasternTimeParts(now);
+            if (normalizedDate !== eastern.date) return false;
+            return eastern.hour > PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR_EASTERN
+                || (eastern.hour === PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR_EASTERN && eastern.minute > 0);
+        }
+
+        function parsePortalDateKey(value) {
+            const normalized = String(value || "").slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+            const [year, month, day] = normalized.split("-").map((part) => Number.parseInt(part, 10));
+            return year && month && day ? { year, month, day, dateKey: normalized } : null;
+        }
+
+        function portalDateKeyFromParts(year, month, day) {
+            return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        }
+
+        function addPortalCalendarDays(dateKey, days) {
+            const parts = parsePortalDateKey(dateKey);
+            if (!parts) return "";
+            const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+            return portalDateKeyFromParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+        }
+
+        function portalDateKeyWeekday(dateKey) {
+            const parts = parsePortalDateKey(dateKey);
+            if (!parts) return -1;
+            return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+        }
+
+        function portalDateKeyIsWeekend(dateKey) {
+            const weekday = portalDateKeyWeekday(dateKey);
+            return weekday === 0 || weekday === 6;
+        }
+
+        function observedPortalFixedHoliday(year, month, day) {
+            const dateKey = portalDateKeyFromParts(year, month, day);
+            const weekday = portalDateKeyWeekday(dateKey);
+            if (weekday === 6) return addPortalCalendarDays(dateKey, -1);
+            if (weekday === 0) return addPortalCalendarDays(dateKey, 1);
+            return dateKey;
+        }
+
+        function portalNthWeekdayOfMonth(year, month, weekday, nth) {
+            let count = 0;
+            for (let day = 1; day <= 31; day += 1) {
+                const date = new Date(Date.UTC(year, month - 1, day));
+                if (date.getUTCMonth() !== month - 1) break;
+                if (date.getUTCDay() === weekday) {
+                    count += 1;
+                    if (count === nth) return portalDateKeyFromParts(year, month, day);
+                }
+            }
+            return "";
+        }
+
+        function portalLastWeekdayOfMonth(year, month, weekday) {
+            for (let day = 31; day >= 1; day -= 1) {
+                const date = new Date(Date.UTC(year, month - 1, day));
+                if (date.getUTCMonth() !== month - 1) continue;
+                if (date.getUTCDay() === weekday) return portalDateKeyFromParts(year, month, day);
+            }
+            return "";
+        }
+
+        function portalEasterSunday(year) {
+            const a = year % 19;
+            const b = Math.floor(year / 100);
+            const c = year % 100;
+            const d = Math.floor(b / 4);
+            const e = b % 4;
+            const f = Math.floor((b + 8) / 25);
+            const g = Math.floor((b - f + 1) / 3);
+            const h = ((19 * a) + b - d - g + 15) % 30;
+            const i = Math.floor(c / 4);
+            const k = c % 4;
+            const l = (32 + (2 * e) + (2 * i) - h - k) % 7;
+            const m = Math.floor((a + (11 * h) + (22 * l)) / 451);
+            const month = Math.floor((h + l - (7 * m) + 114) / 31);
+            const day = ((h + l - (7 * m) + 114) % 31) + 1;
+            return portalDateKeyFromParts(year, month, day);
+        }
+
+        function normalizePortalHolidayCountry(value = "") {
+            return /\b(US|USA|UNITED STATES|AMERICA)\b/i.test(String(value || "")) ? "US" : "CA";
+        }
+
+        function normalizePortalHolidayProvinceState(value = "") {
+            const normalized = norm(value || "");
+            if (["ON", "ONT", "ONTARIO"].includes(normalized)) return "ON";
+            if (["BC", "B C", "B.C.", "BRITISH COLUMBIA", "BRITISH-COLUMBIA"].includes(normalized)) return "BC";
+            if (["OH", "OHIO"].includes(normalized)) return "OH";
+            return normalized;
+        }
+
+        function normalizePortalHolidayCalendar(calendar = {}) {
+            if (calendar && typeof calendar === "object") {
+                return {
+                    country: normalizePortalHolidayCountry(calendar.country || calendar.fulfillmentCountry || calendar.fulfillment_country || "Canada"),
+                    provinceState: normalizePortalHolidayProvinceState(calendar.state || calendar.province || calendar.region || calendar.fulfillmentState || calendar.fulfillment_state || "Ontario")
+                };
+            }
+            return {
+                country: normalizePortalHolidayCountry(calendar || "Canada"),
+                provinceState: "ON"
+            };
+        }
+
+        function addObservedPortalHoliday(holidays, year, month, day, name, { avoidCollisions = false } = {}) {
+            let holidayDate = observedPortalFixedHoliday(year, month, day);
+            if (avoidCollisions && holidays.some((holiday) => holiday.date === holidayDate)) {
+                while (portalDateKeyIsWeekend(holidayDate) || holidays.some((holiday) => holiday.date === holidayDate)) {
+                    holidayDate = addPortalCalendarDays(holidayDate, 1);
+                }
+            }
+            if (holidayDate && name) holidays.push({ date: holidayDate, name });
+        }
+
+        function portalHolidayClosuresForDate(dateKey, calendar = {}) {
+            const parts = parsePortalDateKey(dateKey);
+            if (!parts) return [];
+            const { country, provinceState } = normalizePortalHolidayCalendar(calendar);
+            const year = parts.year;
+            const holidays = [];
+            const addHoliday = (holidayDate, name) => {
+                if (holidayDate && name) holidays.push({ date: holidayDate, name });
+            };
+            const addFixedHoliday = (month, day, name, options) => addObservedPortalHoliday(holidays, year, month, day, name, options);
+            const addCanadianCommonHolidays = () => {
+                const lastMayMonday = portalLastWeekdayOfMonth(year, 5, 1);
+                addFixedHoliday(1, 1, "New Year's Day");
+                addHoliday(addPortalCalendarDays(portalEasterSunday(year), -2), "Good Friday");
+                addHoliday(lastMayMonday < portalDateKeyFromParts(year, 5, 25) ? lastMayMonday : addPortalCalendarDays(lastMayMonday, -7), "Victoria Day");
+                addFixedHoliday(7, 1, "Canada Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 9, 1, 1), "Labour Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 10, 1, 2), "Thanksgiving Day");
+                addFixedHoliday(12, 25, "Christmas Day");
+            };
+            if (country === "US") {
+                addFixedHoliday(1, 1, "New Year's Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 1, 1, 3), "Martin Luther King Jr. Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 2, 1, 3), "Presidents' Day");
+                addHoliday(portalLastWeekdayOfMonth(year, 5, 1), "Memorial Day");
+                addFixedHoliday(6, 19, "Juneteenth");
+                addFixedHoliday(7, 4, "Independence Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 9, 1, 1), "Labor Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 10, 1, 2), "Columbus Day");
+                addFixedHoliday(11, 11, "Veterans Day");
+                addHoliday(portalNthWeekdayOfMonth(year, 11, 4, 4), "Thanksgiving Day");
+                addHoliday(addPortalCalendarDays(portalNthWeekdayOfMonth(year, 11, 4, 4), 1), "Day after Thanksgiving");
+                addFixedHoliday(12, 25, "Christmas Day");
+            } else {
+                addCanadianCommonHolidays();
+                if (provinceState === "BC") {
+                    addHoliday(portalNthWeekdayOfMonth(year, 2, 1, 3), "Family Day");
+                    addHoliday(portalNthWeekdayOfMonth(year, 8, 1, 1), "B.C. Day");
+                    addFixedHoliday(9, 30, "National Day for Truth and Reconciliation");
+                    addFixedHoliday(11, 11, "Remembrance Day");
+                } else if (provinceState === "ON") {
+                    addHoliday(portalNthWeekdayOfMonth(year, 2, 1, 3), "Family Day");
+                    addHoliday(portalNthWeekdayOfMonth(year, 8, 1, 1), "Civic Holiday");
+                    addFixedHoliday(12, 26, "Boxing Day", { avoidCollisions: true });
+                }
+            }
+            const seen = new Set();
+            return holidays
+                .filter((holiday) => holiday.date === dateKey)
+                .filter((holiday) => {
+                    const key = `${holiday.date}|${holiday.name}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                })
+                .map((holiday) => holiday.name);
+        }
+
+        function portalDateIsBusinessDay(dateKey, calendar = {}) {
+            return Boolean(parsePortalDateKey(dateKey))
+                && !portalDateKeyIsWeekend(dateKey)
+                && !portalHolidayClosuresForDate(dateKey, calendar).length;
+        }
+
+        function nextPortalBusinessDate(dateKey, calendar = {}, { includeCurrent = false } = {}) {
+            let candidate = parsePortalDateKey(dateKey)?.dateKey || getEasternTimeParts().date;
+            if (!includeCurrent) candidate = addPortalCalendarDays(candidate, 1);
+            for (let guard = 0; guard < 370; guard += 1) {
+                if (portalDateIsBusinessDay(candidate, calendar)) return candidate;
+                candidate = addPortalCalendarDays(candidate, 1);
+            }
+            return candidate;
+        }
+
+        function collectPortalHolidayClosures(startDateKey, endDateKey, calendar = {}) {
+            const closures = [];
+            let candidate = parsePortalDateKey(startDateKey)?.dateKey || "";
+            const end = parsePortalDateKey(endDateKey)?.dateKey || "";
+            for (let guard = 0; candidate && end && candidate <= end && guard < 370; guard += 1) {
+                portalHolidayClosuresForDate(candidate, calendar).forEach((name) => closures.push({ date: candidate, name }));
+                candidate = addPortalCalendarDays(candidate, 1);
+            }
+            const seen = new Set();
+            return closures.filter((closure) => {
+                const key = `${closure.date}|${closure.name}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        function getPortalTimingCalendar() {
+            const location = getActiveFulfillmentLocation();
+            return {
+                country: location?.country || location?.fulfillmentCountry || "Canada",
+                state: location?.state || location?.province || location?.fulfillmentState || "Ontario"
+            };
+        }
+
+        function normalizePortalBusinessStart(now = new Date(), calendar = getPortalTimingCalendar()) {
+            const eastern = getEasternTimeParts(now);
+            let dateKey = eastern.date;
+            let hour = eastern.hour;
+            let minute = eastern.minute;
+            if (!portalDateIsBusinessDay(dateKey, calendar)) {
+                dateKey = nextPortalBusinessDate(dateKey, calendar);
+                hour = PORTAL_BUSINESS_START_HOUR_EASTERN;
+                minute = 0;
+            } else if (hour < PORTAL_BUSINESS_START_HOUR_EASTERN) {
+                hour = PORTAL_BUSINESS_START_HOUR_EASTERN;
+                minute = 0;
+            } else if (hour >= PORTAL_BUSINESS_END_HOUR_EASTERN) {
+                dateKey = nextPortalBusinessDate(dateKey, calendar);
+                hour = PORTAL_BUSINESS_START_HOUR_EASTERN;
+                minute = 0;
+            }
+            return { dateKey, hour, minute };
+        }
+
+        function addPortalBusinessDaysFrom(start, businessDays, calendar = getPortalTimingCalendar()) {
+            let candidate = start.dateKey;
+            let remaining = Math.max(0, Number.parseInt(String(businessDays || ""), 10) || 0);
+            while (remaining > 0) {
+                candidate = nextPortalBusinessDate(candidate, calendar);
+                remaining -= 1;
+            }
+            return {
+                dateKey: candidate,
+                hour: start.hour,
+                minute: start.minute,
+                start,
+                holidayClosures: collectPortalHolidayClosures(start.dateKey, candidate, calendar)
+            };
+        }
+
+        function formatPortalDateKey(dateKey) {
+            const parts = parsePortalDateKey(dateKey);
+            if (!parts) return "";
+            return new Intl.DateTimeFormat("en-US", {
+                timeZone: "UTC",
+                weekday: "short",
+                year: "numeric",
+                month: "short",
+                day: "numeric"
+            }).format(new Date(Date.UTC(parts.year, parts.month - 1, parts.day)));
+        }
+
+        function formatPortalBusinessTime(hour, minute = 0) {
+            const suffix = hour >= 12 ? "PM" : "AM";
+            const displayHour = hour % 12 || 12;
+            return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix} Eastern`;
+        }
+
+        function portalExpectedReadyInfo(payload = {}, now = new Date()) {
+            const calendar = getPortalTimingCalendar();
+            const orderType = normalizePortalOrderTypeValue(payload.orderType || payload.order_type);
+            const shipmentMethod = normalizePortalShipmentMethodValue(payload.shipmentMethod || payload.shipment_method);
+            const requestedShipDate = String(payload.requestedShipDate || payload.requested_ship_date || "").slice(0, 10);
+            const isOnlineParcel = orderType === PORTAL_ORDER_TYPES.B2C_ONLINE
+                && shipmentMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+            const eastern = getEasternTimeParts(now);
+            if (isOnlineParcel) {
+                let processingDate = eastern.date;
+                let sameDay = false;
+                if (portalDateIsBusinessDay(processingDate, calendar)) {
+                    sameDay = eastern.hour < PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR_EASTERN
+                        || (eastern.hour === PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR_EASTERN && eastern.minute === 0);
+                    if (!sameDay) processingDate = nextPortalBusinessDate(processingDate, calendar);
+                } else {
+                    processingDate = nextPortalBusinessDate(processingDate, calendar);
+                }
+                const holidayClosures = collectPortalHolidayClosures(eastern.date, processingDate, calendar);
+                const holidayNote = holidayClosures.length
+                    ? ` Holiday closure affects this order; earliest ready date has been pushed. Closure included: ${holidayClosures.map((holiday) => `${holiday.name} (${holiday.date})`).join(", ")}.`
+                    : "";
+                const expectedReadyLabel = `Expected processing cycle: ${formatPortalDateKey(processingDate)}`;
+                const cycleText = sameDay
+                    ? "Online parcel orders released before 9:00 AM Eastern are eligible to ship in today's parcel cycle."
+                    : "Online parcel orders released after 9:00 AM Eastern will be handled as best as possible the same day; otherwise they are pooled into the next business-day parcel cycle.";
+                return {
+                    isOnlineParcel,
+                    expectedReadyDate: processingDate,
+                    expectedReadyLabel,
+                    rushRequired: false,
+                    holidayClosures,
+                    summary: `${expectedReadyLabel}. ${cycleText} Cutoff is 9:00 AM Eastern Time (EST/EDT).${holidayNote}`
+                };
+            }
+            const start = normalizePortalBusinessStart(now, calendar);
+            const ready = addPortalBusinessDaysFrom(start, PORTAL_B2B_MINIMUM_BUSINESS_DAYS, calendar);
+            const requestedBeforeReady = Boolean(requestedShipDate && requestedShipDate < ready.dateKey);
+            const holidayNote = ready.holidayClosures.length
+                ? ` Holiday closure affects this order; earliest ready date has been pushed. Closure included: ${ready.holidayClosures.map((holiday) => `${holiday.name} (${holiday.date})`).join(", ")}.`
+                : "";
+            const expectedReadyLabel = `Earliest ready date: ${formatPortalDateKey(ready.dateKey)} at ${formatPortalBusinessTime(ready.hour, ready.minute)}`;
+            return {
+                isOnlineParcel,
+                expectedReadyDate: ready.dateKey,
+                expectedReadyLabel,
+                rushRequired: requestedBeforeReady,
+                holidayClosures: ready.holidayClosures,
+                summary: `${expectedReadyLabel}. Non-online, truck, LTL/FTL, and customer pickup orders require a minimum of 48 hours / 2 business days to process, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays.${requestedBeforeReady ? " The requested ship/pickup date is earlier than the earliest ready date. Choose RUSH processing only if expedited handling is approved; otherwise choose Standard processing." : " Please schedule pickup or expect shipment after this point."}${holidayNote}`
+            };
+        }
+
+        function portalOrderRequiresRushApproval(payload = {}) {
+            return portalExpectedReadyInfo(payload).rushRequired === true;
+        }
+
+        function portalRushApprovalMessage(payload = {}) {
+            const orderType = normalizePortalOrderTypeValue(payload.orderType || payload.order_type);
+            const shipmentMethod = normalizePortalShipmentMethodValue(payload.shipmentMethod || payload.shipment_method);
+            const reasons = [];
+            if (orderType !== PORTAL_ORDER_TYPES.B2C_ONLINE) reasons.push(`${portalOrderTypeLabel(orderType)} order`);
+            if (shipmentMethod !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) reasons.push(`${portalShipmentMethodLabel(shipmentMethod)} request`);
+            const reasonText = reasons.length ? reasons.join(" and ") : "this order";
+            return `${portalExpectedReadyInfo(payload).expectedReadyLabel}. Standard processing requires a minimum of 48 hours / 2 business days for ${reasonText}, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. This requested ship/pickup date is before the earliest ready date. Choose RUSH processing only if expedited handling is approved; otherwise continue with Standard processing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`;
+        }
+
+        function portalRushApprovedBy() {
+            return portalState.account?.email || portalState.account?.accountName || "Company portal";
+        }
+
+        function portalStandardProcessingExemptionNote() {
+            return "Standard processing selected in customer portal; requested ship/pickup date is before the earliest ready date.";
+        }
+
+        function portalProcessingNoticeMessage(payload = {}) {
+            const info = portalExpectedReadyInfo(payload);
+            const editNotice = portalState.editingOrderId
+                ? " If this order is edited after submission, the expected ready date will recalculate. If adding extra items, creating a new order is usually better so the original order keeps its processing timeline."
+                : "";
+            return `${info.summary}${editNotice}`;
+        }
+
+        function updateOrderRushNotice() {
+            const payload = {
+                orderType: ui.orderType?.value || PORTAL_ORDER_TYPES.RETAIL_WHOLESALE,
+                shipmentMethod: ui.orderShipmentMethod?.value || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT,
+                requestedShipDate: ui.orderRequestedShipDate?.value || ""
+            };
+            if (ui.orderRushNotice) {
+                const rushRequired = portalOrderRequiresRushApproval(payload);
+                const message = rushRequired ? portalRushApprovalMessage(payload) : "";
+                ui.orderRushNotice.textContent = message;
+                ui.orderRushNotice.classList.toggle("hidden", !message);
+                ui.orderProcessingChoiceField?.classList.toggle("hidden", !rushRequired);
+                if (!rushRequired && ui.orderProcessingChoice) {
+                    ui.orderProcessingChoice.value = "STANDARD";
+                }
+            }
+            if (ui.orderProcessingNotice) {
+                ui.orderProcessingNotice.textContent = portalProcessingNoticeMessage(payload);
+            }
+        }
+
+        function approveRushIfRequired(payload, { prompt = true } = {}) {
+            if (!portalOrderRequiresRushApproval(payload)) {
+                return { ...payload, rushApproved: false, rushApprovedBy: "", rushExempt: false, rushExemptNote: "" };
+            }
+            if (payload.rushApproved === true) {
+                return {
+                    ...payload,
+                    rushApproved: true,
+                    rushApprovedBy: payload.rushApprovedBy || portalRushApprovedBy(),
+                    rushExempt: false,
+                    rushExemptNote: ""
+                };
+            }
+            if (payload.rushExempt === true) {
+                return {
+                    ...payload,
+                    rushApproved: false,
+                    rushApprovedBy: "",
+                    rushExempt: true,
+                    rushExemptNote: payload.rushExemptNote || portalStandardProcessingExemptionNote()
+                };
+            }
+            if (prompt && window.confirm(`${portalRushApprovalMessage(payload)}\n\nSelect OK to approve RUSH processing. Select Cancel to continue with Standard processing.`)) {
+                return {
+                    ...payload,
+                    rushApproved: true,
+                    rushApprovedBy: portalRushApprovedBy(),
+                    rushExempt: false,
+                    rushExemptNote: ""
+                };
+            }
+            return {
+                ...payload,
+                rushApproved: false,
+                rushApprovedBy: "",
+                rushExempt: true,
+                rushExemptNote: portalStandardProcessingExemptionNote()
+            };
+        }
+
         function resetOrderForm(order = null) {
             portalState.editingOrderId = order?.id || null;
             ui.orderFormTitle.textContent = order ? `Edit ${order.orderCode}` : "New Sales Order";
             ui.orderPoNumber.value = order?.poNumber || "";
             ui.orderShippingReference.value = order?.shippingReference || "";
             ui.orderRequestedShipDate.value = order?.requestedShipDate || "";
+            if (ui.orderType) ui.orderType.value = normalizePortalOrderTypeValue(order?.orderType || PORTAL_ORDER_TYPES.RETAIL_WHOLESALE);
+            if (ui.orderShipmentMethod) ui.orderShipmentMethod.value = normalizePortalShipmentMethodValue(order?.shipmentMethod || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT);
+            if (ui.orderProcessingChoice) ui.orderProcessingChoice.value = order?.rushApproved === true ? "RUSH" : "STANDARD";
             ui.orderContactName.value = order?.contactName || "";
             ui.orderContactPhone.value = order?.contactPhone || "";
             ui.orderShipToName.value = order?.shipToName || order?.contactName || "";
@@ -3863,6 +4879,7 @@
             }
             const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
             lines.forEach((line) => addOrderLine(line));
+            updateOrderRushNotice();
         }
 
         function shipToAddressSummary(entry) {
@@ -3985,11 +5002,13 @@
                 quantity: Number.parseInt(String(card.querySelector("[data-line-qty]")?.value || ""), 10)
             })).filter((line) => line.sku && Number.isFinite(line.quantity) && line.quantity > 0);
 
-            return {
+            const payload = {
                 fulfillmentLocationId: portalState.activeFulfillmentLocationId || "",
                 poNumber: ui.orderPoNumber.value.trim(),
                 shippingReference: ui.orderShippingReference.value.trim(),
                 requestedShipDate: ui.orderRequestedShipDate.value,
+                orderType: normalizePortalOrderTypeValue(ui.orderType?.value || PORTAL_ORDER_TYPES.RETAIL_WHOLESALE),
+                shipmentMethod: normalizePortalShipmentMethodValue(ui.orderShipmentMethod?.value || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT),
                 contactName: ui.orderContactName.value.trim(),
                 contactPhone: ui.orderContactPhone.value.trim(),
                 shipToName: ui.orderShipToName.value.trim(),
@@ -4003,6 +5022,14 @@
                 orderNotes: ui.orderNotes.value.trim(),
                 lines
             };
+            if (portalOrderRequiresRushApproval(payload)) {
+                const rushSelected = ui.orderProcessingChoice?.value === "RUSH";
+                payload.rushApproved = rushSelected;
+                payload.rushApprovedBy = rushSelected ? portalRushApprovedBy() : "";
+                payload.rushExempt = !rushSelected;
+                payload.rushExemptNote = rushSelected ? "" : portalStandardProcessingExemptionNote();
+            }
+            return payload;
         }
 
         async function saveDraftOrder(context = null) {
@@ -4014,6 +5041,24 @@
             if (!portalState.activeFulfillmentLocationId) {
                 return fail(ui.portalMessage, "Select the ship-from warehouse at the top right before saving the order.", ui.portalWarehouseSelect);
             }
+            const existingOrder = portalState.orders.find((order) => String(order.id) === String(portalState.editingOrderId || ""));
+            const hasExistingRushApproval = existingOrder?.rushApproved === true;
+            const hasExistingStandardProcessing = existingOrder?.rushExempt === true;
+            const payloadHasProcessingChoice = payload.rushApproved === true || payload.rushExempt === true;
+            const rushPayload = options.rushApproved === true
+                ? { ...payload, rushApproved: true, rushApprovedBy: options.rushApprovedBy || existingOrder?.rushApprovedBy || portalRushApprovedBy() }
+                : (options.rushExempt === true
+                    ? { ...payload, rushExempt: true, rushExemptNote: options.rushExemptNote || existingOrder?.rushExemptNote || portalStandardProcessingExemptionNote() }
+                    : (payloadHasProcessingChoice
+                        ? payload
+                        : (hasExistingRushApproval
+                            ? { ...payload, rushApproved: true, rushApprovedBy: existingOrder?.rushApprovedBy || portalRushApprovedBy() }
+                            : (hasExistingStandardProcessing
+                                ? { ...payload, rushExempt: true, rushExemptNote: existingOrder?.rushExemptNote || portalStandardProcessingExemptionNote() }
+                                : payload))));
+            const approvedPayload = approveRushIfRequired(rushPayload, {
+                prompt: options.rushApproved !== true && options.rushExempt !== true
+            });
             const actionButton = options.useBusy === false ? null : resolveActionButton(context, ui.saveDraftBtn);
             try {
                 return await runActionWithFeedback({
@@ -4022,7 +5067,7 @@
                     progressMessage: options.showProgress === false ? "" : (pendingOrderDocumentCount() ? "Saving your draft order and uploading documents..." : "Saving your draft order...")
                 }, async () => {
                     const documents = await readPendingOrderDocuments();
-                    const payloadToSave = documents.length ? { ...payload, documents } : payload;
+                    const payloadToSave = documents.length ? { ...approvedPayload, documents } : approvedPayload;
                     const response = await requestJson(portalState.editingOrderId ? `/api/portal/orders/${portalState.editingOrderId}` : "/api/portal/orders", {
                         method: portalState.editingOrderId ? "PUT" : "POST",
                         body: JSON.stringify(payloadToSave)
@@ -4072,6 +5117,8 @@
             if (!ui.portalReleaseWarehouseConfirmed?.checked) {
                 throw new Error("Confirm the ship-from warehouse and address before releasing this order.");
             }
+            const rushApprovalRequired = portalState.pendingReleaseRushApprovalRequired === true;
+            const rushApproved = rushApprovalRequired && ui.portalReleaseRushApproved?.checked === true;
             const notifyWarehouse = ui.portalReleaseEmailWarehouse.checked;
             const shippingLabelAttached = ui.portalReleaseLabelAttached.checked;
             const ccEmails = splitPortalEmailList(ui.portalReleaseCcEmails.value);
@@ -4085,41 +5132,79 @@
             return {
                 notifyWarehouse,
                 ccEmails,
-                shippingLabelAttached
+                shippingLabelAttached,
+                rushApproved,
+                rushApprovedBy: rushApproved ? portalRushApprovedBy() : "",
+                rushExempt: rushApprovalRequired && !rushApproved,
+                rushExemptNote: rushApprovalRequired && !rushApproved ? portalStandardProcessingExemptionNote() : ""
             };
         }
 
         function getCurrentOrderReleasePreview() {
             const currentOrder = portalState.orders.find((order) => order.id === portalState.editingOrderId) || null;
+            const draftPayload = collectOrderPayload();
+            const timingInfo = portalExpectedReadyInfo(draftPayload);
             const shipToSummary = [
                 ui.orderShipToName.value.trim() || currentOrder?.shipToName || ui.orderContactName.value.trim() || currentOrder?.contactName || "",
                 [ui.orderShipToCity.value.trim(), ui.orderShipToState.value.trim()].filter(Boolean).join(", ")
             ].filter(Boolean).join(" | ");
+            const rushApprovalRequired = timingInfo.rushRequired === true;
             return {
                 orderId: currentOrder?.id || portalState.editingOrderId || "",
                 orderCode: currentOrder?.orderCode || "New draft order",
                 reference: ui.orderShippingReference.value.trim() || currentOrder?.shippingReference || "Not set",
                 shipTo: shipToSummary || "Not set",
                 shipFrom: formatFulfillmentLocationSummary(getActiveFulfillmentLocation()),
-                documentCount: (Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0) + pendingOrderDocumentCount()
+                expectedReady: timingInfo.expectedReadyLabel || "Not calculated",
+                documentCount: (Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0) + pendingOrderDocumentCount(),
+                rushApprovalRequired,
+                rushApproved: currentOrder?.rushApproved === true,
+                rushApprovalMessage: rushApprovalRequired ? portalRushApprovalMessage(draftPayload) : ""
             };
         }
 
-        function openPortalReleaseModal({ orderCode = "Draft order", reference = "Not set", shipTo = "Not set", shipFrom = "No warehouse selected", orderId = "", documentCount = 0, onConfirm = null } = {}) {
+        function openPortalReleaseModal({
+            orderCode = "Draft order",
+            reference = "Not set",
+            shipTo = "Not set",
+            shipFrom = "No warehouse selected",
+            orderId = "",
+            documentCount = 0,
+            rushApprovalRequired = false,
+            rushApproved = false,
+            rushApprovalMessage = "",
+            expectedReady = "Not calculated",
+            onConfirm = null
+        } = {}) {
             portalState.pendingReleaseHandler = typeof onConfirm === "function" ? onConfirm : null;
             portalState.pendingReleaseOrderId = String(orderId || "");
             portalState.pendingReleaseDocumentCount = Number(documentCount) || 0;
+            portalState.pendingReleaseRushApprovalRequired = rushApprovalRequired === true && rushApproved !== true;
+            portalState.pendingReleaseRushApprovalMessage = rushApprovalMessage || "";
             ui.portalReleaseOrderCode.textContent = orderCode || "Draft order";
             ui.portalReleaseReference.textContent = `Reference: ${reference || "Not set"}`;
             ui.portalReleaseShipTo.textContent = `Ship to: ${shipTo || "Not set"}`;
             if (ui.portalReleaseWarehouse) {
                 ui.portalReleaseWarehouse.textContent = `Ship from: ${shipFrom || "No warehouse selected"}`;
             }
+            if (ui.portalReleaseExpectedReady) {
+                ui.portalReleaseExpectedReady.textContent = `Expected ready: ${expectedReady || "Not calculated"}`;
+            }
             if (ui.portalReleaseWarehouseConfirmed) {
                 ui.portalReleaseWarehouseConfirmed.checked = false;
             }
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseLabelAttached.checked = false;
+            if (ui.portalReleaseRushApprovalCard) {
+                ui.portalReleaseRushApprovalCard.classList.toggle("hidden", !portalState.pendingReleaseRushApprovalRequired);
+            }
+            if (ui.portalReleaseRushApproved) {
+                ui.portalReleaseRushApproved.required = false;
+                ui.portalReleaseRushApproved.checked = rushApproved === true;
+            }
+            if (ui.portalReleaseRushApprovalText) {
+                ui.portalReleaseRushApprovalText.textContent = rushApprovalMessage || `Standard non-parcel processing requires a minimum of 48 hours / 2 business days, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. Leave unchecked for Standard processing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`;
+            }
             ui.portalReleaseCcEmails.value = "";
             syncPortalReleaseFields();
             setPortalReleaseMessage("", "info");
@@ -4131,16 +5216,28 @@
             portalState.pendingReleaseHandler = null;
             portalState.pendingReleaseOrderId = "";
             portalState.pendingReleaseDocumentCount = 0;
+            portalState.pendingReleaseRushApprovalRequired = false;
+            portalState.pendingReleaseRushApprovalMessage = "";
             ui.portalReleaseModal.classList.add("hidden");
             ui.portalReleaseModal.setAttribute("aria-hidden", "true");
             if (ui.portalReleaseWarehouse) {
                 ui.portalReleaseWarehouse.textContent = "Ship from: Not selected";
+            }
+            if (ui.portalReleaseExpectedReady) {
+                ui.portalReleaseExpectedReady.textContent = "Expected ready: Not calculated";
             }
             if (ui.portalReleaseWarehouseConfirmed) {
                 ui.portalReleaseWarehouseConfirmed.checked = false;
             }
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseLabelAttached.checked = false;
+            if (ui.portalReleaseRushApprovalCard) {
+                ui.portalReleaseRushApprovalCard.classList.add("hidden");
+            }
+            if (ui.portalReleaseRushApproved) {
+                ui.portalReleaseRushApproved.required = false;
+                ui.portalReleaseRushApproved.checked = false;
+            }
             ui.portalReleaseCcEmails.value = "";
             syncPortalReleaseFields();
             setPortalReleaseMessage("", "info");
@@ -4171,6 +5268,15 @@
                     warningNotes.push(`the warehouse email could not be sent (${actions.warehouseEmailError})`);
                 }
             }
+            if (actions.customerConfirmationRequested) {
+                if (actions.customerConfirmationSent) {
+                    successNotes.push(`sent the customer confirmation email${actions.customerConfirmationRecipients?.length ? ` to ${actions.customerConfirmationRecipients.join(", ")}` : ""}`);
+                } else if (actions.customerConfirmationAlreadySent) {
+                    successNotes.push("confirmed the customer email was already sent");
+                } else if (actions.customerConfirmationError) {
+                    warningNotes.push(`the customer confirmation email could not be sent (${actions.customerConfirmationError})`);
+                }
+            }
 
             let message = `Released order ${orderCode}.`;
             if (successNotes.length) {
@@ -4184,7 +5290,8 @@
 
         function getPortalReleaseResultTone(response) {
             const actions = response?.releaseActions || {};
-            const hasWarning = actions.warehouseEmailRequested && !actions.warehouseEmailSent && !actions.warehouseEmailScheduled;
+            const hasWarning = (actions.warehouseEmailRequested && !actions.warehouseEmailSent && !actions.warehouseEmailScheduled)
+                || (actions.customerConfirmationRequested && !actions.customerConfirmationSent && !actions.customerConfirmationAlreadySent);
             return hasWarning ? "info" : "success";
         }
 
@@ -4212,7 +5319,11 @@
             const draftResponse = await saveDraftOrder({
                 useBusy: false,
                 showProgress: false,
-                suppressSuccessMessage: true
+                suppressSuccessMessage: true,
+                rushApproved: releaseOptions.rushApproved === true,
+                rushApprovedBy: releaseOptions.rushApprovedBy || "",
+                rushExempt: releaseOptions.rushExempt === true,
+                rushExemptNote: releaseOptions.rushExemptNote || ""
             });
             if (!draftResponse || !portalState.editingOrderId) {
                 throw new Error(ui.portalMessage.textContent || "Save the draft before releasing.");
@@ -4233,7 +5344,11 @@
                 reference: preview.reference,
                 shipTo: preview.shipTo,
                 shipFrom: preview.shipFrom,
+                expectedReady: preview.expectedReady,
                 documentCount: preview.documentCount,
+                rushApprovalRequired: preview.rushApprovalRequired,
+                rushApproved: preview.rushApproved,
+                rushApprovalMessage: preview.rushApprovalMessage,
                 onConfirm: async (releaseOptions) => releaseCurrentOrderFlow({ releaseOptions, resetForm: true, nextView: "orders" })
             });
         }
@@ -4381,7 +5496,11 @@
                 reference: order.shippingReference || "Not set",
                 shipTo: [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not set",
                 shipFrom: formatRecordFulfillmentLocation(order),
+                expectedReady: order.expectedReadyLabel || order.expectedReadyDate || "Not calculated",
                 documentCount: Array.isArray(order.documents) ? order.documents.length : 0,
+                rushApprovalRequired: order.rushApprovalRequired === true || portalOrderRequiresRushApproval(order),
+                rushApproved: order.rushApproved === true,
+                rushApprovalMessage: portalRushApprovalMessage(order),
                 onConfirm: async (releaseOptions) => releaseOrderByIdFlow(order.id, {
                     releaseOptions,
                     resetForm: false,
@@ -4464,6 +5583,18 @@
                 const inboundId = toggleDetailsButton.dataset.toggleInboundDetails || "";
                 portalState.expandedInboundId = String(portalState.expandedInboundId || "") === String(inboundId) ? null : inboundId;
                 renderInbounds();
+                return;
+            }
+
+            const generatePalletLabelsButton = event.target.closest("[data-generate-inbound-pallet-labels]");
+            if (generatePalletLabelsButton) {
+                await generateInboundPalletLabels(generatePalletLabelsButton.dataset.generateInboundPalletLabels || "", generatePalletLabelsButton);
+                return;
+            }
+
+            const printPalletLabelsButton = event.target.closest("[data-print-inbound-pallet-labels]");
+            if (printPalletLabelsButton) {
+                printInboundPalletLabels(printPalletLabelsButton.dataset.printInboundPalletLabels || "");
                 return;
             }
 
@@ -4650,7 +5781,12 @@
             });
             const text = await response.text();
             const data = text ? JSON.parse(text) : {};
-            if (!response.ok) throw new Error(data.error || "Request failed.");
+            if (!response.ok) {
+                if (handleBillingHoldPayload(data.billingHold)) {
+                    throw new Error(data.error || "Account access is temporarily on hold.");
+                }
+                throw new Error(data.error || "Request failed.");
+            }
             return data;
         }
 
@@ -4660,6 +5796,9 @@
                 const text = await response.text();
                 try {
                     const data = text ? JSON.parse(text) : {};
+                    if (handleBillingHoldPayload(data.billingHold)) {
+                        throw new Error(data.error || "Account access is temporarily on hold.");
+                    }
                     throw new Error(data.error || "Request failed.");
                 } catch (error) {
                     if (error instanceof Error && error.message && error.message !== "Unexpected end of JSON input") {
@@ -4912,6 +6051,31 @@
             };
         }
 
+        function sanitizeInboundPalletLabel(label) {
+            if (!label || typeof label !== "object") return null;
+            const palletCode = String(label.palletCode || label.pallet_code || "").trim();
+            if (!palletCode) return null;
+            return {
+                id: String(label.id || ""),
+                inboundId: String(label.inboundId || label.inbound_id || ""),
+                inboundCode: String(label.inboundCode || label.inbound_code || ""),
+                referenceNumber: String(label.referenceNumber || label.reference_number || ""),
+                accountName: norm(label.accountName || label.account_name || portalState.account?.accountName || ""),
+                palletCode,
+                lineId: String(label.lineId || label.line_id || ""),
+                lineNumber: Number(label.lineNumber || label.line_number || 0) || 0,
+                sku: String(label.sku || ""),
+                upc: String(label.upc || ""),
+                description: String(label.description || ""),
+                cases: Number(label.cases || label.cases_on_pallet || 0) || 0,
+                expectedQuantity: Number(label.expectedQuantity || label.expected_quantity || 0) || 0,
+                labelDate: String(label.labelDate || label.label_date || "").slice(0, 10),
+                createdBy: String(label.createdBy || label.created_by || ""),
+                createdAt: label.createdAt || label.created_at || null,
+                updatedAt: label.updatedAt || label.updated_at || null
+            };
+        }
+
         function sanitizeInbound(inbound) {
             if (!inbound || typeof inbound !== "object") return null;
             return {
@@ -4952,6 +6116,9 @@
                 })).filter((line) => line.sku && line.quantity > 0) : [],
                 documents: Array.isArray(inbound.documents)
                     ? inbound.documents.map(sanitizeOrderDocument).filter(Boolean)
+                    : [],
+                palletLabels: Array.isArray(inbound.palletLabels || inbound.pallet_labels)
+                    ? (inbound.palletLabels || inbound.pallet_labels).map(sanitizeInboundPalletLabel).filter(Boolean)
                     : []
             };
         }
@@ -5012,6 +6179,37 @@
                 contactName: String(order.contactName || "").trim(),
                 contactPhone: String(order.contactPhone || "").trim(),
                 requestedShipDate: String(order.requestedShipDate || order.requested_ship_date || "").trim(),
+                orderType: normalizePortalOrderTypeValue(order.orderType || order.order_type || PORTAL_ORDER_TYPES.RETAIL_WHOLESALE),
+                orderTypeLabel: String(order.orderTypeLabel || order.order_type_label || "").trim(),
+                shipmentMethod: normalizePortalShipmentMethodValue(order.shipmentMethod || order.shipment_method || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT),
+                shipmentMethodLabel: String(order.shipmentMethodLabel || order.shipment_method_label || "").trim(),
+                rushApproved: order.rushApproved === true || order.rush_approved === true,
+                rushFeeMinimum: Number(order.rushFeeMinimum || order.rush_fee_minimum || 0) || 0,
+                rushApprovedAt: order.rushApprovedAt || order.rush_approved_at || null,
+                rushApprovedBy: String(order.rushApprovedBy || order.rush_approved_by || "").trim(),
+                rushExempt: order.rushExempt === true || order.rush_exempt === true,
+                rushExemptNote: String(order.rushExemptNote || order.rush_exempt_note || "").trim(),
+                rushApprovalRequired: order.rushApprovalRequired === true || order.rush_approval_required === true,
+                rushRequired: order.rushRequired === true || order.rush_required === true,
+                expectedReadyAt: order.expectedReadyAt || order.expected_ready_at || "",
+                expectedReadyDate: String(order.expectedReadyDate || order.expected_ready_date || "").trim(),
+                expectedReadyLabel: String(order.expectedReadyLabel || order.expected_ready_label || "").trim(),
+                expectedReadySummary: String(order.expectedReadySummary || order.expected_ready_summary || "").trim(),
+                processingTiming: order.processingTiming || order.processing_timing || null,
+                holidayClosures: Array.isArray(order.holidayClosures || order.holiday_closures) ? (order.holidayClosures || order.holiday_closures) : [],
+                fulfillmentGroups: Array.isArray(order.fulfillmentGroups || order.fulfillment_groups) ? (order.fulfillmentGroups || order.fulfillment_groups).map((group) => ({
+                    key: String(group.key || "").trim(),
+                    totalQuantity: Number(group.totalQuantity || group.total_quantity || 0) || 0,
+                    expectedReadyLabel: String(group.expectedReadyLabel || group.expected_ready_label || "").trim(),
+                    expectedReadyDate: String(group.expectedReadyDate || group.expected_ready_date || "").trim(),
+                    holidayWarning: String(group.holidayWarning || group.holiday_warning || "").trim(),
+                    rushRequired: group.rushRequired === true || group.rush_required === true,
+                    location: {
+                        publicName: String(group.location?.publicName || group.location?.public_name || group.location?.name || group.location?.code || "Warehouse").trim(),
+                        address: String(group.location?.address || "").trim(),
+                        code: String(group.location?.code || group.location?.fulfillmentLocationCode || group.location?.fulfillment_location_code || "").trim()
+                    }
+                })) : [],
                 orderNotes: String(order.orderNotes || order.order_notes || "").trim(),
                 shipToName: String(order.shipToName || "").trim(),
                 shipToPhone: String(order.shipToPhone || "").trim(),

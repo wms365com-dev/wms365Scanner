@@ -12,6 +12,8 @@ const COMPANY = process.env.WMS365_PORTAL_COMPANY || "Your Company";
 const DISPLAY_EMAIL = process.env.WMS365_PORTAL_DISPLAY_EMAIL || "Use the email address provided in your welcome email.";
 const CONTACT_NAME = process.env.WMS365_PORTAL_CONTACT_NAME || "Portal User";
 const CONTACT_PHONE = process.env.WMS365_PORTAL_CONTACT_PHONE || "+1 555 555 1212";
+const WAREHOUSE_CONTEXT = process.env.WMS365_PORTAL_WAREHOUSE_CONTEXT || "";
+const SKIP_SCREENSHOTS = /^(1|true|yes)$/i.test(process.env.WMS365_PORTAL_SKIP_SCREENSHOTS || "");
 const GUIDE_SLUG = (process.env.WMS365_PORTAL_GUIDE_SLUG || COMPANY || "customer")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -45,7 +47,23 @@ async function clickView(page, view) {
 async function screenshot(page, name, selector = "body", options = {}) {
     const filePath = path.join(OUT_DIR, `${name}.png`);
     const target = page.locator(selector).first();
-    await target.screenshot({ path: filePath, animations: "disabled", ...options });
+    const { maxHeight = 900, ...screenshotOptions } = options;
+    const box = await target.boundingBox().catch(() => null);
+    if (box && Number.isFinite(box.height) && box.height > maxHeight) {
+        await page.screenshot({
+            path: filePath,
+            animations: "disabled",
+            clip: {
+                x: Math.max(0, Math.floor(box.x)),
+                y: Math.max(0, Math.floor(box.y)),
+                width: Math.ceil(box.width),
+                height: Math.ceil(maxHeight)
+            },
+            ...screenshotOptions
+        });
+        return filePath;
+    }
+    await target.screenshot({ path: filePath, animations: "disabled", ...screenshotOptions });
     return filePath;
 }
 
@@ -212,6 +230,7 @@ function buildGuideHtml() {
     <li>The portal will show a confirmation message and route new work to the selected warehouse.</li>
 </ol>
 <div class="callout">For companies using multiple warehouse locations, select the correct active warehouse before submitting each inbound or outbound transaction.</div>
+${WAREHOUSE_CONTEXT ? `<div class="callout">${esc(WAREHOUSE_CONTEXT)}</div>` : ""}
 <img class="screen" src="${image("03-active-warehouse")}" alt="Active warehouse selector">
 
 <h2>3. Check Inventory</h2>
@@ -306,7 +325,11 @@ async function generatePdf() {
 }
 
 (async () => {
-    await generateScreenshots();
+    if (SKIP_SCREENSHOTS) {
+        ensureDir(OUT_DIR);
+    } else {
+        await generateScreenshots();
+    }
     const result = await generatePdf();
     console.log(JSON.stringify(result, null, 2));
 })().catch((error) => {

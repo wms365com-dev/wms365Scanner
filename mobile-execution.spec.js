@@ -78,6 +78,10 @@ class MobileExecutionClient {
             return { rowCount: rows.length, rows: rows.map(clone) };
         }
 
+        if (normalizedSql.includes("from company_fulfillment_locations cfl")) {
+            return { rowCount: 0, rows: [] };
+        }
+
         if (normalizedSql.startsWith("insert into portal_order_allocations")) {
             const [orderId, orderLineId, inventoryLineId, sku, location, lotNumber, expirationDate, trackingLevel, allocatedQuantity] = params;
             const row = {

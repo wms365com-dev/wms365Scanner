@@ -5,27 +5,138 @@ const {
     APP_USER_ROLES,
     consumePortalOrderInventory,
     postInventoryCountAdjustment,
+    moveInventoryToInvestigationHold,
     safeDeductInventoryLineQuantity,
+    setInventoryQuantity,
     safeTransferInventoryQuantity,
     findInventoryLine,
     upsertInventoryLine,
-    getInventoryTransactionHistory
+    getInventoryTransactionHistory,
+    getWarehouseReceivingStageLocationCode,
+    isLocationScopedToFulfillmentWarehouse
 } = require("./server.js");
 
 const originalWarn = console.warn;
+
+test("warehouse location rule scopes receiving stage and bins by warehouse code", () => {
+    const bcWarehouse = { fulfillmentLocationCode: "OLYMPIA-BURNABY" };
+    assert.equal(getWarehouseReceivingStageLocationCode(bcWarehouse), "OLYMPIA-BURNABY-REC");
+    assert.equal(isLocationScopedToFulfillmentWarehouse("OLYMPIA-BURNABY-REC", bcWarehouse), true);
+    assert.equal(isLocationScopedToFulfillmentWarehouse("OLYMPIA-BURNABY-RECEIVING-STAGE", bcWarehouse), true);
+    assert.equal(isLocationScopedToFulfillmentWarehouse("OLYMPIA-BURNABY-A01", bcWarehouse), true);
+    assert.equal(isLocationScopedToFulfillmentWarehouse("RECEIVING-STAGE", bcWarehouse), false);
+    assert.equal(isLocationScopedToFulfillmentWarehouse("REC", bcWarehouse), false);
+    assert.equal(isLocationScopedToFulfillmentWarehouse("GW3PL-MISS-RECEIVING-STAGE", bcWarehouse), false);
+});
+
+test("multi-warehouse inventory writes require a warehouse-prefixed location", async () => {
+    const store = new SharedInventoryStore({
+        warehouses: [
+            { id: 1, account_name: "MULTI WAREHOUSE CO", code: "GW3PL-MISS", is_primary: true },
+            { id: 2, account_name: "MULTI WAREHOUSE CO", code: "OLYMPIA-BURNABY" }
+        ]
+    });
+    const client = store.client();
+
+    await assert.rejects(
+        () => upsertInventoryLine(client, {
+            accountName: "MULTI WAREHOUSE CO",
+            location: "A01",
+            sku: "SKU-1",
+            quantity: 5
+        }),
+        /must start with one of this company's warehouse codes/
+    );
+
+    await upsertInventoryLine(client, {
+        accountName: "MULTI WAREHOUSE CO",
+        location: "GW3PL-MISS-A01",
+        sku: "SKU-1",
+        quantity: 5
+    });
+
+    assert.equal([...store.lines.values()].find((line) => line.location === "GW3PL-MISS-A01")?.quantity, 5);
+});
+
+test("multi-warehouse legacy generic locations cannot have quantity increased", async () => {
+    const warehouseAssignments = [
+        { id: 1, account_name: "MULTI WAREHOUSE CO", code: "GW3PL-MISS", is_primary: true },
+        { id: 2, account_name: "MULTI WAREHOUSE CO", code: "OLYMPIA-BURNABY" }
+    ];
+    const store = new SharedInventoryStore({
+        warehouses: warehouseAssignments,
+        lines: [{ id: 1, account_name: "MULTI WAREHOUSE CO", location: "BULK", sku: "SKU-1", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 10 }]
+    });
+
+    await assert.rejects(
+        () => setInventoryQuantity(store.client(), 1, 12, { actionLabel: "post inventory count" }),
+        /must start with one of this company's warehouse codes/
+    );
+
+    const reduceStore = new SharedInventoryStore({
+        warehouses: [
+            ...warehouseAssignments
+        ],
+        lines: [{ id: 1, account_name: "MULTI WAREHOUSE CO", location: "BULK", sku: "SKU-1", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 10 }]
+    });
+
+    await setInventoryQuantity(reduceStore.client(), 1, 8, { actionLabel: "reduce legacy generic stock" });
+
+    assert.equal(reduceStore.lines.get("1").quantity, 8);
+});
+
+test("multi-warehouse investigation hold uses the source warehouse hold location", async () => {
+    const store = new SharedInventoryStore({
+        warehouses: [
+            { id: 1, account_name: "MULTI WAREHOUSE CO", code: "GW3PL-MISS", is_primary: true },
+            { id: 2, account_name: "MULTI WAREHOUSE CO", code: "OLYMPIA-BURNABY" }
+        ],
+        lines: [{ id: 1, account_name: "MULTI WAREHOUSE CO", location: "GW3PL-MISS-A01", sku: "SKU-1", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 4 }]
+    });
+    const appUser = { id: 42, role: APP_USER_ROLES.SUPER_ADMIN, email: "admin@example.com" };
+
+    const result = await moveInventoryToInvestigationHold(store.client(), {
+        accountName: "MULTI WAREHOUSE CO",
+        fromLocation: "GW3PL-MISS-A01",
+        skuOrUpc: "SKU-1",
+        quantity: 4,
+        idempotencyKey: "multi-hold-once"
+    }, appUser);
+
+    assert.equal(result.holdLocation, "GW3PL-MISS-INV");
+    assert.equal(store.lines.has("1"), false);
+    const heldLine = [...store.lines.values()].find((line) => line.location === "GW3PL-MISS-INV" && line.sku === "SKU-1");
+    assert.equal(heldLine.quantity, 4);
+    assert.equal(store.locations.get("GW3PL-MISS-INV").location_type, "QA_HOLD");
+    assert.equal(store.locations.get("GW3PL-MISS-INV").is_pickable, false);
+});
 
 function cloneRow(row) {
     return row ? { ...row } : row;
 }
 
 class SharedInventoryStore {
-    constructor({ lines = [], allocations = [], counts = [] } = {}) {
+    constructor({ lines = [], allocations = [], counts = [], locations = [], warehouses = [] } = {}) {
         this.lines = new Map(lines.map((line) => [String(line.id), { ...line }]));
         this.allocations = allocations.map((allocation) => ({ ...allocation }));
         this.counts = new Map(counts.map((count) => [String(count.id), { ...count }]));
+        this.locations = new Map(locations.map((location) => [location.code, { ...location }]));
+        this.warehouses = warehouses.map((warehouse, index) => ({
+            id: warehouse.id || index + 1,
+            account_name: warehouse.account_name || warehouse.accountName || "",
+            code: warehouse.code,
+            name: warehouse.name || warehouse.code,
+            partner_name: warehouse.partner_name || "",
+            allow_inbound: warehouse.allow_inbound !== false,
+            allow_outbound: warehouse.allow_outbound !== false,
+            is_primary: warehouse.is_primary === true,
+            is_active: warehouse.is_active !== false
+        }));
+        this.confirmations = new Map();
         this.transactions = [];
         this.nextLineId = lines.reduce((max, line) => Math.max(max, Number(line.id) || 0), 0) + 1;
         this.nextTransactionId = 1;
+        this.nextConfirmationId = 1;
         this.lineLocks = new Map();
         this.countLocks = new Map();
     }
@@ -38,6 +149,9 @@ class SharedInventoryStore {
         return {
             lines: new Map([...this.lines.entries()].map(([id, row]) => [id, { ...row }])),
             counts: new Map([...this.counts.entries()].map(([id, row]) => [id, { ...row }])),
+            locations: new Map([...this.locations.entries()].map(([code, row]) => [code, { ...row }])),
+            warehouses: this.warehouses.map((row) => ({ ...row })),
+            confirmations: new Map([...this.confirmations.entries()].map(([key, row]) => [key, { ...row }])),
             transactions: this.transactions.map((row) => ({ ...row }))
         };
     }
@@ -45,6 +159,9 @@ class SharedInventoryStore {
     restore(snapshot) {
         this.lines = new Map([...snapshot.lines.entries()].map(([id, row]) => [id, { ...row }]));
         this.counts = new Map([...snapshot.counts.entries()].map(([id, row]) => [id, { ...row }]));
+        this.locations = new Map([...snapshot.locations.entries()].map(([code, row]) => [code, { ...row }]));
+        this.warehouses = snapshot.warehouses.map((row) => ({ ...row }));
+        this.confirmations = new Map([...snapshot.confirmations.entries()].map(([key, row]) => [key, { ...row }]));
         this.transactions = snapshot.transactions.map((row) => ({ ...row }));
     }
 }
@@ -101,6 +218,47 @@ class FakeInventoryClient {
             return { rowCount: rows.slice(0, 2).length, rows: rows.slice(0, 2).map(cloneRow) };
         }
 
+        if (normalizedSql.startsWith("select distinct account_name from inventory_lines where location = $1 and account_name <> $2")) {
+            const [location, accountName] = params;
+            const rows = [...new Set([...this.store.lines.values()]
+                .filter((row) => row.location === location && row.account_name !== accountName)
+                .map((row) => row.account_name))]
+                .sort()
+                .slice(0, 5)
+                .map((name) => ({ account_name: name }));
+            return { rowCount: rows.length, rows };
+        }
+
+        if (normalizedSql.startsWith("select fl.id, fl.code, fl.name, fl.partner_name")) {
+            const accountName = params[0];
+            const rows = this.store.warehouses
+                .filter((warehouse) => warehouse.account_name === accountName && warehouse.is_active !== false && warehouse.code)
+                .sort((left, right) => {
+                    if (left.is_primary !== right.is_primary) return left.is_primary ? -1 : 1;
+                    return String(left.code).localeCompare(String(right.code));
+                })
+                .map((warehouse) => ({
+                    id: warehouse.id,
+                    code: warehouse.code,
+                    name: warehouse.name,
+                    partner_name: warehouse.partner_name,
+                    allow_inbound: warehouse.allow_inbound,
+                    allow_outbound: warehouse.allow_outbound,
+                    is_primary: warehouse.is_primary
+                }));
+            return { rowCount: rows.length, rows: rows.map(cloneRow) };
+        }
+
+        if (normalizedSql.startsWith("select * from fulfillment_locations where id = $1")) {
+            const row = this.store.warehouses.find((warehouse) => String(warehouse.id) === String(params[0]) && warehouse.is_active !== false);
+            return { rowCount: row ? 1 : 0, rows: row ? [cloneRow(row)] : [] };
+        }
+
+        if (normalizedSql.startsWith("select * from fulfillment_locations where code = $1")) {
+            const row = this.store.warehouses.find((warehouse) => warehouse.code === params[0] && warehouse.is_active !== false);
+            return { rowCount: row ? 1 : 0, rows: row ? [cloneRow(row)] : [] };
+        }
+
         if (normalizedSql.startsWith("update inventory_lines set quantity = $1")) {
             const [quantity, id] = params;
             const row = this.store.lines.get(String(id));
@@ -117,6 +275,28 @@ class FakeInventoryClient {
             this.store.lines.delete(id);
             this.releaseLine(id);
             return { rowCount: 1, rows: [cloneRow(row)] };
+        }
+
+        if (normalizedSql.startsWith("insert into bin_locations")) {
+            const [code, note = ""] = params;
+            const existing = this.store.locations.get(code) || { code, note: "", location_type: "STORAGE", is_pickable: true };
+            if (note) existing.note = note;
+            this.store.locations.set(code, existing);
+            return { rowCount: 1, rows: [cloneRow(existing)] };
+        }
+
+        if (normalizedSql.startsWith("update bin_locations set location_type = 'qa_hold'")) {
+            const [code] = params;
+            const existing = this.store.locations.get(code) || { code, note: "", location_type: "STORAGE", is_pickable: true };
+            existing.location_type = "QA_HOLD";
+            existing.is_pickable = false;
+            if (!existing.note) existing.note = "Investigation hold - not pickable for released orders.";
+            this.store.locations.set(code, existing);
+            return { rowCount: 1, rows: [cloneRow(existing)] };
+        }
+
+        if (normalizedSql.startsWith("insert into item_catalog")) {
+            return { rowCount: 1, rows: [] };
         }
 
         if (normalizedSql.startsWith("insert into inventory_lines")) {
@@ -204,12 +384,74 @@ class FakeInventoryClient {
         }
 
         if (normalizedSql.startsWith("select coalesce(sum")) {
-            return { rowCount: 1, rows: [{ released_quantity: 0, picked_quantity: 0, staged_quantity: 0, active_quantity: 0 }] };
+            const lineId = String(params[0]);
+            const activeStatuses = Array.isArray(params[1]) ? params[1] : ["RELEASED", "PICKED", "STAGED"];
+            const matchingAllocations = this.store.allocations.filter((allocation) => {
+                const status = allocation.status || "RELEASED";
+                return String(allocation.inventory_line_id) === lineId && activeStatuses.includes(status);
+            });
+            const sumByStatus = (status) => matchingAllocations
+                .filter((allocation) => (allocation.status || "RELEASED") === status)
+                .reduce((sum, allocation) => sum + Number(allocation.allocated_quantity || 0), 0);
+            const activeQuantity = matchingAllocations.reduce((sum, allocation) => sum + Number(allocation.allocated_quantity || 0), 0);
+            return {
+                rowCount: 1,
+                rows: [{
+                    released_quantity: sumByStatus("RELEASED"),
+                    picked_quantity: sumByStatus("PICKED"),
+                    staged_quantity: sumByStatus("STAGED"),
+                    active_quantity: activeQuantity
+                }]
+            };
         }
 
         if (normalizedSql.startsWith("select * from portal_order_allocations where order_id = $1")) {
             const rows = this.store.allocations.filter((allocation) => String(allocation.order_id) === String(params[0]));
             return { rowCount: rows.length, rows: rows.map(cloneRow) };
+        }
+
+        if (normalizedSql.startsWith("select * from mobile_execution_confirmations where idempotency_key = $1")) {
+            const row = this.store.confirmations.get(String(params[0]));
+            return { rowCount: row ? 1 : 0, rows: row ? [cloneRow(row)] : [] };
+        }
+
+        if (normalizedSql.startsWith("insert into mobile_execution_confirmations")) {
+            const [
+                sourceId,
+                workerId,
+                deviceId,
+                accountName,
+                fromLocation,
+                holdLocation,
+                sku,
+                lot,
+                expiry,
+                quantity,
+                idempotencyKey,
+                source
+            ] = params;
+            const row = {
+                id: this.store.nextConfirmationId++,
+                confirmation_type: "INVESTIGATION_HOLD",
+                source_type: "INVENTORY_LINE",
+                source_id: sourceId,
+                worker_id: workerId,
+                device_id: deviceId || "",
+                account_name: accountName,
+                location: fromLocation,
+                from_location: fromLocation,
+                to_location: holdLocation,
+                sku,
+                lot: lot || "",
+                expiry: expiry || "",
+                quantity: Number(quantity),
+                sync_status: "SYNCED",
+                idempotency_key: idempotencyKey,
+                source: source || "mobile_web",
+                timestamp: new Date().toISOString()
+            };
+            this.store.confirmations.set(String(idempotencyKey), row);
+            return { rowCount: 1, rows: [cloneRow(row)] };
         }
 
         if (normalizedSql.startsWith("select * from inventory_count_records where id = $1")) {
@@ -322,6 +564,67 @@ test("two simultaneous transfers preserve total quantity", async () => {
     assert.equal(total, 10);
     assert.equal(store.transactions.length, 2);
     assert.deepEqual(store.transactions.map((row) => row.quantity_delta).sort((a, b) => a - b), [-6, 6]);
+});
+
+test("mobile investigation hold moves available stock into a non-pickable hold location once", async () => {
+    const store = new SharedInventoryStore({
+        lines: [{ id: 1, account_name: "PURE FOODS BY ESTEE", location: "PUREFOODS-BULK", sku: "140", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 124 }]
+    });
+    const appUser = { id: 42, role: APP_USER_ROLES.SUPER_ADMIN, email: "admin@example.com" };
+
+    const result = await moveInventoryToInvestigationHold(store.client(), {
+        accountName: "PURE FOODS BY ESTEE",
+        fromLocation: "PUREFOODS-BULK",
+        skuOrUpc: "140",
+        quantity: 124,
+        note: "Count discrepancy",
+        idempotencyKey: "hold-140-once"
+    }, appUser);
+
+    assert.equal(result.holdLocation, "PURE-FOODS-INVESTIGATION");
+    assert.equal(store.lines.has("1"), false);
+    const heldLine = [...store.lines.values()].find((line) => line.location === "PURE-FOODS-INVESTIGATION" && line.sku === "140");
+    assert.equal(heldLine.quantity, 124);
+    assert.equal(store.locations.get("PURE-FOODS-INVESTIGATION").location_type, "QA_HOLD");
+    assert.equal(store.locations.get("PURE-FOODS-INVESTIGATION").is_pickable, false);
+    assert.equal(store.confirmations.size, 1);
+    assert.deepEqual(store.transactions.map((row) => row.quantity_delta).sort((a, b) => a - b), [-124, 124]);
+
+    const duplicate = await moveInventoryToInvestigationHold(store.client(), {
+        accountName: "PURE FOODS BY ESTEE",
+        fromLocation: "PUREFOODS-BULK",
+        skuOrUpc: "140",
+        quantity: 124,
+        idempotencyKey: "hold-140-once"
+    }, appUser);
+
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(store.confirmations.size, 1);
+    assert.equal([...store.lines.values()].reduce((sum, line) => sum + Number(line.quantity), 0), 124);
+});
+
+test("mobile investigation hold cannot move stock committed to active orders", async () => {
+    const store = new SharedInventoryStore({
+        lines: [{ id: 1, account_name: "PURE FOODS BY ESTEE", location: "PUREFOODS-BULK", sku: "133", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 109 }],
+        allocations: [{ id: 10, inventory_line_id: 1, allocated_quantity: 5, status: "RELEASED" }]
+    });
+    const appUser = { id: 42, role: APP_USER_ROLES.SUPER_ADMIN, email: "admin@example.com" };
+
+    await assert.rejects(
+        () => moveInventoryToInvestigationHold(store.client(), {
+            accountName: "PURE FOODS BY ESTEE",
+            fromLocation: "PUREFOODS-BULK",
+            skuOrUpc: "133",
+            quantity: 109,
+            idempotencyKey: "hold-133-too-much"
+        }, appUser),
+        /only 104 cases are available/
+    );
+
+    assert.equal(store.lines.get("1").quantity, 109);
+    assert.equal([...store.lines.values()].some((line) => line.location === "PURE-FOODS-INVESTIGATION" && line.sku === "133"), false);
+    assert.equal(store.confirmations.size, 0);
+    assert.equal(store.transactions.length, 0);
 });
 
 test("simultaneous count posting posts once", async () => {

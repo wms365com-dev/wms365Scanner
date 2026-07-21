@@ -4996,6 +4996,13 @@
                 color: #708397;
             }
 
+            .dashboard-order-flags {
+                display: inline-flex;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+                gap: 0.35rem;
+            }
+
             .dashboard-task-row {
                 grid-template-columns: minmax(150px, 1.25fr) minmax(116px, 0.75fr) minmax(118px, 0.75fr) minmax(108px, 0.72fr) auto;
             }
@@ -7481,7 +7488,7 @@
                                     <option value="AUTO">Auto: paid subscription or Grey Wolf no-charge</option>
                                     <option value="PAID_SUBSCRIPTION">Paid subscription</option>
                                     <option value="NO_CHARGE">No-charge access</option>
-                                    <option value="BLOCKED">Blocked</option>
+                                    <option value="BLOCKED">Blocked - payment/account hold</option>
                                 </select>
                             </label>
                             <div class="button-row span-2">
@@ -7533,7 +7540,7 @@
                                         <option value="AUTO">Auto: paid subscription or Grey Wolf no-charge</option>
                                         <option value="PAID_SUBSCRIPTION">Paid subscription</option>
                                         <option value="NO_CHARGE">No-charge access</option>
-                                        <option value="BLOCKED">Blocked</option>
+                                        <option value="BLOCKED">Blocked - payment/account hold</option>
                                     </select>
                                 </label>
                                 <label class="field">
@@ -7549,8 +7556,8 @@
                                     </select>
                                 </label>
                                 <label class="field">
-                                    <span>Paywall Note</span>
-                                    <input id="masterOwnerSubscriptionNote" type="text" placeholder="Stripe, no-charge, or contract note" enterkeyhint="next">
+                                    <span>Customer Hold / Paywall Note</span>
+                                    <input id="masterOwnerSubscriptionNote" type="text" placeholder="Shown internally and as the customer hold reason when blocked" enterkeyhint="next">
                                 </label>
                                 <div class="helper span-2" id="masterOwnerPaywallMeta">Grey Wolf 3PL assigned customers are treated as no-charge unless Software Access is set to Blocked.</div>
                                 <div class="erp-fasttab-heading desktop-only span-2">Contact</div>
@@ -8472,6 +8479,10 @@
                         <span class="menu-card-title">Move Item</span>
                         <span class="menu-card-meta">Scan from, to, SKU, and move the available quantity.</span>
                     </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="investigation">
+                        <span class="menu-card-title">Investigation Hold</span>
+                        <span class="menu-card-meta">Move questionable stock into a non-pickable hold location.</span>
+                    </button>
                     <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="putaway">
                         <span class="menu-card-title">Put Away</span>
                         <span class="menu-card-meta">Move received stock from staging or dock space into its storage BIN.</span>
@@ -8571,6 +8582,49 @@
                         </label>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Move Item</button>
+                        </div>
+                    </form>
+                </article>
+
+                <article class="card mobile-subview workspace-action-card" id="investigationHoldCard" data-mobile-subview-group="actions" data-mobile-subview="investigation">
+                    <div class="card-head">
+                        <div>
+                            <h2>Investigation Hold</h2>
+                            <p class="lead">Move questionable stock into the company's non-pickable investigation location.</p>
+                        </div>
+                    </div>
+                    <form id="investigationHoldForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2">
+                            <span>Company</span>
+                            <input id="investigationAccount" hidden list="ownerList" type="text" placeholder="Required company">
+                        </label>
+                        <label class="field span-2">
+                            <span>From</span>
+                            <div class="action-scan-row">
+                                <input id="investigationFrom" list="investigationFromList" type="text" placeholder="Choose company first">
+                                <button class="btn ghost" type="button" data-action-scan-target="investigationFrom">Scan</button>
+                            </div>
+                        </label>
+                        <label class="field span-2">
+                            <span>SKU or UPC</span>
+                            <div class="action-scan-row">
+                                <input id="investigationSku" list="investigationSkuList" type="text" placeholder="Choose company and source location first">
+                                <button class="btn ghost" type="button" data-action-scan-target="investigationSku">Scan</button>
+                            </div>
+                        </label>
+                        <label class="field">
+                            <span>Quantity</span>
+                            <input id="investigationQty" type="number" min="1" inputmode="numeric" placeholder="Auto fills available qty">
+                        </label>
+                        <label class="field">
+                            <span>Reason</span>
+                            <input id="investigationNote" type="text" maxlength="180" placeholder="Optional note">
+                        </label>
+                        <div class="helper span-2">
+                            <p class="meta">Moved stock stays on hand but cannot be released to sales orders until it is moved back to a pickable location.</p>
+                        </div>
+                        <div class="button-row span-2">
+                            <button class="btn warn" type="submit">Move To Investigation</button>
                         </div>
                     </form>
                 </article>
@@ -10506,12 +10560,14 @@
     <datalist id="adjustLocationList"></datalist>
     <datalist id="transferFromList"></datalist>
     <datalist id="transferToList"></datalist>
+    <datalist id="investigationFromList"></datalist>
     <datalist id="putAwayFromList"></datalist>
     <datalist id="putAwayToList"></datalist>
     <datalist id="moveFromList"></datalist>
     <datalist id="moveToList"></datalist>
     <datalist id="adjustSkuList"></datalist>
     <datalist id="transferSkuList"></datalist>
+    <datalist id="investigationSkuList"></datalist>
     <datalist id="putAwaySkuList"></datalist>
     <datalist id="convertFromList"></datalist>
     <datalist id="convertToList"></datalist>
@@ -11306,6 +11362,11 @@
             transferTo: document.getElementById("transferTo"),
             transferSku: document.getElementById("transferSku"),
             transferQty: document.getElementById("transferQty"),
+            investigationAccount: document.getElementById("investigationAccount"),
+            investigationFrom: document.getElementById("investigationFrom"),
+            investigationSku: document.getElementById("investigationSku"),
+            investigationQty: document.getElementById("investigationQty"),
+            investigationNote: document.getElementById("investigationNote"),
             putAwayAccount: document.getElementById("putAwayAccount"),
             putAwayFrom: document.getElementById("putAwayFrom"),
             putAwayTo: document.getElementById("putAwayTo"),
@@ -11641,12 +11702,14 @@
             adjustLocationList: document.getElementById("adjustLocationList"),
             transferFromList: document.getElementById("transferFromList"),
             transferToList: document.getElementById("transferToList"),
+            investigationFromList: document.getElementById("investigationFromList"),
             putAwayFromList: document.getElementById("putAwayFromList"),
             putAwayToList: document.getElementById("putAwayToList"),
             moveFromList: document.getElementById("moveFromList"),
             moveToList: document.getElementById("moveToList"),
             adjustSkuList: document.getElementById("adjustSkuList"),
             transferSkuList: document.getElementById("transferSkuList"),
+            investigationSkuList: document.getElementById("investigationSkuList"),
             putAwaySkuList: document.getElementById("putAwaySkuList"),
             convertFromList: document.getElementById("convertFromList"),
             convertToList: document.getElementById("convertToList"),
@@ -11750,6 +11813,7 @@
                 ui.searchAccount,
                 ui.adjustAccount,
                 ui.transferAccount,
+                ui.investigationAccount,
                 ui.putAwayAccount,
                 ui.convertAccount,
                 ui.moveAccount,
@@ -12108,6 +12172,7 @@
             document.getElementById("removeQtyBtn").addEventListener("click", removeQuantity);
             document.getElementById("deleteLineBtn").addEventListener("click", deleteLine);
             document.getElementById("transferForm").addEventListener("submit", transferQuantity);
+            document.getElementById("investigationHoldForm").addEventListener("submit", moveToInvestigationHold);
             document.getElementById("putAwayForm").addEventListener("submit", putAwayQuantity);
             document.getElementById("convertForm").addEventListener("submit", convertInventoryItems);
             ui.refreshKittingRequestsAdminBtn?.addEventListener("click", () => refreshKittingRequestsAdmin(false));
@@ -12119,6 +12184,7 @@
             [
                 ui.adjustAccount, ui.adjustLocation, ui.adjustSku,
                 ui.transferAccount, ui.transferFrom, ui.transferTo, ui.transferSku,
+                ui.investigationAccount, ui.investigationFrom, ui.investigationSku, ui.investigationQty, ui.investigationNote,
                 ui.putAwayAccount, ui.putAwayFrom, ui.putAwayTo, ui.putAwaySku,
                 ui.convertAccount, ui.convertFrom, ui.convertTo, ui.convertSourceSku, ui.convertSourceQty, ui.convertTargetSku,
                 ui.moveAccount, ui.moveFrom, ui.moveTo
@@ -12127,6 +12193,9 @@
             });
             [ui.transferFrom, ui.transferSku].forEach((input) => {
                 ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("transfer")));
+            });
+            [ui.investigationFrom, ui.investigationSku].forEach((input) => {
+                ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("investigation")));
             });
             [ui.putAwayFrom, ui.putAwaySku].forEach((input) => {
                 ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("putaway")));
@@ -12669,6 +12738,7 @@
                 portalAccessListCard: ui.portalAccessEmail || ui.portalAccessAccount,
                 adjustInventoryCard: ui.adjustLocation,
                 transferInventoryCard: ui.transferFrom,
+                investigationHoldCard: ui.investigationFrom,
                 convertInventoryCard: ui.convertFrom,
                 moveInventoryCard: ui.moveFrom,
                 integrationsWorkspaceHost: ui.integrationName,
@@ -13059,6 +13129,7 @@
                 ui.searchAccount,
                 ui.adjustAccount,
                 ui.transferAccount,
+                ui.investigationAccount,
                 ui.convertAccount,
                 ui.moveAccount,
                 ui.reportOwner,
@@ -14434,6 +14505,7 @@
             }
             if (group === "actions") {
                 if (view === "transfer") ui.transferAccount.focus();
+                else if (view === "investigation") ui.investigationFrom.focus();
                 else if (view === "convert") ui.convertAccount.focus();
                 else if (view === "move") ui.moveAccount.focus();
                 else ui.adjustAccount.focus();
@@ -14477,7 +14549,7 @@
         function initMobileAutocomplete() {
             if (!ui.mobileAutocomplete) return;
 
-            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.putAwayAccount, ui.convertAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount]
+            [ui.scanAccount, ui.searchAccount, ui.adjustAccount, ui.transferAccount, ui.investigationAccount, ui.putAwayAccount, ui.convertAccount, ui.moveAccount, ui.reportOwner, ui.masterOwnerName, ui.masterItemAccount, ui.palletLabelAccount]
                 .forEach((input) => registerMobileAutocomplete(input, {
                     getSuggestions: (query) => getOwnerSuggestions(query),
                     onSelect: (option, currentInput) => {
@@ -14543,6 +14615,13 @@
                     mode: "destination",
                     excludeLocation: ui.transferFrom.value
                 }),
+                onSelect: () => {
+                    syncActionItemSelectors();
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.investigationFrom, {
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.investigationAccount.value, { mode: "source" }),
                 onSelect: () => {
                     syncActionItemSelectors();
                     return true;
@@ -14649,6 +14728,14 @@
                 getSuggestions: (query) => getLocationScopedItemSuggestions(query, ui.transferAccount.value, ui.transferFrom.value, { preferUpc: looksNumeric(query) }),
                 onSelect: (option) => {
                     if (!norm(ui.transferAccount.value) && option.accountName) ui.transferAccount.value = option.accountName;
+                    return true;
+                }
+            });
+            registerMobileAutocomplete(ui.investigationSku, {
+                getSuggestions: (query) => getLocationScopedItemSuggestions(query, ui.investigationAccount.value, ui.investigationFrom.value, { preferUpc: looksNumeric(query) }),
+                onSelect: (option) => {
+                    if (!norm(ui.investigationAccount.value) && option.accountName) ui.investigationAccount.value = option.accountName;
+                    autofillActionMoveQuantity("investigation", { force: true });
                     return true;
                 }
             });
@@ -14785,10 +14872,10 @@
         }
 
         function getMobilePickerKicker(input) {
-            if (input === ui.scanAccount || input === ui.searchAccount || input === ui.adjustAccount || input === ui.transferAccount || input === ui.convertAccount || input === ui.moveAccount || input === ui.masterOwnerName || input === ui.masterItemAccount || input === ui.reportOwner) {
+            if (input === ui.scanAccount || input === ui.searchAccount || input === ui.adjustAccount || input === ui.transferAccount || input === ui.investigationAccount || input === ui.convertAccount || input === ui.moveAccount || input === ui.masterOwnerName || input === ui.masterItemAccount || input === ui.reportOwner) {
                 return "Company Picker";
             }
-            if (input === ui.scanLocation || input === ui.adjustLocation || input === ui.transferFrom || input === ui.transferTo || input === ui.convertFrom || input === ui.convertTo || input === ui.moveFrom || input === ui.moveTo || input === ui.masterLocationCode) {
+            if (input === ui.scanLocation || input === ui.adjustLocation || input === ui.transferFrom || input === ui.transferTo || input === ui.investigationFrom || input === ui.convertFrom || input === ui.convertTo || input === ui.moveFrom || input === ui.moveTo || input === ui.masterLocationCode) {
                 return "Location Picker";
             }
             return "Item Picker";
@@ -16016,6 +16103,34 @@
             return dashboardDateKey(value) || "9999-12-31";
         }
 
+        function portalOrderExpectedReadyTime(order) {
+            const value = order?.expectedReadyAt || order?.expected_ready_at || "";
+            if (!value) return null;
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? null : date.getTime();
+        }
+
+        function portalOrderIsRush(order = {}) {
+            return order.rushApproved === true || order.rushRequired === true || order.rushApprovalRequired === true;
+        }
+
+        function portalOrderIsNotYetReady(order = {}, now = new Date()) {
+            const readyTime = portalOrderExpectedReadyTime(order);
+            if (readyTime != null) return readyTime > now.getTime();
+            const readyDate = dashboardDateKey(order.expectedReadyDate);
+            return Boolean(readyDate && readyDate > dashboardDateKey(now));
+        }
+
+        function formatPortalOrderReadyLabel(order = {}) {
+            return order.expectedReadyLabel || (order.expectedReadyDate ? `Expected ready ${order.expectedReadyDate}` : "Expected ready not calculated");
+        }
+
+        function portalOrderDashboardRank(order = {}, now = new Date()) {
+            if (portalOrderIsRush(order)) return 0;
+            if (portalOrderIsNotYetReady(order, now)) return 1;
+            return 2;
+        }
+
         function dashboardLines(records = []) {
             return records.flatMap((record) => Array.isArray(record.lines) ? record.lines : []);
         }
@@ -16035,11 +16150,13 @@
         }
 
         function getDashboardOpenOrders() {
+            const now = new Date();
             return getCompanyScopedPortalOrders()
                 .filter((order) => ["RELEASED", "PICKED", "STAGED"].includes(norm(order.status)))
                 .sort((a, b) => {
                     const statusRank = { RELEASED: 1, PICKED: 2, STAGED: 3 };
-                    return (statusRank[norm(a.status)] || 9) - (statusRank[norm(b.status)] || 9)
+                    return portalOrderDashboardRank(a, now) - portalOrderDashboardRank(b, now)
+                        || (statusRank[norm(a.status)] || 9) - (statusRank[norm(b.status)] || 9)
                         || dashboardDateSort(a.requestedShipDate).localeCompare(dashboardDateSort(b.requestedShipDate))
                         || (a.orderCode || "").localeCompare(b.orderCode || "");
                 });
@@ -16064,11 +16181,18 @@
             const lineTotals = summarizeTrackedTotals(lines);
             const dateKey = dashboardDateKey(order.requestedShipDate);
             const dateText = dateKey ? (dateKey < today ? `Past due ${dateKey}` : (dateKey === today ? "Ship today" : `Ship ${dateKey}`)) : "No ship date";
+            const rush = portalOrderIsRush(order);
+            const notReady = portalOrderIsNotYetReady(order);
+            const readyText = formatPortalOrderReadyLabel(order);
+            const flags = [
+                rush ? `<span class="pill warn">RUSH</span>` : "",
+                notReady ? `<span class="pill info" title="${attr(readyText)}">Not ready</span>` : ""
+            ].filter(Boolean).join(" ");
             return `
                 <button class="dashboard-work-row" type="button" data-open-warehouse-order="${attr(order.id)}">
                     <strong>${esc(order.orderCode || "Sales Order")}</strong>
-                    <span>${esc(order.accountName)} | ${esc(order.poNumber || "No PO")}<br><small>${esc(dateText)} | ${num(lines.length)} line${lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
-                    <span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>
+                    <span>${esc(order.accountName)} | ${esc(order.poNumber || "No PO")}<br><small>${esc(dateText)} | ${esc(readyText)} | ${num(lines.length)} line${lines.length === 1 ? "" : "s"} | ${esc(formatTrackedSummary(lineTotals))}</small></span>
+                    <span class="dashboard-order-flags">${flags}<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span></span>
                 </button>
             `;
         }
@@ -16361,6 +16485,8 @@
             const releasedOrders = openOrders.filter((order) => norm(order.status) === "RELEASED");
             const pickedOrders = openOrders.filter((order) => norm(order.status) === "PICKED");
             const stagedOrders = openOrders.filter((order) => norm(order.status) === "STAGED");
+            const rushOrders = openOrders.filter((order) => portalOrderIsRush(order));
+            const notReadyOrders = openOrders.filter((order) => portalOrderIsNotYetReady(order));
             const failedShipmentEmails = getShipmentEmailFailureOrders();
             const rushTasks = activeTasks.filter((task) => ["RUSH", "HIGH"].includes(norm(task.priority)));
             const blockedTasks = activeTasks.filter((task) => norm(task.status) === "BLOCKED");
@@ -16423,7 +16549,12 @@
                 ui.dashboardInboundMeta.textContent = `${num(openInbounds.length)} open | ${formatTrackedSummary(inboundTotals)}`;
             }
             if (ui.dashboardOutboundMeta) {
-                ui.dashboardOutboundMeta.textContent = `${num(openOrders.length)} open | ${formatTrackedSummary(outboundTotals)}`;
+                ui.dashboardOutboundMeta.textContent = [
+                    `${num(openOrders.length)} open`,
+                    rushOrders.length ? `${num(rushOrders.length)} RUSH` : "",
+                    notReadyOrders.length ? `${num(notReadyOrders.length)} not ready` : "",
+                    formatTrackedSummary(outboundTotals)
+                ].filter(Boolean).join(" | ");
             }
             if (ui.dashboardPlanningMeta) {
                 ui.dashboardPlanningMeta.textContent = today;
@@ -16461,6 +16592,8 @@
                 if (dueSoonTasks.length) addNote("SLA watch", `${num(dueSoonTasks.length)} task${dueSoonTasks.length === 1 ? " is" : "s are"} due within four hours.`, "warn");
                 if (blockedTasks.length) addNote("Blocked task", `${num(blockedTasks.length)} warehouse task${blockedTasks.length === 1 ? " is" : "s are"} blocked. Open the task queue before assigning new work.`, "warn");
                 if (rushTasks.length) addNote("Priority queue", `${num(rushTasks.length)} high-priority warehouse task${rushTasks.length === 1 ? " is" : "s are"} waiting across receiving, picking, packing, or shipping.`, "warn");
+                if (rushOrders.length) addNote("RUSH outbound", `${num(rushOrders.length)} open sales order${rushOrders.length === 1 ? " is" : "s are"} flagged RUSH. Review these before normal outbound work.`, "warn");
+                if (notReadyOrders.length) addNote("Not ready yet", `${num(notReadyOrders.length)} open sales order${notReadyOrders.length === 1 ? " has" : "s have"} an expected ready date in the future. Do not pick early unless RUSH is approved.`, "warn");
                 if (overdueInbounds.length) addNote("Receiving risk", `${num(overdueInbounds.length)} purchase order${overdueInbounds.length === 1 ? " is" : "s are"} past the expected date. Review inbound appointments first.`, "warn");
                 if (dueTodayInbounds.length) addNote("Inbound work today", `${num(dueTodayInbounds.length)} purchase order${dueTodayInbounds.length === 1 ? "" : "s"} due today with ${formatTrackedSummary(summarizeTrackedTotals(dashboardLines(dueTodayInbounds)))} expected.`, "ready");
                 if (releasedOrders.length) addNote("Picking queue", `${num(releasedOrders.length)} released sales order${releasedOrders.length === 1 ? "" : "s"} ready to pick. Start here before staging work grows.`, "ready");
@@ -16791,6 +16924,7 @@
 
             const adjustAccountName = getScopedCompanyValue(ui.adjustAccount?.value || "");
             const transferAccountName = getScopedCompanyValue(ui.transferAccount?.value || "");
+            const investigationAccountName = getScopedCompanyValue(ui.investigationAccount?.value || "");
             const putAwayAccountName = getScopedCompanyValue(ui.putAwayAccount?.value || "");
             const convertAccountName = getScopedCompanyValue(ui.convertAccount?.value || "");
             const moveAccountName = getScopedCompanyValue(ui.moveAccount?.value || "");
@@ -16800,6 +16934,7 @@
                 mode: "destination",
                 excludeLocation: ui.transferFrom?.value || ""
             });
+            const investigationFromLocations = getOwnerScopedLocationOptions(investigationAccountName, { mode: "source" });
             const putAwayFromLocations = getOwnerScopedLocationOptions(putAwayAccountName, { mode: "source" });
             const putAwayToLocations = getOwnerScopedLocationOptions(putAwayAccountName, {
                 mode: "destination",
@@ -16815,6 +16950,7 @@
 
             const adjustItems = getLocationInventoryItems(adjustAccountName, ui.adjustLocation?.value || "");
             const transferItems = getLocationInventoryItems(transferAccountName, ui.transferFrom?.value || "");
+            const investigationItems = getLocationInventoryItems(investigationAccountName, ui.investigationFrom?.value || "");
             const putAwayItems = getLocationInventoryItems(putAwayAccountName, ui.putAwayFrom?.value || "");
             if (ui.convertTo && !norm(ui.convertTo.value) && norm(ui.convertFrom?.value || "")) {
                 ui.convertTo.value = norm(ui.convertFrom.value);
@@ -16825,6 +16961,7 @@
             if (ui.adjustLocationList) ui.adjustLocationList.innerHTML = renderLocationOptions(adjustLocations);
             if (ui.transferFromList) ui.transferFromList.innerHTML = renderLocationOptions(transferFromLocations);
             if (ui.transferToList) ui.transferToList.innerHTML = renderLocationOptions(transferToLocations);
+            if (ui.investigationFromList) ui.investigationFromList.innerHTML = renderLocationOptions(investigationFromLocations);
             if (ui.putAwayFromList) ui.putAwayFromList.innerHTML = renderLocationOptions(putAwayFromLocations);
             if (ui.putAwayToList) ui.putAwayToList.innerHTML = renderLocationOptions(putAwayToLocations);
             if (ui.convertFromList) ui.convertFromList.innerHTML = renderLocationOptions(convertFromLocations);
@@ -16833,6 +16970,7 @@
             if (ui.moveToList) ui.moveToList.innerHTML = renderLocationOptions(moveToLocations);
             if (ui.adjustSkuList) ui.adjustSkuList.innerHTML = renderOptions(adjustItems);
             if (ui.transferSkuList) ui.transferSkuList.innerHTML = renderOptions(transferItems);
+            if (ui.investigationSkuList) ui.investigationSkuList.innerHTML = renderOptions(investigationItems);
             if (ui.putAwaySkuList) ui.putAwaySkuList.innerHTML = renderOptions(putAwayItems);
             if (ui.convertSourceSkuList) ui.convertSourceSkuList.innerHTML = renderOptions(convertSourceItems);
             if (ui.convertTargetSkuList) ui.convertTargetSkuList.innerHTML = renderConversionTargetOptions(convertTargetItems);
@@ -16844,6 +16982,7 @@
                 if (input === ui.adjustLocation) scopeReady = !!adjustAccountName;
                 else if (input === ui.transferFrom) scopeReady = !!transferAccountName;
                 else if (input === ui.transferTo) scopeReady = !!transferAccountName && !!norm(ui.transferFrom?.value);
+                else if (input === ui.investigationFrom) scopeReady = !!investigationAccountName;
                 else if (input === ui.putAwayFrom) scopeReady = !!putAwayAccountName;
                 else if (input === ui.putAwayTo) scopeReady = !!putAwayAccountName && !!norm(ui.putAwayFrom?.value);
                 else if (input === ui.convertFrom || input === ui.convertTo) scopeReady = !!convertAccountName;
@@ -16865,6 +17004,7 @@
                 const isReady = items.length > 0;
                 let scopeReady = false;
                 if (input === ui.transferSku) scopeReady = !!transferAccountName && !!norm(ui.transferFrom?.value);
+                else if (input === ui.investigationSku) scopeReady = !!investigationAccountName && !!norm(ui.investigationFrom?.value);
                 else if (input === ui.putAwaySku) scopeReady = !!putAwayAccountName && !!norm(ui.putAwayFrom?.value);
                 else if (input === ui.convertSourceSku) scopeReady = !!convertAccountName && !!norm(ui.convertFrom?.value);
                 else if (input === ui.convertTargetSku) scopeReady = !!convertAccountName;
@@ -16884,6 +17024,7 @@
             syncLocationField(ui.adjustLocation, adjustLocations, "Choose company first", "Select a location for this company");
             syncLocationField(ui.transferFrom, transferFromLocations, "Choose company first", "Select the source location");
             syncLocationField(ui.transferTo, transferToLocations, "Choose company and source location first", "Select a valid destination location");
+            syncLocationField(ui.investigationFrom, investigationFromLocations, "Choose company first", "Select the source location");
             syncLocationField(ui.putAwayFrom, putAwayFromLocations, "Choose company first", "Select receiving, dock, or staging location");
             syncLocationField(ui.putAwayTo, putAwayToLocations, "Choose company and source location first", "Select the destination storage BIN");
             syncLocationField(ui.convertFrom, convertFromLocations, "Choose company first", "Select the source location");
@@ -16892,6 +17033,7 @@
             syncLocationField(ui.moveTo, moveToLocations, "Choose company and source location first", "Select a valid destination location");
             syncField(ui.adjustSku, adjustItems, "Choose company and location first", "Select a SKU from this location");
             syncField(ui.transferSku, transferItems, "Choose company and source location first", "Select a SKU from the source location");
+            syncField(ui.investigationSku, investigationItems, "Choose company and source location first", "Select a SKU from the source location");
             syncField(ui.putAwaySku, putAwayItems, "Choose company and source location first", "Select a SKU from the receiving/staging location");
             syncField(ui.convertSourceSku, convertSourceItems, "Choose company and source location first", "Select the source SKU from this location");
             syncField(ui.convertTargetSku, convertTargetItems, "Choose company first", "Select the target SKU for this company");
@@ -21556,6 +21698,17 @@
             return normalized || status || "";
         }
 
+        function getInboundReceivingStageLocation(inbound = {}) {
+            const fulfillmentCode = norm(
+                inbound.fulfillmentLocationCode
+                || inbound.fulfillment_location_code
+                || inbound.warehouseCode
+                || inbound.warehouse_code
+                || ""
+            );
+            return fulfillmentCode ? `${fulfillmentCode}-REC` : "RECEIVING-STAGE";
+        }
+
         function renderWarehouseInboundWorkflow(inbound = null) {
             if (!ui.warehouseInboundWorkflowPanel) return;
             if (!inbound?.id) {
@@ -21570,6 +21723,7 @@
             const needsPutaway = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY"].includes(inbound.status);
             const isCancelled = inbound.status === "CANCELLED";
             const statusClass = inboundStatusPillClass(inbound.status);
+            const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
             const lineRows = inbound.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
@@ -21584,7 +21738,7 @@
             `).join("");
             const receivingRows = inbound.lines.map((line) => {
                 const receivedQuantity = line.receivedQuantity || line.quantity || 1;
-                const receivedLocation = line.receivedLocation || "RECEIVING-STAGE";
+                const receivedLocation = line.receivedLocation || defaultReceivingLocation;
                 const lotRequired = line.lotTracked ? "required" : "";
                 const expirationRequired = line.expirationTracked ? "required" : "";
                 const locked = (isReceived || isCancelled) ? "disabled" : "";
@@ -21599,7 +21753,7 @@
                             <input data-inbound-receive-qty type="number" min="1" inputmode="numeric" value="${attr(receivedQuantity)}" ${locked}>
                         </td>
                         <td>
-                            <input data-inbound-receive-location type="text" value="${attr(receivedLocation)}" placeholder="RECEIVING-STAGE" ${locked}>
+                            <input data-inbound-receive-location type="text" value="${attr(receivedLocation)}" placeholder="${attr(defaultReceivingLocation)}" ${locked}>
                         </td>
                         <td>
                             <input data-inbound-receive-lot type="text" value="${attr(line.lotNumber || "")}" placeholder="${line.lotTracked ? "Required lot" : "Optional lot"}" ${lotRequired} ${locked}>
@@ -21680,6 +21834,7 @@
 
         function collectWarehouseInboundReceivingPayload(inbound, { validate = true } = {}) {
             const lines = Array.isArray(inbound?.lines) ? inbound.lines : [];
+            const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
             const rows = ui.warehouseInboundWorkflowPanel
                 ? [...ui.warehouseInboundWorkflowPanel.querySelectorAll("[data-inbound-receive-line]")]
                 : [];
@@ -21691,7 +21846,7 @@
                         id: line.id || "",
                         sku: line.sku,
                         receivedQuantity: line.receivedQuantity || line.quantity || 1,
-                        receivedLocation: line.receivedLocation || "RECEIVING-STAGE",
+                        receivedLocation: line.receivedLocation || defaultReceivingLocation,
                         lotNumber: line.lotNumber || "",
                         expirationDate: line.expirationDate || ""
                     }))
@@ -21729,7 +21884,7 @@
                     id: line.id || lineKey,
                     sku: line.sku || "",
                     receivedQuantity: Number.isFinite(receivedQuantity) && receivedQuantity > 0 ? receivedQuantity : (line.receivedQuantity || line.quantity || 1),
-                    receivedLocation: receivedLocation || line.receivedLocation || "RECEIVING-STAGE",
+                    receivedLocation: receivedLocation || line.receivedLocation || defaultReceivingLocation,
                     lotNumber: lotNumber || line.lotNumber || "",
                     expirationDate: expirationDate || line.expirationDate || ""
                 });
@@ -21741,10 +21896,11 @@
         function buildPortalInboundReceivingDocumentHtml(inbound, receivingPayload = null) {
             const payloadLines = Array.isArray(receivingPayload?.receivingLines) ? receivingPayload.receivingLines : [];
             const payloadById = new Map(payloadLines.map((line) => [String(line.id || line.sku || ""), line]));
+            const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
             const lineRows = (inbound.lines || []).map((line) => {
                 const payloadLine = payloadById.get(String(line.id || line.sku)) || {};
                 const receivedQuantity = payloadLine.receivedQuantity || line.receivedQuantity || line.quantity || 0;
-                const receivedLocation = payloadLine.receivedLocation || line.receivedLocation || "RECEIVING-STAGE";
+                const receivedLocation = payloadLine.receivedLocation || line.receivedLocation || defaultReceivingLocation;
                 const lotNumber = payloadLine.lotNumber || line.lotNumber || "";
                 const expirationDate = payloadLine.expirationDate || line.expirationDate || "";
                 return `
@@ -22392,6 +22548,7 @@
             }
 
             ui.mobileInboundArrivalList.innerHTML = openInbounds.map((inbound) => {
+                const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
                 const lineTotals = summarizeTrackedTotals(inbound.lines || []);
                 const isSubmitted = inbound.status === "SUBMITTED";
                 const isArrived = inbound.status === "ARRIVED";
@@ -22409,7 +22566,7 @@
                         </label>
                         <label class="field">
                             <span>Location</span>
-                            <input data-mobile-inbound-location type="text" value="${attr(line.receivedLocation || "RECEIVING-STAGE")}" placeholder="Scan or enter staging location" autocapitalize="characters">
+                            <input data-mobile-inbound-location type="text" value="${attr(line.receivedLocation || defaultReceivingLocation)}" placeholder="Scan or enter staging location" autocapitalize="characters">
                         </label>
                         ${(line.lotTracked || line.expirationTracked) ? `
                             <label class="field">
@@ -22888,6 +23045,9 @@
                     order.shipToCountry,
                     order.orderNotes,
                     order.requestedShipDate,
+                    order.expectedReadyDate,
+                    order.expectedReadyLabel,
+                    order.expectedReadySummary,
                     order.confirmedShipDate,
                     dashboardDateKey(order.shippedAt),
                     order.shippedAt,
@@ -22952,9 +23112,14 @@
                 const orderStateLabel = order.status === "CANCELLED" ? "Cancelled" : (isDraft ? "Draft" : "Open document");
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
                 const emailFailure = isShipmentEmailFailure(order);
+                const rush = portalOrderIsRush(order);
+                const notReady = portalOrderIsNotYetReady(order);
+                const readyText = formatPortalOrderReadyLabel(order);
                 const canBatchPrintPickTicket = ["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
                 const statusHtml = [
                     `<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>`,
+                    rush ? `<span class="pill warn">RUSH</span>` : "",
+                    notReady ? `<span class="pill info" title="${attr(readyText)}">Not ready</span>` : "",
                     emailFailure ? `<span class="pill error" title="${attr(order.shipmentEmailLastError || "Customer shipment email failed.")}">Email failed</span>` : ""
                 ].filter(Boolean).join(" ");
                 return `
@@ -22964,6 +23129,7 @@
                         <td>${esc(order.accountName || "")}</td>
                         <td>${esc(order.poNumber || "None")}</td>
                         <td>${esc(order.requestedShipDate || "Not set")}</td>
+                        <td>${esc(readyText)}</td>
                         <td>${esc(dashboardDateKey(order.shippedAt) || "-")}</td>
                         <td>${num(order.lines.length)} line${order.lines.length === 1 ? "" : "s"}</td>
                         <td>${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}</td>
@@ -22994,6 +23160,7 @@
                                 <th>Customer</th>
                                 <th>External Document No.</th>
                                 <th>Requested Ship Date</th>
+                                <th>Expected Ready</th>
                                 <th>Shipped Date</th>
                                 <th>Lines</th>
                                 <th>Ordered Qty</th>
@@ -23261,16 +23428,42 @@
                 .join("<br>");
         }
 
-        function formatPortalOrderShipFrom(order) {
+        function isGreyWolfEdwardsShipFrom(location = {}) {
+            const code = norm(location.locationCode || location.code || location.fulfillmentLocationCode || "");
+            const address = norm(location.address || location.address1 || location.locationAddress1 || "");
+            const name = norm(location.publicName || location.name || location.locationName || location.fulfillmentLocationName || "");
+            return code === "WHS01" || address.includes("6300 EDWARDS") || name.includes("EDWARDS");
+        }
+
+        function getPortalOrderShipFromLocation(order) {
+            const groupLocation = (Array.isArray(order?.fulfillmentGroups) ? order.fulfillmentGroups : [])
+                .map((group) => group?.location)
+                .find((location) => location?.publicName || location?.address || location?.code);
+            if (groupLocation) return groupLocation;
             const assignment = getPrimaryFulfillmentAssignment(order?.accountName);
-            const location = assignment ? (getFulfillmentLocationByCode(assignment.locationCode) || assignment) : null;
+            return assignment ? (getFulfillmentLocationByCode(assignment.locationCode) || assignment) : null;
+        }
+
+        function getPortalOrderShipFromName(order, location = {}) {
+            if (norm(order?.accountName) === "ALCONA TRADING LTD" && isGreyWolfEdwardsShipFrom(location)) {
+                return "Alcona Trading Ltd. c/o Grey Wolf 3PL & Logistics Inc";
+            }
+            return location.publicName || location.partnerName || location.name || location.locationName || location.fulfillmentLocationName || location.locationCode || location.code || "Warehouse";
+        }
+
+        function formatPortalOrderShipFrom(order) {
+            const location = getPortalOrderShipFromLocation(order);
             const lines = location
                 ? [
-                    location.partnerName || location.name,
-                    location.address1,
-                    location.address2,
-                    [location.city, location.state, location.postalCode].filter(Boolean).join(", "),
-                    location.country
+                    getPortalOrderShipFromName(order, location),
+                    ...(location.address
+                        ? String(location.address).split("|").map((line) => line.trim()).filter(Boolean)
+                        : [
+                            location.address1,
+                            location.address2,
+                            [location.city, location.state, location.postalCode].filter(Boolean).join(", "),
+                            location.country
+                        ])
                 ]
                 : [
                     "Grey Wolf 3PL & Logistics Inc",
@@ -23282,6 +23475,35 @@
         }
 
         function buildPickTicketHtml(order) {
+            const shipFrom = formatPortalOrderShipFrom(order);
+            const expectedReadyLabel = String(order.expectedReadyLabel || order.expectedReadyDate || "").trim();
+            const holidayClosures = Array.isArray(order.holidayClosures) ? order.holidayClosures : [];
+            const holidayClosureText = holidayClosures
+                .map((holiday) => `${holiday.name || "Holiday"} (${holiday.date || ""})`.trim())
+                .filter(Boolean)
+                .join(", ");
+            const fulfillmentGroups = Array.isArray(order.fulfillmentGroups) ? order.fulfillmentGroups.filter((group) => group.expectedReadyLabel || group.location?.publicName || group.location?.address) : [];
+            const splitReadyHtml = fulfillmentGroups.length > 1
+                ? `
+                    <div class="split-ready">
+                        <strong>Split-location ready dates</strong>
+                        <table><thead><tr><th>Warehouse / Ship From</th><th>Address</th><th>Qty</th><th>Expected Ready</th></tr></thead><tbody>
+                            ${fulfillmentGroups.map((group) => `
+                                <tr>
+                                    <td>${esc(group.location?.publicName || group.location?.code || "Warehouse")}</td>
+                                    <td>${esc(group.location?.address || group.location?.code || "Address not listed")}</td>
+                                    <td>${esc(String(group.totalQuantity || "-"))}</td>
+                                    <td>${esc(group.expectedReadyLabel || group.expectedReadyDate || "Not calculated")}${group.holidayWarning ? `<br><strong>${esc(group.holidayWarning)}</strong>` : ""}</td>
+                                </tr>
+                            `).join("")}
+                        </tbody></table>
+                    </div>
+                `
+                : "";
+            const rushAlertLines = [
+                order.rushApproved ? "RUSH APPROVED: Expedited processing was approved. For rush charge questions, contact info@greywolf3pl.com." : "",
+                (order.rushRequired || order.rushApprovalRequired) ? "RUSH REQUIRED: Requested ship/pickup date is before the earliest ready date." : ""
+            ].filter(Boolean);
             const lineRows = order.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
@@ -23293,12 +23515,17 @@
                 </tr>
             `).join("");
             return `<!doctype html><html><head><meta charset="utf-8"><title>Pick Ticket ${esc(order.orderCode)}</title><style>
-                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px} .meta{margin:0 0 16px;font-size:14px} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb} .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:72px}.signoff{margin-top:18px;border:1px solid #111;padding:14px;font-size:14px}.signoff-title{font-weight:bold;margin-bottom:12px}.signoff-grid{display:grid;grid-template-columns:1fr 140px 1fr 140px;gap:12px;align-items:end}.line{border-bottom:1px solid #111;min-height:22px}
+                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px} .meta{margin:0 0 16px;font-size:14px}.rush-alert{margin:0 0 16px;padding:10px 12px;border:1px solid #f59e0b;background:#fff7ed;color:#9a3412;font-weight:bold;font-size:14px}.split-ready{margin:0 0 16px;padding:10px 12px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12}.split-ready table{margin-top:8px;background:#fff;color:#111} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb} .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:72px}.signoff{margin-top:18px;border:1px solid #111;padding:14px;font-size:14px}.signoff-title{font-weight:bold;margin-bottom:12px}.signoff-grid{display:grid;grid-template-columns:1fr 140px 1fr 140px;gap:12px;align-items:end}.line{border-bottom:1px solid #111;min-height:22px}
             </style></head><body>
                 <h1>Pick Ticket</h1>
                 <div class="meta"><strong>Order:</strong> ${esc(order.orderCode)} | <strong>Company:</strong> ${esc(order.accountName)} | <strong>Status:</strong> ${esc(order.status)}</div>
                 <div class="meta"><strong>PO:</strong> ${esc(order.poNumber || "") } | <strong>Requested Ship Date:</strong> ${esc(order.requestedShipDate || "")}</div>
+                ${expectedReadyLabel ? `<div class="meta"><strong>Expected Ready:</strong> ${esc(expectedReadyLabel)}</div>` : ""}
+                ${holidayClosureText ? `<div class="meta"><strong>Holiday Warning:</strong> ${esc(`Holiday closure affects this order; earliest ready date has been pushed. Closure included: ${holidayClosureText}.`)}</div>` : ""}
+                ${rushAlertLines.length ? `<div class="rush-alert">${rushAlertLines.map((line) => esc(line)).join("<br>")}</div>` : ""}
+                ${splitReadyHtml}
                 <div class="two-col">
+                    <div class="box"><strong>Ship From</strong><br>${shipFrom}</div>
                     <div class="box"><strong>Ship To</strong><br>${formatPortalOrderShipTo(order)}</div>
                     <div class="box"><strong>Order Notes</strong><br>${esc(order.orderNotes || "") || "None"}</div>
                 </div>
@@ -23992,6 +24219,7 @@
                         }));
                         const requiresShipmentCloseout = currentOrder?.status === "STAGED";
                         let packingSlipQuantityConfirmed = false;
+                        let moveShortageToInvestigation = false;
                         if (requiresShipmentCloseout) {
                             if (shipmentMethod === "PARCEL" && !trackingNumber.trim()) {
                                 throw new Error("Enter the parcel tracking number before marking shipped.");
@@ -24022,7 +24250,7 @@
                                 const orderedQuantity = Number(line?.quantity) || 0;
                                 const shippedQuantity = Number(entry.shippedQuantity) || 0;
                                 return line && shippedQuantity < orderedQuantity
-                                    ? { sku: entry.sku || line.sku || "", shippedQuantity, orderedQuantity, trackingLevel: line.trackingLevel || "UNIT" }
+                                    ? { sku: entry.sku || line.sku || "", shippedQuantity, orderedQuantity, shortQuantity: orderedQuantity - shippedQuantity, trackingLevel: line.trackingLevel || "UNIT" }
                                     : null;
                             }).filter(Boolean);
                             if (shortShippedLines.length) {
@@ -24039,6 +24267,15 @@
                                     showMessage(actionMessageElement, "Shipment was not marked shipped. Review the shipped quantities and try again when ready.", "info");
                                     return;
                                 }
+                                const holdLines = shortShippedLines
+                                    .slice(0, 5)
+                                    .map((line) => `${line.sku || "Line"}: ${formatTrackedQuantity(line.shortQuantity, line.trackingLevel)} short`);
+                                if (shortShippedLines.length > 5) {
+                                    holdLines.push(`${shortShippedLines.length - 5} more line${shortShippedLines.length - 5 === 1 ? "" : "s"}`);
+                                }
+                                moveShortageToInvestigation = window.confirm(
+                                    `Move the shorted quantity to Investigation Hold now?\n\n${holdLines.join("\n")}\n\nOK keeps that stock out of available inventory while the warehouse investigates. Cancel leaves the remaining stock available.`
+                                );
                             }
                             packingSlipQuantityConfirmed = confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
                             if (!packingSlipQuantityConfirmed) {
@@ -24057,7 +24294,8 @@
                                 shippedConfirmationNote: shippingNote,
                                 documents,
                                 shippedLines,
-                                packingSlipQuantityConfirmed
+                                packingSlipQuantityConfirmed,
+                                moveShortageToInvestigation
                             })
                         });
                         const emailQueuedNote = response?.shipmentEmailQueued
@@ -24066,11 +24304,17 @@
                         const shipmentWarningNote = Array.isArray(response?.shipmentQuantityWarnings) && response.shipmentQuantityWarnings.length
                             ? ` Shipment quantity warning recorded for ${response.shipmentQuantityWarnings.length} line${response.shipmentQuantityWarnings.length === 1 ? "" : "s"}.`
                             : "";
+                        const investigationMoveNote = Array.isArray(response?.shortageInvestigationMoves) && response.shortageInvestigationMoves.length
+                            ? ` Shorted stock moved to Investigation Hold for ${response.shortageInvestigationMoves.length} line${response.shortageInvestigationMoves.length === 1 ? "" : "s"}.`
+                            : "";
+                        const investigationSkipNote = Array.isArray(response?.shortageInvestigationSkipped) && response.shortageInvestigationSkipped.length
+                            ? ` ${response.shortageInvestigationSkipped.length} hold move${response.shortageInvestigationSkipped.length === 1 ? "" : "s"} could not be completed safely.`
+                            : "";
                         const savedOrder = applyPortalOrderUpdate(
                             response?.order,
                             currentOrder?.status === "STAGED"
-                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.${emailQueuedNote}${shipmentWarningNote}`
-                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}${shipmentWarningNote}`,
+                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.${emailQueuedNote}${shipmentWarningNote}${investigationMoveNote}${investigationSkipNote}`
+                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}${shipmentWarningNote}${investigationMoveNote}${investigationSkipNote}`,
                             actionMessageElement
                         );
                         if (savedOrder?.status === "SHIPPED") {
@@ -24103,6 +24347,19 @@
                 if (!window.confirm(`Approve ${reviewLabel} for ${label} at quantity ${approvedQuantity}? This moves the order to picked with the reduced quantity.`)) {
                     return;
                 }
+                const matchingLine = (currentOrder?.lines || []).find((line) => {
+                    if (pickException.lineId || pickException.line_id) {
+                        return String(line.id) === String(pickException.lineId || pickException.line_id);
+                    }
+                    return norm(line.sku) === norm(pickException.sku || "");
+                });
+                const allocatedQuantity = Number(matchingLine?.allocatedQuantity) || Number(matchingLine?.quantity) || Number(pickException.quantity) || 0;
+                const shortQuantity = Math.max(allocatedQuantity - approvedQuantity, 0);
+                const moveShortageToInvestigation = shortQuantity > 0
+                    ? window.confirm(
+                        `Move the missing ${formatTrackedQuantity(shortQuantity, matchingLine?.trackingLevel || "UNIT")} of ${matchingLine?.sku || pickException.sku || "this SKU"} to Investigation Hold now?\n\nOK keeps that stock out of available inventory while the warehouse investigates. Cancel approves the short pick without moving stock.`
+                    )
+                    : false;
                 try {
                     await runActionWithFeedback({
                         button: shortPickApproveButton,
@@ -24116,10 +24373,18 @@
                                 approvedQuantity,
                                 note,
                                 sku: pickException.sku || "",
-                                location: pickException.location || ""
+                                location: pickException.location || "",
+                                lineId: pickException.lineId || pickException.line_id || "",
+                                moveShortageToInvestigation
                             })
                         });
-                        applyPortalOrderUpdate(response?.order, `${reviewLabel.charAt(0).toUpperCase()}${reviewLabel.slice(1)} approved for ${response?.order?.orderCode || label}.`, actionMessageElement);
+                        const investigationMoveNote = Array.isArray(response?.shortageInvestigationMoves) && response.shortageInvestigationMoves.length
+                            ? ` Shorted stock moved to Investigation Hold for ${response.shortageInvestigationMoves.length} line${response.shortageInvestigationMoves.length === 1 ? "" : "s"}.`
+                            : "";
+                        const investigationSkipNote = Array.isArray(response?.shortageInvestigationSkipped) && response.shortageInvestigationSkipped.length
+                            ? ` ${response.shortageInvestigationSkipped.length} hold move${response.shortageInvestigationSkipped.length === 1 ? "" : "s"} could not be completed safely.`
+                            : "";
+                        applyPortalOrderUpdate(response?.order, `${reviewLabel.charAt(0).toUpperCase()}${reviewLabel.slice(1)} approved for ${response?.order?.orderCode || label}.${investigationMoveNote}${investigationSkipNote}`, actionMessageElement);
                         await syncServerState(true).catch(() => {});
                         queuePortalOrderRefresh();
                     });
@@ -26744,6 +27009,8 @@
                 transferFrom: "transferTo",
                 transferTo: "transferSku",
                 transferSku: "transferQty",
+                investigationFrom: "investigationSku",
+                investigationSku: "investigationQty",
                 putAwayFrom: "putAwayTo",
                 putAwayTo: "putAwaySku",
                 putAwaySku: "putAwayQty",
@@ -26768,6 +27035,7 @@
             input.dispatchEvent(new Event("change", { bubbles: true }));
             syncActionItemSelectors();
             if (targetId === "transferSku") autofillActionMoveQuantity("transfer", { force: true });
+            if (targetId === "investigationSku") autofillActionMoveQuantity("investigation", { force: true });
             if (targetId === "putAwaySku") autofillActionMoveQuantity("putaway", { force: true });
             const nextTarget = getActionScanNextTarget(targetId);
             if (nextTarget) focusActionField(nextTarget);
@@ -26795,10 +27063,14 @@
 
         function autofillActionMoveQuantity(mode, { force = false } = {}) {
             const isPutAway = mode === "putaway";
-            const accountName = getScopedCompanyValue(isPutAway ? ui.putAwayAccount?.value : ui.transferAccount?.value);
-            const fromLocation = norm(isPutAway ? ui.putAwayFrom?.value : ui.transferFrom?.value);
-            const skuOrUpc = norm(isPutAway ? ui.putAwaySku?.value : ui.transferSku?.value);
-            const quantityInput = isPutAway ? ui.putAwayQty : ui.transferQty;
+            const isInvestigation = mode === "investigation";
+            const accountInput = isInvestigation ? ui.investigationAccount : (isPutAway ? ui.putAwayAccount : ui.transferAccount);
+            const fromInput = isInvestigation ? ui.investigationFrom : (isPutAway ? ui.putAwayFrom : ui.transferFrom);
+            const skuInput = isInvestigation ? ui.investigationSku : (isPutAway ? ui.putAwaySku : ui.transferSku);
+            const quantityInput = isInvestigation ? ui.investigationQty : (isPutAway ? ui.putAwayQty : ui.transferQty);
+            const accountName = getScopedCompanyValue(accountInput?.value);
+            const fromLocation = norm(fromInput?.value);
+            const skuOrUpc = norm(skuInput?.value);
             if (!quantityInput || (!force && String(quantityInput.value || "").trim())) return 0;
             if (!accountName || !fromLocation || !skuOrUpc) return 0;
             const availableQuantity = getActionAvailableQuantity(accountName, fromLocation, skuOrUpc);
@@ -26920,6 +27192,60 @@
                 ui.transferSku.value = "";
                 ui.transferQty.value = "";
                 focusActionField("transferSku");
+                syncActionItemSelectors();
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
+        }
+
+        async function moveToInvestigationHold(event) {
+            event.preventDefault();
+            const accountName = getScopedCompanyValue(ui.investigationAccount.value);
+            const from = norm(ui.investigationFrom.value);
+            const skuOrUpc = norm(ui.investigationSku.value);
+            let quantity = toPositiveInt(ui.investigationQty.value);
+            if (!quantity) quantity = autofillActionMoveQuantity("investigation", { force: true });
+            const note = String(ui.investigationNote.value || "").trim();
+            if (!accountName || !from || !skuOrUpc || !quantity) {
+                return showMessage(ui.actionMessage, "Scan source location and SKU. Quantity fills automatically when stock is available.", "error");
+            }
+            setActiveCompany(accountName, { force: true, rerender: false });
+            const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
+            if (matchingLine?.duplicateUpc) {
+                return showMessage(ui.actionMessage, "Multiple items matched that UPC in the source location. Use the SKU instead.", "error");
+            }
+            if (matchingLine?.multipleSkuMatches) {
+                return showMessage(ui.actionMessage, "Multiple lot or expiration rows matched that SKU in the source location. Use a lot-specific hold flow for that item.", "error");
+            }
+            if (!matchingLine) {
+                return showMessage(ui.actionMessage, "That SKU or UPC is not in the selected source location for this company.", "error");
+            }
+            const trackingLevel = matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT";
+            const availableQuantity = lineAvailableQuantity(matchingLine);
+            if (quantity > availableQuantity) {
+                return showMessage(ui.actionMessage, `Only ${formatTrackedQuantity(availableQuantity, trackingLevel)} are available in the source location.`, "error");
+            }
+            if (!window.confirm(`Move ${formatTrackedQuantity(quantity, trackingLevel)} of ${matchingLine.sku || skuOrUpc} to Investigation Hold? This stock will no longer be available to release orders until it is moved back to a pickable location.`)) return;
+
+            try {
+                const payload = await requestJson("/api/mobile/investigation-hold", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        accountName,
+                        fromLocation: from,
+                        skuOrUpc,
+                        quantity,
+                        note,
+                        idempotencyKey: makeId("investigation-hold"),
+                        source: "mobile_web"
+                    })
+                });
+                await syncServerState(true);
+                showMessage(ui.actionMessage, `Moved ${formatTrackedQuantity(quantity, trackingLevel)} of ${matchingLine.sku || skuOrUpc} to ${payload?.holdLocation || "investigation hold"}.`, "success");
+                ui.investigationSku.value = "";
+                ui.investigationQty.value = "";
+                ui.investigationNote.value = "";
+                focusActionField("investigationSku");
                 syncActionItemSelectors();
             } catch (error) {
                 showMessage(ui.actionMessage, error.message, "error");
@@ -28828,6 +29154,18 @@
                 shipmentEmailSentAt: typeof item.shipmentEmailSentAt === "string" ? item.shipmentEmailSentAt : (typeof item.shipment_email_sent_at === "string" ? item.shipment_email_sent_at : null),
                 shipmentEmailLastError: String(item.shipmentEmailLastError || item.shipment_email_last_error || "").trim(),
                 shipmentEmailAttempts: Number(item.shipmentEmailAttempts || item.shipment_email_attempts || 0) || 0,
+                rushApproved: item.rushApproved === true || item.rush_approved === true,
+                rushApprovalRequired: item.rushApprovalRequired === true || item.rush_approval_required === true,
+                rushRequired: item.rushRequired === true || item.rush_required === true,
+                rushApprovedAt: typeof item.rushApprovedAt === "string" ? item.rushApprovedAt : (typeof item.rush_approved_at === "string" ? item.rush_approved_at : null),
+                rushApprovedBy: String(item.rushApprovedBy || item.rush_approved_by || "").trim(),
+                expectedReadyAt: typeof item.expectedReadyAt === "string" ? item.expectedReadyAt : (typeof item.expected_ready_at === "string" ? item.expected_ready_at : ""),
+                expectedReadyDate: String(item.expectedReadyDate || item.expected_ready_date || "").trim(),
+                expectedReadyLabel: String(item.expectedReadyLabel || item.expected_ready_label || "").trim(),
+                expectedReadySummary: String(item.expectedReadySummary || item.expected_ready_summary || "").trim(),
+                processingTiming: item.processingTiming || item.processing_timing || null,
+                holidayClosures: Array.isArray(item.holidayClosures || item.holiday_closures) ? (item.holidayClosures || item.holiday_closures) : [],
+                fulfillmentGroups: Array.isArray(item.fulfillmentGroups || item.fulfillment_groups) ? (item.fulfillmentGroups || item.fulfillment_groups).map(sanitizePortalOrderFulfillmentGroup).filter(Boolean) : [],
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString()),
                 releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : (typeof item.released_at === "string" ? item.released_at : null),
@@ -28888,6 +29226,27 @@
             };
         }
 
+        function sanitizePortalOrderFulfillmentGroup(item) {
+            if (!item || typeof item !== "object") return null;
+            const location = item.location && typeof item.location === "object" ? item.location : {};
+            const publicName = String(location.publicName || location.public_name || location.name || location.partnerName || location.partner_name || location.code || "Warehouse").trim();
+            return {
+                key: String(item.key || publicName || "").trim(),
+                totalQuantity: Number(item.totalQuantity || item.total_quantity || 0) || 0,
+                expectedReadyAt: String(item.expectedReadyAt || item.expected_ready_at || "").trim(),
+                expectedReadyDate: String(item.expectedReadyDate || item.expected_ready_date || "").trim(),
+                expectedReadyLabel: String(item.expectedReadyLabel || item.expected_ready_label || "").trim(),
+                holidayWarning: String(item.holidayWarning || item.holiday_warning || "").trim(),
+                rushRequired: item.rushRequired === true || item.rush_required === true,
+                location: {
+                    id: String(location.id || location.fulfillmentLocationId || location.fulfillment_location_id || "").trim(),
+                    code: String(location.code || location.fulfillmentLocationCode || location.fulfillment_location_code || "").trim(),
+                    publicName,
+                    address: String(location.address || "").trim()
+                }
+            };
+        }
+
         function sanitizePortalOrderLineRecord(item) {
             const sku = norm(item?.sku);
             const quantity = toPositiveInt(item?.quantity);
@@ -28912,7 +29271,17 @@
                         quantity: Number(entry?.quantity || 0) || 0,
                         trackingLevel: normalizeTrackingLevel(entry?.trackingLevel || item?.trackingLevel),
                         lotNumber: norm(entry?.lotNumber || entry?.lot_number || entry?.lot || ""),
-                        expirationDate: normalizeLabelDate(entry?.expirationDate || entry?.expiration_date || entry?.expiryDate || entry?.expiry_date || "")
+                        expirationDate: normalizeLabelDate(entry?.expirationDate || entry?.expiration_date || entry?.expiryDate || entry?.expiry_date || ""),
+                        fulfillmentLocationId: entry?.fulfillmentLocationId ? String(entry.fulfillmentLocationId) : (entry?.fulfillment_location_id ? String(entry.fulfillment_location_id) : ""),
+                        fulfillmentLocationCode: String(entry?.fulfillmentLocationCode || entry?.fulfillment_location_code || "").trim(),
+                        fulfillmentLocationName: String(entry?.fulfillmentLocationName || entry?.fulfillment_location_name || "").trim(),
+                        fulfillmentPartnerName: String(entry?.fulfillmentPartnerName || entry?.fulfillment_partner_name || "").trim(),
+                        fulfillmentAddress1: String(entry?.fulfillmentAddress1 || entry?.fulfillment_address1 || "").trim(),
+                        fulfillmentAddress2: String(entry?.fulfillmentAddress2 || entry?.fulfillment_address2 || "").trim(),
+                        fulfillmentCity: String(entry?.fulfillmentCity || entry?.fulfillment_city || "").trim(),
+                        fulfillmentState: String(entry?.fulfillmentState || entry?.fulfillment_state || "").trim(),
+                        fulfillmentPostalCode: String(entry?.fulfillmentPostalCode || entry?.fulfillment_postal_code || "").trim(),
+                        fulfillmentCountry: String(entry?.fulfillmentCountry || entry?.fulfillment_country || "").trim()
                     })).filter((entry) => entry.location)
                     : []
             };
@@ -29391,7 +29760,7 @@
             const planLabel = companyPricingPlanLabel(planKey);
             let message = `${planLabel || "No pricing plan selected"} | Access ${accessMode.replace(/_/g, " ").toLowerCase()} | Status ${status.replace(/_/g, " ").toLowerCase()}.`;
             if (accessMode === "BLOCKED") {
-                message = `${message} Portal access is blocked for this company.`;
+                message = `${message} Portal access is on billing/payment hold. Customers can log in only to see the hold notice; portal actions and password recovery are disabled.`;
             } else if (accessMode === "NO_CHARGE") {
                 message = `${message} This company is manually allowed no-charge access.`;
             } else if (hasGreyWolf) {
