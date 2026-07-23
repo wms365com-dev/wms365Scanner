@@ -48,6 +48,7 @@ button:disabled{opacity:.45}
 .status.good{color:#3f6f4d;background:#f0f5f1;border-color:#c9d9cd}
 .status.warn{color:#8a5d1f;background:#fff8e8;border-color:#e6c983}
 .status.bad{color:#9a4d4d;background:#fff4f4;border-color:#e9c7c7}
+.status.strong{font-weight:900;border-width:2px}
 .guide-banner{display:grid;gap:4px;padding:12px;border:2px solid #b7c9d5;border-radius:12px;background:#f8fbfd;color:var(--accent-2)}
 .guide-banner.good{border-color:#c9d9cd;background:#f0f5f1;color:#3f6f4d}
 .guide-banner.warn{border-color:#e6c983;background:#fff8e8;color:#8a5d1f}
@@ -71,6 +72,12 @@ button:disabled{opacity:.45}
 .queue-status.warn{background:#fff8e8;border-color:#e6c983;color:#8a5d1f}
 .queue-status.bad{background:#fff4f4;border-color:#e9c7c7;color:#9a4d4d}
 .queue-status.good{background:#f0f5f1;border-color:#c9d9cd;color:#3f6f4d}
+.mobile-sync-meta{margin-top:8px;color:var(--muted);font-size:12px;font-weight:800;line-height:1.35}
+.connection-warning{margin-top:8px;padding:9px 10px;border-radius:12px;background:#fff8e8;border:1px solid #e6c983;color:#8a5d1f;font-size:12px;font-weight:900;line-height:1.35}
+.mobile-sticky-action{position:sticky;bottom:-1px;z-index:20;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;padding:8px 0 0;background:linear-gradient(180deg,rgba(255,255,255,0),var(--card) 32%,var(--card));align-self:end}
+.proof-grid>.mobile-sticky-action{grid-column:1/-1}
+.card.action-saving-scope{position:relative;overflow:hidden}
+.card.action-saving-scope::after{content:attr(data-saving-label);position:absolute;inset:0;z-index:35;display:grid;place-items:center;padding:16px;background:rgba(255,255,255,.82);color:var(--accent-2);font-size:18px;font-weight:900;text-align:center;border-radius:inherit;pointer-events:all}
 .scan-row{display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:8px}
 .locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;background:#f7f9fa;padding:9px 10px}
 .locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.08em}
@@ -178,6 +185,8 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
 <main>
   <div class="card">
     <div class="queue-status hidden" id="queueStatus"></div>
+    <div class="mobile-sync-meta" id="mobileSyncMeta">Work queue last updated: waiting</div>
+    <div class="connection-warning hidden" id="mobileConnectionWarning">Connection is offline. Reconnect before marking orders picked, staged, or shipped.</div>
     <div class="locked hidden" id="lockedCompanyWrap">
       <div><span>Company Locked</span><strong id="lockedCompanyLabel">-</strong></div>
       <div class="locked-actions">
@@ -292,7 +301,7 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
     <div class="kicker">Order Complete</div>
     <div class="big">All picks confirmed</div>
     <div class="muted" id="doneOrderMeta"></div>
-    <div class="actions" style="margin-top:12px">
+    <div class="actions mobile-sticky-action">
       <button class="success" id="markPickedBtn">Mark Order Picked</button>
       <button class="secondary" id="resetFlowBtn">Choose Another Order</button>
     </div>
@@ -302,7 +311,7 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
     <div class="kicker">Ready To Stage</div>
     <div class="big" id="stageOrderTitle">Order picked</div>
     <div class="muted" id="stageOrderMeta"></div>
-    <div class="actions" style="margin-top:12px">
+    <div class="actions mobile-sticky-action">
       <button class="success" id="markStagedBtn">Mark Staged</button>
       <button class="secondary" id="stageChooseAnotherBtn">Choose Another Order</button>
     </div>
@@ -321,8 +330,10 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
       <label>Loaded Freight Photo<input id="shipTruckPhotos" type="file" accept="image/*" capture="environment"></label>
       <div id="shipQuantityList" class="proof-grid" style="grid-column:1/-1"></div>
       <label>Note<input id="shipNote" type="text" placeholder="Optional pickup note" enterkeyhint="done"></label>
-      <button class="success" id="submitPickupProofBtn" type="button">Save Proof & Ship</button>
-      <button class="secondary" id="pickupChooseAnotherBtn" type="button">Choose Another Order</button>
+      <div class="mobile-sticky-action">
+        <button class="success" id="submitPickupProofBtn" type="button">Save Proof & Ship</button>
+        <button class="secondary" id="pickupChooseAnotherBtn" type="button">Choose Another Order</button>
+      </div>
       <div class="status" id="pickupProofMessage">Capture signed BOL, checked packing slip, loaded freight photo, and confirm shipped quantities.</div>
     </div>
   </div>
@@ -363,7 +374,7 @@ const PROBLEM_REASONS={
   BARCODE_MISMATCH:'Barcode mismatch',
   OTHER:'Other'
 };
-const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,pickState:PICK_STATES.ORDER_SELECTED,arrivals:{},skuConfirmed:{},confirmed:{},exceptions:[],selectedProblemReason:'',scanTarget:'',scannerStream:null,scannerTimer:null,advanceTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false,savingArrival:false,savingProblem:false,savingOrderStatus:false};
+const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,pickState:PICK_STATES.ORDER_SELECTED,arrivals:{},skuConfirmed:{},confirmed:{},exceptions:[],selectedProblemReason:'',scanTarget:'',scannerStream:null,scannerTimer:null,advanceTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false,savingArrival:false,savingProblem:false,savingOrderStatus:false,lastOrdersSyncedAt:''};
 const $=id=>document.getElementById(id);
 const GLOBAL_COMPANY_KEY='wms365-mobile-company-context';
 const MOBILE_DEVICE_STATE_CACHE_KEY='warehouse-state-v1';
@@ -393,14 +404,27 @@ function envelopeStatusAction(payload,actionType){
 
 function setActionButtonBusy(button,busy,label='Saving...'){
   if(!button)return;
+  const card=button.closest('.card');
   if(busy){
     if(!button.dataset.originalText)button.dataset.originalText=button.textContent||'';
+    if(!button.dataset.originalDisabled)button.dataset.originalDisabled=button.disabled?'true':'false';
     button.disabled=true;
     button.textContent=label;
+    if(card){
+      card.dataset.savingLabel=label;
+      card.classList.add('action-saving-scope');
+      card.setAttribute('aria-busy','true');
+    }
   }else{
-    button.disabled=false;
+    button.disabled=button.dataset.originalDisabled==='true';
     if(button.dataset.originalText)button.textContent=button.dataset.originalText;
     delete button.dataset.originalText;
+    delete button.dataset.originalDisabled;
+    if(card){
+      card.classList.remove('action-saving-scope');
+      card.removeAttribute('aria-busy');
+      delete card.dataset.savingLabel;
+    }
   }
 }
 
@@ -462,6 +486,9 @@ function formatDateOnly(v){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(text)) return '';
   try{return new Intl.DateTimeFormat(undefined,{dateStyle:'medium'}).format(new Date(`${text}T00:00:00`))}catch{return text}
 }
+function formatTimestamp(v=new Date()){
+  try{return new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(new Date(v))}catch{return String(v||'')}
+}
 function formatShipmentQuantity(value,trackingLevel){
   const qty=Number(value)||0;
   const level=normalize(trackingLevel||'UNIT');
@@ -480,6 +507,20 @@ function confirmShipmentCloseoutReview(order,shippedLines){
   const quantityLines=buildShipmentQuantityReviewLines(order,shippedLines);
   const quantitySummary=quantityLines.length?`\n\nSystem Qty Shipped:\n${quantityLines.join('\n')}`:'';
   return window.confirm(`Final shipping check for ${order?.orderCode||'this order'}:\n\nBefore marking shipped, confirm the checked packing slip quantity matches the Qty Shipped shown in WMS365 for every SKU.\n\nAlso confirm the carrier/tracking and required shipment proof files are correct.${quantitySummary}\n\nTap OK only if everything matches.`);
+}
+function updateMobileSyncMeta(){
+  const el=$('mobileSyncMeta');
+  if(!el)return;
+  el.textContent=state.lastOrdersSyncedAt
+    ? `Work queue last updated: ${formatTimestamp(state.lastOrdersSyncedAt)}`
+    : 'Work queue last updated: waiting';
+}
+function updateMobileConnectionWarning(){
+  const el=$('mobileConnectionWarning');
+  if(!el)return;
+  const offline=typeof navigator!=='undefined'&&'onLine' in navigator&&!navigator.onLine;
+  el.classList.toggle('hidden',!offline);
+  el.textContent=offline?'Connection is offline. Reconnect before marking orders picked, staged, or shipped.':'';
 }
 async function updateQueueStatus(){
   const el=$('queueStatus');
@@ -686,6 +727,8 @@ async function loadOrders({force=false}={}){
     ? await window.WMS365Mobile.getCachedData(cacheKey,{maxAgeMs:15*60*1000}).catch(()=>null)
     : null;
   if(cached?.payload?.orders&&!force){
+    state.lastOrdersSyncedAt=cached.payload.cachedAt||cached.payload.serverSyncedAt||state.lastOrdersSyncedAt;
+    updateMobileSyncMeta();
     applyOrdersPayload(cached.payload);
     resumeActivePickFromOrders();
     refreshOrdersFromNetwork(q,cacheKey).catch(()=>{});
@@ -704,6 +747,8 @@ async function refreshOrdersFromNetwork(q,cacheKey){
     payload=await requestJson('/api/admin/portal-orders'+fallback);
   }
   if(cacheKey&&window.WMS365Mobile?.cacheData) window.WMS365Mobile.cacheData(cacheKey,{...payload,accountName:state.company,cachedAt:new Date().toISOString()}).catch(()=>{});
+  state.lastOrdersSyncedAt=payload.serverSyncedAt||new Date().toISOString();
+  updateMobileSyncMeta();
   applyOrdersPayload(payload);
   resumeActivePickFromOrders();
 }
@@ -1596,9 +1641,14 @@ $('markPickedBtn').addEventListener('click',async()=>{
     const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
     clearPickProgress();
     state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
-    $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} marked as PICKED.`;
+    const pickedMessage=`${state.selectedOrder.orderCode} marked as PICKED at ${formatTimestamp()}.`;
+    $('doneOrderMeta').textContent=pickedMessage;
     await loadOrders({force:true});
     renderPick();
+    if(currentOrderStatus()==='PICKED'){
+      $('stageMessage').className='status good strong';
+      $('stageMessage').textContent=pickedMessage;
+    }
     window.WMS365Mobile?.vibrate?.(70);
     window.WMS365Mobile?.beep?.('success');
   }catch(error){
@@ -1623,6 +1673,10 @@ $('markStagedBtn').addEventListener('click',async()=>{
     state.selectedOrder=response.order||{...state.selectedOrder,status:'STAGED'};
     await loadOrders({force:true});
     renderPick();
+    if(currentOrderStatus()==='STAGED'){
+      $('pickupProofMessage').className='status good strong';
+      $('pickupProofMessage').textContent=`${state.selectedOrder.orderCode} marked as STAGED at ${formatTimestamp()}. Capture pickup proof when ready to ship.`;
+    }
     window.WMS365Mobile?.vibrate?.(70);
     window.WMS365Mobile?.beep?.('success');
   }catch(error){
@@ -1726,8 +1780,8 @@ async function submitPickupProof(){
     $('shipPackingSlipFiles').value='';
     $('shipTruckPhotos').value='';
     await loadOrders({force:true});
-    message.className='status good';
-    message.textContent=`${state.selectedOrder.orderCode} shipped. Proof saved with the order.`;
+    message.className='status good strong';
+    message.textContent=`${state.selectedOrder.orderCode} marked as SHIPPED at ${formatTimestamp()}. Proof saved with the order.`;
     window.WMS365Mobile?.vibrate?.(90);
     window.WMS365Mobile?.beep?.('success');
   }catch(error){
@@ -1815,7 +1869,10 @@ $('queueStatus')?.addEventListener('click',async()=>{
   await updateQueueStatus();
 });
 window.addEventListener('wms365:queue-changed',()=>updateQueueStatus());
-window.addEventListener('online',()=>updateQueueStatus());
+window.addEventListener('online',()=>{updateMobileConnectionWarning();updateQueueStatus();if(state.company)loadOrders({force:true}).catch(()=>{})});
+window.addEventListener('offline',updateMobileConnectionWarning);
+updateMobileSyncMeta();
+updateMobileConnectionWarning();
 updateQueueStatus();
 window.addEventListener('beforeunload',()=>window.WMS365Mobile?.setKeepAwake?.(false));
 </script>

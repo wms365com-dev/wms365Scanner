@@ -2918,6 +2918,54 @@
         .status.success { background: rgba(93, 212, 165, 0.12); border-color: rgba(93, 212, 165, 0.34); color: #cbf4df; }
         .status.error { background: rgba(255, 141, 141, 0.12); border-color: rgba(255, 141, 141, 0.34); color: #ffd8d8; }
         .status.info { background: rgba(89, 183, 255, 0.12); border-color: rgba(89, 183, 255, 0.34); color: #d8edff; }
+        .status.strong-confirmation {
+            border-width: 2px;
+            border-left-width: 6px;
+            font-weight: 800;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+        }
+
+        .warehouse-sync-meta,
+        .connection-warning {
+            margin-top: 0.55rem;
+            font-size: 0.82rem;
+            line-height: 1.4;
+        }
+
+        .warehouse-sync-meta {
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .connection-warning {
+            padding: 0.7rem 0.85rem;
+            border-radius: 8px;
+            border: 1px solid rgba(176, 139, 71, 0.46);
+            background: rgba(255, 248, 232, 0.9);
+            color: #7a541d;
+            font-weight: 800;
+        }
+
+        .action-saving-scope {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .action-saving-scope::after {
+            content: attr(data-saving-label);
+            position: absolute;
+            inset: 0;
+            z-index: 15;
+            display: grid;
+            place-items: center;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.78);
+            color: #173044;
+            font-weight: 900;
+            text-align: center;
+            border-radius: inherit;
+            pointer-events: all;
+        }
 
         .empty {
             margin: 0;
@@ -9180,6 +9228,8 @@
                             <button class="btn ghost" id="clearPortalOrderFiltersBtn" type="button">Clear Filters</button>
                         </div>
                         <div class="status" id="portalOrdersMessage"></div>
+                        <div class="warehouse-sync-meta" id="portalOrdersSyncMeta">Order queue last updated: waiting</div>
+                        <div class="connection-warning hidden" id="warehouseConnectionWarning">Connection is offline. Reconnect before marking orders picked, staged, or shipped.</div>
                     </div>
                     <div class="entry-secondary-snapshot" id="portalOrdersSnapshotCard">
                         <div>
@@ -10716,6 +10766,7 @@
         const portalOrderStatusActionsInFlight = new Map();
         let portalOrdersAllCompaniesRequested = false;
         let portalOrdersLoadingTimer = null;
+        let portalOrdersLastSyncedAt = "";
         let warehousePrintSetupState = { stations: [], printers: [], jobs: [] };
         let portalInboundRecords = [];
         let portalKittingRecords = [];
@@ -11464,6 +11515,8 @@
             billingEventsBody: document.getElementById("billingEventsBody"),
             portalOrdersMeta: document.getElementById("portalOrdersMeta"),
             portalOrdersMessage: document.getElementById("portalOrdersMessage"),
+            portalOrdersSyncMeta: document.getElementById("portalOrdersSyncMeta"),
+            warehouseConnectionWarning: document.getElementById("warehouseConnectionWarning"),
             portalOrdersList: document.getElementById("portalOrdersList"),
             portalOrderStatusFilter: document.getElementById("portalOrderStatusFilter"),
             portalOrderSearch: document.getElementById("portalOrderSearch"),
@@ -12364,6 +12417,8 @@
             focusInitialLinkTarget();
             hydrateMobileDeviceCache().catch(() => {});
             preloadMobileCompanyOptions().catch(() => {});
+            updatePortalOrdersSyncMeta();
+            updateWarehouseConnectionWarning();
             syncServerState(false).catch(() => {});
             refreshPortalAccessList().catch(() => {});
             refreshIntegrationsList().catch(() => {});
@@ -12395,6 +12450,11 @@
                 refreshFeedbackQueue(true).catch(() => {});
                 refreshMobileDevices(true).catch(() => {});
             });
+            window.addEventListener("online", () => {
+                updateWarehouseConnectionWarning();
+                refreshPortalOrdersList(true, { showLoading: false }).catch(() => {});
+            });
+            window.addEventListener("offline", updateWarehouseConnectionWarning);
             window.addEventListener("keydown", (event) => {
                 if (event.key === "Escape" && !ui.companySwitcherAddPopout?.classList.contains("hidden")) {
                     closeCompanySwitcherAddPopout();
@@ -16102,6 +16162,19 @@
 
         function dashboardDateSort(value = "") {
             return dashboardDateKey(value) || "9999-12-31";
+        }
+
+        function updateWarehouseConnectionWarning() {
+            const offline = typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine;
+            if (ui.warehouseConnectionWarning) {
+                ui.warehouseConnectionWarning.classList.toggle("hidden", !offline);
+                ui.warehouseConnectionWarning.textContent = offline
+                    ? "Connection is offline. Reconnect before marking orders picked, staged, or shipped."
+                    : "";
+            }
+            if (offline) {
+                setAppConnectionStatus("disconnected", "Browser is offline.");
+            }
         }
 
         function portalOrderExpectedReadyTime(order) {
@@ -22996,12 +23069,14 @@
                     orders
                 });
                 portalOrderRecords = orders;
+                portalOrdersLastSyncedAt = new Date().toISOString();
                 void shipToRefresh;
                 refreshWarehouseTasksList(true).catch(() => {});
                 refreshShipmentEmailAlerts(true).catch(() => {});
                 renderPortalOrdersWorkspace();
+                updatePortalOrdersSyncMeta();
                 if (showLoading) {
-                    setPortalOrdersLoadingMessage(`Updated ${company || "all company"} sales orders.`, "success");
+                    setPortalOrdersLoadingMessage(`Updated ${company || "all company"} sales orders at ${formatPreciseDate(portalOrdersLastSyncedAt)}.`, "success");
                 }
                 return portalOrderRecords;
             } catch (error) {
@@ -23402,13 +23477,27 @@
                 const message = successMessage
                     ? `${successMessage} The order no longer matches the current ${statusFilter} filter.`
                     : `Order ${sanitized.orderCode || sanitized.id} updated to ${sanitized.status} and no longer matches the current ${statusFilter} filter.`;
-                showMessage(messageElement, message, "info");
+                showMessage(messageElement, message, "info", { strong: true });
                 return sanitized;
             }
             if (successMessage) {
-                showMessage(messageElement, successMessage, "success");
+                showMessage(messageElement, successMessage, "success", { strong: true });
             }
             return sanitized;
+        }
+
+        function updatePortalOrdersSyncMeta() {
+            if (!ui.portalOrdersSyncMeta) return;
+            ui.portalOrdersSyncMeta.textContent = portalOrdersLastSyncedAt
+                ? `Order queue last updated: ${formatPreciseDate(portalOrdersLastSyncedAt)}`
+                : "Order queue last updated: waiting";
+        }
+
+        function buildWarehouseActionConfirmation(actionText, updatedOrder, fallbackOrderId, extraText = "") {
+            const orderCode = updatedOrder?.orderCode || fallbackOrderId || "order";
+            const statusText = updatedOrder?.status ? ` Status: ${updatedOrder.status}.` : "";
+            const extra = String(extraText || "").trim();
+            return `${actionText} for ${orderCode} at ${formatPreciseDate(new Date())}.${statusText}${extra ? ` ${extra}` : ""}`;
         }
 
         function queuePortalOrderRefresh() {
@@ -24188,17 +24277,20 @@
                 if (!orderId) return;
                 try {
                     const currentOrder = getPortalOrderById(orderId);
+                    const shipActionScope = shipButton.closest(".erp-document-shipping-panel") || shipButton.closest(".erp-list-shipping-panel") || shipButton.closest(".quick-detail-stack") || shipButton.closest(".quick-row");
                     const actionId = makeId(`portal-ship-${orderId}`);
                     await runActionWithFeedback({
                         button: shipButton,
                         busyLabel: currentOrder?.status === "STAGED" ? "Marking shipped..." : "Saving confirmation...",
                         messageElement: actionMessageElement,
                         lockKey: `portal-order-ship-${orderId}`,
+                        scopeBusy: true,
+                        scopeElement: shipActionScope,
                         progressMessage: currentOrder?.status === "STAGED"
                             ? `Marking order ${currentOrder?.orderCode || orderId} shipped, deducting inventory, and queuing the customer email...`
                             : `Saving shipping confirmation for ${currentOrder?.orderCode || orderId} and queuing the customer email...`
                     }, async () => {
-                        const orderCard = shipButton.closest(".erp-document-shipping-panel") || shipButton.closest(".erp-list-shipping-panel") || shipButton.closest(".quick-detail-stack") || shipButton.closest(".quick-row");
+                        const orderCard = shipActionScope;
                         const shipDate = orderCard?.querySelector(`[data-portal-ship-date="${orderId}"]`)?.value || "";
                         const shipmentMethod = normalizeShipmentMethod(orderCard?.querySelector(`[data-portal-ship-method="${orderId}"]`)?.value || currentOrder?.shipmentMethod || "LTL_FREIGHT");
                         const carrierName = orderCard?.querySelector(`[data-portal-ship-carrier="${orderId}"]`)?.value || "";
@@ -24316,11 +24408,11 @@
                         const investigationSkipNote = Array.isArray(response?.shortageInvestigationSkipped) && response.shortageInvestigationSkipped.length
                             ? ` ${response.shortageInvestigationSkipped.length} hold move${response.shortageInvestigationSkipped.length === 1 ? "" : "s"} could not be completed safely.`
                             : "";
+                        const shipmentActionText = currentOrder?.status === "STAGED" ? "Marked shipped" : "Shipping confirmation saved";
+                        const shipmentDetails = `${emailQueuedNote}${shipmentWarningNote}${investigationMoveNote}${investigationSkipNote}`;
                         const savedOrder = applyPortalOrderUpdate(
                             response?.order,
-                            currentOrder?.status === "STAGED"
-                                ? `Order ${response?.order?.orderCode || orderId} marked shipped.${emailQueuedNote}${shipmentWarningNote}${investigationMoveNote}${investigationSkipNote}`
-                                : `Shipping confirmation saved for ${response?.order?.orderCode || orderId}.${emailQueuedNote}${shipmentWarningNote}${investigationMoveNote}${investigationSkipNote}`,
+                            buildWarehouseActionConfirmation(shipmentActionText, response?.order, orderId, shipmentDetails),
                             actionMessageElement
                         );
                         if (savedOrder?.status === "SHIPPED") {
@@ -24371,6 +24463,8 @@
                         button: shortPickApproveButton,
                         busyLabel: "Approving...",
                         messageElement: actionMessageElement,
+                        scopeBusy: true,
+                        scopeElement: panel,
                         progressMessage: `Approving ${reviewLabel} for ${label}...`
                     }, async () => {
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/partial-pick/approve`, {
@@ -24390,7 +24484,7 @@
                         const investigationSkipNote = Array.isArray(response?.shortageInvestigationSkipped) && response.shortageInvestigationSkipped.length
                             ? ` ${response.shortageInvestigationSkipped.length} hold move${response.shortageInvestigationSkipped.length === 1 ? "" : "s"} could not be completed safely.`
                             : "";
-                        applyPortalOrderUpdate(response?.order, `${reviewLabel.charAt(0).toUpperCase()}${reviewLabel.slice(1)} approved for ${response?.order?.orderCode || label}.${investigationMoveNote}${investigationSkipNote}`, actionMessageElement);
+                        applyPortalOrderUpdate(response?.order, buildWarehouseActionConfirmation(`${reviewLabel.charAt(0).toUpperCase()}${reviewLabel.slice(1)} approved`, response?.order, label, `${investigationMoveNote}${investigationSkipNote}`), actionMessageElement);
                         await syncServerState(true).catch(() => {});
                         queuePortalOrderRefresh();
                     });
@@ -24421,6 +24515,7 @@
                         busyLabel: `${label}...`,
                         messageElement: actionMessageElement,
                         lockKey: `portal-order-status-${orderId}-${nextStatus}`,
+                        scopeBusy: true,
                         progressMessage: `Updating order ${orderId} to ${nextStatus}...`
                     }, async () => {
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
@@ -24436,8 +24531,8 @@
                         applyPortalOrderUpdate(
                             response?.order,
                             nextStatus === "CANCELLED"
-                                ? `Order ${response?.order?.orderCode || orderId} cancelled. The number remains in history and active warehouse work was closed.`
-                                : `${label} complete for ${response?.order?.orderCode || orderId}.`,
+                                ? buildWarehouseActionConfirmation("Cancelled order", response?.order, orderId, "The number remains in history and active warehouse work was closed.")
+                                : buildWarehouseActionConfirmation(`${label} complete`, response?.order, orderId),
                             actionMessageElement
                         );
                         queuePortalOrderRefresh();
@@ -29523,9 +29618,10 @@
             }
         }
 
-        function showMessage(element, text, tone) {
+        function showMessage(element, text, tone, options = {}) {
+            if (!element) return;
             element.textContent = text;
-            element.className = `status show ${tone}`;
+            element.className = `status show ${tone}${options.strong ? " strong-confirmation" : ""}`;
         }
 
         function fail(element, text, focusEl) {
@@ -29569,8 +29665,26 @@
             delete button.dataset.busyOriginalDisabled;
         }
 
-        async function runActionWithFeedback({ button = null, busyLabel = "Working...", messageElement = null, progressMessage = "", lockKey = "" } = {}, action) {
+        function resolveActionBusyScope(button) {
+            return button?.closest?.(".erp-document-shipping-panel, .erp-list-shipping-panel, .quick-detail-stack, .quick-row, .card") || null;
+        }
+
+        function setActionScopeBusy(scope, busy, busyLabel = "Saving...") {
+            if (!(scope instanceof HTMLElement)) return;
+            if (busy) {
+                scope.dataset.savingLabel = busyLabel;
+                scope.classList.add("action-saving-scope");
+                scope.setAttribute("aria-busy", "true");
+                return;
+            }
+            scope.classList.remove("action-saving-scope");
+            scope.removeAttribute("aria-busy");
+            delete scope.dataset.savingLabel;
+        }
+
+        async function runActionWithFeedback({ button = null, busyLabel = "Working...", messageElement = null, progressMessage = "", lockKey = "", scopeBusy = false, scopeElement = null } = {}, action) {
             const normalizedLockKey = String(lockKey || "").trim();
+            const actionScope = scopeBusy ? (scopeElement || resolveActionBusyScope(button)) : null;
             if (normalizedLockKey) {
                 if (portalOrderStatusActionsInFlight.has(normalizedLockKey)) {
                     if (messageElement) showMessage(messageElement, "That action is already saving. Please wait for the confirmation.", "info");
@@ -29579,12 +29693,14 @@
                 portalOrderStatusActionsInFlight.set(normalizedLockKey, true);
             }
             if (button) setButtonBusy(button, true, busyLabel);
+            if (actionScope) setActionScopeBusy(actionScope, true, busyLabel);
             if (messageElement && progressMessage) {
                 showMessage(messageElement, progressMessage, "info");
             }
             try {
                 return await action();
             } finally {
+                if (actionScope) setActionScopeBusy(actionScope, false);
                 if (button) setButtonBusy(button, false);
                 if (normalizedLockKey) portalOrderStatusActionsInFlight.delete(normalizedLockKey);
             }
