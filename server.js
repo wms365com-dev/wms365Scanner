@@ -7704,7 +7704,7 @@ async function initializeDatabase() {
     await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_sync_status_check");
     await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_sync_status_check check (sync_status in ('PENDING', 'SYNCED', 'FAILED'))");
     await pool.query("alter table mobile_execution_confirmations drop constraint if exists mobile_execution_confirmations_type_check");
-    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING', 'PICK_ARRIVAL', 'PICK_EXCEPTION', 'INVESTIGATION_HOLD'))");
+    await pool.query("alter table mobile_execution_confirmations add constraint mobile_execution_confirmations_type_check check (confirmation_type in ('PUT_AWAY', 'MOVE', 'RECEIVING', 'PICK_ARRIVAL', 'PICK_EXCEPTION', 'INVESTIGATION_HOLD', 'ORDER_STATUS'))");
     await pool.query("create unique index if not exists idx_mobile_execution_confirmations_idempotency on mobile_execution_confirmations (idempotency_key)");
     await pool.query("create index if not exists idx_mobile_execution_confirmations_source on mobile_execution_confirmations (source_type, source_id, confirmation_type)");
     await pool.query("create index if not exists idx_mobile_execution_confirmations_worker_time on mobile_execution_confirmations (worker_id, timestamp desc)");
@@ -25593,6 +25593,60 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     return updatedInbound;
 }
 
+async function getExistingPortalOrderStatusAction(client, idempotencyKey, orderId) {
+    const key = normalizeFreeText(idempotencyKey || "").slice(0, 180);
+    if (!key) return null;
+    const existing = await client.query(
+        "select * from mobile_execution_confirmations where idempotency_key = $1 limit 1",
+        [key]
+    );
+    if (existing.rowCount !== 1) return null;
+    const confirmation = mapMobileExecutionConfirmationRow(existing.rows[0]);
+    if (confirmation.confirmationType !== "ORDER_STATUS"
+        || confirmation.sourceType !== "PORTAL_ORDER"
+        || String(confirmation.sourceId || "") !== String(orderId || "")) {
+        throw httpError(409, "This warehouse action has already been used for another operation. Refresh the order and try again.");
+    }
+    return confirmation;
+}
+
+async function recordPortalOrderStatusAction(client, order, nextStatus, details = {}, appUser = null) {
+    const idempotencyKey = getMobileIdempotencyKey(details);
+    if (!idempotencyKey || !order?.id) return null;
+    const payload = {
+        action: "ORDER_STATUS",
+        status: nextStatus,
+        orderId: String(order.id),
+        orderCode: order.orderCode || "",
+        accountName: order.accountName || "",
+        actor: appUser?.email || appUser?.full_name || "Warehouse",
+        requestedAt: new Date().toISOString()
+    };
+    const result = await client.query(
+        `
+            insert into mobile_execution_confirmations (
+                confirmation_type, source_type, source_id, worker_id, device_id, account_name,
+                location, from_location, to_location, sku, lot, expiry, quantity,
+                sync_status, idempotency_key, source, payload, timestamp, created_at, updated_at
+            )
+            values ('ORDER_STATUS', 'PORTAL_ORDER', $1, $2, $3, $4, '', '', '', '', '', '', 0,
+                    'SYNCED', $5, $6, $7::jsonb, now(), now(), now())
+            on conflict (idempotency_key) do nothing
+            returning *
+        `,
+        [
+            toPositiveInt(order.id) || null,
+            toPositiveInt(appUser?.id || appUser?.app_user_id) || null,
+            getMobileDeviceId(details),
+            order.accountName || "",
+            idempotencyKey,
+            getMobileSource(details),
+            JSON.stringify(payload)
+        ]
+    );
+    return result.rowCount === 1 ? mapMobileExecutionConfirmationRow(result.rows[0]) : null;
+}
+
 async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details = {}, appUser = null) {
     const orderResult = await client.query("select * from portal_orders where id = $1 limit 1 for update", [orderId]);
     if (orderResult.rowCount !== 1) {
@@ -25603,11 +25657,20 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     if (!currentOrder) {
         throw httpError(404, "That portal order could not be found.");
     }
+    const existingStatusAction = await getExistingPortalOrderStatusAction(client, getMobileIdempotencyKey(details), orderId);
+    if (existingStatusAction) {
+        await syncWarehouseTasksForOrder(client, currentOrder, appUser);
+        currentOrder.duplicateStatusAction = true;
+        return currentOrder;
+    }
     if (currentOrder.status === nextStatus) {
         if (nextStatus === "SHIPPED") {
-            return savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
+            const savedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
+            await recordPortalOrderStatusAction(client, savedOrder, nextStatus, details, appUser);
+            return savedOrder;
         }
         await syncWarehouseTasksForOrder(client, currentOrder, appUser);
+        await recordPortalOrderStatusAction(client, currentOrder, nextStatus, details, appUser);
         return currentOrder;
     }
 
@@ -25653,6 +25716,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
             ].filter(Boolean).join(" | ")
         );
         await syncWarehouseTasksForOrder(client, cancelledOrder, appUser);
+        await recordPortalOrderStatusAction(client, cancelledOrder, nextStatus, details, appUser);
         return cancelledOrder;
     }
 
@@ -25667,7 +25731,9 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     }
 
     if (nextStatus === "SHIPPED") {
-        return savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: true });
+        const shippedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: true });
+        await recordPortalOrderStatusAction(client, shippedOrder, nextStatus, details, appUser);
+        return shippedOrder;
     }
 
     const timestampColumn = nextStatus === "PICKED" ? "picked_at" : "staged_at";
@@ -25696,6 +25762,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         `${updatedOrder.accountName} | ${formatCount(updatedOrder.lines.length, "line")} | ${actor}`
     );
     await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
+    await recordPortalOrderStatusAction(client, updatedOrder, nextStatus, details, appUser);
     return updatedOrder;
 }
 
@@ -26147,7 +26214,7 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
 
 async function saveMobileExecutionConfirmation(client, confirmationType, input = {}, appUser = null, req = null) {
     const normalizedType = normalizeText(confirmationType);
-    if (!["PUT_AWAY", "MOVE", "RECEIVING", "PICK_ARRIVAL", "PICK_EXCEPTION", "INVESTIGATION_HOLD"].includes(normalizedType)) {
+    if (!["PUT_AWAY", "MOVE", "RECEIVING", "PICK_ARRIVAL", "PICK_EXCEPTION", "INVESTIGATION_HOLD", "ORDER_STATUS"].includes(normalizedType)) {
         throw mobileValidationError(400, "Unsupported mobile confirmation type.", "unsupported_confirmation_type");
     }
     const idempotencyKey = getMobileIdempotencyKey(input);
@@ -26167,7 +26234,8 @@ async function saveMobileExecutionConfirmation(client, confirmationType, input =
         MOVE: ["REPLENISHMENT"],
         PICK_ARRIVAL: ["PICK"],
         PICK_EXCEPTION: ["PICK"],
-        INVESTIGATION_HOLD: []
+        INVESTIGATION_HOLD: [],
+        ORDER_STATUS: []
     };
     if (sourceType && sourceId) {
         await assertAssignedMobileTaskForWorker(client, req || { appUser }, {

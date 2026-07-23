@@ -363,19 +363,45 @@ const PROBLEM_REASONS={
   BARCODE_MISMATCH:'Barcode mismatch',
   OTHER:'Other'
 };
-const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,pickState:PICK_STATES.ORDER_SELECTED,arrivals:{},skuConfirmed:{},confirmed:{},exceptions:[],selectedProblemReason:'',scanTarget:'',scannerStream:null,scannerTimer:null,advanceTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false,savingArrival:false,savingProblem:false};
+const state={orders:[],company:'',selectedOrder:null,picks:[],index:0,pickState:PICK_STATES.ORDER_SELECTED,arrivals:{},skuConfirmed:{},confirmed:{},exceptions:[],selectedProblemReason:'',scanTarget:'',scannerStream:null,scannerTimer:null,advanceTimer:null,requestedOrderId:'',requestedTaskId:'',savingPick:false,savingArrival:false,savingProblem:false,savingOrderStatus:false};
 const $=id=>document.getElementById(id);
 const GLOBAL_COMPANY_KEY='wms365-mobile-company-context';
 const MOBILE_DEVICE_STATE_CACHE_KEY='warehouse-state-v1';
 const MOBILE_DEVICE_CACHE_MAX_AGE_MS=12*60*60*1000;
 
 async function requestJson(url,opt={}){
-  const r=await fetch(url,{headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt});
+  const r=await fetch(url,{cache:opt.cache||'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
   const t=await r.text();
   let d={};
   try{d=t?JSON.parse(t):{}}catch{throw new Error(t||'Request failed')}
   if(!r.ok){const error=new Error(d.error||`Request failed (${r.status})`);error.status=r.status;error.data=d;throw error}
   return d;
+}
+
+function makeActionId(actionType){
+  if(window.WMS365Mobile?.makeIdempotencyKey)return window.WMS365Mobile.makeIdempotencyKey(actionType);
+  const prefix=String(actionType||'mobile').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'mobile';
+  if(window.crypto?.randomUUID)return `${prefix}-${window.crypto.randomUUID()}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,12)}`;
+}
+
+function envelopeStatusAction(payload,actionType){
+  if(window.WMS365Mobile?.envelope)return window.WMS365Mobile.envelope(payload,actionType);
+  const idempotencyKey=makeActionId(actionType);
+  return {...(payload||{}),idempotencyKey,idempotency_key:idempotencyKey};
+}
+
+function setActionButtonBusy(button,busy,label='Saving...'){
+  if(!button)return;
+  if(busy){
+    if(!button.dataset.originalText)button.dataset.originalText=button.textContent||'';
+    button.disabled=true;
+    button.textContent=label;
+  }else{
+    button.disabled=false;
+    if(button.dataset.originalText)button.textContent=button.dataset.originalText;
+    delete button.dataset.originalText;
+  }
 }
 
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
@@ -1550,6 +1576,7 @@ $('confirmPickBtn').addEventListener('click',async()=>{
 
 $('markPickedBtn').addEventListener('click',async()=>{
   if(!state.selectedOrder) return;
+  if(state.savingOrderStatus)return;
   if(state.exceptions.length){
     $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} has unresolved pick exceptions and cannot be marked picked.`;
     return;
@@ -1561,35 +1588,56 @@ $('markPickedBtn').addEventListener('click',async()=>{
     await updateQueueStatus();
     return;
   }
-  const body=window.WMS365Mobile?.envelope?.({status:'PICKED'},'MOBILE_PICK_MARK_PICKED')||{status:'PICKED'};
-  const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
-  clearPickProgress();
-  state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
-  $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} marked as PICKED.`;
-  await loadOrders();
-  renderPick();
+  state.savingOrderStatus=true;
+  setActionButtonBusy($('markPickedBtn'),true,'Marking picked...');
+  $('doneOrderMeta').textContent=`Marking ${state.selectedOrder.orderCode} picked...`;
+  try{
+    const body=envelopeStatusAction({status:'PICKED'},'MOBILE_PICK_MARK_PICKED');
+    const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
+    clearPickProgress();
+    state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
+    $('doneOrderMeta').textContent=`${state.selectedOrder.orderCode} marked as PICKED.`;
+    await loadOrders({force:true});
+    renderPick();
+    window.WMS365Mobile?.vibrate?.(70);
+    window.WMS365Mobile?.beep?.('success');
+  }catch(error){
+    $('doneOrderMeta').textContent=error.message||'Unable to mark this order picked.';
+    window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingOrderStatus=false;
+    setActionButtonBusy($('markPickedBtn'),false);
+  }
 });
 
 $('markStagedBtn').addEventListener('click',async()=>{
   if(!state.selectedOrder)return;
+  if(state.savingOrderStatus)return;
+  state.savingOrderStatus=true;
+  setActionButtonBusy($('markStagedBtn'),true,'Marking staged...');
   $('stageMessage').className='status';
   $('stageMessage').textContent='Saving staged status...';
   try{
-    const body=window.WMS365Mobile?.envelope?.({status:'STAGED'},'MOBILE_PICK_MARK_STAGED')||{status:'STAGED'};
+    const body=envelopeStatusAction({status:'STAGED'},'MOBILE_PICK_MARK_STAGED');
     const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
     state.selectedOrder=response.order||{...state.selectedOrder,status:'STAGED'};
-    await loadOrders();
+    await loadOrders({force:true});
     renderPick();
     window.WMS365Mobile?.vibrate?.(70);
+    window.WMS365Mobile?.beep?.('success');
   }catch(error){
     $('stageMessage').className='status bad';
     $('stageMessage').textContent=error.message||'Unable to stage this order.';
     window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingOrderStatus=false;
+    setActionButtonBusy($('markStagedBtn'),false);
   }
 });
 
 async function submitPickupProof(){
   if(!state.selectedOrder)return;
+  if(state.savingOrderStatus)return;
   const message=$('pickupProofMessage');
   message.className='status';
   if(window.WMS365Mobile?.isOnline && !window.WMS365Mobile.isOnline()){
@@ -1598,6 +1646,8 @@ async function submitPickupProof(){
     window.WMS365Mobile?.beep?.('error');
     return;
   }
+  state.savingOrderStatus=true;
+  setActionButtonBusy($('submitPickupProofBtn'),true,'Shipping...');
   try{
     message.textContent='Reading proof files...';
     const bolDocuments=await readPortalShippingDocuments($('shipBolFiles').files);
@@ -1669,13 +1719,13 @@ async function submitPickupProof(){
       shippedLines,
       packingSlipQuantityConfirmed:true
     };
-    const body=window.WMS365Mobile?.envelope?.(payload,'MOBILE_OUTBOUND_PICKUP_PROOF')||payload;
+    const body=envelopeStatusAction(payload,'MOBILE_OUTBOUND_PICKUP_PROOF');
     const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
     state.selectedOrder=response.order||{...state.selectedOrder,status:'SHIPPED'};
     $('shipBolFiles').value='';
     $('shipPackingSlipFiles').value='';
     $('shipTruckPhotos').value='';
-    await loadOrders();
+    await loadOrders({force:true});
     message.className='status good';
     message.textContent=`${state.selectedOrder.orderCode} shipped. Proof saved with the order.`;
     window.WMS365Mobile?.vibrate?.(90);
@@ -1684,6 +1734,9 @@ async function submitPickupProof(){
     message.className='status bad';
     message.textContent=error.message||'Unable to save pickup proof.';
     window.WMS365Mobile?.beep?.('error');
+  }finally{
+    state.savingOrderStatus=false;
+    setActionButtonBusy($('submitPickupProofBtn'),false);
   }
 }
 

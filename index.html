@@ -10713,6 +10713,7 @@
         const portalOrdersCompanyCache = new Map();
         const portalOrdersInFlight = new Map();
         const portalOrderDetailsInFlight = new Map();
+        const portalOrderStatusActionsInFlight = new Map();
         let portalOrdersAllCompaniesRequested = false;
         let portalOrdersLoadingTimer = null;
         let warehousePrintSetupState = { stations: [], printers: [], jobs: [] };
@@ -24187,10 +24188,12 @@
                 if (!orderId) return;
                 try {
                     const currentOrder = getPortalOrderById(orderId);
+                    const actionId = makeId(`portal-ship-${orderId}`);
                     await runActionWithFeedback({
                         button: shipButton,
                         busyLabel: currentOrder?.status === "STAGED" ? "Marking shipped..." : "Saving confirmation...",
                         messageElement: actionMessageElement,
+                        lockKey: `portal-order-ship-${orderId}`,
                         progressMessage: currentOrder?.status === "STAGED"
                             ? `Marking order ${currentOrder?.orderCode || orderId} shipped, deducting inventory, and queuing the customer email...`
                             : `Saving shipping confirmation for ${currentOrder?.orderCode || orderId} and queuing the customer email...`
@@ -24285,8 +24288,11 @@
                         }
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
+                            headers: { "Idempotency-Key": actionId },
                             body: JSON.stringify({
                                 status: "SHIPPED",
+                                idempotencyKey: actionId,
+                                idempotency_key: actionId,
                                 confirmedShipDate: shipDate,
                                 shipmentMethod,
                                 shippedCarrierName: carrierName,
@@ -24409,16 +24415,21 @@
                 }
 
                 try {
+                    const actionId = makeId(`portal-status-${orderId}-${nextStatus.toLowerCase()}`);
                     await runActionWithFeedback({
                         button,
                         busyLabel: `${label}...`,
                         messageElement: actionMessageElement,
+                        lockKey: `portal-order-status-${orderId}-${nextStatus}`,
                         progressMessage: `Updating order ${orderId} to ${nextStatus}...`
                     }, async () => {
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
+                            headers: { "Idempotency-Key": actionId },
                             body: JSON.stringify({
                                 status: nextStatus,
+                                idempotencyKey: actionId,
+                                idempotency_key: actionId,
                                 ...(nextStatus === "CANCELLED" ? { note: "Cancelled from WMS365 warehouse order screen." } : {})
                             })
                         });
@@ -28168,11 +28179,11 @@
         async function requestJson(url, options = {}) {
             const response = await fetch(url, {
                 cache: options.cache || "no-store",
+                ...options,
                 headers: {
                     "Content-Type": "application/json",
                     ...(options.headers || {})
-                },
-                ...options
+                }
             });
             const text = await response.text();
             const data = text ? JSON.parse(text) : {};
@@ -29558,7 +29569,15 @@
             delete button.dataset.busyOriginalDisabled;
         }
 
-        async function runActionWithFeedback({ button = null, busyLabel = "Working...", messageElement = null, progressMessage = "" } = {}, action) {
+        async function runActionWithFeedback({ button = null, busyLabel = "Working...", messageElement = null, progressMessage = "", lockKey = "" } = {}, action) {
+            const normalizedLockKey = String(lockKey || "").trim();
+            if (normalizedLockKey) {
+                if (portalOrderStatusActionsInFlight.has(normalizedLockKey)) {
+                    if (messageElement) showMessage(messageElement, "That action is already saving. Please wait for the confirmation.", "info");
+                    return null;
+                }
+                portalOrderStatusActionsInFlight.set(normalizedLockKey, true);
+            }
             if (button) setButtonBusy(button, true, busyLabel);
             if (messageElement && progressMessage) {
                 showMessage(messageElement, progressMessage, "info");
@@ -29567,6 +29586,7 @@
                 return await action();
             } finally {
                 if (button) setButtonBusy(button, false);
+                if (normalizedLockKey) portalOrderStatusActionsInFlight.delete(normalizedLockKey);
             }
         }
 
