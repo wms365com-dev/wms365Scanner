@@ -21195,6 +21195,8 @@
             const shipmentMethod = normalizeShipmentMethod(order.shipmentMethod || "LTL_FREIGHT");
             const isParcelShipment = shipmentMethod === "PARCEL";
             const isFreightShipment = shipmentMethodRequiresFreightProof(shipmentMethod);
+            const usesPalletTracking = shipmentMethodUsesPalletTracking(shipmentMethod);
+            const outboundPallets = order.outboundPallets || {};
             const shippingHelpText = insufficientLines.length
                 ? "Shipping stays blocked until every line has enough available stock."
                 : shipmentCloseoutHelpText(shipmentMethod);
@@ -21225,6 +21227,26 @@
                         <label class="field span-2">
                             <span>Shipping Note</span>
                             <input data-portal-ship-note="${attr(order.id)}" type="text" placeholder="Optional shipped confirmation note" value="${attr(order.shippedConfirmationNote || "")}">
+                        </label>
+                        <label class="field" data-portal-pallet-fields="${attr(order.id)}" ${usesPalletTracking ? "" : "hidden"}>
+                            <span>Total Pallets Out</span>
+                            <input data-portal-pallet-total="${attr(order.id)}" type="number" min="0" step="1" inputmode="numeric" value="${attr(outboundPallets.totalPalletsOut || 0)}">
+                        </label>
+                        <label class="field" data-portal-pallet-fields="${attr(order.id)}" ${usesPalletTracking ? "" : "hidden"}>
+                            <span>Existing Pallets</span>
+                            <input data-portal-pallet-existing="${attr(order.id)}" type="number" min="0" step="1" inputmode="numeric" value="${attr(outboundPallets.existingPalletsOut || 0)}">
+                        </label>
+                        <label class="field" data-portal-pallet-fields="${attr(order.id)}" ${usesPalletTracking ? "" : "hidden"}>
+                            <span>New Pallets Used</span>
+                            <input data-portal-pallet-new="${attr(order.id)}" type="number" min="0" step="1" inputmode="numeric" value="${attr(outboundPallets.newPalletsUsed || 0)}">
+                        </label>
+                        <label class="field" data-portal-pallet-fields="${attr(order.id)}" ${usesPalletTracking ? "" : "hidden"}>
+                            <span>Mixed Pallets Built</span>
+                            <input data-portal-pallet-mixed="${attr(order.id)}" type="number" min="0" step="1" inputmode="numeric" value="${attr(outboundPallets.mixedPalletsBuilt || 0)}">
+                        </label>
+                        <label class="field span-2" data-portal-pallet-fields="${attr(order.id)}" ${usesPalletTracking ? "" : "hidden"}>
+                            <span>Pallet Note</span>
+                            <input data-portal-pallet-note="${attr(order.id)}" type="text" placeholder="Optional pallet billing note" value="${attr(outboundPallets.palletNote || "")}">
                         </label>
                         <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Signed BOL / POD</span>
@@ -23838,11 +23860,15 @@
             return method === "LTL_FREIGHT" || method === "FTL_FREIGHT";
         }
 
+        function shipmentMethodUsesPalletTracking(value) {
+            return normalizeShipmentMethod(value) !== "PARCEL";
+        }
+
         function shipmentCloseoutHelpText(value) {
             const method = normalizeShipmentMethod(value);
             if (method === "PARCEL") return "Parcel closeout requires a tracking number and quantity shipped by SKU. Carrier is optional.";
-            if (shipmentMethodRequiresFreightProof(method)) return "LTL/FTL closeout requires signed BOL/POD, checked packing slip, loaded freight photo, and quantity shipped by SKU.";
-            return "Customer pickup closeout records quantity shipped by SKU. Shipment proof is not required.";
+            if (shipmentMethodRequiresFreightProof(method)) return "LTL/FTL closeout requires signed BOL/POD, checked packing slip, loaded freight photo, quantity shipped by SKU, and pallet counts.";
+            return "Customer pickup closeout records quantity shipped by SKU and pallet counts. Shipment proof is not required.";
         }
 
         function buildShipmentQuantityReviewLines(order, shippedLines = []) {
@@ -23877,6 +23903,7 @@
             if (!orderId || !panel) return;
             const showParcel = method === "PARCEL";
             const showFreight = shipmentMethodRequiresFreightProof(method);
+            const showPallets = shipmentMethodUsesPalletTracking(method);
             const escapedOrderId = window.CSS && typeof CSS.escape === "function"
                 ? CSS.escape(orderId)
                 : String(orderId).replace(/["\\]/g, "\\$&");
@@ -23886,6 +23913,17 @@
             panel.querySelectorAll(`[data-portal-freight-proof-fields="${escapedOrderId}"]`).forEach((field) => {
                 field.hidden = !showFreight;
             });
+            panel.querySelectorAll(`[data-portal-pallet-fields="${escapedOrderId}"]`).forEach((field) => {
+                field.hidden = !showPallets;
+            });
+            if (!showPallets) {
+                ["total", "existing", "new", "mixed"].forEach((fieldName) => {
+                    const input = panel.querySelector(`[data-portal-pallet-${fieldName}="${escapedOrderId}"]`);
+                    if (input) input.value = "0";
+                });
+                const note = panel.querySelector(`[data-portal-pallet-note="${escapedOrderId}"]`);
+                if (note) note.value = "";
+            }
             const help = panel.querySelector(`[data-portal-ship-help="${escapedOrderId}"]`);
             if (help) help.textContent = shipmentCloseoutHelpText(method);
         }
@@ -24296,6 +24334,22 @@
                         const carrierName = orderCard?.querySelector(`[data-portal-ship-carrier="${orderId}"]`)?.value || "";
                         const trackingNumber = orderCard?.querySelector(`[data-portal-ship-tracking="${orderId}"]`)?.value || "";
                         const shippingNote = orderCard?.querySelector(`[data-portal-ship-note="${orderId}"]`)?.value || "";
+                        const usesPalletTracking = shipmentMethodUsesPalletTracking(shipmentMethod);
+                        const outboundPallets = usesPalletTracking
+                            ? {
+                                totalPalletsOut: Number(orderCard?.querySelector(`[data-portal-pallet-total="${orderId}"]`)?.value || 0),
+                                existingPalletsOut: Number(orderCard?.querySelector(`[data-portal-pallet-existing="${orderId}"]`)?.value || 0),
+                                newPalletsUsed: Number(orderCard?.querySelector(`[data-portal-pallet-new="${orderId}"]`)?.value || 0),
+                                mixedPalletsBuilt: Number(orderCard?.querySelector(`[data-portal-pallet-mixed="${orderId}"]`)?.value || 0),
+                                palletNote: orderCard?.querySelector(`[data-portal-pallet-note="${orderId}"]`)?.value || ""
+                            }
+                            : {
+                                totalPalletsOut: 0,
+                                existingPalletsOut: 0,
+                                newPalletsUsed: 0,
+                                mixedPalletsBuilt: 0,
+                                palletNote: ""
+                            };
                         const fileInputs = Array.from(orderCard?.querySelectorAll(`[data-portal-ship-documents="${orderId}"], [data-portal-ship-photos="${orderId}"]`) || []);
                         const documentGroups = await Promise.all(fileInputs.map(async (input) => {
                             const category = norm(input.dataset.documentCategory || "GENERAL") || "GENERAL";
@@ -24324,6 +24378,26 @@
                                 const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
                                 if (missingCategories.length) {
                                     throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
+                                }
+                            }
+                            if (usesPalletTracking) {
+                                const palletCounts = [
+                                    outboundPallets.totalPalletsOut,
+                                    outboundPallets.existingPalletsOut,
+                                    outboundPallets.newPalletsUsed,
+                                    outboundPallets.mixedPalletsBuilt
+                                ];
+                                if (palletCounts.some((value) => !Number.isInteger(value) || value < 0)) {
+                                    throw new Error("Enter whole-number pallet counts before marking shipped.");
+                                }
+                                if (outboundPallets.totalPalletsOut <= 0) {
+                                    throw new Error("Enter total pallets out before marking a non-parcel order shipped.");
+                                }
+                                if ((outboundPallets.existingPalletsOut + outboundPallets.newPalletsUsed) !== outboundPallets.totalPalletsOut) {
+                                    throw new Error("Existing pallets plus new pallets must equal total pallets out.");
+                                }
+                                if (outboundPallets.mixedPalletsBuilt > outboundPallets.totalPalletsOut) {
+                                    throw new Error("Mixed pallets cannot be greater than total pallets out.");
                                 }
                             }
                             const invalidLine = shippedLines.find((entry) => {
@@ -24392,6 +24466,7 @@
                                 shippedConfirmationNote: shippingNote,
                                 documents,
                                 shippedLines,
+                                outboundPallets,
                                 packingSlipQuantityConfirmed,
                                 moveShortageToInvestigation
                             })
@@ -29255,6 +29330,13 @@
                 shippedCarrierName: String(item.shippedCarrierName || item.shipped_carrier_name || "").trim(),
                 shippedTrackingReference: String(item.shippedTrackingReference || item.shipped_tracking_reference || "").trim(),
                 shippedConfirmationNote: String(item.shippedConfirmationNote || item.shipped_confirmation_note || "").trim(),
+                outboundPallets: {
+                    totalPalletsOut: Number(item.outboundPallets?.totalPalletsOut ?? item.outbound_pallets?.total_pallets_out ?? item.outboundTotalPallets ?? item.outbound_total_pallets ?? 0) || 0,
+                    existingPalletsOut: Number(item.outboundPallets?.existingPalletsOut ?? item.outbound_pallets?.existing_pallets_out ?? item.outboundExistingPallets ?? item.outbound_existing_pallets ?? 0) || 0,
+                    newPalletsUsed: Number(item.outboundPallets?.newPalletsUsed ?? item.outbound_pallets?.new_pallets_used ?? item.outboundNewPallets ?? item.outbound_new_pallets ?? 0) || 0,
+                    mixedPalletsBuilt: Number(item.outboundPallets?.mixedPalletsBuilt ?? item.outbound_pallets?.mixed_pallets_built ?? item.outboundMixedPallets ?? item.outbound_mixed_pallets ?? 0) || 0,
+                    palletNote: String(item.outboundPallets?.palletNote ?? item.outbound_pallets?.pallet_note ?? item.outboundPalletNote ?? item.outbound_pallet_note ?? "").trim()
+                },
                 shipmentEmailStatus: norm(item.shipmentEmailStatus || item.shipment_email_status || ""),
                 shipmentEmailScheduledAt: typeof item.shipmentEmailScheduledAt === "string" ? item.shipmentEmailScheduledAt : (typeof item.shipment_email_scheduled_at === "string" ? item.shipment_email_scheduled_at : null),
                 shipmentEmailSentAt: typeof item.shipmentEmailSentAt === "string" ? item.shipmentEmailSentAt : (typeof item.shipment_email_sent_at === "string" ? item.shipment_email_sent_at : null),

@@ -630,7 +630,35 @@
         .inbound-pallet-label-form {
             display: grid;
             gap: 0.65rem;
-            grid-template-columns: minmax(180px, 1fr) 140px 120px auto;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            align-items: end;
+        }
+        .inbound-pallet-summary {
+            display: grid;
+            gap: 0.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        }
+        .inbound-pallet-summary .detail {
+            padding: 0.65rem;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #f8fbfd;
+        }
+        .inbound-pallet-section-title {
+            color: var(--text);
+            font-weight: 800;
+            font-size: 0.92rem;
+        }
+        .inbound-mixed-pallet-form {
+            display: grid;
+            gap: 0.65rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--line);
+        }
+        .inbound-mixed-pallet-row {
+            display: grid;
+            gap: 0.55rem;
+            grid-template-columns: minmax(180px, 1fr) 120px minmax(120px, 0.7fr) 150px;
             align-items: end;
         }
         .inbound-pallet-label-list {
@@ -880,7 +908,7 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid, .inbound-pallet-label-form { grid-template-columns: 1fr; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid, .inbound-pallet-label-form, .inbound-mixed-pallet-row { grid-template-columns: 1fr; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head, .portal-panel-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -3790,11 +3818,101 @@
             return !["CANCELLED", "RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"].includes(String(inbound?.status || "").toUpperCase());
         }
 
+        const INBOUND_PALLET_SIZE_OPTIONS = Object.freeze([
+            { value: "STANDARD_40_48_55", label: "Standard 40 x 48 x 55" },
+            { value: "OVERSIZE_40_48_85", label: "Oversize 40 x 48 x 85" },
+            { value: "NON_STANDARD", label: "Non-standard" }
+        ]);
+
+        function normalizeInboundPalletSizeType(value) {
+            const normalized = norm(value || "").replace(/[\s-]+/g, "_");
+            if (["OVERSIZE", "OVERSIZED", "OVERSIZE_40_48_85", "OVERSIZED_40_48_85", "40X48X85", "40_48_85"].includes(normalized)) return "OVERSIZE_40_48_85";
+            if (["NON_STANDARD", "NONSTANDARD", "CUSTOM", "OTHER", "SPECIAL"].includes(normalized)) return "NON_STANDARD";
+            return "STANDARD_40_48_55";
+        }
+
+        function inboundPalletSizeLabel(value) {
+            const normalized = normalizeInboundPalletSizeType(value);
+            return INBOUND_PALLET_SIZE_OPTIONS.find((option) => option.value === normalized)?.label || INBOUND_PALLET_SIZE_OPTIONS[0].label;
+        }
+
+        function inboundPalletSizeOptionsHtml(selected = "STANDARD_40_48_55") {
+            const normalized = normalizeInboundPalletSizeType(selected);
+            return INBOUND_PALLET_SIZE_OPTIONS.map((option) => `
+                <option value="${attr(option.value)}" ${option.value === normalized ? "selected" : ""}>${esc(option.label)}</option>
+            `).join("");
+        }
+
+        function collectInboundPalletSize(card, inboundId, prefix = "inbound-pallet") {
+            const sizeType = normalizeInboundPalletSizeType(card?.querySelector(`[data-${prefix}-size="${inboundId}"]`)?.value || "");
+            const palletSizeNote = String(card?.querySelector(`[data-${prefix}-size-note="${inboundId}"]`)?.value || "").trim();
+            if (sizeType === "NON_STANDARD" && !palletSizeNote) {
+                throw new Error("Enter pallet dimensions or a note when selecting non-standard pallet size.");
+            }
+            return { palletSizeType: sizeType, palletSizeNote };
+        }
+
+        function summarizeInboundPallets(inbound) {
+            const labels = Array.isArray(inbound?.palletLabels) ? inbound.palletLabels : [];
+            const provided = inbound?.palletSummary && typeof inbound.palletSummary === "object" ? inbound.palletSummary : {};
+            const expectedLineQuantity = Number(provided.expectedLineQuantity || inbound?.lines?.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0) || 0) || 0;
+            const plannedQuantity = Number(provided.plannedQuantity || labels.reduce((sum, label) => sum + (Number(label.expectedQuantity) || 0), 0)) || 0;
+            const mixedPlannedPallets = Number(provided.mixedPlannedPallets || labels.filter((label) => label.isMixed).length) || 0;
+            const standardPallets = Number(provided.standardPallets || labels.filter((label) => normalizeInboundPalletSizeType(label.palletSizeType) === "STANDARD_40_48_55").length) || 0;
+            const oversizePallets = Number(provided.oversizePallets || labels.filter((label) => normalizeInboundPalletSizeType(label.palletSizeType) === "OVERSIZE_40_48_85").length) || 0;
+            const nonStandardPallets = Number(provided.nonStandardPallets || labels.filter((label) => normalizeInboundPalletSizeType(label.palletSizeType) === "NON_STANDARD").length) || 0;
+            return {
+                totalPlannedPallets: Number(provided.totalPlannedPallets || labels.length) || 0,
+                singleSkuPlannedPallets: Number(provided.singleSkuPlannedPallets || Math.max(labels.length - mixedPlannedPallets, 0)) || 0,
+                mixedPlannedPallets,
+                standardPallets,
+                oversizePallets,
+                nonStandardPallets,
+                plannedQuantity,
+                expectedLineQuantity,
+                unassignedQuantity: Math.max(Number(provided.unassignedQuantity ?? (expectedLineQuantity - plannedQuantity)) || 0, 0),
+                billablePallets: Number(provided.billablePallets || 0) || 0
+            };
+        }
+
+        function inboundPalletContentsSummary(label) {
+            const contents = Array.isArray(label?.contents) ? label.contents : [];
+            if (!contents.length) return "";
+            return contents.map((content) => {
+                const detail = [`${content.sku}: ${num(content.quantity)} cases`];
+                if (content.lotNumber) detail.push(`Lot ${content.lotNumber}`);
+                if (content.expirationDate) detail.push(`Exp ${formatDate(content.expirationDate)}`);
+                return detail.join(" | ");
+            }).join("; ");
+        }
+
         function renderInboundPalletLabels(inbound) {
             const labels = Array.isArray(inbound?.palletLabels) ? inbound.palletLabels : [];
             const canGenerate = inboundCanGeneratePalletLabels(inbound) && inbound.lines.length > 0;
+            const canGenerateMixed = canGenerate && inbound.lines.length > 1;
+            const summary = summarizeInboundPallets(inbound);
             const lineOptions = inbound.lines.map((line) => `
                 <option value="${attr(line.id)}" data-sku="${attr(line.sku)}">${esc(line.sku)}${line.description ? ` - ${esc(line.description)}` : ""}</option>
+            `).join("");
+            const mixedRows = inbound.lines.map((line) => `
+                <div class="inbound-mixed-pallet-row">
+                    <div class="detail">
+                        <strong>${esc(line.sku)}</strong>
+                        <span class="meta">${esc(line.description || "No description")} | Expected ${esc(num(line.quantity))}</span>
+                    </div>
+                    <label class="field">
+                        <span>Cases</span>
+                        <input data-inbound-mixed-pallet-qty="${attr(inbound.id)}" data-line-id="${attr(line.id)}" data-sku="${attr(line.sku)}" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+                    </label>
+                    <label class="field">
+                        <span>Lot</span>
+                        <input data-inbound-mixed-pallet-lot="${attr(inbound.id)}" data-line-id="${attr(line.id)}" type="text" value="${attr(line.lotNumber || "")}">
+                    </label>
+                    <label class="field">
+                        <span>Expiry</span>
+                        <input data-inbound-mixed-pallet-expiry="${attr(inbound.id)}" data-line-id="${attr(line.id)}" type="date" value="${attr(line.expirationDate || "")}">
+                    </label>
+                </div>
             `).join("");
             return `
                 <div class="inbound-pallet-labels">
@@ -3804,17 +3922,29 @@
                         </div>
                         ${labels.length ? `<button class="btn ghost" type="button" data-print-inbound-pallet-labels="${attr(inbound.id)}">Print Labels</button>` : ""}
                     </div>
+                    <div class="inbound-pallet-summary">
+                        <div class="detail"><span class="meta">Planned Pallets</span><strong>${esc(num(summary.totalPlannedPallets))}</strong></div>
+                        <div class="detail"><span class="meta">Mixed Pallets</span><strong>${esc(num(summary.mixedPlannedPallets))}</strong></div>
+                        <div class="detail"><span class="meta">Standard</span><strong>${esc(num(summary.standardPallets))}</strong></div>
+                        <div class="detail"><span class="meta">Oversize</span><strong>${esc(num(summary.oversizePallets))}</strong></div>
+                        <div class="detail"><span class="meta">Non-standard</span><strong>${esc(num(summary.nonStandardPallets))}</strong></div>
+                        <div class="detail"><span class="meta">Planned Cases</span><strong>${esc(num(summary.plannedQuantity))}</strong></div>
+                        <div class="detail"><span class="meta">Unassigned Cases</span><strong>${esc(num(summary.unassignedQuantity))}</strong></div>
+                    </div>
                     ${labels.length ? `
                         <div class="inbound-pallet-label-list">
                             ${labels.map((label) => `
                                 <div class="inbound-pallet-label-chip">
                                     <strong>${esc(label.palletCode)}</strong>
-                                    <span class="meta">${esc(label.sku)} | ${esc(num(label.cases))} case${label.cases === 1 ? "" : "s"} | ${esc(num(label.expectedQuantity))} expected</span>
+                                    <span class="meta">${esc(label.isMixed ? "MIXED" : label.sku)} | ${esc(num(label.cases))} case${label.cases === 1 ? "" : "s"} | ${esc(num(label.expectedQuantity))} expected</span>
+                                    <span class="meta">${esc(label.palletSizeLabel || inboundPalletSizeLabel(label.palletSizeType))}${label.palletSizeNote ? ` | ${esc(label.palletSizeNote)}` : ""}</span>
+                                    ${label.isMixed ? `<span class="meta">${esc(inboundPalletContentsSummary(label))}</span>` : ""}
                                 </div>
                             `).join("")}
                         </div>
                     ` : `<div class="meta">No pallet labels yet.</div>`}
                     ${canGenerate ? `
+                        <div class="inbound-pallet-section-title">Single-SKU pallet</div>
                         <div class="inbound-pallet-label-form">
                             <label class="field">
                                 <span>SKU</span>
@@ -3828,7 +3958,36 @@
                                 <span>Pallets</span>
                                 <input data-inbound-pallet-count="${attr(inbound.id)}" type="number" min="1" step="1" value="1">
                             </label>
+                            <label class="field">
+                                <span>Pallet Size</span>
+                                <select data-inbound-pallet-size="${attr(inbound.id)}">${inboundPalletSizeOptionsHtml()}</select>
+                            </label>
+                            <label class="field">
+                                <span>Non-standard Details</span>
+                                <input data-inbound-pallet-size-note="${attr(inbound.id)}" type="text" placeholder="Required if non-standard">
+                            </label>
                             <button class="btn" type="button" data-generate-inbound-pallet-labels="${attr(inbound.id)}">Generate Labels</button>
+                        </div>
+                    ` : ""}
+                    ${canGenerateMixed ? `
+                        <div class="inbound-mixed-pallet-form">
+                            <div class="inbound-pallet-section-title">Mixed pallet</div>
+                            ${mixedRows}
+                            <div class="inbound-pallet-label-form">
+                                <label class="field">
+                                    <span>Pallets with this mix</span>
+                                    <input data-inbound-mixed-pallet-count="${attr(inbound.id)}" type="number" min="1" step="1" value="1">
+                                </label>
+                                <label class="field">
+                                    <span>Pallet Size</span>
+                                    <select data-inbound-mixed-pallet-size="${attr(inbound.id)}">${inboundPalletSizeOptionsHtml()}</select>
+                                </label>
+                                <label class="field">
+                                    <span>Non-standard Details</span>
+                                    <input data-inbound-mixed-pallet-size-note="${attr(inbound.id)}" type="text" placeholder="Required if non-standard">
+                                </label>
+                                <button class="btn ghost" type="button" data-generate-mixed-inbound-pallet-label="${attr(inbound.id)}">Generate Mixed Label</button>
+                            </div>
                         </div>
                     ` : ""}
                 </div>
@@ -3850,8 +4009,14 @@
             if (!lineId || !sku) {
                 return setMessage("Select a purchase order line before generating pallet labels.", "error");
             }
-            if (casesOnPallet <= 0 || palletCount <= 0) {
+            if (!Number.isInteger(casesOnPallet) || !Number.isInteger(palletCount) || casesOnPallet <= 0 || palletCount <= 0) {
                 return setMessage("Cases on pallet and pallets must be greater than zero.", "error");
+            }
+            let palletSize;
+            try {
+                palletSize = collectInboundPalletSize(card, inbound.id, "inbound-pallet");
+            } catch (error) {
+                return setMessage(error.message, "error");
             }
             try {
                 await runActionWithFeedback({
@@ -3862,7 +4027,7 @@
                     const response = await requestJson(`/api/portal/inbounds/${inbound.id}/pallet-labels`, {
                         method: "POST",
                         body: JSON.stringify({
-                            labels: [{ lineId, sku, casesOnPallet, palletCount }]
+                            labels: [{ lineId, sku, casesOnPallet, palletCount, ...palletSize }]
                         })
                     });
                     const updatedInbound = sanitizeInbound(response?.inbound);
@@ -3885,9 +4050,78 @@
             }
         }
 
+        async function generateMixedInboundPalletLabel(inboundId, button = null) {
+            const inbound = getInboundById(inboundId);
+            if (!inbound) return;
+            const card = button?.closest?.(".order-card") || null;
+            const quantityInputs = Array.from(card?.querySelectorAll(`[data-inbound-mixed-pallet-qty="${inboundId}"]`) || []);
+            const contents = quantityInputs.map((input) => {
+                const lineId = input.dataset.lineId || "";
+                const sku = input.dataset.sku || "";
+                const quantity = Number(input.value || 0);
+                const lotInput = card?.querySelector(`[data-inbound-mixed-pallet-lot="${inboundId}"][data-line-id="${lineId}"]`);
+                const expiryInput = card?.querySelector(`[data-inbound-mixed-pallet-expiry="${inboundId}"][data-line-id="${lineId}"]`);
+                return {
+                    lineId,
+                    sku,
+                    quantity,
+                    lotNumber: lotInput?.value || "",
+                    expirationDate: expiryInput?.value || ""
+                };
+            }).filter((entry) => entry.sku && Number.isInteger(entry.quantity) && entry.quantity > 0);
+            const distinctSkus = new Set(contents.map((entry) => norm(entry.sku)).filter(Boolean));
+            const palletCount = Number(card?.querySelector(`[data-inbound-mixed-pallet-count="${inboundId}"]`)?.value || 0);
+            if (distinctSkus.size < 2) {
+                return setMessage("Enter cases for at least two different SKUs before generating a mixed pallet label.", "error");
+            }
+            if (!Number.isInteger(palletCount) || palletCount <= 0) {
+                return setMessage("Mixed pallet count must be greater than zero.", "error");
+            }
+            let palletSize;
+            try {
+                palletSize = collectInboundPalletSize(card, inbound.id, "inbound-mixed-pallet");
+            } catch (error) {
+                return setMessage(error.message, "error");
+            }
+            try {
+                await runActionWithFeedback({
+                    button,
+                    busyLabel: "Generating...",
+                    progressMessage: `Generating mixed pallet label for ${inbound.inboundCode}...`
+                }, async () => {
+                    const response = await requestJson(`/api/portal/inbounds/${inbound.id}/pallet-labels`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            labels: [{ palletType: "MIXED", palletCount, contents, ...palletSize }]
+                        })
+                    });
+                    const updatedInbound = sanitizeInbound(response?.inbound);
+                    if (!updatedInbound?.id) {
+                        throw new Error("The mixed pallet label was generated, but the updated purchase order could not be read. Refresh My Purchase Orders.");
+                    }
+                    const existingIndex = portalState.inbounds.findIndex((entry) => String(entry.id) === String(updatedInbound.id));
+                    if (existingIndex >= 0) {
+                        portalState.inbounds.splice(existingIndex, 1, updatedInbound);
+                    } else {
+                        portalState.inbounds.unshift(updatedInbound);
+                    }
+                    portalState.expandedInboundId = updatedInbound.id;
+                    renderInbounds();
+                    setMessage(`Generated ${palletCount} mixed pallet label${palletCount === 1 ? "" : "s"} for ${updatedInbound.inboundCode}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                setMessage(error.message, "error");
+            }
+        }
+
         function buildInboundPalletLabelMarkup(label, inbound, { printable = false } = {}) {
             const warehouseName = formatRecordFulfillmentLocation(inbound);
             const barcodeMarkup = buildPortalCode39Svg(label.palletCode, printable ? { height: 54, narrow: 2, wide: 5 } : { height: 42, narrow: 2, wide: 4 });
+            const description = label.isMixed
+                ? inboundPalletContentsSummary(label) || "Mixed pallet"
+                : label.description || "NO DESCRIPTION";
+            const palletSizeLabel = label.palletSizeLabel || inboundPalletSizeLabel(label.palletSizeType);
             return `
                 <div class="${printable ? "label-card" : "inbound-pallet-label-chip"}">
                     <div class="pallet-print-label">
@@ -3897,8 +4131,8 @@
                         </div>
                         <div class="pallet-label-barcode">${barcodeMarkup}</div>
                         <p class="pallet-label-vendor">${esc(portalState.account?.accountName || inbound.accountName || "")}</p>
-                        <p class="pallet-label-sku">${esc(label.sku)}</p>
-                        <p class="pallet-label-description">${esc(label.description || "NO DESCRIPTION")}</p>
+                        <p class="pallet-label-sku">${esc(label.isMixed ? "MIXED PALLET" : label.sku)}</p>
+                        <p class="pallet-label-description">${esc(description)}</p>
                         <div class="pallet-label-footer">
                             <div class="pallet-label-stat">
                                 <span>Cases</span>
@@ -3907,6 +4141,10 @@
                             <div class="pallet-label-stat">
                                 <span>Expected Qty</span>
                                 <strong>${esc(num(label.expectedQuantity))}</strong>
+                            </div>
+                            <div class="pallet-label-stat">
+                                <span>Size</span>
+                                <strong>${esc(palletSizeLabel)}</strong>
                             </div>
                             <div class="pallet-label-stat">
                                 <span>Warehouse</span>
@@ -4035,7 +4273,7 @@
                         .pallet-label-description { font-size: 11pt; min-height: 0.28in; }
                         .pallet-label-footer {
                             display: grid;
-                            grid-template-columns: repeat(3, minmax(0, 1fr));
+                            grid-template-columns: repeat(4, minmax(0, 1fr));
                             gap: 0.08in;
                             margin-top: auto;
                         }
@@ -5592,6 +5830,12 @@
                 return;
             }
 
+            const generateMixedPalletLabelButton = event.target.closest("[data-generate-mixed-inbound-pallet-label]");
+            if (generateMixedPalletLabelButton) {
+                await generateMixedInboundPalletLabel(generateMixedPalletLabelButton.dataset.generateMixedInboundPalletLabel || "", generateMixedPalletLabelButton);
+                return;
+            }
+
             const printPalletLabelsButton = event.target.closest("[data-print-inbound-pallet-labels]");
             if (printPalletLabelsButton) {
                 printInboundPalletLabels(printPalletLabelsButton.dataset.printInboundPalletLabels || "");
@@ -6055,6 +6299,23 @@
             if (!label || typeof label !== "object") return null;
             const palletCode = String(label.palletCode || label.pallet_code || "").trim();
             if (!palletCode) return null;
+            const contents = Array.isArray(label.contents)
+                ? label.contents.map((content) => ({
+                    id: String(content.id || ""),
+                    palletLabelId: String(content.palletLabelId || content.pallet_label_id || label.id || ""),
+                    inboundId: String(content.inboundId || content.inbound_id || label.inboundId || label.inbound_id || ""),
+                    lineId: String(content.lineId || content.line_id || ""),
+                    lineNumber: Number(content.lineNumber || content.line_number || 0) || 0,
+                    sku: String(content.sku || ""),
+                    quantity: Number(content.quantity || content.cases || 0) || 0,
+                    lotNumber: String(content.lotNumber || content.lot_number || content.lot || ""),
+                    expirationDate: String(content.expirationDate || content.expiration_date || content.expiryDate || content.expiry_date || "").slice(0, 10),
+                    createdAt: content.createdAt || content.created_at || null,
+                    updatedAt: content.updatedAt || content.updated_at || null
+                })).filter((content) => content.sku && content.quantity > 0)
+                : [];
+            const palletType = norm(label.palletType || label.pallet_type || (label.isMixed || label.is_mixed ? "MIXED" : "SINGLE_SKU"));
+            const palletSizeType = normalizeInboundPalletSizeType(label.palletSizeType || label.pallet_size_type || "");
             return {
                 id: String(label.id || ""),
                 inboundId: String(label.inboundId || label.inbound_id || ""),
@@ -6069,6 +6330,22 @@
                 description: String(label.description || ""),
                 cases: Number(label.cases || label.cases_on_pallet || 0) || 0,
                 expectedQuantity: Number(label.expectedQuantity || label.expected_quantity || 0) || 0,
+                palletType,
+                palletStatus: norm(label.palletStatus || label.pallet_status || "PLANNED"),
+                isMixed: label.isMixed === true || label.is_mixed === true || palletType === "MIXED",
+                billable: label.billable === true,
+                palletSizeType,
+                palletSizeLabel: String(label.palletSizeLabel || label.pallet_size_label || inboundPalletSizeLabel(palletSizeType)),
+                palletSizeBillingCode: String(label.palletSizeBillingCode || label.pallet_size_billing_code || ""),
+                palletLengthInches: Number(label.palletLengthInches || label.pallet_length_inches || 0) || 0,
+                palletWidthInches: Number(label.palletWidthInches || label.pallet_width_inches || 0) || 0,
+                palletHeightInches: Number(label.palletHeightInches || label.pallet_height_inches || 0) || 0,
+                palletSizeNote: String(label.palletSizeNote || label.pallet_size_note || ""),
+                actualQuantity: label.actualQuantity == null && label.actual_quantity == null ? null : Number(label.actualQuantity || label.actual_quantity || 0) || 0,
+                confirmedBy: String(label.confirmedBy || label.confirmed_by || ""),
+                confirmedAt: label.confirmedAt || label.confirmed_at || null,
+                notes: String(label.notes || ""),
+                contents,
                 labelDate: String(label.labelDate || label.label_date || "").slice(0, 10),
                 createdBy: String(label.createdBy || label.created_by || ""),
                 createdAt: label.createdAt || label.created_at || null,
@@ -6119,7 +6396,8 @@
                     : [],
                 palletLabels: Array.isArray(inbound.palletLabels || inbound.pallet_labels)
                     ? (inbound.palletLabels || inbound.pallet_labels).map(sanitizeInboundPalletLabel).filter(Boolean)
-                    : []
+                    : [],
+                palletSummary: inbound.palletSummary || inbound.pallet_summary || null
             };
         }
 

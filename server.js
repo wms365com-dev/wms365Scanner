@@ -378,6 +378,7 @@ const BILLING_ACCOUNTING_DEFAULT_MASTER_CUSTOMER = "WMS365 MASTER COMPANY";
 const BILLING_FINANCE_CHARGE_TYPES = Object.freeze([
     ["PALLET_STORAGE_MONTHLY", "Storage", "Pallet storage monthly", "Per pallet"],
     ["OVERSIZED_PALLET_STORAGE", "Storage", "Oversized pallet storage", "Per pallet"],
+    ["NON_STANDARD_PALLET_STORAGE", "Storage", "Non-standard pallet storage", "Per pallet"],
     ["CLIMATE_STORAGE", "Storage", "Climate storage", "Per pallet"],
     ["CARTON_STORAGE", "Storage", "Carton storage", "Per carton"],
     ["BIN_STORAGE", "Storage", "Bin storage", "Flat fee"],
@@ -579,6 +580,7 @@ const STORE_INTEGRATION_DAILY_SCHEDULE_TIMES = Object.freeze({
 const BILLING_FEE_SEED = [
     { code: "STANDARD_PALLET_STORAGE", category: "Storage", name: "Standard pallet storage (48 x 40 x standard height)", unitLabel: "per pallet per month", defaultRate: 0 },
     { code: "OVERSIZED_PALLET_STORAGE", category: "Storage", name: "Oversized pallet storage (48 x 40 x tall height)", unitLabel: "per pallet per month", defaultRate: 0 },
+    { code: "NON_STANDARD_PALLET_STORAGE", category: "Storage", name: "Non-standard pallet storage", unitLabel: "per pallet per month", defaultRate: 0 },
     { code: "CLIMATE_STANDARD_PALLET_STORAGE", category: "Storage", name: "Climate controlled pallet storage (standard size)", unitLabel: "per pallet per month", defaultRate: 0 },
     { code: "CLIMATE_OVERSIZED_PALLET_STORAGE", category: "Storage", name: "Climate controlled pallet storage (oversized)", unitLabel: "per pallet per month", defaultRate: 0 },
     { code: "FLOOR_STORAGE", category: "Storage", name: "Floor storage", unitLabel: "per floor position per month", defaultRate: 0 },
@@ -7381,6 +7383,11 @@ async function initializeDatabase() {
             shipped_carrier_name text not null default '',
             shipped_tracking_reference text not null default '',
             shipped_confirmation_note text not null default '',
+            outbound_total_pallets integer not null default 0,
+            outbound_existing_pallets integer not null default 0,
+            outbound_new_pallets integer not null default 0,
+            outbound_mixed_pallets integer not null default 0,
+            outbound_pallet_note text not null default '',
             released_at timestamptz,
             pick_ticket_email_status text not null default '',
             pick_ticket_email_scheduled_at timestamptz,
@@ -7426,6 +7433,15 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists shipped_carrier_name text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_tracking_reference text not null default ''");
     await pool.query("alter table portal_orders add column if not exists shipped_confirmation_note text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists outbound_total_pallets integer not null default 0");
+    await pool.query("alter table portal_orders add column if not exists outbound_existing_pallets integer not null default 0");
+    await pool.query("alter table portal_orders add column if not exists outbound_new_pallets integer not null default 0");
+    await pool.query("alter table portal_orders add column if not exists outbound_mixed_pallets integer not null default 0");
+    await pool.query("alter table portal_orders add column if not exists outbound_pallet_note text not null default ''");
+    await pool.query("update portal_orders set outbound_total_pallets = 0 where outbound_total_pallets is null or outbound_total_pallets < 0");
+    await pool.query("update portal_orders set outbound_existing_pallets = 0 where outbound_existing_pallets is null or outbound_existing_pallets < 0");
+    await pool.query("update portal_orders set outbound_new_pallets = 0 where outbound_new_pallets is null or outbound_new_pallets < 0");
+    await pool.query("update portal_orders set outbound_mixed_pallets = 0 where outbound_mixed_pallets is null or outbound_mixed_pallets < 0");
     await pool.query("alter table portal_orders add column if not exists ship_to_phone text not null default ''");
     await pool.query("alter table portal_orders add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
     await pool.query("alter table portal_orders add column if not exists pick_ticket_email_status text not null default ''");
@@ -7904,8 +7920,54 @@ async function initializeDatabase() {
             description text not null default '',
             cases_on_pallet integer not null check (cases_on_pallet > 0),
             expected_quantity integer not null default 0 check (expected_quantity >= 0),
+            pallet_type text not null default 'SINGLE_SKU',
+            pallet_status text not null default 'PLANNED',
+            is_mixed boolean not null default false,
+            billable boolean not null default false,
+            pallet_size_type text not null default 'STANDARD_40_48_55',
+            pallet_length_inches numeric(10,2) not null default 40,
+            pallet_width_inches numeric(10,2) not null default 48,
+            pallet_height_inches numeric(10,2) not null default 55,
+            pallet_size_note text not null default '',
+            actual_quantity integer,
+            confirmed_by text not null default '',
+            confirmed_at timestamptz,
+            notes text not null default '',
             label_date date not null default current_date,
             created_by text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_type text not null default 'SINGLE_SKU'");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_status text not null default 'PLANNED'");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists is_mixed boolean not null default false");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists billable boolean not null default false");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_size_type text not null default 'STANDARD_40_48_55'");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_length_inches numeric(10,2) not null default 40");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_width_inches numeric(10,2) not null default 48");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_height_inches numeric(10,2) not null default 55");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists pallet_size_note text not null default ''");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists actual_quantity integer");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists confirmed_by text not null default ''");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists confirmed_at timestamptz");
+    await pool.query("alter table portal_inbound_pallet_labels add column if not exists notes text not null default ''");
+    await pool.query("update portal_inbound_pallet_labels set pallet_type = case when is_mixed then 'MIXED' else 'SINGLE_SKU' end where pallet_type is null or pallet_type = ''");
+    await pool.query("update portal_inbound_pallet_labels set pallet_status = 'PLANNED' where pallet_status is null or pallet_status = ''");
+    await pool.query("update portal_inbound_pallet_labels set pallet_size_type = 'STANDARD_40_48_55' where pallet_size_type is null or pallet_size_type = ''");
+    await pool.query("update portal_inbound_pallet_labels set pallet_length_inches = 40 where pallet_length_inches is null or pallet_length_inches <= 0");
+    await pool.query("update portal_inbound_pallet_labels set pallet_width_inches = 48 where pallet_width_inches is null or pallet_width_inches <= 0");
+    await pool.query("update portal_inbound_pallet_labels set pallet_height_inches = case when pallet_size_type = 'OVERSIZE_40_48_85' then 85 else 55 end where pallet_height_inches is null or pallet_height_inches <= 0");
+    await pool.query(`
+        create table if not exists portal_inbound_pallet_label_contents (
+            id bigserial primary key,
+            pallet_label_id bigint not null references portal_inbound_pallet_labels(id) on delete cascade,
+            inbound_id bigint not null references portal_inbounds(id) on delete cascade,
+            line_id bigint references portal_inbound_lines(id) on delete set null,
+            sku text not null,
+            quantity integer not null check (quantity > 0),
+            lot_number text not null default '',
+            expiration_date date,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         );
@@ -8243,7 +8305,11 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_inbound_documents_inbound_id on portal_inbound_documents (inbound_id);");
     await pool.query("create index if not exists idx_portal_inbound_pallet_labels_inbound_id on portal_inbound_pallet_labels (inbound_id);");
     await pool.query("create index if not exists idx_portal_inbound_pallet_labels_account_sku on portal_inbound_pallet_labels (account_name, sku);");
+    await pool.query("create index if not exists idx_portal_inbound_pallet_labels_status on portal_inbound_pallet_labels (pallet_status, pallet_type);");
+    await pool.query("create index if not exists idx_portal_inbound_pallet_labels_size_type on portal_inbound_pallet_labels (pallet_size_type);");
     await pool.query("create unique index if not exists idx_portal_inbound_pallet_labels_code_unique on portal_inbound_pallet_labels (pallet_code);");
+    await pool.query("create index if not exists idx_portal_inbound_pallet_label_contents_label_id on portal_inbound_pallet_label_contents (pallet_label_id);");
+    await pool.query("create index if not exists idx_portal_inbound_pallet_label_contents_inbound_id on portal_inbound_pallet_label_contents (inbound_id);");
     await pool.query("create unique index if not exists idx_portal_delivery_appointments_code_unique on portal_delivery_appointments (appointment_code);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_account_name on portal_delivery_appointments (account_name);");
     await pool.query("create index if not exists idx_portal_delivery_appointments_inbound_id on portal_delivery_appointments (inbound_id);");
@@ -10035,6 +10101,16 @@ async function createPortalOrderBillingEvents(client, order) {
 
     if (palletQuantity > 0) {
         await pushCreated("PALLET_PICK_FEE", palletQuantity, "B2B_PALLET");
+    }
+
+    const outboundPallets = order.outboundPallets || {};
+    const newPalletsUsed = Number(outboundPallets.newPalletsUsed ?? order.outbound_new_pallets) || 0;
+    const mixedPalletsBuilt = Number(outboundPallets.mixedPalletsBuilt ?? order.outbound_mixed_pallets) || 0;
+    if (newPalletsUsed > 0) {
+        await pushCreated("STANDARD_PALLET_SUPPLY", newPalletsUsed, "OUTBOUND_NEW_PALLETS");
+    }
+    if (mixedPalletsBuilt > 0) {
+        await pushCreated("MIXED_SKU_PALLET_BUILD", mixedPalletsBuilt, "OUTBOUND_MIXED_PALLETS");
     }
 
     return created;
@@ -13923,12 +13999,27 @@ async function getPortalInboundById(client, inboundId, downloadPathPrefix = "/ap
         `,
         [inboundId]
     );
+    const palletLabelIds = palletLabelsResult.rows.map((row) => Number(row.id)).filter(Boolean);
+    const palletLabelContentsResult = palletLabelIds.length
+        ? await client.query(
+            `
+                select
+                    plc.*,
+                    l.line_number
+                from portal_inbound_pallet_label_contents plc
+                left join portal_inbound_lines l on l.id = plc.line_id
+                where plc.pallet_label_id = any($1::bigint[])
+                order by plc.pallet_label_id asc, plc.id asc
+            `,
+            [palletLabelIds]
+        )
+        : { rows: [] };
     return mapPortalInboundRow(
         inboundRow,
         linesResult.rows.map(mapPortalInboundLineRow),
         documentsResult.rows,
         downloadPathPrefix,
-        palletLabelsResult.rows
+        attachPortalInboundPalletLabelContents(palletLabelsResult.rows, palletLabelContentsResult.rows)
     );
 }
 
@@ -14836,7 +14927,28 @@ async function getAdminPortalInbounds(client = pool) {
             [inboundIds]
         )
         : { rows: [] };
-    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-inbound-documents", palletLabelsResult.rows);
+    const palletLabelIds = palletLabelsResult.rows.map((row) => Number(row.id)).filter(Boolean);
+    const palletLabelContentsResult = palletLabelIds.length
+        ? await client.query(
+            `
+                select
+                    plc.*,
+                    l.line_number
+                from portal_inbound_pallet_label_contents plc
+                left join portal_inbound_lines l on l.id = plc.line_id
+                where plc.pallet_label_id = any($1::bigint[])
+                order by plc.pallet_label_id asc, plc.id asc
+            `,
+            [palletLabelIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(
+        inboundResult.rows,
+        linesResult.rows,
+        documentsResult.rows,
+        "/api/admin/portal-inbound-documents",
+        attachPortalInboundPalletLabelContents(palletLabelsResult.rows, palletLabelContentsResult.rows)
+    );
 }
 
 
@@ -22866,11 +22978,13 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
     const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
+    const outboundPallets = sanitizePortalOutboundPalletInput(confirmation.outboundPallets, shipmentMethod);
     const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
     const shipmentQuantityWarnings = buildPortalShipmentQuantityWarnings(shipmentLineConfirmations);
     if (transitionToShipped) {
         assertPortalShipmentCloseoutReviewConfirmed(confirmation);
         assertPortalShipmentProofRequirements(confirmation, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
+        assertPortalOutboundPalletCounts(outboundPallets, { shipmentMethod });
     }
     const shippingConfirmationUnchanged = !confirmation.documents.length
         && !shipmentLineConfirmations.length
@@ -22878,7 +22992,8 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
         && shipmentMethod === (order.shipmentMethod || "LTL_FREIGHT")
         && shippedCarrierName === (order.shippedCarrierName || "")
         && shippedTrackingReference === (order.shippedTrackingReference || "")
-        && shippedConfirmationNote === (order.shippedConfirmationNote || "");
+        && shippedConfirmationNote === (order.shippedConfirmationNote || "")
+        && outboundPalletInputMatchesOrder(outboundPallets, order);
 
     await assertIntegratedStoreShipmentRequirements(client, order, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
     if (transitionToShipped || !shippingConfirmationUnchanged) {
@@ -22914,13 +23029,18 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
                 shipped_carrier_name = $5,
                 shipped_tracking_reference = $6,
                 shipped_confirmation_note = $7,
-                shipped_at = case when $8::boolean then coalesce(shipped_at, now()) else shipped_at end,
+                outbound_total_pallets = $8,
+                outbound_existing_pallets = $9,
+                outbound_new_pallets = $10,
+                outbound_mixed_pallets = $11,
+                outbound_pallet_note = $12,
+                shipped_at = case when $13::boolean then coalesce(shipped_at, now()) else shipped_at end,
                 shipment_email_status = 'SCHEDULED',
                 shipment_email_scheduled_at = now(),
                 shipment_email_sent_at = null,
                 shipment_email_last_error = '',
                 shipment_email_attempts = 0,
-                shipment_email_is_update = not $8::boolean,
+                shipment_email_is_update = not $13::boolean,
                 updated_at = now()
             where id = $1
         `,
@@ -22932,6 +23052,11 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             shippedCarrierName,
             shippedTrackingReference,
             shippedConfirmationNote,
+            outboundPallets.totalPalletsOut,
+            outboundPallets.existingPalletsOut,
+            outboundPallets.newPalletsUsed,
+            outboundPallets.mixedPalletsBuilt,
+            outboundPallets.palletNote,
             transitionToShipped
         ]
     );
@@ -22956,6 +23081,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             `Method ${shipmentMethodLabel(updatedOrder.shipmentMethod)}`,
             shippedCarrierName ? `Carrier ${shippedCarrierName}` : "",
             shippedTrackingReference ? `Tracking ${shippedTrackingReference}` : "",
+            shipmentMethodUsesPalletTracking(updatedOrder.shipmentMethod) ? `Pallets out ${updatedOrder.outboundPallets.totalPalletsOut} | Existing ${updatedOrder.outboundPallets.existingPalletsOut} | New ${updatedOrder.outboundPallets.newPalletsUsed} | Mixed ${updatedOrder.outboundPallets.mixedPalletsBuilt}` : "",
             shipmentQuantityWarnings.length ? `Shipment qty warning: ${shipmentQuantityWarnings.map((warning) => `${warning.sku} ${warning.shippedQuantity}/${warning.orderedQuantity}`).join(", ")}` : "",
             shortageInvestigationResult.moves.length ? `Investigation hold moved ${shortageInvestigationResult.moves.map((move) => `${move.sku} ${move.quantity}`).join(", ")}` : "",
             shortageInvestigationResult.skipped.length ? `Investigation hold skipped ${shortageInvestigationResult.skipped.length}` : "",
@@ -23491,6 +23617,53 @@ function shipmentMethodRequiresFreightProof(value) {
     const normalized = normalizePortalShipmentMethod(value);
     return normalized === PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT
         || normalized === PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT;
+}
+
+function shipmentMethodUsesPalletTracking(value) {
+    return normalizePortalShipmentMethod(value) !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
+}
+
+function sanitizePortalOutboundPalletInput(payload = {}, shipmentMethod = "LTL_FREIGHT") {
+    const normalizedMethod = normalizePortalShipmentMethod(shipmentMethod);
+    if (!shipmentMethodUsesPalletTracking(normalizedMethod)) {
+        return {
+            totalPalletsOut: 0,
+            existingPalletsOut: 0,
+            newPalletsUsed: 0,
+            mixedPalletsBuilt: 0,
+            palletNote: ""
+        };
+    }
+    const source = payload?.outboundPallets || payload?.outbound_pallets || payload || {};
+    return {
+        totalPalletsOut: toNonNegativeInt(source.totalPalletsOut ?? source.total_pallets_out ?? source.totalPallets ?? source.total_pallets ?? source.outboundTotalPallets ?? source.outbound_total_pallets) || 0,
+        existingPalletsOut: toNonNegativeInt(source.existingPalletsOut ?? source.existing_pallets_out ?? source.existingPallets ?? source.existing_pallets ?? source.outboundExistingPallets ?? source.outbound_existing_pallets) || 0,
+        newPalletsUsed: toNonNegativeInt(source.newPalletsUsed ?? source.new_pallets_used ?? source.newPallets ?? source.new_pallets ?? source.outboundNewPallets ?? source.outbound_new_pallets) || 0,
+        mixedPalletsBuilt: toNonNegativeInt(source.mixedPalletsBuilt ?? source.mixed_pallets_built ?? source.mixedPallets ?? source.mixed_pallets ?? source.outboundMixedPallets ?? source.outbound_mixed_pallets) || 0,
+        palletNote: normalizeFreeText(source.palletNote || source.pallet_note || source.outboundPalletNote || source.outbound_pallet_note || "")
+    };
+}
+
+function outboundPalletInputMatchesOrder(outboundPallets = {}, order = {}) {
+    const current = sanitizePortalOutboundPalletInput(order.outboundPallets || order, order.shipmentMethod || order.shipment_method || "LTL_FREIGHT");
+    return outboundPallets.totalPalletsOut === current.totalPalletsOut
+        && outboundPallets.existingPalletsOut === current.existingPalletsOut
+        && outboundPallets.newPalletsUsed === current.newPalletsUsed
+        && outboundPallets.mixedPalletsBuilt === current.mixedPalletsBuilt
+        && outboundPallets.palletNote === current.palletNote;
+}
+
+function assertPortalOutboundPalletCounts(outboundPallets, { shipmentMethod = "LTL_FREIGHT" } = {}) {
+    if (!shipmentMethodUsesPalletTracking(shipmentMethod)) return;
+    if (!outboundPallets || outboundPallets.totalPalletsOut <= 0) {
+        throw httpError(400, "Enter total pallets out before marking a non-parcel order shipped.");
+    }
+    if ((outboundPallets.existingPalletsOut + outboundPallets.newPalletsUsed) !== outboundPallets.totalPalletsOut) {
+        throw httpError(400, "Existing pallets plus new pallets must equal total pallets out.");
+    }
+    if (outboundPallets.mixedPalletsBuilt > outboundPallets.totalPalletsOut) {
+        throw httpError(400, "Mixed pallets cannot be greater than total pallets out.");
+    }
 }
 
 function portalOrderRequiresRushApproval(order = {}, now = new Date()) {
@@ -25109,7 +25282,28 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
             [inboundIds]
         )
         : { rows: [] };
-    return mapPortalInbounds(inboundResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/inbound-documents", palletLabelsResult.rows);
+    const palletLabelIds = palletLabelsResult.rows.map((row) => Number(row.id)).filter(Boolean);
+    const palletLabelContentsResult = palletLabelIds.length
+        ? await client.query(
+            `
+                select
+                    plc.*,
+                    l.line_number
+                from portal_inbound_pallet_label_contents plc
+                left join portal_inbound_lines l on l.id = plc.line_id
+                where plc.pallet_label_id = any($1::bigint[])
+                order by plc.pallet_label_id asc, plc.id asc
+            `,
+            [palletLabelIds]
+        )
+        : { rows: [] };
+    return mapPortalInbounds(
+        inboundResult.rows,
+        linesResult.rows,
+        documentsResult.rows,
+        "/api/portal/inbound-documents",
+        attachPortalInboundPalletLabelContents(palletLabelsResult.rows, palletLabelContentsResult.rows)
+    );
 }
 
 async function savePortalInboundForAccount(
@@ -25257,16 +25451,123 @@ async function savePortalInboundDocuments(client, accessRow, inboundId, rawPaylo
     });
 }
 
+function normalizePortalInboundPalletType(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (["MIXED", "MIXED_SKU", "MIXED_PALLET"].includes(normalized)) return "MIXED";
+    return "SINGLE_SKU";
+}
+
+const PORTAL_PALLET_SIZE_TYPES = Object.freeze({
+    STANDARD_40_48_55: "STANDARD_40_48_55",
+    OVERSIZE_40_48_85: "OVERSIZE_40_48_85",
+    NON_STANDARD: "NON_STANDARD"
+});
+
+function normalizePortalPalletSizeType(value) {
+    const normalized = normalizeText(value || "").replace(/[\s-]+/g, "_");
+    if (["OVERSIZE", "OVERSIZED", "OVERSIZE_40_48_85", "OVERSIZED_40_48_85", "40X48X85", "40_48_85"].includes(normalized)) {
+        return PORTAL_PALLET_SIZE_TYPES.OVERSIZE_40_48_85;
+    }
+    if (["NON_STANDARD", "NONSTANDARD", "CUSTOM", "OTHER", "SPECIAL"].includes(normalized)) {
+        return PORTAL_PALLET_SIZE_TYPES.NON_STANDARD;
+    }
+    return PORTAL_PALLET_SIZE_TYPES.STANDARD_40_48_55;
+}
+
+function portalPalletSizeDefaults(sizeType) {
+    const normalized = normalizePortalPalletSizeType(sizeType);
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.OVERSIZE_40_48_85) {
+        return { length: 40, width: 48, height: 85 };
+    }
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.NON_STANDARD) {
+        return { length: 0, width: 0, height: 0 };
+    }
+    return { length: 40, width: 48, height: 55 };
+}
+
+function portalPalletSizeLabel(sizeType) {
+    const normalized = normalizePortalPalletSizeType(sizeType);
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.OVERSIZE_40_48_85) return "Oversize 40 x 48 x 85";
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.NON_STANDARD) return "Non-standard";
+    return "Standard 40 x 48 x 55";
+}
+
+function portalPalletSizeBillingCode(sizeType) {
+    const normalized = normalizePortalPalletSizeType(sizeType);
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.OVERSIZE_40_48_85) return "OVERSIZED_PALLET_STORAGE";
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.NON_STANDARD) return "NON_STANDARD_PALLET_STORAGE";
+    return "STANDARD_PALLET_STORAGE";
+}
+
+function parsePortalPalletDimensionsFromNote(note = "") {
+    const match = String(note || "").match(/(\d+(?:\.\d+)?)\s*(?:x|by)\s*(\d+(?:\.\d+)?)\s*(?:x|by)\s*(\d+(?:\.\d+)?)/i);
+    if (!match) return null;
+    const values = match.slice(1).map((value) => Number.parseFloat(value));
+    return values.every((value) => Number.isFinite(value) && value > 0)
+        ? { length: values[0], width: values[1], height: values[2] }
+        : null;
+}
+
+function sanitizePortalPalletSizeInput(input = {}) {
+    const sizeType = normalizePortalPalletSizeType(
+        input?.palletSizeType
+        || input?.pallet_size_type
+        || input?.sizeType
+        || input?.size_type
+        || input?.palletSize
+        || input?.pallet_size
+    );
+    const sizeNote = normalizeFreeText(input?.palletSizeNote || input?.pallet_size_note || input?.sizeNote || input?.size_note || input?.dimensions || input?.dimensionNote || "");
+    if (sizeType === PORTAL_PALLET_SIZE_TYPES.NON_STANDARD && !sizeNote) {
+        throw httpError(400, "Enter pallet dimensions or a note when selecting non-standard pallet size.");
+    }
+    const defaults = portalPalletSizeDefaults(sizeType);
+    const parsed = parsePortalPalletDimensionsFromNote(sizeNote) || {};
+    return {
+        palletSizeType: sizeType,
+        palletLengthInches: Number(input?.palletLengthInches || input?.pallet_length_inches || input?.lengthInches || parsed.length || defaults.length) || 0,
+        palletWidthInches: Number(input?.palletWidthInches || input?.pallet_width_inches || input?.widthInches || parsed.width || defaults.width) || 0,
+        palletHeightInches: Number(input?.palletHeightInches || input?.pallet_height_inches || input?.heightInches || parsed.height || defaults.height) || 0,
+        palletSizeNote: sizeNote
+    };
+}
+
+function sanitizePortalInboundPalletLabelContentInputs(contents = []) {
+    if (!Array.isArray(contents)) return [];
+    return contents.map((item) => {
+        const lineId = toPositiveInt(item?.lineId || item?.line_id || item?.inboundLineId || item?.inbound_line_id);
+        const sku = normalizeText(item?.sku);
+        const quantity = toPositiveInt(item?.quantity ?? item?.cases ?? item?.casesOnPallet ?? item?.caseQuantity ?? item?.qty);
+        const lotNumber = normalizeText(item?.lotNumber || item?.lot_number || item?.lot || "");
+        const expirationDate = normalizeDateInput(item?.expirationDate || item?.expiration_date || item?.expiryDate || item?.expiry_date || "");
+        if (!lineId && !sku && !quantity) return null;
+        return { lineId, sku, quantity, lotNumber, expirationDate };
+    }).filter((item) => item && (item.lineId || item.sku) && item.quantity > 0);
+}
+
 function sanitizePortalInboundPalletLabelInputs(rawPayload) {
     const rawLabels = Array.isArray(rawPayload?.labels)
         ? rawPayload.labels
         : (Array.isArray(rawPayload?.palletLabels) ? rawPayload.palletLabels : [rawPayload]);
     return rawLabels.map((item) => {
+        const palletType = normalizePortalInboundPalletType(
+            item?.palletType
+            || item?.pallet_type
+            || (item?.isMixed === true || item?.is_mixed === true ? "MIXED" : "SINGLE_SKU")
+        );
+        const palletCount = Math.min(toPositiveInt(item?.palletCount ?? item?.pallet_count ?? item?.count ?? item?.labels) || 1, 100);
+        const palletSize = sanitizePortalPalletSizeInput(item);
+        if (palletType === "MIXED") {
+            const contents = sanitizePortalInboundPalletLabelContentInputs(item?.contents || item?.lines || item?.items || []);
+            const cases = contents.reduce((sum, content) => sum + (Number(content.quantity) || 0), 0);
+            return { palletType, lineId: null, sku: "MIXED", cases, palletCount, contents, ...palletSize };
+        }
         const lineId = toPositiveInt(item?.lineId || item?.line_id || item?.inboundLineId || item?.inbound_line_id);
         const sku = normalizeText(item?.sku);
         const cases = toPositiveInt(item?.casesOnPallet ?? item?.cases_on_pallet ?? item?.cases ?? item?.caseQuantity ?? item?.quantity);
-        const palletCount = Math.min(toPositiveInt(item?.palletCount ?? item?.pallet_count ?? item?.count ?? item?.labels) || 1, 100);
-        return { lineId, sku, cases, palletCount };
+        const lotNumber = normalizeText(item?.lotNumber || item?.lot_number || item?.lot || "");
+        const expirationDate = normalizeDateInput(item?.expirationDate || item?.expiration_date || item?.expiryDate || item?.expiry_date || "");
+        return { palletType, lineId, sku, cases, palletCount, lotNumber, expirationDate, contents: [], ...palletSize };
     }).filter((item) => (item.lineId || item.sku) && item.cases > 0 && item.palletCount > 0);
 }
 
@@ -25285,6 +25586,28 @@ async function derivePortalInboundPalletLabelDetails(client, inbound, line, case
         description: master?.description || line.description || "",
         expectedQuantity
     };
+}
+
+async function insertPortalInboundPalletLabelContents(client, palletLabelId, inboundId, contents = []) {
+    for (const content of contents) {
+        await client.query(
+            `
+                insert into portal_inbound_pallet_label_contents (
+                    pallet_label_id, inbound_id, line_id, sku, quantity, lot_number, expiration_date
+                )
+                values ($1, $2, $3, $4, $5, $6, nullif($7, '')::date)
+            `,
+            [
+                palletLabelId,
+                inboundId,
+                Number(content.lineId) || null,
+                content.sku,
+                Number(content.quantity) || 0,
+                content.lotNumber || "",
+                normalizeDateInput(content.expirationDate || "")
+            ]
+        );
+    }
 }
 
 async function savePortalInboundPalletLabelsForAccount(
@@ -25323,8 +25646,64 @@ async function savePortalInboundPalletLabelsForAccount(
         const skuKey = normalizeText(line.sku);
         if (skuKey && !linesBySku.has(skuKey)) linesBySku.set(skuKey, line);
     });
+    const resolvePalletContentLine = (content) => {
+        const line = content.lineId
+            ? linesById.get(String(content.lineId))
+            : linesBySku.get(content.sku);
+        if (!line) {
+            throw httpError(400, "Every pallet content SKU must be tied to a SKU on this purchase order.");
+        }
+        if (content.sku && normalizeText(line.sku) !== content.sku) {
+            throw httpError(400, "A pallet content SKU does not match the selected purchase order line.");
+        }
+        return {
+            lineId: Number(line.id) || null,
+            sku: line.sku,
+            quantity: Number(content.quantity) || 0,
+            lotNumber: content.lotNumber || line.lotNumber || "",
+            expirationDate: content.expirationDate || line.expirationDate || ""
+        };
+    };
 
     for (const labelInput of labelInputs) {
+        if (labelInput.palletType === "MIXED") {
+            const contents = labelInput.contents.map(resolvePalletContentLine);
+            const distinctSkus = new Set(contents.map((content) => normalizeText(content.sku)).filter(Boolean));
+            if (distinctSkus.size < 2) {
+                throw httpError(400, "Mixed pallet labels must include at least two different SKUs.");
+            }
+            const totalCases = contents.reduce((sum, content) => sum + (Number(content.quantity) || 0), 0);
+            for (let index = 0; index < labelInput.palletCount; index += 1) {
+                const palletCode = await generatePalletCode(client);
+                const insertResult = await client.query(
+                    `
+                        insert into portal_inbound_pallet_labels (
+                            inbound_id, line_id, pallet_code, account_name, sku, upc, description,
+                            cases_on_pallet, expected_quantity, pallet_type, pallet_status, is_mixed,
+                            pallet_size_type, pallet_length_inches, pallet_width_inches, pallet_height_inches, pallet_size_note,
+                            label_date, created_by
+                        )
+                        values ($1, null, $2, $3, 'MIXED', '', 'Mixed pallet', $4, $4, 'MIXED', 'PLANNED', true, $5, $6, $7, $8, $9, current_date, $10)
+                        returning id
+                    `,
+                    [
+                        inbound.id,
+                        palletCode,
+                        inbound.accountName,
+                        totalCases,
+                        labelInput.palletSizeType,
+                        labelInput.palletLengthInches,
+                        labelInput.palletWidthInches,
+                        labelInput.palletHeightInches,
+                        labelInput.palletSizeNote,
+                        createdBy || activityActor || ""
+                    ]
+                );
+                await insertPortalInboundPalletLabelContents(client, insertResult.rows[0].id, inbound.id, contents);
+            }
+            continue;
+        }
+
         const line = labelInput.lineId
             ? linesById.get(String(labelInput.lineId))
             : linesBySku.get(labelInput.sku);
@@ -25337,13 +25716,16 @@ async function savePortalInboundPalletLabelsForAccount(
         const details = await derivePortalInboundPalletLabelDetails(client, inbound, line, labelInput.cases);
         for (let index = 0; index < labelInput.palletCount; index += 1) {
             const palletCode = await generatePalletCode(client);
-            await client.query(
+            const insertResult = await client.query(
                 `
                     insert into portal_inbound_pallet_labels (
                         inbound_id, line_id, pallet_code, account_name, sku, upc, description,
-                        cases_on_pallet, expected_quantity, label_date, created_by
+                        cases_on_pallet, expected_quantity, pallet_type, pallet_status, is_mixed,
+                        pallet_size_type, pallet_length_inches, pallet_width_inches, pallet_height_inches, pallet_size_note,
+                        label_date, created_by
                     )
-                    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, current_date, $10)
+                    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'SINGLE_SKU', 'PLANNED', false, $10, $11, $12, $13, $14, current_date, $15)
+                    returning id
                 `,
                 [
                     inbound.id,
@@ -25355,9 +25737,21 @@ async function savePortalInboundPalletLabelsForAccount(
                     details.description,
                     labelInput.cases,
                     details.expectedQuantity,
+                    labelInput.palletSizeType,
+                    labelInput.palletLengthInches,
+                    labelInput.palletWidthInches,
+                    labelInput.palletHeightInches,
+                    labelInput.palletSizeNote,
                     createdBy || activityActor || ""
                 ]
             );
+            await insertPortalInboundPalletLabelContents(client, insertResult.rows[0].id, inbound.id, [{
+                lineId: Number(line.id) || null,
+                sku: line.sku,
+                quantity: labelInput.cases,
+                lotNumber: labelInput.lotNumber || line.lotNumber || "",
+                expirationDate: labelInput.expirationDate || line.expirationDate || ""
+            }]);
         }
     }
 
@@ -31513,6 +31907,13 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         shippedCarrierName: row.shipped_carrier_name || "",
         shippedTrackingReference: row.shipped_tracking_reference || "",
         shippedConfirmationNote: row.shipped_confirmation_note || "",
+        outboundPallets: {
+            totalPalletsOut: Number(row.outbound_total_pallets) || 0,
+            existingPalletsOut: Number(row.outbound_existing_pallets) || 0,
+            newPalletsUsed: Number(row.outbound_new_pallets) || 0,
+            mixedPalletsBuilt: Number(row.outbound_mixed_pallets) || 0,
+            palletNote: row.outbound_pallet_note || ""
+        },
         releasedAt: row.released_at ? new Date(row.released_at).toISOString() : null,
         pickTicketEmailStatus: row.pick_ticket_email_status || "",
         pickTicketEmailScheduledAt: row.pick_ticket_email_scheduled_at ? new Date(row.pick_ticket_email_scheduled_at).toISOString() : null,
@@ -31759,7 +32160,41 @@ function mapPortalInboundDocumentRow(row, downloadPathPrefix = "/api/admin/porta
     };
 }
 
+function mapPortalInboundPalletContentRow(row) {
+    return {
+        id: String(row.id),
+        palletLabelId: String(row.pallet_label_id),
+        inboundId: String(row.inbound_id),
+        lineId: row.line_id ? String(row.line_id) : "",
+        lineNumber: Number(row.line_number) || 0,
+        sku: row.sku || "",
+        quantity: Number(row.quantity) || 0,
+        lotNumber: row.lot_number || "",
+        expirationDate: normalizeDateOnly(row.expiration_date),
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+    };
+}
+
+function attachPortalInboundPalletLabelContents(labelRows = [], contentRows = []) {
+    const contentsByLabelId = new Map();
+    for (const row of contentRows || []) {
+        const key = String(row.pallet_label_id || "");
+        if (!key) continue;
+        if (!contentsByLabelId.has(key)) contentsByLabelId.set(key, []);
+        contentsByLabelId.get(key).push(row);
+    }
+    return (labelRows || []).map((row) => ({
+        ...row,
+        contents: contentsByLabelId.get(String(row.id)) || []
+    }));
+}
+
 function mapPortalInboundPalletLabelRow(row) {
+    const contents = Array.isArray(row.contents)
+        ? row.contents.map(mapPortalInboundPalletContentRow).filter((item) => item.sku && item.quantity > 0)
+        : [];
+    const palletType = normalizeText(row.pallet_type || (row.is_mixed ? "MIXED" : "SINGLE_SKU")) || "SINGLE_SKU";
     return {
         id: String(row.id),
         inboundId: String(row.inbound_id),
@@ -31774,6 +32209,22 @@ function mapPortalInboundPalletLabelRow(row) {
         description: row.description || "",
         cases: Number(row.cases_on_pallet) || 0,
         expectedQuantity: Number(row.expected_quantity) || 0,
+        palletType,
+        palletStatus: normalizeText(row.pallet_status || "PLANNED") || "PLANNED",
+        isMixed: row.is_mixed === true || palletType === "MIXED",
+        billable: row.billable === true,
+        palletSizeType: normalizePortalPalletSizeType(row.pallet_size_type || ""),
+        palletSizeLabel: portalPalletSizeLabel(row.pallet_size_type || ""),
+        palletSizeBillingCode: portalPalletSizeBillingCode(row.pallet_size_type || ""),
+        palletLengthInches: Number(row.pallet_length_inches) || 0,
+        palletWidthInches: Number(row.pallet_width_inches) || 0,
+        palletHeightInches: Number(row.pallet_height_inches) || 0,
+        palletSizeNote: row.pallet_size_note || "",
+        actualQuantity: row.actual_quantity === null || row.actual_quantity === undefined ? null : Number(row.actual_quantity) || 0,
+        confirmedBy: row.confirmed_by || "",
+        confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).toISOString() : null,
+        notes: row.notes || "",
+        contents,
         labelDate: normalizeDateOnly(row.label_date),
         fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
         fulfillmentLocationCode: row.fulfillment_location_code || "",
@@ -31786,6 +32237,15 @@ function mapPortalInboundPalletLabelRow(row) {
 }
 
 function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix = "/api/admin/portal-inbound-documents", palletLabels = []) {
+    const mappedPalletLabels = palletLabels.map(mapPortalInboundPalletLabelRow);
+    const expectedLineQuantity = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+    const plannedPalletQuantity = mappedPalletLabels.reduce((sum, label) => sum + (Number(label.expectedQuantity) || 0), 0);
+    const mixedPlannedPallets = mappedPalletLabels.filter((label) => label.isMixed).length;
+    const palletSizeCounts = mappedPalletLabels.reduce((counts, label) => {
+        const key = normalizePortalPalletSizeType(label.palletSizeType);
+        counts[key] = (counts[key] || 0) + 1;
+        return counts;
+    }, {});
     return {
         id: Number(row.id),
         inboundCode: row.inbound_code || makePortalInboundCode(row.id),
@@ -31809,7 +32269,19 @@ function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
         lines,
         documents: documents.map((document) => mapPortalInboundDocumentRow(document, downloadPathPrefix)),
-        palletLabels: palletLabels.map(mapPortalInboundPalletLabelRow)
+        palletLabels: mappedPalletLabels,
+        palletSummary: {
+            totalPlannedPallets: mappedPalletLabels.length,
+            singleSkuPlannedPallets: mappedPalletLabels.length - mixedPlannedPallets,
+            mixedPlannedPallets,
+            standardPallets: palletSizeCounts[PORTAL_PALLET_SIZE_TYPES.STANDARD_40_48_55] || 0,
+            oversizePallets: palletSizeCounts[PORTAL_PALLET_SIZE_TYPES.OVERSIZE_40_48_85] || 0,
+            nonStandardPallets: palletSizeCounts[PORTAL_PALLET_SIZE_TYPES.NON_STANDARD] || 0,
+            plannedQuantity: plannedPalletQuantity,
+            expectedLineQuantity,
+            unassignedQuantity: Math.max(expectedLineQuantity - plannedPalletQuantity, 0),
+            billablePallets: mappedPalletLabels.filter((label) => label.billable).length
+        }
     };
 }
 
@@ -31931,6 +32403,7 @@ function sanitizePortalOrderInput(order, accountName) {
 }
 
 function sanitizePortalShippingConfirmationInput(payload) {
+    const shipmentMethod = normalizePortalShipmentMethod(payload?.shipmentMethod || payload?.shipment_method || payload?.shippingMethod || payload?.shipping_method);
     const packingSlipQuantityConfirmed = toBooleanFlag(
         payload?.packingSlipQuantityConfirmed
         ?? payload?.packing_slip_quantity_confirmed
@@ -31950,7 +32423,7 @@ function sanitizePortalShippingConfirmationInput(payload) {
     );
     return {
         confirmedShipDate: normalizeDateInput(payload?.confirmedShipDate || payload?.shipDate || payload?.actualShipDate),
-        shipmentMethod: normalizePortalShipmentMethod(payload?.shipmentMethod || payload?.shipment_method || payload?.shippingMethod || payload?.shipping_method),
+        shipmentMethod,
         shippedCarrierName: normalizeFreeText(payload?.shippedCarrierName || payload?.carrierName || payload?.carrier),
         shippedTrackingReference: normalizeFreeText(
             payload?.shippedTrackingReference
@@ -31962,6 +32435,7 @@ function sanitizePortalShippingConfirmationInput(payload) {
         shippedConfirmationNote: normalizeFreeText(payload?.shippedConfirmationNote || payload?.shippingNote || payload?.note),
         documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : []),
         shippedLines: sanitizePortalShippedLinesInput(Array.isArray(payload?.shippedLines) ? payload.shippedLines : []),
+        outboundPallets: sanitizePortalOutboundPalletInput(payload, shipmentMethod),
         packingSlipQuantityConfirmed,
         moveShortageToInvestigation
     };
@@ -34759,6 +35233,13 @@ module.exports = {
     mapPortalOrderPrintSummaryRows,
     recordPortalOrderPrintEvent,
     sanitizePortalShippingConfirmationInput,
+    sanitizePortalOutboundPalletInput,
+    assertPortalOutboundPalletCounts,
+    shipmentMethodUsesPalletTracking,
+    PORTAL_PALLET_SIZE_TYPES,
+    normalizePortalPalletSizeType,
+    sanitizePortalPalletSizeInput,
+    portalPalletSizeBillingCode,
     assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
     buildPortalOrderProcessingTiming,
