@@ -15,6 +15,7 @@ const {
     buildPortalOrderProcessingTiming,
     buildPortalOrderConfirmationEmailText,
     buildPortalOrderPickTicketLines,
+    buildPortalOrderStockWarnings,
     portalOrderRequiresRushApproval
 } = require("./server.js");
 
@@ -136,6 +137,40 @@ test("portal billing routes require billing permission", () => {
         [PORTAL_PERMISSION_KEYS.ADMIN]: false
     });
     assert.equal(portalSessionHasPermission(session, PORTAL_PERMISSION_KEYS.BILLING), false);
+});
+
+test("customer order drafts report shortages without treating unavailable stock as releasable", () => {
+    const warnings = buildPortalOrderStockWarnings([
+        { sku: "140", quantity: 124, availableQuantity: 0, trackingLevel: "CASE" },
+        { sku: "145", quantity: 2, availableQuantity: 0, trackingLevel: "CASE" },
+        { sku: "200", quantity: 3, availableQuantity: 5, trackingLevel: "CASE" }
+    ]);
+
+    assert.deepEqual(warnings.map((warning) => warning.sku), ["140", "145"]);
+    assert.equal(warnings[0].shortQuantity, 124);
+    assert.match(warnings[0].message, /save as draft is allowed/i);
+    assert.match(warnings[0].message, /release is blocked/i);
+});
+
+test("customer order draft shortage warning groups duplicate SKU lines", () => {
+    const warnings = buildPortalOrderStockWarnings([
+        { sku: "133", quantity: 4, availableQuantity: 5, trackingLevel: "CASE" },
+        { sku: "133", quantity: 3, availableQuantity: 5, trackingLevel: "CASE" }
+    ]);
+
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].requestedQuantity, 7);
+    assert.equal(warnings[0].availableQuantity, 5);
+    assert.equal(warnings[0].shortQuantity, 2);
+});
+
+test("released orders do not report their own allocations as stock shortages", () => {
+    const warnings = buildPortalOrderStockWarnings([
+        { sku: "20628693486143", quantity: 10, availableQuantity: 0, trackingLevel: "CASE" },
+        { sku: "20628693486167", quantity: 18, availableQuantity: 0, trackingLevel: "CASE" }
+    ], { status: "RELEASED" });
+
+    assert.deepEqual(warnings, []);
 });
 
 test("company billing hold payload disables portal actions and recovery", () => {

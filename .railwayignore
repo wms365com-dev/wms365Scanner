@@ -5,6 +5,12 @@ node_modules/
 .npm-cache/
 test-results/
 reports/
+outputs/
+tmp/
+backups/
 docs/
 android-app/
 bluehost-site/
+*.spec.js
+CODEX_TASKS.md
+debug.log

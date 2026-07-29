@@ -590,6 +590,64 @@
         .pill.info { background: rgba(8, 145, 178, 0.1); color: #0e7490; border-color: rgba(8, 145, 178, 0.22); }
         .pill.error { background: rgba(220, 38, 38, 0.1); color: #991b1b; border-color: rgba(220, 38, 38, 0.24); }
         .inventory-meta, .order-meta, .line-note { display: grid; gap: 0.35rem; margin-top: 0.6rem; color: var(--muted); font-size: 0.92rem; }
+        .line-note.stock-warning { color: #9b2c2c; font-weight: 700; }
+        .stock-warning-banner { margin-top: 0.75rem; padding: 0.75rem; border: 1px solid #e3a7a7; background: #fff4f4; color: #842626; border-radius: 6px; font-weight: 700; }
+        .order-item-picker {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(110px, 0.18fr) auto;
+            gap: 0.75rem;
+            align-items: end;
+            padding: 0.9rem;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel-2);
+        }
+        .order-item-picker .btn { min-height: 48px; }
+        .order-item-search-field { position: relative; }
+        .order-item-results {
+            position: absolute;
+            z-index: 20;
+            top: calc(100% + 0.35rem);
+            right: 0;
+            left: 0;
+            display: grid;
+            max-height: 320px;
+            overflow-y: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #ffffff;
+            box-shadow: 0 12px 30px rgba(17, 42, 66, 0.16);
+        }
+        .order-item-result {
+            display: grid;
+            gap: 0.2rem;
+            min-height: 58px;
+            padding: 0.7rem 0.8rem;
+            border: 0;
+            border-bottom: 1px solid var(--line);
+            background: #ffffff;
+            color: var(--ink);
+            text-align: left;
+            cursor: pointer;
+        }
+        .order-item-result:last-child { border-bottom: 0; }
+        .order-item-result:hover,
+        .order-item-result:focus,
+        .order-item-result.active {
+            outline: none;
+            background: #edf6fb;
+        }
+        .order-item-result strong { font-size: 0.95rem; }
+        .order-item-result span { color: var(--muted); font-size: 0.84rem; }
+        .order-item-result .out-of-stock { color: #9b2c2c; font-weight: 700; }
+        .order-lines-empty {
+            padding: 0.9rem;
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+            color: var(--muted);
+            text-align: center;
+        }
+        .order-item-picker-message { grid-column: 1 / -1; margin: 0; }
         .order-document-upload {
             display: grid;
             gap: 0.65rem;
@@ -908,7 +966,18 @@
             background: #f7fbff;
         }
         @media (max-width: 860px) {
-            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid, .inbound-pallet-label-form, .inbound-mixed-pallet-row { grid-template-columns: 1fr; }
+            .two-up, .stats, .detail-grid, .form-grid, .line-fields, .order-item-picker, .service-grid, .kitting-step-indicator, .kitting-component-row, .order-summary-grid, .portal-section-grid, .inbound-pallet-label-form, .inbound-mixed-pallet-row { grid-template-columns: 1fr; }
+            .order-item-picker {
+                position: relative;
+                align-items: stretch;
+            }
+            .order-item-results {
+                position: static;
+                max-height: 250px;
+                margin-top: 0.4rem;
+                box-shadow: none;
+            }
+            .order-item-picker .btn { width: 100%; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head, .portal-panel-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -1021,8 +1090,8 @@
                             <button class="btn" type="submit">Sign in</button>
                         </div>
                     </form>
-                    <div class="recovery-box">
-                        <p>Forgot your username or password? Enter the email tied to your WMS365 customer portal access. Recovery emails are only sent to active registered portal users.</p>
+                    <div class="recovery-box" id="portalRecoveryRequestBox">
+                        <p>Forgot your username or password? Enter the email tied to your WMS365 customer portal access. Password reset links expire after 30 minutes and can only be used once.</p>
                         <label class="field">
                             <span>Recovery Email</span>
                             <input id="portalRecoveryEmail" type="email" placeholder="name@company.com">
@@ -1032,6 +1101,24 @@
                             <button class="auth-link" id="portalForgotPasswordBtn" type="button">Forgot password</button>
                         </div>
                     </div>
+                    <form id="portalPasswordResetForm" class="recovery-box hidden" autocomplete="off">
+                        <div>
+                            <h3>Choose a New Password</h3>
+                            <p>Use at least 12 characters with an uppercase letter, lowercase letter, number, and symbol.</p>
+                        </div>
+                        <label class="field">
+                            <span>New Password</span>
+                            <input id="portalNewPassword" type="password" autocomplete="new-password" placeholder="Enter a strong new password">
+                        </label>
+                        <label class="field">
+                            <span>Confirm New Password</span>
+                            <input id="portalConfirmPassword" type="password" autocomplete="new-password" placeholder="Enter the new password again">
+                        </label>
+                        <div class="recovery-actions">
+                            <button class="btn" id="portalResetPasswordBtn" type="submit">Reset Password</button>
+                            <a class="auth-link" href="/portal.html">Cancel</a>
+                        </div>
+                    </form>
                     <div class="auth-links">
                         <a class="auth-link" href="https://app.wms365.co/">Warehouse Login</a>
                         <a class="auth-link" href="mailto:support@wms365.co">Support</a>
@@ -1408,9 +1495,22 @@
                     <div class="line-head">
                         <div class="header-copy">
                             <h3>Order Lines</h3>
-                            <p class="meta">Only SKUs currently in your inventory can be selected.</p>
+                            <p class="meta">Search by SKU, description, or UPC. Out-of-stock items can be added to a draft, but cannot be released.</p>
                         </div>
-                        <button class="btn ghost" id="addLineBtn" type="button">Add Line</button>
+                    </div>
+                    <div class="order-item-picker">
+                        <label class="field order-item-search-field">
+                            <span>Search and Add Item</span>
+                            <input id="orderItemSearch" type="search" autocomplete="off" aria-controls="orderItemResults" aria-expanded="false" placeholder="Search SKU, description, or UPC">
+                            <datalist id="orderItemOptions"></datalist>
+                            <div id="orderItemResults" class="order-item-results hidden" role="listbox"></div>
+                        </label>
+                        <label class="field">
+                            <span>Qty</span>
+                            <input id="orderItemQuantity" type="number" min="1" inputmode="numeric" value="1">
+                        </label>
+                        <button class="btn" id="addLineBtn" type="button">Add Item &amp; Next</button>
+                        <div class="status order-item-picker-message" id="orderItemPickerMessage"></div>
                     </div>
                     <div id="orderLines" class="line-items"></div>
                 </div>
@@ -1764,6 +1864,11 @@
             portalRecoveryEmail: document.getElementById("portalRecoveryEmail"),
             portalForgotUsernameBtn: document.getElementById("portalForgotUsernameBtn"),
             portalForgotPasswordBtn: document.getElementById("portalForgotPasswordBtn"),
+            portalRecoveryRequestBox: document.getElementById("portalRecoveryRequestBox"),
+            portalPasswordResetForm: document.getElementById("portalPasswordResetForm"),
+            portalNewPassword: document.getElementById("portalNewPassword"),
+            portalConfirmPassword: document.getElementById("portalConfirmPassword"),
+            portalResetPasswordBtn: document.getElementById("portalResetPasswordBtn"),
             navButtons: [...document.querySelectorAll("[data-view]")],
             openPortalFeedbackBtn: document.getElementById("openPortalFeedbackBtn"),
             logoutBtn: document.getElementById("logoutBtn"),
@@ -1872,6 +1977,11 @@
             orderDocumentFiles: document.getElementById("orderDocumentFiles"),
             orderPendingDocuments: document.getElementById("orderPendingDocuments"),
             orderFormDocuments: document.getElementById("orderFormDocuments"),
+            orderItemSearch: document.getElementById("orderItemSearch"),
+            orderItemQuantity: document.getElementById("orderItemQuantity"),
+            orderItemOptions: document.getElementById("orderItemOptions"),
+            orderItemResults: document.getElementById("orderItemResults"),
+            orderItemPickerMessage: document.getElementById("orderItemPickerMessage"),
             addLineBtn: document.getElementById("addLineBtn"),
             orderLines: document.getElementById("orderLines"),
             resetOrderBtn: document.getElementById("resetOrderBtn"),
@@ -2127,6 +2237,7 @@
             ui.loginForm.addEventListener("submit", onLoginSubmit);
             ui.portalForgotUsernameBtn?.addEventListener("click", () => runPortalRecovery("username"));
             ui.portalForgotPasswordBtn?.addEventListener("click", () => runPortalRecovery("password"));
+            ui.portalPasswordResetForm?.addEventListener("submit", completePortalPasswordReset);
             ui.inventoryFilter.addEventListener("input", renderInventory);
             ui.exportInventoryBtn.addEventListener("click", exportInventoryReport);
             ui.resetItemBtn.addEventListener("click", () => resetItemForm());
@@ -2151,7 +2262,20 @@
             ui.refreshKittingRequestsBtn?.addEventListener("click", () => refreshKittingRequests(false));
             ui.serviceViewButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.serviceView)));
             ui.serviceBackButtons.forEach((button) => button.addEventListener("click", () => setView("addedServices")));
-            ui.addLineBtn.addEventListener("click", () => addOrderLine());
+            ui.addLineBtn.addEventListener("click", addSelectedOrderItem);
+            ui.orderItemSearch?.addEventListener("input", () => renderOrderItemResults({ open: true }));
+            ui.orderItemSearch?.addEventListener("focus", () => renderOrderItemResults({ open: true }));
+            ui.orderItemSearch?.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    addSelectedOrderItem();
+                }
+                if (event.key === "Escape") closeOrderItemResults();
+            });
+            ui.orderItemResults?.addEventListener("click", onOrderItemResultClick);
+            document.addEventListener("click", (event) => {
+                if (!event.target.closest(".order-item-search-field")) closeOrderItemResults();
+            });
             ui.addInboundLineBtn.addEventListener("click", () => addInboundLine());
             ui.resetOrderBtn.addEventListener("click", () => resetOrderForm());
             ui.resetInboundBtn.addEventListener("click", () => resetInboundForm());
@@ -2200,6 +2324,7 @@
             ui.kittingRequestsList?.addEventListener("click", onKittingRequestsListClick);
             ui.orderLines.addEventListener("click", onOrderLinesClick);
             ui.inboundLines.addEventListener("click", onOrderLinesClick);
+            ui.orderLines.addEventListener("input", onOrderLinesChange);
             ui.orderLines.addEventListener("change", onOrderLinesChange);
             ui.navButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button.dataset.view === "orders") portalState.orderStatusFilter = "";
@@ -2218,7 +2343,18 @@
                     closeDocumentPreviewModal();
                 }
             });
-            restoreSession();
+            if (!initPortalPasswordResetView()) restoreSession();
+        }
+
+        function initPortalPasswordResetView() {
+            const token = new URLSearchParams(window.location.search).get("reset_token") || "";
+            if (!token) return false;
+            ui.loginForm?.classList.add("hidden");
+            ui.portalRecoveryRequestBox?.classList.add("hidden");
+            ui.portalPasswordResetForm?.classList.remove("hidden");
+            ui.portalNewPassword?.focus();
+            setMessage("Enter and confirm your new customer portal password.", "info");
+            return true;
         }
 
         function setBuildLabel(label) {
@@ -2468,7 +2604,7 @@
                     busyLabel: kind === "username" ? "Sending..." : "Resetting...",
                     progressMessage: kind === "username"
                         ? "Checking customer portal username access..."
-                        : "Creating a temporary customer portal password..."
+                        : "Sending a secure customer portal password reset link..."
                 }, async () => {
                     const payload = await requestJson(`/api/portal/recovery/${kind}`, {
                         method: "POST",
@@ -2478,6 +2614,36 @@
                 });
             } catch (error) {
                 setMessage(error.message || "No registered customer portal user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.", "error");
+            }
+        }
+
+        async function completePortalPasswordReset(event) {
+            event.preventDefault();
+            const token = new URLSearchParams(window.location.search).get("reset_token") || "";
+            const password = String(ui.portalNewPassword?.value || "");
+            const confirmation = String(ui.portalConfirmPassword?.value || "");
+            if (password !== confirmation) {
+                setMessage("The new passwords do not match.", "error");
+                ui.portalConfirmPassword?.focus();
+                return;
+            }
+            try {
+                await runActionWithFeedback({
+                    button: ui.portalResetPasswordBtn,
+                    busyLabel: "Resetting...",
+                    progressMessage: "Securing your new customer portal password..."
+                }, async () => {
+                    const payload = await requestJson("/api/portal/recovery/password/complete", {
+                        method: "POST",
+                        body: JSON.stringify({ token, password })
+                    });
+                    ui.portalPasswordResetForm?.classList.add("hidden");
+                    ui.loginForm?.classList.remove("hidden");
+                    history.replaceState({}, "", "/portal.html");
+                    setMessage(payload.message || "Your password has been reset. You can now sign in.", "success");
+                });
+            } catch (error) {
+                setMessage(error.message || "This reset link is invalid or expired. Request a new link.", "error");
             }
         }
 
@@ -3499,6 +3665,7 @@
                 const timeline = orderStatusTimeline(order);
                 const shipToSummary = [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not provided";
                 const hasShippingConfirmation = order.confirmedShipDate || order.shippedCarrierName || order.shippedTrackingReference || order.shippedConfirmationNote;
+                const stockWarnings = Array.isArray(order.stockWarnings) ? order.stockWarnings : [];
                 return `
                     <article class="order-card order-summary-card">
                         <div class="order-head">
@@ -3515,10 +3682,11 @@
                             <div class="detail"><span>Expected Ready</span><strong>${esc(order.expectedReadyLabel || order.expectedReadyDate || "Not calculated")}</strong></div>
                             <div class="detail"><span>Lines / Qty</span><strong>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} / ${esc(num(orderTotalQuantity(order)))}</strong></div>
                         </div>
+                        ${stockWarnings.length ? `<div class="stock-warning-banner">${esc(stockWarnings.map((warning) => warning.message).join(" "))}</div>` : ""}
                         <div class="button-row">
                             <button class="btn ghost" type="button" data-toggle-order-details="${attr(order.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
                             ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
-                            ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}">Release</button>` : ""}
+                            ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}" ${stockWarnings.length ? "disabled" : ""}>Release</button>` : ""}
                         </div>
                         ${isExpanded ? `
                             <div class="order-details-panel">
@@ -5110,13 +5278,19 @@
             renderDraftOrderDocumentSelection();
             renderOrderFormDocuments(order);
             ui.orderLines.innerHTML = "";
+            if (ui.orderItemSearch) ui.orderItemSearch.value = "";
+            if (ui.orderItemQuantity) ui.orderItemQuantity.value = "1";
+            showMessage(ui.orderItemPickerMessage, "", "info");
+            renderOrderItemOptions();
+            closeOrderItemResults();
             if (order?.fulfillmentLocationId) {
                 setActiveFulfillmentLocation(order.fulfillmentLocationId);
             } else {
                 syncWarehouseContextDisplay();
             }
-            const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
+            const lines = order?.lines?.length ? order.lines : [];
             lines.forEach((line) => addOrderLine(line));
+            renderOrderLinesEmptyState();
             updateOrderRushNotice();
         }
 
@@ -5162,8 +5336,10 @@
         }
 
         function addOrderLine(line = { sku: "", quantity: 1 }) {
+            ui.orderLines.querySelector("[data-order-lines-empty]")?.remove();
             const row = document.createElement("div");
             row.className = "line-card";
+            row.dataset.previousSku = norm(line.sku || "");
             row.innerHTML = `
                 <div class="line-fields">
                     <label class="field">
@@ -5182,14 +5358,144 @@
             updateLineMeta(row);
         }
 
+        function renderOrderLinesEmptyState() {
+            if (ui.orderLines.querySelector(".line-card")) return;
+            ui.orderLines.innerHTML = `<div class="order-lines-empty" data-order-lines-empty>Search for an item above, enter the quantity, then tap Add Item &amp; Next.</div>`;
+            syncOrderReleaseAvailability();
+        }
+
+        function renderOrderItemOptions() {
+            if (!ui.orderItemOptions) return;
+            ui.orderItemOptions.innerHTML = portalState.inventory.map((item) => {
+                const details = [
+                    item.description || "No description",
+                    item.upc ? `UPC ${item.upc}` : "",
+                    item.availableQuantity > 0
+                        ? `${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available`
+                        : "OUT OF STOCK - draft only"
+                ].filter(Boolean).join(" | ");
+                return `<option value="${attr(item.sku)}">${esc(details)}</option>`;
+            }).join("");
+        }
+
+        function findOrderItemMatch(value) {
+            const query = norm(value);
+            if (!query) return null;
+            return portalState.inventory.find((item) => norm(item.sku) === query)
+                || portalState.inventory.find((item) => norm(item.upc) === query)
+                || getFilteredOrderItems(value)[0]
+                || null;
+        }
+
+        function getFilteredOrderItems(value = "") {
+            const query = norm(value);
+            const items = portalState.inventory.filter((item) => (
+                !query
+                || norm(item.sku).includes(query)
+                || norm(item.upc).includes(query)
+                || norm(item.description).includes(query)
+            ));
+            return items.sort((a, b) => {
+                const aExact = norm(a.sku) === query || norm(a.upc) === query;
+                const bExact = norm(b.sku) === query || norm(b.upc) === query;
+                if (aExact !== bExact) return aExact ? -1 : 1;
+                return a.sku.localeCompare(b.sku);
+            });
+        }
+
+        function closeOrderItemResults() {
+            if (!ui.orderItemResults) return;
+            ui.orderItemResults.classList.add("hidden");
+            ui.orderItemSearch?.setAttribute("aria-expanded", "false");
+        }
+
+        function renderOrderItemResults({ open = false } = {}) {
+            if (!ui.orderItemResults) return;
+            const matches = getFilteredOrderItems(ui.orderItemSearch?.value || "").slice(0, 50);
+            ui.orderItemResults.innerHTML = matches.length
+                ? matches.map((item) => {
+                    const availability = item.availableQuantity > 0
+                        ? `${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available`
+                        : "OUT OF STOCK - draft only";
+                    return `
+                        <button class="order-item-result" type="button" role="option" data-order-item-sku="${attr(item.sku)}">
+                            <strong>${esc(item.sku)} - ${esc(item.description || "No description")}</strong>
+                            <span${item.availableQuantity > 0 ? "" : ` class="out-of-stock"`}>${esc([item.upc ? `UPC ${item.upc}` : "", availability].filter(Boolean).join(" | "))}</span>
+                        </button>
+                    `;
+                }).join("")
+                : `<div class="empty">No items match this search.</div>`;
+            ui.orderItemResults.classList.toggle("hidden", !open);
+            ui.orderItemSearch?.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+
+        function onOrderItemResultClick(event) {
+            const option = event.target.closest("[data-order-item-sku]");
+            if (!option) return;
+            ui.orderItemSearch.value = option.dataset.orderItemSku || "";
+            closeOrderItemResults();
+            ui.orderItemQuantity?.focus();
+            ui.orderItemQuantity?.select();
+        }
+
+        function getOrderLineCardsForSku(sku, excludedCard = null) {
+            const normalizedSku = norm(sku);
+            if (!normalizedSku) return [];
+            return [...ui.orderLines.querySelectorAll(".line-card")].filter((card) => (
+                card !== excludedCard
+                && norm(card.querySelector("[data-line-sku]")?.value || "") === normalizedSku
+            ));
+        }
+
+        function duplicateOrderItemMessage(sku) {
+            const item = portalState.inventory.find((entry) => norm(entry.sku) === norm(sku));
+            return `${item?.sku || sku}${item?.description ? ` - ${item.description}` : ""} is already on this order. Update the quantity on the existing line instead of adding it again.`;
+        }
+
+        function addSelectedOrderItem() {
+            const item = findOrderItemMatch(ui.orderItemSearch?.value || "");
+            const quantity = Number.parseInt(String(ui.orderItemQuantity?.value || ""), 10);
+            if (!item) {
+                showMessage(ui.orderItemPickerMessage, "Select an item from the search results before adding it.", "error");
+                ui.orderItemSearch?.focus();
+                return;
+            }
+            if (!Number.isFinite(quantity) || quantity < 1) {
+                showMessage(ui.orderItemPickerMessage, "Enter a quantity of at least 1.", "error");
+                ui.orderItemQuantity?.focus();
+                return;
+            }
+            if (getOrderLineCardsForSku(item.sku).length) {
+                const message = duplicateOrderItemMessage(item.sku);
+                showMessage(ui.orderItemPickerMessage, message, "error");
+                window.alert(message);
+                const existingCard = getOrderLineCardsForSku(item.sku)[0];
+                existingCard?.scrollIntoView({ behavior: "smooth", block: "center" });
+                existingCard?.querySelector("[data-line-qty]")?.focus();
+                return;
+            }
+            const blankCard = [...ui.orderLines.querySelectorAll(".line-card")].find((card) => (
+                !norm(card.querySelector("[data-line-sku]")?.value || "")
+            ));
+            if (blankCard) blankCard.remove();
+            addOrderLine({ sku: item.sku, quantity });
+            showMessage(ui.orderItemPickerMessage, `${item.sku} added to the order.`, "success");
+            ui.orderItemSearch.value = "";
+            ui.orderItemQuantity.value = "1";
+            renderOrderItemResults({ open: true });
+            ui.orderItemSearch.focus();
+        }
+
         function buildSkuOptions(selectedSku = "") {
             const normalizedSelected = norm(selectedSku);
             const options = [`<option value="">Choose a SKU</option>`];
             portalState.inventory
-                .filter((item) => item.availableQuantity > 0 || item.sku === normalizedSelected)
                 .forEach((item) => {
+                    const availabilityLabel = item.availableQuantity > 0
+                        ? `${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available`
+                        : "OUT OF STOCK - draft only";
                     options.push(
-                        `<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</option>`
+                        `<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(availabilityLabel)}</option>`
                     );
                 });
             return options.join("");
@@ -5201,9 +5507,8 @@
                 const card = removeButton.closest(".line-card");
                 if (!card) return;
                 card.remove();
-                if (!ui.orderLines.children.length) {
-                    addOrderLine();
-                }
+                renderOrderLinesEmptyState();
+                syncOrderReleaseAvailability();
                 return;
             }
             const removeInboundButton = event.target.closest("[data-remove-inbound-line]");
@@ -5219,7 +5524,19 @@
 
         function onOrderLinesChange(event) {
             const card = event.target.closest(".line-card");
-            if (card) updateLineMeta(card);
+            if (!card) return;
+            if (event.type === "change" && event.target.matches("[data-line-sku]")) {
+                const selectedSku = norm(event.target.value || "");
+                if (selectedSku && getOrderLineCardsForSku(selectedSku, card).length) {
+                    const message = duplicateOrderItemMessage(selectedSku);
+                    window.alert(message);
+                    showMessage(ui.orderItemPickerMessage, message, "error");
+                    event.target.value = card.dataset.previousSku || "";
+                } else {
+                    card.dataset.previousSku = selectedSku;
+                }
+            }
+            updateLineMeta(card);
         }
 
         function updateLineMeta(card) {
@@ -5227,11 +5544,35 @@
             const meta = card.querySelector("[data-line-meta]");
             const qtyInput = card.querySelector("[data-line-qty]");
             const item = portalState.inventory.find((entry) => entry.sku === sku);
-            if (item && qtyInput) qtyInput.max = String(item.availableQuantity);
-            else if (qtyInput) qtyInput.removeAttribute("max");
+            if (qtyInput) qtyInput.removeAttribute("max");
+            const requestedQuantity = Number.parseInt(String(qtyInput?.value || "0"), 10) || 0;
+            const insufficient = Boolean(item && requestedQuantity > item.availableQuantity);
+            meta.classList.toggle("stock-warning", insufficient);
             meta.textContent = item
-                ? `${item.description || "No description"} | ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available | On hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
+                ? insufficient
+                    ? `STOCK WARNING: requested ${formatTrackedQuantity(requestedQuantity, item.trackingLevel)}; available stock is ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)}. You may save this order as a draft, but it cannot be released until stock is available.`
+                    : `${item.description || "No description"} | ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available | On hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
                 : "Choose a SKU from your current inventory.";
+            syncOrderReleaseAvailability();
+        }
+
+        function syncOrderReleaseAvailability() {
+            const requestedBySku = new Map();
+            [...ui.orderLines.querySelectorAll(".line-card")].forEach((card) => {
+                const sku = norm(card.querySelector("[data-line-sku]")?.value || "");
+                const quantity = Number.parseInt(String(card.querySelector("[data-line-qty]")?.value || "0"), 10) || 0;
+                if (sku && quantity > 0) {
+                    requestedBySku.set(sku, (requestedBySku.get(sku) || 0) + quantity);
+                }
+            });
+            const hasShortage = [...requestedBySku.entries()].some(([sku, requestedQuantity]) => {
+                const item = portalState.inventory.find((entry) => entry.sku === sku);
+                return !item || requestedQuantity > item.availableQuantity;
+            });
+            ui.releaseOrderBtn.disabled = hasShortage;
+            ui.releaseOrderBtn.title = hasShortage
+                ? "Release is blocked until enough pickable stock is available for every order line."
+                : "";
         }
 
         function collectOrderPayload() {
@@ -5239,6 +5580,15 @@
                 sku: norm(card.querySelector("[data-line-sku]")?.value || ""),
                 quantity: Number.parseInt(String(card.querySelector("[data-line-qty]")?.value || ""), 10)
             })).filter((line) => line.sku && Number.isFinite(line.quantity) && line.quantity > 0);
+            const seenSkus = new Set();
+            const duplicateLine = lines.find((line) => {
+                if (seenSkus.has(line.sku)) return true;
+                seenSkus.add(line.sku);
+                return false;
+            });
+            if (duplicateLine) {
+                throw new Error(duplicateOrderItemMessage(duplicateLine.sku));
+            }
 
             const payload = {
                 fulfillmentLocationId: portalState.activeFulfillmentLocationId || "",
@@ -6508,6 +6858,16 @@
                 createdAt: order.createdAt,
                 updatedAt: order.updatedAt,
                 lines: Array.isArray(order.lines) ? order.lines.map(sanitizeOrderLine).filter(Boolean) : [],
+                stockWarnings: Array.isArray(order.stockWarnings || order.stock_warnings)
+                    ? (order.stockWarnings || order.stock_warnings).map((warning) => ({
+                        sku: norm(warning?.sku || ""),
+                        requestedQuantity: Number(warning?.requestedQuantity || warning?.requested_quantity || 0) || 0,
+                        availableQuantity: Number(warning?.availableQuantity || warning?.available_quantity || 0) || 0,
+                        shortQuantity: Number(warning?.shortQuantity || warning?.short_quantity || 0) || 0,
+                        trackingLevel: normalizeTrackingLevel(warning?.trackingLevel || warning?.tracking_level || "UNIT"),
+                        message: String(warning?.message || "").trim()
+                    })).filter((warning) => warning.sku && warning.message)
+                    : [],
                 documents: Array.isArray(order.documents)
                     ? order.documents.map(sanitizeOrderDocument).filter(Boolean)
                     : []
@@ -6667,5 +7027,6 @@
             return esc(value).replace(/`/g, "&#96;");
         }
     </script>
+    <script src="/wms365-i18n.js"></script>
 </body>
 </html>

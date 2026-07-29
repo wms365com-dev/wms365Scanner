@@ -110,6 +110,7 @@ const APP_BUILD_FILES = [
     "server.js",
     "marketing.css",
     "marketing.js",
+    "wms365-i18n.js",
     "marketing-logo.svg",
     "site.webmanifest",
     "mobile-bridge.js",
@@ -152,6 +153,7 @@ const PORTAL_SESSION_COOKIE = "wms365_portal_session";
 const APP_SESSION_COOKIE = "wms365_app_session";
 const PORTAL_SESSION_TTL_DAYS = 14;
 const APP_SESSION_TTL_DAYS = 14;
+const PORTAL_PASSWORD_RESET_TTL_MINUTES = 30;
 const PORTAL_SESSION_MAX_AGE = PORTAL_SESSION_TTL_DAYS * 24 * 60 * 60;
 const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
 const NODE_ENV = normalizeFreeText(readEnv("NODE_ENV", "development")).toLowerCase();
@@ -192,6 +194,9 @@ const WMS365_SYSTEM_EMAIL_ADDRESS = "support@wms365.co";
 const WMS365_SYSTEM_EMAIL_FROM = "WMS365 <support@wms365.co>";
 const WMS365_BILLING_CONTACT_EMAIL = normalizeEmail(readEnv("WMS365_BILLING_CONTACT_EMAIL", "")) || WMS365_SYSTEM_EMAIL_ADDRESS;
 const WMS365_SALES_CONTACT_EMAIL = normalizeEmail(readEnv("WMS365_SALES_CONTACT_EMAIL", "")) || WMS365_SYSTEM_EMAIL_ADDRESS;
+const DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME = normalizeFreeText(readEnv("DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME", "Venkatesh Suresh")) || "Venkatesh Suresh";
+const DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL = normalizeEmail(readEnv("DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL", "billing@greywolf3pl.com")) || "billing@greywolf3pl.com";
+const WAREHOUSE_BILLING_ACTIVITY_EMAIL_ENABLED = readBooleanEnv("WAREHOUSE_BILLING_ACTIVITY_EMAIL_ENABLED", false);
 const SMTP_FROM = WMS365_SYSTEM_EMAIL_FROM;
 const SMTP_REPLY_TO = WMS365_SYSTEM_EMAIL_ADDRESS;
 const FORBIDDEN_OUTBOUND_EMAIL_SENDERS = new Set([
@@ -382,7 +387,10 @@ const BILLING_FINANCE_CHARGE_TYPES = Object.freeze([
     ["CLIMATE_STORAGE", "Storage", "Climate storage", "Per pallet"],
     ["CARTON_STORAGE", "Storage", "Carton storage", "Per carton"],
     ["BIN_STORAGE", "Storage", "Bin storage", "Flat fee"],
+    ["INBOUND_PROCESSING_FEE", "Receiving", "Inbound processing fee", "Per receipt"],
     ["RECEIVING_PALLET", "Receiving", "Receiving pallet", "Per pallet"],
+    ["OVERSIZED_PALLET_INBOUND", "Receiving", "Oversized pallet inbound", "Per pallet"],
+    ["NON_STANDARD_PALLET_INBOUND", "Receiving", "Non-standard pallet inbound", "Per pallet"],
     ["RECEIVING_CARTON", "Receiving", "Receiving carton", "Per carton"],
     ["PICK_PACK_FIRST_ITEM", "Pick Pack", "Pick and pack first item", "Per order"],
     ["ADDITIONAL_ITEM_FEE", "Pick Pack", "Additional item fee", "Per unit"],
@@ -587,7 +595,10 @@ const BILLING_FEE_SEED = [
     { code: "NON_STACKABLE_PALLET_SURCHARGE", category: "Storage", name: "Non-stackable pallet surcharge", unitLabel: "per pallet", defaultRate: 0 },
     { code: "PEAK_PALLET_BILLING_ADJUSTMENT", category: "Storage", name: "Peak pallet billing adjustment", unitLabel: "per pallet", defaultRate: 0 },
 
+    { code: "INBOUND_PROCESSING_FEE", category: "Receiving / Inbound Handling", name: "Inbound processing fee", unitLabel: "per receipt", defaultRate: 0 },
     { code: "PALLET_RECEIVING_FEE", category: "Receiving / Inbound Handling", name: "Pallet receiving fee", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "OVERSIZED_PALLET_INBOUND", category: "Receiving / Inbound Handling", name: "Oversized pallet inbound", unitLabel: "per pallet", defaultRate: 0 },
+    { code: "NON_STANDARD_PALLET_INBOUND", category: "Receiving / Inbound Handling", name: "Non-standard pallet inbound", unitLabel: "per pallet", defaultRate: 0 },
     { code: "CARTON_RECEIVING_FEE", category: "Receiving / Inbound Handling", name: "Carton receiving fee", unitLabel: "per carton", defaultRate: 0 },
     { code: "CONTAINER_UNLOADING_20", category: "Receiving / Inbound Handling", name: "Container unloading 20' container", unitLabel: "per container", defaultRate: 0 },
     { code: "CONTAINER_UNLOADING_40", category: "Receiving / Inbound Handling", name: "Container unloading 40' container", unitLabel: "per container", defaultRate: 0 },
@@ -1571,9 +1582,18 @@ healteaApiRouter.post("/orders/:orderCode/ship", async (req, res, next) => {
             const confirmation = buildHealteaApiShipmentConfirmation(currentOrder, req.body || {});
             return closeHealteaApiOrderAsShipped(client, currentOrder, confirmation);
         });
+        const billingEventsCreated = Array.isArray(order.billingEventsCreated) ? order.billingEventsCreated : [];
+        delete order.billingEventsCreated;
         res.json({
             success: true,
             order: mapHealteaApiOrder(order)
+        });
+        queueWarehouseBillingActivityEmail({
+            activityType: "ORDER_SHIPPED",
+            accountName: order.accountName,
+            sourceRef: order.orderCode,
+            document: order,
+            billingEvents: billingEventsCreated
         });
     } catch (error) {
         next(error);
@@ -1592,9 +1612,18 @@ healteaApiRouter.post("/orders/:orderCode/status", async (req, res, next) => {
             const confirmation = buildHealteaApiShipmentConfirmation(currentOrder, req.body || {});
             return closeHealteaApiOrderAsShipped(client, currentOrder, confirmation);
         });
+        const billingEventsCreated = Array.isArray(order.billingEventsCreated) ? order.billingEventsCreated : [];
+        delete order.billingEventsCreated;
         res.json({
             success: true,
             order: mapHealteaApiOrder(order)
+        });
+        queueWarehouseBillingActivityEmail({
+            activityType: "ORDER_SHIPPED",
+            accountName: order.accountName,
+            sourceRef: order.orderCode,
+            document: order,
+            billingEvents: billingEventsCreated
         });
     } catch (error) {
         next(error);
@@ -1973,7 +2002,7 @@ app.post("/api/admin/company-email-flow/latest-order-test", async (req, res, nex
                 shippingReference: order.shippingReference
             },
             recipients: emailResult.recipients,
-            ccRecipients: emailResult.ccRecipients,
+            bccRecipients: emailResult.bccRecipients,
             flow
         });
     } catch (error) {
@@ -5154,6 +5183,14 @@ app.post("/api/portal/recovery/password", async (req, res, next) => {
     }
 });
 
+app.post("/api/portal/recovery/password/complete", async (req, res, next) => {
+    try {
+        res.json(await completePortalPasswordReset(req));
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/portal/me", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -5635,7 +5672,7 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
             warehouseEmailScheduledAt: "",
             warehouseEmailDelayMinutes: PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES,
             warehouseRecipients: [],
-            ccRecipients: [...releaseOptions.ccEmails],
+            bccRecipients: [...releaseOptions.ccEmails],
             warehouseEmailError: "",
             customerConfirmationRequested: true,
             customerConfirmationSent: false,
@@ -5647,7 +5684,7 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
         if (releaseOptions.notifyWarehouse) {
             try {
                 const scheduleResult = await schedulePortalOrderReleaseEmailForSend(order, {
-                    ccRecipients: releaseOptions.ccEmails,
+                    bccRecipients: releaseOptions.ccEmails,
                     actorLabel: session.access.email || "Company portal",
                     reason: "Customer portal release"
                 });
@@ -5656,7 +5693,7 @@ app.post("/api/portal/orders/:id/release", async (req, res, next) => {
                 releaseActions.warehouseEmailScheduledAt = scheduleResult.scheduledAt;
                 releaseActions.warehouseEmailDelayMinutes = scheduleResult.delayMinutes;
                 releaseActions.warehouseRecipients = scheduleResult.recipients;
-                releaseActions.ccRecipients = scheduleResult.ccRecipients;
+                releaseActions.bccRecipients = scheduleResult.bccRecipients;
             } catch (error) {
                 releaseActions.warehouseEmailError = error?.message || "The warehouse email could not be sent.";
                 try {
@@ -5725,6 +5762,8 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
         const shipmentEmailQueued = nextStatus === "SHIPPED"
             && ["SCHEDULED", "SENDING"].includes(normalizeText(order.shipmentEmailStatus || ""));
         const storeShipmentConfirmationQueued = nextStatus === "SHIPPED";
+        const billingEventsCreated = Array.isArray(order.billingEventsCreated) ? order.billingEventsCreated : [];
+        delete order.billingEventsCreated;
         res.json({
             success: true,
             order,
@@ -5738,6 +5777,15 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
         if (shipmentEmailQueued) {
             queuePortalShipmentConfirmationEmail(order);
             queueStoreShipmentConfirmation(order, req.body, { isUpdate: previousOrderStatus === "SHIPPED" });
+        }
+        if (nextStatus === "SHIPPED") {
+            queueWarehouseBillingActivityEmail({
+                activityType: "ORDER_SHIPPED",
+                accountName: order.accountName,
+                sourceRef: order.orderCode,
+                document: order,
+                billingEvents: billingEventsCreated
+            });
         }
         if (nextStatus === "STAGED") {
             queuePortalOrderSplitFulfillmentNotice(order, {
@@ -5813,10 +5861,21 @@ app.post("/api/admin/portal-inbounds/:id/status", requireMobileWorkerAction(), a
         });
 
         const arrivalEmailQueued = nextStatus === "ARRIVED" && previousInboundStatus !== "ARRIVED";
+        const billingEventsCreated = Array.isArray(inbound.billingEventsCreated) ? inbound.billingEventsCreated : [];
+        delete inbound.billingEventsCreated;
         res.json({ success: true, inbound, arrivalEmailQueued });
         if (arrivalEmailQueued) {
             queuePortalInboundArrivalEmail(inbound, {
                 actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse"
+            });
+        }
+        if (nextStatus === "RECEIVED") {
+            queueWarehouseBillingActivityEmail({
+                activityType: "INBOUND_RECEIVED",
+                accountName: inbound.accountName,
+                sourceRef: inbound.inboundCode,
+                document: inbound,
+                billingEvents: billingEventsCreated
             });
         }
     } catch (error) {
@@ -6228,6 +6287,11 @@ app.get("/marketing.css", (_req, res) => {
 
 app.get("/marketing.js", (_req, res) => {
     sendMarketingAsset(res, "marketing.js", "application/javascript; charset=utf-8");
+});
+
+app.get("/wms365-i18n.js", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    sendMarketingAsset(res, "wms365-i18n.js", "application/javascript; charset=utf-8");
 });
 
 app.get("/marketing-logo.svg", (_req, res) => {
@@ -6921,6 +6985,8 @@ async function initializeDatabase() {
             contact_name text not null default '',
             contact_email text not null default '',
             contact_phone text not null default '',
+            billing_contact_name text not null default 'Venkatesh Suresh',
+            billing_contact_email text not null default 'billing@greywolf3pl.com',
             address1 text not null default '',
             address2 text not null default '',
             city text not null default '',
@@ -6934,6 +7000,16 @@ async function initializeDatabase() {
             updated_at timestamptz not null default now()
         );
     `);
+    await pool.query("alter table fulfillment_locations add column if not exists billing_contact_name text not null default 'Venkatesh Suresh'");
+    await pool.query("alter table fulfillment_locations add column if not exists billing_contact_email text not null default 'billing@greywolf3pl.com'");
+    await pool.query(
+        "update fulfillment_locations set billing_contact_name = $1 where btrim(coalesce(billing_contact_name, '')) = ''",
+        [DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME]
+    );
+    await pool.query(
+        "update fulfillment_locations set billing_contact_email = $1 where btrim(coalesce(billing_contact_email, '')) = ''",
+        [DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL]
+    );
 
     await pool.query(`
         create table if not exists company_fulfillment_locations (
@@ -7033,6 +7109,19 @@ async function initializeDatabase() {
             last_seen_at timestamptz not null default now()
         );
     `);
+
+    await pool.query(`
+        create table if not exists portal_password_reset_tokens (
+            id bigserial primary key,
+            portal_access_id bigint not null references portal_vendor_access(id) on delete cascade,
+            token_hash text not null unique,
+            expires_at timestamptz not null,
+            used_at timestamptz,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create index if not exists idx_portal_password_reset_tokens_access_id on portal_password_reset_tokens (portal_access_id);");
+    await pool.query("create index if not exists idx_portal_password_reset_tokens_expires_at on portal_password_reset_tokens (expires_at);");
 
     await pool.query(`
         create table if not exists app_users (
@@ -8371,17 +8460,21 @@ async function initializeDatabase() {
         `
             insert into fulfillment_locations (
                 code, name, partner_name, location_type, contact_name, contact_email, contact_phone,
+                billing_contact_name, billing_contact_email,
                 address1, address2, city, state, postal_code, country, note, is_active, is_default
             )
             values (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12, $13, $14, true, true
+                $8, $9,
+                $10, $11, $12, $13, $14, $15, $16, true, true
             )
             on conflict (code)
             do update set
                 name = excluded.name,
                 partner_name = excluded.partner_name,
                 location_type = excluded.location_type,
+                billing_contact_name = case when btrim(coalesce(fulfillment_locations.billing_contact_name, '')) = '' then excluded.billing_contact_name else fulfillment_locations.billing_contact_name end,
+                billing_contact_email = case when btrim(coalesce(fulfillment_locations.billing_contact_email, '')) = '' then excluded.billing_contact_email else fulfillment_locations.billing_contact_email end,
                 address1 = excluded.address1,
                 address2 = excluded.address2,
                 city = excluded.city,
@@ -8400,6 +8493,8 @@ async function initializeDatabase() {
             DEFAULT_FULFILLMENT_LOCATION.contactName,
             DEFAULT_FULFILLMENT_LOCATION.contactEmail,
             DEFAULT_FULFILLMENT_LOCATION.contactPhone,
+            DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
+            DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL,
             DEFAULT_FULFILLMENT_LOCATION.address1,
             DEFAULT_FULFILLMENT_LOCATION.address2,
             DEFAULT_FULFILLMENT_LOCATION.city,
@@ -9961,6 +10056,76 @@ function addBillingRollup(grouped, accountName, feeCode, quantity) {
     grouped.set(key, current);
 }
 
+function isPortalInboundPalletLabelCancelled(label) {
+    const status = normalizeText(label?.palletStatus || label?.pallet_status || "");
+    return ["CANCELLED", "VOID", "VOIDED"].includes(status);
+}
+
+function getPortalInboundLineTrackingById(inbound) {
+    const trackingById = new Map();
+    for (const line of Array.isArray(inbound?.lines) ? inbound.lines : []) {
+        const lineId = line?.id ?? line?.lineId ?? line?.line_id;
+        if (lineId == null || lineId === "") continue;
+        trackingById.set(String(lineId), normalizeTrackingLevel(line?.trackingLevel || line?.tracking_level || "UNIT"));
+    }
+    return trackingById;
+}
+
+function getPortalInboundPalletLabelLineIds(label) {
+    const ids = [];
+    const lineId = label?.lineId ?? label?.line_id;
+    if (lineId != null && lineId !== "") ids.push(String(lineId));
+    for (const content of Array.isArray(label?.contents) ? label.contents : []) {
+        const contentLineId = content?.lineId ?? content?.line_id;
+        if (contentLineId != null && contentLineId !== "") ids.push(String(contentLineId));
+    }
+    return [...new Set(ids)];
+}
+
+function isPortalInboundPalletLabelForPalletTrackedLine(label, lineTrackingById) {
+    const lineIds = getPortalInboundPalletLabelLineIds(label);
+    if (!lineIds.length) return false;
+    return lineIds.every((lineId) => lineTrackingById.get(String(lineId)) === "PALLET");
+}
+
+function buildPortalInboundPalletBillingRollups(inbound, palletLineQuantity = 0) {
+    const lineTrackingById = getPortalInboundLineTrackingById(inbound);
+    const sizeCounts = new Map();
+    for (const label of Array.isArray(inbound?.palletLabels) ? inbound.palletLabels : []) {
+        if (isPortalInboundPalletLabelCancelled(label)) continue;
+        if (!isPortalInboundPalletLabelForPalletTrackedLine(label, lineTrackingById)) continue;
+        const sizeType = normalizePortalPalletSizeType(label?.palletSizeType || label?.pallet_size_type || "");
+        sizeCounts.set(sizeType, (sizeCounts.get(sizeType) || 0) + 1);
+    }
+
+    const rollups = [];
+    let labelledPalletQuantity = 0;
+    for (const [sizeType, quantity] of sizeCounts.entries()) {
+        labelledPalletQuantity += quantity;
+        rollups.push({
+            feeCode: portalPalletSizeInboundBillingCode(sizeType),
+            quantity
+        });
+    }
+
+    const unlabelledPalletQuantity = Math.max((Number(palletLineQuantity) || 0) - labelledPalletQuantity, 0);
+    if (unlabelledPalletQuantity > 0) {
+        rollups.push({
+            feeCode: "PALLET_RECEIVING_FEE",
+            quantity: unlabelledPalletQuantity
+        });
+    }
+
+    const putAwayQuantity = labelledPalletQuantity + unlabelledPalletQuantity;
+    if (putAwayQuantity > 0) {
+        rollups.push({
+            feeCode: "PUT_AWAY_PALLET",
+            quantity: putAwayQuantity
+        });
+    }
+    return rollups;
+}
+
 async function createBatchBillingEvents(client, items, batchRef) {
     const grouped = new Map();
     for (const item of Array.isArray(items) ? items : []) {
@@ -10006,14 +10171,16 @@ async function createPortalInboundBillingEvents(client, inbound) {
     if (!inbound?.id || !inbound?.accountName) return [];
 
     const grouped = new Map();
+    addBillingRollup(grouped, inbound.accountName, "INBOUND_PROCESSING_FEE", 1);
+
+    let palletQuantity = 0;
     for (const line of Array.isArray(inbound.lines) ? inbound.lines : []) {
         const quantity = Number(line?.receivedQuantity || line?.quantity) || 0;
         if (quantity <= 0) continue;
 
         const trackingLevel = normalizeTrackingLevel(line?.trackingLevel);
         if (trackingLevel === "PALLET") {
-            addBillingRollup(grouped, inbound.accountName, "PALLET_RECEIVING_FEE", quantity);
-            addBillingRollup(grouped, inbound.accountName, "PUT_AWAY_PALLET", quantity);
+            palletQuantity += quantity;
             continue;
         }
 
@@ -10030,15 +10197,30 @@ async function createPortalInboundBillingEvents(client, inbound) {
             addBillingRollup(grouped, inbound.accountName, "PUT_AWAY_CARTON", cartonCount);
         }
     }
+    for (const rollup of buildPortalInboundPalletBillingRollups(inbound, palletQuantity)) {
+        addBillingRollup(grouped, inbound.accountName, rollup.feeCode, rollup.quantity);
+    }
 
     const created = [];
     const sourceRef = inbound.inboundCode || `INBOUND-${inbound.id}`;
     const reference = inbound.referenceNumber || sourceRef;
+    const serviceDate = normalizeDateInput(
+        inbound.receivedAt
+        || inbound.received_at
+        || inbound.receivedDate
+        || inbound.received_date
+        || inbound.expectedDate
+        || inbound.expected_date
+        || inbound.createdAt
+        || inbound.created_at
+        || ""
+    );
     for (const entry of grouped.values()) {
         const billLine = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
             sourceType: "INBOUND_RECEIPT",
             sourceRef,
             reference,
+            serviceDate,
             note: `Auto-created when purchase order ${sourceRef} was received.`,
             eventKey: `INBOUND:${inbound.id}:${entry.accountName}:${entry.feeCode}`
         });
@@ -10114,6 +10296,225 @@ async function createPortalOrderBillingEvents(client, order) {
     }
 
     return created;
+}
+
+function formatBillingCurrencyAmount(value, currencyCode = "CAD") {
+    const currency = normalizeCurrencyCode(currencyCode || "CAD");
+    try {
+        return new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(roundBillingNumber(value, 2));
+    } catch (_error) {
+        return `${roundBillingNumber(value, 2).toFixed(2)} ${currency}`;
+    }
+}
+
+function billingActivityLabel(activityType = "") {
+    const normalized = normalizeText(activityType);
+    if (normalized === "INBOUND_RECEIVED") return "Inbound received";
+    if (normalized === "ORDER_SHIPPED") return "Order shipped";
+    return "Billable warehouse activity";
+}
+
+function formatFulfillmentLocationBillingAddress(location = {}) {
+    return [
+        location.address1 || "",
+        location.address2 || "",
+        [location.city, location.state, location.postalCode || location.postal_code].filter(Boolean).join(", "),
+        location.country || ""
+    ].filter(Boolean).join(" | ");
+}
+
+function summarizeBillingActivityDocumentLines(lines = [], quantityFields = []) {
+    const summaries = [];
+    for (const line of Array.isArray(lines) ? lines : []) {
+        const quantity = quantityFields.reduce((value, field) => {
+            if (value > 0) return value;
+            return Number(line?.[field]) || 0;
+        }, 0);
+        if (!line?.sku || quantity <= 0) continue;
+        summaries.push(`${line.sku}: ${formatTrackedQuantity(quantity, line.trackingLevel || line.tracking_level || "UNIT")}${line.description ? ` - ${line.description}` : ""}`);
+    }
+    if (summaries.length <= 12) return summaries;
+    return summaries.slice(0, 12).concat(`${summaries.length - 12} more line${summaries.length - 12 === 1 ? "" : "s"}`);
+}
+
+function buildWarehouseBillingActivityDetails(activity = {}, warehouse = {}) {
+    const document = activity.document || {};
+    const sourceRef = normalizeFreeText(activity.sourceRef || document.orderCode || document.inboundCode || "");
+    const details = [
+        ["Activity", billingActivityLabel(activity.activityType)],
+        ["Customer", document.accountName || activity.accountName || "-"],
+        ["Document", sourceRef || "-"],
+        ["Reference", document.referenceNumber || document.poNumber || document.shippingReference || "-"],
+        ["Warehouse", [warehouse.code, warehouse.name].filter(Boolean).join(" - ") || "-"],
+        ["Warehouse Address", formatFulfillmentLocationBillingAddress(warehouse) || "-"]
+    ];
+
+    if (normalizeText(activity.activityType) === "ORDER_SHIPPED") {
+        details.push(
+            ["Requested Ship Date", document.requestedShipDate || "-"],
+            ["Confirmed Ship Date", document.confirmedShipDate || "-"],
+            ["Shipment Type", document.shipmentMethod ? shipmentMethodLabel(document.shipmentMethod) : "-"],
+            ["Carrier", document.shippedCarrierName || "-"],
+            ["Tracking / BOL / PRO", document.shippedTrackingReference || "-"],
+            ["Pallets Out", document.outboundPallets ? `Total ${document.outboundPallets.totalPalletsOut || 0} | Existing ${document.outboundPallets.existingPalletsOut || 0} | New ${document.outboundPallets.newPalletsUsed || 0} | Mixed ${document.outboundPallets.mixedPalletsBuilt || 0}` : "-"],
+            ["Ship To", formatPortalOrderShipToAddress(document) || "-"]
+        );
+        const lineSummaries = summarizeBillingActivityDocumentLines(document.lines, ["shippedQuantity", "quantity"]);
+        if (lineSummaries.length) details.push(["Order Lines", lineSummaries.join("; ")]);
+    } else if (normalizeText(activity.activityType) === "INBOUND_RECEIVED") {
+        details.push(
+            ["Inbound Reference", document.referenceNumber || "-"],
+            ["Expected Date", document.expectedDate || "-"],
+            ["Received At", document.receivedAt || "-"],
+            ["Carrier", document.carrierName || "-"],
+            ["Receiving Contact", [document.contactName, document.contactPhone].filter(Boolean).join(" | ") || "-"]
+        );
+        const lineSummaries = summarizeBillingActivityDocumentLines(document.lines, ["receivedQuantity", "quantity"]);
+        if (lineSummaries.length) details.push(["Received Lines", lineSummaries.join("; ")]);
+    }
+
+    return details;
+}
+
+function buildWarehouseBillingActivityEmailText(activity = {}, warehouse = {}, billingEvents = []) {
+    const details = buildWarehouseBillingActivityDetails(activity, warehouse);
+    const totalsByCurrency = new Map();
+    billingEvents.forEach((event) => {
+        const currency = normalizeCurrencyCode(event.currencyCode || "CAD");
+        totalsByCurrency.set(currency, roundBillingNumber((totalsByCurrency.get(currency) || 0) + Number(event.amount || 0), 2));
+    });
+    const lines = [
+        "Billable warehouse activity completed.",
+        "",
+        "Invoice action: please invoice the customer today using these billing events as backup.",
+        "",
+        ...details.map(([label, value]) => `${label}: ${value}`),
+        "",
+        "Billing lines:"
+    ];
+    billingEvents.forEach((event) => {
+        lines.push(`- Event ${event.id}: ${event.feeCode} | ${event.feeName} | Qty ${formatBillingQuantity(event.quantity)} ${event.unitLabel || ""} | Rate ${formatBillingCurrencyAmount(event.rate, event.currencyCode)} | Amount ${formatBillingCurrencyAmount(event.amount, event.currencyCode)} | Service date ${event.serviceDate || "-"}`);
+    });
+    lines.push("");
+    lines.push(`Total: ${[...totalsByCurrency.entries()].map(([currency, total]) => formatBillingCurrencyAmount(total, currency)).join(" | ") || "$0.00"}`);
+    return lines.join("\n");
+}
+
+function buildWarehouseBillingActivityEmailHtml(activity = {}, warehouse = {}, billingEvents = []) {
+    const details = buildWarehouseBillingActivityDetails(activity, warehouse);
+    const totalsByCurrency = new Map();
+    billingEvents.forEach((event) => {
+        const currency = normalizeCurrencyCode(event.currencyCode || "CAD");
+        totalsByCurrency.set(currency, roundBillingNumber((totalsByCurrency.get(currency) || 0) + Number(event.amount || 0), 2));
+    });
+    const detailRows = details.map(([label, value]) => `
+        <tr>
+            <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;font-weight:700;width:180px;">${escapeHtml(label)}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;">${escapeHtml(value)}</td>
+        </tr>
+    `).join("");
+    const billingRows = billingEvents.map((event) => `
+        <tr>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(event.id)}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(event.feeCode)}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(event.feeName)}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${escapeHtml(formatBillingQuantity(event.quantity))}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(event.unitLabel || "")}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${escapeHtml(formatBillingCurrencyAmount(event.rate, event.currencyCode))}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700;">${escapeHtml(formatBillingCurrencyAmount(event.amount, event.currencyCode))}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(event.serviceDate || "-")}</td>
+        </tr>
+    `).join("");
+    const totalText = [...totalsByCurrency.entries()].map(([currency, total]) => formatBillingCurrencyAmount(total, currency)).join(" | ") || "$0.00";
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.45;">
+            <h2 style="margin:0 0 10px;">${escapeHtml(billingActivityLabel(activity.activityType))} - billing backup</h2>
+            <p style="margin:0 0 14px;">Billable warehouse activity is complete. Please invoice the customer today using the billing events below.</p>
+            <table style="border-collapse:collapse;width:100%;margin:0 0 16px;">${detailRows}</table>
+            <table style="border-collapse:collapse;width:100%;font-size:13px;">
+                <thead>
+                    <tr style="background:#f8fafc;">
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:left;">Event</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:left;">Fee Code</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:left;">Description</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:right;">Qty</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:left;">Unit</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:right;">Rate</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:right;">Amount</th>
+                        <th style="padding:7px 8px;border-bottom:1px solid #cbd5e1;text-align:left;">Service Date</th>
+                    </tr>
+                </thead>
+                <tbody>${billingRows}</tbody>
+            </table>
+            <p style="margin:14px 0 0;font-weight:700;">Total: ${escapeHtml(totalText)}</p>
+        </div>
+    `;
+}
+
+async function getWarehouseBillingLocationForActivity(client, activity = {}) {
+    const document = activity.document || {};
+    const location = await getFulfillmentLocationByIdOrCode(client, {
+        locationId: document.fulfillmentLocationId || document.fulfillment_location_id || activity.fulfillmentLocationId || activity.fulfillment_location_id,
+        locationCode: document.fulfillmentLocationCode || document.fulfillment_location_code || activity.fulfillmentLocationCode || activity.fulfillment_location_code
+    });
+    if (location) return mapFulfillmentLocationRow(location);
+    return {
+        id: "",
+        code: document.fulfillmentLocationCode || activity.fulfillmentLocationCode || "",
+        name: document.fulfillmentLocationName || activity.fulfillmentLocationName || "",
+        billingContactName: DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
+        billingContactEmail: DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL,
+        address1: "",
+        address2: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: ""
+    };
+}
+
+async function sendWarehouseBillingActivityEmail(activity = {}) {
+    const billingEvents = (Array.isArray(activity.billingEvents) ? activity.billingEvents : []).filter((event) => event && Number(event.amount || 0) >= 0);
+    if (!billingEvents.length) return { emailed: false, reason: "No billing events were created." };
+    const warehouse = await getWarehouseBillingLocationForActivity(pool, activity);
+    const toEmail = normalizeEmail(warehouse.billingContactEmail || DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL);
+    if (!toEmail) return { emailed: false, reason: "No warehouse billing email is configured." };
+    const document = activity.document || {};
+    const sourceRef = normalizeFreeText(activity.sourceRef || document.orderCode || document.inboundCode || billingEvents[0]?.sourceRef || "");
+    const accountName = normalizeText(activity.accountName || document.accountName || billingEvents[0]?.accountName || "");
+    const subject = `Billable activity completed - ${sourceRef || billingActivityLabel(activity.activityType)} - ${accountName || "Customer"}`;
+    const result = await sendSystemEmail({
+        to: toEmail,
+        subject,
+        text: buildWarehouseBillingActivityEmailText(activity, warehouse, billingEvents),
+        html: buildWarehouseBillingActivityEmailHtml(activity, warehouse, billingEvents),
+        emailContext: {
+            accountName,
+            sourceType: "warehouse_billing_activity",
+            sourceRef,
+            billingEventIds: billingEvents.map((event) => event.id),
+            activityType: normalizeText(activity.activityType),
+            warehouseCode: warehouse.code || "",
+            warehouseBillingContactName: warehouse.billingContactName || DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
+            warehouseBillingContactEmail: toEmail
+        }
+    }, "Warehouse billing activity email is not configured. Set SMTP/Resend/SendGrid settings first.");
+    return { emailed: true, provider: result.provider || getConfiguredEmailProvider(), messageId: result.messageId || "" };
+}
+
+function queueWarehouseBillingActivityEmail(activity = {}) {
+    if (!WAREHOUSE_BILLING_ACTIVITY_EMAIL_ENABLED) return;
+    if (!Array.isArray(activity.billingEvents) || !activity.billingEvents.length) return;
+    setImmediate(() => {
+        sendWarehouseBillingActivityEmail(activity).catch((error) => {
+            console.error(`Warehouse billing activity email failed for ${activity.sourceRef || activity.activityType || "activity"}:`, error);
+        });
+    });
 }
 
 async function createMonthlyStorageBillingEvents(client, accountName, month) {
@@ -10657,7 +11058,7 @@ function assertPortalAccountAccess(session, accountName, message = "") {
     return sessionAccount;
 }
 
-const PORTAL_PUBLIC_ENDPOINTS = new Set(["/login", "/recovery/username", "/recovery/password"]);
+const PORTAL_PUBLIC_ENDPOINTS = new Set(["/login", "/recovery/username", "/recovery/password", "/recovery/password/complete"]);
 
 function getPortalRouteRule(method, pathName) {
     const methodName = normalizeText(method);
@@ -14514,30 +14915,41 @@ async function getPortalInventorySummary(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
     const result = await client.query(
         `
-            with on_hand as (
+            with known_skus as (
+                select account_name, sku
+                from item_catalog
+                where account_name = $1
+                union
+                select account_name, sku
+                from inventory_lines
+                where account_name = $1
+            ),
+            on_hand as (
                 select
-                    i.account_name,
-                    i.sku,
+                    k.account_name,
+                    k.sku,
                     coalesce(max(nullif(i.upc, '')), max(nullif(c.upc, '')), '') as upc,
                     coalesce(max(nullif(c.description, '')), '') as description,
                     coalesce(max(nullif(c.image_url, '')), '') as image_url,
                     coalesce(max(nullif(c.tracking_level, '')), max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
-                    sum(i.quantity)::integer as on_hand_quantity,
-                    sum(case
+                    coalesce(sum(i.quantity), 0)::integer as on_hand_quantity,
+                    coalesce(sum(case
                         when coalesce(bl.is_pickable, true) = true
                          and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
                         then i.quantity
                         else 0
-                    end)::integer as pickable_quantity,
+                    end), 0)::integer as pickable_quantity,
                     count(distinct i.location)::integer as location_count,
                     array_remove(array_agg(distinct i.location order by i.location), null) as locations
-                from inventory_lines i
+                from known_skus k
+                left join inventory_lines i
+                  on i.account_name = k.account_name
+                 and i.sku = k.sku
                 left join bin_locations bl on bl.code = i.location
                 left join item_catalog c
-                  on c.account_name = i.account_name
-                 and c.sku = i.sku
-                where i.account_name = $1
-                group by i.account_name, i.sku
+                  on c.account_name = k.account_name
+                 and c.sku = k.sku
+                group by k.account_name, k.sku
             ),
             reserved as (
                 select
@@ -15854,7 +16266,8 @@ async function savePortalOrderDraft(client, accessRow, rawOrder, orderId = null)
         downloadPathPrefix: "/api/portal/order-documents",
         activityTitlePrefix: "portal",
         activityActor: "Company portal",
-        uploadedBy: access.email || "Company portal"
+        uploadedBy: access.email || "Company portal",
+        enforceInventoryAvailability: false
     });
 }
 
@@ -17424,6 +17837,11 @@ function buildPortalLoginUrl(req) {
     return `${String(origin).replace(/\/+$/, "")}/portal`;
 }
 
+function buildPortalPasswordResetUrl(req, token) {
+    const origin = APP_BASE_URL || getAppActionOrigin(getRequestOrigin(req));
+    return `${String(origin).replace(/\/+$/, "")}/portal.html?reset_token=${encodeURIComponent(token)}`;
+}
+
 function slugifyPortalGuideName(value) {
     return String(value || "")
         .toLowerCase()
@@ -17813,6 +18231,69 @@ function buildRecoveryPasswordEmailHtml({ accessLabel, loginUrl, username, tempo
     `;
 }
 
+function buildPortalResetLinkEmailText({ accessLabel, resetUrl, username, expiresInMinutes, signupUrl }) {
+    return [
+        "WMS365 password reset",
+        "",
+        `Access type: ${accessLabel}`,
+        `Username: ${username}`,
+        `Reset password: ${resetUrl}`,
+        "",
+        `This one-time link expires in ${expiresInMinutes} minutes and can only be used once.`,
+        "If you did not request a password reset, ignore this email. Your current password remains unchanged.",
+        "",
+        `Need a different account? Sign up or contact us: ${signupUrl}`,
+        "",
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
+    ].join("\n");
+}
+
+function buildPortalResetLinkEmailHtml({ accessLabel, resetUrl, username, expiresInMinutes, signupUrl }) {
+    const safeResetUrl = escapeHtml(resetUrl);
+    const safeSignupUrl = escapeHtml(signupUrl);
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.55;max-width:680px;">
+            <h2 style="margin:0 0 12px;">WMS365 password reset</h2>
+            <p style="margin:0 0 16px;">Use the secure button below to choose a new password for your customer portal account.</p>
+            <table style="border-collapse:collapse;width:100%;max-width:640px;margin:0 0 18px;border:1px solid #dbe4ee;">
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;border-bottom:1px solid #dbe4ee;">Access type</td><td style="padding:10px 12px;border-bottom:1px solid #dbe4ee;">${escapeHtml(accessLabel)}</td></tr>
+                <tr><td style="padding:10px 12px;font-weight:700;background:#f8fafc;">Username</td><td style="padding:10px 12px;">${escapeHtml(username)}</td></tr>
+            </table>
+            <p style="margin:0 0 18px;"><a href="${safeResetUrl}" style="display:inline-block;padding:12px 18px;background:#365f7a;color:#ffffff;text-decoration:none;font-weight:700;border-radius:6px;">Choose a new password</a></p>
+            <p style="margin:0 0 16px;padding:12px 14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;">This one-time link expires in ${escapeHtml(expiresInMinutes)} minutes. If you did not request this reset, ignore this email and your current password will remain unchanged.</p>
+            <p style="margin:0;">Need a different account? <a href="${safeSignupUrl}">Sign up or contact WMS365</a>.</p>
+            <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
+        </div>
+    `;
+}
+
+async function sendPortalPasswordResetEmail({ to, resetUrl, username, accountName = "" }) {
+    if (!hasSystemEmailConfig()) {
+        throw httpError(500, "Account recovery email is not configured. Contact support@wms365.co.");
+    }
+    const templateInput = {
+        accessLabel: "Customer Portal",
+        resetUrl,
+        username,
+        expiresInMinutes: PORTAL_PASSWORD_RESET_TTL_MINUTES,
+        signupUrl: buildMarketingSignupUrl()
+    };
+    return sendSystemEmail({
+        from: SMTP_FROM,
+        to,
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject: "Reset your WMS365 customer portal password",
+        text: buildPortalResetLinkEmailText(templateInput),
+        html: buildPortalResetLinkEmailHtml(templateInput),
+        emailContext: {
+            accountName,
+            sourceType: "PORTAL_PASSWORD_RESET_LINK",
+            sourceRef: username
+        }
+    }, "Account recovery email is not configured. Contact support@wms365.co.");
+}
+
 async function sendRecoveryEmail({ to, accessLabel, loginUrl, username, temporaryPassword = "", accountName = "", sourceType = "ACCESS_RECOVERY" }) {
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Account recovery email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
@@ -17908,7 +18389,8 @@ async function recoverPortalUsername(req) {
 
 async function recoverPortalPassword(req) {
     const email = getRecoveryEmailFromRequest(req);
-    const temporaryPassword = createRecoveryTemporaryPassword();
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashPortalSessionToken(resetToken);
     await withTransaction(async (client) => {
         const existing = await getPortalAccessByEmail(client, email);
         if (!portalAccessCanRecover(existing)) {
@@ -17919,22 +18401,81 @@ async function recoverPortalPassword(req) {
             throw createCompanyBillingHoldError(paywallStatus);
         }
         await client.query(
-            "update portal_vendor_access set password_hash = $2, updated_at = now() where id = $1",
-            [existing.id, hashPortalPassword(temporaryPassword)]
+            "delete from portal_password_reset_tokens where portal_access_id = $1 or expires_at <= now() or used_at is not null",
+            [existing.id]
         );
-        await client.query("delete from portal_sessions where portal_access_id = $1", [existing.id]);
-        const access = await getPortalAccessById(client, existing.id);
-        await sendRecoveryEmail({
+        await client.query(
+            `insert into portal_password_reset_tokens (portal_access_id, token_hash, expires_at)
+             values ($1, $2, now() + ($3::text || ' minutes')::interval)`,
+            [existing.id, tokenHash, String(PORTAL_PASSWORD_RESET_TTL_MINUTES)]
+        );
+        await sendPortalPasswordResetEmail({
             to: email,
-            accessLabel: "Customer Portal",
-            loginUrl: buildPortalLoginUrl(req),
-            username: access.email,
-            temporaryPassword,
-            accountName: access.account_name,
-            sourceType: "PORTAL_PASSWORD_RECOVERY"
+            resetUrl: buildPortalPasswordResetUrl(req, resetToken),
+            username: existing.email,
+            accountName: existing.account_name
         });
     });
-    return { success: true, message: "Temporary password email sent from support@wms365.co." };
+    return { success: true, message: "A secure password reset link has been sent from support@wms365.co. The link expires in 30 minutes." };
+}
+
+function validatePortalResetPassword(password) {
+    const value = String(password || "");
+    if (value.length < 12 || value.length > 128) {
+        throw httpError(400, "Your new password must be between 12 and 128 characters.");
+    }
+    if (!/[a-z]/.test(value) || !/[A-Z]/.test(value) || !/[0-9]/.test(value) || !/[^A-Za-z0-9]/.test(value)) {
+        throw httpError(400, "Your new password must include an uppercase letter, lowercase letter, number, and symbol.");
+    }
+    return value;
+}
+
+async function completePortalPasswordReset(req) {
+    const token = String(req.body?.token || "").trim();
+    if (!/^[a-f0-9]{64}$/i.test(token)) {
+        throw httpError(400, "This password reset link is invalid or has expired. Request a new link from the sign-in page.");
+    }
+    const password = validatePortalResetPassword(req.body?.password);
+    await withTransaction(async (client) => {
+        const result = await client.query(
+            `select
+                t.id as reset_id,
+                t.portal_access_id,
+                a.account_name,
+                a.email,
+                a.is_active,
+                a.portal_permissions,
+                o.feature_flags
+             from portal_password_reset_tokens t
+             join portal_vendor_access a on a.id = t.portal_access_id
+             left join owner_accounts o on o.name = a.account_name
+             where t.token_hash = $1
+               and t.used_at is null
+               and t.expires_at > now()
+             limit 1
+             for update of t`,
+            [hashPortalSessionToken(token)]
+        );
+        const reset = result.rows[0];
+        if (!reset || !portalAccessCanRecover(reset)) {
+            throw httpError(400, "This password reset link is invalid or has expired. Request a new link from the sign-in page.");
+        }
+        const paywallStatus = await getCompanyPaywallStatus(client, reset.account_name);
+        if (!isCompanyPaywallStatusAllowed(paywallStatus)) {
+            throw createCompanyBillingHoldError(paywallStatus);
+        }
+        await client.query(
+            "update portal_vendor_access set password_hash = $2, updated_at = now() where id = $1",
+            [reset.portal_access_id, hashPortalPassword(password)]
+        );
+        await client.query("update portal_password_reset_tokens set used_at = now() where id = $1", [reset.reset_id]);
+        await client.query(
+            "delete from portal_password_reset_tokens where portal_access_id = $1 and id <> $2",
+            [reset.portal_access_id, reset.reset_id]
+        );
+        await client.query("delete from portal_sessions where portal_access_id = $1", [reset.portal_access_id]);
+    });
+    return { success: true, message: "Your password has been reset. You can now sign in with your new password." };
 }
 
 function hasShipmentEmailConfig() {
@@ -21080,7 +21621,7 @@ function buildWarehouseOrderNotificationUrl() {
     return `${getAppActionOrigin()}/desktop?section=orders`;
 }
 
-function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
+function buildPortalReleaseEmailText(order, { testMode = false, testRequestedBy = "" } = {}) {
     const orderUrl = buildWarehouseOrderNotificationUrl();
     const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
     const isSplitFulfillment = fulfillmentGroups.length > 1;
@@ -21115,7 +21656,6 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
         formatPortalOrderShipToAddress(order) ? `Ship To: ${formatPortalOrderShipToAddress(order)}` : "",
         order.orderNotes ? `Order Notes: ${order.orderNotes}` : "",
         `Line Count: ${formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line")}`,
-        ccRecipients.length ? `CC Recipients: ${ccRecipients.join(", ")}` : "",
         "",
         ...ticketNoticeLines,
         "",
@@ -21126,7 +21666,7 @@ function buildPortalReleaseEmailText(order, { ccRecipients = [], testMode = fals
     return lines.filter((line, index, array) => line || (index > 0 && array[index - 1] !== "")).join("\n");
 }
 
-function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = false, testRequestedBy = "" } = {}) {
+function buildPortalReleaseEmailHtml(order, { testMode = false, testRequestedBy = "" } = {}) {
     const orderUrl = buildWarehouseOrderNotificationUrl();
     const lineCount = formatCount(Array.isArray(order.lines) ? order.lines.length : 0, "line");
     const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
@@ -21199,13 +21739,6 @@ function buildPortalReleaseEmailHtml(order, { ccRecipients = [], testMode = fals
                         <td colspan="2" style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;">
                             <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">Order Notes</div>
                             <div>${escapeHtml(order.orderNotes)}</div>
-                        </td>
-                    </tr>
-                ` : ""}
-                ${ccRecipients.length ? `
-                    <tr>
-                        <td colspan="2" style="padding:10px 12px;border:1px solid #e5e7eb;vertical-align:top;">
-                            <strong>CC:</strong> ${escapeHtml(ccRecipients.join(", "))}
                         </td>
                     </tr>
                 ` : ""}
@@ -21514,7 +22047,7 @@ async function getPortalOrderShipmentDocumentAttachments(orderId, client = pool)
         .filter((attachment) => attachment.fileName && attachment.fileBuffer);
 }
 
-async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPrefix = "", testMode = false, testRequestedBy = "" } = {}) {
+async function sendPortalOrderReleaseEmail(order, { bccRecipients = [], subjectPrefix = "", testMode = false, testRequestedBy = "" } = {}) {
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     }
@@ -21524,16 +22057,21 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
         throw httpError(400, "No warehouse notification email is configured. Assign an active warehouse user to this company, or set ORDER_RELEASE_TO or SMTP_REPLY_TO.");
     }
 
-    const normalizedCcRecipients = normalizeEmailList(ccRecipients).filter((email) => !recipients.includes(email));
+    const visibleRecipient = normalizeEmail(SMTP_REPLY_TO || SMTP_FROM);
+    if (!visibleRecipient) {
+        throw httpError(500, "A WMS365 service email address is required for private warehouse notifications.");
+    }
+    const normalizedBccRecipients = normalizeEmailList([...recipients, ...normalizeEmailList(bccRecipients)])
+        .filter((email) => email !== visibleRecipient);
     const attachments = testMode ? [] : buildPortalOrderPickTicketPdfAttachments(order);
     await sendSystemEmail({
         from: SMTP_FROM,
-        to: recipients.join(", "),
-        cc: normalizedCcRecipients.length ? normalizedCcRecipients.join(", ") : undefined,
+        to: visibleRecipient,
+        bcc: normalizedBccRecipients.join(", "),
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `${subjectPrefix || ""}Order Released - ${order.orderCode} - ${order.accountName}`,
-        text: buildPortalReleaseEmailText(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
-        html: buildPortalReleaseEmailHtml(order, { ccRecipients: normalizedCcRecipients, testMode, testRequestedBy }),
+        text: buildPortalReleaseEmailText(order, { testMode, testRequestedBy }),
+        html: buildPortalReleaseEmailHtml(order, { testMode, testRequestedBy }),
         attachments,
         emailContext: {
             accountName: order.accountName,
@@ -21544,7 +22082,7 @@ async function sendPortalOrderReleaseEmail(order, { ccRecipients = [], subjectPr
 
     return {
         recipients,
-        ccRecipients: normalizedCcRecipients,
+        bccRecipients: normalizedBccRecipients,
         attachments
     };
 }
@@ -22196,7 +22734,7 @@ function armPortalOrderReleaseEmailTimer(orderId, scheduledAt) {
     }
 }
 
-async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = [], actorLabel = "System", reason = "", delayMs = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS } = {}) {
+async function schedulePortalOrderReleaseEmailForSend(order, { bccRecipients = [], actorLabel = "System", reason = "", delayMs = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS } = {}) {
     if (!order?.id || !order?.accountName) {
         throw httpError(400, "A released order is required before scheduling a warehouse order notification.");
     }
@@ -22212,7 +22750,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
     const dueImmediately = normalizedDelayMs <= 0;
     const scheduledAt = new Date(Date.now() + normalizedDelayMs);
     let persistedScheduledAt = scheduledAt.toISOString();
-    const normalizedCcRecipients = normalizeEmailList(ccRecipients);
+    const normalizedBccRecipients = normalizeEmailList(bccRecipients);
     const orderLabel = order.orderCode || String(order.id);
     const actor = normalizeFreeText(actorLabel || "System");
     const note = [
@@ -22237,7 +22775,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
                   and status = 'RELEASED'
                 returning id, pick_ticket_email_scheduled_at
             `,
-            [order.id, order.accountName, scheduledAt.toISOString(), normalizedCcRecipients.join(","), actor, dueImmediately]
+            [order.id, order.accountName, scheduledAt.toISOString(), normalizedBccRecipients.join(","), actor, dueImmediately]
         );
         if (result.rowCount !== 1) {
             throw httpError(409, "The order must still be released before a warehouse order notification can be scheduled.");
@@ -22255,7 +22793,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
                 order.accountName,
                 dueImmediately ? "Due immediately" : `Due ${persistedScheduledAt}`,
                 recipients.join(", "),
-                normalizedCcRecipients.length ? `CC ${normalizedCcRecipients.join(", ")}` : "",
+                normalizedBccRecipients.length ? `BCC ${normalizedBccRecipients.join(", ")}` : "",
                 note,
                 actor
             ].filter(Boolean).join(" | ")
@@ -22269,7 +22807,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
                 scheduledAt: persistedScheduledAt,
                 delayMinutes: 0,
                 recipients: sendResult.recipients?.length ? sendResult.recipients : recipients,
-                ccRecipients: sendResult.ccRecipients?.length ? sendResult.ccRecipients : normalizedCcRecipients,
+                bccRecipients: sendResult.bccRecipients?.length ? sendResult.bccRecipients : normalizeEmailList([...recipients, ...normalizedBccRecipients]),
                 sent: true,
                 scheduled: false
             };
@@ -22282,7 +22820,7 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
             scheduledAt: persistedScheduledAt,
             delayMinutes: 0,
             recipients,
-            ccRecipients: normalizedCcRecipients,
+            bccRecipients: normalizeEmailList([...recipients, ...normalizedBccRecipients]),
             sent: false,
             scheduled: true,
             immediateAttemptReason: sendResult.reason || "not-sent"
@@ -22294,17 +22832,17 @@ async function schedulePortalOrderReleaseEmailForSend(order, { ccRecipients = []
         scheduledAt: persistedScheduledAt,
         delayMinutes: Math.round(normalizedDelayMs / 60000),
         recipients,
-        ccRecipients: normalizedCcRecipients,
+        bccRecipients: normalizeEmailList([...recipients, ...normalizedBccRecipients]),
         sent: false,
         scheduled: true
     };
 }
 
-function queuePortalOrderReleaseEmail(order, { ccRecipients = [], actorLabel = "System", reason = "" } = {}) {
+function queuePortalOrderReleaseEmail(order, { bccRecipients = [], actorLabel = "System", reason = "" } = {}) {
     if (!order?.id || !order?.accountName) return;
     const orderLabel = order.orderCode || String(order.id);
     const scheduleWithRetry = (attempt = 1) => {
-        void schedulePortalOrderReleaseEmailForSend(order, { ccRecipients, actorLabel, reason }).catch(async (error) => {
+        void schedulePortalOrderReleaseEmailForSend(order, { bccRecipients, actorLabel, reason }).catch(async (error) => {
             if (attempt < 5) {
                 setTimeout(() => scheduleWithRetry(attempt + 1), attempt * 1500);
                 return;
@@ -22378,8 +22916,8 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
             return { sent: false, reason: "status-changed" };
         }
 
-        const normalizedCcRecipients = normalizeEmailList(claim.pick_ticket_email_cc || "");
-        const emailResult = await sendPortalOrderReleaseEmail(order, { ccRecipients: normalizedCcRecipients });
+        const normalizedBccRecipients = normalizeEmailList(claim.pick_ticket_email_cc || "");
+        const emailResult = await sendPortalOrderReleaseEmail(order, { bccRecipients: normalizedBccRecipients });
         await withTransaction(async (client) => {
             await client.query(
                 `
@@ -22400,7 +22938,7 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
                 [
                     order.accountName,
                     `Sent to ${formatCount(emailResult.recipients.length, "recipient")}`,
-                    emailResult.ccRecipients.length ? `CC ${emailResult.ccRecipients.join(", ")}` : "",
+                    emailResult.bccRecipients.length ? `BCC ${emailResult.bccRecipients.join(", ")}` : "",
                     "Order remains RELEASED until warehouse marks it physically picked.",
                     claim.pick_ticket_email_requested_by || ""
                 ].filter(Boolean).join(" | ")
@@ -22410,7 +22948,7 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
             sent: true,
             orderCode: order.orderCode,
             recipients: emailResult.recipients,
-            ccRecipients: emailResult.ccRecipients
+            bccRecipients: emailResult.bccRecipients
         };
     } catch (error) {
         console.error(`Warehouse order notification failed for portal order ${normalizedOrderId}:`, error);
@@ -23070,7 +23608,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
 
     const updatedOrder = await getPortalOrderById(client, order.id, order.accountName);
     if (transitionToShipped) {
-        await createPortalOrderBillingEvents(client, updatedOrder);
+        updatedOrder.billingEventsCreated = await createPortalOrderBillingEvents(client, updatedOrder);
     }
     await insertActivity(
         client,
@@ -25499,6 +26037,13 @@ function portalPalletSizeBillingCode(sizeType) {
     return "STANDARD_PALLET_STORAGE";
 }
 
+function portalPalletSizeInboundBillingCode(sizeType) {
+    const normalized = normalizePortalPalletSizeType(sizeType);
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.OVERSIZE_40_48_85) return "OVERSIZED_PALLET_INBOUND";
+    if (normalized === PORTAL_PALLET_SIZE_TYPES.NON_STANDARD) return "NON_STANDARD_PALLET_INBOUND";
+    return "PALLET_RECEIVING_FEE";
+}
+
 function parsePortalPalletDimensionsFromNote(note = "") {
     const match = String(note || "").match(/(\d+(?:\.\d+)?)\s*(?:x|by)\s*(\d+(?:\.\d+)?)\s*(?:x|by)\s*(\d+(?:\.\d+)?)/i);
     if (!match) return null;
@@ -25848,9 +26393,6 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
     }
 
     const updatedInbound = await getPortalInboundById(client, inboundId);
-    if (nextStatus === "RECEIVED") {
-        await createPortalInboundBillingEvents(client, updatedInbound);
-    }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     await insertActivity(
         client,
@@ -25947,6 +26489,20 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
                 source: "web_admin"
             });
         }
+        await client.query(
+            `
+                update portal_inbound_pallet_labels
+                set
+                    pallet_status = 'RECEIVED',
+                    actual_quantity = coalesce(actual_quantity, expected_quantity),
+                    confirmed_by = case when btrim(coalesce(confirmed_by, '')) = '' then $2 else confirmed_by end,
+                    confirmed_at = coalesce(confirmed_at, now()),
+                    updated_at = now()
+                where inbound_id = $1
+                  and pallet_status = 'PLANNED'
+            `,
+            [inboundId, appUser?.full_name || appUser?.email || "Warehouse"]
+        );
     }
 
     await client.query(
@@ -25970,6 +26526,9 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     );
 
     const updatedInbound = await getPortalInboundById(client, inboundId);
+    if (nextStatus === "RECEIVED") {
+        updatedInbound.billingEventsCreated = await createPortalInboundBillingEvents(client, updatedInbound);
+    }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const statusNote = normalizeFreeText(details?.cancelReason || details?.reason || details?.note || details?.arrivalNote || "");
     await insertActivity(
@@ -28746,15 +29305,17 @@ async function upsertFulfillmentLocation(client, locationInput) {
                     contact_name = $6,
                     contact_email = $7,
                     contact_phone = $8,
-                    address1 = $9,
-                    address2 = $10,
-                    city = $11,
-                    state = $12,
-                    postal_code = $13,
-                    country = $14,
-                    note = $15,
-                    is_active = $16,
-                    is_default = $17,
+                    billing_contact_name = $9,
+                    billing_contact_email = $10,
+                    address1 = $11,
+                    address2 = $12,
+                    city = $13,
+                    state = $14,
+                    postal_code = $15,
+                    country = $16,
+                    note = $17,
+                    is_active = $18,
+                    is_default = $19,
                     updated_at = now()
                 where id = $1
                 returning *
@@ -28768,6 +29329,8 @@ async function upsertFulfillmentLocation(client, locationInput) {
                 entry.contactName,
                 entry.contactEmail,
                 entry.contactPhone,
+                entry.billingContactName,
+                entry.billingContactEmail,
                 entry.address1,
                 entry.address2,
                 entry.city,
@@ -28786,11 +29349,13 @@ async function upsertFulfillmentLocation(client, locationInput) {
         `
             insert into fulfillment_locations (
                 code, name, partner_name, location_type, contact_name, contact_email, contact_phone,
+                billing_contact_name, billing_contact_email,
                 address1, address2, city, state, postal_code, country, note, is_active, is_default
             )
             values (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12, $13, $14, $15, $16
+                $8, $9,
+                $10, $11, $12, $13, $14, $15, $16, $17, $18
             )
             on conflict (code)
             do update set
@@ -28800,6 +29365,8 @@ async function upsertFulfillmentLocation(client, locationInput) {
                 contact_name = excluded.contact_name,
                 contact_email = excluded.contact_email,
                 contact_phone = excluded.contact_phone,
+                billing_contact_name = excluded.billing_contact_name,
+                billing_contact_email = excluded.billing_contact_email,
                 address1 = excluded.address1,
                 address2 = excluded.address2,
                 city = excluded.city,
@@ -28820,6 +29387,8 @@ async function upsertFulfillmentLocation(client, locationInput) {
             entry.contactName,
             entry.contactEmail,
             entry.contactPhone,
+            entry.billingContactName,
+            entry.billingContactEmail,
             entry.address1,
             entry.address2,
             entry.city,
@@ -31029,6 +31598,8 @@ function sanitizeFulfillmentLocationInput(item) {
         contactName: normalizeFreeText(item?.contactName || item?.contact_name),
         contactEmail: normalizeEmail(item?.contactEmail || item?.contact_email || item?.email),
         contactPhone: normalizeFreeText(item?.contactPhone || item?.contact_phone || item?.phone),
+        billingContactName: normalizeFreeText(item?.billingContactName || item?.billing_contact_name || DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME),
+        billingContactEmail: normalizeEmail(item?.billingContactEmail || item?.billing_contact_email || DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL) || DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL,
         address1: normalizeFreeText(item?.address1 || item?.address_1),
         address2: normalizeFreeText(item?.address2 || item?.address_2),
         city: normalizeFreeText(item?.city),
@@ -31452,6 +32023,8 @@ function mapFulfillmentLocationRow(row) {
         contactName: row.contact_name || "",
         contactEmail: row.contact_email || "",
         contactPhone: row.contact_phone || "",
+        billingContactName: row.billing_contact_name || DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
+        billingContactEmail: row.billing_contact_email || DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL,
         address1: row.address1 || row.address_1 || "",
         address2: row.address2 || row.address_2 || "",
         city: row.city || "",
@@ -31938,6 +32511,8 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
             .filter((document) => !isPortalOrderReleaseCopyDocument(document))
             .map((document) => mapPortalOrderDocumentRow(document, downloadPathPrefix))
     };
+    mappedOrder.stockWarnings = buildPortalOrderStockWarnings(lines, { status: mappedOrder.status });
+    mappedOrder.hasStockShortage = mappedOrder.stockWarnings.length > 0;
     mappedOrder.processingTiming = buildPortalOrderProcessingTiming(mappedOrder);
     mappedOrder.expectedReadyAt = mappedOrder.processingTiming.expectedReadyAt;
     mappedOrder.expectedReadyDate = mappedOrder.processingTiming.expectedReadyDate;
@@ -31960,6 +32535,31 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         };
     });
     return mappedOrder;
+}
+
+function buildPortalOrderStockWarnings(lines = [], { status = "DRAFT" } = {}) {
+    if (normalizePortalOrderStatus(status) !== "DRAFT") return [];
+    const bySku = new Map();
+    for (const line of Array.isArray(lines) ? lines : []) {
+        const sku = normalizeText(line?.sku || "");
+        if (!sku) continue;
+        if (!bySku.has(sku)) {
+            bySku.set(sku, {
+                sku,
+                requestedQuantity: 0,
+                availableQuantity: Math.max(Number(line?.availableQuantity ?? line?.available_quantity) || 0, 0),
+                trackingLevel: normalizeTrackingLevel(line?.trackingLevel || line?.tracking_level || "UNIT")
+            });
+        }
+        bySku.get(sku).requestedQuantity += Math.max(Number(line?.quantity ?? line?.requested_quantity) || 0, 0);
+    }
+    return [...bySku.values()]
+        .filter((entry) => entry.requestedQuantity > entry.availableQuantity)
+        .map((entry) => ({
+            ...entry,
+            shortQuantity: entry.requestedQuantity - entry.availableQuantity,
+            message: `Insufficient pickable stock for SKU ${entry.sku}: requested ${formatTrackedQuantity(entry.requestedQuantity, entry.trackingLevel)}, available ${formatTrackedQuantity(entry.availableQuantity, entry.trackingLevel)}. Save as draft is allowed, but release is blocked until stock is available.`
+        }));
 }
 
 function mapPortalOrderPrintSummaryRows(rows = []) {
@@ -34969,6 +35569,7 @@ function isPublicRequest(req) {
     if (pathName === "/industry-ecommerce-scene.svg") return true;
     if (pathName === "/industry-lot-control-scene.svg") return true;
     if (pathName === "/marketing.css" || pathName === "/marketing.js") return true;
+    if (pathName === "/wms365-i18n.js") return true;
     if (pathName === "/device-profiles.json") return true;
     if (pathName === "/login" || pathName === "/login.html") return true;
     if (pathName === "/portal" || pathName === "/portal.html") return true;
@@ -35225,10 +35826,19 @@ module.exports = {
     extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
     buildPortalShipmentEmailHtml,
+    buildWarehouseBillingActivityEmailText,
+    buildWarehouseBillingActivityEmailHtml,
+    DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
+    DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL,
     buildPortalReleaseEmailText,
     buildPortalReleaseEmailHtml,
     buildPortalOrderConfirmationEmailText,
     buildPortalOrderConfirmationEmailHtml,
+    buildPortalOrderStockWarnings,
+    buildPortalPasswordResetUrl,
+    buildPortalResetLinkEmailText,
+    buildPortalResetLinkEmailHtml,
+    validatePortalResetPassword,
     normalizePortalOrderPrintDocumentType,
     mapPortalOrderPrintSummaryRows,
     recordPortalOrderPrintEvent,
@@ -35240,6 +35850,9 @@ module.exports = {
     normalizePortalPalletSizeType,
     sanitizePortalPalletSizeInput,
     portalPalletSizeBillingCode,
+    portalPalletSizeInboundBillingCode,
+    buildPortalInboundPalletBillingRollups,
+    createPortalInboundBillingEvents,
     assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
     buildPortalOrderProcessingTiming,

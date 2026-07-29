@@ -39,7 +39,7 @@ const sampleReleasedOrder = {
 
 test("warehouse release email is notification-only without pick lines or document filenames", () => {
     const text = buildPortalReleaseEmailText(sampleReleasedOrder, {
-        ccRecipients: ["warehouse@example.com"],
+        bccRecipients: ["warehouse@example.com"],
         orderDocumentAttachments: [{ filename: "customer-label.pdf" }]
     });
     const html = buildPortalReleaseEmailHtml(sampleReleasedOrder, {
@@ -73,5 +73,17 @@ test("customer portal release notification defaults to immediate warehouse email
     assert.match(portalSource, /email the warehouse team right away/i);
     assert.match(portalSource, /immediately after release/i);
     assert.doesNotMatch(portalSource, /30-minute review window/i);
-    assert.doesNotMatch(portalSource, /after 30 minutes/i);
+});
+
+test("warehouse release notifications keep every operational recipient private with BCC", () => {
+    const serverSource = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    const releaseEmailFunction = serverSource.slice(
+        serverSource.indexOf("async function sendPortalOrderReleaseEmail"),
+        serverSource.indexOf("async function hasPortalOrderConfirmationEmailSent")
+    );
+
+    assert.match(releaseEmailFunction, /to:\s*visibleRecipient/);
+    assert.match(releaseEmailFunction, /bcc:\s*normalizedBccRecipients\.join/);
+    assert.doesNotMatch(releaseEmailFunction, /\bcc:/);
+    assert.doesNotMatch(releaseEmailFunction, /CC Recipients|<strong>CC:/);
 });

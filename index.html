@@ -7692,6 +7692,8 @@
                                 <label class="field"><span>Postal / ZIP</span><input id="fulfillmentLocationPostalCode" type="text" placeholder="Postal or ZIP" enterkeyhint="next"></label>
                                 <label class="field"><span>Country</span><input id="fulfillmentLocationCountry" type="text" placeholder="Country" enterkeyhint="next"></label>
                                 <label class="field"><span>Contact Email</span><input id="fulfillmentLocationContactEmail" type="email" placeholder="Warehouse contact email" enterkeyhint="next"></label>
+                                <label class="field"><span>Billing Contact</span><input id="fulfillmentLocationBillingContactName" type="text" placeholder="Venkatesh Suresh" enterkeyhint="next"></label>
+                                <label class="field"><span>Billing Email</span><input id="fulfillmentLocationBillingContactEmail" type="email" placeholder="billing@greywolf3pl.com" enterkeyhint="next"></label>
                                 <label class="field"><span>Status</span><select id="fulfillmentLocationActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
                                 <label class="field span-2"><span>Note</span><input id="fulfillmentLocationNote" type="text" placeholder="Optional notes for routing, docks, carrier pickup, etc." enterkeyhint="done"></label>
                                 <div class="button-row span-2">
@@ -11158,6 +11160,8 @@
             fulfillmentLocationPostalCode: document.getElementById("fulfillmentLocationPostalCode"),
             fulfillmentLocationCountry: document.getElementById("fulfillmentLocationCountry"),
             fulfillmentLocationContactEmail: document.getElementById("fulfillmentLocationContactEmail"),
+            fulfillmentLocationBillingContactName: document.getElementById("fulfillmentLocationBillingContactName"),
+            fulfillmentLocationBillingContactEmail: document.getElementById("fulfillmentLocationBillingContactEmail"),
             fulfillmentLocationActive: document.getElementById("fulfillmentLocationActive"),
             fulfillmentLocationNote: document.getElementById("fulfillmentLocationNote"),
             companyFulfillmentAccount: document.getElementById("companyFulfillmentAccount"),
@@ -21805,6 +21809,27 @@
             return fulfillmentCode ? `${fulfillmentCode}-REC` : "RECEIVING-STAGE";
         }
 
+        function normalizeInboundPalletSizeType(value) {
+            const normalized = norm(value || "").replace(/[\s-]+/g, "_");
+            if (["OVERSIZE", "OVERSIZED", "OVERSIZE_40_48_85", "OVERSIZED_40_48_85", "40X48X85", "40_48_85"].includes(normalized)) return "OVERSIZE_40_48_85";
+            if (["NON_STANDARD", "NONSTANDARD", "CUSTOM", "OTHER", "SPECIAL"].includes(normalized)) return "NON_STANDARD";
+            return "STANDARD_40_48_55";
+        }
+
+        function inboundPalletSizeLabel(value) {
+            const sizeType = normalizeInboundPalletSizeType(value);
+            if (sizeType === "OVERSIZE_40_48_85") return "Oversize 40 x 48 x 85";
+            if (sizeType === "NON_STANDARD") return "Non-standard";
+            return "Standard 40 x 48 x 55";
+        }
+
+        function formatInboundFulfillmentLocation(inbound = {}) {
+            return [
+                inbound.fulfillmentLocationName,
+                inbound.fulfillmentLocationCode ? `(${inbound.fulfillmentLocationCode})` : ""
+            ].filter(Boolean).join(" ") || getInboundReceivingStageLocation(inbound);
+        }
+
         function renderWarehouseInboundWorkflow(inbound = null) {
             if (!ui.warehouseInboundWorkflowPanel) return;
             if (!inbound?.id) {
@@ -21820,6 +21845,7 @@
             const isCancelled = inbound.status === "CANCELLED";
             const statusClass = inboundStatusPillClass(inbound.status);
             const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
+            const palletLabels = Array.isArray(inbound.palletLabels) ? inbound.palletLabels : [];
             const lineRows = inbound.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
@@ -21879,6 +21905,7 @@
                     </div>
                     <div class="erp-document-process-actions">
                         <button class="btn ghost mini" type="button" data-print-receiving-document="${attr(inbound.id)}">Print Receiving Document</button>
+                        ${palletLabels.length ? `<button class="btn ghost mini" type="button" data-print-inbound-pallet-labels="${attr(inbound.id)}">Print Pallet Labels (${esc(num(palletLabels.length))})</button>` : ""}
                         ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Check In Freight</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
                         ${needsPutaway ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="PUTAWAY_COMPLETE">Mark Putaway Complete</button>` : ""}
@@ -22061,6 +22088,84 @@
             } catch (error) {
                 console.error("Receiving document print window error", error);
                 showMessage(messageElement, "Unable to open the receiving print view.", "error");
+            }
+        }
+
+        function buildWarehouseInboundPalletLabelMarkup(label, inbound, { printable = false } = {}) {
+            const palletCode = norm(label?.palletCode || label?.pallet_code || "");
+            if (!palletCode) return "";
+            const isMixed = label?.isMixed === true || norm(label?.palletType || label?.pallet_type || "") === "MIXED";
+            const sku = isMixed ? "MIXED PALLET" : norm(label?.sku || "");
+            const description = isMixed
+                ? "Mixed pallet"
+                : String(label?.description || "").trim().replace(/\s+/g, " ") || "NO DESCRIPTION";
+            const cases = Number(label?.cases ?? label?.casesOnPallet ?? label?.cases_on_pallet ?? 0) || 0;
+            const expectedQuantity = Number(label?.expectedQuantity ?? label?.expected_quantity ?? 0) || 0;
+            const palletSizeLabel = label?.palletSizeLabel || inboundPalletSizeLabel(label?.palletSizeType || label?.pallet_size_type || "");
+            const warehouseName = formatInboundFulfillmentLocation(inbound);
+            const barcodeMarkup = buildCode39Svg(palletCode, printable ? { height: 54, narrow: 2, wide: 5 } : { height: 42, narrow: 2, wide: 4 });
+            return `
+                <div class="${printable ? "label-card" : "pallet-label-card"}">
+                    <div class="pallet-print-label">
+                        <div class="pallet-label-code-row">
+                            <p class="pallet-label-code">${esc(palletCode)}</p>
+                            <span class="pallet-label-location">${esc(inbound.inboundCode || "")}</span>
+                        </div>
+                        <div class="pallet-label-barcode">${barcodeMarkup}</div>
+                        <p class="pallet-label-vendor">${esc(inbound.accountName || "")}</p>
+                        <p class="pallet-label-sku">${esc(sku)}</p>
+                        <p class="pallet-label-description">${esc(description)}</p>
+                        <div class="pallet-label-footer">
+                            <div class="pallet-label-stat"><span>Cases</span><strong>${esc(num(cases))}</strong></div>
+                            <div class="pallet-label-stat"><span>Expected Qty</span><strong>${esc(num(expectedQuantity))}</strong></div>
+                            <div class="pallet-label-stat"><span>Size</span><strong>${esc(palletSizeLabel)}</strong></div>
+                            <div class="pallet-label-stat"><span>Warehouse</span><strong>${esc(warehouseName)}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function printWarehouseInboundPalletLabels(inbound, messageElement = ui.warehouseInboundMessage) {
+            const labels = Array.isArray(inbound?.palletLabels) ? inbound.palletLabels : [];
+            if (!inbound?.id) {
+                showMessage(messageElement, "Open a purchase order before printing pallet labels.", "error");
+                return;
+            }
+            if (!labels.length) {
+                showMessage(messageElement, "No pallet labels are saved for this purchase order yet.", "error");
+                return;
+            }
+            const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(inbound.inboundCode || "Inbound")} Pallet Labels</title><style>
+                *{box-sizing:border-box}html,body{background:#fff;margin:0;padding:0;width:6in;font-family:Arial,sans-serif;color:#111827}.labels{display:block;width:6in}.label-card{width:6in;height:4in;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always;overflow:hidden}.label-card:last-child{break-after:auto;page-break-after:auto}.pallet-print-label{width:6in;height:4in;margin:0;background:#fff;overflow:hidden;display:grid;grid-template-rows:auto auto auto 1fr auto;padding:.22in .24in;gap:.12in}.pallet-label-code-row{display:flex;justify-content:space-between;gap:.16in;align-items:baseline}.pallet-label-code{margin:0;font-size:.18in;font-weight:900;letter-spacing:.05in;text-transform:uppercase}.pallet-label-location{font-size:.14in;font-weight:800;color:#4b5563;text-transform:uppercase;text-align:right}.pallet-label-barcode{width:100%;min-height:.7in;display:flex;align-items:center;justify-content:center}.pallet-label-barcode svg{width:100%;height:auto;display:block}.pallet-label-vendor{margin:0;font-size:.28in;font-weight:900;line-height:1.05;text-transform:uppercase}.pallet-label-sku{margin:0;font-size:.54in;font-weight:900;line-height:.95;letter-spacing:0;text-transform:uppercase;word-break:break-word}.pallet-label-description{margin:0;font-size:.2in;line-height:1.25;color:#374151;overflow:hidden}.pallet-label-footer{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.1in;align-items:stretch}.pallet-label-stat{padding:.08in;border-radius:.06in;background:#f5f8fb;border:1px solid #d7e0e8;display:grid;gap:.03in}.pallet-label-stat span{font-size:.09in;font-weight:800;letter-spacing:0;text-transform:uppercase;color:#6b7280}.pallet-label-stat strong{font-size:.16in;line-height:1.1;overflow-wrap:anywhere}@page{size:4in 6in landscape;margin:0}
+            </style></head><body><div class="labels">${labels.map((label) => buildWarehouseInboundPalletLabelMarkup(label, inbound, { printable: true })).join("")}</div></body></html>`;
+            const printWindow = window.open("", "_blank", "width=980,height=720");
+            if (!printWindow) {
+                showMessage(messageElement, "Allow pop-ups to print pallet labels.", "error");
+                return;
+            }
+            try {
+                printWindow.document.open();
+                printWindow.document.write(html);
+                printWindow.document.close();
+                const triggerPrint = () => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch (error) {
+                        console.error("Pallet label print failed", error);
+                    }
+                };
+                if (printWindow.document.readyState === "complete") {
+                    setTimeout(triggerPrint, 150);
+                } else {
+                    printWindow.addEventListener("load", () => setTimeout(triggerPrint, 150), { once: true });
+                    setTimeout(triggerPrint, 600);
+                }
+                showMessage(messageElement, `Opened ${num(labels.length)} pallet label${labels.length === 1 ? "" : "s"} for printing.`, "success");
+            } catch (error) {
+                console.error("Pallet label print window error", error);
+                showMessage(messageElement, "Unable to open the pallet label print view.", "error");
             }
         }
 
@@ -22820,6 +22925,16 @@
                 if (inbound) {
                     printPortalInboundReceivingDocument(inbound, ui.warehouseInboundMessage);
                     printReceivingButton.blur?.();
+                }
+                return;
+            }
+
+            const printPalletLabelsButton = event.target.closest("[data-print-inbound-pallet-labels]");
+            if (printPalletLabelsButton) {
+                const inbound = getPortalInboundRecordById(printPalletLabelsButton.dataset.printInboundPalletLabels || "");
+                if (inbound) {
+                    printWarehouseInboundPalletLabels(inbound, ui.warehouseInboundMessage);
+                    printPalletLabelsButton.blur?.();
                 }
                 return;
             }
@@ -24662,6 +24777,8 @@
                 postalCode: ui.fulfillmentLocationPostalCode?.value,
                 country: ui.fulfillmentLocationCountry?.value,
                 contactEmail: ui.fulfillmentLocationContactEmail?.value,
+                billingContactName: ui.fulfillmentLocationBillingContactName?.value,
+                billingContactEmail: ui.fulfillmentLocationBillingContactEmail?.value,
                 isActive: ui.fulfillmentLocationActive?.value !== "false",
                 note: ui.fulfillmentLocationNote?.value
             };
@@ -25594,6 +25711,8 @@
             if (ui.fulfillmentLocationPostalCode) ui.fulfillmentLocationPostalCode.value = entry.postalCode || "";
             if (ui.fulfillmentLocationCountry) ui.fulfillmentLocationCountry.value = entry.country || "";
             if (ui.fulfillmentLocationContactEmail) ui.fulfillmentLocationContactEmail.value = entry.contactEmail || "";
+            if (ui.fulfillmentLocationBillingContactName) ui.fulfillmentLocationBillingContactName.value = entry.billingContactName || "";
+            if (ui.fulfillmentLocationBillingContactEmail) ui.fulfillmentLocationBillingContactEmail.value = entry.billingContactEmail || "";
             if (ui.fulfillmentLocationActive) ui.fulfillmentLocationActive.value = entry.isActive === false ? "false" : "true";
             if (ui.fulfillmentLocationNote) ui.fulfillmentLocationNote.value = entry.note || "";
             ui.fulfillmentLocationCode?.focus();
@@ -28928,6 +29047,8 @@
                 contactName: String(item?.contactName || item?.contact_name || "").trim().replace(/\s+/g, " "),
                 contactEmail: norm(String(item?.contactEmail || item?.contact_email || item?.email || "").toLowerCase()),
                 contactPhone: String(item?.contactPhone || item?.contact_phone || item?.phone || "").trim().replace(/\s+/g, " "),
+                billingContactName: String(item?.billingContactName || item?.billing_contact_name || "").trim().replace(/\s+/g, " "),
+                billingContactEmail: norm(String(item?.billingContactEmail || item?.billing_contact_email || "").toLowerCase()),
                 address1: String(item?.address1 || item?.address_1 || "").trim().replace(/\s+/g, " "),
                 address2: String(item?.address2 || item?.address_2 || "").trim().replace(/\s+/g, " "),
                 city: String(item?.city || "").trim().replace(/\s+/g, " "),
@@ -29210,6 +29331,36 @@
             };
         }
 
+        function sanitizePortalInboundPalletLabelRecord(label) {
+            const palletCode = norm(label?.palletCode || label?.pallet_code || "");
+            if (!palletCode) return null;
+            const palletSizeType = normalizeInboundPalletSizeType(label?.palletSizeType || label?.pallet_size_type || "");
+            const palletType = norm(label?.palletType || label?.pallet_type || (label?.isMixed || label?.is_mixed ? "MIXED" : "SINGLE_SKU"));
+            return {
+                id: String(label?.id || "").trim(),
+                palletCode,
+                lineId: String(label?.lineId || label?.line_id || "").trim(),
+                lineNumber: Number(label?.lineNumber || label?.line_number || 0) || 0,
+                sku: norm(label?.sku || ""),
+                upc: String(label?.upc || "").trim(),
+                description: String(label?.description || "").trim().replace(/\s+/g, " "),
+                cases: Number(label?.cases ?? label?.casesOnPallet ?? label?.cases_on_pallet ?? 0) || 0,
+                expectedQuantity: Number(label?.expectedQuantity ?? label?.expected_quantity ?? 0) || 0,
+                palletType: palletType || "SINGLE_SKU",
+                palletStatus: norm(label?.palletStatus || label?.pallet_status || "PLANNED"),
+                isMixed: label?.isMixed === true || label?.is_mixed === true || palletType === "MIXED",
+                billable: label?.billable === true,
+                palletSizeType,
+                palletSizeLabel: String(label?.palletSizeLabel || label?.pallet_size_label || inboundPalletSizeLabel(palletSizeType)),
+                palletSizeNote: String(label?.palletSizeNote || label?.pallet_size_note || "").trim(),
+                actualQuantity: label?.actualQuantity == null && label?.actual_quantity == null ? null : Number(label?.actualQuantity ?? label?.actual_quantity ?? 0) || 0,
+                confirmedBy: String(label?.confirmedBy || label?.confirmed_by || "").trim(),
+                confirmedAt: typeof label?.confirmedAt === "string" ? label.confirmedAt : (typeof label?.confirmed_at === "string" ? label.confirmed_at : null),
+                labelDate: String(label?.labelDate || label?.label_date || "").trim(),
+                contents: Array.isArray(label?.contents) ? label.contents : []
+            };
+        }
+
         function sanitizePortalInboundRecord(item) {
             const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
             if (!item?.id || !accountName) return null;
@@ -29220,6 +29371,10 @@
                 status: String(item.status || "SUBMITTED").trim().toUpperCase(),
                 referenceNumber: String(item.referenceNumber || item.reference_number || item.poNumber || "").trim(),
                 carrierName: String(item.carrierName || item.carrier_name || "").trim(),
+                fulfillmentLocationId: String(item.fulfillmentLocationId || item.fulfillment_location_id || "").trim(),
+                fulfillmentLocationCode: String(item.fulfillmentLocationCode || item.fulfillment_location_code || "").trim(),
+                fulfillmentLocationName: String(item.fulfillmentLocationName || item.fulfillment_location_name || "").trim(),
+                fulfillmentPartnerName: String(item.fulfillmentPartnerName || item.fulfillment_partner_name || "").trim(),
                 expectedDate: String(item.expectedDate || item.expected_date || "").trim(),
                 arrivedAt: typeof item.arrivedAt === "string" ? item.arrivedAt : (typeof item.arrived_at === "string" ? item.arrived_at : null),
                 arrivedBy: String(item.arrivedBy || item.arrived_by || "").trim(),
@@ -29247,7 +29402,10 @@
                     trackingLevel: normalizeTrackingLevel(line?.trackingLevel || line?.tracking_level || "UNIT"),
                     lotTracked: line?.lotTracked === true || line?.lot_tracked === true,
                     expirationTracked: line?.expirationTracked === true || line?.expiration_tracked === true
-                })).filter((line) => line.sku && line.quantity > 0) : []
+                })).filter((line) => line.sku && line.quantity > 0) : [],
+                palletLabels: Array.isArray(item.palletLabels || item.pallet_labels)
+                    ? (item.palletLabels || item.pallet_labels).map(sanitizePortalInboundPalletLabelRecord).filter(Boolean)
+                    : []
             };
         }
 
@@ -30003,6 +30161,7 @@
                 fulfillmentLocationTypeLabel(entry.locationType),
                 entry.partnerName,
                 formatFulfillmentAddress(entry),
+                entry.billingContactEmail ? `Billing ${entry.billingContactName ? `${entry.billingContactName} | ` : ""}${entry.billingContactEmail}` : "",
                 entry.isDefault ? "Default" : "",
                 entry.isActive === false ? "Inactive" : "Active"
             ].filter(Boolean).join(" | ") || "Saved fulfillment location";
@@ -30598,5 +30757,6 @@
         ensureMobileAppbarBranding();
         new MutationObserver(ensureMobileAppbarBranding).observe(document.body, { childList: true, subtree: true });
 </script>
+<script src="/wms365-i18n.js"></script>
 </body>
 </html>
