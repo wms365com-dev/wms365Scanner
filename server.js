@@ -154,6 +154,7 @@ const APP_SESSION_COOKIE = "wms365_app_session";
 const PORTAL_SESSION_TTL_DAYS = 14;
 const APP_SESSION_TTL_DAYS = 14;
 const PORTAL_PASSWORD_RESET_TTL_MINUTES = 30;
+const PORTAL_RECOVERY_GENERIC_MESSAGE = "If a customer portal account exists for this email, a recovery email will be sent shortly. Please check your inbox and spam folder.";
 const PORTAL_SESSION_MAX_AGE = PORTAL_SESSION_TTL_DAYS * 24 * 60 * 60;
 const APP_SESSION_MAX_AGE = APP_SESSION_TTL_DAYS * 24 * 60 * 60;
 const NODE_ENV = normalizeFreeText(readEnv("NODE_ENV", "development")).toLowerCase();
@@ -18142,11 +18143,8 @@ function getRecoveryEmailFromRequest(req) {
     return email;
 }
 
-function noRegisteredUserRecoveryError(userType = "user") {
-    const supportMessage = "No registered WMS365 user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.";
-    return httpError(404, userType === "portal"
-        ? `No registered customer portal user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.`
-        : supportMessage);
+function noRegisteredUserRecoveryError() {
+    return httpError(404, "No registered WMS365 warehouse user was found. Contact support@wms365.co for assistance.");
 }
 
 function portalAccessCanRecover(row) {
@@ -18229,6 +18227,23 @@ function buildRecoveryPasswordEmailHtml({ accessLabel, loginUrl, username, tempo
             <p style="margin:16px 0 0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
         </div>
     `;
+}
+
+function buildPortalRecoveryGenericResponse() {
+    return {
+        success: true,
+        message: PORTAL_RECOVERY_GENERIC_MESSAGE
+    };
+}
+
+function queuePrivatePortalRecovery(label, work) {
+    setImmediate(() => {
+        Promise.resolve()
+            .then(work)
+            .catch((error) => {
+                console.error(`Private customer portal recovery failed (${label}):`, error?.message || error);
+            });
+    });
 }
 
 function buildPortalResetLinkEmailText({ accessLabel, resetUrl, username, expiresInMinutes, signupUrl }) {
@@ -18368,55 +18383,53 @@ async function recoverWarehousePassword(req) {
 
 async function recoverPortalUsername(req) {
     const email = getRecoveryEmailFromRequest(req);
-    const access = await getPortalAccessByEmail(pool, email);
-    if (!portalAccessCanRecover(access)) {
-        throw noRegisteredUserRecoveryError("portal");
-    }
-    const paywallStatus = await getCompanyPaywallStatus(pool, access.account_name);
-    if (!isCompanyPaywallStatusAllowed(paywallStatus)) {
-        throw createCompanyBillingHoldError(paywallStatus);
-    }
-    await sendRecoveryEmail({
-        to: email,
-        accessLabel: "Customer Portal",
-        loginUrl: buildPortalLoginUrl(req),
-        username: access.email,
-        accountName: access.account_name,
-        sourceType: "PORTAL_USERNAME_RECOVERY"
+    const loginUrl = buildPortalLoginUrl(req);
+    queuePrivatePortalRecovery("username", async () => {
+        const access = await getPortalAccessByEmail(pool, email);
+        if (!portalAccessCanRecover(access)) return;
+        const paywallStatus = await getCompanyPaywallStatus(pool, access.account_name);
+        if (!isCompanyPaywallStatusAllowed(paywallStatus)) return;
+        await sendRecoveryEmail({
+            to: email,
+            accessLabel: "Customer Portal",
+            loginUrl,
+            username: access.email,
+            accountName: access.account_name,
+            sourceType: "PORTAL_USERNAME_RECOVERY"
+        });
     });
-    return { success: true, message: "Username recovery email sent from support@wms365.co." };
+    return buildPortalRecoveryGenericResponse();
 }
 
 async function recoverPortalPassword(req) {
     const email = getRecoveryEmailFromRequest(req);
     const resetToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashPortalSessionToken(resetToken);
-    await withTransaction(async (client) => {
-        const existing = await getPortalAccessByEmail(client, email);
-        if (!portalAccessCanRecover(existing)) {
-            throw noRegisteredUserRecoveryError("portal");
-        }
-        const paywallStatus = await getCompanyPaywallStatus(client, existing.account_name);
-        if (!isCompanyPaywallStatusAllowed(paywallStatus)) {
-            throw createCompanyBillingHoldError(paywallStatus);
-        }
-        await client.query(
-            "delete from portal_password_reset_tokens where portal_access_id = $1 or expires_at <= now() or used_at is not null",
-            [existing.id]
-        );
-        await client.query(
-            `insert into portal_password_reset_tokens (portal_access_id, token_hash, expires_at)
-             values ($1, $2, now() + ($3::text || ' minutes')::interval)`,
-            [existing.id, tokenHash, String(PORTAL_PASSWORD_RESET_TTL_MINUTES)]
-        );
-        await sendPortalPasswordResetEmail({
-            to: email,
-            resetUrl: buildPortalPasswordResetUrl(req, resetToken),
-            username: existing.email,
-            accountName: existing.account_name
+    const resetUrl = buildPortalPasswordResetUrl(req, resetToken);
+    queuePrivatePortalRecovery("password", async () => {
+        await withTransaction(async (client) => {
+            const existing = await getPortalAccessByEmail(client, email);
+            if (!portalAccessCanRecover(existing)) return;
+            const paywallStatus = await getCompanyPaywallStatus(client, existing.account_name);
+            if (!isCompanyPaywallStatusAllowed(paywallStatus)) return;
+            await client.query(
+                "delete from portal_password_reset_tokens where portal_access_id = $1 or expires_at <= now() or used_at is not null",
+                [existing.id]
+            );
+            await client.query(
+                `insert into portal_password_reset_tokens (portal_access_id, token_hash, expires_at)
+                 values ($1, $2, now() + ($3::text || ' minutes')::interval)`,
+                [existing.id, tokenHash, String(PORTAL_PASSWORD_RESET_TTL_MINUTES)]
+            );
+            await sendPortalPasswordResetEmail({
+                to: email,
+                resetUrl,
+                username: existing.email,
+                accountName: existing.account_name
+            });
         });
     });
-    return { success: true, message: "A secure password reset link has been sent from support@wms365.co. The link expires in 30 minutes." };
+    return buildPortalRecoveryGenericResponse();
 }
 
 function validatePortalResetPassword(password) {
@@ -35836,6 +35849,7 @@ module.exports = {
     buildPortalOrderConfirmationEmailHtml,
     buildPortalOrderStockWarnings,
     buildPortalPasswordResetUrl,
+    buildPortalRecoveryGenericResponse,
     buildPortalResetLinkEmailText,
     buildPortalResetLinkEmailHtml,
     validatePortalResetPassword,

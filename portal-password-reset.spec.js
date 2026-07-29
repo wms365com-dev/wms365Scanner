@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const {
     buildPortalResetLinkEmailHtml,
     buildPortalResetLinkEmailText,
+    buildPortalRecoveryGenericResponse,
     validatePortalResetPassword
 } = require("./server");
 
@@ -44,4 +45,13 @@ test("password reset email uses a one-time link and never includes a temporary p
     assert.match(text, /reset_token=abc123/);
     assert.match(html, /Choose a new password/);
     assert.doesNotMatch(`${text}${html}`, /Temporary password:/i);
+});
+
+test("customer portal recovery response never confirms whether an account exists", () => {
+    const response = buildPortalRecoveryGenericResponse();
+    assert.equal(response.success, true);
+    assert.match(response.message, /if a customer portal account exists/i);
+    assert.match(response.message, /email will be sent/i);
+    assert.doesNotMatch(response.message, /registered|not found|does not exist|sign up|pricing/i);
+    assert.doesNotMatch(portalHtml, /No registered customer portal user was found/i);
 });

@@ -2613,7 +2613,7 @@
                     setMessage(payload.message || "Recovery email sent from support@wms365.co.", "success");
                 });
             } catch (error) {
-                setMessage(error.message || "No registered customer portal user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.", "error");
+                setMessage(error.message || "If a customer portal account exists for this email, a recovery email will be sent shortly. Please check your inbox and spam folder.", "info");
             }
         }
 
