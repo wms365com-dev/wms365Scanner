@@ -36,3 +36,12 @@ test("new orders use one repeatable picker instead of creating a competing blank
     assert.match(portalHtml, /function renderOrderLinesEmptyState\(\)/);
     assert.match(portalHtml, /ui\.orderItemSearch\.focus\(\)/);
 });
+
+test("order entry explains warehouse-specific stock and offers a warehouse switch", () => {
+    assert.match(portalHtml, /function getItemWarehouseAvailability\(item\)/);
+    assert.match(portalHtml, /function formatItemWarehouseAvailability\(item\)/);
+    assert.match(portalHtml, /WRONG WAREHOUSE OR INSUFFICIENT STOCK/);
+    assert.match(portalHtml, /Other warehouse stock:/);
+    assert.match(portalHtml, /data-use-order-warehouse/);
+    assert.match(portalHtml, /Use this warehouse/);
+});

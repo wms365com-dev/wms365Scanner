@@ -2177,9 +2177,35 @@
                 }
             } catch {}
             syncWarehouseContextDisplay();
+            document.querySelectorAll("#orderLines .line-card").forEach(updateLineMeta);
+            renderOrderItemOptions();
             if (announce && match) {
                 setMessage(`Active warehouse changed to ${getFulfillmentLocationLabel(match)}.`, "success");
             }
+        }
+
+        function getItemWarehouseAvailability(item) {
+            return Array.isArray(item?.warehouseAvailability) ? item.warehouseAvailability : [];
+        }
+
+        function getSelectedWarehouseAvailability(item) {
+            const activeId = String(portalState.activeFulfillmentLocationId || "");
+            return getItemWarehouseAvailability(item)
+                .find((entry) => String(entry.fulfillmentLocationId) === activeId) || null;
+        }
+
+        function formatItemWarehouseAvailability(item) {
+            const active = getActiveFulfillmentLocation();
+            const entries = getItemWarehouseAvailability(item);
+            if (!active || !entries.length) return "";
+            const selected = getSelectedWarehouseAvailability(item);
+            const selectedText = `${getFulfillmentLocationLabel(active)}: ${formatTrackedQuantity(Number(selected?.availableQuantity) || 0, item.trackingLevel)} pickable`;
+            const alternateText = entries
+                .filter((entry) => String(entry.fulfillmentLocationId) !== String(active.fulfillmentLocationId))
+                .filter((entry) => Number(entry.availableQuantity) > 0)
+                .map((entry) => `${entry.locationName || entry.locationCode}: ${formatTrackedQuantity(entry.availableQuantity, item.trackingLevel)}`)
+                .join(" | ");
+            return [selectedText, alternateText ? `Other warehouse stock: ${alternateText}` : ""].filter(Boolean).join(" | ");
         }
 
         function renderPortalWarehouseSwitcher() {
@@ -5370,9 +5396,9 @@
                 const details = [
                     item.description || "No description",
                     item.upc ? `UPC ${item.upc}` : "",
-                    item.availableQuantity > 0
+                    formatItemWarehouseAvailability(item) || (item.availableQuantity > 0
                         ? `${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available`
-                        : "OUT OF STOCK - draft only"
+                        : "OUT OF STOCK - draft only")
                 ].filter(Boolean).join(" | ");
                 return `<option value="${attr(item.sku)}">${esc(details)}</option>`;
             }).join("");
@@ -5414,13 +5440,15 @@
             const matches = getFilteredOrderItems(ui.orderItemSearch?.value || "").slice(0, 50);
             ui.orderItemResults.innerHTML = matches.length
                 ? matches.map((item) => {
-                    const availability = item.availableQuantity > 0
+                    const selectedAvailability = getSelectedWarehouseAvailability(item);
+                    const selectedQuantity = selectedAvailability ? Number(selectedAvailability.availableQuantity) || 0 : item.availableQuantity;
+                    const availability = formatItemWarehouseAvailability(item) || (selectedQuantity > 0
                         ? `${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available`
-                        : "OUT OF STOCK - draft only";
+                        : "OUT OF STOCK - draft only");
                     return `
                         <button class="order-item-result" type="button" role="option" data-order-item-sku="${attr(item.sku)}">
                             <strong>${esc(item.sku)} - ${esc(item.description || "No description")}</strong>
-                            <span${item.availableQuantity > 0 ? "" : ` class="out-of-stock"`}>${esc([item.upc ? `UPC ${item.upc}` : "", availability].filter(Boolean).join(" | "))}</span>
+                            <span${selectedQuantity > 0 ? "" : ` class="out-of-stock"`}>${esc([item.upc ? `UPC ${item.upc}` : "", availability].filter(Boolean).join(" | "))}</span>
                         </button>
                     `;
                 }).join("")
@@ -5502,6 +5530,11 @@
         }
 
         function onOrderLinesClick(event) {
+            const warehouseButton = event.target.closest("[data-use-order-warehouse]");
+            if (warehouseButton) {
+                setActiveFulfillmentLocation(warehouseButton.dataset.useOrderWarehouse, { announce: true });
+                return;
+            }
             const removeButton = event.target.closest("[data-remove-line]");
             if (removeButton) {
                 const card = removeButton.closest(".line-card");
@@ -5546,12 +5579,17 @@
             const item = portalState.inventory.find((entry) => entry.sku === sku);
             if (qtyInput) qtyInput.removeAttribute("max");
             const requestedQuantity = Number.parseInt(String(qtyInput?.value || "0"), 10) || 0;
-            const insufficient = Boolean(item && requestedQuantity > item.availableQuantity);
+            const selectedAvailability = getSelectedWarehouseAvailability(item);
+            const selectedQuantity = selectedAvailability ? Number(selectedAvailability.availableQuantity) || 0 : Number(item?.availableQuantity) || 0;
+            const alternate = getItemWarehouseAvailability(item)
+                .filter((entry) => String(entry.fulfillmentLocationId) !== String(portalState.activeFulfillmentLocationId))
+                .find((entry) => Number(entry.availableQuantity) >= requestedQuantity);
+            const insufficient = Boolean(item && requestedQuantity > selectedQuantity);
             meta.classList.toggle("stock-warning", insufficient);
-            meta.textContent = item
+            meta.innerHTML = item
                 ? insufficient
-                    ? `STOCK WARNING: requested ${formatTrackedQuantity(requestedQuantity, item.trackingLevel)}; available stock is ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)}. You may save this order as a draft, but it cannot be released until stock is available.`
-                    : `${item.description || "No description"} | ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available | On hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
+                    ? `<strong>WRONG WAREHOUSE OR INSUFFICIENT STOCK</strong><br>${esc(`Selected: ${getFulfillmentLocationLabel(getActiveFulfillmentLocation())}. Requested ${formatTrackedQuantity(requestedQuantity, item.trackingLevel)}; pickable here ${formatTrackedQuantity(selectedQuantity, item.trackingLevel)}.`)}${alternate ? `<br><strong>${esc(`${alternate.locationName || alternate.locationCode} has ${formatTrackedQuantity(alternate.availableQuantity, item.trackingLevel)} pickable.`)}</strong> <button class="btn ghost" type="button" data-use-order-warehouse="${attr(alternate.fulfillmentLocationId)}">Use this warehouse</button>` : `<br>${esc("No other assigned warehouse has enough pickable stock. Save as draft is allowed; release is blocked.")}`}`
+                    : `${esc(item.description || "No description")}<br><strong>${esc(formatItemWarehouseAvailability(item) || `${formatTrackedQuantity(selectedQuantity, item.trackingLevel)} available`)}</strong>`
                 : "Choose a SKU from your current inventory.";
             syncOrderReleaseAvailability();
         }
@@ -5567,7 +5605,9 @@
             });
             const hasShortage = [...requestedBySku.entries()].some(([sku, requestedQuantity]) => {
                 const item = portalState.inventory.find((entry) => entry.sku === sku);
-                return !item || requestedQuantity > item.availableQuantity;
+                const selected = getSelectedWarehouseAvailability(item);
+                const availableQuantity = selected ? Number(selected.availableQuantity) || 0 : Number(item?.availableQuantity) || 0;
+                return !item || requestedQuantity > availableQuantity;
             });
             ui.releaseOrderBtn.disabled = hasShortage;
             ui.releaseOrderBtn.title = hasShortage
@@ -6543,7 +6583,15 @@
                 reservedQuantity: toPositiveInt(item?.reservedQuantity) || 0,
                 availableQuantity: toPositiveInt(item?.availableQuantity ?? item?.totalQuantity) || 0,
                 locationCount: toPositiveInt(item?.locationCount) || 0,
-                locations: Array.isArray(item?.locations) ? item.locations.map((location) => norm(location)).filter(Boolean) : []
+                locations: Array.isArray(item?.locations) ? item.locations.map((location) => norm(location)).filter(Boolean) : [],
+                warehouseAvailability: Array.isArray(item?.warehouseAvailability)
+                    ? item.warehouseAvailability.map((entry) => ({
+                        fulfillmentLocationId: String(entry.fulfillmentLocationId || ""),
+                        locationCode: String(entry.locationCode || ""),
+                        locationName: String(entry.locationName || ""),
+                        availableQuantity: toPositiveInt(entry.availableQuantity) || 0
+                    })).filter((entry) => entry.fulfillmentLocationId)
+                    : []
             };
         }
 

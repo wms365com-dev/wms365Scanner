@@ -14914,7 +14914,8 @@ async function requirePortalSession(req, client = pool) {
 
 async function getPortalInventorySummary(accountName, client = pool) {
     const normalizedAccount = normalizeText(accountName);
-    const result = await client.query(
+    const [result, warehouseResult] = await Promise.all([
+        client.query(
         `
             with known_skus as (
                 select account_name, sku
@@ -14983,8 +14984,50 @@ async function getPortalInventorySummary(accountName, client = pool) {
             order by h.sku asc
         `,
         [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, [...NON_PICKABLE_LOCATION_TYPES]]
-    );
-    return result.rows.map(mapPortalInventoryRow);
+        ),
+        client.query(
+            `
+                with reserved as (
+                    select l.sku, coalesce(sum(l.requested_quantity), 0)::integer as reserved_quantity
+                    from portal_orders o
+                    join portal_order_lines l on l.order_id = o.id
+                    where o.account_name = $1
+                      and o.status = any($3::text[])
+                    group by l.sku
+                )
+                select cfl.fulfillment_location_id, fl.code as location_code,
+                    fl.name as location_name, i.sku,
+                    greatest(coalesce(sum(case when coalesce(bl.is_pickable, true) = true
+                        and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
+                        then i.quantity else 0 end), 0) - coalesce(r.reserved_quantity, 0), 0)::integer as pickable_quantity
+                from company_fulfillment_locations cfl
+                join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id and fl.is_active = true
+                join inventory_lines i on i.account_name = cfl.account_name
+                    and (upper(i.location) = upper(fl.code) or upper(i.location) like upper(fl.code) || '-%')
+                left join bin_locations bl on bl.code = i.location
+                left join reserved r on r.sku = i.sku
+                where cfl.account_name = $1
+                group by cfl.fulfillment_location_id, fl.code, fl.name, i.sku, r.reserved_quantity
+                order by fl.name asc, i.sku asc
+            `,
+            [normalizedAccount, [...NON_PICKABLE_LOCATION_TYPES], ACTIVE_PORTAL_ORDER_STATUSES]
+        )
+    ]);
+    const availabilityBySku = new Map();
+    warehouseResult.rows.forEach((row) => {
+        const sku = normalizeText(row.sku);
+        if (!availabilityBySku.has(sku)) availabilityBySku.set(sku, []);
+        availabilityBySku.get(sku).push({
+            fulfillmentLocationId: String(row.fulfillment_location_id),
+            locationCode: row.location_code || "",
+            locationName: row.location_name || row.location_code || "",
+            availableQuantity: Math.max(Number(row.pickable_quantity) || 0, 0)
+        });
+    });
+    return result.rows.map((row) => ({
+        ...mapPortalInventoryRow(row),
+        warehouseAvailability: availabilityBySku.get(normalizeText(row.sku)) || []
+    }));
 }
 
 async function getPortalItemsForAccount(accountName, client = pool) {
@@ -16931,8 +16974,11 @@ async function allocatePortalOrderInventory(client, order) {
     const fulfillmentLocation = await resolveFulfillmentLocationForWarehouseRule(client, order);
     const warehouseLocationPrefix = await getWarehouseLocationFilterPrefix(client, normalizedAccount, fulfillmentLocation, { direction: "OUTBOUND" });
     const inventoryParams = [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]];
-    const warehouseLocationSql = warehouseLocationPrefix ? `and i.location like $${inventoryParams.length + 1}` : "";
-    if (warehouseLocationPrefix) inventoryParams.push(`${warehouseLocationPrefix}%`);
+    const warehouseLocationCode = warehouseLocationPrefix ? warehouseLocationPrefix.slice(0, -1) : "";
+    const warehouseLocationSql = warehouseLocationPrefix
+        ? `and (upper(i.location) = upper($${inventoryParams.length + 1}) or upper(i.location) like upper($${inventoryParams.length + 2}))`
+        : "";
+    if (warehouseLocationPrefix) inventoryParams.push(warehouseLocationCode, `${warehouseLocationPrefix}%`);
     const inventoryResult = skus.length
         ? await client.query(
             `
