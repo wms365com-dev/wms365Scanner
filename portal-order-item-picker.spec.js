@@ -5,6 +5,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const portalHtml = fs.readFileSync(path.join(__dirname, "portal.html"), "utf8");
+const serverSource = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
 
 test("customer portal inline script is valid JavaScript", () => {
     const scripts = [...portalHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)];
@@ -44,4 +45,12 @@ test("order entry explains warehouse-specific stock and offers a warehouse switc
     assert.match(portalHtml, /Other warehouse stock:/);
     assert.match(portalHtml, /data-use-order-warehouse/);
     assert.match(portalHtml, /Use this warehouse/);
+    assert.match(portalHtml, /function renderSavedOrderStockWarnings\(order, warnings\)/);
+    assert.match(portalHtml, /Select Edit Draft, then use that warehouse/);
+});
+
+test("warehouse availability deducts reservations only from their assigned warehouse", () => {
+    assert.match(serverSource, /group by o\.fulfillment_location_id, l\.sku/);
+    assert.match(serverSource, /r\.fulfillment_location_id = cfl\.fulfillment_location_id/);
+    assert.match(serverSource, /upper\(i\.location\) = upper\(fl\.code\)/);
 });

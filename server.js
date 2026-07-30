@@ -14988,12 +14988,14 @@ async function getPortalInventorySummary(accountName, client = pool) {
         client.query(
             `
                 with reserved as (
-                    select l.sku, coalesce(sum(l.requested_quantity), 0)::integer as reserved_quantity
+                    select o.fulfillment_location_id, l.sku,
+                        coalesce(sum(l.requested_quantity), 0)::integer as reserved_quantity
                     from portal_orders o
                     join portal_order_lines l on l.order_id = o.id
                     where o.account_name = $1
                       and o.status = any($3::text[])
-                    group by l.sku
+                      and o.fulfillment_location_id is not null
+                    group by o.fulfillment_location_id, l.sku
                 )
                 select cfl.fulfillment_location_id, fl.code as location_code,
                     fl.name as location_name, i.sku,
@@ -15005,7 +15007,9 @@ async function getPortalInventorySummary(accountName, client = pool) {
                 join inventory_lines i on i.account_name = cfl.account_name
                     and (upper(i.location) = upper(fl.code) or upper(i.location) like upper(fl.code) || '-%')
                 left join bin_locations bl on bl.code = i.location
-                left join reserved r on r.sku = i.sku
+                left join reserved r
+                  on r.fulfillment_location_id = cfl.fulfillment_location_id
+                 and r.sku = i.sku
                 where cfl.account_name = $1
                 group by cfl.fulfillment_location_id, fl.code, fl.name, i.sku, r.reserved_quantity
                 order by fl.name asc, i.sku asc

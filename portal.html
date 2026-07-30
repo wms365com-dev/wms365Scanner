@@ -592,6 +592,11 @@
         .inventory-meta, .order-meta, .line-note { display: grid; gap: 0.35rem; margin-top: 0.6rem; color: var(--muted); font-size: 0.92rem; }
         .line-note.stock-warning { color: #9b2c2c; font-weight: 700; }
         .stock-warning-banner { margin-top: 0.75rem; padding: 0.75rem; border: 1px solid #e3a7a7; background: #fff4f4; color: #842626; border-radius: 6px; font-weight: 700; }
+        .stock-warning-list { display: grid; gap: 0.65rem; }
+        .stock-warning-item { padding-bottom: 0.65rem; border-bottom: 1px solid #efcaca; }
+        .stock-warning-item:last-child { padding-bottom: 0; border-bottom: 0; }
+        .stock-warning-action { display: block; margin-top: 0.25rem; color: #234f67; }
+        .line-note .btn { width: fit-content; margin-top: 0.4rem; }
         .order-item-picker {
             display: grid;
             grid-template-columns: minmax(0, 1fr) minmax(110px, 0.18fr) auto;
@@ -978,6 +983,7 @@
                 box-shadow: none;
             }
             .order-item-picker .btn { width: 100%; }
+            .line-note .btn { width: 100%; }
             .topbar, .inventory-head, .order-head, .line-head, .order-form-head, .portal-panel-head { flex-direction: column; }
             .portal-nav,
             .portal-nav-group {
@@ -2206,6 +2212,27 @@
                 .map((entry) => `${entry.locationName || entry.locationCode}: ${formatTrackedQuantity(entry.availableQuantity, item.trackingLevel)}`)
                 .join(" | ");
             return [selectedText, alternateText ? `Other warehouse stock: ${alternateText}` : ""].filter(Boolean).join(" | ");
+        }
+
+        function renderSavedOrderStockWarnings(order, warnings) {
+            const selectedLocation = portalState.fulfillmentLocations.find((location) => (
+                String(location.fulfillmentLocationId) === String(order.fulfillmentLocationId || "")
+            ));
+            const selectedLabel = selectedLocation ? getFulfillmentLocationLabel(selectedLocation) : (order.fulfillmentLocationName || "the selected warehouse");
+            return `<div class="stock-warning-list">${warnings.map((warning) => {
+                const item = portalState.inventory.find((entry) => entry.sku === warning.sku);
+                const entries = getItemWarehouseAvailability(item);
+                const selected = entries.find((entry) => String(entry.fulfillmentLocationId) === String(order.fulfillmentLocationId || ""));
+                const selectedQuantity = selected ? Number(selected.availableQuantity) || 0 : Number(warning.availableQuantity) || 0;
+                const alternate = entries
+                    .filter((entry) => String(entry.fulfillmentLocationId) !== String(order.fulfillmentLocationId || ""))
+                    .find((entry) => Number(entry.availableQuantity) >= Number(warning.requestedQuantity));
+                const summary = `${warning.sku}: requested ${formatTrackedQuantity(warning.requestedQuantity, warning.trackingLevel)}; ${selectedLabel} has ${formatTrackedQuantity(selectedQuantity, warning.trackingLevel)} pickable.`;
+                const action = alternate
+                    ? `${alternate.locationName || alternate.locationCode} has ${formatTrackedQuantity(alternate.availableQuantity, warning.trackingLevel)} pickable. Select Edit Draft, then use that warehouse.`
+                    : "No other assigned warehouse currently has enough pickable stock. This order remains safely saved as a draft.";
+                return `<div class="stock-warning-item"><strong>${esc(summary)}</strong><span class="stock-warning-action">${esc(action)}</span></div>`;
+            }).join("")}</div>`;
         }
 
         function renderPortalWarehouseSwitcher() {
@@ -3708,7 +3735,7 @@
                             <div class="detail"><span>Expected Ready</span><strong>${esc(order.expectedReadyLabel || order.expectedReadyDate || "Not calculated")}</strong></div>
                             <div class="detail"><span>Lines / Qty</span><strong>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} / ${esc(num(orderTotalQuantity(order)))}</strong></div>
                         </div>
-                        ${stockWarnings.length ? `<div class="stock-warning-banner">${esc(stockWarnings.map((warning) => warning.message).join(" "))}</div>` : ""}
+                        ${stockWarnings.length ? `<div class="stock-warning-banner" role="alert">${renderSavedOrderStockWarnings(order, stockWarnings)}</div>` : ""}
                         <div class="button-row">
                             <button class="btn ghost" type="button" data-toggle-order-details="${attr(order.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
                             ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
@@ -5378,7 +5405,7 @@
                     </label>
                     <button class="btn ghost" type="button" data-remove-line>Remove</button>
                 </div>
-                <div class="line-note" data-line-meta></div>
+                <div class="line-note" data-line-meta aria-live="polite"></div>
             `;
             ui.orderLines.appendChild(row);
             updateLineMeta(row);
