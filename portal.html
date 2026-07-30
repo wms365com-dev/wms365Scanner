@@ -2236,9 +2236,11 @@
                 const alternate = entries
                     .filter((entry) => String(entry.fulfillmentLocationId) !== String(order.fulfillmentLocationId || ""))
                     .find((entry) => Number(entry.availableQuantity) >= Number(warning.requestedQuantity));
-                const summary = `${warning.sku}: requested ${formatTrackedQuantity(warning.requestedQuantity, warning.trackingLevel)}; ${selectedLabel} has ${formatTrackedQuantity(selectedQuantity, warning.trackingLevel)} pickable.`;
+                const summary = alternate
+                    ? `SHIP-FROM WAREHOUSE AND STOCK WAREHOUSE DO NOT MATCH. Order ship-from: ${selectedLabel}. SKU ${warning.sku} stock: ${alternate.locationName || alternate.locationCode}.`
+                    : `${warning.sku}: requested ${formatTrackedQuantity(warning.requestedQuantity, warning.trackingLevel)}; ${selectedLabel} has ${formatTrackedQuantity(selectedQuantity, warning.trackingLevel)} pickable.`;
                 const action = alternate
-                    ? `${alternate.locationName || alternate.locationCode} has ${formatTrackedQuantity(alternate.availableQuantity, warning.trackingLevel)} pickable. Select Edit Draft, then use that warehouse.`
+                    ? `${alternate.locationName || alternate.locationCode} has ${formatTrackedQuantity(alternate.availableQuantity, warning.trackingLevel)} pickable. Select Edit Draft and change Ship From Warehouse before releasing.`
                     : "No other assigned warehouse currently has enough pickable stock. This order remains safely saved as a draft.";
                 return `<div class="stock-warning-item"><strong>${esc(summary)}</strong><span class="stock-warning-action">${esc(action)}</span></div>`;
             }).join("")}</div>`;
@@ -5633,7 +5635,9 @@
             meta.classList.toggle("stock-warning", insufficient);
             meta.innerHTML = item
                 ? insufficient
-                    ? `<strong>WRONG WAREHOUSE OR INSUFFICIENT STOCK</strong><br>${esc(`Selected: ${getFulfillmentLocationLabel(getActiveFulfillmentLocation())}. Requested ${formatTrackedQuantity(requestedQuantity, item.trackingLevel)}; pickable here ${formatTrackedQuantity(selectedQuantity, item.trackingLevel)}.`)}${alternate ? `<br><strong>${esc(`${alternate.locationName || alternate.locationCode} has ${formatTrackedQuantity(alternate.availableQuantity, item.trackingLevel)} pickable.`)}</strong> <button class="btn ghost" type="button" data-use-order-warehouse="${attr(alternate.fulfillmentLocationId)}">Use this warehouse</button>` : `<br>${esc("No other assigned warehouse has enough pickable stock. Save as draft is allowed; release is blocked.")}`}`
+                    ? alternate
+                        ? `<strong>SHIP-FROM WAREHOUSE AND STOCK WAREHOUSE DO NOT MATCH</strong><br>${esc(`Order ship-from: ${getFulfillmentLocationLabel(getActiveFulfillmentLocation())}. SKU ${item.sku} stock: ${alternate.locationName || alternate.locationCode}.`)}<br>${esc(`Requested ${formatTrackedQuantity(requestedQuantity, item.trackingLevel)}; ${alternate.locationName || alternate.locationCode} has ${formatTrackedQuantity(alternate.availableQuantity, item.trackingLevel)} pickable.`)} <button class="btn ghost" type="button" data-use-order-warehouse="${attr(alternate.fulfillmentLocationId)}">Change ship-from to this warehouse</button>`
+                        : `<strong>INSUFFICIENT STOCK AT SHIP-FROM WAREHOUSE</strong><br>${esc(`Order ship-from: ${getFulfillmentLocationLabel(getActiveFulfillmentLocation())}. Requested ${formatTrackedQuantity(requestedQuantity, item.trackingLevel)}; pickable here ${formatTrackedQuantity(selectedQuantity, item.trackingLevel)}.`)}<br>${esc("No other assigned warehouse has enough pickable stock. Save as draft is allowed; release is blocked.")}`
                     : `${esc(item.description || "No description")}<br><strong>${esc(formatItemWarehouseAvailability(item) || `${formatTrackedQuantity(selectedQuantity, item.trackingLevel)} available`)}</strong>`
                 : "Choose a SKU from your current inventory.";
             syncOrderReleaseAvailability();

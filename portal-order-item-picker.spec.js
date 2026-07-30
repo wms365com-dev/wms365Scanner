@@ -41,12 +41,13 @@ test("new orders use one repeatable picker instead of creating a competing blank
 test("order entry explains warehouse-specific stock and offers a warehouse switch", () => {
     assert.match(portalHtml, /function getItemWarehouseAvailability\(item\)/);
     assert.match(portalHtml, /function formatItemWarehouseAvailability\(item\)/);
-    assert.match(portalHtml, /WRONG WAREHOUSE OR INSUFFICIENT STOCK/);
+    assert.match(portalHtml, /SHIP-FROM WAREHOUSE AND STOCK WAREHOUSE DO NOT MATCH/);
+    assert.match(portalHtml, /INSUFFICIENT STOCK AT SHIP-FROM WAREHOUSE/);
     assert.match(portalHtml, /Other warehouse stock:/);
     assert.match(portalHtml, /data-use-order-warehouse/);
-    assert.match(portalHtml, /Use this warehouse/);
+    assert.match(portalHtml, /Change ship-from to this warehouse/);
     assert.match(portalHtml, /function renderSavedOrderStockWarnings\(order, warnings\)/);
-    assert.match(portalHtml, /Select Edit Draft, then use that warehouse/);
+    assert.match(portalHtml, /Select Edit Draft and change Ship From Warehouse before releasing/);
 });
 
 test("warehouse availability deducts reservations only from their assigned warehouse", () => {
