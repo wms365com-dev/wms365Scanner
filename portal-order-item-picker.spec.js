@@ -63,3 +63,14 @@ test("sales order form keeps warehouse selection and release readiness in the wo
     assert.match(portalHtml, /Add at least one item before releasing the order/);
     assert.match(portalHtml, /Stock check passed for the selected warehouse/);
 });
+
+test("split warehouse release requires clear customer approval", () => {
+    assert.match(portalHtml, /This order needs to ship from more than one warehouse/);
+    assert.match(portalHtml, /I approve splitting this order based on where stock is available/);
+    assert.match(portalHtml, /separate pick ticket, packing slip, and shipment update for each warehouse/);
+    assert.match(portalHtml, /function buildOrderSplitPlan\(lines, selectedWarehouseId\)/);
+    assert.match(portalHtml, /pendingReleaseSplitRequired && ui\.portalReleaseSplitApproved\?\.checked !== true/);
+    assert.match(serverSource, /split_fulfillment_approved boolean not null default false/);
+    assert.match(serverSource, /allowSplitFulfillment: splitFulfillmentApproved === true/);
+    assert.match(serverSource, /Review the split and approve it before releasing the order/);
+});

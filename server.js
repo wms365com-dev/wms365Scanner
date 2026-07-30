@@ -7519,6 +7519,9 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists rush_approved_by text not null default ''");
     await pool.query("alter table portal_orders add column if not exists rush_exempt boolean not null default false");
     await pool.query("alter table portal_orders add column if not exists rush_exempt_note text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists split_fulfillment_approved boolean not null default false");
+    await pool.query("alter table portal_orders add column if not exists split_fulfillment_approved_at timestamptz");
+    await pool.query("alter table portal_orders add column if not exists split_fulfillment_approved_by text not null default ''");
     await pool.query("alter table portal_orders add column if not exists order_notes text not null default ''");
     await pool.query("alter table portal_orders add column if not exists confirmed_ship_date date");
     await pool.query("alter table portal_orders add column if not exists shipment_method text not null default 'LTL_FREIGHT'");
@@ -15564,9 +15567,17 @@ async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
                 fl.postal_code as pick_fulfillment_postal_code,
                 fl.country as pick_fulfillment_country
             from portal_order_allocations a
-            left join fulfillment_locations fl
-              on fl.code = a.location
-             and fl.is_active = true
+            left join lateral (
+                select candidate.*
+                from fulfillment_locations candidate
+                where candidate.is_active = true
+                  and (
+                    upper(a.location) = upper(candidate.code)
+                    or upper(a.location) like upper(candidate.code) || '-%'
+                  )
+                order by length(candidate.code) desc
+                limit 1
+            ) fl on true
             where a.order_line_id = any($1::bigint[])
             order by
                 a.order_line_id asc,
@@ -16998,7 +17009,7 @@ async function createManualPickAllocationFromScan(client, { orderRow, line, loca
     return inserted;
 }
 
-async function allocatePortalOrderInventory(client, order) {
+async function allocatePortalOrderInventory(client, order, { allowSplitFulfillment = false } = {}) {
     const normalizedAccount = normalizeText(order.accountName);
     const lineIds = order.lines.map((line) => Number(line.id) || 0).filter((value) => value > 0);
     if (!lineIds.length) {
@@ -17010,10 +17021,23 @@ async function allocatePortalOrderInventory(client, order) {
     const warehouseLocationPrefix = await getWarehouseLocationFilterPrefix(client, normalizedAccount, fulfillmentLocation, { direction: "OUTBOUND" });
     const inventoryParams = [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]];
     const warehouseLocationCode = warehouseLocationPrefix ? warehouseLocationPrefix.slice(0, -1) : "";
-    const warehouseLocationSql = warehouseLocationPrefix
+    const warehouseLocationSql = warehouseLocationPrefix && !allowSplitFulfillment
         ? `and (upper(i.location) = upper($${inventoryParams.length + 1}) or upper(i.location) like upper($${inventoryParams.length + 2}))`
-        : "";
-    if (warehouseLocationPrefix) inventoryParams.push(warehouseLocationCode, `${warehouseLocationPrefix}%`);
+        : allowSplitFulfillment
+            ? `and exists (
+                select 1
+                from company_fulfillment_locations allocation_cfl
+                join fulfillment_locations allocation_fl
+                  on allocation_fl.id = allocation_cfl.fulfillment_location_id
+                 and allocation_fl.is_active = true
+                where allocation_cfl.account_name = $1
+                  and (
+                    upper(i.location) = upper(allocation_fl.code)
+                    or upper(i.location) like upper(allocation_fl.code) || '-%'
+                  )
+            )`
+            : "";
+    if (warehouseLocationPrefix && !allowSplitFulfillment) inventoryParams.push(warehouseLocationCode, `${warehouseLocationPrefix}%`);
     const inventoryResult = skus.length
         ? await client.query(
             `
@@ -17129,7 +17153,21 @@ async function allocatePortalOrderInventory(client, order) {
 
         const sku = normalizeText(line.sku);
         const allRows = inventoryBySku.get(sku) || [];
-        const candidateRows = sortInventoryRowsForAllocation(allRows, line);
+        const rowsAtSelectedWarehouse = warehouseLocationPrefix
+            ? allRows.filter((row) => {
+                const location = normalizeText(row.location);
+                return location === warehouseLocationCode || location.startsWith(warehouseLocationPrefix);
+            })
+            : [];
+        const rowsAtOtherWarehouses = allowSplitFulfillment
+            ? allRows.filter((row) => !rowsAtSelectedWarehouse.includes(row))
+            : [];
+        const candidateRows = allowSplitFulfillment
+            ? [
+                ...sortInventoryRowsForAllocation(rowsAtSelectedWarehouse, line),
+                ...sortInventoryRowsForAllocation(rowsAtOtherWarehouses, line)
+            ]
+            : sortInventoryRowsForAllocation(allRows, line);
         const allocatableQuantity = candidateRows.reduce((sum, row) => sum + (Number(row.availableQuantity) || 0), 0);
         if (allocatableQuantity < remainingQuantity) {
             throw httpError(
@@ -17195,7 +17233,9 @@ async function releasePortalOrderForAccount(
         rushApproved = false,
         rushApprovedBy = "",
         rushExempt = false,
-        rushExemptNote = ""
+        rushExemptNote = "",
+        splitFulfillmentApproved = false,
+        splitFulfillmentApprovedBy = ""
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -17271,7 +17311,32 @@ async function releasePortalOrderForAccount(
         await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
     }
 
-    await allocatePortalOrderInventory(client, order);
+    await allocatePortalOrderInventory(client, order, {
+        allowSplitFulfillment: splitFulfillmentApproved === true
+    });
+
+    order = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    const fulfillmentGroups = getPortalOrderSplitFulfillmentGroups(order);
+    if (fulfillmentGroups.length > 1 && splitFulfillmentApproved !== true) {
+        throw httpError(
+            409,
+            `This order needs to ship from ${fulfillmentGroups.length} warehouses because the stock is stored in different locations. Review the split and approve it before releasing the order.`
+        );
+    }
+    if (fulfillmentGroups.length > 1) {
+        await client.query(
+            `
+                update portal_orders
+                set
+                    split_fulfillment_approved = true,
+                    split_fulfillment_approved_at = now(),
+                    split_fulfillment_approved_by = $2,
+                    updated_at = now()
+                where id = $1
+            `,
+            [orderId, normalizeFreeText(splitFulfillmentApprovedBy || activityActor || "Company portal")]
+        );
+    }
 
     await client.query(
         `
@@ -17316,7 +17381,9 @@ async function releasePortalOrder(client, accessRow, orderId, releaseOptions = {
         rushApproved: releaseOptions.rushApproved === true,
         rushApprovedBy: releaseOptions.rushApprovedBy || access.email || "Company portal",
         rushExempt: releaseOptions.rushExempt === true,
-        rushExemptNote: releaseOptions.rushExemptNote || PORTAL_STANDARD_PROCESSING_NOTE
+        rushExemptNote: releaseOptions.rushExemptNote || PORTAL_STANDARD_PROCESSING_NOTE,
+        splitFulfillmentApproved: releaseOptions.splitFulfillmentApproved === true,
+        splitFulfillmentApprovedBy: releaseOptions.splitFulfillmentApprovedBy || access.email || "Company portal"
     });
 }
 
@@ -18632,6 +18699,8 @@ function sanitizePortalOrderReleaseOptions(raw) {
     const rushApprovedBy = normalizeFreeText(input.rushApprovedBy || input.rush_approved_by || input.approvedBy || "");
     const rushExempt = toBooleanFlag(input.rushExempt ?? input.rush_exempt ?? input.standardProcessing ?? input.standard_processing, false);
     const rushExemptNote = normalizeFreeText(input.rushExemptNote || input.rush_exempt_note || "");
+    const splitFulfillmentApproved = toBooleanFlag(input.splitFulfillmentApproved ?? input.split_fulfillment_approved, false);
+    const splitFulfillmentApprovedBy = normalizeFreeText(input.splitFulfillmentApprovedBy || input.split_fulfillment_approved_by || "");
     const ccEmails = normalizeEmailList(input.ccEmails, { throwOnInvalid: true });
 
     if (!notifyWarehouse && ccEmails.length) {
@@ -18645,7 +18714,9 @@ function sanitizePortalOrderReleaseOptions(raw) {
         rushApproved,
         rushApprovedBy,
         rushExempt: rushApproved ? false : rushExempt,
-        rushExemptNote: rushApproved ? "" : rushExemptNote
+        rushExemptNote: rushApproved ? "" : rushExemptNote,
+        splitFulfillmentApproved,
+        splitFulfillmentApprovedBy
     };
 }
 
@@ -32755,6 +32826,9 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         rushApprovedBy: row.rush_approved_by || "",
         rushExempt: row.rush_exempt === true,
         rushExemptNote: row.rush_exempt_note || "",
+        splitFulfillmentApproved: row.split_fulfillment_approved === true,
+        splitFulfillmentApprovedAt: row.split_fulfillment_approved_at ? new Date(row.split_fulfillment_approved_at).toISOString() : null,
+        splitFulfillmentApprovedBy: row.split_fulfillment_approved_by || "",
         rushApprovalRequired: portalOrderRequiresRushApproval({
             orderType: row.order_type,
             shipmentMethod: row.shipment_method,

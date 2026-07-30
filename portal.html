@@ -1681,12 +1681,24 @@
                         <div class="meta" id="portalReleaseWarehouse">Ship from: Not selected</div>
                         <div class="meta" id="portalReleaseExpectedReady">Expected ready: Not calculated</div>
                     </div>
+                    <div id="portalReleaseSplitPanel" class="status show info hidden" style="margin-top: 1rem;">
+                        <strong>This order needs to ship from more than one warehouse.</strong>
+                        <div id="portalReleaseSplitSummary" style="margin-top: .5rem;"></div>
+                        <div style="margin-top: .5rem;">We will keep one order number, but create a separate pick ticket, packing slip, and shipment update for each warehouse.</div>
+                    </div>
                     <form id="portalReleaseForm" class="form-grid" autocomplete="off">
                         <label class="toggle-card span-2">
                             <input id="portalReleaseWarehouseConfirmed" type="checkbox" required>
                             <span class="toggle-copy">
                                 <strong>I confirm the ship-from warehouse and address are correct</strong>
                                 <span class="meta">Check this before releasing the order to the warehouse team.</span>
+                            </span>
+                        </label>
+                        <label class="toggle-card span-2 hidden" id="portalReleaseSplitApprovalCard">
+                            <input id="portalReleaseSplitApproved" type="checkbox">
+                            <span class="toggle-copy">
+                                <strong>I approve splitting this order based on where stock is available</strong>
+                                <span class="meta">Only approve if you are okay receiving separate shipments or pickups from the warehouse locations shown above.</span>
                             </span>
                         </label>
                         <label class="toggle-card span-2">
@@ -1849,7 +1861,9 @@
             inboundUploadDocumentFiles: {},
             pendingReleaseHandler: null,
             pendingReleaseRushApprovalRequired: false,
-            pendingReleaseRushApprovalMessage: ""
+            pendingReleaseRushApprovalMessage: "",
+            pendingReleaseSplitRequired: false,
+            pendingReleaseSplitPlan: []
         };
 
         const ui = {
@@ -2016,6 +2030,10 @@
             portalReleaseWarehouse: document.getElementById("portalReleaseWarehouse"),
             portalReleaseExpectedReady: document.getElementById("portalReleaseExpectedReady"),
             portalReleaseWarehouseConfirmed: document.getElementById("portalReleaseWarehouseConfirmed"),
+            portalReleaseSplitPanel: document.getElementById("portalReleaseSplitPanel"),
+            portalReleaseSplitSummary: document.getElementById("portalReleaseSplitSummary"),
+            portalReleaseSplitApprovalCard: document.getElementById("portalReleaseSplitApprovalCard"),
+            portalReleaseSplitApproved: document.getElementById("portalReleaseSplitApproved"),
             portalReleaseEmailWarehouse: document.getElementById("portalReleaseEmailWarehouse"),
             portalReleaseLabelAttached: document.getElementById("portalReleaseLabelAttached"),
             portalReleaseRushApprovalCard: document.getElementById("portalReleaseRushApprovalCard"),
@@ -5652,21 +5670,34 @@
                     requestedBySku.set(sku, (requestedBySku.get(sku) || 0) + quantity);
                 }
             });
-            const hasShortage = [...requestedBySku.entries()].some(([sku, requestedQuantity]) => {
+            const hasSelectedWarehouseShortage = [...requestedBySku.entries()].some(([sku, requestedQuantity]) => {
                 const item = portalState.inventory.find((entry) => entry.sku === sku);
                 const selected = getSelectedWarehouseAvailability(item);
                 const availableQuantity = selected ? Number(selected.availableQuantity) || 0 : Number(item?.availableQuantity) || 0;
                 return !item || requestedQuantity > availableQuantity;
             });
+            const hasTotalShortage = [...requestedBySku.entries()].some(([sku, requestedQuantity]) => {
+                const item = portalState.inventory.find((entry) => entry.sku === sku);
+                const warehouseAvailability = getItemWarehouseAvailability(item);
+                const totalAvailable = warehouseAvailability.length
+                    ? warehouseAvailability.reduce((sum, entry) => sum + (Number(entry.availableQuantity) || 0), 0)
+                    : Number(item?.availableQuantity) || 0;
+                return !item || requestedQuantity > totalAvailable;
+            });
+            const splitAvailable = hasSelectedWarehouseShortage && !hasTotalShortage;
             const hasLines = requestedBySku.size > 0;
-            ui.releaseOrderBtn.disabled = hasShortage || !hasLines;
-            ui.releaseOrderBtn.title = hasShortage
-                ? "Release is blocked until enough pickable stock is available for every order line."
+            ui.releaseOrderBtn.disabled = hasTotalShortage || !hasLines;
+            ui.releaseOrderBtn.title = hasTotalShortage
+                ? "Release is blocked until enough pickable stock is available across your assigned warehouses."
+                : splitAvailable
+                    ? "Review and approve the warehouse split before releasing."
                 : (!hasLines ? "Add at least one item before releasing the order." : "");
             if (ui.orderReleaseReadiness) {
-                ui.orderReleaseReadiness.className = `status show ${hasShortage ? "error" : (hasLines ? "success" : "info")}`;
-                ui.orderReleaseReadiness.textContent = hasShortage
-                    ? "Stock needs attention. You can save this order as a draft, but it cannot be released yet."
+                ui.orderReleaseReadiness.className = `status show ${hasTotalShortage ? "error" : (splitAvailable ? "info" : (hasLines ? "success" : "info"))}`;
+                ui.orderReleaseReadiness.textContent = hasTotalShortage
+                    ? "There is not enough pickable stock across your assigned warehouses. You can save this order as a draft, but it cannot be released yet."
+                    : splitAvailable
+                        ? "The stock is available, but it is stored at more than one warehouse. You can review and approve the split when you release the order."
                     : (hasLines
                         ? "Stock check passed for the selected warehouse. Complete the required order details, then release."
                         : "Add at least one item to begin the stock check.");
@@ -5799,6 +5830,47 @@
                 .filter(Boolean);
         }
 
+        function buildOrderSplitPlan(lines, selectedWarehouseId) {
+            const groups = new Map();
+            const selectedId = String(selectedWarehouseId || "");
+            for (const line of Array.isArray(lines) ? lines : []) {
+                const item = portalState.inventory.find((entry) => norm(entry.sku) === norm(line.sku));
+                const availability = getItemWarehouseAvailability(item)
+                    .filter((entry) => Number(entry.availableQuantity) > 0)
+                    .sort((left, right) => {
+                        const leftSelected = String(left.fulfillmentLocationId) === selectedId;
+                        const rightSelected = String(right.fulfillmentLocationId) === selectedId;
+                        if (leftSelected !== rightSelected) return leftSelected ? -1 : 1;
+                        return Number(right.availableQuantity) - Number(left.availableQuantity);
+                    });
+                let remaining = Number(line.quantity) || 0;
+                for (const warehouse of availability) {
+                    if (remaining <= 0) break;
+                    const quantity = Math.min(remaining, Number(warehouse.availableQuantity) || 0);
+                    if (quantity <= 0) continue;
+                    const key = String(warehouse.fulfillmentLocationId || warehouse.locationCode || "");
+                    if (!groups.has(key)) {
+                        groups.set(key, {
+                            fulfillmentLocationId: String(warehouse.fulfillmentLocationId || ""),
+                            name: warehouse.locationName || warehouse.locationCode || "Warehouse",
+                            lines: []
+                        });
+                    }
+                    groups.get(key).lines.push({ sku: line.sku, quantity });
+                    remaining -= quantity;
+                }
+                if (remaining > 0) return [];
+            }
+            return [...groups.values()];
+        }
+
+        function renderPortalReleaseSplitPlan(plan) {
+            if (!ui.portalReleaseSplitSummary) return;
+            ui.portalReleaseSplitSummary.innerHTML = plan.map((group) => (
+                `<div style="margin-top:.45rem;"><strong>${esc(group.name)}</strong>: ${group.lines.map((line) => `${esc(line.sku)} (${esc(line.quantity)})`).join(", ")}</div>`
+            )).join("");
+        }
+
         function collectPortalReleaseOptions() {
             if (!ui.portalReleaseWarehouseConfirmed?.checked) {
                 throw new Error("Confirm the ship-from warehouse and address before releasing this order.");
@@ -5815,6 +5887,9 @@
             if (!notifyWarehouse && ccEmails.length) {
                 throw new Error("Turn on the warehouse email option before adding CC recipients.");
             }
+            if (portalState.pendingReleaseSplitRequired && ui.portalReleaseSplitApproved?.checked !== true) {
+                throw new Error("Please confirm that you approve splitting this order between the warehouses shown.");
+            }
             return {
                 notifyWarehouse,
                 ccEmails,
@@ -5822,7 +5897,11 @@
                 rushApproved,
                 rushApprovedBy: rushApproved ? portalRushApprovedBy() : "",
                 rushExempt: rushApprovalRequired && !rushApproved,
-                rushExemptNote: rushApprovalRequired && !rushApproved ? portalStandardProcessingExemptionNote() : ""
+                rushExemptNote: rushApprovalRequired && !rushApproved ? portalStandardProcessingExemptionNote() : "",
+                splitFulfillmentApproved: portalState.pendingReleaseSplitRequired && ui.portalReleaseSplitApproved?.checked === true,
+                splitFulfillmentApprovedBy: portalState.pendingReleaseSplitRequired && ui.portalReleaseSplitApproved?.checked === true
+                    ? portalRushApprovedBy()
+                    : ""
             };
         }
 
@@ -5835,6 +5914,7 @@
                 [ui.orderShipToCity.value.trim(), ui.orderShipToState.value.trim()].filter(Boolean).join(", ")
             ].filter(Boolean).join(" | ");
             const rushApprovalRequired = timingInfo.rushRequired === true;
+            const splitPlan = buildOrderSplitPlan(draftPayload.lines, draftPayload.fulfillmentLocationId);
             return {
                 orderId: currentOrder?.id || portalState.editingOrderId || "",
                 orderCode: currentOrder?.orderCode || "New draft order",
@@ -5845,7 +5925,8 @@
                 documentCount: (Array.isArray(currentOrder?.documents) ? currentOrder.documents.length : 0) + pendingOrderDocumentCount(),
                 rushApprovalRequired,
                 rushApproved: currentOrder?.rushApproved === true,
-                rushApprovalMessage: rushApprovalRequired ? portalRushApprovalMessage(draftPayload) : ""
+                rushApprovalMessage: rushApprovalRequired ? portalRushApprovalMessage(draftPayload) : "",
+                splitPlan: splitPlan.length > 1 ? splitPlan : []
             };
         }
 
@@ -5859,6 +5940,7 @@
             rushApprovalRequired = false,
             rushApproved = false,
             rushApprovalMessage = "",
+            splitPlan = [],
             expectedReady = "Not calculated",
             onConfirm = null
         } = {}) {
@@ -5867,6 +5949,8 @@
             portalState.pendingReleaseDocumentCount = Number(documentCount) || 0;
             portalState.pendingReleaseRushApprovalRequired = rushApprovalRequired === true && rushApproved !== true;
             portalState.pendingReleaseRushApprovalMessage = rushApprovalMessage || "";
+            portalState.pendingReleaseSplitPlan = Array.isArray(splitPlan) ? splitPlan : [];
+            portalState.pendingReleaseSplitRequired = portalState.pendingReleaseSplitPlan.length > 1;
             ui.portalReleaseOrderCode.textContent = orderCode || "Draft order";
             ui.portalReleaseReference.textContent = `Reference: ${reference || "Not set"}`;
             ui.portalReleaseShipTo.textContent = `Ship to: ${shipTo || "Not set"}`;
@@ -5879,6 +5963,13 @@
             if (ui.portalReleaseWarehouseConfirmed) {
                 ui.portalReleaseWarehouseConfirmed.checked = false;
             }
+            ui.portalReleaseSplitPanel?.classList.toggle("hidden", !portalState.pendingReleaseSplitRequired);
+            ui.portalReleaseSplitApprovalCard?.classList.toggle("hidden", !portalState.pendingReleaseSplitRequired);
+            if (ui.portalReleaseSplitApproved) {
+                ui.portalReleaseSplitApproved.checked = false;
+                ui.portalReleaseSplitApproved.required = portalState.pendingReleaseSplitRequired;
+            }
+            renderPortalReleaseSplitPlan(portalState.pendingReleaseSplitPlan);
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseLabelAttached.checked = false;
             if (ui.portalReleaseRushApprovalCard) {
@@ -5904,6 +5995,8 @@
             portalState.pendingReleaseDocumentCount = 0;
             portalState.pendingReleaseRushApprovalRequired = false;
             portalState.pendingReleaseRushApprovalMessage = "";
+            portalState.pendingReleaseSplitRequired = false;
+            portalState.pendingReleaseSplitPlan = [];
             ui.portalReleaseModal.classList.add("hidden");
             ui.portalReleaseModal.setAttribute("aria-hidden", "true");
             if (ui.portalReleaseWarehouse) {
@@ -5914,6 +6007,12 @@
             }
             if (ui.portalReleaseWarehouseConfirmed) {
                 ui.portalReleaseWarehouseConfirmed.checked = false;
+            }
+            ui.portalReleaseSplitPanel?.classList.add("hidden");
+            ui.portalReleaseSplitApprovalCard?.classList.add("hidden");
+            if (ui.portalReleaseSplitApproved) {
+                ui.portalReleaseSplitApproved.checked = false;
+                ui.portalReleaseSplitApproved.required = false;
             }
             ui.portalReleaseEmailWarehouse.checked = true;
             ui.portalReleaseLabelAttached.checked = false;
@@ -6035,6 +6134,7 @@
                 rushApprovalRequired: preview.rushApprovalRequired,
                 rushApproved: preview.rushApproved,
                 rushApprovalMessage: preview.rushApprovalMessage,
+                splitPlan: preview.splitPlan,
                 onConfirm: async (releaseOptions) => releaseCurrentOrderFlow({ releaseOptions, resetForm: true, nextView: "orders" })
             });
         }
@@ -6176,6 +6276,7 @@
             if (!releaseButton) return;
             const order = portalState.orders.find((entry) => entry.id === releaseButton.dataset.releaseOrder);
             if (!order) return;
+            const splitPlan = buildOrderSplitPlan(order.lines, order.fulfillmentLocationId);
             openPortalReleaseModal({
                 orderId: order.id,
                 orderCode: order.orderCode,
@@ -6187,6 +6288,7 @@
                 rushApprovalRequired: order.rushApprovalRequired === true || portalOrderRequiresRushApproval(order),
                 rushApproved: order.rushApproved === true,
                 rushApprovalMessage: portalRushApprovalMessage(order),
+                splitPlan: splitPlan.length > 1 ? splitPlan : [],
                 onConfirm: async (releaseOptions) => releaseOrderByIdFlow(order.id, {
                     releaseOptions,
                     resetForm: false,
