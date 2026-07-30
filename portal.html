@@ -53,6 +53,16 @@
             box-shadow: 0 0 0 4px rgba(23, 104, 255, 0.12);
         }
         .shell { width: min(1180px, 100%); margin: 0 auto; display: grid; gap: 1rem; }
+        .portal-utility-bar {
+            display: flex;
+            justify-content: flex-end;
+            min-height: 44px;
+        }
+        .portal-language-host {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+        }
         .card {
             background: var(--panel);
             border: 1px solid var(--line);
@@ -1014,6 +1024,13 @@
                 width: 100%;
                 justify-items: stretch;
             }
+            .portal-utility-bar,
+            .portal-language-host {
+                width: 100%;
+            }
+            .portal-language-host {
+                justify-content: stretch;
+            }
             .warehouse-switcher {
                 width: 100%;
             }
@@ -1032,6 +1049,9 @@
 </head>
 <body class="portal-auth-only">
     <div class="shell">
+        <div class="portal-utility-bar" aria-label="Portal preferences">
+            <div class="portal-language-host" data-language-control-host></div>
+        </div>
         <header class="card topbar">
             <div class="header-copy">
                 <div class="portal-brand">

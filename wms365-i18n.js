@@ -162,7 +162,13 @@
         wrapper.className = "wms365-language-control";
         wrapper.dataset.i18nIgnore = "true";
         wrapper.innerHTML = `<span id="wms365LanguageLabel">Language</span><select id="wms365LanguageSelect" aria-label="Language">${SUPPORTED.map((language) => `<option value="${language}">${LABELS[language]}</option>`).join("")}</select>`;
-        document.body.prepend(wrapper);
+        const host = document.querySelector("[data-language-control-host]");
+        if (host) {
+            host.appendChild(wrapper);
+        } else {
+            wrapper.classList.add("is-floating");
+            document.body.prepend(wrapper);
+        }
         const select = wrapper.querySelector("select");
         select.value = currentLanguage;
         select.addEventListener("change", () => setLanguage(select.value));
@@ -189,7 +195,7 @@
     function start() {
         currentLanguage = normalizeLanguage(localStorage.getItem(STORAGE_KEY) || navigator.language || "en");
         const style = document.createElement("style");
-        style.textContent = `.wms365-language-control{position:fixed;top:8px;right:10px;z-index:10020;display:inline-grid;grid-template-columns:auto minmax(112px,1fr);align-items:center;gap:8px;width:fit-content;max-width:calc(100vw - 20px);padding:4px 6px;color:#526a7d;font-size:12px;font-weight:700;background:rgba(255,255,255,.96);border:1px solid #d5dde4;border-radius:6px;box-shadow:0 1px 4px rgba(32,48,58,.08)}.wms365-language-control select{min-height:34px;width:auto;min-width:112px;padding:5px 30px 5px 9px;border:1px solid #cfd9e1;border-radius:5px;background:#fff;color:#20303a}@media(max-width:640px){.wms365-language-control{top:6px;right:6px}.wms365-language-control>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}`;
+        style.textContent = `.wms365-language-control{display:inline-grid;grid-template-columns:auto minmax(112px,1fr);align-items:center;gap:8px;width:fit-content;max-width:100%;padding:4px 6px;color:#526a7d;font-size:12px;font-weight:700;background:#fff;border:1px solid #d5dde4;border-radius:6px;box-shadow:0 1px 4px rgba(32,48,58,.08)}.wms365-language-control.is-floating{position:fixed;top:8px;right:10px;z-index:10020;max-width:calc(100vw - 20px);background:rgba(255,255,255,.96)}.wms365-language-control select{min-height:34px;width:auto;min-width:112px;padding:5px 30px 5px 9px;border:1px solid #cfd9e1;border-radius:5px;background:#fff;color:#20303a}@media(max-width:640px){.wms365-language-control:not(.is-floating){width:100%;grid-template-columns:auto minmax(0,1fr)}.wms365-language-control:not(.is-floating) select{width:100%}.wms365-language-control.is-floating{top:6px;right:6px}.wms365-language-control.is-floating>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}`;
         document.head.appendChild(style);
         addLanguageControl();
         setLanguage(currentLanguage);

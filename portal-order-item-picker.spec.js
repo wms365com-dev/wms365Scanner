@@ -95,3 +95,13 @@ test("customer inbound submission requires receiving paperwork and a pre-3 PM ap
     assert.match(serverSource, /insertPortalInboundDocuments/);
     assert.match(serverSource, /appointment\.requestedTime >= "15:00"/);
 });
+
+test("customer portal language selector uses a non-overlapping layout host", () => {
+    const i18nSource = fs.readFileSync(path.join(__dirname, "wms365-i18n.js"), "utf8");
+    assert.match(portalHtml, /data-language-control-host/);
+    assert.match(portalHtml, /\.portal-utility-bar/);
+    assert.match(i18nSource, /document\.querySelector\("\[data-language-control-host\]"\)/);
+    assert.match(i18nSource, /host\.appendChild\(wrapper\)/);
+    assert.match(i18nSource, /wrapper\.classList\.add\("is-floating"\)/);
+    assert.match(i18nSource, /\.wms365-language-control\.is-floating/);
+});
