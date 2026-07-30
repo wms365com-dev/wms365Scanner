@@ -74,3 +74,12 @@ test("split warehouse release requires clear customer approval", () => {
     assert.match(serverSource, /allowSplitFulfillment: splitFulfillmentApproved === true/);
     assert.match(serverSource, /Review the split and approve it before releasing the order/);
 });
+
+test("customer portal blocks same-day inbound notices", () => {
+    assert.match(portalHtml, /Same-day inbound notices are not available/);
+    assert.match(portalHtml, /function minimumPortalInboundDate\(\)/);
+    assert.match(portalHtml, /ui\.inboundExpectedDate\.min = minimumPortalInboundDate\(\)/);
+    assert.match(portalHtml, /inbound\.expectedDate < minimumDate/);
+    assert.match(serverSource, /expectedDate <= today/);
+    assert.match(serverSource, /Same-day inbound notices cannot be created/);
+});

@@ -26306,6 +26306,14 @@ async function savePortalInboundForAccount(
 
 async function savePortalInbound(client, accessRow, rawInbound) {
     const access = mapPortalAccessRow(accessRow);
+    const expectedDate = normalizeDateOnly(rawInbound?.expectedDate || rawInbound?.expected_date);
+    const today = getTimeZoneDateKey(new Date(), PORTAL_INBOUND_FOLLOWUP_TIME_ZONE);
+    if (!expectedDate || expectedDate <= today) {
+        throw httpError(
+            400,
+            "Same-day inbound notices cannot be created. Please choose tomorrow or a future arrival date."
+        );
+    }
     return savePortalInboundForAccount(client, access.accountName, rawInbound, {
         portalAccessId: accessRow.id,
         activityTitlePrefix: "portal",

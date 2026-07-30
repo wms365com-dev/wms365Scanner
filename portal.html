@@ -1548,7 +1548,11 @@
                     <div class="helper span-2" id="inboundWarehouseNotice"></div>
                     <label class="field"><span>Purchase Order / Reference #</span><input id="inboundReferenceNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Carrier</span><input id="inboundCarrierName" type="text" placeholder="Optional"></label>
-                    <label class="field"><span>Expected Date</span><input id="inboundExpectedDate" type="date"></label>
+                    <label class="field">
+                        <span>Expected Arrival Date</span>
+                        <input id="inboundExpectedDate" type="date">
+                        <span class="meta">Same-day inbound notices are not available. Choose tomorrow or a future date.</span>
+                    </label>
                     <label class="field"><span>Contact Name</span><input id="inboundContactName" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Tel</span><input id="inboundContactPhone" type="text" placeholder="Optional"></label>
                     <label class="field span-2"><span>Notes</span><input id="inboundNotes" type="text" placeholder="Optional notes for receiving"></label>
@@ -4573,9 +4577,34 @@
 
         function resetInboundForm() {
             ui.inboundForm.reset();
+            setInboundExpectedDateMinimum();
             ui.inboundLines.innerHTML = "";
             addInboundLine();
             syncWarehouseContextDisplay();
+        }
+
+        function portalEasternDateKey(date = new Date()) {
+            const parts = new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/New_York",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit"
+            }).formatToParts(date).reduce((result, part) => {
+                if (part.type !== "literal") result[part.type] = part.value;
+                return result;
+            }, {});
+            return `${parts.year}-${parts.month}-${parts.day}`;
+        }
+
+        function minimumPortalInboundDate() {
+            const easternToday = portalEasternDateKey();
+            const [year, month, day] = easternToday.split("-").map(Number);
+            return portalEasternDateKey(new Date(Date.UTC(year, month - 1, day + 1, 16)));
+        }
+
+        function setInboundExpectedDateMinimum() {
+            if (!ui.inboundExpectedDate) return;
+            ui.inboundExpectedDate.min = minimumPortalInboundDate();
         }
 
         function addInboundLine(line = null) {
@@ -4635,9 +4664,18 @@
                     if (!portalState.activeFulfillmentLocationId) {
                         return fail(ui.portalMessage, "Select the receiving warehouse at the top right before submitting the purchase order.", ui.portalWarehouseSelect);
                     }
+                    const inbound = collectInboundForm();
+                    const minimumDate = minimumPortalInboundDate();
+                    if (!inbound.expectedDate || inbound.expectedDate < minimumDate) {
+                        return fail(
+                            ui.portalMessage,
+                            "Same-day inbound notices cannot be created. Please choose tomorrow or a future arrival date.",
+                            ui.inboundExpectedDate
+                        );
+                    }
                     const response = await requestJson('/api/portal/inbounds', {
                         method: 'POST',
-                        body: JSON.stringify(collectInboundForm())
+                        body: JSON.stringify(inbound)
                     });
                     const savedInbound = sanitizeInbound(response?.inbound);
                     if (!savedInbound?.inboundCode) {
