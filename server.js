@@ -215,6 +215,8 @@ const PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const PORTAL_ORDER_SHIPMENT_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS = Math.max(60 * 1000, Number.parseInt(readEnv("PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS", "300000") || "300000", 10) || 300000);
 const PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS = Math.max(1, Number.parseInt(readEnv("PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS", "8") || "8", 10) || 8);
+const PORTAL_INBOUND_FOLLOWUP_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 60 * 1000;
+const PORTAL_INBOUND_FOLLOWUP_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_JOB_KEY = "ADMIN_ACTIVITY_DIGEST";
 const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
@@ -709,6 +711,9 @@ let portalOrderPickTicketEmailSchedulerTimer = null;
 let portalOrderShipmentEmailSchedulerStarted = false;
 let portalOrderShipmentEmailSchedulerRunning = false;
 let portalOrderShipmentEmailSchedulerTimer = null;
+let portalInboundFollowupEmailSchedulerStarted = false;
+let portalInboundFollowupEmailSchedulerRunning = false;
+let portalInboundFollowupEmailSchedulerTimer = null;
 let adminActivityDigestSchedulerStarted = false;
 let adminActivityDigestSchedulerRunning = false;
 let adminActivityDigestSchedulerTimer = null;
@@ -7658,6 +7663,31 @@ async function initializeDatabase() {
     await pool.query("alter table portal_inbounds add column if not exists arrival_note text not null default ''");
     await pool.query("alter table portal_inbounds add column if not exists received_at timestamptz");
     await pool.query("alter table portal_inbounds add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
+    await pool.query("alter table portal_inbounds add column if not exists created_by_email text not null default ''");
+    await pool.query(`
+        update portal_inbounds i
+        set created_by_email = pva.email
+        from portal_vendor_access pva
+        where i.portal_access_id = pva.id
+          and btrim(coalesce(i.created_by_email, '')) = ''
+          and btrim(coalesce(pva.email, '')) <> ''
+    `);
+    await pool.query(`
+        create table if not exists portal_inbound_followup_notifications (
+            id bigserial primary key,
+            inbound_id bigint not null references portal_inbounds(id) on delete cascade,
+            notification_type text not null check (notification_type in ('PRE_ARRIVAL', 'OVERDUE')),
+            expected_date date not null,
+            recipient_email text not null,
+            status text not null default 'PENDING' check (status in ('PENDING', 'SENT', 'FAILED')),
+            error_message text not null default '',
+            sent_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (inbound_id, notification_type, expected_date)
+        );
+    `);
+    await pool.query("create index if not exists idx_portal_inbound_followups_status on portal_inbound_followup_notifications (status, updated_at)");
 
     await pool.query(`
         create table if not exists portal_inbound_lines (
@@ -9464,6 +9494,7 @@ async function initializeDatabaseWithRetry() {
             ensureStoreIntegrationSchedulerStarted();
             ensurePortalOrderPickTicketEmailSchedulerStarted();
             ensurePortalOrderShipmentEmailSchedulerStarted();
+            ensurePortalInboundFollowupEmailSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
             ensureDatabaseHealthWatchdogStarted();
             console.log("PostgreSQL schema ready.");
@@ -20445,6 +20476,208 @@ function queuePortalInboundArrivalEmail(inbound, { actorLabel = "" } = {}) {
     }, 0);
 }
 
+function getInboundFollowupType(expectedDate, { now = new Date(), timeZone = PORTAL_INBOUND_FOLLOWUP_TIME_ZONE } = {}) {
+    const normalizedExpectedDate = normalizeDateOnly(expectedDate);
+    if (!normalizedExpectedDate) return "";
+    const todayParts = getTimeZoneDateParts(now, timeZone);
+    const today = `${todayParts.year}-${String(todayParts.month).padStart(2, "0")}-${String(todayParts.day).padStart(2, "0")}`;
+    const tomorrowParts = addDaysToCalendarDate(todayParts.year, todayParts.month, todayParts.day, 1);
+    const tomorrow = `${tomorrowParts.year}-${String(tomorrowParts.month).padStart(2, "0")}-${String(tomorrowParts.day).padStart(2, "0")}`;
+    if (normalizedExpectedDate === tomorrow) return "PRE_ARRIVAL";
+    if (normalizedExpectedDate < today) return "OVERDUE";
+    return "";
+}
+
+function buildPortalInboundFollowupEmailText(inbound, notificationType) {
+    const overdue = notificationType === "OVERDUE";
+    return [
+        overdue ? `Inbound Follow-Up Required - ${inbound.inboundCode}` : `Inbound Arrival Check - ${inbound.inboundCode}`,
+        "",
+        `Hello ${inbound.creatorName || "there"},`,
+        "",
+        overdue
+            ? `Inbound ${inbound.inboundCode} was expected on ${inbound.expectedDate} and has not been marked as arrived in WMS365.`
+            : `Inbound ${inbound.inboundCode} is expected tomorrow, ${inbound.expectedDate}, and has not yet been marked as arrived.`,
+        overdue
+            ? "Please follow up with the shipper or carrier for the current shipment status, then update the expected arrival date or arrival status in WMS365."
+            : "Please confirm with the shipper or carrier that the shipment remains on schedule.",
+        "",
+        "Please also take a moment to confirm that the inbound information is correct:",
+        `- Company: ${inbound.accountName}`,
+        `- Reference: ${inbound.referenceNumber || "Not provided"}`,
+        `- Carrier: ${inbound.carrierName || "Not provided"}`,
+        `- Expected arrival date: ${inbound.expectedDate}`,
+        `- Receiving warehouse: ${inbound.fulfillmentLocationName || inbound.fulfillmentLocationCode || "Not selected"}`,
+        `- Expected lines: ${formatCount(inbound.lineCount || 0, "line")}`,
+        "",
+        "This is an automated WMS365 planning email to help ensure the inbound remains on track and the warehouse can plan receiving.",
+        "",
+        "WMS365 Support",
+        WMS365_SYSTEM_EMAIL_ADDRESS
+    ].join("\n");
+}
+
+function buildPortalInboundFollowupEmailHtml(inbound, notificationType) {
+    const overdue = notificationType === "OVERDUE";
+    const heading = overdue ? "Inbound Follow-Up Required" : "Inbound Arrival Check";
+    const action = overdue
+        ? "Please follow up with the shipper or carrier for the current shipment status, then update the expected arrival date or arrival status in WMS365."
+        : "Please confirm with the shipper or carrier that the shipment remains on schedule.";
+    return `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:720px;">
+            <h2 style="margin:0 0 12px;">${escapeHtml(heading)}</h2>
+            <p style="margin:0 0 16px;">Hello ${escapeHtml(inbound.creatorName || "there")},</p>
+            <p style="margin:0 0 16px;">Inbound <strong>${escapeHtml(inbound.inboundCode)}</strong> ${overdue
+                ? `was expected on <strong>${escapeHtml(inbound.expectedDate)}</strong> and has not been marked as arrived in WMS365.`
+                : `is expected tomorrow, <strong>${escapeHtml(inbound.expectedDate)}</strong>, and has not yet been marked as arrived.`}</p>
+            <p style="margin:0 0 16px;padding:12px 14px;background:${overdue ? "#fff4f4" : "#eff6ff"};border:1px solid ${overdue ? "#e3a7a7" : "#bfdbfe"};">${escapeHtml(action)}</p>
+            <p style="margin:0 0 8px;font-weight:700;">Please also confirm that the inbound information is correct:</p>
+            <table style="border-collapse:collapse;width:100%;margin-bottom:16px;">
+                <tr><td style="padding:6px 0;font-weight:600;">Company</td><td>${escapeHtml(inbound.accountName)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Reference</td><td>${escapeHtml(inbound.referenceNumber || "Not provided")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Carrier</td><td>${escapeHtml(inbound.carrierName || "Not provided")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Expected arrival</td><td>${escapeHtml(inbound.expectedDate)}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Receiving warehouse</td><td>${escapeHtml(inbound.fulfillmentLocationName || inbound.fulfillmentLocationCode || "Not selected")}</td></tr>
+                <tr><td style="padding:6px 0;font-weight:600;">Expected lines</td><td>${escapeHtml(formatCount(inbound.lineCount || 0, "line"))}</td></tr>
+            </table>
+            <p style="margin:0 0 16px;color:#4b5563;">This is an automated WMS365 planning email to help ensure the inbound remains on track and the warehouse can plan receiving.</p>
+            <p style="margin:0;">WMS365 Support<br><a href="mailto:${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}">${escapeHtml(WMS365_SYSTEM_EMAIL_ADDRESS)}</a></p>
+        </div>
+    `;
+}
+
+async function claimPortalInboundFollowupNotification(client, inbound, notificationType) {
+    const result = await client.query(
+        `
+            insert into portal_inbound_followup_notifications (
+                inbound_id, notification_type, expected_date, recipient_email, status
+            )
+            values ($1, $2, $3, $4, 'PENDING')
+            on conflict (inbound_id, notification_type, expected_date)
+            do update set
+                recipient_email = excluded.recipient_email,
+                status = 'PENDING',
+                error_message = '',
+                updated_at = now()
+            where portal_inbound_followup_notifications.status = 'FAILED'
+              and portal_inbound_followup_notifications.updated_at <= now() - interval '30 minutes'
+            returning id
+        `,
+        [inbound.id, notificationType, inbound.expectedDate, inbound.creatorEmail]
+    );
+    return result.rows[0]?.id || null;
+}
+
+async function sendPortalInboundFollowupEmail(inbound, notificationType) {
+    const subject = notificationType === "OVERDUE"
+        ? `Inbound Follow-Up Required - ${inbound.inboundCode}`
+        : `Inbound Arrival Check - ${inbound.inboundCode}`;
+    return sendSystemEmail({
+        from: SMTP_FROM,
+        to: inbound.creatorEmail,
+        replyTo: SMTP_REPLY_TO || undefined,
+        subject,
+        text: buildPortalInboundFollowupEmailText(inbound, notificationType),
+        html: buildPortalInboundFollowupEmailHtml(inbound, notificationType),
+        emailContext: {
+            accountName: inbound.accountName,
+            sourceType: `PORTAL_INBOUND_${notificationType}`,
+            sourceRef: inbound.inboundCode || inbound.id,
+            inboundId: inbound.id,
+            expectedDate: inbound.expectedDate
+        }
+    }, "Inbound follow-up email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+}
+
+async function runDuePortalInboundFollowups({ now = new Date() } = {}) {
+    if (!databaseReady || portalInboundFollowupEmailSchedulerRunning) return { sent: 0, skipped: 0, failed: 0 };
+    portalInboundFollowupEmailSchedulerRunning = true;
+    const summary = { sent: 0, skipped: 0, failed: 0 };
+    try {
+        const result = await pool.query(
+            `
+                select i.id, i.inbound_code, i.account_name, i.reference_number, i.carrier_name,
+                    i.expected_date,
+                    case
+                        when i.portal_access_id is null then i.created_by_email
+                        else coalesce(pva.email, '')
+                    end as creator_email,
+                    fl.code as fulfillment_location_code, fl.name as fulfillment_location_name,
+                    split_part(case
+                        when i.portal_access_id is null then i.created_by_email
+                        else coalesce(pva.email, '')
+                    end, '@', 1) as creator_name,
+                    (select count(*)::integer from portal_inbound_lines l where l.inbound_id = i.id) as line_count
+                from portal_inbounds i
+                left join portal_vendor_access pva on pva.id = i.portal_access_id and pva.is_active = true
+                left join fulfillment_locations fl on fl.id = i.fulfillment_location_id
+                where i.status = 'SUBMITTED'
+                  and i.arrived_at is null
+                  and i.expected_date is not null
+                order by i.expected_date asc, i.id asc
+                limit 200
+            `
+        );
+        for (const row of result.rows) {
+            const inbound = {
+                id: Number(row.id),
+                inboundCode: row.inbound_code || makePortalInboundCode(row.id),
+                accountName: row.account_name || "",
+                referenceNumber: row.reference_number || "",
+                carrierName: row.carrier_name || "",
+                expectedDate: normalizeDateOnly(row.expected_date),
+                creatorEmail: normalizeEmail(row.creator_email || ""),
+                creatorName: row.creator_name || "",
+                fulfillmentLocationCode: row.fulfillment_location_code || "",
+                fulfillmentLocationName: row.fulfillment_location_name || "",
+                lineCount: Number(row.line_count) || 0
+            };
+            const notificationType = getInboundFollowupType(inbound.expectedDate, { now });
+            if (!notificationType || !inbound.creatorEmail) {
+                summary.skipped += 1;
+                continue;
+            }
+            const claimId = await claimPortalInboundFollowupNotification(pool, inbound, notificationType);
+            if (!claimId) {
+                summary.skipped += 1;
+                continue;
+            }
+            try {
+                await sendPortalInboundFollowupEmail(inbound, notificationType);
+                await pool.query(
+                    "update portal_inbound_followup_notifications set status = 'SENT', sent_at = now(), updated_at = now() where id = $1",
+                    [claimId]
+                );
+                summary.sent += 1;
+            } catch (error) {
+                await pool.query(
+                    "update portal_inbound_followup_notifications set status = 'FAILED', error_message = $2, updated_at = now() where id = $1",
+                    [claimId, normalizeFreeText(error?.message || "Email send failed").slice(0, 2000)]
+                );
+                summary.failed += 1;
+                console.error(`Inbound follow-up email failed for ${inbound.inboundCode}:`, error.message || error);
+            }
+        }
+    } catch (error) {
+        console.error("Inbound follow-up email scheduler failed:", error.message || error);
+    } finally {
+        portalInboundFollowupEmailSchedulerRunning = false;
+    }
+    return summary;
+}
+
+function ensurePortalInboundFollowupEmailSchedulerStarted() {
+    if (portalInboundFollowupEmailSchedulerStarted) return;
+    portalInboundFollowupEmailSchedulerStarted = true;
+    portalInboundFollowupEmailSchedulerTimer = setInterval(() => {
+        void runDuePortalInboundFollowups();
+    }, PORTAL_INBOUND_FOLLOWUP_EMAIL_SCHEDULER_INTERVAL_MS);
+    if (typeof portalInboundFollowupEmailSchedulerTimer?.unref === "function") {
+        portalInboundFollowupEmailSchedulerTimer.unref();
+    }
+    void runDuePortalInboundFollowups();
+}
+
 function getAppActionOrigin(requestOrigin = "") {
     const origin = String(requestOrigin || "").replace(/\/+$/, "");
     return origin || APP_BASE_URL || "https://app.wms365.co";
@@ -25915,6 +26148,7 @@ async function savePortalInboundForAccount(
         portalAccessId = null,
         activityTitlePrefix = "portal",
         activityActor = "",
+        creatorEmail = "",
         taskAppUser = null
     } = {}
 ) {
@@ -25939,9 +26173,9 @@ async function savePortalInboundForAccount(
         `
             insert into portal_inbounds (
                 account_name, portal_access_id, fulfillment_location_id, reference_number, carrier_name,
-                expected_date, contact_name, contact_phone, notes
+                expected_date, contact_name, contact_phone, notes, created_by_email
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             returning id
         `,
         [
@@ -25953,7 +26187,8 @@ async function savePortalInboundForAccount(
             inbound.expectedDate,
             inbound.contactName,
             inbound.contactPhone,
-            inbound.notes
+            inbound.notes,
+            normalizeEmail(creatorEmail || "")
         ]
     );
     const inboundId = insertResult.rows[0].id;
@@ -25996,7 +26231,8 @@ async function savePortalInbound(client, accessRow, rawInbound) {
     return savePortalInboundForAccount(client, access.accountName, rawInbound, {
         portalAccessId: accessRow.id,
         activityTitlePrefix: "portal",
-        activityActor: "Company portal"
+        activityActor: "Company portal",
+        creatorEmail: access.email
     });
 }
 
@@ -26393,6 +26629,7 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
         portalAccessId: null,
         activityTitlePrefix: "warehouse purchase order",
         activityActor: actor,
+        creatorEmail: appUser?.email || "",
         taskAppUser: appUser
     });
 }
@@ -35917,6 +36154,9 @@ module.exports = {
     portalPalletSizeInboundBillingCode,
     buildPortalInboundPalletBillingRollups,
     createPortalInboundBillingEvents,
+    getInboundFollowupType,
+    buildPortalInboundFollowupEmailText,
+    buildPortalInboundFollowupEmailHtml,
     assertPortalShipmentCloseoutReviewConfirmed,
     assertPortalShipmentProofRequirements,
     buildPortalOrderProcessingTiming,
