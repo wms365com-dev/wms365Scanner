@@ -56,6 +56,15 @@ test("warehouse availability deducts reservations only from their assigned wareh
     assert.match(serverSource, /upper\(i\.location\) = upper\(fl\.code\)/);
 });
 
+test("customer inventory hides unavailable and non-pickable stock", () => {
+    assert.match(serverSource, /"INVESTIGATION"/);
+    assert.match(serverSource, /"DAMAGED"/);
+    assert.match(serverSource, /"QUARANTINE"/);
+    assert.match(serverSource, /where greatest\(h\.pickable_quantity - coalesce\(r\.reserved_quantity, 0\), 0\) > 0/);
+    assert.match(serverSource, /count\(distinct i\.location\) filter \(/);
+    assert.match(serverSource, /if \(availableQuantity <= 0\) return;/);
+});
+
 test("sales order form keeps warehouse selection and release readiness in the workflow", () => {
     assert.match(portalHtml, /id="orderWarehouseSelect"/);
     assert.match(portalHtml, /Stock shown below updates when this changes/);

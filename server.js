@@ -230,7 +230,16 @@ const WAREHOUSE_RECEIVING_STAGE_SUFFIX = "REC";
 const WAREHOUSE_INVESTIGATION_HOLD_SUFFIX = "INV";
 const MAX_LOCATION_CODE_LENGTH = 32;
 const LOCATION_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]*$/;
-const NON_PICKABLE_LOCATION_TYPES = new Set(["RECEIVING_STAGE", "DOCK", "QA_HOLD", "STAGING"]);
+const NON_PICKABLE_LOCATION_TYPES = new Set([
+    "RECEIVING_STAGE",
+    "DOCK",
+    "QA_HOLD",
+    "STAGING",
+    "HOLD",
+    "INVESTIGATION",
+    "DAMAGED",
+    "QUARANTINE"
+]);
 const PORTAL_ORDER_DOCUMENT_CATEGORIES = Object.freeze({
     GENERAL: "GENERAL",
     RELEASE_COPY: "RELEASE_COPY",
@@ -14970,15 +14979,26 @@ async function getPortalInventorySummary(accountName, client = pool) {
                     coalesce(max(nullif(c.description, '')), '') as description,
                     coalesce(max(nullif(c.image_url, '')), '') as image_url,
                     coalesce(max(nullif(c.tracking_level, '')), max(nullif(i.tracking_level, '')), 'UNIT') as tracking_level,
-                    coalesce(sum(i.quantity), 0)::integer as on_hand_quantity,
+                    coalesce(sum(case
+                        when coalesce(bl.is_pickable, true) = true
+                         and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+                        then i.quantity
+                        else 0
+                    end), 0)::integer as on_hand_quantity,
                     coalesce(sum(case
                         when coalesce(bl.is_pickable, true) = true
                          and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
                         then i.quantity
                         else 0
                     end), 0)::integer as pickable_quantity,
-                    count(distinct i.location)::integer as location_count,
-                    array_remove(array_agg(distinct i.location order by i.location), null) as locations
+                    count(distinct i.location) filter (
+                        where coalesce(bl.is_pickable, true) = true
+                          and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+                    )::integer as location_count,
+                    array_remove(array_agg(distinct i.location order by i.location) filter (
+                        where coalesce(bl.is_pickable, true) = true
+                          and coalesce(bl.location_type, 'STORAGE') <> all($3::text[])
+                    ), null) as locations
                 from known_skus k
                 left join inventory_lines i
                   on i.account_name = k.account_name
@@ -15017,6 +15037,7 @@ async function getPortalInventorySummary(accountName, client = pool) {
             left join reserved r
               on r.account_name = h.account_name
              and r.sku = h.sku
+            where greatest(h.pickable_quantity - coalesce(r.reserved_quantity, 0), 0) > 0
             order by h.sku asc
         `,
         [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, [...NON_PICKABLE_LOCATION_TYPES]]
@@ -15057,11 +15078,13 @@ async function getPortalInventorySummary(accountName, client = pool) {
     warehouseResult.rows.forEach((row) => {
         const sku = normalizeText(row.sku);
         if (!availabilityBySku.has(sku)) availabilityBySku.set(sku, []);
+        const availableQuantity = Math.max(Number(row.pickable_quantity) || 0, 0);
+        if (availableQuantity <= 0) return;
         availabilityBySku.get(sku).push({
             fulfillmentLocationId: String(row.fulfillment_location_id),
             locationCode: row.location_code || "",
             locationName: row.location_name || row.location_code || "",
-            availableQuantity: Math.max(Number(row.pickable_quantity) || 0, 0)
+            availableQuantity
         });
     });
     return result.rows.map((row) => ({
