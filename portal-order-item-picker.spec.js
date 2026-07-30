@@ -54,3 +54,11 @@ test("warehouse availability deducts reservations only from their assigned wareh
     assert.match(serverSource, /r\.fulfillment_location_id = cfl\.fulfillment_location_id/);
     assert.match(serverSource, /upper\(i\.location\) = upper\(fl\.code\)/);
 });
+
+test("sales order form keeps warehouse selection and release readiness in the workflow", () => {
+    assert.match(portalHtml, /id="orderWarehouseSelect"/);
+    assert.match(portalHtml, /Stock shown below updates when this changes/);
+    assert.match(portalHtml, /id="orderReleaseReadiness" aria-live="polite"/);
+    assert.match(portalHtml, /Add at least one item before releasing the order/);
+    assert.match(portalHtml, /Stock check passed for the selected warehouse/);
+});

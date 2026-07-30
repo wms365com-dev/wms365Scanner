@@ -318,6 +318,7 @@
             flex-wrap: wrap;
             gap: 0.7rem;
         }
+        .order-actions .status { flex: 1 0 100%; }
         .portal-nav {
             justify-content: space-between;
             align-items: center;
@@ -1445,6 +1446,11 @@
                 </div>
 
                 <form id="orderForm" class="form-grid" autocomplete="off">
+                    <label class="field span-2">
+                        <span>Ship From Warehouse</span>
+                        <select id="orderWarehouseSelect" aria-describedby="orderWarehouseNotice"></select>
+                        <span class="meta">Choose the warehouse where the items are available. Stock shown below updates when this changes.</span>
+                    </label>
                     <div class="helper span-2" id="orderWarehouseNotice"></div>
                     <label class="field"><span>PO #</span><input id="orderPoNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Shipping Reference</span><input id="orderShippingReference" type="text" placeholder="Required"></label>
@@ -1522,6 +1528,7 @@
                 </div>
 
                 <div class="order-actions">
+                    <div class="status" id="orderReleaseReadiness" aria-live="polite"></div>
                     <button class="btn secondary" id="saveDraftBtn" type="button">Save Draft</button>
                     <button class="btn" id="releaseOrderBtn" type="button">Release Order</button>
                 </div>
@@ -1958,6 +1965,7 @@
             itemsList: document.getElementById("itemsList"),
             itemFormMessage: document.getElementById("itemFormMessage"),
             orderFormTitle: document.getElementById("orderFormTitle"),
+            orderWarehouseSelect: document.getElementById("orderWarehouseSelect"),
             orderWarehouseNotice: document.getElementById("orderWarehouseNotice"),
             orderPoNumber: document.getElementById("orderPoNumber"),
             orderShippingReference: document.getElementById("orderShippingReference"),
@@ -1990,6 +1998,7 @@
             orderItemPickerMessage: document.getElementById("orderItemPickerMessage"),
             addLineBtn: document.getElementById("addLineBtn"),
             orderLines: document.getElementById("orderLines"),
+            orderReleaseReadiness: document.getElementById("orderReleaseReadiness"),
             resetOrderBtn: document.getElementById("resetOrderBtn"),
             saveDraftBtn: document.getElementById("saveDraftBtn"),
             releaseOrderBtn: document.getElementById("releaseOrderBtn"),
@@ -2253,6 +2262,11 @@
                     `<option value="${attr(location.fulfillmentLocationId)}">${esc(getFulfillmentLocationLabel(location))}</option>`
                 )).join("");
             }
+            if (ui.orderWarehouseSelect) {
+                ui.orderWarehouseSelect.innerHTML = locations.map((location) => (
+                    `<option value="${attr(location.fulfillmentLocationId)}">${esc(getFulfillmentLocationLabel(location))}</option>`
+                )).join("");
+            }
             ui.portalWarehouseSwitcher?.classList.remove("hidden");
             setActiveFulfillmentLocation(currentId);
         }
@@ -2261,6 +2275,9 @@
             const active = getActiveFulfillmentLocation();
             if (ui.portalWarehouseSelect && active) {
                 ui.portalWarehouseSelect.value = String(active.fulfillmentLocationId);
+            }
+            if (ui.orderWarehouseSelect && active) {
+                ui.orderWarehouseSelect.value = String(active.fulfillmentLocationId);
             }
             if (ui.portalWarehouseCurrent) {
                 ui.portalWarehouseCurrent.textContent = active
@@ -2336,6 +2353,7 @@
             ui.deliveryCreateInboundBtn?.addEventListener("click", () => setView("inbound"));
             ui.deliveryInboundId?.addEventListener("change", syncDeliveryInboundSelection);
             ui.portalWarehouseSelect?.addEventListener("change", () => setActiveFulfillmentLocation(ui.portalWarehouseSelect.value, { announce: true }));
+            ui.orderWarehouseSelect?.addEventListener("change", () => setActiveFulfillmentLocation(ui.orderWarehouseSelect.value, { announce: true }));
             ui.orderDocumentFiles?.addEventListener("change", () => onDraftOrderDocumentSelection(ui.orderDocumentFiles));
             ui.orderPendingDocuments?.addEventListener("click", onDraftOrderDocumentSelectionClick);
             [ui.orderType, ui.orderShipmentMethod, ui.orderRequestedShipDate, ui.orderProcessingChoice].forEach((input) => {
@@ -5636,10 +5654,19 @@
                 const availableQuantity = selected ? Number(selected.availableQuantity) || 0 : Number(item?.availableQuantity) || 0;
                 return !item || requestedQuantity > availableQuantity;
             });
-            ui.releaseOrderBtn.disabled = hasShortage;
+            const hasLines = requestedBySku.size > 0;
+            ui.releaseOrderBtn.disabled = hasShortage || !hasLines;
             ui.releaseOrderBtn.title = hasShortage
                 ? "Release is blocked until enough pickable stock is available for every order line."
-                : "";
+                : (!hasLines ? "Add at least one item before releasing the order." : "");
+            if (ui.orderReleaseReadiness) {
+                ui.orderReleaseReadiness.className = `status show ${hasShortage ? "error" : (hasLines ? "success" : "info")}`;
+                ui.orderReleaseReadiness.textContent = hasShortage
+                    ? "Stock needs attention. You can save this order as a draft, but it cannot be released yet."
+                    : (hasLines
+                        ? "Stock check passed for the selected warehouse. Complete the required order details, then release."
+                        : "Add at least one item to begin the stock check.");
+            }
         }
 
         function collectOrderPayload() {
