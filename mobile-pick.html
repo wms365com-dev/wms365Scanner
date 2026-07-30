@@ -381,12 +381,23 @@ const MOBILE_DEVICE_STATE_CACHE_KEY='warehouse-state-v1';
 const MOBILE_DEVICE_CACHE_MAX_AGE_MS=12*60*60*1000;
 
 async function requestJson(url,opt={}){
-  const r=await fetch(url,{cache:opt.cache||'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+  let r;
+  try{r=await fetch(url,{cache:opt.cache||'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}})}
+  catch{throw new Error('WMS365 could not connect. Check the scanner network connection, then try again.')}
   const t=await r.text();
   let d={};
-  try{d=t?JSON.parse(t):{}}catch{throw new Error(t||'Request failed')}
-  if(!r.ok){const error=new Error(d.error||`Request failed (${r.status})`);error.status=r.status;error.data=d;throw error}
+  try{d=t?JSON.parse(t):{}}catch{throw new Error('WMS365 received an unexpected response. Refresh this screen and try again.')}
+  if(!r.ok){const error=new Error(d.error||friendlyMobileRequestFailure(r.status,d.requestId));error.status=r.status;error.data=d;throw error}
   return d;
+}
+function friendlyMobileRequestFailure(status,requestId=''){
+  const reference=requestId?` Reference: ${requestId}.`:'';
+  if(status===401)return 'Your warehouse session has expired. Sign in again to continue.';
+  if(status===403)return 'You do not have access to complete this task. Ask a warehouse lead for help.';
+  if(status===404)return 'This task or order is no longer available. Refresh the task list.';
+  if(status===409)return 'This task was updated on another device. Refresh it and review the latest quantities.';
+  if(status>=500)return `WMS365 could not save this action right now. Your work was not confirmed. Try again.${reference}`;
+  return `WMS365 could not complete this action. Review the information and try again.${reference}`;
 }
 
 function makeActionId(actionType){

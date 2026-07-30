@@ -161,11 +161,21 @@ async function requestJson(url,options={}){
     res=await fetch(url,{cache:"no-store",headers:{"Content-Type":"application/json",...(options.headers||{})},...options});
   }catch(error){
     error.offline=true;
+    error.message="WMS365 could not connect. The count was not submitted. Check the scanner network connection and try again.";
     throw error;
   }
-  const text=await res.text();const data=text?JSON.parse(text):{};
-  if(!res.ok){if(res.status===401){location.href="/login";return}const error=new Error(data.error||"Request failed");error.status=res.status;throw error}
+  const text=await res.text();let data={};
+  try{data=text?JSON.parse(text):{}}catch{throw new Error("WMS365 received an unexpected response. Refresh this screen and try again.")}
+  if(!res.ok){if(res.status===401){location.href="/login";return}const error=new Error(data.error||friendlyCountRequestFailure(res.status,data.requestId));error.status=res.status;throw error}
   return data;
+}
+function friendlyCountRequestFailure(status,requestId=""){
+  const reference=requestId?` Reference: ${requestId}.`:"";
+  if(status===403)return "You do not have access to submit this count. Ask a warehouse lead for help.";
+  if(status===404)return "This count task is no longer available. Refresh the task list.";
+  if(status===409)return "This inventory was updated on another device. Refresh and recount before submitting.";
+  if(status>=500)return `WMS365 could not save this count right now. The count was not confirmed. Try again.${reference}`;
+  return `WMS365 could not complete this action. Review the count and try again.${reference}`;
 }
 function openLocalDb(){
   return new Promise((resolve,reject)=>{

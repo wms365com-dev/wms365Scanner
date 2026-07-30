@@ -28466,24 +28466,45 @@
         }
 
         async function requestJson(url, options = {}) {
-            const response = await fetch(url, {
-                cache: options.cache || "no-store",
-                ...options,
-                headers: {
-                    "Content-Type": "application/json",
-                    ...(options.headers || {})
-                }
-            });
+            let response;
+            try {
+                response = await fetch(url, {
+                    cache: options.cache || "no-store",
+                    ...options,
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(options.headers || {})
+                    }
+                });
+            } catch (_error) {
+                throw new Error("WMS365 could not connect. Check the network connection, then try again.");
+            }
             const text = await response.text();
-            const data = text ? JSON.parse(text) : {};
+            let data = {};
+            try {
+                data = text ? JSON.parse(text) : {};
+            } catch (_error) {
+                throw new Error("WMS365 received an unexpected response. Refresh the page and try again.");
+            }
             if (!response.ok) {
                 if (response.status === 401 && !String(url || "").startsWith("/api/portal/")) {
                     window.location.href = "/login";
-                    throw new Error("Warehouse session expired. Redirecting to login.");
+                    throw new Error("Your warehouse session has expired. Sign in again to continue.");
                 }
-                throw new Error(data.error || "Request failed.");
+                throw new Error(data.error || friendlyRequestFailure(response.status, data.requestId));
             }
             return data;
+        }
+
+        function friendlyRequestFailure(status, requestId = "") {
+            const reference = requestId ? ` Reference: ${requestId}.` : "";
+            if (status === 403) return "You do not have access to complete this action. Ask a warehouse administrator if you need access.";
+            if (status === 404) return "This record could not be found. Refresh the page and try again.";
+            if (status === 409) return "This record changed while you were working. Refresh the page, review the latest details, and try again.";
+            if (status === 413) return "The selected file is too large. Choose a smaller file and try again.";
+            if (status === 429) return "Too many requests were submitted. Wait a moment, then try again.";
+            if (status >= 500) return `WMS365 could not complete this request right now. Please try again.${reference}`;
+            return `WMS365 could not complete this request. Review the information and try again.${reference}`;
         }
 
         function normalizeImageReference(value) {

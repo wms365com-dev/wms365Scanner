@@ -6508,13 +6508,62 @@ app.get("/favicon.ico", (_req, res) => {
     res.status(204).end();
 });
 
-app.use((error, _req, res, _next) => {
-    const statusCode = error.statusCode || 500;
+function buildUserFacingError(error, req, statusCode) {
+    const requestId = crypto.randomUUID();
+    const pathName = String(req?.path || "");
+    const isPortal = pathName.startsWith("/api/portal/");
+    const supportMessage = `Please try again. If this continues, contact support@wms365.co and provide reference ${requestId}.`;
+    const databaseMessages = {
+        "23505": "This record already exists. Review the information and try again.",
+        "23503": "This change cannot be completed because the record is being used elsewhere.",
+        "40001": "Another update was completed at the same time. Refresh the page and try again.",
+        "40P01": "Another update was completed at the same time. Refresh the page and try again."
+    };
+
+    if (databaseMessages[error?.code]) {
+        return { message: databaseMessages[error.code], requestId };
+    }
     if (statusCode >= 500) {
-        console.error(error);
+        return {
+            message: `We could not complete this request right now. ${supportMessage}`,
+            requestId
+        };
+    }
+    if (statusCode === 429) {
+        return { message: "Too many requests were submitted. Wait a moment, then try again.", requestId };
+    }
+    if (statusCode === 413) {
+        return { message: "The selected file is too large. Choose a smaller file and try again.", requestId };
+    }
+    if (statusCode === 401 && !normalizeText(error?.message)) {
+        return {
+            message: isPortal
+                ? "Your customer portal session has expired. Sign in again to continue."
+                : "Your warehouse session has expired. Sign in again to continue.",
+            requestId
+        };
+    }
+    if (statusCode === 403 && !normalizeText(error?.message)) {
+        return { message: "You do not have access to complete this action. Contact your administrator if you need access.", requestId };
+    }
+    if (statusCode === 404 && !normalizeText(error?.message)) {
+        return { message: "This record could not be found. It may have been changed or removed. Refresh the page and try again.", requestId };
+    }
+    return {
+        message: normalizeFreeText(error?.message) || "We could not complete this request. Review the information and try again.",
+        requestId
+    };
+}
+
+app.use((error, req, res, _next) => {
+    const statusCode = error.statusCode || 500;
+    const publicError = buildUserFacingError(error, req, statusCode);
+    if (statusCode >= 500) {
+        console.error(`[${publicError.requestId}]`, error);
     }
     const payload = {
-        error: error.message || "An unexpected server error occurred."
+        error: publicError.message,
+        requestId: publicError.requestId
     };
     if (error.code) payload.code = error.code;
     if (error.billingHold) payload.billingHold = error.billingHold;
@@ -36340,6 +36389,7 @@ module.exports = {
     upsertInventoryLine,
     consumePortalOrderInventory,
     postInventoryCountAdjustment,
+    buildUserFacingError,
     httpError
 };
 
