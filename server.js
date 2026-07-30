@@ -20488,6 +20488,13 @@ function getInboundFollowupType(expectedDate, { now = new Date(), timeZone = POR
     return "";
 }
 
+function isDeliverableInboundCreatorEmail(value) {
+    const email = normalizeEmail(value || "");
+    if (!email) return false;
+    const domain = email.split("@")[1] || "";
+    return !["example.com", "example.org", "example.net", "test.com", "invalid"].includes(domain);
+}
+
 function buildPortalInboundFollowupEmailText(inbound, notificationType) {
     const overdue = notificationType === "OVERDUE";
     return [
@@ -20633,7 +20640,7 @@ async function runDuePortalInboundFollowups({ now = new Date() } = {}) {
                 lineCount: Number(row.line_count) || 0
             };
             const notificationType = getInboundFollowupType(inbound.expectedDate, { now });
-            if (!notificationType || !inbound.creatorEmail) {
+            if (!notificationType || !isDeliverableInboundCreatorEmail(inbound.creatorEmail)) {
                 summary.skipped += 1;
                 continue;
             }
@@ -36155,6 +36162,7 @@ module.exports = {
     buildPortalInboundPalletBillingRollups,
     createPortalInboundBillingEvents,
     getInboundFollowupType,
+    isDeliverableInboundCreatorEmail,
     buildPortalInboundFollowupEmailText,
     buildPortalInboundFollowupEmailHtml,
     assertPortalShipmentCloseoutReviewConfirmed,

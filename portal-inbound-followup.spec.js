@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const {
     getInboundFollowupType,
+    isDeliverableInboundCreatorEmail,
     buildPortalInboundFollowupEmailText,
     buildPortalInboundFollowupEmailHtml
 } = require("./server");
@@ -69,4 +70,10 @@ test("scheduler deduplicates by inbound, reminder type, and expected date", () =
 test("scheduler excludes disabled portal creators and records warehouse creator emails", () => {
     assert.match(serverSource, /left join portal_vendor_access pva on pva\.id = i\.portal_access_id and pva\.is_active = true/);
     assert.match(serverSource, /creatorEmail: appUser\?\.email \|\| ""/);
+});
+
+test("scheduler skips placeholder creator addresses", () => {
+    assert.equal(isDeliverableInboundCreatorEmail("creator@example.com"), false);
+    assert.equal(isDeliverableInboundCreatorEmail("creator@test.com"), false);
+    assert.equal(isDeliverableInboundCreatorEmail("creator@customer.ca"), true);
 });
