@@ -8027,10 +8027,12 @@ async function initializeDatabase() {
             file_type text not null default 'application/octet-stream',
             file_size integer not null default 0 check (file_size >= 0),
             file_data bytea not null,
+            document_category text not null default '',
             uploaded_by text not null default '',
             created_at timestamptz not null default now()
         );
     `);
+    await pool.query("alter table portal_inbound_documents add column if not exists document_category text not null default ''");
     await pool.query(`
         create table if not exists portal_inbound_pallet_labels (
             id bigserial primary key,
@@ -17509,9 +17511,9 @@ async function insertPortalInboundDocuments(client, inboundId, documents, upload
         await client.query(
             `
                 insert into portal_inbound_documents (
-                    inbound_id, file_name, file_type, file_size, file_data, uploaded_by
+                    inbound_id, file_name, file_type, file_size, file_data, document_category, uploaded_by
                 )
-                values ($1, $2, $3, $4, $5, $6)
+                values ($1, $2, $3, $4, $5, $6, $7)
             `,
             [
                 inboundId,
@@ -17519,6 +17521,7 @@ async function insertPortalInboundDocuments(client, inboundId, documents, upload
                 document.fileType,
                 document.fileSize,
                 document.fileBuffer,
+                normalizePortalOrderDocumentCategory(document.documentCategory || ""),
                 normalizeFreeText(uploadedBy)
             ]
         );
@@ -25958,6 +25961,12 @@ async function savePortalDeliveryAppointment(client, accessRow, input) {
     if (!appointment.requestedDate || !appointment.requestedTime || !appointment.referenceNumber || !appointment.contactName) {
         throw httpError(400, "Requested date, requested time, purchase order/inbound, and contact name are required.");
     }
+    if (!/^\d{2}:\d{2}$/.test(appointment.requestedTime) || appointment.requestedTime >= "15:00") {
+        throw httpError(
+            400,
+            "Choose an arrival time before 3:00 PM in the receiving warehouse's local time."
+        );
+    }
 
     const fulfillmentLocation = await getPortalInboundFulfillmentLocation(client, access.accountName, {
         fulfillmentLocationId: linkedInbound?.fulfillmentLocationId || linkedInbound?.fulfillment_location_id
@@ -26227,7 +26236,8 @@ async function savePortalInboundForAccount(
         activityTitlePrefix = "portal",
         activityActor = "",
         creatorEmail = "",
-        taskAppUser = null
+        taskAppUser = null,
+        requiredDocuments = []
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -26284,6 +26294,14 @@ async function savePortalInboundForAccount(
             [inboundId, index + 1, line.sku, line.quantity]
         );
     }
+    if (requiredDocuments.length) {
+        await insertPortalInboundDocuments(
+            client,
+            inboundId,
+            requiredDocuments,
+            normalizeEmail(creatorEmail || "") || activityActor || "Company portal"
+        );
+    }
 
     const savedInbound = await getPortalInboundById(client, inboundId);
     if (!savedInbound) {
@@ -26314,11 +26332,25 @@ async function savePortalInbound(client, accessRow, rawInbound) {
             "Same-day inbound notices cannot be created. Please choose tomorrow or a future arrival date."
         );
     }
+    const requiredDocuments = sanitizePortalOrderDocumentsInput(
+        Array.isArray(rawInbound?.documents) ? rawInbound.documents : []
+    );
+    if (!requiredDocuments.length) {
+        throw httpError(400, "Attach at least one BOL or packing slip before submitting this inbound.");
+    }
+    const allowedCategories = new Set([
+        PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL,
+        PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP
+    ]);
+    if (requiredDocuments.some((document) => !allowedCategories.has(document.documentCategory))) {
+        throw httpError(400, "Choose BOL or packing slip as the document type for every required receiving attachment.");
+    }
     return savePortalInboundForAccount(client, access.accountName, rawInbound, {
         portalAccessId: accessRow.id,
         activityTitlePrefix: "portal",
         activityActor: "Company portal",
-        creatorEmail: access.email
+        creatorEmail: access.email,
+        requiredDocuments
     });
 }
 
@@ -33143,6 +33175,7 @@ function mapPortalInboundDocumentRow(row, downloadPathPrefix = "/api/admin/porta
         fileName: row.file_name || "Document",
         fileType: row.file_type || "application/octet-stream",
         fileSize: Number(row.file_size) || 0,
+        documentCategory: normalizePortalOrderDocumentCategory(row.document_category || ""),
         uploadedBy: row.uploaded_by || "",
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
         downloadUrl: `${downloadPathPrefix}/${row.id}`

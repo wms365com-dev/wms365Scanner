@@ -1546,6 +1546,10 @@
 
                 <form id="inboundForm" class="form-grid" autocomplete="off">
                     <div class="helper span-2" id="inboundWarehouseNotice"></div>
+                    <div class="status show info span-2">
+                        <strong>Delivery cutoff: before 3:00 PM local warehouse time.</strong>
+                        Carriers arriving at or after 3:00 PM may need to return on the next available receiving day.
+                    </div>
                     <label class="field"><span>Purchase Order / Reference #</span><input id="inboundReferenceNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Carrier</span><input id="inboundCarrierName" type="text" placeholder="Optional"></label>
                     <label class="field">
@@ -1556,6 +1560,22 @@
                     <label class="field"><span>Contact Name</span><input id="inboundContactName" type="text" placeholder="Required"></label>
                     <label class="field"><span>Contact Tel</span><input id="inboundContactPhone" type="text" placeholder="Optional"></label>
                     <label class="field span-2"><span>Notes</span><input id="inboundNotes" type="text" placeholder="Optional notes for receiving"></label>
+                    <div class="order-document-upload span-2">
+                        <label class="field">
+                            <span>Required Receiving Document</span>
+                            <select id="inboundDocumentType">
+                                <option value="">Choose document type</option>
+                                <option value="SHIPMENT_BOL">Bill of Lading (BOL)</option>
+                                <option value="SHIPMENT_PACKING_SLIP">Packing Slip</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Attach BOL or Packing Slip</span>
+                            <input id="inboundDocumentFiles" type="file" accept="application/pdf,image/*" multiple>
+                        </label>
+                        <div class="meta">At least one BOL or packing slip is required so the warehouse can identify and verify the arriving shipment. PDF or image files, up to 5.</div>
+                        <div id="inboundPendingDocuments" class="document-selection-list"></div>
+                    </div>
                 </form>
 
                 <div class="portal-subsection">
@@ -1592,7 +1612,11 @@
                     </label>
                     <label class="field"><span>Reference / PO #</span><input id="deliveryReferenceNumber" type="text" placeholder="Required"></label>
                     <label class="field"><span>Requested Date</span><input id="deliveryRequestedDate" type="date"></label>
-                    <label class="field"><span>Requested Time</span><input id="deliveryRequestedTime" type="text" placeholder="Example: 10:00 AM - 12:00 PM"></label>
+                    <label class="field">
+                        <span>Requested Arrival Time</span>
+                        <input id="deliveryRequestedTime" type="time" max="14:59">
+                        <span class="meta">Choose a time before 3:00 PM in the receiving warehouse's local time.</span>
+                    </label>
                     <label class="field"><span>Carrier</span><input id="deliveryCarrierName" type="text" placeholder="Optional"></label>
                     <label class="field"><span>Trailer / Container #</span><input id="deliveryTrailerNumber" type="text" placeholder="Optional"></label>
                     <label class="field"><span>Pallet Count</span><input id="deliveryPalletCount" type="number" min="1" step="1" placeholder="Optional"></label>
@@ -1861,6 +1885,7 @@
             documentPreviewObjectUrl: "",
             orderStatusFilter: "",
             orderDraftDocumentFiles: [],
+            inboundDraftDocumentFiles: [],
             orderUploadDocumentFiles: {},
             inboundUploadDocumentFiles: {},
             pendingReleaseHandler: null,
@@ -2056,6 +2081,9 @@
             inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
             inboundCarrierName: document.getElementById("inboundCarrierName"),
             inboundExpectedDate: document.getElementById("inboundExpectedDate"),
+            inboundDocumentType: document.getElementById("inboundDocumentType"),
+            inboundDocumentFiles: document.getElementById("inboundDocumentFiles"),
+            inboundPendingDocuments: document.getElementById("inboundPendingDocuments"),
             inboundContactName: document.getElementById("inboundContactName"),
             inboundContactPhone: document.getElementById("inboundContactPhone"),
             inboundNotes: document.getElementById("inboundNotes"),
@@ -2380,6 +2408,8 @@
             ui.orderWarehouseSelect?.addEventListener("change", () => setActiveFulfillmentLocation(ui.orderWarehouseSelect.value, { announce: true }));
             ui.orderDocumentFiles?.addEventListener("change", () => onDraftOrderDocumentSelection(ui.orderDocumentFiles));
             ui.orderPendingDocuments?.addEventListener("click", onDraftOrderDocumentSelectionClick);
+            ui.inboundDocumentFiles?.addEventListener("change", () => onDraftInboundDocumentSelection(ui.inboundDocumentFiles));
+            ui.inboundPendingDocuments?.addEventListener("click", onDraftInboundDocumentSelectionClick);
             [ui.orderType, ui.orderShipmentMethod, ui.orderRequestedShipDate, ui.orderProcessingChoice].forEach((input) => {
                 input?.addEventListener("change", updateOrderRushNotice);
                 input?.addEventListener("input", updateOrderRushNotice);
@@ -3708,6 +3738,32 @@
             renderDraftOrderDocumentSelection();
         }
 
+        function renderDraftInboundDocumentSelection() {
+            if (!ui.inboundPendingDocuments) return;
+            ui.inboundPendingDocuments.innerHTML = documentSelectionHtml(
+                portalState.inboundDraftDocumentFiles,
+                "data-clear-draft-inbound-documents"
+            );
+        }
+
+        function onDraftInboundDocumentSelection(input) {
+            try {
+                portalState.inboundDraftDocumentFiles = addFilesToDocumentQueue(portalState.inboundDraftDocumentFiles, input?.files);
+                if (input) input.value = "";
+                renderDraftInboundDocumentSelection();
+            } catch (error) {
+                if (input) input.value = "";
+                setMessage(error.message, "error");
+            }
+        }
+
+        function onDraftInboundDocumentSelectionClick(event) {
+            if (!event.target.closest("[data-clear-draft-inbound-documents]")) return;
+            portalState.inboundDraftDocumentFiles = [];
+            if (ui.inboundDocumentFiles) ui.inboundDocumentFiles.value = "";
+            renderDraftInboundDocumentSelection();
+        }
+
         function renderOrderUploadDocumentSelection(orderId) {
             const container = [...(ui.ordersList?.querySelectorAll("[data-order-document-selection]") || [])]
                 .find((entry) => String(entry.dataset.orderDocumentSelection || "") === String(orderId || ""));
@@ -4578,6 +4634,8 @@
         function resetInboundForm() {
             ui.inboundForm.reset();
             setInboundExpectedDateMinimum();
+            portalState.inboundDraftDocumentFiles = [];
+            renderDraftInboundDocumentSelection();
             ui.inboundLines.innerHTML = "";
             addInboundLine();
             syncWarehouseContextDisplay();
@@ -4673,9 +4731,26 @@
                             ui.inboundExpectedDate
                         );
                     }
+                    const documentCategory = String(ui.inboundDocumentType?.value || "");
+                    if (!["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP"].includes(documentCategory)) {
+                        return fail(
+                            ui.portalMessage,
+                            "Choose whether the required receiving document is a BOL or packing slip.",
+                            ui.inboundDocumentType
+                        );
+                    }
+                    if (!portalState.inboundDraftDocumentFiles.length) {
+                        return fail(
+                            ui.portalMessage,
+                            "Attach at least one BOL or packing slip before submitting this inbound.",
+                            ui.inboundDocumentFiles
+                        );
+                    }
+                    const documents = (await readOrderDocumentFiles(portalState.inboundDraftDocumentFiles))
+                        .map((document) => ({ ...document, documentCategory }));
                     const response = await requestJson('/api/portal/inbounds', {
                         method: 'POST',
-                        body: JSON.stringify(inbound)
+                        body: JSON.stringify({ ...inbound, documents })
                     });
                     const savedInbound = sanitizeInbound(response?.inbound);
                     if (!savedInbound?.inboundCode) {
@@ -4859,6 +4934,13 @@
             if (!payload.referenceNumber) return fail(ui.deliveryMessage, "Enter the reference or purchase order number.", ui.deliveryReferenceNumber);
             if (!payload.requestedDate) return fail(ui.deliveryMessage, "Choose the requested delivery date.", ui.deliveryRequestedDate);
             if (!payload.requestedTime) return fail(ui.deliveryMessage, "Enter the requested delivery time or window.", ui.deliveryRequestedTime);
+            if (!/^\d{2}:\d{2}$/.test(payload.requestedTime) || payload.requestedTime >= "15:00") {
+                return fail(
+                    ui.deliveryMessage,
+                    "Choose an arrival time before 3:00 PM in the receiving warehouse's local time.",
+                    ui.deliveryRequestedTime
+                );
+            }
             if (!payload.contactName) return fail(ui.deliveryMessage, "Enter a contact name for this delivery.", ui.deliveryContactName);
             return payload;
         }

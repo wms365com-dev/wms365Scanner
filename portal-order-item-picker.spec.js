@@ -83,3 +83,15 @@ test("customer portal blocks same-day inbound notices", () => {
     assert.match(serverSource, /expectedDate <= today/);
     assert.match(serverSource, /Same-day inbound notices cannot be created/);
 });
+
+test("customer inbound submission requires receiving paperwork and a pre-3 PM appointment", () => {
+    assert.match(portalHtml, /Delivery cutoff: before 3:00 PM local warehouse time/);
+    assert.match(portalHtml, /id="inboundDocumentType"/);
+    assert.match(portalHtml, /id="inboundDocumentFiles"/);
+    assert.match(portalHtml, /Attach at least one BOL or packing slip before submitting this inbound/);
+    assert.match(portalHtml, /id="deliveryRequestedTime" type="time" max="14:59"/);
+    assert.match(portalHtml, /payload\.requestedTime >= "15:00"/);
+    assert.match(serverSource, /requiredDocuments = sanitizePortalOrderDocumentsInput/);
+    assert.match(serverSource, /insertPortalInboundDocuments/);
+    assert.match(serverSource, /appointment\.requestedTime >= "15:00"/);
+});
