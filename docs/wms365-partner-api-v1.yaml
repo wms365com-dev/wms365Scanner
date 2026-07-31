@@ -61,6 +61,49 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Page"
+  /shipments/{id}:
+    patch:
+      summary: Update one warehouse shipment closeout
+      security:
+        - bearerAuth: [shipments:write]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 180 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [RELEASED, PICKED, STAGED, SHIPPED, CANCELLED] }
+                shipmentMethod: { type: string, enum: [PARCEL, LTL_FREIGHT, FTL_FREIGHT, CUSTOMER_PICKUP] }
+                carrier: { type: string }
+                trackingReference: { type: string }
+                bolReference: { type: string }
+                totalPallets: { type: integer, minimum: 0 }
+                existingPallets: { type: integer, minimum: 0 }
+                newPallets: { type: integer, minimum: 0 }
+                mixedPallets: { type: integer, minimum: 0 }
+                shippedAt: { type: string, format: date-time }
+                documentIds: { type: array, items: { type: integer } }
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, shippedQuantity]
+                    properties:
+                      id: { type: integer }
+                      shippedQuantity: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Updated warehouse shipment
   /jobs:
     get:
       summary: List asynchronous import jobs

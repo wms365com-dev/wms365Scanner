@@ -55,6 +55,31 @@ test("release and status transitions synchronize warehouse shipments", () => {
     assert.match(serverSource, /syncWarehouseShipmentsForOrder\(client, cancelledOrder, \{ status: "CANCELLED" \}\)/);
 });
 
+test("warehouse shipment closeout is shipment-specific and tenant scoped", () => {
+    assert.match(serverSource, /async function updateWarehouseShipmentDetail/);
+    assert.match(serverSource, /tracking_reference=\$5, bol_reference=\$6/);
+    assert.match(serverSource, /portal_order_documents set warehouse_shipment_id = \$1/);
+    assert.match(serverSource, /Confirm the shipped quantity for every warehouse shipment line/);
+    assert.match(serverSource, /Enter the parcel tracking number/);
+    assert.match(serverSource, /SHIPMENT_PACKING_SLIP/);
+    assert.match(serverSource, /SHIPMENT_LOAD_PHOTO/);
+    assert.match(serverSource, /app\.patch\("\/api\/v1\/shipments\/:id", requirePartnerApiScope\("shipments:write"\)/);
+    assert.match(serverSource, /accountName: req\.partnerApi\.accountName/);
+});
+
+test("existing non-draft orders are backfilled into warehouse shipments", () => {
+    assert.match(serverSource, /async function backfillWarehouseShipments/);
+    assert.match(serverSource, /not exists \(select 1 from warehouse_shipments s where s\.order_id = o\.id\)/);
+    assert.match(serverSource, /void backfillWarehouseShipments\(\)/);
+});
+
+test("customer shipment emails summarize each warehouse shipment and shortage", () => {
+    assert.match(serverSource, /order\.warehouseShipments =/);
+    assert.match(serverSource, /Warehouse Shipments:/);
+    assert.match(serverSource, /warehouseShipmentList/);
+    assert.match(serverSource, /SHORT \$\{shortage\}/);
+});
+
 test("platform migration includes jobs, scoped clients, tokens, idempotency, and audit", () => {
     for (const table of [
         "async_jobs",

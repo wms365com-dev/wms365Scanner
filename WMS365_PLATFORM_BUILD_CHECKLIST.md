@@ -35,9 +35,9 @@ documented production verification.
 - [x] Shipment lines reference customer order lines.
 - [x] Split-location release creates one shipment per required warehouse.
 - [x] Pick ticket and packing slip are shipment-specific.
-- [ ] Carrier, tracking, BOL, shipment documents, pallet counts, and shipped date are shipment-specific.
-- [ ] Short-shipped quantities are recorded per shipment line.
-- [ ] Customer notifications summarize every shipment and shortage.
+- [x] Carrier, tracking, BOL, shipment documents, pallet counts, and shipped date are shipment-specific.
+- [x] Short-shipped quantities are recorded per shipment line.
+- [x] Customer notifications summarize every shipment and shortage.
 - [x] Existing single-location orders remain compatible.
 - [x] Reopening or editing an order cannot orphan shipment records or allocations.
 

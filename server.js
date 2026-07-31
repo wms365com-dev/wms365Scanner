@@ -4321,6 +4321,40 @@ app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/portal-orders/:id/shipments", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) throw httpError(400, "A valid order id is required.");
+        const shipments = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            const result = await client.query("select id from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id", [orderId]);
+            return Promise.all(result.rows.map((row) => getWarehouseShipmentDetail(client, row.id, accountName)));
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ shipments: shipments.map(mapPartnerApiShipment) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.patch("/api/admin/warehouse-shipments/:id", async (req, res, next) => {
+    try {
+        const shipment = await withTransaction(async (client) => {
+            const current = await getWarehouseShipmentDetail(client, req.params.id);
+            if (!current) throw httpError(404, "That warehouse shipment could not be found.");
+            await assertAppUserCompanyAccess(client, req.appUser, current.account_name);
+            return updateWarehouseShipmentDetail(client, current.id, req.body || {}, {
+                accountName: current.account_name,
+                actor: req.appUser?.full_name || req.appUser?.email || "Warehouse"
+            });
+        });
+        res.json({ success: true, shipment: mapPartnerApiShipment(shipment) });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/warehouse-tasks/:id/history", async (req, res, next) => {
     try {
         const taskId = toPositiveInt(req.params.id);
@@ -5334,6 +5368,21 @@ app.get("/api/v1/shipments", requirePartnerApiScope("shipments:read"), async (re
             params
         );
         res.json(buildPartnerApiPage(result.rows, limit, mapPartnerApiShipment, req));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.patch("/api/v1/shipments/:id", requirePartnerApiScope("shipments:write"), async (req, res, next) => {
+    try {
+        const result = await runPartnerApiIdempotentRequest(req, async (client) => {
+            const shipment = await updateWarehouseShipmentDetail(client, req.params.id, req.body || {}, {
+                accountName: req.partnerApi.accountName,
+                actor: req.partnerApi.clientName || req.partnerApi.clientId
+            });
+            return { status: 200, body: { data: mapPartnerApiShipment(shipment), meta: { idempotent: true } } };
+        });
+        res.status(result.status).json(result.body);
     } catch (error) {
         next(error);
     }
@@ -7184,6 +7233,15 @@ function mapPartnerApiShipment(row) {
         shipmentMethod: row.shipment_method || "",
         carrier: row.carrier_name || "",
         trackingReference: row.tracking_reference || "",
+        bolReference: row.bol_reference || "",
+        pallets: {
+            total: Number(row.total_pallets) || 0,
+            existing: Number(row.existing_pallets) || 0,
+            new: Number(row.new_pallets) || 0,
+            mixed: Number(row.mixed_pallets) || 0
+        },
+        documentCount: Number(row.document_count) || 0,
+        lines: Array.isArray(row.lines) ? row.lines : undefined,
         lineCount: Number(row.line_count) || 0,
         orderedQuantity: Number(row.ordered_quantity) || 0,
         shippedQuantity: Number(row.shipped_quantity) || 0,
@@ -10758,6 +10816,9 @@ async function initializeDatabaseWithRetry() {
             ensureAdminActivityDigestSchedulerStarted();
             ensureAsyncJobWorkerStarted();
             ensureDatabaseHealthWatchdogStarted();
+            void backfillWarehouseShipments().catch((error) => {
+                console.error("Warehouse shipment backfill failed:", error.message || error);
+            });
             console.log("PostgreSQL schema ready.");
         } catch (error) {
             databaseReady = false;
@@ -17328,7 +17389,13 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
     const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
-    return mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries, shipmentLinesResult.rows, printSummariesResult.rows)[0] || null;
+    const order = mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries, shipmentLinesResult.rows, printSummariesResult.rows)[0] || null;
+    if (!order) return null;
+    const shipmentIds = await client.query("select id from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id", [orderId]);
+    order.warehouseShipments = (await Promise.all(shipmentIds.rows.map((row) => getWarehouseShipmentDetail(client, row.id, normalizedAccount))))
+        .filter(Boolean)
+        .map(mapPartnerApiShipment);
+    return order;
 }
 
 function buildShipToAddressInput(accountName, order) {
@@ -23301,6 +23368,15 @@ function buildPortalShipmentEmailText(order, confirmation, { isUpdate = false } 
         lines.push("");
     }
 
+    if (Array.isArray(order.warehouseShipments) && order.warehouseShipments.length) {
+        lines.push(order.warehouseShipments.length > 1 ? "Warehouse Shipments:" : "Warehouse Shipment:");
+        order.warehouseShipments.forEach((shipment) => {
+            const shortage = Math.max((Number(shipment.orderedQuantity) || 0) - (Number(shipment.shippedQuantity) || 0), 0);
+            lines.push(`- ${shipment.warehouse?.name || shipment.warehouse?.code || "Warehouse"} | ${shipment.status} | Shipped ${shipment.shippedQuantity}/${shipment.orderedQuantity}${shortage ? ` | SHORT ${shortage}` : ""}${shipment.carrier ? ` | ${shipment.carrier}` : ""}${shipment.trackingReference ? ` | ${shipment.trackingReference}` : ""}`);
+        });
+        lines.push("");
+    }
+
     if (hasCustomerProvidedShippingLabel) {
         lines.push("Customer-provided label note:", customerProvidedShippingLabelNotice(), "");
     }
@@ -23372,6 +23448,12 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
             </ul>
         `
         : "";
+    const warehouseShipmentList = Array.isArray(order.warehouseShipments) && order.warehouseShipments.length
+        ? `<div style="margin:18px 0;"><p style="margin:0 0 8px;font-weight:600;">${order.warehouseShipments.length > 1 ? "Warehouse Shipments" : "Warehouse Shipment"}</p>${order.warehouseShipments.map((shipment) => {
+            const shortage = Math.max((Number(shipment.orderedQuantity) || 0) - (Number(shipment.shippedQuantity) || 0), 0);
+            return `<div style="padding:10px;border:1px solid ${shortage ? "#ef4444" : "#e5e7eb"};${shortage ? "background:#fef2f2;color:#991b1b;" : ""}"><strong>${escapeHtml(shipment.warehouse?.name || shipment.warehouse?.code || "Warehouse")}</strong> | ${escapeHtml(shipment.status || "-")} | Shipped ${escapeHtml(`${shipment.shippedQuantity}/${shipment.orderedQuantity}`)}${shortage ? ` | <strong>SHORT ${escapeHtml(String(shortage))}</strong>` : ""}<br>${escapeHtml(shipment.carrier || "")}${shipment.trackingReference || shipment.bolReference ? ` | ${buildShipmentTrackingHtml(shipment.trackingReference || shipment.bolReference, shipment.carrier || "")}` : ""}</div>`;
+        }).join("")}</div>`
+        : "";
 
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
@@ -23391,6 +23473,7 @@ function buildPortalShipmentEmailHtml(order, confirmation, { isUpdate = false } 
             </table>
             ${customerProvidedLabelNotice}
             ${shortageBanner}
+            ${warehouseShipmentList}
             <p style="margin:20px 0 8px;font-weight:600;">Order Lines</p>
             <table style="border-collapse:collapse;width:100%;max-width:720px;border:1px solid #e5e7eb;">
                 <thead>
@@ -32639,6 +32722,138 @@ function countedCasesToInventoryQuantity(countedCases, master = null) {
     return { countedCases: cases, countedQuantity: cases, trackingLevel };
 }
 
+let warehouseShipmentBackfillRunning = false;
+async function backfillWarehouseShipments({ batchSize = 5000 } = {}) {
+    if (warehouseShipmentBackfillRunning || !databaseReady) return { processed: 0 };
+    warehouseShipmentBackfillRunning = true;
+    let processed = 0;
+    try {
+        const missing = await pool.query(
+            `
+                select o.id, o.account_name
+                from portal_orders o
+                where o.status not in ('DRAFT', 'ARCHIVED')
+                  and o.fulfillment_location_id is not null
+                  and not exists (select 1 from warehouse_shipments s where s.order_id = o.id)
+                order by o.id
+                limit $1
+            `,
+            [Math.min(Math.max(Number(batchSize) || 5000, 1), 5000)]
+        );
+        for (const row of missing.rows) {
+            try {
+                await withTransaction(async (client) => {
+                    const order = await getPortalOrderById(client, row.id, row.account_name, "/api/admin/portal-order-documents");
+                    if (order) await syncWarehouseShipmentsForOrder(client, order, { status: order.status });
+                });
+                processed += 1;
+            } catch (error) {
+                console.error(`Warehouse shipment backfill skipped order ${row.id}:`, error.message || error);
+            }
+        }
+        if (processed) console.log(`Backfilled warehouse shipments for ${processed} existing order(s).`);
+        return { processed };
+    } finally {
+        warehouseShipmentBackfillRunning = false;
+    }
+}
+
+async function getWarehouseShipmentDetail(client, shipmentId, accountName = "") {
+    const params = [toPositiveInt(shipmentId)];
+    const accountSql = normalizeText(accountName)
+        ? (params.push(normalizeText(accountName)), "and s.account_name = $2")
+        : "";
+    const result = await client.query(
+        `
+            select s.*, o.order_code, fl.code as warehouse_code, fl.name as warehouse_name,
+                   coalesce(jsonb_agg(jsonb_build_object(
+                       'id', sl.id, 'orderLineId', sl.order_line_id, 'sku', sl.sku,
+                       'orderedQuantity', sl.ordered_quantity, 'shippedQuantity', sl.shipped_quantity
+                   ) order by sl.id) filter (where sl.id is not null), '[]'::jsonb) as lines,
+                   (select count(*)::integer from portal_order_documents d where d.warehouse_shipment_id = s.id) as document_count
+            from warehouse_shipments s
+            join portal_orders o on o.id = s.order_id
+            join fulfillment_locations fl on fl.id = s.fulfillment_location_id
+            left join warehouse_shipment_lines sl on sl.shipment_id = s.id
+            where s.id = $1 ${accountSql}
+            group by s.id, o.order_code, fl.code, fl.name
+        `,
+        params
+    );
+    return result.rows[0] || null;
+}
+
+async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { accountName = "", actor = "" } = {}) {
+    const current = await getWarehouseShipmentDetail(client, shipmentId, accountName);
+    if (!current) throw httpError(404, "That warehouse shipment could not be found.");
+    const status = normalizeText(input.status || current.status);
+    if (!["RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(status)) {
+        throw httpError(400, "Shipment status must be released, picked, staged, shipped, or cancelled.");
+    }
+    for (const line of Array.isArray(input.lines) ? input.lines : []) {
+        const lineId = toPositiveInt(line.id || line.shipmentLineId || line.shipment_line_id);
+        const quantity = toNonNegativeInt(line.shippedQuantity ?? line.shipped_quantity ?? line.quantity);
+        if (!lineId || quantity == null) throw httpError(400, "Each shipment line needs its line id and shipped quantity.");
+        const changed = await client.query(
+            `update warehouse_shipment_lines set shipped_quantity = $3, updated_at = now()
+             where id = $1 and shipment_id = $2 and $3 <= ordered_quantity returning id`,
+            [lineId, current.id, quantity]
+        );
+        if (changed.rowCount !== 1) throw httpError(400, "A shipped quantity exceeds its warehouse shipment quantity or the line no longer exists.");
+    }
+    const rawDocumentIds = Array.isArray(input.documentIds || input.document_ids) ? (input.documentIds || input.document_ids) : [];
+    const documentIds = [...new Set(rawDocumentIds.map(toPositiveInt).filter(Boolean))];
+    if (documentIds.length) {
+        const linked = await client.query(
+            `update portal_order_documents set warehouse_shipment_id = $1
+             where order_id = $2 and id = any($3::bigint[]) returning id`,
+            [current.id, current.order_id, documentIds]
+        );
+        if (linked.rowCount !== documentIds.length) throw httpError(400, "One or more documents do not belong to this shipment's customer order.");
+    }
+    const shipmentMethod = normalizePortalShipmentMethod(input.shipmentMethod || input.shipment_method || current.shipment_method);
+    const trackingReference = normalizeFreeText(input.trackingReference || input.tracking_reference || current.tracking_reference);
+    const bolReference = normalizeFreeText(input.bolReference || input.bol_reference || current.bol_reference);
+    if (status === "SHIPPED") {
+        if (!lines.length || lines.length !== current.lines.length) throw httpError(400, "Confirm the shipped quantity for every warehouse shipment line before marking it shipped.");
+        if (shipmentMethod === "PARCEL" && !trackingReference) {
+            throw httpError(400, "Enter the parcel tracking number before marking this warehouse shipment shipped.");
+        }
+        if (shipmentMethod !== "PARCEL") {
+            const proof = await client.query(
+                "select document_category from portal_order_documents where warehouse_shipment_id = $1",
+                [current.id]
+            );
+            const categories = new Set(proof.rows.map((row) => normalizeText(row.document_category)));
+            const missing = [];
+            if (!bolReference && !categories.has(PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL)) missing.push("BOL / PRO");
+            if (!categories.has(PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP)) missing.push("checked packing slip");
+            if (!categories.has(PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO)) missing.push("shipment image");
+            if (missing.length) throw httpError(400, `Attach ${missing.join(", ")} to this warehouse shipment before marking it shipped.`);
+        }
+    }
+    const palletValue = (camel, snake, fallback) => toNonNegativeInt(input[camel] ?? input[snake]) ?? (Number(fallback) || 0);
+    await client.query(
+        `update warehouse_shipments set status=$2, shipment_method=$3, carrier_name=$4,
+             tracking_reference=$5, bol_reference=$6, total_pallets=$7, existing_pallets=$8,
+             new_pallets=$9, mixed_pallets=$10,
+             shipped_at=case when $2='SHIPPED' then coalesce($11::timestamptz, shipped_at, now()) else shipped_at end,
+             updated_at=now() where id=$1`,
+        [current.id, status,
+            shipmentMethod,
+            normalizeFreeText(input.carrier || input.carrierName || input.carrier_name || current.carrier_name),
+            trackingReference,
+            bolReference,
+            palletValue("totalPallets", "total_pallets", current.total_pallets),
+            palletValue("existingPallets", "existing_pallets", current.existing_pallets),
+            palletValue("newPallets", "new_pallets", current.new_pallets),
+            palletValue("mixedPallets", "mixed_pallets", current.mixed_pallets),
+            input.shippedAt || input.shipped_at || null]
+    );
+    await insertActivity(client, "shipment", `Updated warehouse shipment ${current.shipment_code}`, [current.account_name, current.warehouse_name, status, actor].filter(Boolean).join(" | "));
+    return getWarehouseShipmentDetail(client, current.id, current.account_name);
+}
+
 function buildInventoryCountVarianceFacts(systemQuantity, countedQuantity) {
     const system = Math.max(0, Number(systemQuantity) || 0);
     const counted = Math.max(0, Number(countedQuantity) || 0);
@@ -37791,6 +38006,9 @@ module.exports = {
     buildPartnerApiPage,
     makeWarehouseShipmentCode,
     buildWarehouseShipmentQuantityAllocator,
+    getWarehouseShipmentDetail,
+    updateWarehouseShipmentDetail,
+    backfillWarehouseShipments,
     syncWarehouseShipmentsForOrder,
     httpError
 };
