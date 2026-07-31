@@ -15,6 +15,7 @@
     "test:portal-item-picker": "node --test portal-order-item-picker.spec.js",
     "test:portal-password-reset": "node --test portal-password-reset.spec.js",
     "test:user-errors": "node --test user-facing-errors.spec.js",
+    "test:platform-architecture": "node --test platform-architecture.spec.js",
     "test:warehouse-billing": "node --test warehouse-billing.spec.js",
     "test:guides": "node scripts/validate-guide-screenshots.js"
   },

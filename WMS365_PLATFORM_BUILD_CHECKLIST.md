@@ -1,0 +1,139 @@
+# WMS365 Platform Architecture Build Checklist
+
+This checklist is the release contract for the WMS365 platform upgrade. A section is
+complete only when every acceptance item is checked and backed by an automated test or
+documented production verification.
+
+## Release Rules
+
+- [ ] Existing customer portal, warehouse, mobile, Shopify, billing, and printing tests pass.
+- [ ] Schema changes exist in both `migrations/` and the boot-time schema in `server.js`.
+- [ ] New writes are tenant-scoped and warehouse-scoped where applicable.
+- [ ] External write operations are idempotent.
+- [ ] Unexpected errors remain private and provide a customer-safe support reference.
+- [ ] Production deployment is staged, health checked, and rollback-compatible.
+- [ ] No billing email is sent while billing email delivery remains paused.
+
+## 1. Versioned Partner API
+
+- [x] Stable `/api/v1` namespace.
+- [x] Consistent success envelope: `data`, `meta`, and optional `links`.
+- [x] Consistent error envelope: `error.code`, `error.message`, `error.requestId`.
+- [x] Cursor pagination with bounded page sizes.
+- [x] Filtering by company-safe identifiers, status, and date ranges.
+- [x] Stable external IDs for orders, shipments, inventory, and jobs.
+- [x] `Idempotency-Key` required for external writes.
+- [x] Replayed requests return the original result without duplicate writes.
+- [x] Rate limiting and audit logging.
+- [x] Test and production credentials are isolated.
+
+## 2. Customer Orders and Warehouse Shipments
+
+- [x] Customer order remains the commercial request.
+- [x] One order can own multiple warehouse shipments.
+- [x] Every shipment belongs to exactly one fulfillment warehouse.
+- [x] Shipment lines reference customer order lines.
+- [x] Split-location release creates one shipment per required warehouse.
+- [x] Pick ticket and packing slip are shipment-specific.
+- [ ] Carrier, tracking, BOL, shipment documents, pallet counts, and shipped date are shipment-specific.
+- [ ] Short-shipped quantities are recorded per shipment line.
+- [ ] Customer notifications summarize every shipment and shortage.
+- [x] Existing single-location orders remain compatible.
+- [x] Reopening or editing an order cannot orphan shipment records or allocations.
+
+## 3. Inventory Transaction Service
+
+- [x] Append-only inventory ledger exists.
+- [x] Database trigger prevents ledger updates and deletes.
+- [ ] Every receive mutation uses the shared inventory transaction service.
+- [ ] Every move mutation uses the shared inventory transaction service.
+- [ ] Every adjustment mutation uses the shared inventory transaction service.
+- [ ] Every hold and release-from-hold mutation uses the shared service.
+- [ ] Every allocation, pick, unpick, ship, cancellation, and reversal is recorded.
+- [ ] Transactions include company, warehouse, location, SKU, lot, expiry, actor, device, source, and idempotency key.
+- [ ] Inventory cannot be negative under concurrent operations.
+- [ ] Reversal operations append compensating entries and never edit history.
+
+## 4. Asynchronous Bulk Jobs
+
+- [x] Bulk imports return a job ID immediately.
+- [x] Job states: queued, running, completed, completed-with-warnings, failed, cancelled.
+- [x] Row states: accepted, warning, rejected.
+- [x] Worker claims are atomic and stale claims are recoverable.
+- [x] Retry count and next retry time are visible.
+- [x] Progress totals are visible to authorized users.
+- [x] Original file checksum prevents accidental duplicate jobs.
+- [x] Downloadable CSV error report includes row, field, message, and suggested correction.
+- [ ] Customer and warehouse application screens expose only their permitted jobs.
+- [x] Large jobs do not block web requests.
+
+## 5. Billing Transactions
+
+- [x] Structured billing event table exists.
+- [x] Event keys support duplicate prevention.
+- [ ] Receiving completion emits configured receiving and pallet events.
+- [ ] Shipment completion emits processing, carton, pallet, document, rush, freight, and labour events.
+- [ ] Storage events are generated from reviewed snapshots.
+- [ ] Events remain reviewable before invoicing.
+- [ ] Approved events lock their source facts.
+- [ ] Corrections use void or credit events instead of history edits.
+- [ ] Billing email delivery remains paused until explicitly enabled.
+- [ ] Billing audit reconciles operational records to billing events.
+
+## 6. Warehouse Tasks
+
+- [x] Shared warehouse task model exists.
+- [x] Receiving, putaway, pick, pack, ship, count, replenishment, kitting, and exception task types exist.
+- [ ] Every operational status transition creates or advances the correct task.
+- [ ] Task claims are atomic and idempotent.
+- [ ] Assignment, worker, device, timestamps, exception, and completion evidence are retained.
+- [ ] Repeated button presses cannot duplicate transitions.
+- [ ] Blocked tasks show the reason and next action.
+- [ ] RUSH and not-yet-ready work are clearly prioritized.
+- [ ] Task history is available for audit.
+
+## 7. Cycle Counts and Variances
+
+- [x] Count records track system quantity, counted quantity, and variance.
+- [x] Counts require review before posting.
+- [ ] Variance thresholds determine approval requirements.
+- [ ] Questionable stock can be moved to the warehouse investigation location.
+- [ ] Count posting and investigation movement are one atomic transaction.
+- [ ] Recounts preserve prior attempts.
+- [ ] Approval records reviewer, reason, and evidence.
+- [ ] Customer availability excludes pending and investigation quantities.
+
+## 8. OAuth and Scoped Integrations
+
+- [ ] Customer-approved integration applications.
+- [x] Hashed client secrets and refresh tokens.
+- [x] Short-lived access tokens.
+- [x] Revocable refresh tokens.
+- [ ] Scopes include inventory read, order read/write, shipment read/write, and job read/write.
+- [x] Tokens are restricted to assigned customer companies.
+- [x] Test and production applications are separated.
+- [x] Token issuance, refresh, use, and revocation are audited.
+- [x] Secrets are displayed only once.
+
+## 9. API Documentation and Changelog
+
+- [x] OpenAPI document for every `/api/v1` endpoint.
+- [x] Authentication, pagination, idempotency, and filtering documentation.
+- [ ] Example order, split shipment, inventory adjustment, and bulk job workflows.
+- [x] Documentation page.
+- [x] Versioned changelog with breaking-change labels.
+- [x] Deprecation policy and sunset dates.
+- [ ] Contract tests verify the OpenAPI document matches live routes.
+
+## Final Verification
+
+- [ ] Fresh database boot migration passes.
+- [ ] Existing production-like database migration passes.
+- [ ] Full automated test suite passes.
+- [ ] Test-company customer order creates correct single and split shipments.
+- [ ] Test-company inbound, receiving, putaway, count, investigation, pick, stage, and shipment flows pass.
+- [ ] Duplicate external requests create no duplicate records.
+- [ ] Bulk job failure produces a useful downloadable report.
+- [ ] Billing events reconcile without sending billing emails.
+- [ ] Partner API authorization cannot cross customer boundaries.
+- [ ] Production health, logs, and smoke tests pass after deployment.

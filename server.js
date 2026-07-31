@@ -5123,6 +5123,286 @@ app.delete("/api/admin/sku-mappings/:id", async (req, res, next) => {
     }
 });
 
+app.post("/api/admin/partner-api/clients", requireSuperAdmin(), async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.body?.accountName || req.body?.account_name);
+        const clientName = normalizeFreeText(req.body?.clientName || req.body?.client_name);
+        const environment = normalizeText(req.body?.environment || "TEST");
+        const scopes = sanitizePartnerApiScopes(req.body?.scopes);
+        if (!accountName || !clientName) {
+            throw httpError(400, "Choose a company and enter an integration name.");
+        }
+        if (!["TEST", "PRODUCTION"].includes(environment)) {
+            throw httpError(400, "Environment must be TEST or PRODUCTION.");
+        }
+        if (!scopes.length) {
+            throw httpError(400, "Choose at least one integration permission.");
+        }
+        const credentials = await withTransaction(async (client) => {
+            await upsertOwnerMaster(client, accountName);
+            const clientId = `wms365_${environment.toLowerCase()}_${crypto.randomBytes(12).toString("hex")}`;
+            const clientSecret = crypto.randomBytes(32).toString("base64url");
+            const result = await client.query(
+                `
+                    insert into partner_api_clients (
+                        client_id, client_secret_hash, client_name, account_name,
+                        environment, scopes, created_by
+                    )
+                    values ($1, $2, $3, $4, $5, $6::text[], $7)
+                    returning id, client_id, client_name, account_name, environment, scopes, created_at
+                `,
+                [
+                    clientId,
+                    hashPassword(clientSecret),
+                    clientName,
+                    accountName,
+                    environment,
+                    scopes,
+                    req.appUser?.email || req.appUser?.full_name || "WMS365"
+                ]
+            );
+            await insertActivity(client, "setup", `Created ${environment.toLowerCase()} partner API client`, `${accountName} | ${clientName}`);
+            return { ...result.rows[0], clientSecret };
+        });
+        res.status(201).json({
+            success: true,
+            message: "Store the client secret securely. It will not be shown again.",
+            client: mapPartnerApiClient(credentials, { includeSecret: true })
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/v1/oauth/token", async (req, res, next) => {
+    try {
+        const tokenResponse = await withTransaction((client) => issuePartnerApiToken(client, req.body || {}));
+        res.setHeader("Cache-Control", "no-store");
+        res.json(tokenResponse);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/developers/api", (_req, res) => {
+    res.sendFile(path.join(__dirname, "api-docs.html"));
+});
+
+app.get("/api/v1/openapi.yaml", (_req, res) => {
+    res.type("application/yaml").sendFile(path.join(__dirname, "docs", "wms365-partner-api-v1.yaml"));
+});
+
+app.get("/api/v1/changelog", (_req, res) => {
+    res.type("text/markdown").sendFile(path.join(__dirname, "docs", "WMS365_API_CHANGELOG.md"));
+});
+
+app.get("/api/v1/inventory", requirePartnerApiScope("inventory:read"), async (req, res, next) => {
+    try {
+        const limit = normalizePartnerApiLimit(req.query?.limit);
+        const cursor = decodePartnerApiCursor(req.query?.cursor);
+        const params = [req.partnerApi.accountName, [...NON_PICKABLE_LOCATION_TYPES], limit + 1];
+        let cursorSql = "";
+        if (cursor) {
+            params.push(cursor);
+            cursorSql = `and i.id > $${params.length}`;
+        }
+        const result = await pool.query(
+            `
+                select i.id, i.sku, i.upc, i.lot_number, i.expiration_date,
+                       i.location, i.tracking_level, i.quantity
+                from inventory_lines i
+                left join bin_locations bl on bl.code = i.location
+                where i.account_name = $1
+                  and i.quantity > 0
+                  and coalesce(bl.is_pickable, true) = true
+                  and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
+                  ${cursorSql}
+                order by i.id
+                limit $3
+            `,
+            params
+        );
+        res.json(buildPartnerApiPage(result.rows, limit, (row) => mapPartnerApiInventory(row), req));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/v1/orders", requirePartnerApiScope("orders:read"), async (req, res, next) => {
+    try {
+        const limit = normalizePartnerApiLimit(req.query?.limit);
+        const cursor = decodePartnerApiCursor(req.query?.cursor);
+        const status = normalizeText(req.query?.status || "");
+        const params = [req.partnerApi.accountName, limit + 1];
+        const filters = [];
+        if (cursor) {
+            params.push(cursor);
+            filters.push(`o.id > $${params.length}`);
+        }
+        if (status) {
+            params.push(status);
+            filters.push(`o.status = $${params.length}`);
+        }
+        if (normalizeDateInput(req.query?.createdFrom || req.query?.created_from)) {
+            params.push(normalizeDateInput(req.query?.createdFrom || req.query?.created_from));
+            filters.push(`o.created_at >= $${params.length}::date`);
+        }
+        if (normalizeDateInput(req.query?.createdTo || req.query?.created_to)) {
+            params.push(normalizeDateInput(req.query?.createdTo || req.query?.created_to));
+            filters.push(`o.created_at < ($${params.length}::date + interval '1 day')`);
+        }
+        const result = await pool.query(
+            `
+                select o.*, count(l.id)::integer as line_count,
+                       coalesce(sum(l.requested_quantity), 0)::integer as ordered_quantity
+                from portal_orders o
+                left join portal_order_lines l on l.order_id = o.id
+                where o.account_name = $1
+                  ${filters.length ? `and ${filters.join(" and ")}` : ""}
+                group by o.id
+                order by o.id
+                limit $2
+            `,
+            params
+        );
+        res.json(buildPartnerApiPage(result.rows, limit, mapPartnerApiOrder, req));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/v1/shipments", requirePartnerApiScope("shipments:read"), async (req, res, next) => {
+    try {
+        const limit = normalizePartnerApiLimit(req.query?.limit);
+        const cursor = decodePartnerApiCursor(req.query?.cursor);
+        const params = [req.partnerApi.accountName, limit + 1];
+        const cursorSql = cursor ? (params.push(cursor), `and s.id > $${params.length}`) : "";
+        const result = await pool.query(
+            `
+                select s.*, o.order_code, fl.code as warehouse_code, fl.name as warehouse_name,
+                       count(sl.id)::integer as line_count,
+                       coalesce(sum(sl.ordered_quantity), 0)::integer as ordered_quantity,
+                       coalesce(sum(sl.shipped_quantity), 0)::integer as shipped_quantity
+                from warehouse_shipments s
+                join portal_orders o on o.id = s.order_id
+                join fulfillment_locations fl on fl.id = s.fulfillment_location_id
+                left join warehouse_shipment_lines sl on sl.shipment_id = s.id
+                where s.account_name = $1 ${cursorSql}
+                group by s.id, o.order_code, fl.code, fl.name
+                order by s.id
+                limit $2
+            `,
+            params
+        );
+        res.json(buildPartnerApiPage(result.rows, limit, mapPartnerApiShipment, req));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/v1/jobs", requirePartnerApiScope("jobs:read"), async (req, res, next) => {
+    try {
+        const limit = normalizePartnerApiLimit(req.query?.limit);
+        const cursor = decodePartnerApiCursor(req.query?.cursor);
+        const params = [req.partnerApi.accountName, limit + 1];
+        const cursorSql = cursor ? (params.push(cursor), `and id > $${params.length}`) : "";
+        const result = await pool.query(
+            `select * from async_jobs where account_name = $1 ${cursorSql} order by id limit $2`,
+            params
+        );
+        res.json(buildPartnerApiPage(result.rows, limit, mapPartnerApiJob, req));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/v1/jobs", requirePartnerApiScope("jobs:write"), async (req, res, next) => {
+    try {
+        const result = await runPartnerApiIdempotentRequest(req, async (client) => {
+            const jobType = normalizeText(req.body?.jobType || req.body?.job_type);
+            const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+            if (!["INVENTORY_RECEIPT", "ORDER_IMPORT", "ADDRESS_IMPORT"].includes(jobType)) {
+                throw httpError(400, "Job type must be INVENTORY_RECEIPT, ORDER_IMPORT, or ADDRESS_IMPORT.");
+            }
+            if (!rows.length) throw httpError(400, "Add at least one row to the import.");
+            if (rows.length > 5000) throw httpError(400, "A single import can contain up to 5,000 rows.");
+            const sourceFileName = normalizeFreeText(req.body?.sourceFileName || req.body?.source_file_name || "");
+            const sourceChecksum = normalizeFreeText(req.body?.sourceChecksum || req.body?.source_checksum || "")
+                || crypto.createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+            const jobCode = `JOB-${crypto.randomUUID()}`;
+            const jobResult = await client.query(
+                `
+                    insert into async_jobs (
+                        job_code, account_name, job_type, source_file_name, source_checksum,
+                        total_rows, created_by
+                    )
+                    values ($1, $2, $3, $4, $5, $6, $7)
+                    on conflict (account_name, job_type, source_checksum)
+                        where source_checksum <> '' and status <> 'CANCELLED'
+                    do update set updated_at = async_jobs.updated_at
+                    returning *
+                `,
+                [
+                    jobCode,
+                    req.partnerApi.accountName,
+                    jobType,
+                    sourceFileName,
+                    sourceChecksum,
+                    rows.length,
+                    req.partnerApi.clientId
+                ]
+            );
+            const job = jobResult.rows[0];
+            const existingRows = await client.query("select count(*)::integer as count from async_job_rows where job_id = $1", [job.id]);
+            if (Number(existingRows.rows[0]?.count || 0) === 0) {
+                for (let index = 0; index < rows.length; index += 1) {
+                    await client.query(
+                        `
+                            insert into async_job_rows (job_id, row_number, status, source_data)
+                            values ($1, $2, 'PENDING', $3::jsonb)
+                        `,
+                        [job.id, index + 1, JSON.stringify(rows[index] || {})]
+                    );
+                }
+            }
+            return { status: 202, body: { data: mapPartnerApiJob(job), meta: { queued: true } }, jobId: job.id };
+        });
+        res.status(result.status).json(result.body);
+        if (!result.replayed && result.jobId) {
+            setImmediate(() => processAsyncJobById(result.jobId).catch((error) => console.error("Async import job failed:", error.message || error)));
+        }
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/v1/jobs/:id/errors.csv", requirePartnerApiScope("jobs:read"), async (req, res, next) => {
+    try {
+        const jobId = toPositiveInt(req.params.id);
+        if (!jobId) throw httpError(400, "Enter a valid job ID.");
+        const job = await pool.query("select * from async_jobs where id = $1 and account_name = $2 limit 1", [jobId, req.partnerApi.accountName]);
+        if (job.rowCount !== 1) throw httpError(404, "That import job could not be found.");
+        const rows = await pool.query(
+            `
+                select row_number, status, field_name, message, suggested_correction
+                from async_job_rows
+                where job_id = $1 and status in ('WARNING', 'REJECTED')
+                order by row_number
+            `,
+            [jobId]
+        );
+        const csv = [["Row", "Status", "Field", "Message", "Suggested Correction"]]
+            .concat(rows.rows.map((row) => [row.row_number, row.status, row.field_name, row.message, row.suggested_correction]))
+            .map((row) => row.map(csvCell).join(","))
+            .join("\r\n");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${sanitizeDownloadFilename(job.rows[0].job_code)}-errors.csv"`);
+        res.send(csv);
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.use("/api/portal", portalAccountScopeMiddleware());
 
 app.post("/api/portal/login", async (req, res, next) => {
@@ -6555,16 +6835,612 @@ function buildUserFacingError(error, req, statusCode) {
     };
 }
 
+const PARTNER_API_SCOPES = new Set([
+    "inventory:read",
+    "orders:read",
+    "orders:write",
+    "shipments:read",
+    "shipments:write",
+    "jobs:read",
+    "jobs:write"
+]);
+const partnerApiRateWindows = new Map();
+const PARTNER_API_RATE_LIMIT = 600;
+const PARTNER_API_RATE_WINDOW_MS = 60 * 1000;
+
+function enforcePartnerApiRateLimit(clientId, res) {
+    const key = String(clientId || "");
+    const now = Date.now();
+    const current = partnerApiRateWindows.get(key);
+    const windowState = !current || current.resetAt <= now
+        ? { count: 0, resetAt: now + PARTNER_API_RATE_WINDOW_MS }
+        : current;
+    windowState.count += 1;
+    partnerApiRateWindows.set(key, windowState);
+    const remaining = Math.max(PARTNER_API_RATE_LIMIT - windowState.count, 0);
+    res.setHeader("X-RateLimit-Limit", String(PARTNER_API_RATE_LIMIT));
+    res.setHeader("X-RateLimit-Remaining", String(remaining));
+    res.setHeader("X-RateLimit-Reset", String(Math.ceil(windowState.resetAt / 1000)));
+    if (windowState.count > PARTNER_API_RATE_LIMIT) {
+        throw httpError(429, "The API request limit was reached. Wait until the current one-minute window resets.");
+    }
+}
+
+function sanitizePartnerApiScopes(value) {
+    const rawScopes = Array.isArray(value)
+        ? value
+        : String(value || "").split(/[\s,]+/);
+    return [...new Set(rawScopes.map((scope) => String(scope || "").trim().toLowerCase()).filter((scope) => PARTNER_API_SCOPES.has(scope)))];
+}
+
+function hashPartnerApiToken(value) {
+    return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+function mapPartnerApiClient(row = {}, { includeSecret = false } = {}) {
+    const mapped = {
+        id: String(row.id || ""),
+        clientId: row.client_id || "",
+        clientName: row.client_name || "",
+        accountName: row.account_name || "",
+        environment: row.environment || "TEST",
+        scopes: Array.isArray(row.scopes) ? row.scopes : [],
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null
+    };
+    if (includeSecret) mapped.clientSecret = row.clientSecret || "";
+    return mapped;
+}
+
+async function createPartnerApiTokenPair(client, clientRow, scopes) {
+    const accessToken = crypto.randomBytes(32).toString("base64url");
+    const refreshToken = crypto.randomBytes(48).toString("base64url");
+    const accessExpiresAt = new Date(Date.now() + (60 * 60 * 1000));
+    const refreshExpiresAt = new Date(Date.now() + (30 * 24 * 60 * 60 * 1000));
+    await client.query(
+        `
+            insert into partner_api_tokens (client_id, token_hash, token_type, scopes, expires_at)
+            values
+                ($1, $2, 'ACCESS', $3::text[], $4),
+                ($1, $5, 'REFRESH', $3::text[], $6)
+        `,
+        [
+            clientRow.id,
+            hashPartnerApiToken(accessToken),
+            scopes,
+            accessExpiresAt,
+            hashPartnerApiToken(refreshToken),
+            refreshExpiresAt
+        ]
+    );
+    await client.query("update partner_api_clients set last_used_at = now(), updated_at = now() where id = $1", [clientRow.id]);
+    return {
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: refreshToken,
+        scope: scopes.join(" ")
+    };
+}
+
+async function auditPartnerApiTokenEvent(client, clientRow, eventName) {
+    await client.query(
+        `
+            insert into partner_api_audit_log (
+                client_id, account_name, request_method, request_path,
+                response_status, request_id, ip_address
+            )
+            values ($1, $2, $3, '/api/v1/oauth/token', 200, $4, '')
+        `,
+        [
+            clientRow.id,
+            clientRow.account_name,
+            eventName,
+            crypto.randomUUID()
+        ]
+    );
+}
+
+async function issuePartnerApiToken(client, input = {}) {
+    const grantType = normalizeText(input.grant_type || input.grantType || "CLIENT_CREDENTIALS");
+    if (grantType === "REFRESH_TOKEN") {
+        const refreshToken = normalizeFreeText(input.refresh_token || input.refreshToken || "");
+        if (!refreshToken) throw httpError(400, "Enter the refresh token.");
+        const result = await client.query(
+            `
+                select t.*, c.client_id, c.client_name, c.account_name, c.environment,
+                       c.scopes as client_scopes, c.is_active, c.revoked_at as client_revoked_at
+                from partner_api_tokens t
+                join partner_api_clients c on c.id = t.client_id
+                where t.token_hash = $1
+                  and t.token_type = 'REFRESH'
+                  and t.revoked_at is null
+                  and t.expires_at > now()
+                limit 1
+                for update of t
+            `,
+            [hashPartnerApiToken(refreshToken)]
+        );
+        if (result.rowCount !== 1 || result.rows[0].is_active !== true || result.rows[0].client_revoked_at) {
+            throw httpError(401, "The refresh token is invalid or expired. Request new integration credentials.");
+        }
+        await client.query("update partner_api_tokens set revoked_at = now() where id = $1", [result.rows[0].id]);
+        const tokenPair = await createPartnerApiTokenPair(client, result.rows[0], sanitizePartnerApiScopes(result.rows[0].scopes));
+        await auditPartnerApiTokenEvent(client, result.rows[0], "TOKEN_REFRESH");
+        return tokenPair;
+    }
+
+    if (grantType !== "CLIENT_CREDENTIALS") {
+        throw httpError(400, "Supported grant types are client_credentials and refresh_token.");
+    }
+    const clientId = normalizeFreeText(input.client_id || input.clientId || "");
+    const clientSecret = normalizeFreeText(input.client_secret || input.clientSecret || "");
+    if (!clientId || !clientSecret) throw httpError(400, "Enter the client ID and client secret.");
+    const result = await client.query(
+        "select * from partner_api_clients where client_id = $1 limit 1",
+        [clientId]
+    );
+    const clientRow = result.rows[0];
+    if (!clientRow || clientRow.is_active !== true || clientRow.revoked_at || !verifyPassword(clientSecret, clientRow.client_secret_hash)) {
+        throw httpError(401, "The client ID or client secret was not accepted.");
+    }
+    const requestedScopes = sanitizePartnerApiScopes(input.scope);
+    const allowedScopes = sanitizePartnerApiScopes(clientRow.scopes);
+    const scopes = requestedScopes.length ? requestedScopes : allowedScopes;
+    if (scopes.some((scope) => !allowedScopes.includes(scope))) {
+        throw httpError(403, "The application is not approved for one or more requested permissions.");
+    }
+    const tokenPair = await createPartnerApiTokenPair(client, clientRow, scopes);
+    await auditPartnerApiTokenEvent(client, clientRow, "TOKEN_ISSUE");
+    return tokenPair;
+}
+
+function requirePartnerApiScope(requiredScope) {
+    return async (req, res, next) => {
+        try {
+            const authorization = String(req.get("Authorization") || "");
+            const token = authorization.replace(/^Bearer\s+/i, "").trim();
+            if (!token || authorization === token) {
+                throw httpError(401, "Provide a Bearer access token.");
+            }
+            const result = await pool.query(
+                `
+                    select t.id as token_id, t.scopes as token_scopes, t.expires_at,
+                           c.id as client_row_id, c.client_id, c.client_name,
+                           c.account_name, c.environment, c.scopes as client_scopes
+                    from partner_api_tokens t
+                    join partner_api_clients c on c.id = t.client_id
+                    where t.token_hash = $1
+                      and t.token_type = 'ACCESS'
+                      and t.revoked_at is null
+                      and t.expires_at > now()
+                      and c.is_active = true
+                      and c.revoked_at is null
+                    limit 1
+                `,
+                [hashPartnerApiToken(token)]
+            );
+            if (result.rowCount !== 1) {
+                throw httpError(401, "The access token is invalid or expired.");
+            }
+            const row = result.rows[0];
+            const scopes = sanitizePartnerApiScopes(row.token_scopes);
+            if (IS_PRODUCTION && normalizeText(row.environment) !== "PRODUCTION") {
+                throw httpError(403, "Test credentials cannot access the production API.");
+            }
+            if (!scopes.includes(requiredScope)) {
+                throw httpError(403, `This application needs the ${requiredScope} permission for this request.`);
+            }
+            enforcePartnerApiRateLimit(row.client_id, res);
+            req.partnerApi = {
+                clientRowId: String(row.client_row_id),
+                clientId: row.client_id,
+                clientName: row.client_name,
+                accountName: row.account_name,
+                environment: row.environment,
+                scopes
+            };
+            res.on("finish", () => {
+                pool.query(
+                    `
+                        insert into partner_api_audit_log (
+                            client_id, account_name, request_method, request_path,
+                            response_status, request_id, ip_address
+                        )
+                        values ($1, $2, $3, $4, $5, $6, $7)
+                    `,
+                    [
+                        row.client_row_id,
+                        row.account_name,
+                        req.method,
+                        req.path,
+                        res.statusCode,
+                        req.requestId || "",
+                        req.ip || ""
+                    ]
+                ).catch((error) => console.error("Partner API audit logging failed:", error.message || error));
+            });
+            next();
+        } catch (error) {
+            next(error);
+        }
+    };
+}
+
+function normalizePartnerApiLimit(value) {
+    const parsed = Number.parseInt(value == null || value === "" ? "50" : String(value), 10);
+    if (!Number.isFinite(parsed)) return 50;
+    return Math.min(Math.max(parsed, 1), 200);
+}
+
+function encodePartnerApiCursor(value) {
+    return Buffer.from(String(value || ""), "utf8").toString("base64url");
+}
+
+function decodePartnerApiCursor(value) {
+    if (!normalizeFreeText(value)) return 0;
+    try {
+        const parsed = Number.parseInt(Buffer.from(String(value), "base64url").toString("utf8"), 10);
+        if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error("invalid");
+        return parsed;
+    } catch (_error) {
+        throw httpError(400, "The pagination cursor is invalid. Start again without the cursor.");
+    }
+}
+
+function buildPartnerApiPage(rows, limit, mapper, req) {
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const data = pageRows.map(mapper);
+    const nextCursor = hasMore && pageRows.length ? encodePartnerApiCursor(pageRows[pageRows.length - 1].id) : null;
+    const nextUrl = nextCursor
+        ? `${req.protocol}://${req.get("host")}${req.path}?${new URLSearchParams({ ...req.query, cursor: nextCursor }).toString()}`
+        : null;
+    return {
+        data,
+        meta: {
+            count: data.length,
+            limit,
+            hasMore,
+            nextCursor
+        },
+        links: { next: nextUrl }
+    };
+}
+
+function mapPartnerApiInventory(row) {
+    return {
+        id: String(row.id),
+        sku: row.sku || "",
+        upc: row.upc || "",
+        lotNumber: row.lot_number || "",
+        expirationDate: row.expiration_date || "",
+        warehouseLocation: row.location || "",
+        unitOfMeasure: normalizeTrackingLevel(row.tracking_level),
+        availableQuantity: Number(row.quantity) || 0
+    };
+}
+
+function mapPartnerApiOrder(row) {
+    return {
+        id: String(row.id),
+        externalId: row.order_code || makePortalOrderCode(row.id),
+        status: row.status,
+        purchaseOrderNumber: row.po_number || "",
+        requestedShipDate: normalizeDateOnly(row.requested_ship_date),
+        shipmentMethod: row.shipment_method || "",
+        lineCount: Number(row.line_count) || 0,
+        orderedQuantity: Number(row.ordered_quantity) || 0,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+function mapPartnerApiShipment(row) {
+    return {
+        id: String(row.id),
+        externalId: row.shipment_code,
+        orderExternalId: row.order_code || "",
+        status: row.status,
+        warehouse: { code: row.warehouse_code || "", name: row.warehouse_name || "" },
+        shipmentMethod: row.shipment_method || "",
+        carrier: row.carrier_name || "",
+        trackingReference: row.tracking_reference || "",
+        lineCount: Number(row.line_count) || 0,
+        orderedQuantity: Number(row.ordered_quantity) || 0,
+        shippedQuantity: Number(row.shipped_quantity) || 0,
+        shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+    };
+}
+
+function mapPartnerApiJob(row) {
+    return {
+        id: String(row.id),
+        externalId: row.job_code,
+        type: row.job_type,
+        status: row.status,
+        progress: {
+            total: Number(row.total_rows) || 0,
+            processed: Number(row.processed_rows) || 0,
+            accepted: Number(row.accepted_rows) || 0,
+            warnings: Number(row.warning_rows) || 0,
+            rejected: Number(row.rejected_rows) || 0
+        },
+        attempts: Number(row.attempts) || 0,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null
+    };
+}
+
+async function runPartnerApiIdempotentRequest(req, handler) {
+    const idempotencyKey = normalizeFreeText(req.get("Idempotency-Key") || "").slice(0, 180);
+    if (!idempotencyKey) {
+        throw httpError(400, "Provide an Idempotency-Key header for this write request.");
+    }
+    const requestHash = crypto.createHash("sha256")
+        .update(`${req.method}\n${req.path}\n${JSON.stringify(req.body || {})}`)
+        .digest("hex");
+    return withTransaction(async (client) => {
+        const claim = await client.query(
+            `
+                insert into partner_api_idempotency (
+                    client_id, idempotency_key, request_method, request_path, request_hash
+                )
+                values ($1, $2, $3, $4, $5)
+                on conflict (client_id, idempotency_key) do nothing
+                returning *
+            `,
+            [req.partnerApi.clientRowId, idempotencyKey, req.method, req.path, requestHash]
+        );
+        if (claim.rowCount !== 1) {
+            const existing = await client.query(
+                `
+                    select *
+                    from partner_api_idempotency
+                    where client_id = $1 and idempotency_key = $2
+                    limit 1
+                    for update
+                `,
+                [req.partnerApi.clientRowId, idempotencyKey]
+            );
+            const row = existing.rows[0];
+            if (!row || row.request_hash !== requestHash || row.request_method !== req.method || row.request_path !== req.path) {
+                throw httpError(409, "This Idempotency-Key was already used for a different request.");
+            }
+            if (row.response_status && row.response_body) {
+                return { status: row.response_status, body: row.response_body, replayed: true };
+            }
+            throw httpError(409, "This request is already being processed. Wait a moment, then retry with the same Idempotency-Key.");
+        }
+        const result = await handler(client);
+        await client.query(
+            `
+                update partner_api_idempotency
+                set response_status = $3, response_body = $4::jsonb
+                where client_id = $1 and idempotency_key = $2
+            `,
+            [req.partnerApi.clientRowId, idempotencyKey, result.status, JSON.stringify(result.body)]
+        );
+        return { ...result, replayed: false };
+    });
+}
+
+async function processAsyncJobRow(job, row) {
+    return withTransaction(async (client) => {
+        const input = row.source_data || {};
+        if (job.job_type === "INVENTORY_RECEIPT") {
+            const fulfillmentLocationId = toPositiveInt(input.fulfillmentLocationId || input.fulfillment_location_id);
+            const location = normalizeText(input.location);
+            const sku = normalizeText(input.sku);
+            const quantity = toPositiveInt(input.quantity);
+            if (!fulfillmentLocationId) throw httpError(400, "Choose the receiving warehouse.");
+            if (!location) throw httpError(400, "Enter the receiving location.");
+            if (!sku) throw httpError(400, "Enter the SKU.");
+            if (!quantity) throw httpError(400, "Enter a quantity greater than zero.");
+            await upsertInventoryLine(
+                client,
+                {
+                    accountName: job.account_name,
+                    location,
+                    sku,
+                    upc: input.upc || "",
+                    lotNumber: input.lotNumber || input.lot_number || "",
+                    expirationDate: input.expirationDate || input.expiration_date || "",
+                    trackingLevel: input.trackingLevel || input.tracking_level || "UNIT",
+                    quantity
+                },
+                {
+                    fulfillmentLocationId,
+                    warehouseDirection: "INBOUND",
+                    transactionType: "RECEIVING",
+                    sourceType: "ASYNC_JOB",
+                    sourceId: job.job_code,
+                    source: "partner_api"
+                }
+            );
+        } else if (job.job_type === "ORDER_IMPORT") {
+            await savePortalOrderDraftForAccount(client, job.account_name, input, null, {
+                portalAccessId: null,
+                activityTitlePrefix: "partner API",
+                activityActor: job.created_by || "Partner API",
+                uploadedBy: job.created_by || "Partner API",
+                enforceInventoryAvailability: false
+            });
+        } else if (job.job_type === "ADDRESS_IMPORT") {
+            const orderLike = sanitizePortalOrderInput({
+                poNumber: "ADDRESS-IMPORT",
+                shippingReference: "ADDRESS-IMPORT",
+                contactName: input.contactName || input.contact_name || input.shipToName || input.ship_to_name || "Customer",
+                contactPhone: input.contactPhone || input.contact_phone || input.shipToPhone || input.ship_to_phone || "",
+                requestedShipDate: normalizeDateOnly(new Date()),
+                shipToName: input.shipToName || input.ship_to_name || "",
+                shipToPhone: input.shipToPhone || input.ship_to_phone || "",
+                shipToAddress1: input.shipToAddress1 || input.ship_to_address1 || "",
+                shipToAddress2: input.shipToAddress2 || input.ship_to_address2 || "",
+                shipToCity: input.shipToCity || input.ship_to_city || "",
+                shipToState: input.shipToState || input.ship_to_state || "",
+                shipToPostalCode: input.shipToPostalCode || input.ship_to_postal_code || "",
+                shipToCountry: input.shipToCountry || input.ship_to_country || "",
+                lines: [{ sku: "ADDRESS-IMPORT", quantity: 1 }]
+            }, job.account_name);
+            const saved = await upsertShipToAddressFromOrder(client, job.account_name, orderLike);
+            if (!saved) throw httpError(400, "Enter a complete ship-to name and address.");
+        }
+        await client.query(
+            `
+                update async_job_rows
+                set status = 'ACCEPTED', message = '', suggested_correction = '',
+                    result_data = $2::jsonb, updated_at = now()
+                where id = $1
+            `,
+            [row.id, JSON.stringify({ processedAt: new Date().toISOString() })]
+        );
+    });
+}
+
+async function processAsyncJobById(jobId, workerId = `wms365-${process.pid}`) {
+    const claim = await pool.query(
+        `
+            update async_jobs
+            set status = 'RUNNING', claimed_at = now(), claimed_by = $2,
+                attempts = attempts + 1, error_message = '', updated_at = now()
+            where id = $1
+              and (
+                status = 'QUEUED'
+                or (status = 'RUNNING' and claimed_at < now() - interval '30 minutes')
+                or (status = 'FAILED' and attempts < max_attempts and coalesce(next_retry_at, now()) <= now())
+              )
+            returning *
+        `,
+        [jobId, workerId]
+    );
+    if (claim.rowCount !== 1) return null;
+    const job = claim.rows[0];
+    try {
+        const rows = await pool.query(
+            "select * from async_job_rows where job_id = $1 and status = 'PENDING' order by row_number",
+            [job.id]
+        );
+        for (const row of rows.rows) {
+            try {
+                await processAsyncJobRow(job, row);
+            } catch (error) {
+                await pool.query(
+                    `
+                        update async_job_rows
+                        set status = 'REJECTED', message = $2,
+                            suggested_correction = 'Correct this row and submit it in a new import.',
+                            updated_at = now()
+                        where id = $1
+                    `,
+                    [row.id, normalizeFreeText(error.message || "This row could not be processed.").slice(0, 1000)]
+                );
+            }
+            await pool.query(
+                `
+                    update async_jobs j
+                    set processed_rows = totals.processed,
+                        accepted_rows = totals.accepted,
+                        warning_rows = totals.warnings,
+                        rejected_rows = totals.rejected,
+                        updated_at = now()
+                    from (
+                        select count(*) filter (where status <> 'PENDING')::integer as processed,
+                               count(*) filter (where status = 'ACCEPTED')::integer as accepted,
+                               count(*) filter (where status = 'WARNING')::integer as warnings,
+                               count(*) filter (where status = 'REJECTED')::integer as rejected
+                        from async_job_rows where job_id = $1
+                    ) totals
+                    where j.id = $1
+                `,
+                [job.id]
+            );
+        }
+        const completed = await pool.query(
+            `
+                update async_jobs
+                set status = case when rejected_rows > 0 or warning_rows > 0
+                                  then 'COMPLETED_WITH_WARNINGS' else 'COMPLETED' end,
+                    completed_at = now(), claimed_at = null, claimed_by = '', updated_at = now()
+                where id = $1
+                returning *
+            `,
+            [job.id]
+        );
+        return completed.rows[0];
+    } catch (error) {
+        await pool.query(
+            `
+                update async_jobs
+                set status = 'FAILED', error_message = $2,
+                    next_retry_at = case when attempts < max_attempts
+                                         then now() + make_interval(mins => least(30, attempts * 5))
+                                         else null end,
+                    claimed_at = null, claimed_by = '', updated_at = now()
+                where id = $1
+            `,
+            [job.id, normalizeFreeText(error.message || "Job processing failed.").slice(0, 1000)]
+        );
+        throw error;
+    }
+}
+
+let asyncJobWorkerTimer = null;
+let asyncJobWorkerRunning = false;
+
+async function runQueuedAsyncJobs() {
+    if (asyncJobWorkerRunning || !databaseReady) return;
+    asyncJobWorkerRunning = true;
+    try {
+        const jobs = await pool.query(
+            `
+                select id
+                from async_jobs
+                where status = 'QUEUED'
+                   or (status = 'RUNNING' and claimed_at < now() - interval '30 minutes')
+                   or (status = 'FAILED' and attempts < max_attempts and coalesce(next_retry_at, now()) <= now())
+                order by created_at
+                limit 5
+            `
+        );
+        for (const row of jobs.rows) {
+            await processAsyncJobById(row.id).catch((error) => {
+                console.error(`Async job ${row.id} processing failed:`, error.message || error);
+            });
+        }
+    } finally {
+        asyncJobWorkerRunning = false;
+    }
+}
+
+function ensureAsyncJobWorkerStarted() {
+    if (asyncJobWorkerTimer) return;
+    setImmediate(() => runQueuedAsyncJobs().catch((error) => console.error("Async job worker failed:", error.message || error)));
+    asyncJobWorkerTimer = setInterval(() => {
+        runQueuedAsyncJobs().catch((error) => console.error("Async job worker failed:", error.message || error));
+    }, 30000);
+    asyncJobWorkerTimer.unref?.();
+}
+
 app.use((error, req, res, _next) => {
     const statusCode = error.statusCode || 500;
     const publicError = buildUserFacingError(error, req, statusCode);
     if (statusCode >= 500) {
         console.error(`[${publicError.requestId}]`, error);
     }
-    const payload = {
-        error: publicError.message,
-        requestId: publicError.requestId
-    };
+    const isPartnerApi = String(req.path || "").startsWith("/api/v1/");
+    const payload = isPartnerApi
+        ? {
+            error: {
+                code: error.code || `HTTP_${statusCode}`,
+                message: publicError.message,
+                requestId: publicError.requestId
+            }
+        }
+        : {
+            error: publicError.message,
+            requestId: publicError.requestId
+        };
     if (error.code) payload.code = error.code;
     if (error.billingHold) payload.billingHold = error.billingHold;
     res.status(statusCode).json(payload);
@@ -7936,6 +8812,159 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("create index if not exists idx_portal_order_shipment_lines_order_id on portal_order_shipment_lines (order_id)");
+    await pool.query(`
+        create table if not exists warehouse_shipments (
+            id bigserial primary key,
+            shipment_code text not null unique,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            account_name text not null,
+            fulfillment_location_id bigint not null references fulfillment_locations(id) on delete restrict,
+            status text not null default 'RELEASED',
+            shipment_method text not null default 'LTL_FREIGHT',
+            carrier_name text not null default '',
+            tracking_reference text not null default '',
+            bol_reference text not null default '',
+            total_pallets integer not null default 0 check (total_pallets >= 0),
+            existing_pallets integer not null default 0 check (existing_pallets >= 0),
+            new_pallets integer not null default 0 check (new_pallets >= 0),
+            mixed_pallets integer not null default 0 check (mixed_pallets >= 0),
+            shipped_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (order_id, fulfillment_location_id)
+        );
+    `);
+    await pool.query("alter table warehouse_shipments drop constraint if exists warehouse_shipments_status_check");
+    await pool.query("alter table warehouse_shipments add constraint warehouse_shipments_status_check check (status in ('RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED'))");
+    await pool.query(`
+        create table if not exists warehouse_shipment_lines (
+            id bigserial primary key,
+            shipment_id bigint not null references warehouse_shipments(id) on delete cascade,
+            order_line_id bigint not null references portal_order_lines(id) on delete restrict,
+            sku text not null,
+            ordered_quantity integer not null check (ordered_quantity > 0),
+            shipped_quantity integer not null default 0 check (shipped_quantity >= 0),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (shipment_id, order_line_id)
+        );
+    `);
+    await pool.query("alter table portal_order_documents add column if not exists warehouse_shipment_id bigint references warehouse_shipments(id) on delete set null");
+    await pool.query("create index if not exists idx_warehouse_shipments_account_status on warehouse_shipments (account_name, status, updated_at desc)");
+    await pool.query("create index if not exists idx_warehouse_shipments_order on warehouse_shipments (order_id, fulfillment_location_id)");
+    await pool.query("create index if not exists idx_warehouse_shipment_lines_shipment on warehouse_shipment_lines (shipment_id, order_line_id)");
+    await pool.query(`
+        create table if not exists async_jobs (
+            id bigserial primary key,
+            job_code text not null unique,
+            account_name text not null,
+            job_type text not null,
+            status text not null default 'QUEUED',
+            source_file_name text not null default '',
+            source_checksum text not null default '',
+            total_rows integer not null default 0 check (total_rows >= 0),
+            processed_rows integer not null default 0 check (processed_rows >= 0),
+            accepted_rows integer not null default 0 check (accepted_rows >= 0),
+            warning_rows integer not null default 0 check (warning_rows >= 0),
+            rejected_rows integer not null default 0 check (rejected_rows >= 0),
+            attempts integer not null default 0 check (attempts >= 0),
+            max_attempts integer not null default 3 check (max_attempts > 0),
+            claimed_at timestamptz,
+            claimed_by text not null default '',
+            next_retry_at timestamptz,
+            completed_at timestamptz,
+            error_message text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_by text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table async_jobs drop constraint if exists async_jobs_status_check");
+    await pool.query("alter table async_jobs add constraint async_jobs_status_check check (status in ('QUEUED', 'RUNNING', 'COMPLETED', 'COMPLETED_WITH_WARNINGS', 'FAILED', 'CANCELLED'))");
+    await pool.query(`
+        create table if not exists async_job_rows (
+            id bigserial primary key,
+            job_id bigint not null references async_jobs(id) on delete cascade,
+            row_number integer not null check (row_number > 0),
+            status text not null,
+            field_name text not null default '',
+            message text not null default '',
+            suggested_correction text not null default '',
+            source_data jsonb not null default '{}'::jsonb,
+            result_data jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (job_id, row_number)
+        );
+    `);
+    await pool.query("alter table async_job_rows drop constraint if exists async_job_rows_status_check");
+    await pool.query("alter table async_job_rows add constraint async_job_rows_status_check check (status in ('PENDING', 'ACCEPTED', 'WARNING', 'REJECTED'))");
+    await pool.query("create unique index if not exists idx_async_jobs_source_dedupe on async_jobs (account_name, job_type, source_checksum) where source_checksum <> '' and status <> 'CANCELLED'");
+    await pool.query("create index if not exists idx_async_jobs_claim on async_jobs (status, next_retry_at, created_at)");
+    await pool.query(`
+        create table if not exists partner_api_clients (
+            id bigserial primary key,
+            client_id text not null unique,
+            client_secret_hash text not null,
+            client_name text not null,
+            account_name text not null,
+            environment text not null default 'TEST',
+            scopes text[] not null default '{}'::text[],
+            is_active boolean not null default true,
+            created_by text not null default '',
+            last_used_at timestamptz,
+            revoked_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table partner_api_clients drop constraint if exists partner_api_clients_environment_check");
+    await pool.query("alter table partner_api_clients add constraint partner_api_clients_environment_check check (environment in ('TEST', 'PRODUCTION'))");
+    await pool.query(`
+        create table if not exists partner_api_tokens (
+            id bigserial primary key,
+            client_id bigint not null references partner_api_clients(id) on delete cascade,
+            token_hash text not null unique,
+            token_type text not null,
+            scopes text[] not null default '{}'::text[],
+            expires_at timestamptz not null,
+            revoked_at timestamptz,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table partner_api_tokens drop constraint if exists partner_api_tokens_type_check");
+    await pool.query("alter table partner_api_tokens add constraint partner_api_tokens_type_check check (token_type in ('ACCESS', 'REFRESH'))");
+    await pool.query(`
+        create table if not exists partner_api_idempotency (
+            id bigserial primary key,
+            client_id bigint not null references partner_api_clients(id) on delete cascade,
+            idempotency_key text not null,
+            request_method text not null,
+            request_path text not null,
+            request_hash text not null,
+            response_status integer,
+            response_body jsonb,
+            created_at timestamptz not null default now(),
+            expires_at timestamptz not null default (now() + interval '24 hours'),
+            unique (client_id, idempotency_key)
+        );
+    `);
+    await pool.query(`
+        create table if not exists partner_api_audit_log (
+            id bigserial primary key,
+            client_id bigint references partner_api_clients(id) on delete set null,
+            account_name text not null default '',
+            request_method text not null default '',
+            request_path text not null default '',
+            response_status integer,
+            request_id text not null default '',
+            ip_address text not null default '',
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create index if not exists idx_partner_api_tokens_client_expiry on partner_api_tokens (client_id, expires_at)");
+    await pool.query("create index if not exists idx_partner_api_audit_client_time on partner_api_audit_log (client_id, created_at desc)");
     await pool.query(`
         create table if not exists portal_order_print_events (
             id bigserial primary key,
@@ -9559,6 +10588,7 @@ async function initializeDatabaseWithRetry() {
             ensurePortalOrderShipmentEmailSchedulerStarted();
             ensurePortalInboundFollowupEmailSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
+            ensureAsyncJobWorkerStarted();
             ensureDatabaseHealthWatchdogStarted();
             console.log("PostgreSQL schema ready.");
         } catch (error) {
@@ -17431,6 +18461,7 @@ async function releasePortalOrderForAccount(
     );
 
     const releasedOrder = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
+    await syncWarehouseShipmentsForOrder(client, releasedOrder, { status: "RELEASED" });
     await insertActivity(
         client,
         "order",
@@ -21681,6 +22712,151 @@ function buildPortalOrderSplitFulfillmentGroups(order = {}) {
 function getPortalOrderSplitFulfillmentGroups(order = {}) {
     return buildPortalOrderSplitFulfillmentGroups(order)
         .filter((group) => group.lines.length && Number(group.totalQuantity) > 0);
+}
+
+function makeWarehouseShipmentCode(order = {}, fulfillmentLocationId = "") {
+    const orderPart = normalizeText(order.orderCode || order.order_code || `ORD-${order.id || ""}`)
+        .replace(/[^A-Z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+    return `SHP-${orderPart}-${String(fulfillmentLocationId || "WAREHOUSE")}`.slice(0, 80);
+}
+
+function buildWarehouseShipmentQuantityAllocator(order = {}) {
+    const shipmentLines = Array.isArray(order.shipmentLines) ? order.shipmentLines : [];
+    const hasConfirmations = shipmentLines.length > 0;
+    const remainingByOrderLineId = new Map();
+    shipmentLines.forEach((line) => {
+        const orderLineId = String(line.orderLineId || line.order_line_id || "");
+        if (!orderLineId) return;
+        remainingByOrderLineId.set(
+            orderLineId,
+            Math.max(0, Number(line.shippedQuantity ?? line.shipped_quantity) || 0)
+        );
+    });
+    return {
+        allocate(orderLineId, allocatedQuantity) {
+            const orderedQuantity = Math.max(0, Number(allocatedQuantity) || 0);
+            if (!hasConfirmations) return orderedQuantity;
+            const key = String(orderLineId || "");
+            const remaining = Math.max(0, Number(remainingByOrderLineId.get(key)) || 0);
+            const shippedQuantity = Math.min(orderedQuantity, remaining);
+            remainingByOrderLineId.set(key, Math.max(remaining - shippedQuantity, 0));
+            return shippedQuantity;
+        }
+    };
+}
+
+async function syncWarehouseShipmentsForOrder(client, order = {}, { status = "" } = {}) {
+    if (!order?.id) return [];
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    const normalizedStatus = normalizeText(status || order.status || "RELEASED");
+    const shipmentStatus = ["RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(normalizedStatus)
+        ? normalizedStatus
+        : "RELEASED";
+    const activeShipmentIds = [];
+    const shippedQuantityAllocator = buildWarehouseShipmentQuantityAllocator(order);
+
+    for (const group of groups) {
+        const fulfillmentLocationId = toPositiveInt(group?.location?.id);
+        if (!fulfillmentLocationId) {
+            throw httpError(409, `A warehouse shipment could not be created for ${order.orderCode || "this order"} because its warehouse assignment is incomplete.`);
+        }
+        const shipmentResult = await client.query(
+            `
+                insert into warehouse_shipments (
+                    shipment_code, order_id, account_name, fulfillment_location_id, status,
+                    shipment_method, carrier_name, tracking_reference, total_pallets,
+                    existing_pallets, new_pallets, mixed_pallets, shipped_at, updated_at
+                )
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
+                on conflict (order_id, fulfillment_location_id)
+                do update set
+                    status = excluded.status,
+                    shipment_method = excluded.shipment_method,
+                    carrier_name = case when excluded.carrier_name <> '' then excluded.carrier_name else warehouse_shipments.carrier_name end,
+                    tracking_reference = case when excluded.tracking_reference <> '' then excluded.tracking_reference else warehouse_shipments.tracking_reference end,
+                    total_pallets = excluded.total_pallets,
+                    existing_pallets = excluded.existing_pallets,
+                    new_pallets = excluded.new_pallets,
+                    mixed_pallets = excluded.mixed_pallets,
+                    shipped_at = coalesce(excluded.shipped_at, warehouse_shipments.shipped_at),
+                    updated_at = now()
+                returning *
+            `,
+            [
+                makeWarehouseShipmentCode(order, fulfillmentLocationId),
+                order.id,
+                normalizeText(order.accountName || order.account_name),
+                fulfillmentLocationId,
+                shipmentStatus,
+                normalizeText(order.shipmentMethod || order.shipment_method || "LTL_FREIGHT"),
+                normalizeFreeText(order.shippedCarrierName || order.shipped_carrier_name || ""),
+                normalizeFreeText(order.shippedTrackingReference || order.shipped_tracking_reference || ""),
+                Math.max(0, Number(order.outboundTotalPallets || order.outbound_total_pallets) || 0),
+                Math.max(0, Number(order.outboundExistingPallets || order.outbound_existing_pallets) || 0),
+                Math.max(0, Number(order.outboundNewPallets || order.outbound_new_pallets) || 0),
+                Math.max(0, Number(order.outboundMixedPallets || order.outbound_mixed_pallets) || 0),
+                shipmentStatus === "SHIPPED"
+                    ? (order.shippedAt || order.shipped_at || new Date())
+                    : null
+            ]
+        );
+        const shipment = shipmentResult.rows[0];
+        activeShipmentIds.push(shipment.id);
+        const activeLineIds = [];
+
+        for (const line of group.lines) {
+            const orderLineId = toPositiveInt(line.id || line.orderLineId || line.order_line_id);
+            const orderedQuantity = Math.max(0, Number(line.quantity) || 0);
+            if (!orderLineId || orderedQuantity <= 0) continue;
+            const shippedQuantity = shipmentStatus === "SHIPPED"
+                ? shippedQuantityAllocator.allocate(orderLineId, orderedQuantity)
+                : 0;
+            const lineResult = await client.query(
+                `
+                    insert into warehouse_shipment_lines (
+                        shipment_id, order_line_id, sku, ordered_quantity, shipped_quantity, updated_at
+                    )
+                    values ($1, $2, $3, $4, $5, now())
+                    on conflict (shipment_id, order_line_id)
+                    do update set
+                        sku = excluded.sku,
+                        ordered_quantity = excluded.ordered_quantity,
+                        shipped_quantity = case
+                            when $6 = 'SHIPPED' then excluded.shipped_quantity
+                            else warehouse_shipment_lines.shipped_quantity
+                        end,
+                        updated_at = now()
+                    returning id
+                `,
+                [shipment.id, orderLineId, normalizeText(line.sku), orderedQuantity, shippedQuantity, shipmentStatus]
+            );
+            activeLineIds.push(lineResult.rows[0].id);
+        }
+        if (activeLineIds.length) {
+            await client.query(
+                "delete from warehouse_shipment_lines where shipment_id = $1 and not (id = any($2::bigint[]))",
+                [shipment.id, activeLineIds]
+            );
+        }
+    }
+
+    if (activeShipmentIds.length) {
+        await client.query(
+            `
+                update warehouse_shipments
+                set status = 'CANCELLED', updated_at = now()
+                where order_id = $1
+                  and not (id = any($2::bigint[]))
+                  and status <> 'SHIPPED'
+            `,
+            [order.id, activeShipmentIds]
+        );
+    }
+    return (await client.query(
+        "select * from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id",
+        [order.id]
+    )).rows;
 }
 
 function hasFulfillmentLocationDocumentDetails(location = {}) {
@@ -27109,6 +28285,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     if (currentOrder.status === nextStatus) {
         if (nextStatus === "SHIPPED") {
             const savedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
+            await syncWarehouseShipmentsForOrder(client, savedOrder, { status: "SHIPPED" });
             await recordPortalOrderStatusAction(client, savedOrder, nextStatus, details, appUser);
             return savedOrder;
         }
@@ -27147,6 +28324,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         );
 
         const cancelledOrder = await getPortalOrderById(client, orderId, currentOrder.accountName);
+        await syncWarehouseShipmentsForOrder(client, cancelledOrder, { status: "CANCELLED" });
         await insertActivity(
             client,
             "order",
@@ -27175,6 +28353,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
 
     if (nextStatus === "SHIPPED") {
         const shippedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: true });
+        await syncWarehouseShipmentsForOrder(client, shippedOrder, { status: "SHIPPED" });
         await recordPortalOrderStatusAction(client, shippedOrder, nextStatus, details, appUser);
         return shippedOrder;
     }
@@ -27194,6 +28373,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     );
 
     const updatedOrder = await getPortalOrderById(client, orderId, currentOrder.accountName);
+    await syncWarehouseShipmentsForOrder(client, updatedOrder, { status: nextStatus });
     if (nextStatus === "PICKED") {
         await recordPortalOrderPickingTransactions(client, updatedOrder, appUser);
     }
@@ -36390,6 +37570,16 @@ module.exports = {
     consumePortalOrderInventory,
     postInventoryCountAdjustment,
     buildUserFacingError,
+    sanitizePartnerApiScopes,
+    hashPartnerApiToken,
+    issuePartnerApiToken,
+    normalizePartnerApiLimit,
+    encodePartnerApiCursor,
+    decodePartnerApiCursor,
+    buildPartnerApiPage,
+    makeWarehouseShipmentCode,
+    buildWarehouseShipmentQuantityAllocator,
+    syncWarehouseShipmentsForOrder,
     httpError
 };
 

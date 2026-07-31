@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WMS365 Partner API</title>
+    <style>
+        body{margin:0;background:#f5f7fa;color:#172033;font:15px/1.55 Arial,sans-serif}
+        header{background:#173a4f;color:#fff;padding:28px 6vw}
+        main{max-width:980px;margin:auto;padding:28px 6vw 60px}
+        section{padding:22px 0;border-bottom:1px solid #d8dee8}
+        h1,h2{letter-spacing:0} h1{margin:0 0 8px} h2{margin:0 0 12px}
+        code{background:#e8edf3;padding:2px 5px;border-radius:3px}
+        .route{display:grid;grid-template-columns:70px 1fr;gap:12px;padding:10px 0}
+        .method{font-weight:700;color:#05603a}.post{color:#8a3d00}
+        a{color:#075f88}
+    </style>
+</head>
+<body>
+<header><h1>WMS365 Partner API v1</h1><p>Customer-scoped access to inventory, orders, shipments, and import jobs.</p></header>
+<main>
+    <section><h2>Authentication</h2><p>Exchange approved client credentials at <code>POST /api/v1/oauth/token</code>. Access tokens expire after one hour. Refresh tokens rotate when used.</p></section>
+    <section><h2>Safety Rules</h2><p>Every token is limited to one customer company and explicit scopes. Send <code>Idempotency-Key</code> on every write. Page sizes are limited to 200 records.</p></section>
+    <section><h2>Endpoints</h2>
+        <div class="route"><span class="method post">POST</span><code>/api/v1/oauth/token</code></div>
+        <div class="route"><span class="method">GET</span><code>/api/v1/inventory</code></div>
+        <div class="route"><span class="method">GET</span><code>/api/v1/orders</code></div>
+        <div class="route"><span class="method">GET</span><code>/api/v1/shipments</code></div>
+        <div class="route"><span class="method">GET</span><code>/api/v1/jobs</code></div>
+        <div class="route"><span class="method post">POST</span><code>/api/v1/jobs</code></div>
+        <div class="route"><span class="method">GET</span><code>/api/v1/jobs/{id}/errors.csv</code></div>
+    </section>
+    <section><h2>Reference Files</h2><p><a href="/api/v1/openapi.yaml">OpenAPI specification</a> · <a href="/api/v1/changelog">Changelog</a></p></section>
+</main>
+</body>
+</html>
