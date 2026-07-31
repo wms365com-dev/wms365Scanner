@@ -10,7 +10,8 @@ const {
     decodePartnerApiCursor,
     buildPartnerApiPage,
     makeWarehouseShipmentCode,
-    buildWarehouseShipmentQuantityAllocator
+    buildWarehouseShipmentQuantityAllocator,
+    buildInventoryCountVarianceFacts
 } = require("./server.js");
 const serverSource = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
 const migrationSource = fs.readFileSync(
@@ -154,6 +155,50 @@ test("test API credentials are blocked from production", () => {
 test("token issuance and refresh are written to the partner API audit log", () => {
     assert.match(serverSource, /auditPartnerApiTokenEvent\(client, result\.rows\[0\], "TOKEN_REFRESH"\)/);
     assert.match(serverSource, /auditPartnerApiTokenEvent\(client, clientRow, "TOKEN_ISSUE"\)/);
+});
+
+test("cycle counts classify variance and require approval before posting", () => {
+    assert.deepEqual(buildInventoryCountVarianceFacts(100, 100), {
+        varianceQuantity: 0,
+        variancePercent: 0,
+        varianceSeverity: "NONE",
+        approvalRequired: true
+    });
+    assert.equal(buildInventoryCountVarianceFacts(100, 98).varianceSeverity, "LOW");
+    assert.equal(buildInventoryCountVarianceFacts(100, 95).varianceSeverity, "MEDIUM");
+    assert.equal(buildInventoryCountVarianceFacts(100, 80).varianceSeverity, "HIGH");
+    assert.match(serverSource, /must be reviewed and approved before it can change available stock/);
+});
+
+test("warehouse task history is append-only in boot schema and migration", () => {
+    const controlsMigration = fs.readFileSync(
+        path.join(__dirname, "migrations", "20260731_operational_controls.sql"),
+        "utf8"
+    );
+    for (const source of [serverSource, controlsMigration]) {
+        assert.match(source, /create table if not exists warehouse_task_history/);
+        assert.match(source, /record_warehouse_task_history/);
+        assert.match(source, /Warehouse task history is append-only/);
+    }
+});
+
+test("approved billing facts are locked and all billing changes are audited", () => {
+    const controlsMigration = fs.readFileSync(
+        path.join(__dirname, "migrations", "20260731_operational_controls.sql"),
+        "utf8"
+    );
+    for (const source of [serverSource, controlsMigration]) {
+        assert.match(source, /create table if not exists billing_event_audit/);
+        assert.match(source, /Approved billing source facts are locked/);
+        assert.match(source, /Billing events must be voided or credited, not deleted/);
+        assert.match(source, /Billing event audit is append-only/);
+    }
+});
+
+test("authorized warehouse users can read a task's immutable history", () => {
+    assert.match(serverSource, /app\.get\("\/api\/admin\/warehouse-tasks\/:id\/history"/);
+    assert.match(serverSource, /assertAppUserCompanyAccess\(client, req\.appUser, task\.account_name\)/);
+    assert.match(serverSource, /from warehouse_task_history[\s\S]*where task_id = \$1/);
 });
 
 test("OpenAPI and changelog cover the live v1 routes", () => {

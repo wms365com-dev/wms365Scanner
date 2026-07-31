@@ -4321,6 +4321,45 @@ app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/warehouse-tasks/:id/history", async (req, res, next) => {
+    try {
+        const taskId = toPositiveInt(req.params.id);
+        if (!taskId) throw httpError(400, "A valid warehouse task id is required.");
+        const history = await withTransaction(async (client) => {
+            const task = await getWarehouseTaskById(client, taskId);
+            if (!task) throw httpError(404, "That warehouse task could not be found.");
+            await assertAppUserCompanyAccess(client, req.appUser, task.account_name);
+            const result = await client.query(
+                `
+                    select id, task_id, action, old_status, new_status,
+                           assigned_app_user_id, actor, blocked_reason, snapshot, created_at
+                    from warehouse_task_history
+                    where task_id = $1
+                    order by created_at asc, id asc
+                    limit 1000
+                `,
+                [taskId]
+            );
+            return result.rows.map((row) => ({
+                id: String(row.id),
+                taskId: String(row.task_id),
+                action: row.action,
+                oldStatus: row.old_status,
+                newStatus: row.new_status,
+                assignedAppUserId: row.assigned_app_user_id ? String(row.assigned_app_user_id) : "",
+                actor: row.actor || "",
+                blockedReason: row.blocked_reason || "",
+                snapshot: row.snapshot || {},
+                createdAt: row.created_at ? new Date(row.created_at).toISOString() : null
+            }));
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ history });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/warehouse-tasks/:id/status", async (req, res, next) => {
     try {
         const taskId = toPositiveInt(req.params.id);
@@ -7786,6 +7825,12 @@ async function initializeDatabase() {
     await pool.query("alter table inventory_count_records add column if not exists posted_by text not null default '';");
     await pool.query("alter table inventory_count_records add column if not exists posted_at timestamptz;");
     await pool.query("alter table inventory_count_records add column if not exists review_note text not null default '';");
+    await pool.query("alter table inventory_count_records add column if not exists approval_required boolean not null default true;");
+    await pool.query("alter table inventory_count_records add column if not exists variance_percent numeric(12,4) not null default 0;");
+    await pool.query("alter table inventory_count_records add column if not exists variance_severity text not null default 'NONE';");
+    await pool.query("alter table inventory_count_records add column if not exists recount_of_id bigint references inventory_count_records(id) on delete set null;");
+    await pool.query("alter table inventory_count_records add column if not exists attempt_number integer not null default 1;");
+    await pool.query("alter table inventory_count_records add column if not exists evidence jsonb not null default '{}'::jsonb;");
     await pool.query("alter table inventory_count_records add column if not exists created_at timestamptz not null default now();");
     await pool.query("alter table inventory_count_records add column if not exists updated_at timestamptz not null default now();");
     await pool.query("alter table inventory_count_records drop constraint if exists inventory_count_records_status_check;");
@@ -8357,6 +8402,68 @@ async function initializeDatabase() {
     await pool.query("alter table billing_events add constraint billing_events_status_check check (lower(trim(status)) in ('open', 'pending', 'approved', 'invoiced', 'void', 'voided'))");
     await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
+    await pool.query(`
+        create table if not exists billing_event_audit (
+            id bigserial primary key,
+            billing_event_id bigint not null references billing_events(id) on delete restrict,
+            action text not null,
+            old_status text not null default '',
+            new_status text not null default '',
+            snapshot jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        )
+    `);
+    await pool.query(`
+        create or replace function protect_and_audit_billing_event()
+        returns trigger as $$
+        begin
+            if tg_op = 'DELETE' then
+                raise exception 'Billing events must be voided or credited, not deleted';
+            end if;
+            if tg_op = 'UPDATE'
+               and lower(trim(old.status)) in ('approved', 'invoiced')
+               and (to_jsonb(old) - array['status','invoice_id','invoice_number','invoiced_at','updated_at'])
+                   is distinct from
+                   (to_jsonb(new) - array['status','invoice_id','invoice_number','invoiced_at','updated_at']) then
+                raise exception 'Approved billing source facts are locked; create a void or credit event';
+            end if;
+            insert into billing_event_audit (
+                billing_event_id, action, old_status, new_status, snapshot
+            )
+            values (
+                new.id,
+                case when tg_op = 'INSERT' then 'CREATED'
+                     when old.status is distinct from new.status then 'STATUS_CHANGED'
+                     else 'UPDATED' end,
+                case when tg_op = 'INSERT' then '' else old.status end,
+                new.status,
+                to_jsonb(new)
+            );
+            return new;
+        end;
+        $$ language plpgsql
+    `);
+    await pool.query("drop trigger if exists billing_event_control_trigger on billing_events");
+    await pool.query(`
+        create trigger billing_event_control_trigger
+        after insert or update or delete on billing_events
+        for each row execute function protect_and_audit_billing_event()
+    `);
+    await pool.query("create index if not exists idx_billing_event_audit_event_time on billing_event_audit (billing_event_id, created_at desc)");
+    await pool.query(`
+        create or replace function prevent_billing_event_audit_change()
+        returns trigger as $$
+        begin
+            raise exception 'Billing event audit is append-only';
+        end;
+        $$ language plpgsql
+    `);
+    await pool.query("drop trigger if exists billing_event_audit_immutable on billing_event_audit");
+    await pool.query(`
+        create trigger billing_event_audit_immutable
+        before update or delete on billing_event_audit
+        for each row execute function prevent_billing_event_audit_change()
+    `);
     await pool.query("create index if not exists idx_owner_billing_rates_account on owner_billing_rates (account_name)");
     await seedBillingFeeCatalog(pool);
     await initializeBillingFinanceSchema(pool);
@@ -9290,6 +9397,66 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_warehouse_tasks_assigned_user on warehouse_tasks (assigned_app_user_id, status)");
     await pool.query("create index if not exists idx_warehouse_tasks_updated_at on warehouse_tasks (updated_at desc)");
     await pool.query(`
+        create table if not exists warehouse_task_history (
+            id bigserial primary key,
+            task_id bigint not null references warehouse_tasks(id) on delete cascade,
+            action text not null,
+            old_status text not null default '',
+            new_status text not null default '',
+            assigned_app_user_id bigint,
+            actor text not null default '',
+            blocked_reason text not null default '',
+            snapshot jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        )
+    `);
+    await pool.query(`
+        create or replace function record_warehouse_task_history()
+        returns trigger as $$
+        begin
+            insert into warehouse_task_history (
+                task_id, action, old_status, new_status, assigned_app_user_id,
+                actor, blocked_reason, snapshot
+            )
+            values (
+                new.id,
+                case when tg_op = 'INSERT' then 'CREATED'
+                     when old.status is distinct from new.status then 'STATUS_CHANGED'
+                     when old.assigned_app_user_id is distinct from new.assigned_app_user_id then 'ASSIGNED'
+                     else 'UPDATED' end,
+                case when tg_op = 'INSERT' then '' else old.status end,
+                new.status,
+                new.assigned_app_user_id,
+                coalesce(new.completed_by, ''),
+                coalesce(new.blocked_reason, ''),
+                to_jsonb(new)
+            );
+            return new;
+        end;
+        $$ language plpgsql
+    `);
+    await pool.query("drop trigger if exists warehouse_task_history_trigger on warehouse_tasks");
+    await pool.query(`
+        create trigger warehouse_task_history_trigger
+        after insert or update on warehouse_tasks
+        for each row execute function record_warehouse_task_history()
+    `);
+    await pool.query("create index if not exists idx_warehouse_task_history_task_time on warehouse_task_history (task_id, created_at desc)");
+    await pool.query(`
+        create or replace function prevent_warehouse_task_history_change()
+        returns trigger as $$
+        begin
+            raise exception 'Warehouse task history is append-only';
+        end;
+        $$ language plpgsql
+    `);
+    await pool.query("drop trigger if exists warehouse_task_history_immutable on warehouse_task_history");
+    await pool.query(`
+        create trigger warehouse_task_history_immutable
+        before update or delete on warehouse_task_history
+        for each row execute function prevent_warehouse_task_history_change()
+    `);
+    await pool.query(`
         create table if not exists store_integrations (
             id bigserial primary key,
             account_name text not null,
@@ -9475,6 +9642,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_inventory_count_records_status_submitted on inventory_count_records (status, submitted_at desc);");
     await pool.query("create index if not exists idx_inventory_count_records_account_location_sku on inventory_count_records (account_name, location, sku);");
     await pool.query("create index if not exists idx_inventory_count_audit_count_id on inventory_count_audit (count_id, created_at desc);");
+    await pool.query("create index if not exists idx_inventory_count_records_recount on inventory_count_records (recount_of_id, attempt_number);");
     await pool.query("create index if not exists idx_bin_locations_code on bin_locations (code);");
     await pool.query("create index if not exists idx_bin_locations_pickable on bin_locations (is_pickable, location_type);");
     await pool.query("create index if not exists idx_owner_accounts_name on owner_accounts (name);");
@@ -32471,6 +32639,27 @@ function countedCasesToInventoryQuantity(countedCases, master = null) {
     return { countedCases: cases, countedQuantity: cases, trackingLevel };
 }
 
+function buildInventoryCountVarianceFacts(systemQuantity, countedQuantity) {
+    const system = Math.max(0, Number(systemQuantity) || 0);
+    const counted = Math.max(0, Number(countedQuantity) || 0);
+    const varianceQuantity = counted - system;
+    const variancePercent = system > 0
+        ? Math.abs(varianceQuantity) / system * 100
+        : (varianceQuantity === 0 ? 0 : 100);
+    let varianceSeverity = "NONE";
+    if (varianceQuantity !== 0) {
+        varianceSeverity = Math.abs(varianceQuantity) >= 10 || variancePercent >= 10
+            ? "HIGH"
+            : (Math.abs(varianceQuantity) >= 3 || variancePercent >= 3 ? "MEDIUM" : "LOW");
+    }
+    return {
+        varianceQuantity,
+        variancePercent: Number(variancePercent.toFixed(4)),
+        varianceSeverity,
+        approvalRequired: true
+    };
+}
+
 async function buildInventoryCountEntry(client, rawInput, appUser = null, existing = null) {
     const accountName = normalizeText(rawInput?.accountName || rawInput?.owner || existing?.account_name || "");
     const location = normalizeText(rawInput?.location || existing?.location || "");
@@ -32520,7 +32709,12 @@ async function buildInventoryCountEntry(client, rawInput, appUser = null, existi
         trackingLevel: quantity.trackingLevel
     };
     entry.systemQuantity = await getInventoryCountSystemQuantity(client, entry);
-    entry.varianceQuantity = entry.countedQuantity - entry.systemQuantity;
+    Object.assign(entry, buildInventoryCountVarianceFacts(entry.systemQuantity, entry.countedQuantity));
+    entry.evidence = {
+        countPhoto: entry.countPhoto || "",
+        note: normalizeFreeText(rawInput?.evidenceNote || rawInput?.note || ""),
+        deviceId: normalizeFreeText(rawInput?.deviceId || rawInput?.device_id || "")
+    };
     return entry;
 }
 
@@ -32531,9 +32725,10 @@ async function submitInventoryCount(client, rawInput, appUser = null) {
             insert into inventory_count_records (
                 account_name, location, sku, upc, lot_number, expiration_date, count_photo,
                 location_missing, sku_missing, tracking_level, counted_cases, counted_quantity,
-                system_quantity, variance_quantity, status, submitted_by
+                system_quantity, variance_quantity, approval_required, variance_percent,
+                variance_severity, recount_of_id, attempt_number, evidence, status, submitted_by
             )
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'PENDING',$15)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb,'PENDING',$21)
             returning *
         `,
         [
@@ -32551,6 +32746,12 @@ async function submitInventoryCount(client, rawInput, appUser = null) {
             entry.countedQuantity,
             entry.systemQuantity,
             entry.varianceQuantity,
+            entry.approvalRequired,
+            entry.variancePercent,
+            entry.varianceSeverity,
+            toPositiveInt(rawInput?.recountOfId || rawInput?.recount_of_id) || null,
+            Math.max(1, toPositiveInt(rawInput?.attemptNumber || rawInput?.attempt_number) || 1),
+            JSON.stringify(entry.evidence),
             inventoryCountActor(appUser)
         ]
     );
@@ -32636,6 +32837,10 @@ async function postInventoryCountAdjustment(client, countId, rawInput = {}, appU
     await assertAppUserCompanyAccess(client, appUser, existing.account_name);
     if (normalizeInventoryCountStatus(existing.status) === "REJECTED") {
         throw httpError(409, "Rejected counts cannot be posted.");
+    }
+    if (normalizeInventoryCountStatus(existing.status) !== "APPROVED"
+        && normalizeInventoryCountStatus(existing.status) !== "POSTED") {
+        throw httpError(409, "This count must be reviewed and approved before it can change available stock.");
     }
     if (normalizeInventoryCountStatus(existing.status) === "POSTED") {
         return mapInventoryCountRow(existing);
@@ -33616,6 +33821,12 @@ function mapInventoryCountRow(row) {
         countedQuantity: Number(row.counted_quantity) || 0,
         systemQuantity: Number(row.system_quantity) || 0,
         varianceQuantity: Number(row.variance_quantity) || 0,
+        variancePercent: Number(row.variance_percent) || 0,
+        varianceSeverity: row.variance_severity || "NONE",
+        approvalRequired: row.approval_required !== false,
+        recountOfId: row.recount_of_id ? String(row.recount_of_id) : "",
+        attemptNumber: Number(row.attempt_number) || 1,
+        evidence: row.evidence && typeof row.evidence === "object" ? row.evidence : {},
         status: normalizeInventoryCountStatus(row.status),
         submittedBy: row.submitted_by || "",
         submittedAt: row.submitted_at ? new Date(row.submitted_at).toISOString() : "",
@@ -37568,6 +37779,7 @@ module.exports = {
     findInventoryLine,
     upsertInventoryLine,
     consumePortalOrderInventory,
+    buildInventoryCountVarianceFacts,
     postInventoryCountAdjustment,
     buildUserFacingError,
     sanitizePartnerApiScopes,

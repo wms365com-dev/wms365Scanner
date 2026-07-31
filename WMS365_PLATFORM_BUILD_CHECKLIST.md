@@ -71,37 +71,37 @@ documented production verification.
 
 - [x] Structured billing event table exists.
 - [x] Event keys support duplicate prevention.
-- [ ] Receiving completion emits configured receiving and pallet events.
+- [x] Receiving completion emits configured receiving and pallet events.
 - [ ] Shipment completion emits processing, carton, pallet, document, rush, freight, and labour events.
 - [ ] Storage events are generated from reviewed snapshots.
-- [ ] Events remain reviewable before invoicing.
-- [ ] Approved events lock their source facts.
-- [ ] Corrections use void or credit events instead of history edits.
-- [ ] Billing email delivery remains paused until explicitly enabled.
+- [x] Events remain reviewable before invoicing.
+- [x] Approved events lock their source facts.
+- [x] Corrections use void or credit events instead of history edits.
+- [x] Billing email delivery remains paused until explicitly enabled.
 - [ ] Billing audit reconciles operational records to billing events.
 
 ## 6. Warehouse Tasks
 
 - [x] Shared warehouse task model exists.
 - [x] Receiving, putaway, pick, pack, ship, count, replenishment, kitting, and exception task types exist.
-- [ ] Every operational status transition creates or advances the correct task.
+- [x] Every operational order and inbound status transition creates or advances the correct task.
 - [ ] Task claims are atomic and idempotent.
 - [ ] Assignment, worker, device, timestamps, exception, and completion evidence are retained.
 - [ ] Repeated button presses cannot duplicate transitions.
 - [ ] Blocked tasks show the reason and next action.
 - [ ] RUSH and not-yet-ready work are clearly prioritized.
-- [ ] Task history is available for audit.
+- [x] Task history is append-only and available to authorized warehouse users.
 
 ## 7. Cycle Counts and Variances
 
 - [x] Count records track system quantity, counted quantity, and variance.
 - [x] Counts require review before posting.
-- [ ] Variance thresholds determine approval requirements.
+- [x] Variance thresholds classify count approval severity.
 - [ ] Questionable stock can be moved to the warehouse investigation location.
 - [ ] Count posting and investigation movement are one atomic transaction.
 - [ ] Recounts preserve prior attempts.
-- [ ] Approval records reviewer, reason, and evidence.
-- [ ] Customer availability excludes pending and investigation quantities.
+- [x] Approval records reviewer, reason, and evidence.
+- [x] Customer availability excludes pending and investigation quantities.
 
 ## 8. OAuth and Scoped Integrations
 
