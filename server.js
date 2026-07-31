@@ -4324,6 +4324,17 @@ app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
     }
 });
 
+app.post("/api/inventory-counts/:id/recount", requireMobileWorkerAction(), async (req, res, next) => {
+    try {
+        const countId = toPositiveInt(req.params.id);
+        if (!countId) throw httpError(400, "Inventory count id is required.");
+        const count = await withTransaction((client) => createInventoryCountRecount(client, countId, req.body || {}, req.appUser));
+        res.status(201).json({ success: true, count });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/billing/storage-snapshots", async (req, res, next) => {
     try {
         assertBillingFinanceAccess(req.appUser);
@@ -30224,6 +30235,40 @@ async function updateWarehouseTaskStatus(client, taskId, rawInput = {}, appUser 
     }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const blockedReason = normalizeFreeText(rawInput?.blockedReason || rawInput?.blocked_reason || rawInput?.note || "");
+    const nextAction = normalizeFreeText(rawInput?.nextAction || rawInput?.next_action || "");
+    const deviceId = normalizeFreeText(rawInput?.deviceId || rawInput?.device_id || "");
+    const evidence = rawInput?.evidence && typeof rawInput.evidence === "object" && !Array.isArray(rawInput.evidence)
+        ? rawInput.evidence
+        : {};
+    if (status === "BLOCKED" && !blockedReason) {
+        throw httpError(400, "Explain why this task is blocked so the next worker knows what to do.");
+    }
+    const currentResult = await client.query("select * from warehouse_tasks where id = $1 limit 1 for update", [taskId]);
+    if (currentResult.rowCount !== 1) {
+        throw httpError(404, "That warehouse task could not be found.");
+    }
+    const current = currentResult.rows[0];
+    const currentAssignee = toPositiveInt(current.assigned_app_user_id) || null;
+    const effectiveAssignee = hasAssignmentUpdate ? assignedAppUserId : currentAssignee;
+    if (status === "IN_PROGRESS" && currentAssignee && assignedAppUserId && currentAssignee !== assignedAppUserId) {
+        throw httpError(409, "This task is already assigned to another warehouse worker. Refresh the task list before continuing.");
+    }
+    const isSameTransition = normalizeWarehouseTaskStatus(current.status) === status
+        && currentAssignee === effectiveAssignee
+        && normalizeFreeText(current.blocked_reason || "") === (status === "BLOCKED" ? blockedReason : "");
+    if (isSameTransition) {
+        const unchanged = await getWarehouseTaskById(client, taskId);
+        return mapWarehouseTaskRow(unchanged || current);
+    }
+    const transitionEvidence = {
+        lastTransition: {
+            actor,
+            deviceId,
+            nextAction,
+            evidence,
+            recordedAt: new Date().toISOString()
+        }
+    };
     const result = await client.query(
         `
             update warehouse_tasks
@@ -30233,11 +30278,12 @@ async function updateWarehouseTaskStatus(client, taskId, rawInput = {}, appUser 
                 blocked_reason = case when $2 = 'BLOCKED' then $4 else '' end,
                 completed_at = case when $2 in ('DONE', 'CANCELLED') then coalesce(completed_at, now()) else null end,
                 completed_by = case when $2 in ('DONE', 'CANCELLED') then $5 else '' end,
+                metadata = coalesce(metadata, '{}'::jsonb) || $7::jsonb,
                 updated_at = now()
             where id = $1
             returning *
         `,
-        [taskId, status, assignedAppUserId, blockedReason, actor, hasAssignmentUpdate]
+        [taskId, status, assignedAppUserId, blockedReason, actor, hasAssignmentUpdate, JSON.stringify(transitionEvidence)]
     );
     if (result.rowCount !== 1) {
         throw httpError(404, "That warehouse task could not be found.");
@@ -33177,6 +33223,37 @@ async function setInventoryCountStatus(client, countId, status, rawInput = {}, a
     return mapInventoryCountRow(result.rows[0]);
 }
 
+async function createInventoryCountRecount(client, countId, rawInput = {}, appUser = null) {
+    const original = await getInventoryCountById(client, countId, { lock: true });
+    if (!original) throw httpError(404, "Inventory count was not found.");
+    await assertAppUserCompanyAccess(client, appUser, original.account_name);
+    if (normalizeInventoryCountStatus(original.status) === "POSTED") {
+        throw httpError(409, "This count is already posted. Create a new count task instead of changing its history.");
+    }
+    const latestAttempt = await client.query(
+        `select coalesce(max(attempt_number), 0)::integer as attempt
+         from inventory_count_records
+         where id = $1 or recount_of_id = $1`,
+        [countId]
+    );
+    const recount = await submitInventoryCount(client, {
+        accountName: original.account_name,
+        location: original.location,
+        sku: original.sku,
+        upc: original.upc || "",
+        lotNumber: original.lot_number || "",
+        expirationDate: original.expiration_date || "",
+        countedCases: rawInput.countedCases ?? rawInput.quantityCases ?? rawInput.cases,
+        countPhoto: rawInput.countPhoto || rawInput.photo || "",
+        evidenceNote: rawInput.evidenceNote || rawInput.note || "Recount requested after variance review.",
+        deviceId: rawInput.deviceId || rawInput.device_id || "",
+        recountOfId: countId,
+        attemptNumber: (Number(latestAttempt.rows[0]?.attempt) || 0) + 1
+    }, appUser);
+    await insertInventoryCountAudit(client, countId, "RECOUNT_REQUESTED", appUser, { recountId: recount.id, attemptNumber: recount.attemptNumber });
+    return recount;
+}
+
 async function postInventoryCountAdjustment(client, countId, rawInput = {}, appUser = null) {
     const existing = await getInventoryCountById(client, countId, { lock: true });
     if (!existing) throw httpError(404, "Inventory count was not found.");
@@ -33240,16 +33317,45 @@ async function postInventoryCountAdjustment(client, countId, rawInput = {}, appU
         });
     }
 
+    let investigationMove = null;
+    const moveToInvestigation = toBooleanFlag(rawInput?.moveToInvestigation ?? rawInput?.move_to_investigation, false);
+    if (moveToInvestigation && countedQuantity > 0) {
+        investigationMove = await moveInventoryToInvestigationHold(client, {
+            accountName: existing.account_name,
+            fromLocation: existing.location,
+            sku: existing.sku,
+            lotNumber: existing.lot_number || "",
+            expirationDate: existing.expiration_date || "",
+            quantity: countedQuantity,
+            note: normalizeFreeText(rawInput?.reviewNote || rawInput?.note || "Cycle count variance moved to investigation."),
+            idempotencyKey: `inventory-count-investigation-${countId}`,
+            source: "cycle_count_post"
+        }, appUser);
+    }
+
     const result = await client.query(
         `
             update inventory_count_records
             set status='POSTED', reviewed_by=case when reviewed_by = '' then $2 else reviewed_by end,
                 reviewed_at=coalesce(reviewed_at, now()), posted_by=$2, posted_at=now(),
-                review_note=case when $3 = '' then review_note else $3 end, updated_at=now()
+                review_note=case when $3 = '' then review_note else $3 end,
+                evidence=coalesce(evidence, '{}'::jsonb) || $4::jsonb,
+                updated_at=now()
             where id=$1 and status <> 'POSTED'
             returning *
         `,
-        [countId, inventoryCountActor(appUser), normalizeFreeText(rawInput?.reviewNote || rawInput?.note || "")]
+        [
+            countId,
+            inventoryCountActor(appUser),
+            normalizeFreeText(rawInput?.reviewNote || rawInput?.note || ""),
+            JSON.stringify(investigationMove ? {
+                investigationMove: {
+                    location: investigationMove.holdLocation,
+                    quantity: countedQuantity,
+                    movedAt: new Date().toISOString()
+                }
+            } : {})
+        ]
     );
     if (result.rowCount !== 1) {
         await logInventoryLockFailure(new Error("Inventory count was posted by another transaction."), {

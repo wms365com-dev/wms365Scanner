@@ -85,11 +85,11 @@ documented production verification.
 - [x] Shared warehouse task model exists.
 - [x] Receiving, putaway, pick, pack, ship, count, replenishment, kitting, and exception task types exist.
 - [x] Every operational order and inbound status transition creates or advances the correct task.
-- [ ] Task claims are atomic and idempotent.
-- [ ] Assignment, worker, device, timestamps, exception, and completion evidence are retained.
-- [ ] Repeated button presses cannot duplicate transitions.
-- [ ] Blocked tasks show the reason and next action.
-- [ ] RUSH and not-yet-ready work are clearly prioritized.
+- [x] Task claims are atomic and idempotent.
+- [x] Assignment, worker, device, timestamps, exception, and completion evidence are retained.
+- [x] Repeated button presses cannot duplicate transitions.
+- [x] Blocked tasks show the reason and next action.
+- [x] RUSH and not-yet-ready work are clearly prioritized.
 - [x] Task history is append-only and available to authorized warehouse users.
 
 ## 7. Cycle Counts and Variances
@@ -97,9 +97,9 @@ documented production verification.
 - [x] Count records track system quantity, counted quantity, and variance.
 - [x] Counts require review before posting.
 - [x] Variance thresholds classify count approval severity.
-- [ ] Questionable stock can be moved to the warehouse investigation location.
-- [ ] Count posting and investigation movement are one atomic transaction.
-- [ ] Recounts preserve prior attempts.
+- [x] Questionable stock can be moved to the warehouse investigation location.
+- [x] Count posting and investigation movement are one atomic transaction.
+- [x] Recounts preserve prior attempts.
 - [x] Approval records reviewer, reason, and evidence.
 - [x] Customer availability excludes pending and investigation quantities.
 
