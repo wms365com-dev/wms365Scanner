@@ -7808,6 +7808,7 @@ async function initializeDatabase() {
             source_id text not null default '',
             user_id bigint,
             device_id text not null default '',
+            idempotency_key text not null default '',
             source text not null default '',
             client_timestamp timestamptz,
             server_timestamp timestamptz not null default now()
@@ -7818,9 +7819,11 @@ async function initializeDatabase() {
     await pool.query("alter table inventory_transactions drop constraint if exists inventory_transactions_fulfillment_location_id_fkey;");
     await pool.query("alter table inventory_transactions drop constraint if exists inventory_transactions_user_id_fkey;");
     await pool.query("alter table inventory_transactions add column if not exists device_id text not null default '';");
+    await pool.query("alter table inventory_transactions add column if not exists idempotency_key text not null default '';");
     await pool.query("alter table inventory_transactions add column if not exists source text not null default '';");
     await pool.query("alter table inventory_transactions add column if not exists client_timestamp timestamptz;");
     await pool.query("alter table inventory_transactions add column if not exists server_timestamp timestamptz not null default now();");
+    await pool.query("create unique index if not exists idx_inventory_transactions_idempotency on inventory_transactions (idempotency_key, transaction_type, source_type, location, sku) where idempotency_key <> '';");
     await pool.query(`
         create or replace function prevent_inventory_transactions_mutation()
         returns trigger as $$
@@ -17934,6 +17937,7 @@ async function archivePortalOrderForAccount(
         throw httpError(400, `Only draft orders can be archived. This order is ${order.status}.`);
     }
 
+    await recordPortalOrderAllocationTransactions(client, orderId, "RELEASE", { source: "order_archive" });
     await client.query("delete from portal_order_allocations where order_id = $1", [orderId]);
     await client.query(
         `
@@ -17995,6 +17999,7 @@ async function reopenReleasedPortalOrderForAccount(
         throw httpError(400, `Only released orders can be reopened before picking. This order is ${order.status}.`);
     }
 
+    await recordPortalOrderAllocationTransactions(client, orderId, "RELEASE", { source: "order_reopen" });
     await client.query("delete from portal_order_allocations where order_id = $1", [orderId]);
     await client.query(
         `
@@ -18542,6 +18547,10 @@ async function createManualPickAllocationFromScan(client, { orderRow, line, loca
         remainingQuantity -= allocatedQuantity;
     }
 
+    await recordPortalOrderAllocationTransactions(client, orderRow.id, "ALLOCATE", {
+        source: "mobile_pick_allocation"
+    });
+
     await insertActivity(
         client,
         "order",
@@ -18747,6 +18756,7 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
         }
     }
 
+    await recordPortalOrderAllocationTransactions(client, order.id, "RELEASE", { source: "order_reallocation" });
     await client.query("delete from portal_order_allocations where order_id = $1", [order.id]);
     for (const allocation of allocations) {
         await client.query(
@@ -18770,6 +18780,7 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
             ]
         );
     }
+    await recordPortalOrderAllocationTransactions(client, order.id, "ALLOCATE", { source: "order_release" });
 }
 
 async function releasePortalOrderForAccount(
@@ -28773,6 +28784,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
 
         const actor = appUser?.full_name || appUser?.email || "Warehouse";
         const cancelNote = normalizeFreeText(details?.cancelReason || details?.reason || details?.note || "");
+        await recordPortalOrderAllocationTransactions(client, orderId, "RELEASE", { appUser, source: "order_cancel" });
         await client.query("delete from portal_order_allocations where order_id = $1", [orderId]);
         await client.query(
             `
@@ -30711,6 +30723,45 @@ async function consumePortalOrderInventory(client, order, { shipmentLines = [], 
     }
 }
 
+async function recordPortalOrderAllocationTransactions(client, orderId, action = "ALLOCATE", ledgerOptions = {}) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return [];
+    const normalizedAction = normalizeText(action) === "RELEASE" ? "RELEASE" : "ALLOCATE";
+    const result = await client.query(
+        `
+            select a.*, i.quantity as inventory_quantity, i.account_name, i.upc,
+                   i.tracking_level as inventory_tracking_level
+            from portal_order_allocations a
+            left join inventory_lines i on i.id = a.inventory_line_id
+            where a.order_id = $1
+            order by a.id asc
+        `,
+        [normalizedOrderId]
+    );
+    const transactions = [];
+    for (const allocation of result.rows) {
+        const quantity = Number(allocation.inventory_quantity) || 0;
+        const transaction = await recordInventoryTransaction(client, {
+            accountName: allocation.account_name || ledgerOptions.accountName || "",
+            location: allocation.location || "",
+            sku: allocation.sku || "",
+            upc: allocation.upc || "",
+            lotNumber: allocation.lot_number || "",
+            expirationDate: normalizeDateOnly(allocation.expiration_date || ""),
+            quantityBefore: quantity,
+            quantityAfter: quantity,
+            transactionType: normalizedAction === "RELEASE" ? "REVERSAL" : "PICKING",
+            sourceType: normalizedAction === "RELEASE" ? "PORTAL_ORDER_UNALLOCATION" : "PORTAL_ORDER_ALLOCATION",
+            sourceId: normalizedOrderId,
+            idempotencyKey: `${normalizedAction.toLowerCase()}-${normalizedOrderId}-${allocation.id}`,
+            recordZeroDelta: true,
+            ...ledgerOptions
+        });
+        if (transaction) transactions.push(transaction);
+    }
+    return transactions;
+}
+
 async function recordPortalOrderPickingTransactions(client, order, appUser = null, ledgerOptions = {}) {
     const allocationResult = await client.query(
         `
@@ -32191,6 +32242,7 @@ function inventoryLedgerContextFromRequest(req, overrides = {}) {
         appUser: req?.appUser || null,
         userId: req?.appUser?.id || req?.appUser?.app_user_id || null,
         deviceId: req?.body?.device_id || req?.body?.deviceId || req?.headers?.["x-wms365-device-id"] || "",
+        idempotencyKey: req?.body?.idempotency_key || req?.body?.idempotencyKey || req?.headers?.["idempotency-key"] || "",
         source: req?.body?.source || req?.headers?.["x-wms365-source"] || "web_admin",
         clientTimestamp: req?.body?.client_timestamp || req?.body?.clientTimestamp || "",
         ...overrides
@@ -32214,21 +32266,31 @@ async function recordInventoryTransaction(client, input = {}) {
         return null;
     }
     const userId = toPositiveInt(input.userId || input.user_id || input.appUser?.id || input.appUser?.app_user_id);
-    const fulfillmentLocationId = toPositiveInt(input.fulfillmentLocationId || input.fulfillment_location_id);
+    let fulfillmentLocationId = toPositiveInt(input.fulfillmentLocationId || input.fulfillment_location_id);
+    let warehouseId = normalizeText(input.warehouseId || input.warehouse_id || "");
+    if (!fulfillmentLocationId || !warehouseId) {
+        const warehouse = await resolveFulfillmentLocationFromScopedLocation(client, lineIdentity.accountName, lineIdentity.location);
+        fulfillmentLocationId = fulfillmentLocationId || toPositiveInt(warehouse?.fulfillment_location_id || warehouse?.id);
+        warehouseId = warehouseId || normalizeText(warehouse?.code || warehouse?.fulfillment_location_code || "");
+    }
+    const idempotencyKey = normalizeFreeText(input.idempotencyKey || input.idempotency_key || "").slice(0, 180);
     const result = await client.query(
         `
             insert into inventory_transactions (
                 account_name, warehouse_id, fulfillment_location_id, location, sku, upc,
                 lot_number, expiration_date, transaction_type, quantity_delta,
                 quantity_before, quantity_after, source_type, source_id, user_id,
-                device_id, source, client_timestamp
+                device_id, idempotency_key, source, client_timestamp
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            on conflict (idempotency_key, transaction_type, source_type, location, sku)
+            where idempotency_key <> ''
+            do nothing
             returning *
         `,
         [
             lineIdentity.accountName,
-            normalizeText(input.warehouseId || input.warehouse_id || ""),
+            warehouseId,
             fulfillmentLocationId || null,
             lineIdentity.location,
             lineIdentity.sku,
@@ -32243,6 +32305,7 @@ async function recordInventoryTransaction(client, input = {}) {
             normalizeFreeText(input.sourceId || input.source_id || ""),
             userId || null,
             normalizeFreeText(input.deviceId || input.device_id || ""),
+            idempotencyKey,
             normalizeInventoryTransactionSource(input.source),
             normalizeLedgerTimestamp(input.clientTimestamp || input.client_timestamp)
         ]
@@ -34328,6 +34391,7 @@ function mapInventoryTransactionRow(row) {
         sourceId: row.source_id || "",
         userId: row.user_id != null ? String(row.user_id) : "",
         deviceId: row.device_id || "",
+        idempotencyKey: row.idempotency_key || "",
         source: row.source || "",
         clientTimestamp: row.client_timestamp ? new Date(row.client_timestamp).toISOString() : "",
         serverTimestamp: row.server_timestamp ? new Date(row.server_timestamp).toISOString() : ""

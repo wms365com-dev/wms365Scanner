@@ -184,6 +184,12 @@ class FakeInventoryClient {
     async query(sql, params = []) {
         const normalizedSql = String(sql).replace(/\s+/g, " ").trim().toLowerCase();
 
+        if (normalizedSql.includes("from company_fulfillment_locations cfl")) {
+            const accountName = params[0];
+            const rows = this.store.warehouses.filter((row) => !row.account_name || row.account_name === accountName);
+            return { rowCount: rows.length, rows: rows.map(cloneRow) };
+        }
+
         if (normalizedSql.startsWith("select * from inventory_lines where id = $1")) {
             const id = String(params[0]);
             if (normalizedSql.includes("for update")) {
@@ -345,6 +351,7 @@ class FakeInventoryClient {
                 sourceId,
                 userId,
                 deviceId,
+                idempotencyKey,
                 source,
                 clientTimestamp
             ] = params;
@@ -366,6 +373,7 @@ class FakeInventoryClient {
                 source_id: sourceId || "",
                 user_id: userId || null,
                 device_id: deviceId || "",
+                idempotency_key: idempotencyKey || "",
                 source: source || "",
                 client_timestamp: clientTimestamp || null,
                 server_timestamp: new Date().toISOString()

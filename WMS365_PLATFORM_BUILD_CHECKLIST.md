@@ -45,14 +45,14 @@ documented production verification.
 
 - [x] Append-only inventory ledger exists.
 - [x] Database trigger prevents ledger updates and deletes.
-- [ ] Every receive mutation uses the shared inventory transaction service.
-- [ ] Every move mutation uses the shared inventory transaction service.
-- [ ] Every adjustment mutation uses the shared inventory transaction service.
-- [ ] Every hold and release-from-hold mutation uses the shared service.
-- [ ] Every allocation, pick, unpick, ship, cancellation, and reversal is recorded.
-- [ ] Transactions include company, warehouse, location, SKU, lot, expiry, actor, device, source, and idempotency key.
-- [ ] Inventory cannot be negative under concurrent operations.
-- [ ] Reversal operations append compensating entries and never edit history.
+- [x] Every receive mutation uses the shared inventory transaction service.
+- [x] Every move mutation uses the shared inventory transaction service.
+- [x] Every adjustment mutation uses the shared inventory transaction service.
+- [x] Every hold and release-from-hold mutation uses the shared service.
+- [x] Every allocation, pick, unpick, ship, cancellation, and reversal is recorded.
+- [x] Transactions include company, warehouse, location, SKU, lot, expiry, actor, device, source, and idempotency key.
+- [x] Inventory cannot be negative under concurrent operations.
+- [x] Reversal operations append compensating entries and never edit history.
 
 ## 4. Asynchronous Bulk Jobs
 
