@@ -2678,6 +2678,23 @@ app.post("/api/billing/storage-accrual", async (req, res, next) => {
     }
 });
 
+app.get("/api/billing/reconciliation", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const accountName = normalizeText(req.query?.accountName || req.query?.company || "");
+        const fromDate = normalizeDateOnly(req.query?.from || req.query?.fromDate || "");
+        const toDate = normalizeDateOnly(req.query?.to || req.query?.toDate || "");
+        const report = await withTransaction(async (client) => {
+            if (accountName) await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            return getBillingReconciliationReport(client, { accountName, fromDate, toDate }, req.appUser);
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ success: true, ...report });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/billing/events/mark-invoiced", async (req, res, next) => {
     try {
         assertBillingFinanceAccess(req.appUser);
@@ -11734,6 +11751,68 @@ async function createPortalOrderBillingEvents(client, order) {
     if (labourHours > 0) await pushCreated("SPECIAL_LABOUR", labourHours, "SPECIAL_LABOUR");
 
     return created;
+}
+
+async function getBillingReconciliationReport(client, filters = {}, appUser = null) {
+    const requestedAccount = normalizeText(filters.accountName || "");
+    const accessibleCompanies = appUser && !isSuperAdminUser(appUser)
+        ? await getAccessibleCompanyNamesForAppUser(client, appUser)
+        : [];
+    if (appUser && !isSuperAdminUser(appUser) && !accessibleCompanies.length) {
+        return { summary: { operationalRecords: 0, matched: 0, missing: 0 }, records: [] };
+    }
+    const params = [];
+    const accountSql = requestedAccount
+        ? `and operation.account_name = $${params.push(requestedAccount)}`
+        : (accessibleCompanies.length ? `and operation.account_name = any($${params.push(accessibleCompanies)}::text[])` : "");
+    const fromSql = filters.fromDate ? `and operation.service_date >= $${params.push(filters.fromDate)}::date` : "";
+    const toSql = filters.toDate ? `and operation.service_date <= $${params.push(filters.toDate)}::date` : "";
+    const result = await client.query(
+        `
+            with operation as (
+                select 'INBOUND_RECEIPT'::text as operation_type, i.id, i.account_name,
+                       coalesce(nullif(i.inbound_code, ''), 'INBOUND-' || i.id::text) as source_ref,
+                       coalesce(i.received_at::date, i.expected_date, i.created_at::date) as service_date
+                from portal_inbounds i
+                where i.status in ('RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE')
+                union all
+                select 'OUTBOUND_ORDER'::text, o.id, o.account_name,
+                       coalesce(nullif(o.order_code, ''), 'ORDER-' || o.id::text),
+                       coalesce(o.confirmed_ship_date, o.updated_at::date)
+                from portal_orders o
+                where o.status = 'SHIPPED'
+            )
+            select operation.*,
+                   count(be.id)::integer as billing_event_count,
+                   coalesce(sum(be.amount), 0)::numeric(14,2) as billing_amount
+            from operation
+            left join billing_events be
+              on be.account_name = operation.account_name
+             and be.source_type = operation.operation_type
+             and be.source_ref = operation.source_ref
+             and be.status <> 'VOID'
+            where 1=1 ${accountSql} ${fromSql} ${toSql}
+            group by operation.operation_type, operation.id, operation.account_name, operation.source_ref, operation.service_date
+            order by operation.service_date desc, operation.operation_type, operation.id desc
+            limit 5000
+        `,
+        params
+    );
+    const records = result.rows.map((row) => ({
+        operationType: row.operation_type,
+        operationId: String(row.id),
+        accountName: row.account_name,
+        sourceRef: row.source_ref,
+        serviceDate: normalizeDateOnly(row.service_date),
+        billingEventCount: Number(row.billing_event_count) || 0,
+        billingAmount: Number(row.billing_amount) || 0,
+        status: Number(row.billing_event_count) > 0 ? "MATCHED" : "MISSING"
+    }));
+    const matched = records.filter((record) => record.status === "MATCHED").length;
+    return {
+        summary: { operationalRecords: records.length, matched, missing: records.length - matched },
+        records
+    };
 }
 
 function formatBillingCurrencyAmount(value, currencyCode = "CAD") {

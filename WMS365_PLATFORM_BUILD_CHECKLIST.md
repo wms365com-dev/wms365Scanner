@@ -78,7 +78,7 @@ documented production verification.
 - [x] Approved events lock their source facts.
 - [x] Corrections use void or credit events instead of history edits.
 - [x] Billing email delivery remains paused until explicitly enabled.
-- [ ] Billing audit reconciles operational records to billing events.
+- [x] Billing audit reconciles operational records to billing events.
 
 ## 6. Warehouse Tasks
 
@@ -109,7 +109,7 @@ documented production verification.
 - [x] Hashed client secrets and refresh tokens.
 - [x] Short-lived access tokens.
 - [x] Revocable refresh tokens.
-- [ ] Scopes include inventory read, order read/write, shipment read/write, and job read/write.
+- [x] Scopes include inventory read, order read/write, shipment read/write, and job read/write.
 - [x] Tokens are restricted to assigned customer companies.
 - [x] Test and production applications are separated.
 - [x] Token issuance, refresh, use, and revocation are audited.
