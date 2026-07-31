@@ -689,6 +689,9 @@ const BILLING_FEE_SEED = [
     { code: "EDI_INTEGRATION_SETUP", category: "Administrative Fees", name: "EDI integration setup", unitLabel: "per setup", defaultRate: 0 },
     { code: "CUSTOM_REPORTING_SETUP", category: "Administrative Fees", name: "Custom reporting setup", unitLabel: "per setup", defaultRate: 0 },
     { code: "RUSH_ORDER_SURCHARGE_PERCENTAGE", category: "Administrative Fees", name: "Rush order surcharge percentage", unitLabel: "percent", defaultRate: 0 },
+    { code: "RUSH_ORDER_FEE", category: "Administrative Fees", name: "Rush order fee", unitLabel: "per order", defaultRate: 0 },
+    { code: "FREIGHT_CHARGE", category: "Shipping & Handling", name: "Freight charge", unitLabel: "per dollar", defaultRate: 0 },
+    { code: "SPECIAL_LABOUR", category: "Labour & Equipment", name: "Special labour", unitLabel: "per hour", defaultRate: 0 },
 
     { code: "FOOD_GRADE_HANDLING_COMPLIANCE", category: "Compliance & Special Handling", name: "Food grade handling compliance", unitLabel: "per shipment", defaultRate: 0 },
     { code: "TEMPERATURE_MONITORING", category: "Compliance & Special Handling", name: "Temperature monitoring", unitLabel: "per day", defaultRate: 0 },
@@ -2659,7 +2662,7 @@ app.post("/api/billing/storage-accrual", async (req, res, next) => {
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
             await upsertOwnerMaster(client, accountName);
-            const created = await createMonthlyStorageBillingEvents(client, accountName, month);
+            const created = await createMonthlyStorageBillingEvents(client, accountName, month, req.appUser?.email || req.appUser?.full_name || "Finance");
             await insertActivity(
                 client,
                 "billing",
@@ -4316,6 +4319,37 @@ app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
         });
         res.setHeader("Cache-Control", "no-store");
         res.json({ tasks });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing/storage-snapshots", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const accountName = normalizeText(req.body?.accountName || req.body?.account_name);
+        const month = normalizeBillingMonth(req.body?.month);
+        const snapshot = await withTransaction(async (client) => {
+            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.BILLING);
+            return captureStorageBillingSnapshot(client, accountName, month, req.appUser?.email || req.appUser?.full_name || "Finance");
+        });
+        res.status(201).json({ success: true, snapshot });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/billing/storage-snapshots/:id/review", async (req, res, next) => {
+    try {
+        assertBillingFinanceAccess(req.appUser);
+        const snapshot = await withTransaction(async (client) => {
+            const current = await client.query("select * from storage_billing_snapshots where id=$1 limit 1", [toPositiveInt(req.params.id)]);
+            if (current.rowCount !== 1) throw httpError(404, "That storage snapshot could not be found.");
+            await assertAppUserCompanyAccess(client, req.appUser, current.rows[0].account_name);
+            return reviewStorageBillingSnapshot(client, current.rows[0].id, req.appUser?.email || req.appUser?.full_name || "Finance", req.body?.note || "");
+        });
+        res.json({ success: true, snapshot });
     } catch (error) {
         next(error);
     }
@@ -8461,6 +8495,27 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
     await pool.query(`
+        create table if not exists storage_billing_snapshots (
+            id bigserial primary key,
+            account_name text not null,
+            billing_month text not null,
+            status text not null default 'DRAFT' check (status in ('DRAFT','REVIEWED','POSTED','VOID')),
+            pallet_count integer not null default 0 check (pallet_count >= 0),
+            floor_positions integer not null default 0 check (floor_positions >= 0),
+            snapshot_data jsonb not null default '{}'::jsonb,
+            created_by text not null default '',
+            reviewed_by text not null default '',
+            reviewed_at timestamptz,
+            posted_by text not null default '',
+            posted_at timestamptz,
+            review_note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, billing_month)
+        )
+    `);
+    await pool.query("create index if not exists idx_storage_billing_snapshots_status on storage_billing_snapshots (status, billing_month, account_name)");
+    await pool.query(`
         create table if not exists billing_event_audit (
             id bigserial primary key,
             billing_event_id bigint not null references billing_events(id) on delete restrict,
@@ -8624,6 +8679,9 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists order_notes text not null default ''");
     await pool.query("alter table portal_orders add column if not exists confirmed_ship_date date");
     await pool.query("alter table portal_orders add column if not exists shipment_method text not null default 'LTL_FREIGHT'");
+    await pool.query("alter table portal_orders add column if not exists outbound_freight_cost numeric(12,2) not null default 0");
+    await pool.query("alter table portal_orders add column if not exists outbound_labour_hours numeric(12,2) not null default 0");
+    await pool.query("alter table portal_orders add column if not exists outbound_special_labour_note text not null default ''");
     await pool.query("update portal_orders set shipment_method = 'LTL_FREIGHT' where shipment_method is null or shipment_method = ''");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_shipment_method_check");
     await pool.query("alter table portal_orders add constraint portal_orders_shipment_method_check check (shipment_method in ('PARCEL', 'LTL_FREIGHT', 'FTL_FREIGHT', 'CUSTOMER_PICKUP'))");
@@ -11649,6 +11707,21 @@ async function createPortalOrderBillingEvents(client, order) {
         await pushCreated("MIXED_SKU_PALLET_BUILD", mixedPalletsBuilt, "OUTBOUND_MIXED_PALLETS");
     }
 
+    const documents = Array.isArray(order.documents) ? order.documents : [];
+    const shippingLabelCount = documents.filter((document) => normalizePortalOrderDocumentCategory(document.documentCategory) === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPPING_LABEL).length;
+    const hasBol = documents.some((document) => normalizePortalOrderDocumentCategory(document.documentCategory) === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL);
+    if (shippingLabelCount > 0) await pushCreated("SHIPPING_LABEL_PRINTING", shippingLabelCount, "SHIPPING_LABELS");
+    if (hasBol) await pushCreated("BILL_OF_LADING_PREPARATION", 1, "BOL_PREPARATION");
+
+    if (order.rushApproved === true) await pushCreated("RUSH_ORDER_FEE", 1, "RUSH");
+    if (shipmentMethodRequiresFreightProof(order.shipmentMethod || order.shipment_method)) {
+        await pushCreated("CARRIER_BOOKING_COORDINATION", 1, "FREIGHT_COORDINATION");
+    }
+    const freightCost = Math.max(0, Number(order.outboundFreightCost ?? order.outbound_freight_cost) || 0);
+    if (freightCost > 0) await pushCreated("FREIGHT_CHARGE", freightCost, "FREIGHT_COST");
+    const labourHours = Math.max(0, Number(order.outboundLabourHours ?? order.outbound_labour_hours) || 0);
+    if (labourHours > 0) await pushCreated("SPECIAL_LABOUR", labourHours, "SPECIAL_LABOUR");
+
     return created;
 }
 
@@ -11871,12 +11944,11 @@ function queueWarehouseBillingActivityEmail(activity = {}) {
     });
 }
 
-async function createMonthlyStorageBillingEvents(client, accountName, month) {
+async function captureStorageBillingSnapshot(client, accountName, month, actor = "") {
     const normalizedAccount = normalizeText(accountName);
     const normalizedMonth = normalizeBillingMonth(month);
-    if (!normalizedAccount || !normalizedMonth) return [];
-
-    const snapshot = await client.query(
+    if (!normalizedAccount || !normalizedMonth) throw httpError(400, "Company and billing month are required.");
+    const inventory = await client.query(
         `
             select
                 coalesce(sum(case when tracking_level = 'PALLET' then quantity else 0 end), 0)::integer as pallet_count,
@@ -11886,9 +11958,53 @@ async function createMonthlyStorageBillingEvents(client, accountName, month) {
         `,
         [normalizedAccount]
     );
+    const palletCount = Number(inventory.rows[0]?.pallet_count) || 0;
+    const floorPositions = Number(inventory.rows[0]?.floor_positions) || 0;
+    const result = await client.query(
+        `
+            insert into storage_billing_snapshots (
+                account_name, billing_month, status, pallet_count, floor_positions,
+                snapshot_data, created_by, updated_at
+            ) values ($1,$2,'DRAFT',$3,$4,$5::jsonb,$6,now())
+            on conflict (account_name, billing_month) do update set
+                status='DRAFT', pallet_count=excluded.pallet_count,
+                floor_positions=excluded.floor_positions, snapshot_data=excluded.snapshot_data,
+                created_by=excluded.created_by, reviewed_by='', reviewed_at=null,
+                posted_by='', posted_at=null, review_note='', updated_at=now()
+            where storage_billing_snapshots.status not in ('POSTED')
+            returning *
+        `,
+        [normalizedAccount, normalizedMonth, palletCount, floorPositions, JSON.stringify({ capturedAt: new Date().toISOString(), palletCount, floorPositions }), normalizeFreeText(actor)]
+    );
+    if (result.rowCount !== 1) throw httpError(409, "This storage month has already been posted and cannot be recaptured. Void or credit the posted billing events instead.");
+    return result.rows[0];
+}
 
-    const palletCount = Number(snapshot.rows[0]?.pallet_count) || 0;
-    const floorPositions = Number(snapshot.rows[0]?.floor_positions) || 0;
+async function reviewStorageBillingSnapshot(client, snapshotId, actor = "", note = "") {
+    const result = await client.query(
+        `update storage_billing_snapshots set status='REVIEWED', reviewed_by=$2,
+             reviewed_at=now(), review_note=$3, updated_at=now()
+         where id=$1 and status='DRAFT' returning *`,
+        [toPositiveInt(snapshotId), normalizeFreeText(actor), normalizeFreeText(note)]
+    );
+    if (result.rowCount !== 1) throw httpError(409, "Only a draft storage snapshot can be reviewed.");
+    return result.rows[0];
+}
+
+async function createMonthlyStorageBillingEvents(client, accountName, month, actor = "") {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedMonth = normalizeBillingMonth(month);
+    if (!normalizedAccount || !normalizedMonth) return [];
+    const snapshot = await client.query(
+        `select * from storage_billing_snapshots
+         where account_name=$1 and billing_month=$2 and status in ('REVIEWED','POSTED')
+         order by id desc limit 1 for update`,
+        [normalizedAccount, normalizedMonth]
+    );
+    if (snapshot.rowCount !== 1) throw httpError(409, "Capture and review the storage snapshot before generating storage billing.");
+
+    const palletCount = Number(snapshot.rows[0].pallet_count) || 0;
+    const floorPositions = Number(snapshot.rows[0].floor_positions) || 0;
     const serviceDate = `${normalizedMonth}-01`;
     const created = [];
 
@@ -11898,7 +12014,7 @@ async function createMonthlyStorageBillingEvents(client, accountName, month) {
             sourceRef: normalizedMonth,
             reference: normalizedMonth,
             serviceDate,
-            note: `Auto-generated from live pallet-tracked inventory for ${normalizedMonth}.`,
+            note: `Generated from reviewed storage snapshot ${snapshot.rows[0].id} for ${normalizedMonth}.`,
             eventKey: `STORAGE:${normalizedAccount}:${normalizedMonth}:STANDARD_PALLET_STORAGE`
         });
         if (palletLine) created.push(palletLine);
@@ -11910,12 +12026,17 @@ async function createMonthlyStorageBillingEvents(client, accountName, month) {
             sourceRef: normalizedMonth,
             reference: normalizedMonth,
             serviceDate,
-            note: `Auto-generated from live floor-position inventory for ${normalizedMonth}.`,
+            note: `Generated from reviewed storage snapshot ${snapshot.rows[0].id} for ${normalizedMonth}.`,
             eventKey: `STORAGE:${normalizedAccount}:${normalizedMonth}:FLOOR_STORAGE`
         });
         if (floorLine) created.push(floorLine);
     }
 
+    await client.query(
+        `update storage_billing_snapshots set status='POSTED', posted_by=$2,
+             posted_at=coalesce(posted_at,now()), updated_at=now() where id=$1`,
+        [snapshot.rows[0].id, normalizeFreeText(actor)]
+    );
     return created;
 }
 
@@ -25386,6 +25507,9 @@ async function exportShopifyShipmentConfirmations(client, integrationRow) {
 
 async function savePortalShippingConfirmation(client, order, rawConfirmation, appUser = null, { transitionToShipped = false } = {}) {
     const confirmation = sanitizePortalShippingConfirmationInput(rawConfirmation);
+    if (confirmation.outboundLabourHours > 0 && !confirmation.outboundSpecialLabourNote) {
+        throw httpError(400, "Enter a special labour note when billable labour hours are recorded.");
+    }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const confirmedShipDate = confirmation.confirmedShipDate || order.confirmedShipDate || normalizeDateInput(new Date());
     const shipmentMethod = confirmation.shipmentMethod || order.shipmentMethod || "LTL_FREIGHT";
@@ -25448,13 +25572,16 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
                 outbound_new_pallets = $10,
                 outbound_mixed_pallets = $11,
                 outbound_pallet_note = $12,
-                shipped_at = case when $13::boolean then coalesce(shipped_at, now()) else shipped_at end,
+                outbound_freight_cost = $13,
+                outbound_labour_hours = $14,
+                outbound_special_labour_note = $15,
+                shipped_at = case when $16::boolean then coalesce(shipped_at, now()) else shipped_at end,
                 shipment_email_status = 'SCHEDULED',
                 shipment_email_scheduled_at = now(),
                 shipment_email_sent_at = null,
                 shipment_email_last_error = '',
                 shipment_email_attempts = 0,
-                shipment_email_is_update = not $13::boolean,
+                shipment_email_is_update = not $16::boolean,
                 updated_at = now()
             where id = $1
         `,
@@ -25471,6 +25598,9 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             outboundPallets.newPalletsUsed,
             outboundPallets.mixedPalletsBuilt,
             outboundPallets.palletNote,
+            confirmation.outboundFreightCost,
+            confirmation.outboundLabourHours,
+            confirmation.outboundSpecialLabourNote,
             transitionToShipped
         ]
     );
@@ -32734,6 +32864,7 @@ async function backfillWarehouseShipments({ batchSize = 5000 } = {}) {
                 from portal_orders o
                 where o.status not in ('DRAFT', 'ARCHIVED')
                   and o.fulfillment_location_id is not null
+                  and exists (select 1 from portal_order_lines l where l.order_id = o.id)
                   and not exists (select 1 from warehouse_shipments s where s.order_id = o.id)
                 order by o.id
                 limit $1
@@ -34586,6 +34717,9 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
             mixedPalletsBuilt: Number(row.outbound_mixed_pallets) || 0,
             palletNote: row.outbound_pallet_note || ""
         },
+        outboundFreightCost: Number(row.outbound_freight_cost) || 0,
+        outboundLabourHours: Number(row.outbound_labour_hours) || 0,
+        outboundSpecialLabourNote: row.outbound_special_labour_note || "",
         releasedAt: row.released_at ? new Date(row.released_at).toISOString() : null,
         pickTicketEmailStatus: row.pick_ticket_email_status || "",
         pickTicketEmailScheduledAt: row.pick_ticket_email_scheduled_at ? new Date(row.pick_ticket_email_scheduled_at).toISOString() : null,
@@ -35136,6 +35270,9 @@ function sanitizePortalShippingConfirmationInput(payload) {
         documents: sanitizePortalOrderDocumentsInput(Array.isArray(payload?.documents) ? payload.documents : []),
         shippedLines: sanitizePortalShippedLinesInput(Array.isArray(payload?.shippedLines) ? payload.shippedLines : []),
         outboundPallets: sanitizePortalOutboundPalletInput(payload, shipmentMethod),
+        outboundFreightCost: Math.max(0, roundBillingNumber(payload?.outboundFreightCost ?? payload?.freightCost ?? payload?.freight_cost ?? 0, 2)),
+        outboundLabourHours: Math.max(0, roundBillingNumber(payload?.outboundLabourHours ?? payload?.labourHours ?? payload?.laborHours ?? 0, 2)),
+        outboundSpecialLabourNote: normalizeFreeText(payload?.outboundSpecialLabourNote || payload?.specialLabourNote || payload?.laborNote || ""),
         packingSlipQuantityConfirmed,
         moveShortageToInvestigation
     };
@@ -37954,6 +38091,10 @@ module.exports = {
     portalPalletSizeInboundBillingCode,
     buildPortalInboundPalletBillingRollups,
     createPortalInboundBillingEvents,
+    createPortalOrderBillingEvents,
+    captureStorageBillingSnapshot,
+    reviewStorageBillingSnapshot,
+    createMonthlyStorageBillingEvents,
     getInboundFollowupType,
     isDeliverableInboundCreatorEmail,
     buildPortalInboundFollowupEmailText,

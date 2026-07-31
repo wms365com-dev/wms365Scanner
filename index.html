@@ -21232,6 +21232,18 @@
                             <span>Shipping Note</span>
                             <input data-portal-ship-note="${attr(order.id)}" type="text" placeholder="Optional shipped confirmation note" value="${attr(order.shippedConfirmationNote || "")}">
                         </label>
+                        <label class="field" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
+                            <span>Freight Cost</span>
+                            <input data-portal-freight-cost="${attr(order.id)}" type="number" min="0" step="0.01" inputmode="decimal" value="${attr(order.outboundFreightCost || 0)}">
+                        </label>
+                        <label class="field">
+                            <span>Billable Labour Hours</span>
+                            <input data-portal-labour-hours="${attr(order.id)}" type="number" min="0" step="0.25" inputmode="decimal" value="${attr(order.outboundLabourHours || 0)}">
+                        </label>
+                        <label class="field span-2">
+                            <span>Special Labour Note</span>
+                            <input data-portal-labour-note="${attr(order.id)}" type="text" placeholder="Required when billable labour is entered" value="${attr(order.outboundSpecialLabourNote || "")}">
+                        </label>
                         <label class="field" data-portal-pallet-fields="${attr(order.id)}" ${usesPalletTracking ? "" : "hidden"}>
                             <span>Total Pallets Out</span>
                             <input data-portal-pallet-total="${attr(order.id)}" type="number" min="0" step="1" inputmode="numeric" value="${attr(outboundPallets.totalPalletsOut || 0)}">
@@ -24449,6 +24461,12 @@
                         const carrierName = orderCard?.querySelector(`[data-portal-ship-carrier="${orderId}"]`)?.value || "";
                         const trackingNumber = orderCard?.querySelector(`[data-portal-ship-tracking="${orderId}"]`)?.value || "";
                         const shippingNote = orderCard?.querySelector(`[data-portal-ship-note="${orderId}"]`)?.value || "";
+                        const outboundFreightCost = Number(orderCard?.querySelector(`[data-portal-freight-cost="${orderId}"]`)?.value || 0);
+                        const outboundLabourHours = Number(orderCard?.querySelector(`[data-portal-labour-hours="${orderId}"]`)?.value || 0);
+                        const outboundSpecialLabourNote = orderCard?.querySelector(`[data-portal-labour-note="${orderId}"]`)?.value || "";
+                        if (outboundLabourHours > 0 && !outboundSpecialLabourNote.trim()) {
+                            throw new Error("Enter a special labour note when billable labour hours are recorded.");
+                        }
                         const usesPalletTracking = shipmentMethodUsesPalletTracking(shipmentMethod);
                         const outboundPallets = usesPalletTracking
                             ? {
@@ -24582,6 +24600,9 @@
                                 documents,
                                 shippedLines,
                                 outboundPallets,
+                                outboundFreightCost,
+                                outboundLabourHours,
+                                outboundSpecialLabourNote,
                                 packingSlipQuantityConfirmed,
                                 moveShortageToInvestigation
                             })
@@ -29516,6 +29537,9 @@
                     mixedPalletsBuilt: Number(item.outboundPallets?.mixedPalletsBuilt ?? item.outbound_pallets?.mixed_pallets_built ?? item.outboundMixedPallets ?? item.outbound_mixed_pallets ?? 0) || 0,
                     palletNote: String(item.outboundPallets?.palletNote ?? item.outbound_pallets?.pallet_note ?? item.outboundPalletNote ?? item.outbound_pallet_note ?? "").trim()
                 },
+                outboundFreightCost: Number(item.outboundFreightCost ?? item.outbound_freight_cost ?? 0) || 0,
+                outboundLabourHours: Number(item.outboundLabourHours ?? item.outbound_labour_hours ?? 0) || 0,
+                outboundSpecialLabourNote: String(item.outboundSpecialLabourNote ?? item.outbound_special_labour_note ?? "").trim(),
                 shipmentEmailStatus: norm(item.shipmentEmailStatus || item.shipment_email_status || ""),
                 shipmentEmailScheduledAt: typeof item.shipmentEmailScheduledAt === "string" ? item.shipmentEmailScheduledAt : (typeof item.shipment_email_scheduled_at === "string" ? item.shipment_email_scheduled_at : null),
                 shipmentEmailSentAt: typeof item.shipmentEmailSentAt === "string" ? item.shipmentEmailSentAt : (typeof item.shipment_email_sent_at === "string" ? item.shipment_email_sent_at : null),

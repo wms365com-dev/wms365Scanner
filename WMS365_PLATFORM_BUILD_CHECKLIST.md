@@ -72,8 +72,8 @@ documented production verification.
 - [x] Structured billing event table exists.
 - [x] Event keys support duplicate prevention.
 - [x] Receiving completion emits configured receiving and pallet events.
-- [ ] Shipment completion emits processing, carton, pallet, document, rush, freight, and labour events.
-- [ ] Storage events are generated from reviewed snapshots.
+- [x] Shipment completion emits processing, carton, pallet, document, rush, freight, and labour events.
+- [x] Storage events are generated from reviewed snapshots.
 - [x] Events remain reviewable before invoicing.
 - [x] Approved events lock their source facts.
 - [x] Corrections use void or credit events instead of history edits.
