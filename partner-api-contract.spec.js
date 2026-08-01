@@ -37,3 +37,8 @@ test("production API clients consume an exact customer approval", () => {
     assert.match(server, /status = 'CONSUMED'/);
     assert.match(server, /\/api\/portal\/integration-approvals/);
 });
+
+test("partner API uses bearer authentication instead of warehouse sessions", () => {
+    assert.match(server, /pathName\.startsWith\("\/api\/v1\/"\)\) return false/);
+    assert.match(server, /pathName === "\/api\/v1\/openapi\.yaml"/);
+});

@@ -12740,6 +12740,7 @@ function requiresAppAuth(req) {
         || pathName === "/api/app/logout"
         || pathName === "/api/app/me") return false;
     if (pathName.startsWith("/api/healtea/v1/")) return false;
+    if (pathName.startsWith("/api/v1/")) return false;
     if (pathName.startsWith("/api/portal/")) return false;
     if (pathName.startsWith("/api/print-agent/")) return false;
     return pathName.startsWith("/api/");
@@ -38227,6 +38228,8 @@ function isPublicRequest(req) {
     if (pathName === "/industries" || pathName === "/industries.html") return true;
     if (pathName === "/book-demo" || pathName === "/book-demo.html") return true;
     if (pathName === "/integrations" || pathName === "/integrations.html") return true;
+    if (pathName === "/developers/api" || pathName === "/api-docs.html") return true;
+    if (pathName === "/api/v1/openapi.yaml" || pathName === "/api/v1/changelog" || pathName === "/api/v1/oauth/token") return true;
     if (pathName === "/shopify/install" || pathName === "/shopify/callback") return true;
     if (pathName === "/affiliate-program" || pathName === "/affiliate-program.html") return true;
     if (pathName === "/hiring" || pathName === "/hiring.html") return true;
