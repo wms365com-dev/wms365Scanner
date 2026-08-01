@@ -6,13 +6,13 @@ documented production verification.
 
 ## Release Rules
 
-- [ ] Existing customer portal, warehouse, mobile, Shopify, billing, and printing tests pass.
-- [ ] Schema changes exist in both `migrations/` and the boot-time schema in `server.js`.
-- [ ] New writes are tenant-scoped and warehouse-scoped where applicable.
-- [ ] External write operations are idempotent.
-- [ ] Unexpected errors remain private and provide a customer-safe support reference.
+- [x] Existing customer portal, warehouse, mobile, Shopify, billing, and printing tests pass.
+- [x] Schema changes exist in both `migrations/` and the boot-time schema in `server.js`.
+- [x] New writes are tenant-scoped and warehouse-scoped where applicable.
+- [x] External write operations are idempotent.
+- [x] Unexpected errors remain private and provide a customer-safe support reference.
 - [ ] Production deployment is staged, health checked, and rollback-compatible.
-- [ ] No billing email is sent while billing email delivery remains paused.
+- [x] No billing email is sent while billing email delivery remains paused.
 
 ## 1. Versioned Partner API
 
@@ -127,13 +127,13 @@ documented production verification.
 
 ## Final Verification
 
-- [ ] Fresh database boot migration passes.
+- [x] Fresh database boot migration passes.
 - [ ] Existing production-like database migration passes.
-- [ ] Full automated test suite passes.
+- [x] Full automated test suite passes.
 - [ ] Test-company customer order creates correct single and split shipments.
 - [ ] Test-company inbound, receiving, putaway, count, investigation, pick, stage, and shipment flows pass.
-- [ ] Duplicate external requests create no duplicate records.
-- [ ] Bulk job failure produces a useful downloadable report.
+- [x] Duplicate external requests create no duplicate records.
+- [x] Bulk job failure produces a useful downloadable report.
 - [ ] Billing events reconcile without sending billing emails.
-- [ ] Partner API authorization cannot cross customer boundaries.
+- [x] Partner API authorization cannot cross customer boundaries.
 - [ ] Production health, logs, and smoke tests pass after deployment.

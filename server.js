@@ -5351,6 +5351,12 @@ app.post("/api/admin/partner-api/clients", requireSuperAdmin(), async (req, res,
                     req.appUser?.email || req.appUser?.full_name || "WMS365"
                 ]
             );
+            if (approval) {
+                await client.query(
+                    "update partner_api_approvals set status = 'CONSUMED', consumed_by_client_id = $2, consumed_at = now() where id = $1",
+                    [approval.id, result.rows[0].id]
+                );
+            }
             await insertActivity(client, "setup", `Created ${environment.toLowerCase()} partner API client`, `${accountName} | ${clientName}`);
             return { ...result.rows[0], clientSecret };
         });
@@ -8722,12 +8728,6 @@ async function initializeDatabase() {
                 new.status,
                 to_jsonb(new)
             );
-            if (approval) {
-                await client.query(
-                    "update partner_api_approvals set status = 'CONSUMED', consumed_by_client_id = $2, consumed_at = now() where id = $1",
-                    [approval.id, result.rows[0].id]
-                );
-            }
             return new;
         end;
         $$ language plpgsql
