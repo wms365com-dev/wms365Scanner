@@ -11,7 +11,7 @@ documented production verification.
 - [x] New writes are tenant-scoped and warehouse-scoped where applicable.
 - [x] External write operations are idempotent.
 - [x] Unexpected errors remain private and provide a customer-safe support reference.
-- [ ] Production deployment is staged, health checked, and rollback-compatible.
+- [x] Production deployment is staged, health checked, and rollback-compatible.
 - [x] No billing email is sent while billing email delivery remains paused.
 
 ## 1. Versioned Partner API
@@ -136,4 +136,4 @@ documented production verification.
 - [x] Bulk job failure produces a useful downloadable report.
 - [x] Billing events reconcile without sending billing emails.
 - [x] Partner API authorization cannot cross customer boundaries.
-- [ ] Production health, logs, and smoke tests pass after deployment.
+- [x] Production health, logs, and smoke tests pass after deployment.
