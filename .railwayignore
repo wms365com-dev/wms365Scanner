@@ -8,7 +8,9 @@ reports/
 outputs/
 tmp/
 backups/
-docs/
+docs/*
+!docs/wms365-partner-api-v1.yaml
+!docs/WMS365_API_CHANGELOG.md
 android-app/
 bluehost-site/
 *.spec.js
