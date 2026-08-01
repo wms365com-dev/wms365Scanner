@@ -50,6 +50,46 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Page"
+    post:
+      summary: Create a customer order draft
+      security:
+        - bearerAuth: [orders:write]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 180 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [poNumber, requestedShipDate, fulfillmentLocationId, lines]
+              properties:
+                poNumber: { type: string }
+                shippingReference: { type: string }
+                requestedShipDate: { type: string, format: date }
+                fulfillmentLocationId: { type: integer }
+                shipmentMethod: { type: string, enum: [PARCEL, LTL_FREIGHT, FTL_FREIGHT, CUSTOMER_PICKUP] }
+                shipToName: { type: string }
+                shipToAddress1: { type: string }
+                shipToCity: { type: string }
+                shipToState: { type: string }
+                shipToPostalCode: { type: string }
+                shipToCountry: { type: string }
+                lines:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [sku, quantity]
+                    properties:
+                      sku: { type: string }
+                      quantity: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Customer order draft created
   /shipments:
     get:
       summary: List warehouse shipments

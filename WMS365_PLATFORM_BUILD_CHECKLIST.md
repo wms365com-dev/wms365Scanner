@@ -64,7 +64,7 @@ documented production verification.
 - [x] Progress totals are visible to authorized users.
 - [x] Original file checksum prevents accidental duplicate jobs.
 - [x] Downloadable CSV error report includes row, field, message, and suggested correction.
-- [ ] Customer and warehouse application screens expose only their permitted jobs.
+- [x] Customer and warehouse application screens expose only their permitted jobs.
 - [x] Large jobs do not block web requests.
 
 ## 5. Billing Transactions
@@ -105,7 +105,7 @@ documented production verification.
 
 ## 8. OAuth and Scoped Integrations
 
-- [ ] Customer-approved integration applications.
+- [x] Customer-approved integration applications.
 - [x] Hashed client secrets and refresh tokens.
 - [x] Short-lived access tokens.
 - [x] Revocable refresh tokens.
@@ -119,11 +119,11 @@ documented production verification.
 
 - [x] OpenAPI document for every `/api/v1` endpoint.
 - [x] Authentication, pagination, idempotency, and filtering documentation.
-- [ ] Example order, split shipment, inventory adjustment, and bulk job workflows.
+- [x] Example order, split shipment, inventory adjustment, and bulk job workflows.
 - [x] Documentation page.
 - [x] Versioned changelog with breaking-change labels.
 - [x] Deprecation policy and sunset dates.
-- [ ] Contract tests verify the OpenAPI document matches live routes.
+- [x] Contract tests verify the OpenAPI document matches live routes.
 
 ## Final Verification
 

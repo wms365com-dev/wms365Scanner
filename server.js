@@ -4456,6 +4456,43 @@ app.get("/api/admin/warehouse-tasks/:id/history", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/async-jobs", async (req, res, next) => {
+    try {
+        const accountName = normalizeText(req.query?.accountName || req.query?.company || "");
+        if (accountName) await assertAppUserCompanyAccess(pool, req.appUser, accountName);
+        const accessibleCompanies = !accountName && !isSuperAdminUser(req.appUser)
+            ? await getAccessibleCompanyNamesForAppUser(pool, req.appUser)
+            : [];
+        if (!accountName && !isSuperAdminUser(req.appUser) && !accessibleCompanies.length) {
+            return res.json({ jobs: [] });
+        }
+        const params = [];
+        const whereSql = accountName
+            ? `where account_name = $${params.push(accountName)}`
+            : (accessibleCompanies.length ? `where account_name = any($${params.push(accessibleCompanies)}::text[])` : "");
+        const result = await pool.query(
+            `select * from async_jobs ${whereSql} order by created_at desc, id desc limit 500`,
+            params
+        );
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ jobs: result.rows.map(mapPartnerApiJob) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/async-jobs/:id/errors.csv", async (req, res, next) => {
+    try {
+        const jobId = toPositiveInt(req.params.id);
+        const job = jobId ? await pool.query("select account_name from async_jobs where id = $1 limit 1", [jobId]) : { rowCount: 0 };
+        if (job.rowCount !== 1) throw httpError(404, "That import job could not be found.");
+        await assertAppUserCompanyAccess(pool, req.appUser, job.rows[0].account_name);
+        await sendAsyncJobErrorCsv(res, jobId, job.rows[0].account_name);
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post("/api/admin/warehouse-tasks/:id/status", async (req, res, next) => {
     try {
         const taskId = toPositiveInt(req.params.id);
@@ -5264,6 +5301,7 @@ app.post("/api/admin/partner-api/clients", requireSuperAdmin(), async (req, res,
         const clientName = normalizeFreeText(req.body?.clientName || req.body?.client_name);
         const environment = normalizeText(req.body?.environment || "TEST");
         const scopes = sanitizePartnerApiScopes(req.body?.scopes);
+        const approvalId = toPositiveInt(req.body?.customerApprovalId || req.body?.customer_approval_id || req.body?.approvalId);
         if (!accountName || !clientName) {
             throw httpError(400, "Choose a company and enter an integration name.");
         }
@@ -5273,8 +5311,25 @@ app.post("/api/admin/partner-api/clients", requireSuperAdmin(), async (req, res,
         if (!scopes.length) {
             throw httpError(400, "Choose at least one integration permission.");
         }
+        if (environment === "PRODUCTION" && !approvalId) {
+            throw httpError(400, "Production access requires approval from an active customer portal user.");
+        }
         const credentials = await withTransaction(async (client) => {
             await upsertOwnerMaster(client, accountName);
+            let approval = null;
+            if (environment === "PRODUCTION") {
+                const approvalResult = await client.query(
+                    `select * from partner_api_approvals
+                     where id = $1 and account_name = $2 and client_name = $3 and status = 'APPROVED'
+                       and scopes @> $4::text[] and scopes <@ $4::text[]
+                     limit 1 for update`,
+                    [approvalId, accountName, clientName, scopes]
+                );
+                if (approvalResult.rowCount !== 1) {
+                    throw httpError(409, "The customer approval is missing, already used, or does not match this application and its permissions.");
+                }
+                approval = approvalResult.rows[0];
+            }
             const clientId = `wms365_${environment.toLowerCase()}_${crypto.randomBytes(12).toString("hex")}`;
             const clientSecret = crypto.randomBytes(32).toString("base64url");
             const result = await client.query(
@@ -5430,6 +5485,27 @@ app.get("/api/v1/shipments", requirePartnerApiScope("shipments:read"), async (re
             params
         );
         res.json(buildPartnerApiPage(result.rows, limit, mapPartnerApiShipment, req));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/v1/orders", requirePartnerApiScope("orders:write"), async (req, res, next) => {
+    try {
+        const result = await runPartnerApiIdempotentRequest(req, async (client) => {
+            const order = await savePortalOrderDraftForAccount(client, req.partnerApi.accountName, {
+                ...(req.body || {}),
+                accountName: req.partnerApi.accountName
+            }, null, {
+                downloadPathPrefix: "/api/v1/order-documents",
+                activityTitlePrefix: "partner API",
+                activityActor: req.partnerApi.clientName || req.partnerApi.clientId,
+                uploadedBy: req.partnerApi.clientName || req.partnerApi.clientId,
+                enforceInventoryAvailability: false
+            });
+            return { status: 201, body: { data: mapPartnerApiOrder(order), meta: { idempotent: true } } };
+        });
+        res.status(result.status).json(result.body);
     } catch (error) {
         next(error);
     }
@@ -5809,6 +5885,69 @@ app.get("/api/portal/orders", async (req, res, next) => {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
         }
+        next(error);
+    }
+});
+
+app.get("/api/portal/jobs", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const result = await pool.query(
+            "select * from async_jobs where account_name = $1 order by created_at desc, id desc limit 200",
+            [session.access.accountName]
+        );
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ jobs: result.rows.map(mapPartnerApiJob) });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
+app.post("/api/portal/integration-approvals", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const clientName = normalizeFreeText(req.body?.clientName || req.body?.client_name);
+        const scopes = sanitizePartnerApiScopes(req.body?.scopes);
+        if (!clientName || !scopes.length) throw httpError(400, "Enter the application name and choose at least one permission.");
+        const result = await pool.query(
+            `insert into partner_api_approvals (account_name, client_name, scopes, approved_by)
+             values ($1, $2, $3::text[], $4)
+             returning id, account_name, client_name, scopes, status, approved_by, approved_at`,
+            [session.access.accountName, clientName, scopes, session.access.email]
+        );
+        res.status(201).json({ success: true, approval: result.rows[0] });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
+app.post("/api/portal/integration-approvals/:id/revoke", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        const approvalId = toPositiveInt(req.params.id);
+        if (!approvalId) throw httpError(400, "Enter a valid approval ID.");
+        const result = await pool.query(
+            `update partner_api_approvals set status = 'REVOKED'
+             where id = $1 and account_name = $2 and status = 'APPROVED'
+             returning id, status`,
+            [approvalId, session.access.accountName]
+        );
+        if (result.rowCount !== 1) throw httpError(409, "This approval is already used, revoked, or unavailable.");
+        res.json({ success: true, approval: result.rows[0] });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
+app.get("/api/portal/jobs/:id/errors.csv", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        await sendAsyncJobErrorCsv(res, req.params.id, session.access.accountName);
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
         next(error);
     }
 });
@@ -8583,6 +8722,12 @@ async function initializeDatabase() {
                 new.status,
                 to_jsonb(new)
             );
+            if (approval) {
+                await client.query(
+                    "update partner_api_approvals set status = 'CONSUMED', consumed_by_client_id = $2, consumed_at = now() where id = $1",
+                    [approval.id, result.rows[0].id]
+                );
+            }
             return new;
         end;
         $$ language plpgsql
@@ -9175,6 +9320,23 @@ async function initializeDatabase() {
     `);
     await pool.query("alter table partner_api_clients drop constraint if exists partner_api_clients_environment_check");
     await pool.query("alter table partner_api_clients add constraint partner_api_clients_environment_check check (environment in ('TEST', 'PRODUCTION'))");
+    await pool.query(`
+        create table if not exists partner_api_approvals (
+            id bigserial primary key,
+            account_name text not null,
+            client_name text not null,
+            scopes text[] not null default '{}'::text[],
+            status text not null default 'APPROVED',
+            approved_by text not null,
+            approved_at timestamptz not null default now(),
+            consumed_by_client_id bigint references partner_api_clients(id) on delete set null,
+            consumed_at timestamptz,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table partner_api_approvals drop constraint if exists partner_api_approvals_status_check");
+    await pool.query("alter table partner_api_approvals add constraint partner_api_approvals_status_check check (status in ('APPROVED', 'REVOKED', 'CONSUMED'))");
+    await pool.query("create index if not exists idx_partner_api_approvals_account_status on partner_api_approvals (account_name, status, created_at desc)");
     await pool.query(`
         create table if not exists partner_api_tokens (
             id bigserial primary key,
@@ -11754,6 +11916,27 @@ async function createPortalOrderBillingEvents(client, order) {
     if (labourHours > 0) await pushCreated("SPECIAL_LABOUR", labourHours, "SPECIAL_LABOUR");
 
     return created;
+}
+
+async function sendAsyncJobErrorCsv(res, jobIdInput, accountName) {
+    const jobId = toPositiveInt(jobIdInput);
+    if (!jobId) throw httpError(400, "Enter a valid job ID.");
+    const job = await pool.query("select * from async_jobs where id = $1 and account_name = $2 limit 1", [jobId, normalizeText(accountName)]);
+    if (job.rowCount !== 1) throw httpError(404, "That import job could not be found.");
+    const rows = await pool.query(
+        `select row_number, status, field_name, message, suggested_correction
+         from async_job_rows
+         where job_id = $1 and status in ('WARNING', 'REJECTED')
+         order by row_number`,
+        [jobId]
+    );
+    const csv = [["Row", "Status", "Field", "Message", "Suggested Correction"]]
+        .concat(rows.rows.map((row) => [row.row_number, row.status, row.field_name, row.message, row.suggested_correction]))
+        .map((row) => row.map(csvCell).join(","))
+        .join("\r\n");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${sanitizeDownloadFilename(job.rows[0].job_code)}-errors.csv"`);
+    res.send(csv);
 }
 
 async function getBillingReconciliationReport(client, filters = {}, appUser = null) {

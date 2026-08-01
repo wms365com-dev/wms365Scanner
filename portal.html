@@ -1190,6 +1190,7 @@
                         <button class="btn ghost" type="button" data-view="orders">My Sales Orders</button>
                         <button class="btn ghost" type="button" data-view="shipped">Shipped in WMS</button>
                         <button class="btn ghost" type="button" data-view="inbounds">My Purchase Orders</button>
+                        <button class="btn ghost" type="button" data-view="jobs">Import Jobs</button>
                         <button class="btn ghost" type="button" data-view="deliveries">My Deliveries</button>
                         <button class="btn ghost" type="button" data-view="invoices">Invoices</button>
                     </div>
@@ -1694,6 +1695,18 @@
                 </div>
             </section>
 
+            <section id="jobsPanel" class="card portal-section hidden">
+                <div class="portal-panel-head">
+                    <div class="header-copy">
+                        <h2>Import Jobs</h2>
+                        <p class="lead">Track file processing, warnings, rejected rows, and corrections for your company.</p>
+                    </div>
+                </div>
+                <div id="jobsList" class="orders-list">
+                    <div class="empty">No import jobs submitted yet.</div>
+                </div>
+            </section>
+
             <section id="shippedPanel" class="card portal-section hidden">
                 <div class="portal-panel-head">
                     <div class="header-copy">
@@ -1887,6 +1900,7 @@
             catalogItems: [],
             orders: [],
             inbounds: [],
+            jobs: [],
             kittingRequests: [],
             invoices: [],
             invoiceSummary: { totalBilled: 0, unpaidBalance: 0, invoiceCount: 0 },
@@ -2005,6 +2019,8 @@
             exportOrdersBtn: document.getElementById("exportOrdersBtn"),
             shippedPanel: document.getElementById("shippedPanel"),
             inboundsPanel: document.getElementById("inboundsPanel"),
+            jobsPanel: document.getElementById("jobsPanel"),
+            jobsList: document.getElementById("jobsList"),
             deliveriesList: document.getElementById("deliveriesList"),
             shippedStatButton: document.getElementById("shippedStatButton"),
             inventoryFilter: document.getElementById("inventoryFilter"),
@@ -2793,7 +2809,7 @@
         }
 
         async function loadPortalData() {
-            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, fulfillmentPayload, shipToPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, fulfillmentPayload, shipToPayload, jobsPayload] = await Promise.all([
                 requestJson("/api/portal/inventory"),
                 requestJson("/api/portal/items"),
                 requestJson("/api/portal/kitting-requests").catch(() => ({ requests: [] })),
@@ -2810,7 +2826,8 @@
                 requestJson("/api/portal/fulfillment-locations").catch(() => ({ locations: [] })),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
                     ? requestJson("/api/portal/ship-to-addresses")
-                    : Promise.resolve({ addresses: [] })
+                    : Promise.resolve({ addresses: [] }),
+                requestJson("/api/portal/jobs").catch(() => ({ jobs: [] }))
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
@@ -2823,6 +2840,7 @@
             portalState.deliveryAppointments = Array.isArray(deliveriesPayload?.appointments) ? deliveriesPayload.appointments.map(sanitizeDeliveryAppointment).filter(Boolean) : [];
             portalState.fulfillmentLocations = Array.isArray(fulfillmentPayload?.locations) ? fulfillmentPayload.locations.map(sanitizeFulfillmentLocation).filter(Boolean) : [];
             portalState.shipToAddresses = Array.isArray(shipToPayload?.addresses) ? shipToPayload.addresses.map(sanitizeShipToAddress).filter(Boolean) : [];
+            portalState.jobs = Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : [];
             applyPortalFeatureAccess();
             renderPortalWarehouseSwitcher();
             renderShipToAddressOptions();
@@ -2831,6 +2849,7 @@
             renderRecentShipments();
             renderItems();
             renderKittingRequests();
+            renderJobs();
             renderAddedServices();
             renderKittingSkuOptions();
             renderInvoices();
@@ -2887,6 +2906,7 @@
             ui.ordersPanel.classList.toggle("hidden", activeView !== "orders");
             ui.shippedPanel.classList.toggle("hidden", activeView !== "shipped");
             ui.inboundsPanel.classList.toggle("hidden", activeView !== "inbounds");
+            ui.jobsPanel?.classList.toggle("hidden", activeView !== "jobs");
             ui.orderStatusFilterButtons.forEach((button) => {
                 button.classList.toggle("active", activeView === "orders" && String(button.dataset.orderStatusFilter || "").toUpperCase() === portalState.orderStatusFilter);
             });
@@ -2900,6 +2920,7 @@
             if (activeView === "kittingRequests") renderKittingRequests();
             if (activeView === "delivery") renderDeliveryInboundOptions();
             if (activeView === "deliveries") renderDeliveryAppointments();
+            if (activeView === "jobs") renderJobs();
             syncPortalFeedbackContext();
         }
 
@@ -4037,6 +4058,33 @@
             } catch (error) {
                 setMessage(error.message, "error");
             }
+        }
+
+        function renderJobs() {
+            if (!ui.jobsList) return;
+            const jobs = Array.isArray(portalState.jobs) ? portalState.jobs : [];
+            if (!jobs.length) {
+                ui.jobsList.innerHTML = `<div class="empty">No import jobs submitted yet.</div>`;
+                return;
+            }
+            ui.jobsList.innerHTML = jobs.map((job) => {
+                const progress = job.progress || {};
+                const hasIssues = Number(progress.warnings || 0) + Number(progress.rejected || 0) > 0;
+                return `
+                    <article class="order-card">
+                        <div class="order-card-head">
+                            <div><strong>${esc(job.externalId || `JOB-${job.id}`)}</strong><div class="meta">${esc(String(job.type || "Import").replaceAll("_", " "))}</div></div>
+                            <span class="pill ${hasIssues ? "warn" : "success"}">${esc(job.status || "QUEUED")}</span>
+                        </div>
+                        <div class="order-meta-grid">
+                            <div><span>Processed</span><strong>${Number(progress.processed || 0)} / ${Number(progress.total || 0)}</strong></div>
+                            <div><span>Accepted</span><strong>${Number(progress.accepted || 0)}</strong></div>
+                            <div><span>Warnings</span><strong>${Number(progress.warnings || 0)}</strong></div>
+                            <div><span>Rejected</span><strong>${Number(progress.rejected || 0)}</strong></div>
+                        </div>
+                        ${hasIssues ? `<div class="button-row"><a class="btn ghost" href="/api/portal/jobs/${encodeURIComponent(job.id)}/errors.csv">Download Error Report</a></div>` : ""}
+                    </article>`;
+            }).join("");
         }
 
         function inboundPillClass(status) {

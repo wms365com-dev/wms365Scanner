@@ -9051,6 +9051,16 @@
                     </div>
                     <div id="integrationsWorkspaceHost"></div>
                 </article>
+                <article class="card full-span workspace-control-card">
+                    <div class="card-head">
+                        <div>
+                            <h2>Import Jobs</h2>
+                            <p class="lead">Review queued file work, progress, warnings, and rejected rows for companies you are allowed to access.</p>
+                        </div>
+                        <button class="btn ghost" id="refreshAsyncJobsBtn" type="button">Refresh</button>
+                    </div>
+                    <div id="asyncJobsList" class="stack-list"><p class="empty">Choose Refresh to load import jobs.</p></div>
+                </article>
             </div>
             </div>
         </section>
@@ -11378,6 +11388,8 @@
             integrationSyncBtn: document.getElementById("integrationSyncBtn"),
             integrationMessage: document.getElementById("integrationMessage"),
             integrationList: document.getElementById("integrationList"),
+            refreshAsyncJobsBtn: document.getElementById("refreshAsyncJobsBtn"),
+            asyncJobsList: document.getElementById("asyncJobsList"),
             integrationCount: document.getElementById("integrationCount"),
             scanPanelMobileTitle: document.getElementById("scanPanelMobileTitle"),
             scanStageCard: document.getElementById("scanStageCard"),
@@ -12050,6 +12062,7 @@
             ui.portalAccessResetBtn?.addEventListener("click", () => resetPortalAccessForm({ keepCompany: true }));
             document.getElementById("integrationForm").addEventListener("submit", saveStoreIntegration);
             ui.integrationResetBtn?.addEventListener("click", () => resetStoreIntegrationForm({ keepCompany: true }));
+            ui.refreshAsyncJobsBtn?.addEventListener("click", loadAsyncJobs);
             ui.integrationSyncBtn?.addEventListener("click", syncSelectedIntegration);
             ui.integrationCredentialRequestBtn?.addEventListener("click", createShopifyCredentialRequest);
             ui.integrationShopifyInstallBtn?.addEventListener("click", startShopifyOAuthInstall);
@@ -20285,6 +20298,31 @@
                 });
             } catch (error) {
                 showMessage(ui.integrationMessage, error.message, "error");
+            }
+        }
+
+        async function loadAsyncJobs() {
+            if (!ui.asyncJobsList) return;
+            const accountName = getActiveCompany();
+            ui.asyncJobsList.innerHTML = `<p class="empty">Loading import jobs...</p>`;
+            try {
+                const query = accountName ? `?accountName=${encodeURIComponent(accountName)}` : "";
+                const payload = await requestJson(`/api/admin/async-jobs${query}`);
+                const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+                if (!jobs.length) {
+                    ui.asyncJobsList.innerHTML = `<p class="empty">No import jobs found for the current company access.</p>`;
+                    return;
+                }
+                ui.asyncJobsList.innerHTML = jobs.map((job) => {
+                    const progress = job.progress || {};
+                    const issues = Number(progress.warnings || 0) + Number(progress.rejected || 0);
+                    return `<div class="stack-item">
+                        <div><strong>${esc(job.externalId || `JOB-${job.id}`)}</strong><p class="meta">${esc(String(job.type || "Import").replaceAll("_", " "))} | ${Number(progress.processed || 0)} of ${Number(progress.total || 0)} processed</p></div>
+                        <div class="button-row"><span class="pill ${issues ? "warn" : "success"}">${esc(job.status || "QUEUED")}</span>${issues ? `<a class="btn ghost" href="/api/admin/async-jobs/${encodeURIComponent(job.id)}/errors.csv">Errors</a>` : ""}</div>
+                    </div>`;
+                }).join("");
+            } catch (error) {
+                ui.asyncJobsList.innerHTML = `<p class="empty">${esc(error.message || "Import jobs could not be loaded.")}</p>`;
             }
         }
 
