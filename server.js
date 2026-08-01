@@ -23644,6 +23644,61 @@ const TRACKING_CARRIER_LINKS = [
         buildUrl: (tracking) => `https://gls-group.com/GROUP/en/parcel-tracking?match=${tracking}`
     },
     {
+        key: "DAY_ROSS",
+        aliases: ["DAY & ROSS", "DAY AND ROSS", "DAY ROSS", "DAYROSS"],
+        buildUrl: () => "https://dayross.com/en/track-shipments"
+    },
+    {
+        key: "MANITOULIN",
+        aliases: ["MANITOULIN", "MANITOULIN TRANSPORT"],
+        buildUrl: () => "https://manitoulintransport.com/track-shipment/"
+    },
+    {
+        key: "MIDLAND",
+        aliases: ["MIDLAND", "MIDLAND TRANSPORT", "MIDLAND COURIER"],
+        buildUrl: () => "https://legacy.midlandtransport.com/Home.aspx"
+    },
+    {
+        key: "FASTFRATE",
+        aliases: ["FASTFRATE", "CANADIAN FREIGHTWAYS", "CF MANITOBA"],
+        buildUrl: () => "https://www.fastfrate.com/tracking/"
+    },
+    {
+        key: "GARDEWINE",
+        aliases: ["GARDEWINE", "GARDEWINE GROUP"],
+        buildUrl: () => "https://gardewine.com/track-a-shipment/"
+    },
+    {
+        key: "ROSENAU",
+        aliases: ["ROSENAU", "ROSENAU TRANSPORT"],
+        buildUrl: () => "https://www.rosenau.ca/tracking"
+    },
+    {
+        key: "ARMOUR",
+        aliases: ["ARMOUR", "ARMOUR TRANSPORT", "ARMOUR TRANSPORTATION"],
+        buildUrl: () => "https://armour.ca/track-a-shipment/"
+    },
+    {
+        key: "POLARIS",
+        aliases: ["POLARIS", "POLARIS TRANSPORTATION"],
+        buildUrl: () => "https://polaristransport.com/shipment-tracking/"
+    },
+    {
+        key: "ICS_COURIER",
+        aliases: ["ICS", "ICS COURIER"],
+        buildUrl: () => "https://www.icscourier.ca/online-tools/track-a-package/"
+    },
+    {
+        key: "DRAGONFLY",
+        aliases: ["DRAGONFLY", "INTELCOM", "INTELCOM EXPRESS"],
+        buildUrl: (tracking) => `https://dragonflyshipping.com/en/tracking?tracking-id=${tracking}`
+    },
+    {
+        key: "UNIUNI",
+        aliases: ["UNIUNI", "UNI UNI"],
+        buildUrl: (tracking) => `https://www.uniuni.com/tracking/?trackingNumber=${tracking}`
+    },
+    {
         key: "TFORCE_FREIGHT",
         aliases: ["TFORCE", "T FORCE", "TFORCE FREIGHT", "T FORCE FREIGHT", "UPS FREIGHT"],
         buildUrl: (tracking) => `https://www.tforcefreight.com/ltl/apps/Tracking?proNumbers=${tracking}`

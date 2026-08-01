@@ -21258,13 +21258,15 @@
                                 <option value="CUSTOMER_PICKUP" ${shipmentMethod === "CUSTOMER_PICKUP" ? "selected" : ""}>Customer pickup</option>
                             </select>
                         </label>
-                        <label class="field" data-portal-parcel-fields="${attr(order.id)}" ${isParcelShipment ? "" : "hidden"}>
+                        <label class="field">
                             <span>Carrier</span>
-                            <input data-portal-ship-carrier="${attr(order.id)}" type="text" placeholder="UPS, FedEx, Canada Post" value="${attr(order.shippedCarrierName || "")}">
+                            <input data-portal-ship-carrier="${attr(order.id)}" type="text" list="trackable-carriers-${attr(order.id)}" placeholder="Search or enter a carrier" value="${attr(order.shippedCarrierName || "")}">
+                            <datalist id="trackable-carriers-${attr(order.id)}">${renderTrackableCarrierOptions(order.shippedCarrierName || "")}</datalist>
                         </label>
-                        <label class="field" data-portal-parcel-fields="${attr(order.id)}" ${isParcelShipment ? "" : "hidden"}>
-                            <span>Tracking Number</span>
-                            <input data-portal-ship-tracking="${attr(order.id)}" type="text" placeholder="Parcel tracking number" value="${attr(order.shippedTrackingReference || "")}">
+                        <label class="field">
+                            <span>${isParcelShipment ? "Tracking Number" : "Tracking / PRO Number"}</span>
+                            <input data-portal-ship-tracking="${attr(order.id)}" type="text" placeholder="Tracking, PRO, or shipment number" value="${attr(order.shippedTrackingReference || "")}">
+                            ${buildClientCarrierTrackingUrl(order.shippedCarrierName, order.shippedTrackingReference) ? `<a class="btn ghost" style="margin-top:0.45rem;" href="${attr(buildClientCarrierTrackingUrl(order.shippedCarrierName, order.shippedTrackingReference))}" target="_blank" rel="noopener">Track shipment</a>` : ""}
                         </label>
                         <label class="field span-2">
                             <span>Shipping Note</span>
@@ -24023,6 +24025,53 @@
         function shipmentMethodRequiresFreightProof(value) {
             const method = normalizeShipmentMethod(value);
             return method === "LTL_FREIGHT" || method === "FTL_FREIGHT";
+        }
+
+        const TRACKABLE_CARRIER_OPTIONS = [
+            "Canada Post", "Purolator", "UPS", "FedEx", "Canpar", "DHL Express", "GLS Canada",
+            "Loomis Express", "ICS Courier", "Dragonfly (Intelcom)", "UniUni", "Day & Ross",
+            "Manitoulin Transport", "Midland Transport", "Fastfrate", "Gardewine", "Rosenau Transport",
+            "Armour Transportation", "Polaris Transportation", "TForce Freight", "XPO Logistics",
+            "Old Dominion", "Estes", "R+L Carriers", "ABF Freight", "Saia"
+        ];
+
+        function renderTrackableCarrierOptions(currentValue = "") {
+            const current = String(currentValue || "").trim();
+            const values = current && !TRACKABLE_CARRIER_OPTIONS.some((entry) => norm(entry) === norm(current))
+                ? [current, ...TRACKABLE_CARRIER_OPTIONS]
+                : TRACKABLE_CARRIER_OPTIONS;
+            return [`<option value="">Select carrier</option>`, ...values.map((entry) => (
+                `<option value="${attr(entry)}" ${norm(entry) === norm(current) ? "selected" : ""}>${esc(entry)}</option>`
+            ))].join("");
+        }
+
+        function buildClientCarrierTrackingUrl(carrierName = "", trackingNumber = "") {
+            const carrier = norm(carrierName).replace(/[^A-Z0-9]+/g, " ").trim();
+            const tracking = String(trackingNumber || "").trim().split(/[\n,;|]+/)[0]?.trim();
+            if (!tracking) return "";
+            const encoded = encodeURIComponent(tracking.replace(/\s+/g, ""));
+            const rules = [
+                [/PUROLATOR/, `https://www.purolator.com/en/shipping/tracker?pins=${encoded}`],
+                [/^UPS$|UNITED PARCEL/, `https://www.ups.com/track?tracknum=${encoded}`],
+                [/CANPAR/, `https://www.canpar.com/en/tracking/track.htm?barcode=${encoded}`],
+                [/FEDEX|FEDERAL EXPRESS/, `https://www.fedex.com/fedextrack/?trknbr=${encoded}`],
+                [/CANADA POST|POSTES CANADA/, `https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=${encoded}`],
+                [/DHL/, `https://www.dhl.com/ca-en/home/tracking.html?tracking-id=${encoded}`],
+                [/GLS|DICOM/, `https://gls-group.com/GROUP/en/parcel-tracking?match=${encoded}`],
+                [/LOOMIS/, `https://www.loomisexpress.com/loomship/Track/Track.aspx?PieceNumber=${encoded}`],
+                [/DRAGONFLY|INTELCOM/, `https://dragonflyshipping.com/en/tracking?tracking-id=${encoded}`],
+                [/UNIUNI|UNI UNI/, `https://www.uniuni.com/tracking/?trackingNumber=${encoded}`],
+                [/DAY.*ROSS/, "https://dayross.com/en/track-shipments"],
+                [/MANITOULIN/, "https://manitoulintransport.com/track-shipment/"],
+                [/MIDLAND/, "https://legacy.midlandtransport.com/Home.aspx"],
+                [/FASTFRATE|CANADIAN FREIGHTWAYS/, "https://www.fastfrate.com/tracking/"],
+                [/GARDEWINE/, "https://gardewine.com/track-a-shipment/"],
+                [/ROSENAU/, "https://www.rosenau.ca/tracking"],
+                [/ARMOUR/, "https://armour.ca/track-a-shipment/"],
+                [/POLARIS/, "https://polaristransport.com/shipment-tracking/"],
+                [/ICS/, "https://www.icscourier.ca/online-tools/track-a-package/"]
+            ];
+            return rules.find(([pattern]) => pattern.test(carrier))?.[1] || "";
         }
 
         function shipmentMethodUsesPalletTracking(value) {
