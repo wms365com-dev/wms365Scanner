@@ -11970,7 +11970,9 @@ async function getBillingReconciliationReport(client, filters = {}, appUser = nu
             )
             select operation.*,
                    count(be.id)::integer as billing_event_count,
-                   coalesce(sum(be.amount), 0)::numeric(14,2) as billing_amount
+                   coalesce(sum(be.amount), 0)::numeric(14,2) as billing_amount,
+                   (select count(*)::integer from owner_billing_rates obr
+                    where obr.account_name = operation.account_name and obr.is_enabled = true) as enabled_rate_count
             from operation
             left join billing_events be
               on be.account_name = operation.account_name
@@ -11992,11 +11994,14 @@ async function getBillingReconciliationReport(client, filters = {}, appUser = nu
         serviceDate: normalizeDateOnly(row.service_date),
         billingEventCount: Number(row.billing_event_count) || 0,
         billingAmount: Number(row.billing_amount) || 0,
-        status: Number(row.billing_event_count) > 0 ? "MATCHED" : "MISSING"
+        status: Number(row.billing_event_count) > 0
+            ? "MATCHED"
+            : (Number(row.enabled_rate_count) > 0 ? "MISSING" : "NOT_CONFIGURED")
     }));
     const matched = records.filter((record) => record.status === "MATCHED").length;
+    const notConfigured = records.filter((record) => record.status === "NOT_CONFIGURED").length;
     return {
-        summary: { operationalRecords: records.length, matched, missing: records.length - matched },
+        summary: { operationalRecords: records.length, matched, notConfigured, missing: records.length - matched - notConfigured },
         records
     };
 }
@@ -38567,6 +38572,13 @@ module.exports = {
     findInventoryLine,
     upsertInventoryLine,
     consumePortalOrderInventory,
+    savePortalOrderDraftForAccount,
+    releasePortalOrderForAccount,
+    updateAdminPortalOrderStatus,
+    savePortalInboundForAccount,
+    updateAdminPortalInboundStatus,
+    submitInventoryCount,
+    setInventoryCountStatus,
     buildInventoryCountVarianceFacts,
     postInventoryCountAdjustment,
     buildUserFacingError,

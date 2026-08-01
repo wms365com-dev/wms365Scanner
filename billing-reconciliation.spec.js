@@ -11,7 +11,7 @@ test("billing reconciliation compares completed operations with non-void events"
     assert.match(source, /INBOUND_RECEIPT/);
     assert.match(source, /OUTBOUND_ORDER/);
     assert.match(source, /be\.status <> 'VOID'/);
-    assert.match(source, /status: Number\(row\.billing_event_count\) > 0 \? "MATCHED" : "MISSING"/);
+    assert.match(source, /Number\(row\.enabled_rate_count\) > 0 \? "MISSING" : "NOT_CONFIGURED"/);
 });
 
 test("billing reconciliation is company scoped for non-admin users", () => {
@@ -19,4 +19,3 @@ test("billing reconciliation is company scoped for non-admin users", () => {
     assert.match(source, /operation\.account_name = any/);
     assert.match(source, /assertAppUserCompanyAccess\(client, req\.appUser, accountName\)/);
 });
-

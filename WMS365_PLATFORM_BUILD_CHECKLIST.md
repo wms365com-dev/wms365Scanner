@@ -128,12 +128,12 @@ documented production verification.
 ## Final Verification
 
 - [x] Fresh database boot migration passes.
-- [ ] Existing production-like database migration passes.
+- [x] Existing production-like database migration passes.
 - [x] Full automated test suite passes.
-- [ ] Test-company customer order creates correct single and split shipments.
-- [ ] Test-company inbound, receiving, putaway, count, investigation, pick, stage, and shipment flows pass.
+- [x] Test-company customer order creates correct single and split shipments.
+- [x] Test-company inbound, receiving, putaway, count, investigation, pick, stage, and shipment flows pass.
 - [x] Duplicate external requests create no duplicate records.
 - [x] Bulk job failure produces a useful downloadable report.
-- [ ] Billing events reconcile without sending billing emails.
+- [x] Billing events reconcile without sending billing emails.
 - [x] Partner API authorization cannot cross customer boundaries.
 - [ ] Production health, logs, and smoke tests pass after deployment.
