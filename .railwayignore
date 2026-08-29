@@ -14,5 +14,8 @@ docs/*
 android-app/
 bluehost-site/
 *.spec.js
+!warehouse-entry-routes.spec.js
+!security-hardening.spec.js
+!rbac.spec.js
 CODEX_TASKS.md
 debug.log

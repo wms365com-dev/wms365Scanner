@@ -139,6 +139,34 @@ test("portal billing routes require billing permission", () => {
     assert.equal(portalSessionHasPermission(session, PORTAL_PERMISSION_KEYS.BILLING), false);
 });
 
+test("inbound-only portal permission allows inbound inputs and blocks unrelated areas", () => {
+    const permissions = {
+        [PORTAL_PERMISSION_KEYS.INVENTORY]: false,
+        [PORTAL_PERMISSION_KEYS.ORDER_ENTRY]: false,
+        [PORTAL_PERMISSION_KEYS.INBOUND_ENTRY]: true,
+        [PORTAL_PERMISSION_KEYS.DOCUMENT_ACCESS]: false,
+        [PORTAL_PERMISSION_KEYS.BILLING]: false,
+        [PORTAL_PERMISSION_KEYS.ADMIN]: false
+    };
+    const session = portalSession("PACK TECH A/S", permissions);
+
+    assert.equal(getPortalRouteRule("POST", "/inbounds").permission, PORTAL_PERMISSION_KEYS.INBOUND_ENTRY);
+    assert.equal(getPortalRouteRule("POST", "/inbounds/12/documents").permission, PORTAL_PERMISSION_KEYS.INBOUND_ENTRY);
+    assert.equal(getPortalRouteRule("POST", "/delivery-appointments").permission, PORTAL_PERMISSION_KEYS.INBOUND_ENTRY);
+    assert.equal(portalSessionHasPermission(session, getPortalRouteRule("GET", "/items").permission), true);
+    assert.equal(portalSessionHasPermission(session, getPortalRouteRule("GET", "/fulfillment-locations").permission), true);
+
+    for (const [method, path] of [
+        ["GET", "/inventory"],
+        ["GET", "/orders"],
+        ["GET", "/invoices"],
+        ["GET", "/jobs"],
+        ["POST", "/items"]
+    ]) {
+        assert.equal(portalSessionHasPermission(session, getPortalRouteRule(method, path).permission), false, `${method} ${path}`);
+    }
+});
+
 test("customer order drafts report shortages without treating unavailable stock as releasable", () => {
     const warnings = buildPortalOrderStockWarnings([
         { sku: "140", quantity: 124, availableQuantity: 0, trackingLevel: "CASE" },
@@ -204,8 +232,12 @@ test("company billing hold error includes structured hold details", () => {
     assert.equal(error.billingHold.passwordRecoveryDisabled, true);
 });
 
-test("portal item maintenance requires admin permission while lookup stays inventory-only", () => {
-    assert.equal(getPortalRouteRule("GET", "/items").permission, PORTAL_PERMISSION_KEYS.INVENTORY);
+test("portal item maintenance requires admin permission while lookup supports authorized workflows", () => {
+    assert.deepEqual(getPortalRouteRule("GET", "/items").permission, [
+        PORTAL_PERMISSION_KEYS.INVENTORY,
+        PORTAL_PERMISSION_KEYS.ORDER_ENTRY,
+        PORTAL_PERMISSION_KEYS.INBOUND_ENTRY
+    ]);
     assert.equal(getPortalRouteRule("POST", "/items").permission, PORTAL_PERMISSION_KEYS.ADMIN);
     assert.equal(getPortalRouteRule("PUT", "/items/123").permission, PORTAL_PERMISSION_KEYS.ADMIN);
 });

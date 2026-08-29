@@ -130,7 +130,7 @@ test("batch pick tickets combine selected orders into one PDF", () => {
             requestedShipDate: "2026-05-29",
             shipToName: "SAIL",
             shipToAddress1: "Customer DC",
-            lines: [{ sku: "10125001", quantity: 4, trackingLevel: "CASE", description: "Portable Fire Pit - Matte Black" }]
+            lines: [{ sku: "10125001", quantity: 4, trackingLevel: "CASE", description: "Portable Fire Pit - Matte Black", pickLocations: [{ location: "PACKFIRE-A01", quantity: 4, trackingLevel: "CASE" }] }]
         },
         {
             id: 355,
@@ -141,7 +141,7 @@ test("batch pick tickets combine selected orders into one PDF", () => {
             requestedShipDate: "2026-05-29",
             shipToName: "SAIL",
             shipToAddress1: "Customer DC",
-            lines: [{ sku: "10125001", quantity: 4, trackingLevel: "CASE", description: "Portable Fire Pit - Matte Black" }]
+            lines: [{ sku: "10125001", quantity: 4, trackingLevel: "CASE", description: "Portable Fire Pit - Matte Black", pickLocations: [{ location: "PACKFIRE-A02", quantity: 4, trackingLevel: "CASE" }] }]
         }
     ]);
 

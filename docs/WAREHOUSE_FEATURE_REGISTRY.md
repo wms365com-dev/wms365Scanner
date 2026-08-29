@@ -7,6 +7,14 @@ Purpose:
 - Use this before moving, renaming, hiding, or expanding warehouse features.
 - This file catches hidden dependencies outside the visible screen.
 
+## Integration Foundation
+
+- Versioned partner API with stable external IDs and idempotency protection
+- Separate customer orders and warehouse shipments for split fulfillment
+- Immutable inventory transaction records for integration reconciliation
+- GS1/UCC-128 shipment labels and carrier tracking support
+- EDI readiness is tracked in `docs/WMS365_EDI_READINESS.md`; X12 translation, acknowledgements, exception handling, and partner certification remain required
+
 How to use:
 - Find the feature area below.
 - Check its primary UI location.

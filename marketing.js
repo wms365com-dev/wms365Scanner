@@ -11,6 +11,8 @@ const WMS365_AUTOMATION_POLICY_TEXT = "Automated access, scraping, AI analysis, 
 
 const stripePlanState = new Map();
 
+trackMarketingPageView().catch(() => {});
+
 marketingUi.yearLabels.forEach((node) => {
     node.textContent = String(new Date().getFullYear());
 });
@@ -157,6 +159,42 @@ function loadMarketingConfig() {
 function resolveMarketingApiUrl(path) {
     const normalizedPath = String(path || "").startsWith("/") ? String(path || "") : `/${String(path || "")}`;
     return `${marketingConfig.apiBaseUrl}${normalizedPath}`;
+}
+
+function createAnonymousTrafficId() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
+}
+
+function getOrCreateTrafficId(storage, key) {
+    try {
+        let value = String(storage.getItem(key) || "").trim();
+        if (!/^[a-zA-Z0-9_-]{16,100}$/.test(value)) {
+            value = createAnonymousTrafficId();
+            storage.setItem(key, value);
+        }
+        return value;
+    } catch (_error) {
+        return createAnonymousTrafficId();
+    }
+}
+
+async function trackMarketingPageView() {
+    if (String(navigator.doNotTrack || window.doNotTrack || "") === "1") return;
+    const payload = {
+        eventId: createAnonymousTrafficId(),
+        visitorId: getOrCreateTrafficId(window.localStorage, "wms365_site_visitor"),
+        sessionId: getOrCreateTrafficId(window.sessionStorage, "wms365_site_session"),
+        path: window.location.pathname || "/",
+        referrer: document.referrer || ""
+    };
+    await fetch(resolveMarketingApiUrl("/api/site/traffic"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+        credentials: "omit"
+    });
 }
 
 async function refreshMarketingBuildLabel() {
@@ -315,7 +353,9 @@ async function onStripeCheckoutClick(event, button) {
 
 async function onStripeSignupFormSubmit(event, form) {
     event.preventDefault();
-    const button = form.closest(".price-card")?.querySelector("[data-stripe-plan]") || null;
+    const button = form.querySelector("[data-stripe-plan]")
+        || form.closest(".price-card")?.querySelector("[data-stripe-plan]")
+        || null;
     if (!button) {
         return;
     }

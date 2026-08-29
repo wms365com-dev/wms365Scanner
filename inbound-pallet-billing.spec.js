@@ -5,7 +5,8 @@ const {
     PORTAL_PALLET_SIZE_TYPES,
     portalPalletSizeInboundBillingCode,
     buildPortalInboundPalletBillingRollups,
-    createPortalInboundBillingEvents
+    createPortalInboundBillingEvents,
+    sanitizePortalInboundReceivingInput
 } = require("./server");
 
 function rollupsByFee(rollups) {
@@ -211,6 +212,74 @@ test("carton-tracked pallet labels do not change carton receiving billing", () =
     };
 
     assert.deepEqual(buildPortalInboundPalletBillingRollups(inbound, 0), []);
+});
+
+test("actual receipt pallets are billed by physical pallet size for case-tracked stock", () => {
+    const inbound = {
+        lines: [{ id: "1", sku: "CASE-SKU", trackingLevel: "CASE" }],
+        palletLabels: [],
+        receiptAllocations: [
+            { lineId: "1", quantity: 6, palletReference: "Pallet 1", palletSizeType: "STANDARD_40_48_55" },
+            { lineId: "1", quantity: 6, palletReference: "Pallet 2", palletSizeType: "OVERSIZE_40_48_85" }
+        ]
+    };
+    assert.deepEqual(rollupsByFee(buildPortalInboundPalletBillingRollups(inbound, 0)), {
+        OVERSIZED_PALLET_INBOUND: 1,
+        PALLET_RECEIVING_FEE: 1,
+        PUT_AWAY_PALLET: 2
+    });
+});
+
+test("receiving input preserves multiple location and pallet allocations for one PO line", () => {
+    const inbound = {
+        fulfillmentLocationCode: "WHS01",
+        lines: [{ id: 10, sku: "32055", quantity: 12, trackingLevel: "UNIT", lotTracked: false, expirationTracked: false }]
+    };
+    const allocations = sanitizePortalInboundReceivingInput({
+        receivingLines: [
+            { id: 10, receivedQuantity: 5, receivedLocation: "WHS01-A01", palletReference: "Pallet 1", palletSizeType: "STANDARD_40_48_55" },
+            { id: 10, receivedQuantity: 7, receivedLocation: "WHS01-B02", palletReference: "Pallet 2", palletSizeType: "OVERSIZE_40_48_85" }
+        ]
+    }, inbound);
+    assert.equal(allocations.length, 2);
+    assert.deepEqual(allocations.map((entry) => [entry.receivedQuantity, entry.receivedLocation, entry.palletReference]), [
+        [5, "WHS01-A01", "Pallet 1"],
+        [7, "WHS01-B02", "Pallet 2"]
+    ]);
+});
+
+test("receiving input preserves optional pallet weight and unit", () => {
+    const inbound = {
+        fulfillmentLocationCode: "WHS01",
+        lines: [{ id: 10, sku: "MS26060402G", quantity: 1, trackingLevel: "PALLET", lotTracked: false, expirationTracked: false }]
+    };
+    const [allocation] = sanitizePortalInboundReceivingInput({
+        receivingLines: [{
+            id: 10,
+            receivedQuantity: 1,
+            receivedLocation: "WHS01-A01",
+            palletReference: "Pallet 1",
+            palletSizeType: "STANDARD_40_48_55",
+            palletWeight: 1245.5,
+            palletWeightUom: "LB"
+        }]
+    }, inbound);
+    assert.equal(allocation.palletWeight, 1245.5);
+    assert.equal(allocation.palletWeightUom, "LB");
+});
+
+test("receiving input allows blank pallet weight and rejects weight without a pallet reference", () => {
+    const inbound = {
+        fulfillmentLocationCode: "WHS01",
+        lines: [{ id: 10, sku: "MS26060402G", quantity: 1, trackingLevel: "PALLET", lotTracked: false, expirationTracked: false }]
+    };
+    const [blankWeight] = sanitizePortalInboundReceivingInput({
+        receivingLines: [{ id: 10, receivedQuantity: 1, receivedLocation: "WHS01-A01", palletReference: "Pallet 1" }]
+    }, inbound);
+    assert.equal(blankWeight.palletWeight, null);
+    assert.throws(() => sanitizePortalInboundReceivingInput({
+        receivingLines: [{ id: 10, receivedQuantity: 1, receivedLocation: "WHS01-A01", palletWeight: 800, palletWeightUom: "KG" }]
+    }, inbound), /Enter a pallet reference before adding pallet weight/);
 });
 
 test("portal inbound billing creates enabled processing, receiving, and put-away charges on the received date", async () => {

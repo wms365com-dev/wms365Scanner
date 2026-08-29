@@ -391,7 +391,7 @@ class FakeInventoryClient {
             return { rowCount: rows.length, rows: rows.map(cloneRow) };
         }
 
-        if (normalizedSql.startsWith("select coalesce(sum")) {
+        if (normalizedSql.startsWith("select coalesce(sum") || normalizedSql.startsWith("with sales as (")) {
             const lineId = String(params[0]);
             const activeStatuses = Array.isArray(params[1]) ? params[1] : ["RELEASED", "PICKED", "STAGED"];
             const matchingAllocations = this.store.allocations.filter((allocation) => {
@@ -408,6 +408,7 @@ class FakeInventoryClient {
                     released_quantity: sumByStatus("RELEASED"),
                     picked_quantity: sumByStatus("PICKED"),
                     staged_quantity: sumByStatus("STAGED"),
+                    kitting_quantity: 0,
                     active_quantity: activeQuantity
                 }]
             };
@@ -539,7 +540,7 @@ test("two simultaneous picks against same inventory cannot overdraw stock", asyn
         safeDeductInventoryLineQuantity(store.client(), 1, 4, { actionLabel: "pick order B" })
     ]);
 
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1, JSON.stringify(results.map((result) => result.status === "rejected" ? result.reason.message : "ok")));
     assert.equal(results.filter((result) => result.status === "rejected").length, 1);
     assert.equal(store.lines.get("1").quantity, 1);
     assert.equal(store.transactions.length, 1);
@@ -567,7 +568,7 @@ test("two simultaneous transfers preserve total quantity", async () => {
     const results = await Promise.allSettled([transfer("B1"), transfer("C1")]);
     const total = [...store.lines.values()].reduce((sum, row) => sum + Number(row.quantity), 0);
 
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1, JSON.stringify(results.map((result) => result.status === "rejected" ? result.reason.message : "ok")));
     assert.equal(results.filter((result) => result.status === "rejected").length, 1);
     assert.equal(total, 10);
     assert.equal(store.transactions.length, 2);
@@ -678,17 +679,22 @@ test("ship and transfer at the same time cannot consume the same units", async (
         lines: [{ id: 1, account_name: "WMS365 TEST COMPANY", location: "A1", sku: "SKU-1", upc: "", lot_number: "", expiration_date: "", tracking_level: "UNIT", quantity: 8 }],
         allocations: [{ id: 1, order_id: 99, order_line_id: 9, inventory_line_id: 1, allocated_quantity: 6, sku: "SKU-1", lot_number: "" }]
     });
-    const order = { id: 99, orderCode: "ORD-000099", accountName: "WMS365 TEST COMPANY", lines: [{ sku: "SKU-1", quantity: 6, trackingLevel: "UNIT" }] };
+    const order = { id: 99, orderCode: "ORD-000099", accountName: "WMS365 TEST COMPANY", lines: [{ id: 9, sku: "SKU-1", quantity: 6, trackingLevel: "UNIT" }] };
 
     const transfer = async () => {
         const client = store.client();
         const line = await findInventoryLine(client, "WMS365 TEST COMPANY", "A1", "SKU-1", { lock: true });
-        await safeTransferInventoryQuantity(client, line, {
-            accountName: "WMS365 TEST COMPANY",
-            location: "B1",
-            sku: "SKU-1",
-            trackingLevel: "UNIT"
-        }, 4, { actionLabel: "transfer while shipping" });
+        try {
+            await safeTransferInventoryQuantity(client, line, {
+                accountName: "WMS365 TEST COMPANY",
+                location: "B1",
+                sku: "SKU-1",
+                trackingLevel: "UNIT"
+            }, 4, { actionLabel: "transfer while shipping" });
+        } catch (error) {
+            client.releaseLine(line.id); // Simulate transaction rollback releasing FOR UPDATE locks.
+            throw error;
+        }
     };
 
     const results = await Promise.allSettled([
@@ -697,7 +703,7 @@ test("ship and transfer at the same time cannot consume the same units", async (
     ]);
     const total = [...store.lines.values()].reduce((sum, row) => sum + Number(row.quantity), 0);
 
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1, JSON.stringify(results.map((result) => result.status === "rejected" ? result.reason.message : "ok")));
     assert.equal(results.filter((result) => result.status === "rejected").length, 1);
     assert.ok([2, 8].includes(total), `total should reflect exactly one successful operation, got ${total}`);
     assert.ok(store.transactions.length === 1 || store.transactions.length === 2);

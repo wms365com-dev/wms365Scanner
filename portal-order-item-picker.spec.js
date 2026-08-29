@@ -60,7 +60,7 @@ test("customer inventory hides unavailable and non-pickable stock", () => {
     assert.match(serverSource, /"INVESTIGATION"/);
     assert.match(serverSource, /"DAMAGED"/);
     assert.match(serverSource, /"QUARANTINE"/);
-    assert.match(serverSource, /where greatest\(h\.pickable_quantity - coalesce\(r\.reserved_quantity, 0\), 0\) > 0/);
+    assert.match(serverSource, /where greatest\(h\.pickable_quantity - coalesce\(r\.reserved_quantity, 0\) - coalesce\(kr\.reserved_quantity, 0\), 0\) > 0/);
     assert.match(serverSource, /count\(distinct i\.location\) filter \(/);
     assert.match(serverSource, /if \(availableQuantity <= 0\) return;/);
 });
@@ -108,9 +108,10 @@ test("customer inbound submission requires receiving paperwork and a pre-3 PM ap
 test("customer portal language selector uses a non-overlapping layout host", () => {
     const i18nSource = fs.readFileSync(path.join(__dirname, "wms365-i18n.js"), "utf8");
     assert.match(portalHtml, /data-language-control-host/);
-    assert.match(portalHtml, /\.portal-utility-bar/);
-    assert.match(i18nSource, /document\.querySelector\("\[data-language-control-host\]"\)/);
+    assert.match(portalHtml, /<div class="portal-topbar-controls">\s*<div class="portal-language-host" data-language-control-host/);
+    assert.match(i18nSource, /document\.querySelectorAll\("\[data-language-control-host\]"\)/);
     assert.match(i18nSource, /host\.appendChild\(wrapper\)/);
-    assert.match(i18nSource, /wrapper\.classList\.add\("is-floating"\)/);
-    assert.match(i18nSource, /\.wms365-language-control\.is-floating/);
+    assert.match(i18nSource, /wms365-language-button/);
+    assert.match(i18nSource, /wms365-language-menu/);
+    assert.doesNotMatch(i18nSource, /is-floating/);
 });

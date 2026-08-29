@@ -156,29 +156,58 @@
     }
 
     function addLanguageControl() {
-        if (document.getElementById("wms365LanguageControl")) return;
-        const wrapper = document.createElement("label");
-        wrapper.id = "wms365LanguageControl";
-        wrapper.className = "wms365-language-control";
-        wrapper.dataset.i18nIgnore = "true";
-        wrapper.innerHTML = `<span id="wms365LanguageLabel">Language</span><select id="wms365LanguageSelect" aria-label="Language">${SUPPORTED.map((language) => `<option value="${language}">${LABELS[language]}</option>`).join("")}</select>`;
-        const host = document.querySelector("[data-language-control-host]");
-        if (host) {
+        if (document.querySelector(".wms365-language-control")) return;
+        const hosts = [...document.querySelectorAll("[data-language-control-host]")];
+        if (!hosts.length) hosts.push(document.body);
+        hosts.forEach((host) => {
+            const wrapper = document.createElement("div");
+            wrapper.className = "wms365-language-control";
+            wrapper.dataset.i18nIgnore = "true";
+            if (host === document.body) wrapper.classList.add("is-fallback");
+            wrapper.innerHTML = `<button class="wms365-language-button" type="button" aria-label="Language" aria-haspopup="menu" aria-expanded="false" title="Language"><span class="wms365-language-button-label">${currentLanguage.toUpperCase()}</span><span class="wms365-language-chevron" aria-hidden="true"></span></button><div class="wms365-language-menu" role="menu" hidden>${SUPPORTED.map((language) => `<button type="button" role="menuitemradio" aria-checked="${language === currentLanguage}" data-language="${language}"><span>${LABELS[language]}</span><span class="wms365-language-code">${language.toUpperCase()}</span></button>`).join("")}</div>`;
             host.appendChild(wrapper);
-        } else {
-            wrapper.classList.add("is-floating");
-            document.body.prepend(wrapper);
-        }
-        const select = wrapper.querySelector("select");
-        select.value = currentLanguage;
-        select.addEventListener("change", () => setLanguage(select.value));
+            const button = wrapper.querySelector(".wms365-language-button");
+            const menu = wrapper.querySelector(".wms365-language-menu");
+            const closeMenu = () => {
+                menu.hidden = true;
+                button.setAttribute("aria-expanded", "false");
+            };
+            button.addEventListener("click", () => {
+                const willOpen = menu.hidden;
+                document.querySelectorAll(".wms365-language-menu").forEach((otherMenu) => { otherMenu.hidden = true; });
+                document.querySelectorAll(".wms365-language-button").forEach((otherButton) => { otherButton.setAttribute("aria-expanded", "false"); });
+                menu.hidden = !willOpen;
+                button.setAttribute("aria-expanded", String(willOpen));
+                if (willOpen) menu.querySelector('[aria-checked="true"]')?.focus();
+            });
+            menu.addEventListener("click", (event) => {
+                const option = event.target.closest("[data-language]");
+                if (!option) return;
+                setLanguage(option.dataset.language);
+                closeMenu();
+                button.focus();
+            });
+            document.addEventListener("click", (event) => {
+                if (!wrapper.contains(event.target)) closeMenu();
+            });
+            document.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !menu.hidden) {
+                    closeMenu();
+                    button.focus();
+                }
+            });
+        });
     }
 
     function updateLanguageControl() {
-        const label = document.getElementById("wms365LanguageLabel");
-        const select = document.getElementById("wms365LanguageSelect");
-        if (label) label.textContent = translatedText("Language");
-        if (select) select.value = currentLanguage;
+        document.querySelectorAll(".wms365-language-button").forEach((button) => {
+            button.setAttribute("aria-label", translatedText("Language"));
+            button.title = translatedText("Language");
+        });
+        document.querySelectorAll(".wms365-language-button-label").forEach((label) => { label.textContent = currentLanguage.toUpperCase(); });
+        document.querySelectorAll(".wms365-language-menu [data-language]").forEach((option) => {
+            option.setAttribute("aria-checked", String(option.dataset.language === currentLanguage));
+        });
     }
 
     function setLanguage(language) {
@@ -195,7 +224,7 @@
     function start() {
         currentLanguage = normalizeLanguage(localStorage.getItem(STORAGE_KEY) || navigator.language || "en");
         const style = document.createElement("style");
-        style.textContent = `.wms365-language-control{display:inline-grid;grid-template-columns:auto minmax(112px,1fr);align-items:center;gap:8px;width:fit-content;max-width:100%;padding:4px 6px;color:#526a7d;font-size:12px;font-weight:700;background:#fff;border:1px solid #d5dde4;border-radius:6px;box-shadow:0 1px 4px rgba(32,48,58,.08)}.wms365-language-control.is-floating{position:fixed;top:8px;right:10px;z-index:10020;max-width:calc(100vw - 20px);background:rgba(255,255,255,.96)}.wms365-language-control select{min-height:34px;width:auto;min-width:112px;padding:5px 30px 5px 9px;border:1px solid #cfd9e1;border-radius:5px;background:#fff;color:#20303a}@media(max-width:640px){.wms365-language-control:not(.is-floating){width:100%;grid-template-columns:auto minmax(0,1fr)}.wms365-language-control:not(.is-floating) select{width:100%}.wms365-language-control.is-floating{top:6px;right:6px}.wms365-language-control.is-floating>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}`;
+        style.textContent = `.wms365-language-control{position:relative;display:inline-flex;flex:0 0 auto;color:#20303a;font:700 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif}.wms365-language-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:44px;height:32px;padding:0 10px;border:1px solid #c9d5de;border-radius:5px;background:#fff;color:#264257;font:inherit;letter-spacing:0;cursor:pointer}.wms365-language-button:hover,.wms365-language-button:focus-visible,.wms365-language-button[aria-expanded="true"]{border-color:#5f8197;background:#eef4f8;outline:none}.wms365-language-chevron{width:6px;height:6px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg) translateY(-1px)}.wms365-language-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:10020;width:190px;padding:5px;border:1px solid #cbd6df;border-radius:6px;background:#fff;box-shadow:0 10px 28px rgba(26,43,55,.18)}.wms365-language-menu[hidden]{display:none}.wms365-language-menu button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:38px;padding:7px 9px;border:0;border-radius:4px;background:transparent;color:#20303a;font:600 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0;text-align:left;cursor:pointer}.wms365-language-menu button:hover,.wms365-language-menu button:focus-visible{background:#eef4f8;outline:none}.wms365-language-menu button[aria-checked="true"]{background:#e4f1f8;color:#07577b}.wms365-language-code{color:#6b7f8f;font-size:11px}.wms365-language-control.is-fallback{position:fixed;top:8px;right:10px;z-index:10020}`;
         document.head.appendChild(style);
         addLanguageControl();
         setLanguage(currentLanguage);

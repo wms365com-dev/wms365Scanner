@@ -53,15 +53,22 @@
             box-shadow: 0 0 0 4px rgba(23, 104, 255, 0.12);
         }
         .shell { width: min(1180px, 100%); margin: 0 auto; display: grid; gap: 1rem; }
-        .portal-utility-bar {
-            display: flex;
-            justify-content: flex-end;
-            min-height: 44px;
-        }
         .portal-language-host {
             display: flex;
             align-items: center;
             justify-content: flex-end;
+        }
+        .portal-topbar-controls {
+            display: grid;
+            gap: 0.7rem;
+            justify-items: end;
+            min-width: min(430px, 100%);
+        }
+        .auth-panel-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
         }
         .card {
             background: var(--panel);
@@ -878,6 +885,9 @@
             overflow-y: auto;
             overscroll-behavior: contain;
         }
+        #documentPreviewModal {
+            z-index: 4100;
+        }
         .feedback-modal-backdrop {
             position: absolute;
             inset: 0;
@@ -1024,12 +1034,13 @@
                 width: 100%;
                 justify-items: stretch;
             }
-            .portal-utility-bar,
-            .portal-language-host {
+            .portal-topbar-controls {
                 width: 100%;
+                min-width: 0;
+                justify-items: stretch;
             }
             .portal-language-host {
-                justify-content: stretch;
+                justify-content: flex-end;
             }
             .warehouse-switcher {
                 width: 100%;
@@ -1049,9 +1060,6 @@
 </head>
 <body class="portal-auth-only">
     <div class="shell">
-        <div class="portal-utility-bar" aria-label="Portal preferences">
-            <div class="portal-language-host" data-language-control-host></div>
-        </div>
         <header class="card topbar">
             <div class="header-copy">
                 <div class="portal-brand">
@@ -1065,15 +1073,18 @@
                 <h1>WMS365 Customer Portal</h1>
                 <p class="lead">Review inventory, enter sales orders, submit purchase orders, and track warehouse progress from one account-scoped portal.</p>
             </div>
-            <div class="topbar-actions hidden" id="portalTopbarActions">
-                <div class="warehouse-switcher hidden" id="portalWarehouseSwitcher">
-                    <label>
-                        <span>Active Warehouse</span>
-                        <select id="portalWarehouseSelect" aria-label="Active warehouse"></select>
-                    </label>
-                    <div class="warehouse-current" id="portalWarehouseCurrent">No warehouse selected</div>
+            <div class="portal-topbar-controls">
+                <div class="portal-language-host" data-language-control-host aria-label="Portal preferences"></div>
+                <div class="topbar-actions hidden" id="portalTopbarActions">
+                    <div class="warehouse-switcher hidden" id="portalWarehouseSwitcher">
+                        <label>
+                            <span>Active Warehouse</span>
+                            <select id="portalWarehouseSelect" aria-label="Active warehouse"></select>
+                        </label>
+                        <div class="warehouse-current" id="portalWarehouseCurrent">No warehouse selected</div>
+                    </div>
+                    <div id="accountChip" class="account-chip hidden"></div>
                 </div>
-                <div id="accountChip" class="account-chip hidden"></div>
             </div>
         </header>
 
@@ -1100,9 +1111,12 @@
                     </div>
                 </section>
                 <article class="auth-panel">
-                    <div class="card-head">
-                        <h2>Customer Login</h2>
-                        <p>Customer users sign in here to access the account-scoped WMS365 portal.</p>
+                    <div class="auth-panel-head">
+                        <div class="card-head">
+                            <h2>Customer Login</h2>
+                            <p>Customer users sign in here to access the account-scoped WMS365 portal.</p>
+                        </div>
+                        <div data-language-control-host aria-label="Login preferences"></div>
                     </div>
                     <form id="loginForm" class="form-grid" autocomplete="off">
                         <label class="field span-2">
@@ -1366,7 +1380,7 @@
                     <section class="kitting-step" id="kittingComponentsStep">
                         <div class="helper">
                             <strong>Step 1: Add each SKU going into the display</strong>
-                            <p class="meta">Use this for display builds, bundles, or kits that pull 4-6 existing SKUs into one finished display SKU. Enter the quantity needed per finished display.</p>
+                            <p class="meta">Use this for display builds, bundles, or kits. Enter the total source quantity the warehouse must pull for the entire batch. Submitted quantities are reserved immediately.</p>
                         </div>
                         <div class="kitting-component-list" id="kittingComponentList"></div>
                         <div class="button-row">
@@ -1412,8 +1426,8 @@
                         </div>
                         <div class="kitting-summary" id="kittingBuildSummary"></div>
                         <div class="helper">
-                            <strong>Component stock must be available</strong>
-                            <p class="meta">Please check inventory before submitting. If any component is short, receive or replenish stock before sending the work order.</p>
+                            <strong>Component stock is checked and reserved</strong>
+                            <p class="meta">WMS365 checks pickable stock when you submit. Available components are reserved for this request and cannot be used by another order. If anything is short, the request will not be submitted.</p>
                         </div>
                         <div class="button-row">
                             <button class="btn ghost" id="kittingBackStepBtn" type="button">Back to Components</button>
@@ -1807,7 +1821,10 @@
                             <h2 id="documentPreviewTitle">Document Preview</h2>
                             <p class="lead">Review the uploaded file without leaving the customer portal.</p>
                         </div>
-                        <button class="btn ghost" type="button" data-document-preview-close>Close</button>
+                        <div class="button-row">
+                            <a class="btn ghost" id="documentPreviewOpenLink" href="#" target="_blank" rel="noopener">Open in new tab</a>
+                            <button class="btn ghost" type="button" data-document-preview-close>Close</button>
+                        </div>
                     </div>
                     <div id="documentPreviewBody" class="document-preview-body" style="margin-top: 1rem;">
                         <div class="empty">Select a document to preview.</div>
@@ -1881,6 +1898,14 @@
             B2C_ONLINE: "B2C_ONLINE",
             RETAIL_WHOLESALE: "RETAIL_WHOLESALE",
             FREIGHT_RETAIL: "FREIGHT_RETAIL"
+        });
+        const PORTAL_PERMISSION_KEYS = Object.freeze({
+            INVENTORY: "inventory-only",
+            ORDER_ENTRY: "order-entry",
+            INBOUND_ENTRY: "inbound-entry",
+            DOCUMENT_ACCESS: "document-access",
+            BILLING: "billing",
+            ADMIN: "admin"
         });
         const PORTAL_ORDER_SHIPMENT_METHODS = Object.freeze({
             PARCEL: "PARCEL",
@@ -2112,6 +2137,7 @@
             documentPreviewTitle: document.getElementById("documentPreviewTitle"),
             documentPreviewBody: document.getElementById("documentPreviewBody"),
             documentPreviewMessage: document.getElementById("documentPreviewMessage"),
+            documentPreviewOpenLink: document.getElementById("documentPreviewOpenLink"),
             inboundForm: document.getElementById("inboundForm"),
             inboundWarehouseNotice: document.getElementById("inboundWarehouseNotice"),
             inboundReferenceNumber: document.getElementById("inboundReferenceNumber"),
@@ -2164,19 +2190,30 @@
             return portalState.account?.featureFlags?.[featureKey] === true;
         }
 
+        function portalPermissionEnabled(permissionKey) {
+            return portalState.account?.portalPermissions?.[permissionKey] === true;
+        }
+
         function isPortalViewAllowed(view) {
             if (["order", "orders", "shipped"].includes(view)) {
-                return portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY);
+                return portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
+                    && portalPermissionEnabled(PORTAL_PERMISSION_KEYS.ORDER_ENTRY);
             }
             if (["inbound", "inbounds", "delivery", "deliveries"].includes(view)) {
-                return portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES);
+                return portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
+                    && portalPermissionEnabled(PORTAL_PERMISSION_KEYS.INBOUND_ENTRY);
             }
-            return true;
+            if (["inventory"].includes(view)) return portalPermissionEnabled(PORTAL_PERMISSION_KEYS.INVENTORY);
+            if (["items"].includes(view)) return portalPermissionEnabled(PORTAL_PERMISSION_KEYS.INVENTORY);
+            if (["invoices"].includes(view)) return portalPermissionEnabled(PORTAL_PERMISSION_KEYS.BILLING);
+            if (["addedServices", "kitting", "kittingRequests"].includes(view)) return portalPermissionEnabled(PORTAL_PERMISSION_KEYS.ORDER_ENTRY);
+            if (["jobs"].includes(view)) return portalPermissionEnabled(PORTAL_PERMISSION_KEYS.ADMIN);
+            return false;
         }
 
         function getFirstAllowedPortalView(preferredView = "inventory") {
             if (isPortalViewAllowed(preferredView)) return preferredView;
-            const orderedViews = ["inventory", "items", "addedServices", "kitting", "kittingRequests", "order", "orders", "shipped", "inbound", "inbounds", "delivery", "deliveries"];
+            const orderedViews = ["inbound", "inbounds", "delivery", "deliveries", "inventory", "items", "order", "orders", "shipped", "addedServices", "kitting", "kittingRequests", "invoices", "jobs"];
             return orderedViews.find((view) => isPortalViewAllowed(view)) || "inventory";
         }
 
@@ -2809,25 +2846,30 @@
         }
 
         async function loadPortalData() {
+            const canInventory = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.INVENTORY);
+            const canOrders = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.ORDER_ENTRY);
+            const canInbounds = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.INBOUND_ENTRY);
+            const canBilling = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.BILLING);
+            const canAdmin = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.ADMIN);
             const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, fulfillmentPayload, shipToPayload, jobsPayload] = await Promise.all([
-                requestJson("/api/portal/inventory"),
-                requestJson("/api/portal/items"),
-                requestJson("/api/portal/kitting-requests").catch(() => ({ requests: [] })),
-                requestJson("/api/portal/invoices").catch(() => ({ invoices: [], summary: {} })),
-                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
+                canInventory ? requestJson("/api/portal/inventory") : Promise.resolve({ inventory: [] }),
+                (canInventory || canOrders || canInbounds) ? requestJson("/api/portal/items") : Promise.resolve({ items: [] }),
+                canOrders ? requestJson("/api/portal/kitting-requests").catch(() => ({ requests: [] })) : Promise.resolve({ requests: [] }),
+                canBilling ? requestJson("/api/portal/invoices").catch(() => ({ invoices: [], summary: {} })) : Promise.resolve({ invoices: [], summary: {} }),
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY) && canOrders
                     ? requestJson("/api/portal/orders")
                     : Promise.resolve({ orders: [] }),
-                portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES) && canInbounds
                     ? requestJson("/api/portal/inbounds")
                     : Promise.resolve({ inbounds: [] }),
-                portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES) && canInbounds
                     ? requestJson("/api/portal/delivery-appointments")
                     : Promise.resolve({ appointments: [] }),
-                requestJson("/api/portal/fulfillment-locations").catch(() => ({ locations: [] })),
-                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY)
+                (canOrders || canInbounds) ? requestJson("/api/portal/fulfillment-locations").catch(() => ({ locations: [] })) : Promise.resolve({ locations: [] }),
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY) && canOrders
                     ? requestJson("/api/portal/ship-to-addresses")
                     : Promise.resolve({ addresses: [] }),
-                requestJson("/api/portal/jobs").catch(() => ({ jobs: [] }))
+                canAdmin ? requestJson("/api/portal/jobs").catch(() => ({ jobs: [] })) : Promise.resolve({ jobs: [] })
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
@@ -2996,6 +3038,9 @@
             if (ui.documentPreviewBody) {
                 ui.documentPreviewBody.innerHTML = `<div class="empty">Select a document to preview.</div>`;
             }
+            if (ui.documentPreviewOpenLink) {
+                ui.documentPreviewOpenLink.href = "#";
+            }
             setDocumentPreviewMessage("", "info");
         }
 
@@ -3050,6 +3095,7 @@
             }
             ui.documentPreviewTitle.textContent = safeFileName;
             ui.documentPreviewBody.innerHTML = `<div class="empty">Loading preview...</div>`;
+            if (ui.documentPreviewOpenLink) ui.documentPreviewOpenLink.href = documentUrl;
             setDocumentPreviewMessage("", "info");
             ui.documentPreviewModal.classList.remove("hidden");
             ui.documentPreviewModal.setAttribute("aria-hidden", "false");
@@ -3312,8 +3358,8 @@
                     <input data-component-sku list="kittingSkuList" type="text" placeholder="SKU going into display" value="${attr(component.sku || "")}">
                 </label>
                 <label class="field">
-                    <span>Qty Per Display</span>
-                    <input data-component-qty type="number" min="1" inputmode="numeric" placeholder="Example: 1" value="${attr(component.quantityPerUnit || "")}">
+                    <span>Total Batch Qty</span>
+                    <input data-component-qty type="number" min="1" inputmode="numeric" placeholder="Total source quantity" value="${attr(component.totalQuantity || component.quantityPerUnit || "")}">
                 </label>
                 <label class="field">
                     <span>Placement / Notes</span>
@@ -3370,13 +3416,13 @@
                 const qtyInput = row.querySelector("[data-component-qty]");
                 const noteInput = row.querySelector("[data-component-note]");
                 const sku = norm(skuInput?.value || "");
-                const quantityPerUnit = toPositiveInt(qtyInput?.value);
+                const totalQuantity = toPositiveInt(qtyInput?.value);
                 const note = String(noteInput?.value || "").trim();
-                if (!sku && !quantityPerUnit && !note) return;
-                if (!allowPartial && (!sku || !quantityPerUnit)) {
+                if (!sku && !totalQuantity && !note) return;
+                if (!allowPartial && (!sku || !totalQuantity)) {
                     throw new Error(`Complete component line ${index + 1}, or remove it.`);
                 }
-                if (!sku || !quantityPerUnit) return;
+                if (!sku || !totalQuantity) return;
                 if (!allowPartial && seenSkus.has(sku)) {
                     throw new Error(`Component SKU ${sku} is listed more than once. Combine it into one line.`);
                 }
@@ -3384,8 +3430,8 @@
                 const catalogItem = findCatalogItemBySku(sku);
                 components.push({
                     sku,
-                    quantityPerUnit,
-                    totalQuantity: targetQuantity ? quantityPerUnit * targetQuantity : 0,
+                    quantityPerUnit: null,
+                    totalQuantity,
                     note,
                     description: catalogItem?.description || ""
                 });
@@ -3429,7 +3475,7 @@
                 <p class="meta">Finished output: ${esc(targetLabel)}</p>
                 <ul>
                     ${components.map((component) => `
-                        <li>${esc(component.sku)}: ${esc(String(component.quantityPerUnit))} per display${targetQuantity ? `, ${esc(String(component.totalQuantity))} total needed` : ""}${component.description ? ` - ${esc(component.description)}` : ""}</li>
+                        <li>${esc(component.sku)}: ${esc(String(component.totalQuantity))} total reserved for this batch${component.description ? ` - ${esc(component.description)}` : ""}</li>
                     `).join("")}
                 </ul>
             `;
@@ -3586,7 +3632,7 @@
                 renderKittingRequests();
                 renderAddedServices();
                 setView("kittingRequests");
-                setMessage(`Submitted kitting request ${response.request?.requestCode || ""}. The warehouse was notified.`, "success");
+                setMessage(`Submitted kitting request ${response.request?.requestCode || ""}. Component stock is reserved and the warehouse was notified.`, "success");
             } catch (error) {
                 showMessage(ui.kittingMessage, error.message, "error");
             }

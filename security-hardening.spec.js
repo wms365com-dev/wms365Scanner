@@ -16,7 +16,8 @@ const {
     detectSafeUploadMimeType,
     encryptSecret,
     decryptSecret,
-    assertDestructiveImportAllowed
+    assertDestructiveImportAllowed,
+    runDatabaseHealthProbe
 } = require("./server.js");
 
 function dataUrl(mimeType, buffer) {
@@ -169,13 +170,8 @@ test("llms.txt is public and carries the no-automation policy", async () => {
     }
 });
 
-test("health endpoint returns 503 when database is unavailable", async () => {
-    const server = app.listen(0);
-    try {
-        const response = await request(server, "/api/health");
-        assert.equal(response.statusCode, 503);
-        assert.equal(JSON.parse(response.body).ok, false);
-    } finally {
-        await new Promise((resolve) => server.close(resolve));
-    }
+test("database health probe reports unavailable when database is not configured", async () => {
+    const probe = await runDatabaseHealthProbe({ databaseUrl: "" });
+    assert.equal(probe.ok, false);
+    assert.match(probe.error, /DATABASE_URL or DATABASE_PRIVATE_URL is required/);
 });

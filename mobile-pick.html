@@ -301,6 +301,12 @@ body.device-alien-legacy.picking-active .scan-row button{min-height:52px}
     <div class="kicker">Order Complete</div>
     <div class="big">All picks confirmed</div>
     <div class="muted" id="doneOrderMeta"></div>
+    <div class="hidden" id="pickedPalletPanel" style="margin-top:12px">
+      <div class="kicker">Picked Pallets</div>
+      <div class="muted">Enter the actual source bin and scale weight for every pallet.</div>
+      <div id="pickedPalletRows"></div>
+      <button class="secondary" id="addPickedPalletBtn" type="button" style="margin-top:8px">Add Pallet</button>
+    </div>
     <div class="actions mobile-sticky-action">
       <button class="success" id="markPickedBtn">Mark Order Picked</button>
       <button class="secondary" id="resetFlowBtn">Choose Another Order</button>
@@ -853,6 +859,16 @@ function renderPendingOrders(){
 
 function currentPick(){return state.picks[state.index]||null}
 function currentOrderStatus(){return normalize(state.selectedOrder?.status)}
+function isAlconaOrder(){return normalize(state.selectedOrder?.accountName||'').includes('ALCONA TRADING')}
+function addMobilePickedPallet(value={}){
+  const rows=$('pickedPalletRows');
+  const row=document.createElement('div');
+  row.className='card';
+  row.dataset.mobilePickedPallet='1';
+  row.style.marginTop='8px';
+  row.innerHTML=`<div class="kicker">Pallet ${rows.children.length+1}</div><label>Actual Pick Bin<input data-mobile-pallet-location type="text" value="${String(value.location||'').replace(/"/g,'&quot;')}" placeholder="Scan or enter bin"></label><label>Weight<input data-mobile-pallet-weight type="number" min="0.001" step="0.001" inputmode="decimal" value="${value.weight||''}"></label><label>Unit<select data-mobile-pallet-uom><option value="LB">lb</option><option value="KG" ${normalize(value.weightUom||'')==='KG'?'selected':''}>kg</option></select></label><button class="secondary" data-remove-mobile-pallet type="button">Remove</button>`;
+  rows.appendChild(row);
+}
 
 function renderSummary(){
   const o=state.selectedOrder;
@@ -911,6 +927,11 @@ function renderPick(){
       ? `${state.selectedOrder.orderCode} has ${state.exceptions.length} exception${state.exceptions.length===1?'':'s'} and needs supervisor review.`
       : `${state.selectedOrder.orderCode} is ready to mark as picked.`;
     $('markPickedBtn').disabled=state.exceptions.length>0;
+    $('pickedPalletPanel').classList.toggle('hidden',!isAlconaOrder());
+    if(isAlconaOrder()&&!$('pickedPalletRows').children.length){
+      const saved=Array.isArray(state.selectedOrder?.pickedPalletDetails)?state.selectedOrder.pickedPalletDetails:[];
+      (saved.length?saved:[{}]).forEach(addMobilePickedPallet);
+    }
     return;
   }
   const key=pickKey(p);
@@ -1648,7 +1669,12 @@ $('markPickedBtn').addEventListener('click',async()=>{
   setActionButtonBusy($('markPickedBtn'),true,'Marking picked...');
   $('doneOrderMeta').textContent=`Marking ${state.selectedOrder.orderCode} picked...`;
   try{
-    const body=envelopeStatusAction({status:'PICKED'},'MOBILE_PICK_MARK_PICKED');
+    const pickedPalletDetails=isAlconaOrder()?Array.from(document.querySelectorAll('[data-mobile-picked-pallet]')).map(row=>({
+      location:row.querySelector('[data-mobile-pallet-location]')?.value||'',
+      weight:Number(row.querySelector('[data-mobile-pallet-weight]')?.value||0),
+      weightUom:row.querySelector('[data-mobile-pallet-uom]')?.value||'LB'
+    })):[];
+    const body=envelopeStatusAction({status:'PICKED',pickedPalletDetails},'MOBILE_PICK_MARK_PICKED');
     const response=await requestJson(`/api/admin/portal-orders/${state.selectedOrder.id}/status`,{method:'POST',body:JSON.stringify(body)});
     clearPickProgress();
     state.selectedOrder=response.order||{...state.selectedOrder,status:'PICKED'};
@@ -1669,6 +1695,18 @@ $('markPickedBtn').addEventListener('click',async()=>{
     state.savingOrderStatus=false;
     setActionButtonBusy($('markPickedBtn'),false);
   }
+});
+
+$('addPickedPalletBtn').addEventListener('click',()=>addMobilePickedPallet());
+$('pickedPalletRows').addEventListener('click',event=>{
+  const button=event.target.closest('[data-remove-mobile-pallet]');
+  if(!button)return;
+  if($('pickedPalletRows').children.length<=1){
+    $('doneOrderMeta').textContent='At least one pallet is required for an Alcona pick.';
+    return;
+  }
+  button.closest('[data-mobile-picked-pallet]')?.remove();
+  Array.from($('pickedPalletRows').children).forEach((row,index)=>{const label=row.querySelector('.kicker');if(label)label.textContent=`Pallet ${index+1}`});
 });
 
 $('markStagedBtn').addEventListener('click',async()=>{

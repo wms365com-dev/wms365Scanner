@@ -4,7 +4,11 @@ const crypto = require("node:crypto");
 
 const {
     STORE_INTEGRATION_SCHEDULE_TIME_ZONE,
+    STORE_INTEGRATION_SYNC_CLAIM_STALE_MINUTES,
     computeNextStoreIntegrationSyncAt,
+    claimStoreIntegrationSync,
+    releaseStoreIntegrationSyncClaim,
+    lockAndFindStoreOrderImport,
     sanitizeStoreIntegrationSettingsInput,
     normalizeStoreOrderCountry,
     getShopifyOrderShipCountryDecision,
@@ -20,6 +24,70 @@ const {
     signShopifyOAuthState,
     verifyShopifyOAuthState
 } = require("./server");
+
+test("store integration sync claims allow only one worker to own an integration", async () => {
+    let activeToken = "";
+    const client = {
+        async query(sql, params) {
+            assert.match(String(sql), /update store_integrations/);
+            if (activeToken) return { rowCount: 0, rows: [] };
+            activeToken = params[1];
+            return { rowCount: 1, rows: [{ id: params[0], sync_claim_token: activeToken }] };
+        }
+    };
+
+    const [first, second] = await Promise.all([
+        claimStoreIntegrationSync(client, 42, { token: "worker-a" }),
+        claimStoreIntegrationSync(client, 42, { token: "worker-b" })
+    ]);
+
+    assert.equal(first.token, "worker-a");
+    assert.equal(second, null);
+    assert.equal(STORE_INTEGRATION_SYNC_CLAIM_STALE_MINUTES, 30);
+});
+
+test("store integration sync claims are released only by their owner", async () => {
+    const calls = [];
+    const client = {
+        async query(sql, params) {
+            calls.push({ sql: String(sql), params });
+            return { rowCount: params[1] === "owner-token" ? 1 : 0, rows: [] };
+        }
+    };
+
+    assert.equal(await releaseStoreIntegrationSyncClaim(client, 42, "other-token"), false);
+    assert.equal(await releaseStoreIntegrationSyncClaim(client, 42, "owner-token"), true);
+    assert.match(calls[0].sql, /sync_claim_token = \$2/);
+});
+
+test("external store order lock rechecks the import mapping after serialization", async () => {
+    const calls = [];
+    const client = {
+        async query(sql, params) {
+            calls.push({ sql: String(sql), params });
+            if (String(sql).includes("from store_order_imports")) {
+                return { rowCount: 1, rows: [{ id: 7, portal_order_id: 99 }] };
+            }
+            return { rowCount: 1, rows: [{}] };
+        }
+    };
+
+    const existing = await lockAndFindStoreOrderImport(client, 12, "shopify-1001");
+    assert.deepEqual(existing, { id: 7, portal_order_id: 99 });
+    assert.match(calls[0].sql, /pg_advisory_xact_lock/);
+    assert.equal(calls[0].params[0], "store-order:12:shopify-1001");
+    assert.match(calls[1].sql, /integration_id = \$1 and external_order_id = \$2/);
+});
+
+test("store order import records idempotency before attempting auto-release", () => {
+    const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "server.js"), "utf8");
+    const start = source.indexOf("async function importStoreOrdersForIntegration");
+    const end = source.indexOf("async function fetchStoreOrdersForIntegration", start);
+    const implementation = source.slice(start, end);
+    assert.ok(implementation.indexOf("lockAndFindStoreOrderImport") < implementation.indexOf("savePortalOrderDraftForAccount"));
+    assert.ok(implementation.indexOf("insert into store_order_imports") < implementation.indexOf("releaseWarehousePortalOrder"));
+    assert.match(implementation, /on conflict \(integration_id, external_order_id\) do nothing/);
+});
 
 test("daily store integration sync runs at 9 AM in the WMS365 business timezone during daylight saving time", () => {
     assert.equal(STORE_INTEGRATION_SCHEDULE_TIME_ZONE, "America/New_York");

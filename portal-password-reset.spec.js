@@ -36,12 +36,12 @@ test("password reset email uses a one-time link and never includes a temporary p
         accessLabel: "Customer Portal",
         resetUrl: "https://app.wms365.co/portal.html?reset_token=abc123",
         username: "customer@example.com",
-        expiresInMinutes: 30,
+        expiresInMinutes: 24 * 60,
         signupUrl: "https://wms365.co/pricing"
     };
     const text = buildPortalResetLinkEmailText(input);
     const html = buildPortalResetLinkEmailHtml(input);
-    assert.match(text, /one-time link expires in 30 minutes/i);
+    assert.match(text, /one-time link expires in 1 day/i);
     assert.match(text, /reset_token=abc123/);
     assert.match(html, /Choose a new password/);
     assert.doesNotMatch(`${text}${html}`, /Temporary password:/i);

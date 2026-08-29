@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "test": "node scripts/run-node-tests.js",
+    "test:audit": "playwright test --config=playwright.audit.config.js",
     "test:rbac": "node --test rbac.spec.js",
     "test:inventory-locking": "node --test inventory-locking.spec.js",
     "test:mobile-execution": "node --test mobile-execution.spec.js",
@@ -17,7 +19,11 @@
     "test:user-errors": "node --test user-facing-errors.spec.js",
     "test:platform-architecture": "node --test platform-architecture.spec.js",
     "test:warehouse-billing": "node --test warehouse-billing.spec.js",
-    "test:guides": "node scripts/validate-guide-screenshots.js"
+    "test:kitting-reservations": "node --test kitting-reservations.spec.js",
+    "test:warehouse-entry-routes": "node --test warehouse-entry-routes.spec.js",
+    "check:deploy": "node --check server.js && node --test warehouse-entry-routes.spec.js security-hardening.spec.js rbac.spec.js sales-order-duplicate-return.spec.js order-routing.spec.js carrier-tracking.spec.js warehouse-profile-settings.spec.js",
+    "test:guides": "node scripts/validate-guide-screenshots.js",
+    "research:wms": "node scripts/audit-wms-feature-competitiveness.js"
   },
   "engines": {
     "node": ">=20"
@@ -26,13 +32,17 @@
     "express": "^4.21.2",
     "nodemailer": "^6.10.1",
     "pg": "^8.13.1",
-    "stripe": "^18.4.0",
-    "ssh2-sftp-client": "^12.0.1"
+    "ssh2-sftp-client": "^12.0.1",
+    "stripe": "^18.4.0"
   },
   "directories": {
     "doc": "docs"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@railway/cli": "^5.45.3",
+    "pg-mem": "^3.0.14"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wms365com-dev/wms365Scanner.git"

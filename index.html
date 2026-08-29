@@ -343,6 +343,18 @@
             font-weight: 700;
         }
 
+        .account-settings-panel {
+            bottom: auto;
+            display: flex;
+            flex-direction: column;
+            width: min(20rem, 92vw);
+        }
+
+        .account-settings-panel .btn {
+            width: 100%;
+            justify-content: flex-start;
+        }
+
         .company-switcher-close {
             width: 28px;
             height: 28px;
@@ -1544,7 +1556,8 @@
             text-transform: uppercase;
         }
 
-        .erp-document-process-table input {
+        .erp-document-process-table input,
+        .erp-document-process-table select {
             width: 100%;
             min-width: 7rem;
             border: 1px solid #b8c8d8;
@@ -1556,6 +1569,16 @@
         .erp-document-process-section {
             display: grid;
             gap: 0.45rem;
+            overflow-x: auto;
+        }
+
+        .receiving-split-actions {
+            min-width: 7.5rem;
+            white-space: nowrap;
+        }
+
+        .receiving-split-actions .btn + .btn {
+            margin-left: 0.3rem;
         }
 
         .erp-document-process-section h3 {
@@ -2980,6 +3003,29 @@
 
         .summary-grid { margin-bottom: 1rem; }
 
+        .site-traffic-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.7rem;
+            margin-top: 1rem;
+        }
+
+        .site-traffic-metrics > div {
+            display: grid;
+            gap: 0.25rem;
+            min-width: 0;
+            padding: 0.8rem;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
+            background: var(--panel-2);
+        }
+
+        .site-traffic-metrics strong { font-size: 1.3rem; }
+
+        @media (max-width: 760px) {
+            .site-traffic-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
         .summary {
             flex: 1 1 150px;
             padding: 0.9rem;
@@ -3873,6 +3919,10 @@
 
         .document-preview-dialog {
             width: min(1040px, 96vw);
+        }
+
+        #warehouseDocumentPreviewModal {
+            z-index: 4100;
         }
 
         .document-preview-body {
@@ -6302,6 +6352,7 @@
                     </div>
                 </div>
                 <div class="desktop-utility-actions">
+                    <div data-language-control-host></div>
                     <span class="utility-status-pill" id="appBuildBadge" title="Checking WMS365 connection">
                         <span class="connection-status-dot checking" id="appConnectionDot" aria-label="Checking connection"></span>
                         <span id="appBuildLabelText">Build loading...</span>
@@ -6328,7 +6379,31 @@
                     </details>
                     <span class="topbar-icon">Find</span>
                     <span class="topbar-icon">Notifications</span>
-                    <span class="topbar-icon">Settings</span>
+                    <details class="company-switcher" id="accountSettingsMenu">
+                        <summary class="topbar-icon" title="Account settings">Settings</summary>
+                        <div class="company-switcher-panel account-settings-panel">
+                            <div class="company-switcher-head">
+                                <strong>Account Settings</strong>
+                                <button class="company-switcher-close" id="accountSettingsCloseBtn" type="button" aria-label="Close settings">x</button>
+                            </div>
+                            <div class="quick-meta" id="accountSettingsUser">Signed in</div>
+                            <button class="btn ghost" id="accountProfileBtn" type="button">Manage Profile</button>
+                            <form id="accountProfileForm" class="form-grid hidden" autocomplete="off">
+                                <label class="field"><span>First Name</span><input id="accountProfileFirstName" type="text" maxlength="80" required></label>
+                                <label class="field"><span>Last Name</span><input id="accountProfileLastName" type="text" maxlength="80" required></label>
+                                <label class="field span-2"><span>Email</span><input id="accountProfileEmail" type="email" readonly></label>
+                                <label class="field span-2"><span>Phone</span><input id="accountProfilePhone" type="tel" maxlength="40" autocomplete="tel"></label>
+                                <label class="field span-2"><span>Role</span><input id="accountProfileRole" type="text" readonly></label>
+                                <div class="button-row span-2">
+                                    <button class="btn" id="accountProfileSaveBtn" type="submit">Save Profile</button>
+                                    <button class="btn ghost" id="accountProfileCancelBtn" type="button">Cancel</button>
+                                </div>
+                            </form>
+                            <button class="btn ghost" id="accountResetPasswordBtn" type="button">Reset My Password</button>
+                            <button class="btn secondary" id="accountLogoutBtn" type="button">Log Out</button>
+                            <div class="message" id="accountSettingsMessage" aria-live="polite"></div>
+                        </div>
+                    </details>
                     <span class="topbar-icon">Help</span>
                     <span class="utility-account-pill" id="desktopUtilityCompany" hidden>All Companies</span>
                 </div>
@@ -6660,8 +6735,12 @@
                 <span class="tab-meta">Lookup stock, search locations, and review inventory records.</span>
             </button>
             <button class="tab" data-section="actions" type="button">
-                <span class="tab-label">Adjust & Move</span>
-                <span class="tab-meta">Adjust counts, transfer stock, and move inventory between BINs.</span>
+                <span class="tab-label">Inventory Adjustments</span>
+                <span class="tab-meta">Correct counts, remove inventory, and convert item quantities.</span>
+            </button>
+            <button class="tab" data-section="moves" type="button">
+                <span class="tab-label">Inventory Moves</span>
+                <span class="tab-meta">Move items, full BINs, received stock, and investigation inventory.</span>
             </button>
             <button class="tab" data-section="inventory" type="button">
                 <span class="tab-label">Master Data</span>
@@ -8608,14 +8687,14 @@
                         <label class="field">
                             <span>From</span>
                             <div class="action-scan-row">
-                                <input id="transferFrom" list="transferFromList" type="text" placeholder="Choose company first">
+                                <input id="transferFrom" list="transferFromList" type="text" placeholder="Type or scan source location">
                                 <button class="btn ghost" type="button" data-action-scan-target="transferFrom">Scan</button>
                             </div>
                         </label>
                         <label class="field">
                             <span>To</span>
                             <div class="action-scan-row">
-                                <input id="transferTo" list="transferToList" type="text" placeholder="Choose company and source location first">
+                                <input id="transferTo" list="transferToList" type="text" placeholder="Type or scan destination location">
                                 <button class="btn ghost" type="button" data-action-scan-target="transferTo">Scan</button>
                             </div>
                         </label>
@@ -8625,6 +8704,10 @@
                                 <input id="transferSku" list="transferSkuList" type="text" placeholder="Choose company and source location first">
                                 <button class="btn ghost" type="button" data-action-scan-target="transferSku">Scan</button>
                             </div>
+                        </label>
+                        <label class="field span-2 hidden" id="transferInventoryLineField">
+                            <span>Lot / Expiry Stock Line</span>
+                            <select id="transferInventoryLineId"></select>
                         </label>
                         <label class="field span-2">
                             <span>Quantity</span>
@@ -8651,7 +8734,7 @@
                         <label class="field span-2">
                             <span>From</span>
                             <div class="action-scan-row">
-                                <input id="investigationFrom" list="investigationFromList" type="text" placeholder="Choose company first">
+                                <input id="investigationFrom" list="investigationFromList" type="text" placeholder="Type or scan source location">
                                 <button class="btn ghost" type="button" data-action-scan-target="investigationFrom">Scan</button>
                             </div>
                         </label>
@@ -8694,14 +8777,14 @@
                         <label class="field">
                             <span>From</span>
                             <div class="action-scan-row">
-                                <input id="putAwayFrom" list="putAwayFromList" type="text" placeholder="Choose company first">
+                                <input id="putAwayFrom" list="putAwayFromList" type="text" placeholder="Type or scan receiving location">
                                 <button class="btn ghost" type="button" data-action-scan-target="putAwayFrom">Scan</button>
                             </div>
                         </label>
                         <label class="field">
                             <span>To BIN</span>
                             <div class="action-scan-row">
-                                <input id="putAwayTo" list="putAwayToList" type="text" placeholder="Choose company and source location first">
+                                <input id="putAwayTo" list="putAwayToList" type="text" placeholder="Type or scan destination BIN">
                                 <button class="btn ghost" type="button" data-action-scan-target="putAwayTo">Scan</button>
                             </div>
                         </label>
@@ -8778,14 +8861,14 @@
                         <label class="field">
                             <span>From BIN</span>
                             <div class="action-scan-row">
-                                <input id="moveFrom" list="moveFromList" type="text" placeholder="Choose company first">
+                                <input id="moveFrom" list="moveFromList" type="text" placeholder="Type or scan source BIN">
                                 <button class="btn ghost" type="button" data-action-scan-target="moveFrom">Scan</button>
                             </div>
                         </label>
                         <label class="field">
                             <span>To BIN</span>
                             <div class="action-scan-row">
-                                <input id="moveTo" list="moveToList" type="text" placeholder="Choose company and source location first">
+                                <input id="moveTo" list="moveToList" type="text" placeholder="Type or scan destination BIN">
                                 <button class="btn ghost" type="button" data-action-scan-target="moveTo">Scan</button>
                             </div>
                         </label>
@@ -8795,7 +8878,7 @@
                     </form>
                 </article>
 
-                <article class="card desktop-complex workspace-sheet-card workspace-full-row">
+                <article class="card desktop-complex workspace-sheet-card workspace-full-row" id="inventoryActionsRecentActivityCard">
                     <div class="card-head">
                         <div>
                             <h2>Recent Activity</h2>
@@ -9109,6 +9192,9 @@
                             <button class="erp-command-link" type="button" id="salesOrderCommandDeleteBtn" hidden>Cancel Order</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReopenBtn" hidden>Reopen to Draft</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandDuplicateBtn" hidden>Duplicate Order</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandReturnBtn" hidden>Create Return Inbound</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandRouteBtn" hidden>Route Order</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPickTicketBtn">Print Pick Ticket</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPackingSlipBtn">Print Packing Slip</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandAddLineBtn">Select items...</button>
@@ -9177,6 +9263,27 @@
                             <span>Order Notes</span>
                             <input id="warehouseOrderNotes" type="text" placeholder="Optional shipping or handling notes">
                         </label>
+                        <div class="erp-fasttab-heading desktop-only span-2">Routing</div>
+                        <label class="field span-2">
+                            <span>Routing Email</span>
+                            <input id="warehouseOrderRoutingEmail" type="email" inputmode="email" placeholder="Routing or appointment contact email">
+                        </label>
+                        <label class="field">
+                            <span>Requested Delivery Date</span>
+                            <input id="warehouseOrderRoutingDeliveryDate" type="date">
+                        </label>
+                        <label class="field">
+                            <span>Total Pallets</span>
+                            <input id="warehouseOrderRoutingPallets" type="number" min="1" step="1" inputmode="numeric" placeholder="Required to route">
+                        </label>
+                        <label class="field">
+                            <span>Total Shipment Weight</span>
+                            <div class="action-scan-row">
+                                <input id="warehouseOrderRoutingWeight" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Required to route">
+                                <select id="warehouseOrderRoutingWeightUom" aria-label="Routing weight unit"><option value="LB">lb</option><option value="KG">kg</option></select>
+                            </div>
+                        </label>
+                        <div class="quick-meta span-2 hidden" id="warehouseOrderRoutingAppointment"></div>
                     </form>
                     <div class="erp-lines-part">
                         <div class="line-head" style="margin-bottom: 0.8rem;">
@@ -9200,6 +9307,9 @@
                         <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Cancel Order</button>
                         <button class="btn" id="releaseWarehouseOrderBtn" type="button">Release Order</button>
                         <button class="btn ghost" id="reopenWarehouseOrderBtn" type="button" hidden>Reopen to Draft</button>
+                        <button class="btn secondary" id="duplicateWarehouseOrderBtn" type="button" hidden>Duplicate Order</button>
+                        <button class="btn" id="createWarehouseReturnBtn" type="button" hidden>Create Return Inbound</button>
+                        <button class="btn secondary" id="routeWarehouseOrderBtn" type="button" hidden>Route Order</button>
                     </div>
                     <div class="status" id="warehouseOrderMessage"></div>
                 </article>
@@ -9234,8 +9344,8 @@
                                 </select>
                             </label>
                             <label class="field" style="flex: 1 1 280px;">
-                                <span>Search Orders</span>
-                                <input id="portalOrderSearch" type="text" placeholder="Order #, PO, ship to, SKU, tracking, or note">
+                                <span>Search or Scan Orders</span>
+                                <input id="portalOrderSearch" type="text" placeholder="Scan barcode or enter order #, PO, ship to, SKU, or tracking">
                             </label>
                             <button class="btn ghost" id="clearPortalOrderFiltersBtn" type="button">Clear Filters</button>
                         </div>
@@ -9929,6 +10039,73 @@
             </div>
             <div class="mobile-screen-body">
             <div class="backup-grid">
+                <article class="card span-2" id="productRecommendationsCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Product Recommendations</h2>
+                            <p class="lead">Review verified WMS365 gaps and competitive feature opportunities identified by the local product-intelligence agent.</p>
+                        </div>
+                        <span class="meta" id="productRecommendationsMeta">Super users only</span>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn secondary" id="refreshProductRecommendationsBtn" type="button">Refresh Recommendations</button>
+                        <button class="btn ghost" id="exportProductRecommendationsBtn" type="button" disabled>Export CSV</button>
+                    </div>
+                    <div class="erp-table-wrap" style="margin-top:1rem;">
+                        <table>
+                            <thead><tr><th>Priority</th><th>Capability</th><th>Coverage</th><th>Value</th><th>Recommendation</th><th>Acceptance Test</th><th>Status</th></tr></thead>
+                            <tbody id="productRecommendationsBody"><tr><td colspan="7">Select Refresh Recommendations to load the latest audit.</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="status" id="productRecommendationsMessage"></div>
+                </article>
+
+                <article class="card span-2 hidden" id="siteTrafficCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Website Traffic</h2>
+                            <p class="lead">Anonymous public-site visits, popular pages, referral sources, and device usage.</p>
+                        </div>
+                        <span class="meta">Owner access only</span>
+                    </div>
+                    <div class="button-row">
+                        <label>From <input id="siteTrafficFrom" type="date"></label>
+                        <label>To <input id="siteTrafficTo" type="date"></label>
+                        <button class="btn secondary" id="refreshSiteTrafficBtn" type="button">Refresh Traffic</button>
+                    </div>
+                    <div class="site-traffic-metrics">
+                        <div><span class="meta">Page Views</span><strong id="siteTrafficViews">0</strong></div>
+                        <div><span class="meta">Visits</span><strong id="siteTrafficVisits">0</strong></div>
+                        <div><span class="meta">Visitors</span><strong id="siteTrafficVisitors">0</strong></div>
+                        <div><span class="meta">Views / Visit</span><strong id="siteTrafficViewsPerVisit">0.00</strong></div>
+                    </div>
+                    <div class="erp-table-wrap" style="margin-top:1rem;">
+                        <table>
+                            <thead><tr><th>Day</th><th>Page Views</th><th>Visits</th><th>Visitors</th></tr></thead>
+                            <tbody id="siteTrafficDailyBody"><tr><td colspan="4">No daily traffic loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="erp-table-wrap" style="margin-top:1rem;">
+                        <table>
+                            <thead><tr><th>Top Page</th><th>Page Views</th><th>Visits</th></tr></thead>
+                            <tbody id="siteTrafficPagesBody"><tr><td colspan="3">Select Refresh Traffic to load website activity.</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="erp-table-wrap" style="margin-top:1rem;">
+                        <table>
+                            <thead><tr><th>Device</th><th>Page Views</th><th>Visits</th></tr></thead>
+                            <tbody id="siteTrafficDevicesBody"><tr><td colspan="3">No device data loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="erp-table-wrap" style="margin-top:1rem;">
+                        <table>
+                            <thead><tr><th>Referral Source</th><th>Page Views</th><th>Visits</th></tr></thead>
+                            <tbody id="siteTrafficReferrersBody"><tr><td colspan="3">No referral data loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="status" id="siteTrafficMessage" aria-live="polite"></div>
+                </article>
+
                 <article class="card">
                     <div class="card-head">
                         <div>
@@ -10603,7 +10780,7 @@
                     <p class="meta">Review the uploaded file without downloading it first.</p>
                 </div>
                 <div class="button-row document-preview-actions">
-                    <a class="btn ghost mini" id="warehouseDocumentDownloadLink" href="#" target="_blank" rel="noopener">Download</a>
+                    <a class="btn ghost mini" id="warehouseDocumentDownloadLink" href="#" target="_blank" rel="noopener">Open in new tab</a>
                     <button class="btn ghost mini" type="button" data-document-preview-close>Close</button>
                 </div>
             </div>
@@ -10611,6 +10788,29 @@
                 <div class="empty">Select a document to preview.</div>
             </div>
             <div class="status" id="warehouseDocumentPreviewMessage"></div>
+        </div>
+    </div>
+    <div id="orderRoutingDraftModal" class="feedback-modal hidden" aria-hidden="true">
+        <div class="feedback-modal-backdrop" data-routing-draft-close></div>
+        <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="orderRoutingDraftTitle">
+            <div class="card-head">
+                <div>
+                    <h2 id="orderRoutingDraftTitle">Route Order</h2>
+                    <p class="meta" id="orderRoutingDraftTemplate">Review the appointment request before sending.</p>
+                </div>
+                <button class="btn ghost mini" type="button" data-routing-draft-close>Close</button>
+            </div>
+            <div class="form-grid">
+                <label class="field span-2"><span>To</span><input id="orderRoutingDraftTo" type="text" readonly></label>
+                <label class="field span-2"><span>CC</span><input id="orderRoutingDraftCc" type="text" readonly></label>
+                <label class="field span-2"><span>Subject</span><input id="orderRoutingDraftSubject" type="text" readonly></label>
+                <label class="field span-2"><span>Email Preview</span><textarea id="orderRoutingDraftBody" rows="17" readonly></textarea></label>
+            </div>
+            <div class="button-row">
+                <button class="btn" id="sendOrderRoutingEmailBtn" type="button">Send Routing Email</button>
+                <button class="btn ghost" type="button" data-routing-draft-close>Cancel</button>
+            </div>
+            <div class="status" id="orderRoutingDraftMessage"></div>
         </div>
     </div>
 
@@ -10748,6 +10948,7 @@
             }, {})
         );
         const state = loadState();
+        let currentAppUser = null;
         let labelToolState = loadLabelToolState();
         let activeSection = "home";
         let appSessionStateLoaded = false;
@@ -10791,6 +10992,8 @@
         let emailQueueLoaded = false;
         let emailQueueLoading = false;
         let editingWarehouseOrderId = "";
+        let currentOrderRoutingDraft = null;
+        let productRecommendationRecords = [];
         let editingWarehouseInboundId = "";
         let warehouseDocumentPreviewObjectUrl = "";
         let inventoryWorksheetDraftCompany = "";
@@ -10814,7 +11017,7 @@
             groups: [
                 { key: "home", label: "Dashboard", sections: ["home"] },
                 { key: "inbound", label: "Inbound", sections: ["inbounds", "scan"] },
-                { key: "inventory", label: "Inventory", sections: ["search", "actions", "labels"] },
+                { key: "inventory", label: "Inventory", sections: ["search", "moves", "actions", "labels"] },
                 { key: "outbound", label: "Outbound", sections: ["orders", "shipped"] },
                 { key: "setup", label: "Setup", sections: ["inventory", "integrations"] },
                 { key: "reporting", label: "Reporting", sections: ["reports"] },
@@ -10847,10 +11050,16 @@
                     features: ["SKU / UPC Search", "Location Search", "Multi Item Search", "Lot / Expiration Review"]
                 },
                 actions: {
-                    title: "Adjust & Move",
-                    meta: "Adjust counts, transfer stock, convert units, and move stock with company-safe controls.",
-                    drillPath: "Inventory / Adjust & Move",
-                    features: ["Remove Quantity", "Delete Line", "Transfer Stock", "Convert Items", "Move BIN"]
+                    title: "Inventory Adjustments",
+                    meta: "Correct counts, remove stock, and convert item quantities with company-safe controls.",
+                    drillPath: "Inventory / Adjustments",
+                    features: ["Remove Quantity", "Delete Line", "Convert Items", "Kitting Review"]
+                },
+                moves: {
+                    title: "Inventory Moves",
+                    meta: "Move inventory between locations with exact lot, quantity, and warehouse controls.",
+                    drillPath: "Inventory / Moves",
+                    features: ["Move Item", "Move Full BIN", "Put Away", "Investigation Hold"]
                 },
                 inventory: {
                     title: "Master Data",
@@ -10923,6 +11132,7 @@
             scan: "Receiving Worksheet",
             search: "Inventory: All",
             actions: "Inventory Actions",
+            moves: "Inventory Moves",
             labels: "Warehouse Labels",
             orders: "Sales Orders: All",
             shipped: "Shipped Orders: All",
@@ -10998,6 +11208,39 @@
             desktopModuleCompany: document.getElementById("desktopModuleCompany"),
             desktopCompanySwitcher: document.getElementById("desktopCompanySwitcher"),
             desktopCompanySwitcherSummary: document.getElementById("desktopCompanySwitcherSummary"),
+            refreshProductRecommendationsBtn: document.getElementById("refreshProductRecommendationsBtn"),
+            exportProductRecommendationsBtn: document.getElementById("exportProductRecommendationsBtn"),
+            productRecommendationsMeta: document.getElementById("productRecommendationsMeta"),
+            productRecommendationsBody: document.getElementById("productRecommendationsBody"),
+            productRecommendationsMessage: document.getElementById("productRecommendationsMessage"),
+            siteTrafficCard: document.getElementById("siteTrafficCard"),
+            siteTrafficFrom: document.getElementById("siteTrafficFrom"),
+            siteTrafficTo: document.getElementById("siteTrafficTo"),
+            refreshSiteTrafficBtn: document.getElementById("refreshSiteTrafficBtn"),
+            siteTrafficViews: document.getElementById("siteTrafficViews"),
+            siteTrafficVisits: document.getElementById("siteTrafficVisits"),
+            siteTrafficVisitors: document.getElementById("siteTrafficVisitors"),
+            siteTrafficViewsPerVisit: document.getElementById("siteTrafficViewsPerVisit"),
+            siteTrafficDailyBody: document.getElementById("siteTrafficDailyBody"),
+            siteTrafficPagesBody: document.getElementById("siteTrafficPagesBody"),
+            siteTrafficReferrersBody: document.getElementById("siteTrafficReferrersBody"),
+            siteTrafficDevicesBody: document.getElementById("siteTrafficDevicesBody"),
+            siteTrafficMessage: document.getElementById("siteTrafficMessage"),
+            accountSettingsMenu: document.getElementById("accountSettingsMenu"),
+            accountSettingsCloseBtn: document.getElementById("accountSettingsCloseBtn"),
+            accountSettingsUser: document.getElementById("accountSettingsUser"),
+            accountProfileBtn: document.getElementById("accountProfileBtn"),
+            accountProfileForm: document.getElementById("accountProfileForm"),
+            accountProfileFirstName: document.getElementById("accountProfileFirstName"),
+            accountProfileLastName: document.getElementById("accountProfileLastName"),
+            accountProfileEmail: document.getElementById("accountProfileEmail"),
+            accountProfilePhone: document.getElementById("accountProfilePhone"),
+            accountProfileRole: document.getElementById("accountProfileRole"),
+            accountProfileSaveBtn: document.getElementById("accountProfileSaveBtn"),
+            accountProfileCancelBtn: document.getElementById("accountProfileCancelBtn"),
+            accountResetPasswordBtn: document.getElementById("accountResetPasswordBtn"),
+            accountLogoutBtn: document.getElementById("accountLogoutBtn"),
+            accountSettingsMessage: document.getElementById("accountSettingsMessage"),
             companySwitcherSearch: document.getElementById("companySwitcherSearch"),
             companySwitcherAddPanel: document.getElementById("companySwitcherAddPanel"),
             companySwitcherAddToggleBtn: document.getElementById("companySwitcherAddToggleBtn"),
@@ -11429,6 +11672,8 @@
             transferFrom: document.getElementById("transferFrom"),
             transferTo: document.getElementById("transferTo"),
             transferSku: document.getElementById("transferSku"),
+            transferInventoryLineField: document.getElementById("transferInventoryLineField"),
+            transferInventoryLineId: document.getElementById("transferInventoryLineId"),
             transferQty: document.getElementById("transferQty"),
             investigationAccount: document.getElementById("investigationAccount"),
             investigationFrom: document.getElementById("investigationFrom"),
@@ -11559,6 +11804,12 @@
             warehouseOrderShipToCountry: document.getElementById("warehouseOrderShipToCountry"),
             warehouseShipToAddressList: document.getElementById("warehouseShipToAddressList"),
             warehouseOrderNotes: document.getElementById("warehouseOrderNotes"),
+            warehouseOrderRoutingEmail: document.getElementById("warehouseOrderRoutingEmail"),
+            warehouseOrderRoutingDeliveryDate: document.getElementById("warehouseOrderRoutingDeliveryDate"),
+            warehouseOrderRoutingPallets: document.getElementById("warehouseOrderRoutingPallets"),
+            warehouseOrderRoutingWeight: document.getElementById("warehouseOrderRoutingWeight"),
+            warehouseOrderRoutingWeightUom: document.getElementById("warehouseOrderRoutingWeightUom"),
+            warehouseOrderRoutingAppointment: document.getElementById("warehouseOrderRoutingAppointment"),
             warehouseOrderLines: document.getElementById("warehouseOrderLines"),
             warehouseOrderWorkflowPanel: document.getElementById("warehouseOrderWorkflowPanel"),
             openSalesOrderNewBtn: document.getElementById("openSalesOrderNewBtn"),
@@ -11569,11 +11820,17 @@
             deleteWarehouseOrderBtn: document.getElementById("deleteWarehouseOrderBtn"),
             releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
             reopenWarehouseOrderBtn: document.getElementById("reopenWarehouseOrderBtn"),
+            duplicateWarehouseOrderBtn: document.getElementById("duplicateWarehouseOrderBtn"),
+            createWarehouseReturnBtn: document.getElementById("createWarehouseReturnBtn"),
+            routeWarehouseOrderBtn: document.getElementById("routeWarehouseOrderBtn"),
             salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
             salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
             salesOrderCommandDeleteBtn: document.getElementById("salesOrderCommandDeleteBtn"),
             salesOrderCommandReleaseBtn: document.getElementById("salesOrderCommandReleaseBtn"),
             salesOrderCommandReopenBtn: document.getElementById("salesOrderCommandReopenBtn"),
+            salesOrderCommandDuplicateBtn: document.getElementById("salesOrderCommandDuplicateBtn"),
+            salesOrderCommandReturnBtn: document.getElementById("salesOrderCommandReturnBtn"),
+            salesOrderCommandRouteBtn: document.getElementById("salesOrderCommandRouteBtn"),
             salesOrderCommandPickTicketBtn: document.getElementById("salesOrderCommandPickTicketBtn"),
             salesOrderCommandPackingSlipBtn: document.getElementById("salesOrderCommandPackingSlipBtn"),
             salesOrderCommandAddLineBtn: document.getElementById("salesOrderCommandAddLineBtn"),
@@ -11708,6 +11965,15 @@
             warehouseDocumentPreviewBody: document.getElementById("warehouseDocumentPreviewBody"),
             warehouseDocumentPreviewMessage: document.getElementById("warehouseDocumentPreviewMessage"),
             warehouseDocumentDownloadLink: document.getElementById("warehouseDocumentDownloadLink"),
+            orderRoutingDraftModal: document.getElementById("orderRoutingDraftModal"),
+            orderRoutingDraftCloseButtons: [...document.querySelectorAll("[data-routing-draft-close]")],
+            orderRoutingDraftTemplate: document.getElementById("orderRoutingDraftTemplate"),
+            orderRoutingDraftTo: document.getElementById("orderRoutingDraftTo"),
+            orderRoutingDraftCc: document.getElementById("orderRoutingDraftCc"),
+            orderRoutingDraftSubject: document.getElementById("orderRoutingDraftSubject"),
+            orderRoutingDraftBody: document.getElementById("orderRoutingDraftBody"),
+            sendOrderRoutingEmailBtn: document.getElementById("sendOrderRoutingEmailBtn"),
+            orderRoutingDraftMessage: document.getElementById("orderRoutingDraftMessage"),
             feedbackAdminCard: document.getElementById("feedbackAdminCard"),
             feedbackTypeFilter: document.getElementById("feedbackTypeFilter"),
             feedbackStatusFilter: document.getElementById("feedbackStatusFilter"),
@@ -11805,6 +12071,225 @@
 
         init();
 
+        function productRecommendationLabel(value = "") {
+            return String(value || "").replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+        }
+
+        function renderProductRecommendations(report = null) {
+            productRecommendationRecords = Array.isArray(report?.recommendations) ? report.recommendations : [];
+            if (ui.productRecommendationsMeta) {
+                ui.productRecommendationsMeta.textContent = report?.generatedAt
+                    ? `${productRecommendationRecords.length} recommendations | ${formatDate(report.generatedAt)}`
+                    : "No audit loaded";
+            }
+            if (ui.exportProductRecommendationsBtn) ui.exportProductRecommendationsBtn.disabled = !productRecommendationRecords.length;
+            if (!ui.productRecommendationsBody) return;
+            ui.productRecommendationsBody.innerHTML = productRecommendationRecords.length
+                ? productRecommendationRecords.map((item) => `
+                    <tr>
+                        <td><span class="pill ${norm(item.priority) === "CRITICAL" ? "warning" : ""}">${esc(productRecommendationLabel(item.priority))}</span></td>
+                        <td><strong>${esc(productRecommendationLabel(item.key))}</strong></td>
+                        <td>${esc(productRecommendationLabel(item.coverage))}</td>
+                        <td>${esc(item.value || "")}</td>
+                        <td>${esc(item.recommendation || "")}</td>
+                        <td>${esc(item.acceptanceTest || "")}</td>
+                        <td>${esc(productRecommendationLabel(item.reviewStatus || "REVIEW"))}</td>
+                    </tr>`).join("")
+                : `<tr><td colspan="7">No recommendations were returned by the latest audit.</td></tr>`;
+        }
+
+        async function refreshProductRecommendations() {
+            try {
+                await runActionWithFeedback({
+                    button: ui.refreshProductRecommendationsBtn,
+                    busyLabel: "Refreshing...",
+                    messageElement: ui.productRecommendationsMessage,
+                    progressMessage: "Loading the latest local-agent recommendation audit..."
+                }, async () => {
+                    const response = await requestJson("/api/admin/product-intelligence");
+                    renderProductRecommendations(response?.report || null);
+                    showMessage(ui.productRecommendationsMessage, "Latest product recommendation audit loaded.", "success");
+                });
+            } catch (error) {
+                renderProductRecommendations(null);
+                showMessage(ui.productRecommendationsMessage, error.message || "Recommendations could not be loaded.", "error");
+            }
+        }
+
+        function exportProductRecommendations() {
+            if (!productRecommendationRecords.length) return;
+            const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+            const headers = ["Priority", "Capability", "Coverage", "Value", "Recommendation", "Acceptance Test", "Status"];
+            const rows = productRecommendationRecords.map((item) => [item.priority, item.key, item.coverage, item.value, item.recommendation, item.acceptanceTest, item.reviewStatus]);
+            const blob = new Blob([[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `WMS365_Product_Recommendations_${todayIso()}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function applyCurrentAppUser(user = {}) {
+            currentAppUser = {
+                id: String(user?.id || ""),
+                email: String(user?.email || "").trim().toLowerCase(),
+                fullName: String(user?.fullName || user?.full_name || "").trim(),
+                firstName: String(user?.firstName || user?.first_name || "").trim(),
+                lastName: String(user?.lastName || user?.last_name || "").trim(),
+                phone: String(user?.phone || "").trim(),
+                role: String(user?.role || "").trim()
+            };
+            if (!currentAppUser.firstName && currentAppUser.fullName) {
+                const parts = currentAppUser.fullName.split(/\s+/);
+                currentAppUser.firstName = parts.shift() || "";
+                currentAppUser.lastName = parts.join(" ");
+            }
+            if (ui.accountSettingsUser) ui.accountSettingsUser.textContent = currentAppUser.email ? `Signed in as ${currentAppUser.email}` : "Signed in to WMS365";
+            if (ui.accountProfileFirstName) ui.accountProfileFirstName.value = currentAppUser.firstName;
+            if (ui.accountProfileLastName) ui.accountProfileLastName.value = currentAppUser.lastName;
+            if (ui.accountProfileEmail) ui.accountProfileEmail.value = currentAppUser.email;
+            if (ui.accountProfilePhone) ui.accountProfilePhone.value = currentAppUser.phone;
+            if (ui.accountProfileRole) ui.accountProfileRole.value = currentAppUser.role.replace(/_/g, " ");
+            const canViewSiteTraffic = currentAppUser.email === "k.prathab@gmail.com";
+            ui.siteTrafficCard?.classList.toggle("hidden", !canViewSiteTraffic);
+            if (canViewSiteTraffic && !ui.siteTrafficFrom?.value) initializeSiteTrafficDates();
+            return currentAppUser;
+        }
+
+        function initializeSiteTrafficDates() {
+            const to = new Date();
+            const from = new Date(to.getTime() - (29 * 24 * 60 * 60 * 1000));
+            if (ui.siteTrafficFrom) ui.siteTrafficFrom.value = from.toISOString().slice(0, 10);
+            if (ui.siteTrafficTo) ui.siteTrafficTo.value = to.toISOString().slice(0, 10);
+        }
+
+        function renderSiteTrafficRows(target, rows, emptyMessage) {
+            if (!target) return;
+            target.innerHTML = Array.isArray(rows) && rows.length
+                ? rows.map((row) => `<tr><td>${escapeHtml(row.label || "Unknown")}</td><td>${formatNumber(row.page_views || 0)}</td><td>${formatNumber(row.visits || 0)}</td></tr>`).join("")
+                : `<tr><td colspan="3">${escapeHtml(emptyMessage)}</td></tr>`;
+        }
+
+        async function refreshSiteTraffic() {
+            if (currentAppUser?.email !== "k.prathab@gmail.com") return;
+            try {
+                const query = new URLSearchParams({ from: ui.siteTrafficFrom?.value || "", to: ui.siteTrafficTo?.value || "" });
+                const payload = await runActionWithFeedback({
+                    button: ui.refreshSiteTrafficBtn,
+                    busyLabel: "Loading...",
+                    messageElement: ui.siteTrafficMessage
+                }, () => requestJson(`/api/admin/site-traffic?${query.toString()}`));
+                const report = payload?.report || {};
+                const totals = report.totals || {};
+                const views = Number(totals.page_views) || 0;
+                const visits = Number(totals.visits) || 0;
+                if (ui.siteTrafficViews) ui.siteTrafficViews.textContent = formatNumber(views);
+                if (ui.siteTrafficVisits) ui.siteTrafficVisits.textContent = formatNumber(visits);
+                if (ui.siteTrafficVisitors) ui.siteTrafficVisitors.textContent = formatNumber(totals.visitors || 0);
+                if (ui.siteTrafficViewsPerVisit) ui.siteTrafficViewsPerVisit.textContent = visits ? (views / visits).toFixed(2) : "0.00";
+                if (ui.siteTrafficDailyBody) {
+                    ui.siteTrafficDailyBody.innerHTML = Array.isArray(report.daily) && report.daily.length
+                        ? report.daily.map((row) => `<tr><td>${escapeHtml(row.day || "")}</td><td>${formatNumber(row.page_views || 0)}</td><td>${formatNumber(row.visits || 0)}</td><td>${formatNumber(row.visitors || 0)}</td></tr>`).join("")
+                        : '<tr><td colspan="4">No daily traffic was recorded in this period.</td></tr>';
+                }
+                renderSiteTrafficRows(ui.siteTrafficPagesBody, report.pages, "No page views were recorded in this period.");
+                renderSiteTrafficRows(ui.siteTrafficReferrersBody, report.referrers, "No referral sources were recorded in this period.");
+                renderSiteTrafficRows(ui.siteTrafficDevicesBody, report.devices, "No device activity was recorded in this period.");
+                showMessage(ui.siteTrafficMessage, `Website traffic loaded for ${report.from} through ${report.to}.`, "success");
+            } catch (error) {
+                showMessage(ui.siteTrafficMessage, error.message || "Website traffic could not be loaded.", "error");
+            }
+        }
+
+        async function refreshCurrentAppUser() {
+            const payload = await requestJson("/api/app/me");
+            return applyCurrentAppUser(payload?.user || {});
+        }
+
+        function showAccountProfileForm() {
+            applyCurrentAppUser(currentAppUser || {});
+            ui.accountProfileForm?.classList.remove("hidden");
+            ui.accountProfileBtn?.classList.add("hidden");
+            window.setTimeout(() => ui.accountProfileFirstName?.focus(), 0);
+        }
+
+        function hideAccountProfileForm() {
+            ui.accountProfileForm?.classList.add("hidden");
+            ui.accountProfileBtn?.classList.remove("hidden");
+            applyCurrentAppUser(currentAppUser || {});
+        }
+
+        async function saveCurrentWarehouseProfile(event) {
+            event?.preventDefault();
+            const firstName = String(ui.accountProfileFirstName?.value || "").trim();
+            const lastName = String(ui.accountProfileLastName?.value || "").trim();
+            if (!firstName) return fail(ui.accountSettingsMessage, "Enter your first name.", ui.accountProfileFirstName);
+            if (!lastName) return fail(ui.accountSettingsMessage, "Enter your last name.", ui.accountProfileLastName);
+            try {
+                await runActionWithFeedback({
+                    button: ui.accountProfileSaveBtn,
+                    busyLabel: "Saving...",
+                    messageElement: ui.accountSettingsMessage,
+                    progressMessage: "Saving your profile..."
+                }, async () => {
+                    const response = await requestJson("/api/app/profile", {
+                        method: "PUT",
+                        body: JSON.stringify({ firstName, lastName, phone: String(ui.accountProfilePhone?.value || "").trim() })
+                    });
+                    applyCurrentAppUser(response?.user || {});
+                    hideAccountProfileForm();
+                    showMessage(ui.accountSettingsMessage, "Profile saved.", "success");
+                });
+            } catch (error) {
+                showMessage(ui.accountSettingsMessage, error.message || "Your profile could not be saved.", "error");
+            }
+        }
+
+        async function resetCurrentWarehousePassword() {
+            if (!currentAppUser?.email) {
+                try {
+                    await refreshCurrentAppUser();
+                } catch (error) {
+                    showMessage(ui.accountSettingsMessage, error.message || "Your signed-in profile could not be loaded.", "error");
+                    return;
+                }
+            }
+            const email = String(currentAppUser?.email || "").trim().toLowerCase();
+            if (!email) {
+                showMessage(ui.accountSettingsMessage, "Your signed-in email could not be found. Log out and sign in again before resetting your password.", "error");
+                return;
+            }
+            if (!window.confirm(`Send a temporary password to ${email}? You will be signed out on every device and must use the emailed password to sign in again.`)) return;
+            try {
+                await runActionWithFeedback({
+                    button: ui.accountResetPasswordBtn,
+                    busyLabel: "Sending...",
+                    messageElement: ui.accountSettingsMessage,
+                    progressMessage: "Creating a secure temporary password and sending it by email..."
+                }, async () => {
+                    const response = await requestJson("/api/app/recovery/password", {
+                        method: "POST",
+                        body: JSON.stringify({ email })
+                    });
+                    window.alert(response?.message || "A temporary password has been emailed. Sign in again using that password.");
+                    window.location.assign("/login.html?next=%2Fdesktop");
+                });
+            } catch (error) {
+                showMessage(ui.accountSettingsMessage, error.message || "The password reset email could not be sent.", "error");
+            }
+        }
+
+        async function logoutCurrentWarehouseUser() {
+            if (!window.confirm("Log out of WMS365 on this device?")) return;
+            try {
+                await requestJson("/api/app/logout", { method: "POST" });
+            } catch {
+                // Continue to sign-in even when the server session has already expired.
+            }
+            window.location.assign("/login.html?next=%2Fdesktop");
+        }
+
         function init() {
             applyDeviceExperienceMode();
             mountMasterDataWorkspace();
@@ -11822,6 +12307,23 @@
             const debouncedRenderReports = debounce(() => renderReports(ui.reportFilter.value), 140);
             const debouncedRenderFeedbackQueue = debounce(() => renderFeedbackQueue(), 140);
             ui.desktopPreviewToggle?.addEventListener("click", toggleDesktopPreviewMode);
+            ui.refreshProductRecommendationsBtn?.addEventListener("click", refreshProductRecommendations);
+            ui.exportProductRecommendationsBtn?.addEventListener("click", exportProductRecommendations);
+            ui.refreshSiteTrafficBtn?.addEventListener("click", refreshSiteTraffic);
+            ui.accountSettingsCloseBtn?.addEventListener("click", () => {
+                if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
+            });
+            ui.accountSettingsMenu?.addEventListener("toggle", () => {
+                if (!ui.accountSettingsMenu.open) return;
+                if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
+                refreshCurrentAppUser().catch((error) => showMessage(ui.accountSettingsMessage, error.message || "Profile could not be loaded.", "error"));
+            });
+            ui.accountProfileBtn?.addEventListener("click", showAccountProfileForm);
+            ui.accountProfileCancelBtn?.addEventListener("click", hideAccountProfileForm);
+            ui.accountProfileForm?.addEventListener("submit", saveCurrentWarehouseProfile);
+            ui.accountResetPasswordBtn?.addEventListener("click", resetCurrentWarehousePassword);
+            ui.accountLogoutBtn?.addEventListener("click", logoutCurrentWarehouseUser);
+            refreshCurrentAppUser().catch(() => {});
             ui.desktopSectionBackBtn?.addEventListener("click", () => goBackDesktopSection());
             ui.syncNowBtn?.addEventListener("click", async () => {
                 const previousSyncLabel = ui.workspaceSyncChip?.textContent || "Synced: waiting";
@@ -11874,6 +12376,7 @@
             });
             ui.desktopCompanySwitcher?.addEventListener("toggle", () => {
                 if (!ui.desktopCompanySwitcher.open) return;
+                if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
                 syncCompanySwitcherAddAccess();
                 renderCompanySwitcherList();
                 window.setTimeout(() => ui.companySwitcherSearch?.focus(), 0);
@@ -12143,6 +12646,21 @@
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
             ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
             ui.portalOrderSearch?.addEventListener("input", debouncedRenderPortalOrders);
+            ui.portalOrderSearch?.addEventListener("keydown", async (event) => {
+                if (event.key !== "Enter") return;
+                const scannedOrderCode = norm(ui.portalOrderSearch.value);
+                if (!scannedOrderCode) return;
+                const company = getActiveCompany();
+                const exactOrder = portalOrderRecords.find((order) =>
+                    (!company || order.accountName === company)
+                    && norm(order.orderCode) === scannedOrderCode
+                );
+                if (!exactOrder) return;
+                event.preventDefault();
+                if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = "";
+                renderPortalOrdersList();
+                await openSalesOrderDetail(exactOrder.id, { messageElement: ui.portalOrdersMessage, scroll: true });
+            });
             ui.openSalesOrderNewBtn?.addEventListener("click", () => showSalesOrderDocument(null, { scroll: true }));
             ui.closeWarehouseOrderEntryBtn?.addEventListener("click", () => showSalesOrderList({ scroll: true }));
             ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
@@ -12151,11 +12669,19 @@
             ui.deleteWarehouseOrderBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.reopenWarehouseOrderBtn?.addEventListener("click", reopenWarehouseSalesOrder);
+            ui.duplicateWarehouseOrderBtn?.addEventListener("click", duplicateWarehouseSalesOrder);
+            ui.createWarehouseReturnBtn?.addEventListener("click", createWarehouseSalesOrderReturnInbound);
+            ui.routeWarehouseOrderBtn?.addEventListener("click", openWarehouseOrderRoutingDraft);
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.salesOrderCommandDeleteBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.salesOrderCommandReopenBtn?.addEventListener("click", reopenWarehouseSalesOrder);
+            ui.salesOrderCommandDuplicateBtn?.addEventListener("click", duplicateWarehouseSalesOrder);
+            ui.salesOrderCommandReturnBtn?.addEventListener("click", createWarehouseSalesOrderReturnInbound);
+            ui.salesOrderCommandRouteBtn?.addEventListener("click", openWarehouseOrderRoutingDraft);
+            ui.orderRoutingDraftCloseButtons?.forEach((button) => button.addEventListener("click", closeOrderRoutingDraft));
+            ui.sendOrderRoutingEmailBtn?.addEventListener("click", sendWarehouseOrderRoutingEmail);
             ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
             ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
             ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
@@ -12254,7 +12780,7 @@
             });
             [
                 ui.adjustAccount, ui.adjustLocation, ui.adjustSku,
-                ui.transferAccount, ui.transferFrom, ui.transferTo, ui.transferSku,
+                ui.transferAccount, ui.transferFrom, ui.transferTo, ui.transferSku, ui.transferInventoryLineId,
                 ui.investigationAccount, ui.investigationFrom, ui.investigationSku, ui.investigationQty, ui.investigationNote,
                 ui.putAwayAccount, ui.putAwayFrom, ui.putAwayTo, ui.putAwaySku,
                 ui.convertAccount, ui.convertFrom, ui.convertTo, ui.convertSourceSku, ui.convertSourceQty, ui.convertTargetSku,
@@ -12262,7 +12788,7 @@
             ].forEach((input) => {
                 ["input", "change", "blur"].forEach((eventName) => input.addEventListener(eventName, syncActionItemSelectors));
             });
-            [ui.transferFrom, ui.transferSku].forEach((input) => {
+            [ui.transferFrom, ui.transferSku, ui.transferInventoryLineId].forEach((input) => {
                 ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("transfer")));
             });
             [ui.investigationFrom, ui.investigationSku].forEach((input) => {
@@ -12952,7 +13478,7 @@
             const normalizedSection = normalizeSectionForCurrentDevice(section);
             const visiblePanelSection = isShippedOrdersSection(normalizedSection)
                 ? "orders"
-                : normalizedSection;
+                : (normalizedSection === "moves" ? "actions" : normalizedSection);
             ui.panels.forEach((panel) => {
                 const isActive = panel.dataset.panel === visiblePanelSection;
                 panel.classList.toggle("active", isActive);
@@ -12966,6 +13492,17 @@
                 }
             });
             return normalizedSection;
+        }
+
+        function syncInventoryActionScreen(section = activeSection) {
+            const moveOnly = String(section || "").toLowerCase() === "moves";
+            const adjustmentOnly = String(section || "").toLowerCase() === "actions";
+            ["transferInventoryCard", "investigationHoldCard", "putAwayInventoryCard", "moveInventoryCard"].forEach((id) => {
+                document.getElementById(id)?.classList.toggle("hidden", adjustmentOnly);
+            });
+            ["customerKittingRequestsCard", "adjustInventoryCard", "convertInventoryCard", "inventoryActionsRecentActivityCard"].forEach((id) => {
+                document.getElementById(id)?.classList.toggle("hidden", moveOnly);
+            });
         }
 
         function getLastMobileHistorySection() {
@@ -13024,6 +13561,7 @@
             }
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
             syncScanSectionUi();
+            syncInventoryActionScreen(section);
             syncPortalOrdersSectionUi(section);
             updateMobileBackButtons();
             updateDesktopSectionBackButton();
@@ -17113,15 +17651,15 @@
             };
 
             syncLocationField(ui.adjustLocation, adjustLocations, "Choose company first", "Select a location for this company");
-            syncLocationField(ui.transferFrom, transferFromLocations, "Choose company first", "Select the source location");
-            syncLocationField(ui.transferTo, transferToLocations, "Choose company and source location first", "Select a valid destination location");
-            syncLocationField(ui.investigationFrom, investigationFromLocations, "Choose company first", "Select the source location");
-            syncLocationField(ui.putAwayFrom, putAwayFromLocations, "Choose company first", "Select receiving, dock, or staging location");
-            syncLocationField(ui.putAwayTo, putAwayToLocations, "Choose company and source location first", "Select the destination storage BIN");
+            syncLocationField(ui.transferFrom, transferFromLocations, "Choose company first", "Type or scan source location");
+            syncLocationField(ui.transferTo, transferToLocations, "Choose company and source location first", "Type or scan destination location");
+            syncLocationField(ui.investigationFrom, investigationFromLocations, "Choose company first", "Type or scan source location");
+            syncLocationField(ui.putAwayFrom, putAwayFromLocations, "Choose company first", "Type or scan receiving location");
+            syncLocationField(ui.putAwayTo, putAwayToLocations, "Choose company and source location first", "Type or scan destination BIN");
             syncLocationField(ui.convertFrom, convertFromLocations, "Choose company first", "Select the source location");
             syncLocationField(ui.convertTo, convertToLocations, "Choose company first", "Select the destination location");
-            syncLocationField(ui.moveFrom, moveFromLocations, "Choose company first", "Select the source location");
-            syncLocationField(ui.moveTo, moveToLocations, "Choose company and source location first", "Select a valid destination location");
+            syncLocationField(ui.moveFrom, moveFromLocations, "Choose company first", "Type or scan source BIN");
+            syncLocationField(ui.moveTo, moveToLocations, "Choose company and source location first", "Type or scan destination BIN");
             syncField(ui.adjustSku, adjustItems, "Choose company and location first", "Select a SKU from this location");
             syncField(ui.transferSku, transferItems, "Choose company and source location first", "Select a SKU from the source location");
             syncField(ui.investigationSku, investigationItems, "Choose company and source location first", "Select a SKU from the source location");
@@ -17133,6 +17671,7 @@
 
         function syncActionItemSelectors() {
             renderActionSkuDatalists();
+            syncTransferInventoryLineSelector();
             refreshMobileAutocomplete();
         }
 
@@ -17220,6 +17759,40 @@
             );
             if (upcMatches.length > 1) return { duplicateUpc: true };
             return upcMatches[0] || null;
+        }
+
+        function getTransferInventoryLineMatches() {
+            const accountName = getScopedCompanyValue(ui.transferAccount?.value || "");
+            const location = norm(ui.transferFrom?.value || "");
+            const skuOrUpc = norm(ui.transferSku?.value || "");
+            if (!accountName || !location || !skuOrUpc) return [];
+            const skuMatches = state.inventory.filter((line) =>
+                norm(line.accountName) === accountName
+                && norm(line.location) === location
+                && norm(line.sku) === skuOrUpc
+            );
+            if (skuMatches.length) return skuMatches;
+            return state.inventory.filter((line) =>
+                norm(line.accountName) === accountName
+                && norm(line.location) === location
+                && norm(line.upc) === skuOrUpc
+            );
+        }
+
+        function syncTransferInventoryLineSelector() {
+            if (!ui.transferInventoryLineId || !ui.transferInventoryLineField) return;
+            const matches = getTransferInventoryLineMatches();
+            const current = String(ui.transferInventoryLineId.value || "");
+            ui.transferInventoryLineField.classList.toggle("hidden", matches.length <= 1);
+            ui.transferInventoryLineId.innerHTML = matches.length > 1
+                ? `<option value="">Choose the exact lot / expiry row</option>${matches.map((line) => {
+                    const lot = line.lotNumber || line.lot_number || "No lot";
+                    const expiry = line.expirationDate || line.expiration_date || "No expiry";
+                    const available = lineAvailableQuantity(line);
+                    return `<option value="${attr(line.id)}">${esc(`${lot} | ${expiry} | ${formatTrackedQuantity(available, line.trackingLevel || line.tracking_level || "UNIT")} available`)}</option>`;
+                }).join("")}`
+                : matches.map((line) => `<option value="${attr(line.id)}">${esc(line.sku || "Stock line")}</option>`).join("");
+            if (matches.some((line) => String(line.id) === current)) ui.transferInventoryLineId.value = current;
         }
 
         function convertTrackedQuantityToEachUnits(quantity, trackingLevel, unitsPerCase, label = "item") {
@@ -21239,6 +21812,25 @@
             const isFreightShipment = shipmentMethodRequiresFreightProof(shipmentMethod);
             const usesPalletTracking = shipmentMethodUsesPalletTracking(shipmentMethod);
             const outboundPallets = order.outboundPallets || {};
+            const requiresPickedPalletDetails = norm(order.accountName).includes("ALCONA TRADING");
+            const savedPickedPallets = Array.isArray(order.pickedPalletDetails) ? order.pickedPalletDetails : [];
+            const pickedPalletRows = (savedPickedPallets.length ? savedPickedPallets : [{ location: "", weight: "", weightUom: "LB" }]).map((pallet, index) => `
+                <div class="form-grid compact-grid" data-picked-pallet-row="${attr(order.id)}">
+                    <div class="quick-meta"><strong>Pallet ${index + 1}</strong></div>
+                    <label class="field"><span>Actual Pick Bin</span><input data-picked-pallet-location type="text" list="picked-pallet-locations-${attr(order.id)}" value="${attr(pallet.location || "")}" placeholder="Scan or enter bin"></label>
+                    <label class="field"><span>Weight</span><input data-picked-pallet-weight type="number" min="0.001" step="0.001" inputmode="decimal" value="${attr(pallet.weight || "")}"></label>
+                    <label class="field"><span>Unit</span><select data-picked-pallet-weight-uom><option value="LB" ${norm(pallet.weightUom || "LB") === "LB" ? "selected" : ""}>lb</option><option value="KG" ${norm(pallet.weightUom || "LB") === "KG" ? "selected" : ""}>kg</option></select></label>
+                    <button class="btn ghost mini" type="button" data-remove-picked-pallet aria-label="Remove pallet">Remove</button>
+                </div>
+            `).join("");
+            const pickedPalletPanel = requiresPickedPalletDetails && order.status === "RELEASED" ? `
+                <div class="portal-order-shipping-box erp-document-shipping-panel" data-picked-pallet-panel="${attr(order.id)}">
+                    <div class="header-copy"><h3>Picked Pallets</h3><p class="meta">Record each pallet's actual source bin and scale weight before marking the order picked.</p></div>
+                    <datalist id="picked-pallet-locations-${attr(order.id)}">${order.lines.flatMap((line) => line.pickLocations || []).map((entry) => `<option value="${attr(entry.location || "")}"></option>`).join("")}</datalist>
+                    <div data-picked-pallet-rows>${pickedPalletRows}</div>
+                    <div class="quick-row-actions"><button class="btn ghost" type="button" data-add-picked-pallet="${attr(order.id)}">Add Pallet</button></div>
+                </div>
+            ` : "";
             const shippingHelpText = insufficientLines.length
                 ? "Shipping stays blocked until every line has enough available stock."
                 : shipmentCloseoutHelpText(shipmentMethod);
@@ -21402,6 +21994,7 @@
                     <tbody>${lineRows || `<tr><td colspan="6">No lines saved yet.</td></tr>`}</tbody>
                 </table>
                 ${shortPickPanel}
+                ${pickedPalletPanel}
                 ${documentsPanel}
                 ${shippingPanel}
             `;
@@ -21477,6 +22070,30 @@
                     ? "Clear the released allocation and return this order to draft."
                     : "Only released orders can be reopened before picking.";
             });
+            const canDuplicateOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
+            [ui.salesOrderCommandDuplicateBtn, ui.duplicateWarehouseOrderBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canDuplicateOrder;
+                button.disabled = !canDuplicateOrder;
+                button.title = canDuplicateOrder ? `Create draft ${order.orderCode}-R from this order.` : "Open or shipped orders can be duplicated.";
+            });
+            const canCreateReturn = !!order?.id && order.status === "SHIPPED";
+            [ui.salesOrderCommandReturnBtn, ui.createWarehouseReturnBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canCreateReturn;
+                button.disabled = !canCreateReturn;
+                button.title = canCreateReturn ? `Create return purchase order ${order.orderCode}-R from actual shipped quantities.` : "Returns can be created after shipment.";
+            });
+            const canRouteOrder = !!order?.id && !["CANCELLED", "ARCHIVED"].includes(order.status);
+            const alreadyRouted = !!order?.routedAt;
+            [ui.salesOrderCommandRouteBtn, ui.routeWarehouseOrderBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canRouteOrder;
+                button.disabled = !canRouteOrder || alreadyRouted;
+                button.textContent = alreadyRouted ? "Routed" : "Route Order";
+                button.title = alreadyRouted
+                    ? `Routed ${formatDate(order.routedAt)}. Routing can only be sent once.`
+                    : order?.status === "STAGED"
+                    ? "Create and review the mapped delivery appointment email."
+                    : "The order must be staged before it can be routed.";
+            });
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
             ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
@@ -21491,6 +22108,24 @@
             ui.warehouseOrderShipToPostalCode.value = order?.shipToPostalCode || "";
             ui.warehouseOrderShipToCountry.value = order?.shipToCountry || "USA";
             ui.warehouseOrderNotes.value = order?.orderNotes || "";
+            ui.warehouseOrderRoutingEmail.value = order?.routingEmail || "";
+            const palletTrackedLines = (order?.lines || []).filter((line) => Number(line?.quantity) > 0);
+            const orderedPallets = palletTrackedLines.length && palletTrackedLines.every((line) => String(line?.trackingLevel || "").toUpperCase() === "PALLET")
+                ? palletTrackedLines.reduce((total, line) => total + (Number(line.quantity) || 0), 0)
+                : 0;
+            ui.warehouseOrderRoutingDeliveryDate.value = order?.routingRequestedDeliveryDate || order?.requestedShipDate || "";
+            ui.warehouseOrderRoutingPallets.value = order?.outboundPallets?.totalPalletsOut || orderedPallets || "";
+            ui.warehouseOrderRoutingWeight.value = order?.routingTotalWeight || "";
+            ui.warehouseOrderRoutingWeightUom.value = order?.routingWeightUom || "LB";
+            if (ui.warehouseOrderRoutingAppointment) {
+                const appointment = order?.routingAppointment;
+                ui.warehouseOrderRoutingAppointment.classList.toggle("hidden", !appointment);
+                ui.warehouseOrderRoutingAppointment.innerHTML = appointment
+                    ? appointment.status === "CONFIRMED"
+                        ? `<strong>Delivery appointment confirmed</strong><br>${esc(appointment.appointmentDate || "-")} | ${esc(appointment.windowStart || "-")} to ${esc(appointment.windowEnd || "-")}<br>Confirmed by ${esc(appointment.responderName || "-")}${appointment.note ? `<br>Note: ${esc(appointment.note)}` : ""}${appointment.respondedAt ? `<br>Recorded ${esc(formatDate(appointment.respondedAt))}` : ""}`
+                        : `<strong>Routing request sent</strong><br>Waiting for the recipient to provide the delivery date and time window.`
+                    : "";
+            }
             ui.warehouseOrderLines.innerHTML = "";
             const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
             lines.forEach((line) => addWarehouseOrderLine(line));
@@ -21540,6 +22175,10 @@
                 shipToPostalCode: ui.warehouseOrderShipToPostalCode.value.trim(),
                 shipToCountry: ui.warehouseOrderShipToCountry.value.trim(),
                 orderNotes: ui.warehouseOrderNotes.value.trim(),
+                routingEmail: ui.warehouseOrderRoutingEmail.value.trim(),
+                routingRequestedDeliveryDate: ui.warehouseOrderRoutingDeliveryDate.value,
+                routingTotalWeight: Number(ui.warehouseOrderRoutingWeight.value || 0) || null,
+                routingWeightUom: ui.warehouseOrderRoutingWeightUom.value || "LB",
                 lines
             };
         }
@@ -21659,6 +22298,206 @@
                 });
             } catch (error) {
                 showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        async function duplicateWarehouseSalesOrder(context = null) {
+            if (!editingWarehouseOrderId) {
+                return showMessage(ui.warehouseOrderMessage, "Open a sales order before duplicating it.", "error");
+            }
+            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
+            if (!currentOrder?.id) {
+                return showMessage(ui.warehouseOrderMessage, "Open a saved sales order before duplicating it.", "error");
+            }
+            const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
+            const duplicateLabel = `${orderLabel}-R`;
+            if (!window.confirm(`Create ${duplicateLabel} as a new draft using the customer, address, and item quantities from ${orderLabel}? Shipment and allocation history will not be copied.`)) {
+                return null;
+            }
+            const actionButton = resolveActionButton(context, ui.salesOrderCommandDuplicateBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Duplicating...",
+                    messageElement: ui.warehouseOrderMessage,
+                    progressMessage: `Creating draft ${duplicateLabel}...`
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/duplicate`, {
+                        method: "POST"
+                    });
+                    await refreshPortalOrdersList(true);
+                    const duplicatedOrder = getPortalOrderById(response?.order?.id) || sanitizePortalOrderRecord(response?.order);
+                    if (duplicatedOrder) showSalesOrderDocument(duplicatedOrder, { scroll: true });
+                    showMessage(
+                        ui.warehouseOrderMessage,
+                        response?.alreadyExists
+                            ? `Draft ${response?.order?.orderCode || duplicateLabel} already exists and has been opened.`
+                            : `Created draft ${response?.order?.orderCode || duplicateLabel}. Review it before release.`,
+                        response?.alreadyExists ? "info" : "success"
+                    );
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        async function createWarehouseSalesOrderReturnInbound(context = null) {
+            if (!editingWarehouseOrderId) {
+                return showMessage(ui.warehouseOrderMessage, "Open a shipped sales order before creating its return.", "error");
+            }
+            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
+            if (!currentOrder?.id || currentOrder.status !== "SHIPPED") {
+                return showMessage(ui.warehouseOrderMessage, "Returns can only be created from a shipped sales order.", "error");
+            }
+            const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
+            const returnLabel = `${orderLabel}-R`;
+            if (!window.confirm(`Create return purchase order ${returnLabel} for the quantities actually shipped on ${orderLabel}? Returned stock must still be inspected and received into the correct location before it becomes available.`)) {
+                return null;
+            }
+            const actionButton = resolveActionButton(context, ui.salesOrderCommandReturnBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Creating return...",
+                    messageElement: ui.warehouseOrderMessage,
+                    progressMessage: `Creating return purchase order ${returnLabel}...`
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/return-inbound`, {
+                        method: "POST",
+                        body: JSON.stringify({})
+                    });
+                    setSection("inbounds");
+                    await refreshPortalInboundsList(true);
+                    const returnInbound = getPortalInboundRecordById(response?.inbound?.id) || sanitizePortalInboundRecord(response?.inbound);
+                    if (returnInbound) showPurchaseOrderDocument(returnInbound, { scroll: true });
+                    showMessage(
+                        ui.warehouseInboundMessage,
+                        response?.alreadyExists
+                            ? `Return purchase order ${response?.inbound?.inboundCode || returnLabel} already exists and has been opened.`
+                            : `Created return purchase order ${response?.inbound?.inboundCode || returnLabel}. Receive and inspect it when the goods arrive.`,
+                        response?.alreadyExists ? "info" : "success"
+                    );
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        function collectWarehouseOrderRoutingPayload() {
+            return {
+                routingEmail: ui.warehouseOrderRoutingEmail.value.trim(),
+                requestedDeliveryDate: ui.warehouseOrderRoutingDeliveryDate.value,
+                totalPallets: Number.parseInt(ui.warehouseOrderRoutingPallets.value || "", 10),
+                totalWeight: Number(ui.warehouseOrderRoutingWeight.value || 0),
+                weightUom: ui.warehouseOrderRoutingWeightUom.value || "LB"
+            };
+        }
+
+        function getWarehouseOrderRoutingRequirements(order, payload) {
+            const missing = [];
+            if (order?.status !== "STAGED") missing.push(`Order status must be STAGED (current status: ${order?.status || "not saved"})`);
+            if (!payload.routingEmail) missing.push("Routing email");
+            else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.routingEmail)) missing.push("Valid routing email");
+            if (!payload.requestedDeliveryDate) missing.push("Requested delivery date");
+            if (!Number.isInteger(payload.totalPallets) || payload.totalPallets < 1) missing.push("Total pallets");
+            if (!Number.isFinite(payload.totalWeight) || payload.totalWeight <= 0) missing.push("Total shipment weight");
+            if (!String(order?.poNumber || ui.warehouseOrderPoNumber.value || "").trim()) missing.push("PO number");
+            if (!String(order?.fulfillmentLocationId || "").trim()) missing.push("Ship-from warehouse");
+            if (!String(order?.shipToName || ui.warehouseOrderShipToName.value || "").trim()) missing.push("Ship-to company name");
+            if (!String(order?.shipToAddress1 || ui.warehouseOrderShipToAddress1.value || "").trim()) missing.push("Ship-to street address");
+            if (!String(order?.shipToCity || ui.warehouseOrderShipToCity.value || "").trim()) missing.push("Ship-to city");
+            if (!String(order?.shipToState || ui.warehouseOrderShipToState.value || "").trim()) missing.push("Ship-to province/state");
+            if (!String(order?.shipToPostalCode || ui.warehouseOrderShipToPostalCode.value || "").trim()) missing.push("Ship-to postal/ZIP code");
+            if (!String(order?.shipToCountry || ui.warehouseOrderShipToCountry.value || "").trim()) missing.push("Ship-to country");
+            return missing;
+        }
+
+        function showWarehouseOrderRoutingRequirements(missing) {
+            const message = `This order cannot be routed yet. Please complete:\n\n${missing.map((item) => `• ${item}`).join("\n")}`;
+            window.alert(message);
+            showMessage(ui.warehouseOrderMessage, message.replace(/\n+/g, " "), "error");
+        }
+
+        function closeOrderRoutingDraft() {
+            currentOrderRoutingDraft = null;
+            ui.orderRoutingDraftModal?.classList.add("hidden");
+            ui.orderRoutingDraftModal?.setAttribute("aria-hidden", "true");
+            if (ui.orderRoutingDraftMessage) {
+                ui.orderRoutingDraftMessage.textContent = "";
+                ui.orderRoutingDraftMessage.className = "status";
+            }
+        }
+
+        async function openWarehouseOrderRoutingDraft(context = null) {
+            if (!editingWarehouseOrderId) {
+                return showMessage(ui.warehouseOrderMessage, "Save and open the sales order before routing it.", "error");
+            }
+            const payload = collectWarehouseOrderRoutingPayload();
+            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
+            const missing = getWarehouseOrderRoutingRequirements(currentOrder, payload);
+            if (missing.length) {
+                showWarehouseOrderRoutingRequirements(missing);
+                return null;
+            }
+            const actionButton = resolveActionButton(context, ui.routeWarehouseOrderBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Building draft...",
+                    messageElement: ui.warehouseOrderMessage,
+                    progressMessage: "Matching the company, ship-from warehouse, and ship-to routing template..."
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/routing-draft`, {
+                        method: "POST",
+                        body: JSON.stringify(payload)
+                    });
+                    currentOrderRoutingDraft = { ...response.draft, payload };
+                    ui.orderRoutingDraftTemplate.textContent = `Template: ${response.draft?.template?.name || "Mapped routing template"}`;
+                    ui.orderRoutingDraftTo.value = response.draft?.to || "";
+                    ui.orderRoutingDraftCc.value = Array.isArray(response.draft?.cc) ? response.draft.cc.join(", ") : "";
+                    ui.orderRoutingDraftSubject.value = response.draft?.subject || "";
+                    ui.orderRoutingDraftBody.value = response.draft?.body || "";
+                    ui.orderRoutingDraftBody.value += "\n\n[When sent, WMS365 will add a unique one-time link for the recipient to confirm the delivery date and appointment time window.]";
+                    ui.orderRoutingDraftModal.classList.remove("hidden");
+                    ui.orderRoutingDraftModal.setAttribute("aria-hidden", "false");
+                    showMessage(ui.warehouseOrderMessage, "Routing draft is ready for review. No email has been sent yet.", "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        async function sendWarehouseOrderRoutingEmail(context = null) {
+            if (!editingWarehouseOrderId || !currentOrderRoutingDraft?.payload) {
+                return showMessage(ui.orderRoutingDraftMessage, "Reopen the routing draft before sending.", "error");
+            }
+            if (!window.confirm(`Send this delivery appointment request to ${currentOrderRoutingDraft.to} and CC gworders@greywolf3pl.com?`)) return null;
+            const actionButton = resolveActionButton(context, ui.sendOrderRoutingEmailBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Sending...",
+                    messageElement: ui.orderRoutingDraftMessage,
+                    progressMessage: "Sending the routing request and recording it on the sales order..."
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/route`, {
+                        method: "POST",
+                        body: JSON.stringify(currentOrderRoutingDraft.payload)
+                    });
+                    applyPortalOrderUpdate(response?.routed?.order, "", ui.warehouseOrderMessage);
+                    closeOrderRoutingDraft();
+                    showMessage(ui.warehouseOrderMessage, `Routing request sent to ${response?.routed?.to || currentOrderRoutingDraft?.to || "the routing contact"}. gworders@greywolf3pl.com was copied.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.orderRoutingDraftMessage, error.message, "error");
                 return null;
             }
         }
@@ -21898,45 +22737,74 @@
             const statusClass = inboundStatusPillClass(inbound.status);
             const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
             const palletLabels = Array.isArray(inbound.palletLabels) ? inbound.palletLabels : [];
+            const receiptPalletCount = Number(inbound.receiptPalletSummary?.totalPallets || 0);
             const lineRows = inbound.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.description || "")}</td>
-                    <td>${esc(trackingLabel(line.trackingLevel))}</td>
-                    <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
-                    <td>${line.receivedQuantity ? esc(formatTrackedQuantity(line.receivedQuantity, line.trackingLevel)) : "-"}</td>
+                    <td>${esc(line.uomLabel || trackingLabel(line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</td>
+                    <td>${line.receivedQuantity ? esc(formatTrackedQuantity(line.receivedQuantity, line.trackingLevel, line.uomLabel)) : "-"}</td>
                     <td>${esc(line.receivedLocation || "-")}</td>
                     <td>${esc(line.lotNumber || "-")}</td>
                     <td>${line.expirationDate ? esc(formatLabelDate(line.expirationDate)) : "-"}</td>
                 </tr>
             `).join("");
-            const receivingRows = inbound.lines.map((line) => {
-                const receivedQuantity = line.receivedQuantity || line.quantity || 1;
-                const receivedLocation = line.receivedLocation || defaultReceivingLocation;
+            const receivingRows = inbound.lines.flatMap((line) => {
+                const savedAllocations = Array.isArray(line.receiptAllocations) && line.receiptAllocations.length
+                    ? line.receiptAllocations
+                    : [{
+                        quantity: line.receivedQuantity || line.quantity || 1,
+                        location: line.receivedLocation || defaultReceivingLocation,
+                        lotNumber: line.lotNumber || "",
+                        expirationDate: line.expirationDate || "",
+                        palletReference: "",
+                        palletSizeType: "STANDARD_40_48_55",
+                        palletWeight: null,
+                        palletWeightUom: "LB"
+                    }];
                 const lotRequired = line.lotTracked ? "required" : "";
                 const expirationRequired = line.expirationTracked ? "required" : "";
                 const locked = (isReceived || isCancelled) ? "disabled" : "";
-                return `
-                    <tr data-inbound-receive-line="${attr(line.id || line.sku)}">
+                return savedAllocations.map((allocation, allocationIndex) => `
+                    <tr data-inbound-receive-line="${attr(line.id || line.sku)}" data-inbound-allocation-index="${allocationIndex}">
                         <td>
                             <strong>${esc(line.sku)}</strong>
-                            <div class="quick-meta">${esc(line.description || "No description")}</div>
+                            <div class="quick-meta">${esc(line.description || "No description")} · Split ${allocationIndex + 1}</div>
                         </td>
-                        <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</td>
                         <td>
-                            <input data-inbound-receive-qty type="number" min="1" inputmode="numeric" value="${attr(receivedQuantity)}" ${locked}>
-                        </td>
-                        <td>
-                            <input data-inbound-receive-location type="text" value="${attr(receivedLocation)}" placeholder="${attr(defaultReceivingLocation)}" ${locked}>
+                            <input data-inbound-receive-qty type="number" min="1" inputmode="numeric" value="${attr(allocation.quantity || 1)}" ${locked}>
                         </td>
                         <td>
-                            <input data-inbound-receive-lot type="text" value="${attr(line.lotNumber || "")}" placeholder="${line.lotTracked ? "Required lot" : "Optional lot"}" ${lotRequired} ${locked}>
+                            <input data-inbound-receive-location type="text" value="${attr(allocation.location || defaultReceivingLocation)}" placeholder="${attr(defaultReceivingLocation)}" ${locked}>
                         </td>
                         <td>
-                            <input data-inbound-receive-expiration type="date" value="${attr(line.expirationDate || "")}" ${expirationRequired} ${locked}>
+                            <input data-inbound-receive-pallet type="text" value="${attr(allocation.palletReference || "")}" placeholder="Pallet 1 or loose" ${locked}>
+                        </td>
+                        <td>
+                            <select data-inbound-receive-pallet-size ${locked}>
+                                <option value="STANDARD_40_48_55" ${normalizeInboundPalletSizeType(allocation.palletSizeType) === "STANDARD_40_48_55" ? "selected" : ""}>Standard</option>
+                                <option value="OVERSIZE_40_48_85" ${normalizeInboundPalletSizeType(allocation.palletSizeType) === "OVERSIZE_40_48_85" ? "selected" : ""}>Oversize</option>
+                                <option value="NON_STANDARD" ${normalizeInboundPalletSizeType(allocation.palletSizeType) === "NON_STANDARD" ? "selected" : ""}>Non-standard</option>
+                            </select>
+                        </td>
+                        <td>
+                            <div style="display:grid;grid-template-columns:minmax(5.5rem,1fr) 4.5rem;gap:.35rem;">
+                                <input data-inbound-receive-pallet-weight type="number" min="0.001" max="100000" step="0.001" inputmode="decimal" value="${allocation.palletWeight == null ? "" : attr(allocation.palletWeight)}" placeholder="Optional" ${locked}>
+                                <select data-inbound-receive-pallet-weight-uom aria-label="Pallet weight unit" ${locked}>
+                                    <option value="LB" ${String(allocation.palletWeightUom || "LB").toUpperCase() !== "KG" ? "selected" : ""}>lb</option>
+                                    <option value="KG" ${String(allocation.palletWeightUom || "LB").toUpperCase() === "KG" ? "selected" : ""}>kg</option>
+                                </select>
+                            </div>
+                        </td>
+                        <td><input data-inbound-receive-lot type="text" value="${attr(allocation.lotNumber || "")}" placeholder="${line.lotTracked ? "Required lot" : "Optional lot"}" ${lotRequired} ${locked}></td>
+                        <td><input data-inbound-receive-expiration type="date" value="${attr(allocation.expirationDate || "")}" ${expirationRequired} ${locked}></td>
+                        <td class="receiving-split-actions">
+                            ${locked ? "" : `<button class="btn ghost mini" type="button" data-duplicate-inbound-receipt-row title="Duplicate this allocation">Duplicate</button>${allocationIndex ? `<button class="btn ghost mini" type="button" data-remove-inbound-receipt-row title="Remove this allocation">Remove</button>` : ""}`}
                         </td>
                     </tr>
-                `;
+                `);
             }).join("");
             const documentsPanel = `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
@@ -21970,6 +22838,7 @@
                     | Expected ${esc(inbound.expectedDate || "Not set")}
                     ${inbound.arrivedAt ? ` | Checked in ${esc(formatDate(inbound.arrivedAt))}` : ""}
                     ${inbound.receivedAt ? ` | Received ${esc(formatDate(inbound.receivedAt))}` : ""}
+                    ${receiptPalletCount ? ` | Actual pallets ${esc(num(receiptPalletCount))}` : ""}
                 </div>
                 <table class="erp-document-process-table">
                     <thead>
@@ -21988,7 +22857,8 @@
                 </table>
                 <section class="erp-document-process-section">
                     <h3>Receiving Entry</h3>
-                    <p class="meta">Confirm received quantity and location. Add lot and expiration when the item requires it, or enter it when supplied by the vendor.</p>
+                    <p class="meta">Split a SKU across locations or pallets by duplicating its row. Each row records quantity, destination, pallet, size, optional pallet weight, lot, and expiry. Split quantities are added together as the confirmed received quantity.</p>
+                    <p class="meta"><strong>Pallet tracking:</strong> use the same pallet name on multiple rows when SKUs share one mixed pallet. Leave pallet blank only for loose freight. Distinct pallet names become the actual pallet count for putaway and billing.</p>
                     <table class="erp-document-process-table">
                         <thead>
                             <tr>
@@ -21996,11 +22866,15 @@
                                 <th>Expected</th>
                                 <th>Received</th>
                                 <th>Location</th>
+                                <th>Pallet</th>
+                                <th>Pallet Size</th>
+                                <th>Pallet Weight</th>
                                 <th>Lot</th>
                                 <th>Expiration</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>${receivingRows || `<tr><td colspan="6">No receiving lines saved yet.</td></tr>`}</tbody>
+                        <tbody>${receivingRows || `<tr><td colspan="10">No receiving lines saved yet.</td></tr>`}</tbody>
                     </table>
                 </section>
                 ${documentsPanel}
@@ -22017,14 +22891,18 @@
 
             if (!rows.length) {
                 return {
-                    receivingLines: lines.map((line) => ({
+                    receivingLines: lines.flatMap((line) => (Array.isArray(line.receiptAllocations) && line.receiptAllocations.length ? line.receiptAllocations : [{}]).map((allocation) => ({
                         id: line.id || "",
                         sku: line.sku,
-                        receivedQuantity: line.receivedQuantity || line.quantity || 1,
-                        receivedLocation: line.receivedLocation || defaultReceivingLocation,
-                        lotNumber: line.lotNumber || "",
-                        expirationDate: line.expirationDate || ""
-                    }))
+                        receivedQuantity: allocation.quantity || line.receivedQuantity || line.quantity || 1,
+                        receivedLocation: allocation.location || line.receivedLocation || defaultReceivingLocation,
+                        lotNumber: allocation.lotNumber || line.lotNumber || "",
+                        expirationDate: allocation.expirationDate || line.expirationDate || "",
+                        palletReference: allocation.palletReference || "",
+                        palletSizeType: allocation.palletSizeType || "STANDARD_40_48_55",
+                        palletWeight: allocation.palletWeight == null ? null : Number(allocation.palletWeight),
+                        palletWeightUom: allocation.palletWeightUom || "LB"
+                    })))
                 };
             }
 
@@ -22035,10 +22913,19 @@
                 const locationInput = row.querySelector("[data-inbound-receive-location]");
                 const lotInput = row.querySelector("[data-inbound-receive-lot]");
                 const expirationInput = row.querySelector("[data-inbound-receive-expiration]");
+                const palletInput = row.querySelector("[data-inbound-receive-pallet]");
+                const palletSizeInput = row.querySelector("[data-inbound-receive-pallet-size]");
+                const palletWeightInput = row.querySelector("[data-inbound-receive-pallet-weight]");
+                const palletWeightUomInput = row.querySelector("[data-inbound-receive-pallet-weight-uom]");
                 const receivedQuantity = Number.parseInt(String(quantityInput?.value || ""), 10);
                 const receivedLocation = String(locationInput?.value || "").trim();
                 const lotNumber = String(lotInput?.value || "").trim();
                 const expirationDate = String(expirationInput?.value || "").trim();
+                const palletReference = String(palletInput?.value || "").trim();
+                const palletSizeType = normalizeInboundPalletSizeType(palletSizeInput?.value || "");
+                const palletWeightText = String(palletWeightInput?.value || "").trim();
+                const palletWeight = palletWeightText ? Number(palletWeightText) : null;
+                const palletWeightUom = String(palletWeightUomInput?.value || "LB").toUpperCase() === "KG" ? "KG" : "LB";
 
                 if (validate) {
                     if (!Number.isFinite(receivedQuantity) || receivedQuantity <= 0) {
@@ -22053,6 +22940,12 @@
                     if (line.expirationTracked && !expirationDate) {
                         return fail(ui.warehouseInboundMessage, `Enter an expiration date for expiration-tracked SKU ${line.sku}.`, expirationInput);
                     }
+                    if (palletWeight !== null && (!Number.isFinite(palletWeight) || palletWeight <= 0 || palletWeight > 100000)) {
+                        return fail(ui.warehouseInboundMessage, `Enter a valid optional pallet weight for ${line.sku}.`, palletWeightInput);
+                    }
+                    if (palletWeight !== null && !palletReference) {
+                        return fail(ui.warehouseInboundMessage, `Enter a pallet name before adding its weight for ${line.sku}.`, palletInput);
+                    }
                 }
 
                 payloadLines.push({
@@ -22061,8 +22954,41 @@
                     receivedQuantity: Number.isFinite(receivedQuantity) && receivedQuantity > 0 ? receivedQuantity : (line.receivedQuantity || line.quantity || 1),
                     receivedLocation: receivedLocation || line.receivedLocation || defaultReceivingLocation,
                     lotNumber: lotNumber || line.lotNumber || "",
-                    expirationDate: expirationDate || line.expirationDate || ""
+                    expirationDate: expirationDate || line.expirationDate || "",
+                    palletReference,
+                    palletSizeType,
+                    palletWeight,
+                    palletWeightUom
                 });
+            }
+
+            if (validate) {
+                const palletSizes = new Map();
+                const palletWeights = new Map();
+                for (const line of lines) {
+                    const allocations = payloadLines.filter((entry) => String(entry.id) === String(line.id || line.sku));
+                    const total = allocations.reduce((sum, entry) => sum + Number(entry.receivedQuantity || 0), 0);
+                    if (total <= 0) return fail(ui.warehouseInboundMessage, `Enter at least one received allocation for ${line.sku}.`);
+                    if (total !== Number(line.quantity || 0) && !window.confirm(`SKU ${line.sku} expected ${num(line.quantity)} but the split receipt totals ${num(total)}. Continue with this received quantity?`)) {
+                        return null;
+                    }
+                    for (const allocation of allocations) {
+                        if (!allocation.palletReference) continue;
+                        const previous = palletSizes.get(allocation.palletReference);
+                        if (previous && previous !== allocation.palletSizeType) {
+                            return fail(ui.warehouseInboundMessage, `Use one pallet size for ${allocation.palletReference}.`);
+                        }
+                        palletSizes.set(allocation.palletReference, allocation.palletSizeType);
+                        if (allocation.palletWeight !== null) {
+                            const weightKey = `${allocation.palletWeight}|${allocation.palletWeightUom}`;
+                            const previousWeight = palletWeights.get(allocation.palletReference);
+                            if (previousWeight && previousWeight !== weightKey) {
+                                return fail(ui.warehouseInboundMessage, `Use one weight and unit for ${allocation.palletReference}.`);
+                            }
+                            palletWeights.set(allocation.palletReference, weightKey);
+                        }
+                    }
+                }
             }
 
             return { receivingLines: payloadLines };
@@ -22070,26 +22996,33 @@
 
         function buildPortalInboundReceivingDocumentHtml(inbound, receivingPayload = null) {
             const payloadLines = Array.isArray(receivingPayload?.receivingLines) ? receivingPayload.receivingLines : [];
-            const payloadById = new Map(payloadLines.map((line) => [String(line.id || line.sku || ""), line]));
             const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
-            const lineRows = (inbound.lines || []).map((line) => {
-                const payloadLine = payloadById.get(String(line.id || line.sku)) || {};
-                const receivedQuantity = payloadLine.receivedQuantity || line.receivedQuantity || line.quantity || 0;
-                const receivedLocation = payloadLine.receivedLocation || line.receivedLocation || defaultReceivingLocation;
-                const lotNumber = payloadLine.lotNumber || line.lotNumber || "";
-                const expirationDate = payloadLine.expirationDate || line.expirationDate || "";
-                return `
+            const lineRows = (inbound.lines || []).flatMap((line) => {
+                const matchingPayload = payloadLines.filter((entry) => String(entry.id || entry.sku || "") === String(line.id || line.sku));
+                const allocations = matchingPayload.length ? matchingPayload : [{}];
+                return allocations.map((payloadLine, allocationIndex) => {
+                    const receivedQuantity = payloadLine.receivedQuantity || line.receivedQuantity || line.quantity || 0;
+                    const receivedLocation = payloadLine.receivedLocation || line.receivedLocation || defaultReceivingLocation;
+                    const lotNumber = payloadLine.lotNumber || line.lotNumber || "";
+                    const expirationDate = payloadLine.expirationDate || line.expirationDate || "";
+                    const palletWeight = payloadLine.palletWeight == null || payloadLine.palletWeight === "" ? null : Number(payloadLine.palletWeight);
+                    const palletWeightUom = String(payloadLine.palletWeightUom || "LB").toUpperCase() === "KG" ? "kg" : "lb";
+                    return `
                     <tr>
-                        <td>${esc(line.lineNumber || "")}</td>
+                        <td>${esc(line.lineNumber || "")}.${allocationIndex + 1}</td>
                         <td>${esc(line.sku)}</td>
                         <td>${esc(line.description || "")}</td>
-                        <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
-                        <td>${esc(formatTrackedQuantity(receivedQuantity, line.trackingLevel))}</td>
+                        <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</td>
+                        <td>${esc(formatTrackedQuantity(receivedQuantity, line.trackingLevel, line.uomLabel))}</td>
                         <td>${esc(receivedLocation)}</td>
+                        <td>${esc(payloadLine.palletReference || "Loose")}</td>
+                        <td>${payloadLine.palletReference ? esc(inboundPalletSizeLabel(payloadLine.palletSizeType)) : "-"}</td>
+                        <td>${palletWeight && Number.isFinite(palletWeight) ? `${esc(palletWeight)} ${esc(palletWeightUom)}` : "-"}</td>
                         <td>${esc(lotNumber || "")}</td>
                         <td>${expirationDate ? esc(formatLabelDate(expirationDate)) : ""}</td>
                     </tr>
                 `;
+                });
             }).join("");
             return `<!doctype html><html><head><meta charset="utf-8"><title>Receiving Document ${esc(inbound.inboundCode)}</title><style>
                 body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px}.meta{margin:0 0 12px;font-size:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}.box{border:1px solid #bbb;padding:12px;min-height:80px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #bbb;padding:8px;text-align:left;vertical-align:top}th{background:#f3f6fb}.sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:36px}.line{border-top:1px solid #111;padding-top:6px}
@@ -22101,7 +23034,7 @@
                     <div class="box"><strong>Carrier / Contact</strong><br>${esc(inbound.carrierName || "Carrier not provided")}<br>${esc(inbound.contactName || "")}${inbound.contactPhone ? ` | ${esc(inbound.contactPhone)}` : ""}</div>
                     <div class="box"><strong>Notes</strong><br>${esc(inbound.notes || "")}</div>
                 </div>
-                <table><thead><tr><th>Line</th><th>SKU</th><th>Description</th><th>Expected</th><th>Received</th><th>Location</th><th>Lot</th><th>Expiration</th></tr></thead><tbody>${lineRows || `<tr><td colspan="8">No lines.</td></tr>`}</tbody></table>
+                <table><thead><tr><th>Line</th><th>SKU</th><th>Description</th><th>Expected</th><th>Received</th><th>Location</th><th>Pallet</th><th>Size</th><th>Weight</th><th>Lot</th><th>Expiration</th></tr></thead><tbody>${lineRows || `<tr><td colspan="11">No lines.</td></tr>`}</tbody></table>
                 <div class="sign"><div class="line">Received By</div><div class="line">Date / Time</div></div>
             </body></html>`;
         }
@@ -22812,7 +23745,7 @@
                 const receiveLines = isArrived ? (inbound.lines || []).map((line) => `
                     <div class="quick-meta" data-mobile-inbound-line="${attr(line.id || line.sku)}" data-mobile-inbound-sku="${attr(line.sku)}" style="display:grid;gap:0.45rem;margin-top:0.65rem;">
                         <strong>${esc(line.sku || "SKU")}</strong>
-                        <span>Expected ${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</span>
+                        <span>Expected ${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</span>
                         <label class="field">
                             <span>Received Qty</span>
                             <input data-mobile-inbound-qty type="number" min="1" inputmode="numeric" value="${attr(line.receivedQuantity || line.quantity || 1)}">
@@ -22988,6 +23921,36 @@
                     printWarehouseInboundPalletLabels(inbound, ui.warehouseInboundMessage);
                     printPalletLabelsButton.blur?.();
                 }
+                return;
+            }
+
+            const duplicateReceiptRowButton = event.target.closest("[data-duplicate-inbound-receipt-row]");
+            if (duplicateReceiptRowButton) {
+                const row = duplicateReceiptRowButton.closest("[data-inbound-receive-line]");
+                if (!row) return;
+                const clone = row.cloneNode(true);
+                clone.querySelector("[data-inbound-receive-qty]").value = "1";
+                clone.querySelector("[data-inbound-receive-location]").focus?.();
+                if (!clone.querySelector("[data-remove-inbound-receipt-row]")) {
+                    const actions = clone.querySelector(".receiving-split-actions");
+                    actions?.insertAdjacentHTML("beforeend", `<button class="btn ghost mini" type="button" data-remove-inbound-receipt-row title="Remove this allocation">Remove</button>`);
+                }
+                row.insertAdjacentElement("afterend", clone);
+                [...ui.warehouseInboundWorkflowPanel.querySelectorAll(`[data-inbound-receive-line="${CSS.escape(row.dataset.inboundReceiveLine || "")}"]`)].forEach((entry, index) => {
+                    entry.dataset.inboundAllocationIndex = String(index);
+                    const meta = entry.querySelector(".quick-meta");
+                    if (meta) meta.textContent = `${meta.textContent.split(" · Split")[0]} · Split ${index + 1}`;
+                });
+                clone.querySelector("[data-inbound-receive-location]")?.focus();
+                return;
+            }
+
+            const removeReceiptRowButton = event.target.closest("[data-remove-inbound-receipt-row]");
+            if (removeReceiptRowButton) {
+                const row = removeReceiptRowButton.closest("[data-inbound-receive-line]");
+                const lineKey = row?.dataset.inboundReceiveLine || "";
+                const matchingRows = [...ui.warehouseInboundWorkflowPanel.querySelectorAll(`[data-inbound-receive-line="${CSS.escape(lineKey)}"]`)];
+                if (row && matchingRows.length > 1) row.remove();
                 return;
             }
 
@@ -23754,6 +24717,7 @@
         }
 
         function buildPickTicketHtml(order) {
+            const orderBarcode = buildCode39Svg(order.orderCode || "", { height: 42, narrow: 2, wide: 5 });
             const shipFrom = formatPortalOrderShipFrom(order);
             const expectedReadyLabel = String(order.expectedReadyLabel || order.expectedReadyDate || "").trim();
             const holidayClosures = Array.isArray(order.holidayClosures) ? order.holidayClosures : [];
@@ -23787,16 +24751,16 @@
                 <tr>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.description || "")}</td>
-                    <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</td>
                     <td>${line.pickLocations?.length
                         ? line.pickLocations.map((entry) => formatPickLocationHtml(entry, line.trackingLevel)).join("<br>")
                         : "No location found"}</td>
                 </tr>
             `).join("");
             return `<!doctype html><html><head><meta charset="utf-8"><title>Pick Ticket ${esc(order.orderCode)}</title><style>
-                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px} .meta{margin:0 0 16px;font-size:14px}.rush-alert{margin:0 0 16px;padding:10px 12px;border:1px solid #f59e0b;background:#fff7ed;color:#9a3412;font-weight:bold;font-size:14px}.split-ready{margin:0 0 16px;padding:10px 12px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12}.split-ready table{margin-top:8px;background:#fff;color:#111} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb} .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:72px}.signoff{margin-top:18px;border:1px solid #111;padding:14px;font-size:14px}.signoff-title{font-weight:bold;margin-bottom:12px}.signoff-grid{display:grid;grid-template-columns:1fr 140px 1fr 140px;gap:12px;align-items:end}.line{border-bottom:1px solid #111;min-height:22px}
+                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px}.document-header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.order-barcode{width:240px;text-align:center;font-size:11px;font-weight:bold}.order-barcode svg{display:block;width:100%;height:54px}.meta{margin:0 0 16px;font-size:14px}.rush-alert{margin:0 0 16px;padding:10px 12px;border:1px solid #f59e0b;background:#fff7ed;color:#9a3412;font-weight:bold;font-size:14px}.split-ready{margin:0 0 16px;padding:10px 12px;border:1px solid #f97316;background:#fff7ed;color:#7c2d12}.split-ready table{margin-top:8px;background:#fff;color:#111} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:72px}.signoff{margin-top:18px;border:1px solid #111;padding:14px;font-size:14px}.signoff-title{font-weight:bold;margin-bottom:12px}.signoff-grid{display:grid;grid-template-columns:1fr 140px 1fr 140px;gap:12px;align-items:end}.line{border-bottom:1px solid #111;min-height:22px}
             </style></head><body>
-                <h1>Pick Ticket</h1>
+                <div class="document-header"><h1>Pick Ticket</h1><div class="order-barcode">${orderBarcode}<span>${esc(order.orderCode)}</span></div></div>
                 <div class="meta"><strong>Order:</strong> ${esc(order.orderCode)} | <strong>Company:</strong> ${esc(order.accountName)} | <strong>Status:</strong> ${esc(order.status)}</div>
                 <div class="meta"><strong>PO:</strong> ${esc(order.poNumber || "") } | <strong>Requested Ship Date:</strong> ${esc(order.requestedShipDate || "")}</div>
                 ${expectedReadyLabel ? `<div class="meta"><strong>Expected Ready:</strong> ${esc(expectedReadyLabel)}</div>` : ""}
@@ -23822,18 +24786,19 @@
         }
 
         function buildPackingSlipHtml(order) {
+            const orderBarcode = buildCode39Svg(order.orderCode || "", { height: 42, narrow: 2, wide: 5 });
             const shipFrom = formatPortalOrderShipFrom(order);
             const lineRows = order.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
                     <td>${esc(line.description || "")}</td>
-                    <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel))}</td>
+                    <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</td>
                 </tr>
             `).join("");
             return `<!doctype html><html><head><meta charset="utf-8"><title>Packing Slip ${esc(order.orderCode)}</title><style>
-                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px} .meta{margin:0 0 16px;font-size:14px} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top} th{background:#f3f6fb} .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:92px}
+                body{font-family:Arial,sans-serif;padding:24px;color:#111} h1{margin:0 0 8px}.document-header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.order-barcode{width:240px;text-align:center;font-size:11px;font-weight:bold}.order-barcode svg{display:block;width:100%;height:54px}.meta{margin:0 0 16px;font-size:14px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top}th{background:#f3f6fb}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid #ccc;padding:12px;border-radius:8px;min-height:92px}
             </style></head><body>
-                <h1>Packing Slip</h1>
+                <div class="document-header"><h1>Packing Slip</h1><div class="order-barcode">${orderBarcode}<span>${esc(order.orderCode)}</span></div></div>
                 <div class="meta"><strong>Order:</strong> ${esc(order.orderCode)} | <strong>Company:</strong> ${esc(order.accountName)} | <strong>Ship Ref:</strong> ${esc(order.shippingReference || "")}</div>
                 <div class="meta"><strong>PO:</strong> ${esc(order.poNumber || "") } | <strong>Requested Ship Date:</strong> ${esc(order.requestedShipDate || "")}</div>
                 <div class="two-col">
@@ -23891,11 +24856,8 @@
                 body: JSON.stringify({ documentType })
             });
             if (response?.printSummary) {
-                const merged = mergePortalOrderRecord({ ...order, printSummary: response.printSummary }, { invalidateCache: false });
+                mergePortalOrderRecord({ ...order, printSummary: response.printSummary }, { invalidateCache: false });
                 renderPortalOrdersList();
-                if (merged && String(merged.id) === String(editingWarehouseOrderId)) {
-                    resetWarehouseSalesOrderForm(merged);
-                }
             }
             return response?.printEvent || null;
         }
@@ -24030,7 +24992,7 @@
         const TRACKABLE_CARRIER_OPTIONS = [
             "Canada Post", "Purolator", "UPS", "FedEx", "Canpar", "DHL Express", "GLS Canada",
             "Loomis Express", "ICS Courier", "Dragonfly (Intelcom)", "UniUni", "Day & Ross",
-            "Manitoulin Transport", "Midland Transport", "Fastfrate", "Gardewine", "Rosenau Transport",
+            "Truck 4 Delivery", "Bison Transport", "Manitoulin Transport", "Midland Transport", "Fastfrate", "Gardewine", "Rosenau Transport",
             "Armour Transportation", "Polaris Transportation", "TForce Freight", "XPO Logistics",
             "Old Dominion", "Estes", "R+L Carriers", "ABF Freight", "Saia"
         ];
@@ -24792,6 +25754,40 @@
                 return;
             }
 
+            const addPickedPalletButton = event.target.closest("[data-add-picked-pallet]");
+            if (addPickedPalletButton) {
+                const orderId = addPickedPalletButton.dataset.addPickedPallet || "";
+                const rows = addPickedPalletButton.closest("[data-picked-pallet-panel]")?.querySelector("[data-picked-pallet-rows]");
+                if (!rows || !orderId) return;
+                const row = document.createElement("div");
+                row.className = "form-grid compact-grid";
+                row.dataset.pickedPalletRow = orderId;
+                row.innerHTML = `
+                    <div class="quick-meta"><strong>Pallet ${rows.querySelectorAll("[data-picked-pallet-row]").length + 1}</strong></div>
+                    <label class="field"><span>Actual Pick Bin</span><input data-picked-pallet-location type="text" list="picked-pallet-locations-${attr(orderId)}" placeholder="Scan or enter bin"></label>
+                    <label class="field"><span>Weight</span><input data-picked-pallet-weight type="number" min="0.001" step="0.001" inputmode="decimal"></label>
+                    <label class="field"><span>Unit</span><select data-picked-pallet-weight-uom><option value="LB">lb</option><option value="KG">kg</option></select></label>
+                    <button class="btn ghost mini" type="button" data-remove-picked-pallet aria-label="Remove pallet">Remove</button>`;
+                rows.appendChild(row);
+                row.querySelector("[data-picked-pallet-location]")?.focus();
+                return;
+            }
+
+            const removePickedPalletButton = event.target.closest("[data-remove-picked-pallet]");
+            if (removePickedPalletButton) {
+                const rows = removePickedPalletButton.closest("[data-picked-pallet-rows]");
+                if (!rows || rows.querySelectorAll("[data-picked-pallet-row]").length <= 1) {
+                    showMessage(actionMessageElement, "At least one pallet is required for an Alcona pick.", "error");
+                    return;
+                }
+                removePickedPalletButton.closest("[data-picked-pallet-row]")?.remove();
+                Array.from(rows.querySelectorAll("[data-picked-pallet-row]")).forEach((row, index) => {
+                    const label = row.querySelector(".quick-meta strong");
+                    if (label) label.textContent = `Pallet ${index + 1}`;
+                });
+                return;
+            }
+
             const button = event.target.closest("[data-portal-order-status]");
             if (button) {
                 const orderId = button.dataset.portalOrderStatus || "";
@@ -24816,6 +25812,13 @@
                         scopeBusy: true,
                         progressMessage: `Updating order ${orderId} to ${nextStatus}...`
                     }, async () => {
+                        const pickedPalletDetails = nextStatus === "PICKED"
+                            ? Array.from(document.querySelectorAll(`[data-picked-pallet-row="${orderId}"]`)).map((row) => ({
+                                location: row.querySelector("[data-picked-pallet-location]")?.value || "",
+                                weight: Number(row.querySelector("[data-picked-pallet-weight]")?.value || 0),
+                                weightUom: row.querySelector("[data-picked-pallet-weight-uom]")?.value || "LB"
+                            }))
+                            : [];
                         const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                             method: "POST",
                             headers: { "Idempotency-Key": actionId },
@@ -24823,6 +25826,7 @@
                                 status: nextStatus,
                                 idempotencyKey: actionId,
                                 idempotency_key: actionId,
+                                pickedPalletDetails,
                                 ...(nextStatus === "CANCELLED" ? { note: "Cancelled from WMS365 warehouse order screen." } : {})
                             })
                         });
@@ -27464,6 +28468,11 @@
         }
 
         function getActionAvailableQuantity(accountName, fromLocation, skuOrUpc) {
+            const selectedLineId = toPositiveInt(ui.transferInventoryLineId?.value);
+            if (selectedLineId) {
+                const selectedLine = state.inventory.find((line) => Number(line.id) === selectedLineId);
+                if (selectedLine) return Math.max(lineAvailableQuantity(selectedLine), 0);
+            }
             const matchingLine = findClientInventoryLine(accountName, fromLocation, skuOrUpc);
             if (!matchingLine || matchingLine.duplicateUpc || matchingLine.multipleSkuMatches) return 0;
             return Math.max(lineAvailableQuantity(matchingLine), 0);
@@ -27566,6 +28575,8 @@
             const from = norm(ui.transferFrom.value);
             const to = norm(ui.transferTo.value);
             const skuOrUpc = norm(ui.transferSku.value);
+            const inventoryLineMatches = getTransferInventoryLineMatches();
+            const inventoryLineId = toPositiveInt(ui.transferInventoryLineId?.value);
             let quantity = toPositiveInt(ui.transferQty.value);
             if (!quantity) quantity = autofillActionMoveQuantity("transfer", { force: true });
             if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Scan from, to, and SKU. Quantity fills automatically when stock is available.", "error");
@@ -27598,6 +28609,8 @@
                 await syncServerState(true);
                 showMessage(ui.actionMessage, `Moved ${formatTrackedQuantity(quantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} of ${matchingLine.sku || skuOrUpc} to ${to}.`, "success");
                 ui.transferSku.value = "";
+                if (ui.transferInventoryLineId) ui.transferInventoryLineId.innerHTML = "";
+                ui.transferInventoryLineField?.classList.add("hidden");
                 ui.transferQty.value = "";
                 focusActionField("transferSku");
                 syncActionItemSelectors();
@@ -27618,7 +28631,12 @@
                 return showMessage(ui.actionMessage, "Scan source location and SKU. Quantity fills automatically when stock is available.", "error");
             }
             setActiveCompany(accountName, { force: true, rerender: false });
-            const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
+            if (inventoryLineMatches.length > 1 && !inventoryLineId) {
+                return showMessage(ui.actionMessage, "Choose the exact lot / expiry stock line to move.", "error");
+            }
+            const matchingLine = inventoryLineId
+                ? inventoryLineMatches.find((line) => Number(line.id) === inventoryLineId)
+                : findClientInventoryLine(accountName, from, skuOrUpc);
             if (matchingLine?.duplicateUpc) {
                 return showMessage(ui.actionMessage, "Multiple items matched that UPC in the source location. Use the SKU instead.", "error");
             }
@@ -27693,7 +28711,7 @@
             try {
                 await requestJson("/api/put-away", {
                     method: "POST",
-                    body: JSON.stringify({ accountName, fromLocation: from, toLocation: to, skuOrUpc, quantity })
+                    body: JSON.stringify({ accountName, fromLocation: from, toLocation: to, skuOrUpc, quantity, inventoryLineId })
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, `Put away ${formatTrackedQuantity(quantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} of ${matchingLine.sku || skuOrUpc} into ${to}.`, "success");
@@ -29627,6 +30645,22 @@
                 outboundFreightCost: Number(item.outboundFreightCost ?? item.outbound_freight_cost ?? 0) || 0,
                 outboundLabourHours: Number(item.outboundLabourHours ?? item.outbound_labour_hours ?? 0) || 0,
                 outboundSpecialLabourNote: String(item.outboundSpecialLabourNote ?? item.outbound_special_labour_note ?? "").trim(),
+                routingEmail: String(item.routingEmail || item.routing_email || "").trim(),
+                routingRequestedDeliveryDate: String(item.routingRequestedDeliveryDate || item.routing_requested_delivery_date || "").slice(0, 10),
+                routingTotalWeight: Number(item.routingTotalWeight ?? item.routing_total_weight ?? 0) || null,
+                routingWeightUom: norm(item.routingWeightUom || item.routing_weight_uom || "LB") === "KG" ? "KG" : "LB",
+                routedAt: typeof item.routedAt === "string" ? item.routedAt : (typeof item.routed_at === "string" ? item.routed_at : null),
+                routedBy: String(item.routedBy || item.routed_by || "").trim(),
+                routingAppointment: (item.routingAppointment || item.routing_appointment) ? {
+                    status: norm(item.routingAppointment?.status || item.routing_appointment?.status || "PENDING"),
+                    appointmentDate: String(item.routingAppointment?.appointmentDate || item.routing_appointment?.appointment_date || "").slice(0, 10),
+                    windowStart: String(item.routingAppointment?.windowStart || item.routing_appointment?.window_start || "").slice(0, 5),
+                    windowEnd: String(item.routingAppointment?.windowEnd || item.routing_appointment?.window_end || "").slice(0, 5),
+                    responderName: String(item.routingAppointment?.responderName || item.routing_appointment?.responder_name || "").trim(),
+                    note: String(item.routingAppointment?.note || item.routing_appointment?.note || "").trim(),
+                    respondedAt: item.routingAppointment?.respondedAt || item.routing_appointment?.responded_at || null,
+                    sentAt: item.routingAppointment?.sentAt || item.routing_appointment?.sent_at || null
+                } : null,
                 shipmentEmailStatus: norm(item.shipmentEmailStatus || item.shipment_email_status || ""),
                 shipmentEmailScheduledAt: typeof item.shipmentEmailScheduledAt === "string" ? item.shipmentEmailScheduledAt : (typeof item.shipment_email_scheduled_at === "string" ? item.shipment_email_scheduled_at : null),
                 shipmentEmailSentAt: typeof item.shipmentEmailSentAt === "string" ? item.shipmentEmailSentAt : (typeof item.shipment_email_sent_at === "string" ? item.shipment_email_sent_at : null),
@@ -30413,9 +31447,10 @@
             return "Units";
         }
 
-        function formatTrackedQuantity(value, trackingLevel) {
+        function formatTrackedQuantity(value, trackingLevel, uomLabel = "") {
             const normalized = normalizeTrackingLevel(trackingLevel);
-            const noun = normalized === "PALLET" ? "pallet" : (normalized === "CASE" ? "case" : "unit");
+            const customUom = String(uomLabel || "").trim().toLowerCase();
+            const noun = customUom || (normalized === "PALLET" ? "pallet" : (normalized === "CASE" ? "case" : "unit"));
             return `${num(value)} ${noun}${value === 1 ? "" : "s"}`;
         }
 
