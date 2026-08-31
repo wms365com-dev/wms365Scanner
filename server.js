@@ -8009,6 +8009,7 @@ async function initializeDatabase() {
             account_name text not null default '',
             source_type text not null default '',
             source_ref text not null default '',
+            delivery_key text,
             message_id text not null default '',
             provider_response text not null default '',
             error_message text not null default '',
@@ -8031,6 +8032,10 @@ async function initializeDatabase() {
     await pool.query("alter table email_delivery_log add column if not exists account_name text not null default '';");
     await pool.query("alter table email_delivery_log add column if not exists source_type text not null default '';");
     await pool.query("alter table email_delivery_log add column if not exists source_ref text not null default '';");
+    await pool.query("alter table email_delivery_log add column if not exists delivery_key text;");
+    await pool.query("update email_delivery_log set delivery_key=null where delivery_key='';");
+    await pool.query("alter table email_delivery_log alter column delivery_key drop default;");
+    await pool.query("alter table email_delivery_log alter column delivery_key drop not null;");
     await pool.query("alter table email_delivery_log add column if not exists message_id text not null default '';");
     await pool.query("alter table email_delivery_log add column if not exists provider_response text not null default '';");
     await pool.query("alter table email_delivery_log add column if not exists error_message text not null default '';");
@@ -8043,6 +8048,7 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_email_delivery_log_created_at on email_delivery_log (created_at desc);");
     await pool.query("create index if not exists idx_email_delivery_log_status_created on email_delivery_log (status, created_at desc);");
     await pool.query("create index if not exists idx_email_delivery_log_account_created on email_delivery_log (account_name, created_at desc);");
+    await pool.query("create unique index if not exists idx_email_delivery_log_delivery_key on email_delivery_log (delivery_key);");
 
     await pool.query(`
         create table if not exists bin_locations (
@@ -19762,7 +19768,9 @@ async function sendOrderRoutingEmail(client, orderId, input = {}, appUser = null
     const instructions = `\n\nPlease use the secure link below to provide the confirmed delivery date, appointment start time, and appointment end time. This link can be submitted only once.\n${appointmentUrl}`;
     const emailBody = `${draft.body}${instructions}`;
     const html = draft.body.split(/\r?\n/).map((line) => line ? `<p style="margin:0 0 12px">${escapeHtml(line)}</p>` : `<div style="height:6px"></div>`).join("");
+    const deliveryKey = `order-routing:${draft.order.id}`;
     const result = await sendSystemEmail({
+        deliveryKey,
         to: draft.to,
         cc: draft.cc,
         subject: draft.subject,
@@ -19772,7 +19780,8 @@ async function sendOrderRoutingEmail(client, orderId, input = {}, appUser = null
             sourceType: "ORDER_ROUTING",
             sourceRef: draft.order.orderCode,
             accountName: draft.order.accountName,
-            orderId: draft.order.id
+            orderId: draft.order.id,
+            deliveryKey
         }
     });
     await client.query("update portal_orders set routed_at=now(), routed_by=$2, updated_at=now() where id=$1", [draft.order.id, actor]);
@@ -20108,39 +20117,72 @@ function getEmailLogContext(mailOptions = {}) {
     };
 }
 
+function getEmailDeliveryKey(mailOptions = {}) {
+    const context = sanitizeEmailLogMetadata(mailOptions.emailContext || mailOptions.context || {});
+    return normalizeFreeText(
+        mailOptions.deliveryKey
+        || mailOptions.idempotencyKey
+        || context.deliveryKey
+        || context.idempotencyKey
+        || ""
+    ).slice(0, 200);
+}
+
 async function insertEmailDeliveryLog(mailOptions = {}, provider = "") {
-    if (!DATABASE_URL || !databaseReady) return null;
+    const deliveryKey = getEmailDeliveryKey(mailOptions);
+    if (!DATABASE_URL || !databaseReady) return { id: null, duplicate: false, status: "" };
     const context = getEmailLogContext(mailOptions);
     const fromAddress = normalizeFreeText(mailOptions.from || SMTP_FROM).slice(0, 320);
     const replyTo = getEmailLogRecipients(mailOptions, "replyTo");
     try {
-        const result = await pool.query(
-            `
+        let result;
+        try {
+            result = await pool.query(
+                `
                 insert into email_delivery_log (
                     status, provider, from_address, to_addresses, cc_addresses, bcc_addresses,
-                    reply_to, subject, account_name, source_type, source_ref, metadata
+                    reply_to, subject, account_name, source_type, source_ref, delivery_key, metadata
                 )
-                values ('PENDING', $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb)
-                returning id
-            `,
-            [
-                normalizeText(provider || "UNKNOWN"),
-                fromAddress,
-                JSON.stringify(getEmailLogRecipients(mailOptions, "to")),
-                JSON.stringify(getEmailLogRecipients(mailOptions, "cc")),
-                JSON.stringify(getEmailLogRecipients(mailOptions, "bcc")),
-                replyTo.join(", ").slice(0, 500),
-                normalizeFreeText(mailOptions.subject || "WMS365 Notification").slice(0, 500),
-                context.accountName,
-                context.sourceType,
-                context.sourceRef,
-                JSON.stringify(context.metadata)
-            ]
-        );
-        return result.rows[0]?.id || null;
+                values ('PENDING', $1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb)
+                returning id, status
+                `,
+                [
+                    normalizeText(provider || "UNKNOWN"),
+                    fromAddress,
+                    JSON.stringify(getEmailLogRecipients(mailOptions, "to")),
+                    JSON.stringify(getEmailLogRecipients(mailOptions, "cc")),
+                    JSON.stringify(getEmailLogRecipients(mailOptions, "bcc")),
+                    replyTo.join(", ").slice(0, 500),
+                    normalizeFreeText(mailOptions.subject || "WMS365 Notification").slice(0, 500),
+                    context.accountName,
+                    context.sourceType,
+                    context.sourceRef,
+                    deliveryKey || null,
+                    JSON.stringify(context.metadata)
+                ]
+            );
+        } catch (error) {
+            if (!deliveryKey || String(error?.code || "") !== "23505") throw error;
+            const existing = await pool.query(
+                "select id, status from email_delivery_log where delivery_key=$1 limit 1",
+                [deliveryKey]
+            );
+            return {
+                id: existing.rows[0]?.id || null,
+                duplicate: true,
+                status: normalizeEmailDeliveryStatus(existing.rows[0]?.status) || "PENDING"
+            };
+        }
+        if (result.rowCount) {
+            return { id: result.rows[0].id || null, duplicate: false, status: result.rows[0].status || "PENDING" };
+        }
+        return { id: null, duplicate: false, status: "" };
     } catch (error) {
+        if (deliveryKey) {
+            throw httpError(503, "WMS365 could not safely reserve this email. Nothing was sent. Please try again after the delivery log is available.");
+        }
         console.error("Unable to insert email delivery log:", error);
-        return null;
+        return { id: null, duplicate: false, status: "" };
     }
 }
 
@@ -20236,12 +20278,15 @@ async function sendEmailViaResend(mailOptions) {
         }));
     }
 
+    const headers = {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+    };
+    const deliveryKey = getEmailDeliveryKey(mailOptions);
+    if (deliveryKey) headers["Idempotency-Key"] = deliveryKey;
     const response = await fetch(`${RESEND_API_URL}/emails`, {
         method: "POST",
-        headers: {
-            Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30000)
     });
@@ -20329,7 +20374,13 @@ async function sendSystemEmail(mailOptions, configErrorMessage = "System email i
     const safeMailOptions = normalizeSystemEmailMailOptions(mailOptions);
     assertOutboundEmailSenderAllowed(safeMailOptions);
     const provider = getConfiguredEmailProvider() || (hasSmtpEmailConfig() ? "SMTP" : (EMAIL_PROVIDER || "NOT_CONFIGURED"));
-    const logId = await insertEmailDeliveryLog(safeMailOptions, provider);
+    const deliveryClaim = await insertEmailDeliveryLog(safeMailOptions, provider);
+    if (deliveryClaim.duplicate) {
+        const sourceType = getEmailLogContext(safeMailOptions).sourceType;
+        const label = sourceType === "ORDER_ROUTING" ? "routing request" : "email notification";
+        throw httpError(409, `This ${label} already has a ${deliveryClaim.status.toLowerCase()} delivery record. It was not sent again.`);
+    }
+    const logId = deliveryClaim.id;
     try {
         if (!hasSystemEmailConfig()) {
             throw httpError(500, configErrorMessage || getEmailConfigErrorMessage("System email"));

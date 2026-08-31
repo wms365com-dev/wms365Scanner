@@ -71,6 +71,15 @@ test("route action is permanently disabled after the email is sent", () => {
     assert.match(desktop, /Routing can only be sent once/);
 });
 
+test("routing email has a durable per-order duplicate-send block", () => {
+    assert.match(server, /add column if not exists delivery_key/);
+    assert.match(server, /create unique index if not exists idx_email_delivery_log_delivery_key/);
+    assert.match(server, /String\(error\?\.code \|\| ""\) !== "23505"/);
+    assert.match(server, /const deliveryKey = `order-routing:\$\{draft\.order\.id\}`/);
+    assert.match(server, /This \$\{label\} already has a \$\{deliveryClaim\.status\.toLowerCase\(\)\} delivery record\. It was not sent again\./);
+    assert.match(server, /headers\["Idempotency-Key"\] = deliveryKey/);
+});
+
 test("confirmed appointment is returned and displayed on the sales order", () => {
     assert.match(server, /rr\.appointment_date as routing_appointment_date/);
     assert.match(server, /routingAppointment: row\.routing_appointment_status/);
