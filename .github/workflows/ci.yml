@@ -20,4 +20,4 @@ jobs:
       - name: Run Node tests
         run: npm test
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=critical
+        run: npm run audit:production

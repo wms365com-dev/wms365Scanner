@@ -22,6 +22,7 @@
     "test:warehouse-billing": "node --test warehouse-billing.spec.js",
     "test:kitting-reservations": "node --test kitting-reservations.spec.js",
     "test:warehouse-entry-routes": "node --test warehouse-entry-routes.spec.js",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
     "check:deploy": "node --check server.js && node scripts/audit-access-control-coverage.js && node --test warehouse-entry-routes.spec.js && node scripts/run-node-tests.js",
     "test:guides": "node scripts/validate-guide-screenshots.js",
     "research:wms": "node scripts/audit-wms-feature-competitiveness.js"
@@ -30,8 +31,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "nodemailer": "^6.10.1",
+    "express": "^4.22.2",
+    "nodemailer": "^9.1.0",
     "pg": "^8.13.1",
     "ssh2-sftp-client": "^12.0.1",
     "stripe": "^18.4.0"
@@ -41,7 +42,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
-    "@railway/cli": "^5.45.3",
     "pg-mem": "^3.0.14"
   },
   "repository": {

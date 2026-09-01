@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const nodemailer = require("nodemailer");
 
 const {
     app,
@@ -12,6 +13,7 @@ const {
     assertProductionEnvironment,
     isForbiddenOutboundEmailSender,
     assertOutboundEmailSenderAllowed,
+    normalizeSystemEmailMailOptions,
     sanitizePortalOrderDocumentInput,
     detectSafeUploadMimeType,
     encryptSecret,
@@ -81,6 +83,60 @@ test("system email blocks forbidden Greywolf Gmail sender", () => {
         SMTP_USER: "greywolf3plca@gmail.com"
     });
     assert.deepEqual(missing, ["Remove forbidden outbound email sender: SMTP_USER"]);
+});
+
+test("system email accepts only safe recipients and in-memory attachments", () => {
+    const attachmentContent = Buffer.from("safe attachment");
+    const options = normalizeSystemEmailMailOptions({
+        to: "customer@example.com",
+        cc: ["warehouse@example.com"],
+        bcc: "audit@example.com",
+        subject: "Safe message",
+        text: "Message body",
+        attachments: [{ filename: "receipt.pdf", content: attachmentContent, contentType: "application/pdf" }]
+    });
+
+    assert.equal(options.to, "customer@example.com");
+    assert.equal(options.cc, "warehouse@example.com");
+    assert.equal(options.bcc, "audit@example.com");
+    assert.equal(options.disableFileAccess, true);
+    assert.equal(options.disableUrlAccess, true);
+    assert.equal(options.attachments.length, 1);
+    assert.equal(options.attachments[0].content, attachmentContent);
+});
+
+test("Nodemailer 9 renders the normalized WMS365 message and attachment", async () => {
+    const transporter = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "unix" });
+    const options = normalizeSystemEmailMailOptions({
+        to: "customer@example.com",
+        subject: "WMS365 compatibility test",
+        text: "The protected email path is working.",
+        attachments: [{ filename: "receipt.txt", content: Buffer.from("receipt content"), contentType: "text/plain" }]
+    });
+    const result = await transporter.sendMail(options);
+    const message = result.message.toString("utf8");
+
+    assert.match(message, /WMS365 compatibility test/);
+    assert.match(message, /customer@example\.com/);
+    assert.match(message, /receipt\.txt/);
+});
+
+test("system email rejects parser abuse and unsafe message content sources", () => {
+    assert.throws(
+        () => normalizeSystemEmailMailOptions({ to: "g0:g1:g2:victim@example.com", text: "test" }),
+        /valid recipient email address/
+    );
+    assert.throws(
+        () => normalizeSystemEmailMailOptions({ to: "customer@example.com", raw: { path: "C:\\secrets.txt" } }),
+        /Unsupported system email option: raw/
+    );
+    assert.throws(
+        () => normalizeSystemEmailMailOptions({
+            to: "customer@example.com",
+            attachments: [{ filename: "secret.txt", path: "C:\\secrets.txt" }]
+        }),
+        /in-memory content/
+    );
 });
 
 test("upload validation accepts PDF JPEG PNG and WebP signatures only", () => {

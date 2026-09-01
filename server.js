@@ -20270,11 +20270,50 @@ function assertOutboundEmailSenderAllowed(mailOptions = {}, context = "System em
 }
 
 function normalizeSystemEmailMailOptions(mailOptions = {}) {
+    const forbiddenOptionNames = ["raw", "envelope", "list", "headers", "alternatives", "icalEvent", "amp", "watchHtml"];
+    const forbiddenOption = forbiddenOptionNames.find((name) => Object.prototype.hasOwnProperty.call(mailOptions, name));
+    if (forbiddenOption) {
+        throw httpError(400, `Unsupported system email option: ${forbiddenOption}.`);
+    }
+
     const replyToRecipients = asEmailRecipientArray(mailOptions.replyTo || mailOptions.reply_to || SMTP_REPLY_TO);
+    const normalizeRecipients = (value, label, { required = false } = {}) => {
+        const hasValue = Array.isArray(value) ? value.some(Boolean) : !!String(value || "").trim();
+        const recipients = asEmailRecipientArray(value);
+        if ((required || hasValue) && !recipients.length) {
+            throw httpError(400, `Enter at least one valid ${label} email address.`);
+        }
+        return recipients.join(", ");
+    };
+    const attachments = (Array.isArray(mailOptions.attachments) ? mailOptions.attachments : [])
+        .map((attachment) => {
+            if (attachment.path || attachment.href || attachment.raw) {
+                throw httpError(400, "System email attachments must use in-memory content.");
+            }
+            if (!attachment?.filename || attachment?.content == null) return null;
+            return {
+                filename: normalizeUploadFileName(attachment.filename),
+                content: attachment.content,
+                contentType: String(attachment.contentType || attachment.type || "application/octet-stream").trim() || "application/octet-stream"
+            };
+        })
+        .filter(Boolean);
+
     return {
-        ...mailOptions,
         from: WMS365_SYSTEM_EMAIL_FROM,
-        replyTo: replyToRecipients.length ? replyToRecipients.join(", ") : WMS365_SYSTEM_EMAIL_ADDRESS
+        to: normalizeRecipients(mailOptions.to, "recipient", { required: true }),
+        cc: normalizeRecipients(mailOptions.cc, "CC recipient"),
+        bcc: normalizeRecipients(mailOptions.bcc, "BCC recipient"),
+        replyTo: replyToRecipients.length ? replyToRecipients.join(", ") : WMS365_SYSTEM_EMAIL_ADDRESS,
+        subject: String(mailOptions.subject || "WMS365 Notification"),
+        text: mailOptions.text == null ? undefined : String(mailOptions.text),
+        html: mailOptions.html == null ? undefined : String(mailOptions.html),
+        attachments,
+        disableFileAccess: true,
+        disableUrlAccess: true,
+        deliveryKey: normalizeFreeText(mailOptions.deliveryKey || ""),
+        emailContext: mailOptions.emailContext || mailOptions.context || {},
+        metadata: mailOptions.metadata || {}
     };
 }
 
@@ -21327,7 +21366,9 @@ function getDemoRequestRecipients() {
 }
 
 function isValidEmailAddress(value) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+    const email = String(value || "").trim();
+    if (!email || email.length > 254) return false;
+    return /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i.test(email);
 }
 
 function normalizeEmailList(value, { throwOnInvalid = false } = {}) {
@@ -40036,6 +40077,7 @@ module.exports = {
     assertProductionEnvironment,
     isForbiddenOutboundEmailSender,
     assertOutboundEmailSenderAllowed,
+    normalizeSystemEmailMailOptions,
     SITE_TRAFFIC_OWNER_EMAIL,
     SITE_TRAFFIC_RETENTION_MONTHS,
     isSiteTrafficOwner,
