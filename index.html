@@ -10133,6 +10133,31 @@
                     <p class="lead">Import replaces the shared server inventory, recent activity, saved BINs, and item masters for everyone using this app.</p>
                 </article>
 
+                <article class="card span-2" id="shipmentDataQualityCard">
+                    <div class="card-head">
+                        <div>
+                            <h2>Shipment Billing Readiness</h2>
+                            <p class="lead">Review shipment classification, tracking, BOL, pallet, quantity, and billing-date exceptions before invoicing.</p>
+                        </div>
+                        <span class="meta" id="shipmentDataQualityMeta">Super users only</span>
+                    </div>
+                    <div class="helper" id="shipmentDataQualityAccessGate">Super user access is required to review shipment data quality.</div>
+                    <div id="shipmentDataQualityControls" class="hidden">
+                        <div class="button-row">
+                            <label class="field" style="flex:1 1 180px;"><span>Status</span><select id="shipmentDataQualityStatus"><option value="OPEN">Open</option><option value="RESOLVED">Resolved</option><option value="IGNORED">Ignored</option><option value="ALL">All</option></select></label>
+                            <button class="btn secondary" id="refreshShipmentDataQualityBtn" type="button">Refresh Findings</button>
+                            <button class="btn" id="runShipmentDataQualityBtn" type="button">Run Audit</button>
+                        </div>
+                        <div class="erp-table-wrap" style="margin-top:1rem;">
+                            <table>
+                                <thead><tr><th>Severity</th><th>Order</th><th>Company</th><th>Warehouse</th><th>Issue</th><th>Corrective Action</th><th>Status</th><th>Review</th></tr></thead>
+                                <tbody id="shipmentDataQualityBody"><tr><td colspan="8">Select Refresh Findings to load the audit queue.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="status" id="shipmentDataQualityMessage"></div>
+                </article>
+
                 <article class="card span-2" id="companyEmailFlowCard">
                     <div class="card-head">
                         <div>
@@ -11314,6 +11339,15 @@
             systemEmailTestAccessGate: document.getElementById("systemEmailTestAccessGate"),
             systemEmailTestMessage: document.getElementById("systemEmailTestMessage"),
             sendSystemEmailTestBtn: document.getElementById("sendSystemEmailTestBtn"),
+            shipmentDataQualityCard: document.getElementById("shipmentDataQualityCard"),
+            shipmentDataQualityMeta: document.getElementById("shipmentDataQualityMeta"),
+            shipmentDataQualityAccessGate: document.getElementById("shipmentDataQualityAccessGate"),
+            shipmentDataQualityControls: document.getElementById("shipmentDataQualityControls"),
+            shipmentDataQualityStatus: document.getElementById("shipmentDataQualityStatus"),
+            shipmentDataQualityBody: document.getElementById("shipmentDataQualityBody"),
+            shipmentDataQualityMessage: document.getElementById("shipmentDataQualityMessage"),
+            refreshShipmentDataQualityBtn: document.getElementById("refreshShipmentDataQualityBtn"),
+            runShipmentDataQualityBtn: document.getElementById("runShipmentDataQualityBtn"),
             emailQueueCard: document.getElementById("emailQueueCard"),
             emailQueueMeta: document.getElementById("emailQueueMeta"),
             emailQueueAccessGate: document.getElementById("emailQueueAccessGate"),
@@ -12848,6 +12882,10 @@
             document.getElementById("importJsonBtn").addEventListener("click", () => ui.importFileInput.click());
             ui.importFileInput.addEventListener("change", importJson);
             ui.systemEmailTestForm?.addEventListener("submit", sendSystemEmailTest);
+            ui.refreshShipmentDataQualityBtn?.addEventListener("click", () => refreshShipmentDataQuality(false));
+            ui.runShipmentDataQualityBtn?.addEventListener("click", runShipmentDataQualityAuditFromUi);
+            ui.shipmentDataQualityStatus?.addEventListener("change", () => refreshShipmentDataQuality(false));
+            ui.shipmentDataQualityBody?.addEventListener("click", onShipmentDataQualityAction);
             ui.refreshEmailQueueBtn?.addEventListener("click", () => refreshEmailQueue(false));
             ui.emailQueueStatusFilter?.addEventListener("change", () => refreshEmailQueue(false));
             ui.emailQueueSearch?.addEventListener("input", debounce(() => refreshEmailQueue(true), 250));
@@ -13616,6 +13654,8 @@
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();
             syncFeedbackContext();
+            syncShipmentDataQualityUi();
+            if (section === "backup" && currentUserIsSuperAdmin()) refreshShipmentDataQuality(true).catch(() => {});
             syncEmailQueueUi();
             if (focusAnchorId) {
                 focusWorkspaceAnchor(focusAnchorId);
@@ -16406,6 +16446,7 @@
             renderWarehouseSalesOrderContext();
             renderWarehouseInboundContext();
             syncFeedbackContext();
+            syncShipmentDataQualityUi();
             syncSystemEmailTestUi();
             syncEmailQueueUi();
             syncCompanyEmailFlowUi();
@@ -28859,6 +28900,93 @@
                     `).join("")}
                 `
             );
+        }
+
+        function syncShipmentDataQualityUi() {
+            const isSuperUser = currentUserIsSuperAdmin();
+            ui.shipmentDataQualityAccessGate?.classList.toggle("hidden", isSuperUser);
+            ui.shipmentDataQualityControls?.classList.toggle("hidden", !isSuperUser);
+            if (ui.shipmentDataQualityMeta) ui.shipmentDataQualityMeta.textContent = isSuperUser ? "Nightly at 3:00 AM Eastern" : "Super users only";
+        }
+
+        function renderShipmentDataQualityFindings(findings = []) {
+            if (!ui.shipmentDataQualityBody) return;
+            if (!findings.length) {
+                ui.shipmentDataQualityBody.innerHTML = '<tr><td colspan="8">No findings match this status.</td></tr>';
+                return;
+            }
+            ui.shipmentDataQualityBody.innerHTML = findings.map((finding) => {
+                const status = norm(finding.status || "OPEN");
+                const actions = status === "OPEN"
+                    ? `<div class="button-row"><button class="btn ghost" type="button" data-quality-action="RESOLVED" data-quality-id="${esc(finding.id)}">Resolve</button><button class="btn ghost" type="button" data-quality-action="IGNORED" data-quality-id="${esc(finding.id)}">Ignore</button></div>`
+                    : `<button class="btn ghost" type="button" data-quality-action="OPEN" data-quality-id="${esc(finding.id)}">Reopen</button>`;
+                return `<tr>
+                    <td><strong>${esc(finding.severity || "MEDIUM")}</strong></td>
+                    <td>${esc(finding.entityRef || "-")}</td>
+                    <td>${esc(finding.accountName || "-")}</td>
+                    <td>${esc(finding.warehouseName || finding.warehouseCode || "Unassigned")}</td>
+                    <td>${esc(finding.summary || "-")}</td>
+                    <td>${esc(finding.suggestedAction || "-")}</td>
+                    <td>${esc(status)}</td>
+                    <td>${actions}</td>
+                </tr>`;
+            }).join("");
+        }
+
+        async function refreshShipmentDataQuality(silent = true) {
+            if (!currentUserIsSuperAdmin()) return;
+            try {
+                const status = norm(ui.shipmentDataQualityStatus?.value || "OPEN");
+                const response = await requestJson(`/api/admin/shipment-data-quality/findings?status=${encodeURIComponent(status)}&limit=1000`);
+                const findings = Array.isArray(response.findings) ? response.findings : [];
+                renderShipmentDataQualityFindings(findings);
+                if (ui.shipmentDataQualityMeta) ui.shipmentDataQualityMeta.textContent = `${num(findings.length)} ${status.toLowerCase()} finding${findings.length === 1 ? "" : "s"} | Nightly 3:00 AM Eastern`;
+                if (!silent) showMessage(ui.shipmentDataQualityMessage, `Loaded ${num(findings.length)} shipment data-quality finding${findings.length === 1 ? "" : "s"}.`, "success");
+            } catch (error) {
+                showMessage(ui.shipmentDataQualityMessage, error.message, "error");
+            }
+        }
+
+        async function runShipmentDataQualityAuditFromUi() {
+            if (!currentUserIsSuperAdmin()) return;
+            try {
+                await runActionWithFeedback({ button: ui.runShipmentDataQualityBtn, busyLabel: "Auditing...", messageElement: ui.shipmentDataQualityMessage, progressMessage: "Checking shipped orders and billing records..." }, async () => {
+                    const response = await requestJson("/api/admin/shipment-data-quality/run", {
+                        method: "POST",
+                        body: JSON.stringify({ notifyWarehouses: false })
+                    });
+                    const summary = response.summary || {};
+                    showMessage(ui.shipmentDataQualityMessage, `Audit complete: ${num(summary.scannedShipments || 0)} shipments checked and ${num(summary.openFindings || 0)} open findings. Warehouse emails remain on the nightly schedule.`, "success");
+                    await refreshShipmentDataQuality(true);
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.shipmentDataQualityMessage, error.message, "error");
+            }
+        }
+
+        async function onShipmentDataQualityAction(event) {
+            const button = event.target.closest("[data-quality-action]");
+            if (!button || !currentUserIsSuperAdmin()) return;
+            const findingId = button.dataset.qualityId;
+            const status = norm(button.dataset.qualityAction || "");
+            let note = "";
+            if (status !== "OPEN") {
+                note = String(window.prompt(status === "RESOLVED" ? "Enter what was corrected:" : "Enter why this finding should be ignored:", "") || "").trim();
+                if (!note) return;
+            }
+            try {
+                button.disabled = true;
+                await requestJson(`/api/admin/shipment-data-quality/findings/${encodeURIComponent(findingId)}/status`, {
+                    method: "POST",
+                    body: JSON.stringify({ status, note })
+                });
+                await refreshShipmentDataQuality(true);
+                showMessage(ui.shipmentDataQualityMessage, `Finding ${status === "OPEN" ? "reopened" : status.toLowerCase()}.`, "success");
+            } catch (error) {
+                button.disabled = false;
+                showMessage(ui.shipmentDataQualityMessage, error.message, "error");
+            }
         }
 
         function syncSystemEmailTestUi() {

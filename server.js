@@ -223,6 +223,12 @@ const ADMIN_ACTIVITY_DIGEST_TIME_ZONE = "America/New_York";
 const ADMIN_ACTIVITY_DIGEST_HOUR = 21;
 const ADMIN_ACTIVITY_DIGEST_MINUTE = 0;
 const ADMIN_ACTIVITY_DIGEST_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const SHIPMENT_DATA_QUALITY_JOB_KEY = "SHIPMENT_DATA_QUALITY";
+const SHIPMENT_DATA_QUALITY_TIME_ZONE = "America/New_York";
+const SHIPMENT_DATA_QUALITY_HOUR = 3;
+const SHIPMENT_DATA_QUALITY_MINUTE = 0;
+const SHIPMENT_DATA_QUALITY_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
+const SHIPMENT_DATA_QUALITY_EMAIL_ENABLED = readBooleanEnv("SHIPMENT_DATA_QUALITY_EMAIL_ENABLED", true);
 const STORE_INTEGRATION_SCHEDULE_TIME_ZONE = readEnv("STORE_INTEGRATION_SCHEDULE_TIME_ZONE", ADMIN_ACTIVITY_DIGEST_TIME_ZONE) || ADMIN_ACTIVITY_DIGEST_TIME_ZONE;
 const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
@@ -736,6 +742,9 @@ let portalInboundFollowupEmailSchedulerTimer = null;
 let adminActivityDigestSchedulerStarted = false;
 let adminActivityDigestSchedulerRunning = false;
 let adminActivityDigestSchedulerTimer = null;
+let shipmentDataQualitySchedulerStarted = false;
+let shipmentDataQualitySchedulerRunning = false;
+let shipmentDataQualitySchedulerTimer = null;
 
 const storeIntegrationSyncLocks = new Set();
 const portalOrderPickTicketEmailLocks = new Set();
@@ -2042,6 +2051,86 @@ app.post("/api/admin/company-email-flow/latest-order-test", async (req, res, nex
             bccRecipients: emailResult.bccRecipients,
             flow
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/admin/shipment-data-quality/findings", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        const requestedStatus = normalizeText(req.query?.status || "OPEN");
+        const status = ["OPEN", "RESOLVED", "IGNORED", "ALL"].includes(requestedStatus) ? requestedStatus : "OPEN";
+        const limit = Math.min(Math.max(Number(req.query?.limit) || 500, 1), 5000);
+        const params = [];
+        const clauses = [];
+        if (status !== "ALL") {
+            params.push(status);
+            clauses.push(`f.status=$${params.length}`);
+        }
+        params.push(limit);
+        const result = await pool.query(`
+            select f.*, fl.code as warehouse_code, fl.name as warehouse_name
+            from shipment_data_quality_findings f
+            left join fulfillment_locations fl on fl.id=f.fulfillment_location_id
+            ${clauses.length ? `where ${clauses.join(" and ")}` : ""}
+            order by case f.severity when 'CRITICAL' then 1 when 'HIGH' then 2 when 'MEDIUM' then 3 else 4 end,
+                     f.last_detected_at desc, f.id desc
+            limit $${params.length}
+        `, params);
+        res.json({ success: true, findings: result.rows.map(normalizeShipmentDataQualityFinding) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/shipment-data-quality/run", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        if (shipmentDataQualitySchedulerRunning) throw httpError(409, "The shipment data-quality audit is already running.");
+        shipmentDataQualitySchedulerRunning = true;
+        try {
+            const notifyWarehouses = toBooleanFlag(req.body?.notifyWarehouses ?? req.body?.sendEmails, false);
+            const summary = await runShipmentDataQualityAudit({ sendEmails: notifyWarehouses });
+            await withTransaction((client) => insertActivity(client, "audit", "Ran shipment data-quality audit", [
+                `Requested by ${req.appUser?.email || "Unknown admin"}`,
+                `${summary.scannedShipments} shipments scanned`,
+                `${summary.openFindings} open findings`,
+                `${summary.warehouseEmailsSent} warehouse emails sent`
+            ].join(" | ")));
+            res.json({ success: true, summary });
+        } finally {
+            shipmentDataQualitySchedulerRunning = false;
+        }
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/shipment-data-quality/findings/:findingId/status", async (req, res, next) => {
+    try {
+        assertSuperAdminAccess(req.appUser);
+        assertDatabaseAvailable();
+        const findingId = toPositiveInt(req.params.findingId);
+        const status = normalizeText(req.body?.status || "");
+        const note = normalizeFreeText(req.body?.note || req.body?.resolutionNote || "");
+        if (!findingId) throw httpError(400, "Choose a valid data-quality finding.");
+        if (!["RESOLVED", "IGNORED", "OPEN"].includes(status)) throw httpError(400, "Status must be Open, Resolved, or Ignored.");
+        if (["RESOLVED", "IGNORED"].includes(status) && !note) throw httpError(400, "Enter a review note before closing or ignoring a finding.");
+        const result = await pool.query(`
+            update shipment_data_quality_findings set
+                status=$2,
+                resolved_at=case when $2='OPEN' then null else now() end,
+                resolved_by=case when $2='OPEN' then '' else $3 end,
+                resolution_note=case when $2='OPEN' then '' else $4 end,
+                updated_at=now()
+            where id=$1
+            returning *
+        `, [findingId, status, req.appUser?.email || req.appUser?.full_name || "admin", note]);
+        if (!result.rowCount) throw httpError(404, "That data-quality finding no longer exists.");
+        res.json({ success: true, finding: normalizeShipmentDataQualityFinding(result.rows[0]) });
     } catch (error) {
         next(error);
     }
@@ -8565,6 +8654,40 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_scheduled_job_runs_job_started_at on scheduled_job_runs (job_key, started_at desc)");
 
     await pool.query(`
+        create table if not exists shipment_data_quality_findings (
+            id bigserial primary key,
+            finding_key text not null unique,
+            rule_code text not null,
+            severity text not null default 'MEDIUM',
+            status text not null default 'OPEN',
+            account_name text not null default '',
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete set null,
+            entity_type text not null default 'PORTAL_ORDER',
+            entity_id bigint,
+            entity_ref text not null default '',
+            summary text not null default '',
+            details text not null default '',
+            suggested_action text not null default '',
+            evidence jsonb not null default '{}'::jsonb,
+            first_detected_at timestamptz not null default now(),
+            last_detected_at timestamptz not null default now(),
+            last_notified_at timestamptz,
+            resolved_at timestamptz,
+            resolved_by text not null default '',
+            resolution_note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("alter table shipment_data_quality_findings drop constraint if exists shipment_data_quality_findings_severity_check");
+    await pool.query("alter table shipment_data_quality_findings add constraint shipment_data_quality_findings_severity_check check (severity in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))");
+    await pool.query("alter table shipment_data_quality_findings drop constraint if exists shipment_data_quality_findings_status_check");
+    await pool.query("alter table shipment_data_quality_findings add constraint shipment_data_quality_findings_status_check check (status in ('OPEN', 'RESOLVED', 'IGNORED'))");
+    await pool.query("create index if not exists idx_shipment_data_quality_status_detected on shipment_data_quality_findings (status, last_detected_at desc)");
+    await pool.query("create index if not exists idx_shipment_data_quality_warehouse_status on shipment_data_quality_findings (fulfillment_location_id, status, last_detected_at desc)");
+    await pool.query("create index if not exists idx_shipment_data_quality_account_status on shipment_data_quality_findings (account_name, status, last_detected_at desc)");
+
+    await pool.query(`
         create table if not exists feedback_submissions (
             id bigserial primary key,
             request_type text not null default 'BUG',
@@ -11234,6 +11357,7 @@ async function initializeDatabaseWithRetry() {
             ensurePortalOrderShipmentEmailSchedulerStarted();
             ensurePortalInboundFollowupEmailSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
+            ensureShipmentDataQualitySchedulerStarted();
             ensureAsyncJobWorkerStarted();
             ensureDatabaseHealthWatchdogStarted();
             void backfillWarehouseShipments().catch((error) => {
@@ -26954,6 +27078,11 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const outboundPallets = sanitizePortalOutboundPalletInput(confirmation.outboundPallets, shipmentMethod);
     const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
     const shipmentQuantityWarnings = buildPortalShipmentQuantityWarnings(shipmentLineConfirmations);
+    assertShipmentMethodMatchesTrackingReference({
+        shipmentMethod,
+        carrierName: shippedCarrierName,
+        trackingReference: shippedTrackingReference
+    });
     if (transitionToShipped) {
         assertPortalShipmentCloseoutReviewConfirmed(confirmation);
         assertPortalShipmentProofRequirements(confirmation, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
@@ -27824,6 +27953,42 @@ async function assertAppUserFulfillmentLocationAccess(client, user, fulfillmentL
         throw error;
     }
     return normalizedLocationId;
+}
+
+function classifyParcelTrackingReference(trackingReference, carrierName = "") {
+    const references = splitShipmentTrackingReferences(trackingReference);
+    const carrier = normalizeFreeText(carrierName).toLowerCase();
+    for (const reference of references) {
+        const compact = String(reference || "").trim().replace(/\s+/g, "").toUpperCase();
+        if (/^1Z[0-9A-Z]{16}$/.test(compact)) return { isParcel: true, carrier: "UPS", reference: compact };
+        if (/^D\d{18,24}$/.test(compact)) return { isParcel: true, carrier: "Canpar", reference: compact };
+        if (carrier.includes("purolator") && /^\d{12}$/.test(compact)) return { isParcel: true, carrier: "Purolator", reference: compact };
+        if (carrier.includes("fedex") && /^\d{12,15}$/.test(compact)) return { isParcel: true, carrier: "FedEx", reference: compact };
+        if ((carrier.includes("canada post") || carrier.includes("canadapost")) && /^(?:\d{16}|\d{22})$/.test(compact)) {
+            return { isParcel: true, carrier: "Canada Post", reference: compact };
+        }
+    }
+    return { isParcel: false, carrier: "", reference: "" };
+}
+
+function getShipmentMethodTrackingConflict({ shipmentMethod = "", carrierName = "", trackingReference = "" } = {}) {
+    const method = normalizePortalShipmentMethod(shipmentMethod);
+    const detected = classifyParcelTrackingReference(trackingReference, carrierName);
+    if (detected.isParcel && method !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) {
+        return {
+            code: "PARCEL_TRACKING_METHOD_MISMATCH",
+            detectedCarrier: detected.carrier,
+            reference: detected.reference,
+            message: `${detected.reference} is recognized as ${detected.carrier} parcel tracking. Change Shipment Type to Parcel before saving.`
+        };
+    }
+    return null;
+}
+
+function assertShipmentMethodMatchesTrackingReference(input = {}) {
+    const conflict = getShipmentMethodTrackingConflict(input);
+    if (conflict) throw httpError(400, conflict.message);
+    return true;
 }
 
 async function resolveFulfillmentLocationIdForPrintInput(client, input = {}) {
@@ -34709,6 +34874,8 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
     const shipmentMethod = normalizePortalShipmentMethod(input.shipmentMethod || input.shipment_method || current.shipment_method);
     const trackingReference = normalizeFreeText(input.trackingReference || input.tracking_reference || current.tracking_reference);
     const bolReference = normalizeFreeText(input.bolReference || input.bol_reference || current.bol_reference);
+    const carrierName = normalizeFreeText(input.carrier || input.carrierName || input.carrier_name || current.carrier_name);
+    assertShipmentMethodMatchesTrackingReference({ shipmentMethod, carrierName, trackingReference });
     if (status === "SHIPPED") {
         if (!lines.length || lines.length !== current.lines.length) throw httpError(400, "Confirm the shipped quantity for every warehouse shipment line before marking it shipped.");
         if (shipmentMethod === "PARCEL" && !trackingReference) {
@@ -34736,7 +34903,7 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
              updated_at=now() where id=$1`,
         [current.id, status,
             shipmentMethod,
-            normalizeFreeText(input.carrier || input.carrierName || input.carrier_name || current.carrier_name),
+            carrierName,
             trackingReference,
             bolReference,
             palletValue("totalPallets", "total_pallets", current.total_pallets),
@@ -39538,6 +39705,428 @@ async function runDueStoreIntegrationSyncs() {
     }
 }
 
+function normalizeShipmentDataQualityFinding(row = {}) {
+    return {
+        id: row.id == null ? "" : String(row.id),
+        findingKey: row.finding_key || row.findingKey || "",
+        ruleCode: row.rule_code || row.ruleCode || "",
+        severity: normalizeText(row.severity || "MEDIUM"),
+        status: normalizeText(row.status || "OPEN"),
+        accountName: row.account_name || row.accountName || "",
+        fulfillmentLocationId: row.fulfillment_location_id == null ? (row.fulfillmentLocationId || "") : String(row.fulfillment_location_id),
+        warehouseCode: row.warehouse_code || row.warehouseCode || "",
+        warehouseName: row.warehouse_name || row.warehouseName || "",
+        entityType: row.entity_type || row.entityType || "PORTAL_ORDER",
+        entityId: row.entity_id == null ? (row.entityId || "") : String(row.entity_id),
+        entityRef: row.entity_ref || row.entityRef || "",
+        summary: row.summary || "",
+        details: row.details || "",
+        suggestedAction: row.suggested_action || row.suggestedAction || "",
+        evidence: row.evidence && typeof row.evidence === "object" ? row.evidence : {},
+        firstDetectedAt: row.first_detected_at || row.firstDetectedAt || null,
+        lastDetectedAt: row.last_detected_at || row.lastDetectedAt || null,
+        lastNotifiedAt: row.last_notified_at || row.lastNotifiedAt || null,
+        resolvedAt: row.resolved_at || row.resolvedAt || null,
+        resolvedBy: row.resolved_by || row.resolvedBy || "",
+        resolutionNote: row.resolution_note || row.resolutionNote || ""
+    };
+}
+
+function buildShipmentDataQualityFindingCandidates(rows = []) {
+    const findings = [];
+    const add = (row, ruleCode, severity, summary, details, suggestedAction, evidence = {}) => {
+        const orderId = toPositiveInt(row.order_id || row.orderId);
+        const shipmentId = toPositiveInt(row.shipment_id || row.shipmentId);
+        const locationId = toPositiveInt(row.fulfillment_location_id || row.fulfillmentLocationId);
+        const keySuffix = normalizeFreeText(evidence.findingKeySuffix || "").replace(/[^A-Z0-9_-]+/gi, "-");
+        findings.push({
+            findingKey: `${ruleCode}:${orderId || 0}:${shipmentId || 0}:${locationId || 0}${keySuffix ? `:${keySuffix}` : ""}`,
+            ruleCode,
+            severity,
+            accountName: row.account_name || row.accountName || "",
+            fulfillmentLocationId: locationId || null,
+            entityType: shipmentId ? "WAREHOUSE_SHIPMENT" : "PORTAL_ORDER",
+            entityId: shipmentId || orderId || null,
+            entityRef: row.order_code || row.orderCode || String(orderId || ""),
+            summary,
+            details,
+            suggestedAction,
+            evidence: {
+                orderId,
+                shipmentId: shipmentId || null,
+                shipmentCode: row.shipment_code || row.shipmentCode || "",
+                warehouseCode: row.warehouse_code || row.warehouseCode || "",
+                ...evidence
+            }
+        });
+    };
+
+    const trackingOwners = new Map();
+    rows.forEach((row) => {
+        const method = normalizePortalShipmentMethod(row.shipment_method || row.shipmentMethod);
+        const carrierName = normalizeFreeText(row.carrier_name || row.carrierName || "");
+        const trackingReference = normalizeFreeText(row.tracking_reference || row.trackingReference || "");
+        const totalPallets = Math.max(0, Number(row.total_pallets ?? row.totalPallets) || 0);
+        const bolReference = normalizeFreeText(row.bol_reference || row.bolReference || "");
+        const hasBolDocument = row.has_bol_document === true || row.hasBolDocument === true;
+        const confirmedShipDate = normalizeDateInput(row.confirmed_ship_date || row.confirmedShipDate || "");
+        const shipmentLineCount = Math.max(0, Number(row.shipment_line_count ?? row.shipmentLineCount) || 0);
+        const shippedQuantity = Math.max(0, Number(row.shipped_quantity ?? row.shippedQuantity) || 0);
+        const billingDateMismatchCount = Math.max(0, Number(row.billing_date_mismatch_count ?? row.billingDateMismatchCount) || 0);
+        const conflict = getShipmentMethodTrackingConflict({ shipmentMethod: method, carrierName, trackingReference });
+
+        if (conflict) {
+            add(row, conflict.code, "HIGH", "Parcel tracking is classified as freight", conflict.message,
+                "Change Shipment Type to Parcel and verify the carrier before billing.", { method, carrierName, trackingReference });
+        }
+        if (method === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && !trackingReference) {
+            add(row, "PARCEL_TRACKING_MISSING", "HIGH", "Parcel shipment has no tracking number",
+                "The order is marked shipped as Parcel without a tracking number.",
+                "Enter the carrier and tracking number, then confirm the shipment record.", { method, carrierName });
+        }
+        if (method === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && totalPallets > 0) {
+            add(row, "PARCEL_PALLET_COUNT_PRESENT", "MEDIUM", "Parcel shipment contains a pallet count",
+                `The order is marked Parcel but records ${totalPallets} pallet${totalPallets === 1 ? "" : "s"}.`,
+                "Verify whether this should be LTL/FTL or remove the pallet count if it is truly parcel.", { method, totalPallets });
+        }
+        if ([PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT, PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT].includes(method)) {
+            if (!bolReference && !hasBolDocument) {
+                add(row, "FREIGHT_BOL_MISSING", "HIGH", "Freight shipment has no BOL",
+                    "The shipment is classified as LTL/FTL but neither a BOL reference nor a BOL document is stored.",
+                    "Attach the signed BOL or enter the BOL/PRO reference before billing.", { method });
+            }
+            if (totalPallets <= 0) {
+                add(row, "FREIGHT_PALLET_COUNT_MISSING", "HIGH", "Freight shipment has no pallet count",
+                    "The shipment is classified as LTL/FTL but total pallets is zero.",
+                    "Confirm the BOL and enter the total pallet count used for billing.", { method });
+            }
+        }
+        if (!confirmedShipDate) {
+            add(row, "SHIPPED_DATE_MISSING", "HIGH", "Shipped order has no confirmed ship date",
+                "The order is marked shipped but the billing ship date is blank.",
+                "Confirm the physical ship date from the carrier record or BOL and update the order.");
+        }
+        if (shipmentLineCount <= 0) {
+            add(row, "SHIPPED_QUANTITIES_UNCONFIRMED", "MEDIUM", "Shipped quantities were not confirmed by line",
+                "No shipment quantity confirmation rows are stored for this shipped order.",
+                "Compare the packing slip with the order and record the shipped quantity for every line.");
+        } else if (shippedQuantity <= 0) {
+            add(row, "SHIPPED_QUANTITY_ZERO", "CRITICAL", "Shipped order has zero confirmed quantity",
+                "Shipment lines exist but their total shipped quantity is zero.",
+                "Review the packing slip immediately and correct the line quantities before billing.");
+        }
+        if (billingDateMismatchCount > 0) {
+            add(row, "BILLING_SERVICE_DATE_MISMATCH", "HIGH", "Billing activity date does not match ship date",
+                `${billingDateMismatchCount} billing event${billingDateMismatchCount === 1 ? "" : "s"} use a different service date than the confirmed ship date.`,
+                "Review the billing events and approved ship date before invoicing.", { confirmedShipDate, billingDateMismatchCount });
+        }
+
+        for (const reference of splitShipmentTrackingReferences(trackingReference)) {
+            const normalizedReference = normalizeText(reference).replace(/\s+/g, "");
+            if (!normalizedReference) continue;
+            if (!trackingOwners.has(normalizedReference)) trackingOwners.set(normalizedReference, []);
+            trackingOwners.get(normalizedReference).push(row);
+        }
+    });
+
+    trackingOwners.forEach((owners, reference) => {
+        const orderIds = new Set(owners.map((row) => String(row.order_id || row.orderId || "")).filter(Boolean));
+        if (orderIds.size <= 1) return;
+        owners.forEach((row) => add(row, "DUPLICATE_TRACKING", "MEDIUM", "Tracking number is used on multiple orders",
+            `${reference} appears on ${orderIds.size} different orders.`,
+            "Confirm that this is a valid multi-order shipment or correct the duplicated tracking number.", { trackingReference: reference, orderCount: orderIds.size, findingKeySuffix: reference }));
+    });
+
+    return findings;
+}
+
+function groupShipmentDataQualityFindingsByWarehouse(findings = []) {
+    const grouped = new Map();
+    findings.forEach((finding) => {
+        const locationId = toPositiveInt(finding.fulfillmentLocationId || finding.fulfillment_location_id);
+        if (!locationId) return;
+        const key = String(locationId);
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(finding);
+    });
+    return grouped;
+}
+
+async function getShipmentDataQualitySourceRows(client = pool) {
+    const result = await client.query(`
+        with shipment_scope as (
+            select
+                o.id as order_id, o.order_code, o.account_name, o.confirmed_ship_date,
+                o.shipment_method as order_shipment_method,
+                ws.id as shipment_id, ws.shipment_code,
+                ws.fulfillment_location_id,
+                ws.shipment_method, ws.carrier_name, ws.tracking_reference, ws.bol_reference,
+                ws.total_pallets, ws.shipped_at
+            from portal_orders o
+            join warehouse_shipments ws on ws.order_id = o.id and ws.status = 'SHIPPED'
+            where o.status = 'SHIPPED'
+            union all
+            select
+                o.id, o.order_code, o.account_name, o.confirmed_ship_date,
+                o.shipment_method,
+                null::bigint, '', o.fulfillment_location_id,
+                o.shipment_method, o.shipped_carrier_name, o.shipped_tracking_reference, '',
+                o.outbound_total_pallets, o.shipped_at
+            from portal_orders o
+            where o.status = 'SHIPPED'
+              and not exists (select 1 from warehouse_shipments ws where ws.order_id = o.id)
+        )
+        select
+            scope.*,
+            fl.code as warehouse_code,
+            fl.name as warehouse_name,
+            coalesce(lines.shipment_line_count, 0)::integer as shipment_line_count,
+            coalesce(lines.shipped_quantity, 0)::integer as shipped_quantity,
+            coalesce(documents.has_bol_document, false) as has_bol_document,
+            coalesce(billing.billing_date_mismatch_count, 0)::integer as billing_date_mismatch_count
+        from shipment_scope scope
+        left join fulfillment_locations fl on fl.id = scope.fulfillment_location_id
+        left join lateral (
+            select count(*)::integer as shipment_line_count,
+                   coalesce(sum(line.shipped_quantity), 0)::integer as shipped_quantity
+            from (
+                select wsl.shipped_quantity
+                from warehouse_shipment_lines wsl
+                where scope.shipment_id is not null and wsl.shipment_id = scope.shipment_id
+                union all
+                select posl.shipped_quantity
+                from portal_order_shipment_lines posl
+                where scope.shipment_id is null and posl.order_id = scope.order_id
+            ) line
+        ) lines on true
+        left join lateral (
+            select bool_or(d.document_category = 'SHIPMENT_BOL') as has_bol_document
+            from portal_order_documents d
+            where d.order_id = scope.order_id
+              and (scope.shipment_id is null or d.warehouse_shipment_id is null or d.warehouse_shipment_id = scope.shipment_id)
+        ) documents on true
+        left join lateral (
+            select count(*)::integer as billing_date_mismatch_count
+            from billing_events event
+            where event.source_type = 'OUTBOUND_ORDER'
+              and event.source_ref = scope.order_code
+              and event.status <> 'VOID'
+              and scope.confirmed_ship_date is not null
+              and event.service_date is distinct from scope.confirmed_ship_date
+        ) billing on true
+        order by scope.order_id, scope.shipment_id nulls last
+    `);
+    return result.rows;
+}
+
+async function persistShipmentDataQualityFindings(client, candidates = []) {
+    const detectedKeys = [];
+    for (const finding of candidates) {
+        detectedKeys.push(finding.findingKey);
+        await client.query(`
+            insert into shipment_data_quality_findings (
+                finding_key, rule_code, severity, status, account_name, fulfillment_location_id,
+                entity_type, entity_id, entity_ref, summary, details, suggested_action, evidence,
+                first_detected_at, last_detected_at, created_at, updated_at
+            ) values ($1,$2,$3,'OPEN',$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,now(),now(),now(),now())
+            on conflict (finding_key) do update set
+                rule_code=excluded.rule_code, severity=excluded.severity,
+                status=case when shipment_data_quality_findings.status='IGNORED' then 'IGNORED' else 'OPEN' end,
+                account_name=excluded.account_name, fulfillment_location_id=excluded.fulfillment_location_id,
+                entity_type=excluded.entity_type, entity_id=excluded.entity_id, entity_ref=excluded.entity_ref,
+                summary=excluded.summary, details=excluded.details, suggested_action=excluded.suggested_action,
+                evidence=excluded.evidence, last_detected_at=now(), resolved_at=null,
+                resolved_by='', resolution_note='', updated_at=now()
+        `, [finding.findingKey, finding.ruleCode, finding.severity, finding.accountName,
+            finding.fulfillmentLocationId, finding.entityType, finding.entityId, finding.entityRef,
+            finding.summary, finding.details, finding.suggestedAction, JSON.stringify(finding.evidence || {})]);
+    }
+    if (detectedKeys.length) {
+        await client.query(`
+            update shipment_data_quality_findings
+            set status='RESOLVED', resolved_at=now(), resolved_by='nightly-audit',
+                resolution_note='The finding was cleared by a later data-quality scan.', updated_at=now()
+            where status='OPEN' and not (finding_key = any($1::text[]))
+        `, [detectedKeys]);
+    } else {
+        await client.query(`
+            update shipment_data_quality_findings
+            set status='RESOLVED', resolved_at=now(), resolved_by='nightly-audit',
+                resolution_note='The finding was cleared by a later data-quality scan.', updated_at=now()
+            where status='OPEN'
+        `);
+    }
+}
+
+async function getOpenShipmentDataQualityFindings(client = pool, { limit = 5000, notifyDueOnly = false } = {}) {
+    const params = [Math.min(Math.max(Number(limit) || 5000, 1), 5000)];
+    const notifySql = notifyDueOnly ? "and (f.last_notified_at is null or f.last_notified_at < now() - interval '7 days')" : "";
+    const result = await client.query(`
+        select f.*, fl.code as warehouse_code, fl.name as warehouse_name
+        from shipment_data_quality_findings f
+        left join fulfillment_locations fl on fl.id = f.fulfillment_location_id
+        where f.status='OPEN' ${notifySql}
+        order by case f.severity when 'CRITICAL' then 1 when 'HIGH' then 2 when 'MEDIUM' then 3 else 4 end,
+                 f.last_detected_at desc, f.id desc
+        limit $1
+    `, params);
+    return result.rows.map(normalizeShipmentDataQualityFinding);
+}
+
+async function getShipmentDataQualityWarehouseRecipients(client, fulfillmentLocationId) {
+    const locationId = toPositiveInt(fulfillmentLocationId);
+    if (!locationId) return { warehouse: null, recipients: [] };
+    const result = await client.query(`
+        select fl.id, fl.code, fl.name, fl.contact_email,
+               coalesce(array_agg(distinct lower(btrim(u.email))) filter (
+                   where u.id is not null and u.is_active=true
+                     and lower(coalesce(u.role,'')) in ('warehouse_admin','warehouse_customer_service','warehouse_worker')
+                     and btrim(coalesce(u.email,'')) <> ''
+               ), '{}'::text[]) as assigned_user_emails
+        from fulfillment_locations fl
+        left join app_user_fulfillment_location_access access on access.fulfillment_location_id=fl.id
+        left join app_users u on u.id=access.app_user_id
+        where fl.id=$1 and fl.is_active=true
+        group by fl.id
+    `, [locationId]);
+    if (!result.rowCount) return { warehouse: null, recipients: [] };
+    const row = result.rows[0];
+    const recipients = new Set();
+    addValidEmailRecipient(recipients, row.contact_email);
+    (row.assigned_user_emails || []).forEach((email) => addValidEmailRecipient(recipients, email));
+    return {
+        warehouse: { id: String(row.id), code: row.code || "", name: row.name || "" },
+        recipients: [...recipients]
+    };
+}
+
+function buildShipmentDataQualityWarehouseEmailText(warehouse = {}, findings = [], runKey = "") {
+    const lines = findings.map((finding) =>
+        `- ${finding.severity} | ${finding.entityRef} | ${finding.accountName} | ${finding.summary}\n  Action: ${finding.suggestedAction}`
+    );
+    return [
+        `WMS365 shipment data-quality notice for ${warehouse.name || warehouse.code || "your warehouse"}`,
+        `Audit date: ${runKey}`,
+        "",
+        "WMS365 found shipment records that should be reviewed before billing. This automated notice contains only orders assigned to your warehouse.",
+        "",
+        ...lines,
+        "",
+        "Please correct the source order and its shipping documents in WMS365. Do not change a ship date, quantity, or billing record unless the supporting carrier document or packing slip confirms it.",
+        `Open WMS365: ${(APP_BASE_URL || "https://app.wms365.co")}/desktop?section=admin`,
+        "",
+        "This notice was sent privately using BCC. Customer contacts were not included."
+    ].join("\n");
+}
+
+function buildShipmentDataQualityWarehouseEmailHtml(warehouse = {}, findings = [], runKey = "") {
+    const rows = findings.map((finding) => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;font-weight:700;">${escapeHtml(finding.severity)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(finding.entityRef)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(finding.accountName)}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(finding.summary)}<br><span style="color:#475569;">${escapeHtml(finding.suggestedAction)}</span></td>
+        </tr>`).join("");
+    return `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#172033;">
+        <div style="max-width:820px;margin:0 auto;padding:24px;">
+            <h2 style="margin:0 0 8px;">WMS365 shipment data-quality notice</h2>
+            <p style="margin:0 0 18px;"><strong>${escapeHtml(warehouse.name || warehouse.code || "Assigned warehouse")}</strong> | Audit ${escapeHtml(runKey)}</p>
+            <p>WMS365 found shipment records that should be reviewed before billing. This automated notice contains only orders assigned to your warehouse.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="background:#f8fafc;text-align:left;"><th style="padding:8px;">Severity</th><th style="padding:8px;">Order</th><th style="padding:8px;">Company</th><th style="padding:8px;">Issue and corrective action</th></tr></thead><tbody>${rows}</tbody></table>
+            <p style="margin-top:18px;">Please correct the source order and its shipping documents in WMS365. Do not change a ship date, quantity, or billing record unless the supporting carrier document or packing slip confirms it.</p>
+            <p><a href="${escapeHtml((APP_BASE_URL || "https://app.wms365.co") + "/desktop?section=admin")}" style="display:inline-block;padding:10px 14px;background:#315f7d;color:#fff;text-decoration:none;border-radius:4px;">Open WMS365</a></p>
+            <p style="font-size:12px;color:#64748b;">This notice was sent privately using BCC. Customer contacts were not included.</p>
+        </div></body></html>`;
+}
+
+async function notifyWarehousesOfShipmentDataQualityFindings(client, findings = [], runKey = "") {
+    if (!SHIPMENT_DATA_QUALITY_EMAIL_ENABLED || !hasSystemEmailConfig()) return { sent: 0, skipped: findings.length };
+    const visibleRecipient = normalizeEmail(SMTP_REPLY_TO || SMTP_FROM);
+    if (!visibleRecipient) return { sent: 0, skipped: findings.length };
+    let sent = 0;
+    let skipped = 0;
+    for (const [locationId, warehouseFindings] of groupShipmentDataQualityFindingsByWarehouse(findings)) {
+        const route = await getShipmentDataQualityWarehouseRecipients(client, locationId);
+        const bccRecipients = normalizeEmailList(route.recipients).filter((email) => email !== visibleRecipient);
+        if (!route.warehouse || !bccRecipients.length) {
+            skipped += warehouseFindings.length;
+            continue;
+        }
+        await sendSystemEmail({
+            from: SMTP_FROM,
+            to: visibleRecipient,
+            bcc: bccRecipients.join(", "),
+            replyTo: SMTP_REPLY_TO || undefined,
+            subject: `Action required: WMS365 shipment data-quality review - ${route.warehouse.name || route.warehouse.code}`,
+            text: buildShipmentDataQualityWarehouseEmailText(route.warehouse, warehouseFindings, runKey),
+            html: buildShipmentDataQualityWarehouseEmailHtml(route.warehouse, warehouseFindings, runKey),
+            deliveryKey: `shipment-data-quality:${runKey}:warehouse:${locationId}`,
+            emailContext: {
+                sourceType: "SHIPMENT_DATA_QUALITY",
+                sourceRef: `${runKey}:${locationId}`,
+                fulfillmentLocationId: String(locationId),
+                findingCount: warehouseFindings.length,
+                recipientClass: "WAREHOUSE_ONLY_BCC"
+            }
+        });
+        const ids = warehouseFindings.map((finding) => toPositiveInt(finding.id)).filter(Boolean);
+        if (ids.length) await client.query("update shipment_data_quality_findings set last_notified_at=now(), updated_at=now() where id=any($1::bigint[])", [ids]);
+        sent += 1;
+    }
+    return { sent, skipped };
+}
+
+async function runShipmentDataQualityAudit({ sendEmails = true, runKey = "" } = {}) {
+    const effectiveRunKey = runKey || getTimeZoneDateKey(new Date(), SHIPMENT_DATA_QUALITY_TIME_ZONE);
+    const rows = await getShipmentDataQualitySourceRows(pool);
+    const candidates = buildShipmentDataQualityFindingCandidates(rows);
+    await withTransaction((client) => persistShipmentDataQualityFindings(client, candidates));
+    const openFindings = await getOpenShipmentDataQualityFindings(pool, { notifyDueOnly: sendEmails });
+    const notification = sendEmails
+        ? await notifyWarehousesOfShipmentDataQualityFindings(pool, openFindings, effectiveRunKey)
+        : { sent: 0, skipped: openFindings.length };
+    return {
+        runKey: effectiveRunKey,
+        scannedShipments: rows.length,
+        detectedFindings: candidates.length,
+        openFindings: openFindings.length,
+        warehouseEmailsSent: notification.sent,
+        notificationFindingsSkipped: notification.skipped
+    };
+}
+
+function isShipmentDataQualityAuditDue(date = new Date()) {
+    const parts = getTimeZoneDateParts(date, SHIPMENT_DATA_QUALITY_TIME_ZONE);
+    return parts.hour > SHIPMENT_DATA_QUALITY_HOUR
+        || (parts.hour === SHIPMENT_DATA_QUALITY_HOUR && parts.minute >= SHIPMENT_DATA_QUALITY_MINUTE);
+}
+
+async function runDueShipmentDataQualityAudit() {
+    if (!databaseReady || shipmentDataQualitySchedulerRunning || !isShipmentDataQualityAuditDue(new Date())) return;
+    shipmentDataQualitySchedulerRunning = true;
+    const runKey = getTimeZoneDateKey(new Date(), SHIPMENT_DATA_QUALITY_TIME_ZONE);
+    let runId = 0;
+    try {
+        runId = await claimScheduledJobRun(SHIPMENT_DATA_QUALITY_JOB_KEY, runKey);
+        if (!runId) return;
+        const summary = await runShipmentDataQualityAudit({ sendEmails: true, runKey });
+        await finishScheduledJobRun(runId, "SENT", { metadata: summary });
+    } catch (error) {
+        console.error("Shipment data-quality audit failed:", error.message || error);
+        await finishScheduledJobRun(runId, "FAILED", { errorMessage: error.message || String(error) });
+    } finally {
+        shipmentDataQualitySchedulerRunning = false;
+    }
+}
+
+function ensureShipmentDataQualitySchedulerStarted() {
+    if (shipmentDataQualitySchedulerStarted) return;
+    shipmentDataQualitySchedulerStarted = true;
+    shipmentDataQualitySchedulerTimer = setInterval(() => void runDueShipmentDataQualityAudit(), SHIPMENT_DATA_QUALITY_SCHEDULER_INTERVAL_MS);
+    if (typeof shipmentDataQualitySchedulerTimer?.unref === "function") shipmentDataQualitySchedulerTimer.unref();
+    void runDueShipmentDataQualityAudit();
+}
+
 function getTimeZoneDateParts(date = new Date(), timeZone = ADMIN_ACTIVITY_DIGEST_TIME_ZONE) {
     const formatter = new Intl.DateTimeFormat("en-CA", {
         timeZone,
@@ -40157,6 +40746,14 @@ module.exports = {
     extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
     buildPortalShipmentEmailHtml,
+    classifyParcelTrackingReference,
+    getShipmentMethodTrackingConflict,
+    assertShipmentMethodMatchesTrackingReference,
+    buildShipmentDataQualityFindingCandidates,
+    groupShipmentDataQualityFindingsByWarehouse,
+    buildShipmentDataQualityWarehouseEmailText,
+    buildShipmentDataQualityWarehouseEmailHtml,
+    isShipmentDataQualityAuditDue,
     buildWarehouseBillingActivityEmailText,
     buildWarehouseBillingActivityEmailHtml,
     DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,

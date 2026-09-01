@@ -1,6 +1,6 @@
 # WMS365 Warehouse Feature Registry
 
-Last reviewed: 2026-05-11
+Last reviewed: 2026-09-01
 
 Purpose:
 - Internal feature inventory so changes do not break related workflow pieces.
@@ -202,6 +202,22 @@ How to use:
   - shipped confirmation SFTP export
   - billing readiness
   - order archive separation from active queue
+
+### Shipment Billing Readiness Audit
+- Desktop section: `backup` (Admin & System, super users only)
+- Server table: `shipment_data_quality_findings`
+- Schedule: nightly at 3:00 AM Eastern with weekly reminders for unresolved findings
+- Related touchpoints:
+  - parcel carrier tracking and shipment-type consistency
+  - freight BOL and pallet-count completeness
+  - shipped quantity confirmation
+  - confirmed ship dates and billing service dates
+  - duplicate tracking review
+  - persistent open/resolved/ignored review history
+  - warehouse-scoped corrective notices sent privately by BCC
+  - exact fulfillment-location recipient isolation; customer contacts are excluded
+  - manual audit runs do not email warehouses
+  - no automatic mutation of shipment quantities, dates, documents, or billing events
 
 ## Setup
 
