@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const {
     getAccessibleFulfillmentLocationIdsForAppUser,
+    assertAppUserCustomerWarehouseAccess,
     assertAppUserPortalOrderWarehouseAccess,
     scopePortalOrderToFulfillmentLocationIds,
     getPortalOrderReleaseRecipients,
@@ -101,9 +102,9 @@ test("release email recipients are selected by the order warehouse", async () =>
 
 test("admin order and document routes enforce warehouse isolation before access or printing", () => {
     const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
-    assert.match(source, /app\.use\("\/api\/admin\/portal-orders\/:id"[\s\S]*assertAppUserPortalOrderWarehouseAccess/);
-    assert.match(source, /batch-pick-tickets\.pdf[\s\S]*assertAppUserPortalOrderWarehouseAccess/);
-    assert.match(source, /portal-order-documents\/:id[\s\S]*assertAppUserPortalOrderWarehouseAccess/);
+    assert.match(source, /app\.use\("\/api\/admin\/portal-orders\/:id"[\s\S]*assertAppUserCustomerWarehouseAccess/);
+    assert.match(source, /batch-pick-tickets\.pdf[\s\S]*assertAppUserCustomerWarehouseAccess/);
+    assert.match(source, /portal-order-documents\/:id[\s\S]*assertAppUserCustomerWarehouseAccess/);
     assert.match(source, /filterPortalOrdersForAppUserWarehouses\(pool, companyScopedOrders, req\.appUser\)/);
 });
 
@@ -143,6 +144,34 @@ test("restricted attempts capture reviewable user, route, order, and warehouse c
     assert.equal(entry.resourceId, "573");
     assert.deepEqual(entry.metadata.assignedFulfillmentLocationIds, ["2"]);
     assert.deepEqual(entry.metadata.resourceFulfillmentLocationIds, ["1"]);
+});
+
+test("customer and warehouse checks are composed into one access decision", async () => {
+    const client = {
+        query: async (sql) => {
+            if (/from app_user_company_access/i.test(sql)) return { rows: [{ account_name: "CUSTOMER A" }] };
+            if (/from app_user_fulfillment_location_access access/i.test(sql)) return { rows: [] };
+            if (/select fulfillment_location_id from app_user_fulfillment_location_access/i.test(sql)) {
+                return { rows: [{ fulfillment_location_id: 2 }] };
+            }
+            if (/from \(\s*select ws\.fulfillment_location_id/i.test(sql)) {
+                return { rows: [{ fulfillment_location_id: 2 }] };
+            }
+            throw new Error(`Unexpected query: ${sql}`);
+        }
+    };
+    const result = await assertAppUserCustomerWarehouseAccess(client, {
+        id: 10,
+        role: "warehouse_customer_service",
+        assigned_fulfillment_locations: [{ id: "2", code: "EDWARDS" }]
+    }, {
+        accountName: "CUSTOMER A",
+        orderId: 573,
+        resourceType: "PORTAL_ORDER",
+        resourceId: 573
+    });
+    assert.equal(result.accountName, "CUSTOMER A");
+    assert.deepEqual(result.fulfillmentLocationIds, [2]);
 });
 
 test("restricted attempts are retained and reviewable by super admins", () => {

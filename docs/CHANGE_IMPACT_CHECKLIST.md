@@ -43,6 +43,10 @@ Use this before pushing any warehouse workflow change live.
 
 ## Security / Scope
 
+- Run `npm run audit:access-control`; deployment is blocked if it fails.
+- Confirm customer and warehouse scope both match; never allow access because only one matches.
+- Confirm the database query is scoped before returning the record.
+- Test direct IDs, alternate HTTP methods, documents, previews, printing, exports, emails, integrations, and background jobs.
 - company scoping
 - super user company setup flow
 - warehouse user assigned-warehouse access
@@ -132,6 +136,9 @@ Use this before pushing any warehouse workflow change live.
 
 ## Verification
 
+- `npm run audit:access-control`
+- complete `npm test`, not only the feature-specific test file
+- rollback-only two-customer / two-warehouse isolation workflow in the designated test company
 - inline script parse for `index.html`
 - inline script parse for `portal.html` if portal-facing
 - `node --check server.js` for server changes

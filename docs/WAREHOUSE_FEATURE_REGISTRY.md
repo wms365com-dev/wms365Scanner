@@ -14,6 +14,7 @@ Purpose:
 - Immutable inventory transaction records for integration reconciliation
 - GS1/UCC-128 shipment labels and carrier tracking support
 - EDI readiness is tracked in `docs/WMS365_EDI_READINESS.md`; X12 translation, acknowledgements, exception handling, and partner certification remain required
+- Customer and warehouse isolation is governed by `docs/ACCESS_CONTROL_AUDIT_PROCESS.md` and enforced by `npm run audit:access-control` before deployment.
 
 How to use:
 - Find the feature area below.

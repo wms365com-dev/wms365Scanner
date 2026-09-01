@@ -18,10 +18,11 @@
     "test:portal-password-reset": "node --test portal-password-reset.spec.js",
     "test:user-errors": "node --test user-facing-errors.spec.js",
     "test:platform-architecture": "node --test platform-architecture.spec.js",
+    "audit:access-control": "node scripts/audit-access-control-coverage.js",
     "test:warehouse-billing": "node --test warehouse-billing.spec.js",
     "test:kitting-reservations": "node --test kitting-reservations.spec.js",
     "test:warehouse-entry-routes": "node --test warehouse-entry-routes.spec.js",
-    "check:deploy": "node --check server.js && node --test warehouse-entry-routes.spec.js warehouse-order-isolation.spec.js security-hardening.spec.js rbac.spec.js sales-order-duplicate-return.spec.js order-routing.spec.js carrier-tracking.spec.js warehouse-profile-settings.spec.js",
+    "check:deploy": "node --check server.js && node scripts/audit-access-control-coverage.js && node --test warehouse-entry-routes.spec.js && node scripts/run-node-tests.js",
     "test:guides": "node scripts/validate-guide-screenshots.js",
     "research:wms": "node scripts/audit-wms-feature-competitiveness.js"
   },

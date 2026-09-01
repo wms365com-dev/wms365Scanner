@@ -4526,8 +4526,12 @@ app.use("/api/admin/portal-orders/:id", async (req, _res, next) => {
             return;
         }
         const accountName = await getPortalOrderAccountNameById(pool, orderId);
-        await assertAppUserCompanyAccess(pool, req.appUser, accountName);
-        await assertAppUserPortalOrderWarehouseAccess(pool, req.appUser, orderId);
+        await assertAppUserCustomerWarehouseAccess(pool, req.appUser, {
+            accountName,
+            orderId,
+            resourceType: "PORTAL_ORDER",
+            resourceId: orderId
+        });
         next();
     } catch (error) {
         next(error);
@@ -4540,8 +4544,12 @@ app.get("/api/admin/portal-orders/:id/shipments", async (req, res, next) => {
         if (!orderId) throw httpError(400, "A valid order id is required.");
         const shipments = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
-            await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+            const { fulfillmentLocationIds: explicitLocationIds } = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName,
+                orderId,
+                resourceType: "PORTAL_ORDER",
+                resourceId: orderId
+            });
             const result = Array.isArray(explicitLocationIds) && explicitLocationIds.length
                 ? await client.query(
                     "select id from warehouse_shipments where order_id = $1 and fulfillment_location_id = any($2::bigint[]) order by fulfillment_location_id, id",
@@ -4562,8 +4570,12 @@ app.patch("/api/admin/warehouse-shipments/:id", async (req, res, next) => {
         const shipment = await withTransaction(async (client) => {
             const current = await getWarehouseShipmentDetail(client, req.params.id);
             if (!current) throw httpError(404, "That warehouse shipment could not be found.");
-            await assertAppUserCompanyAccess(client, req.appUser, current.account_name);
-            await assertAppUserFulfillmentLocationAccess(client, req.appUser, current.fulfillment_location_id);
+            await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName: current.account_name,
+                fulfillmentLocationId: current.fulfillment_location_id,
+                resourceType: "WAREHOUSE_SHIPMENT",
+                resourceId: current.id
+            });
             return updateWarehouseShipmentDetail(client, current.id, req.body || {}, {
                 accountName: current.account_name,
                 actor: req.appUser?.full_name || req.appUser?.email || "Warehouse"
@@ -4728,8 +4740,12 @@ app.get("/api/admin/portal-orders/batch-pick-tickets.pdf", async (req, res, next
             const orders = [];
             for (const orderId of orderIds) {
                 const accountName = await getPortalOrderAccountNameById(client, orderId);
-                await assertAppUserCompanyAccess(client, req.appUser, accountName);
-                const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+                const { fulfillmentLocationIds: explicitLocationIds } = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                    accountName,
+                    orderId,
+                    resourceType: "PORTAL_ORDER",
+                    resourceId: orderId
+                });
                 const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
                 if (!fullOrder) {
                     throw httpError(404, `Order ${orderId} could not be found.`);
@@ -4762,8 +4778,12 @@ app.get("/api/admin/portal-orders/:id", async (req, res, next) => {
         }
         const order = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
-            await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+            const { fulfillmentLocationIds: explicitLocationIds } = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName,
+                orderId,
+                resourceType: "PORTAL_ORDER",
+                resourceId: orderId
+            });
             const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
             return fullOrder ? scopePortalOrderToFulfillmentLocationIds(fullOrder, explicitLocationIds || []) : null;
         });
@@ -4948,8 +4968,12 @@ app.get("/api/admin/portal-orders/:id/ucc128-labels.pdf", async (req, res, next)
         }
         const attachment = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
-            await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+            const { fulfillmentLocationIds: explicitLocationIds } = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName,
+                orderId,
+                resourceType: "PORTAL_ORDER",
+                resourceId: orderId
+            });
             const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
             if (!fullOrder) throw httpError(404, "That sales order could not be found.");
             const order = scopePortalOrderToFulfillmentLocationIds(fullOrder, explicitLocationIds || []);
@@ -6705,8 +6729,12 @@ app.get("/api/admin/portal-order-documents/:id", async (req, res, next) => {
         if (!document) {
             throw httpError(404, "That shipped document could not be found.");
         }
-        await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
-        await assertAppUserPortalOrderWarehouseAccess(pool, req.appUser, document.order_id);
+        await assertAppUserCustomerWarehouseAccess(pool, req.appUser, {
+            accountName: document.account_name,
+            orderId: document.order_id,
+            resourceType: "PORTAL_ORDER_DOCUMENT",
+            resourceId: document.id
+        });
         if (document.warehouse_shipment_id) {
             const shipment = await pool.query(
                 "select fulfillment_location_id from warehouse_shipments where id = $1 limit 1",
@@ -12100,6 +12128,9 @@ function buildAccessRestrictionAuditEntry(error, req, requestId = "") {
         reason: normalizeFreeText(error?.message || "Access restricted.").slice(0, 1000),
         requestId: normalizeFreeText(requestId || req?.requestId || "").slice(0, 120),
         metadata: {
+            assignedAccountNames: Array.isArray(context.assignedAccountNames)
+                ? context.assignedAccountNames.map(normalizeText).filter(Boolean)
+                : [],
             assignedFulfillmentLocationIds: Array.isArray(context.assignedFulfillmentLocationIds)
                 ? context.assignedFulfillmentLocationIds.map(String)
                 : [],
@@ -13030,7 +13061,14 @@ async function assertAppUserCompanyAccess(client, user, accountName, message = "
     }
     const allowedCompanies = await getAccessibleCompanyNamesForAppUser(client, user);
     if (!allowedCompanies.includes(normalizedAccount)) {
-        throw httpError(403, message || `Warehouse access for ${normalizedAccount} is not assigned to your login.`);
+        const error = httpError(403, message || "Access restricted. This customer account is not assigned to your login.");
+        error.code = "ACCESS_RESTRICTED";
+        error.accessRestriction = {
+            resourceType: "CUSTOMER_ACCOUNT",
+            accountName: normalizedAccount,
+            assignedAccountNames: allowedCompanies
+        };
+        throw error;
     }
     return normalizedAccount;
 }
@@ -27734,7 +27772,15 @@ async function assertAppUserFulfillmentLocationAccess(client, user, fulfillmentL
     if (!normalizedLocationId || !user || isSuperAdminUser(user)) return normalizedLocationId;
     const accessibleIds = await getAccessibleFulfillmentLocationIdsForAppUser(client, user);
     if (!accessibleIds.includes(normalizedLocationId)) {
-        throw httpError(403, "Warehouse printer access is not assigned to your login.");
+        const error = httpError(403, "Access restricted. This warehouse is not assigned to your login.");
+        error.code = "ACCESS_RESTRICTED";
+        error.accessRestriction = {
+            resourceType: "FULFILLMENT_LOCATION",
+            resourceId: String(normalizedLocationId),
+            assignedFulfillmentLocationIds: accessibleIds,
+            resourceFulfillmentLocationIds: [normalizedLocationId]
+        };
+        throw error;
     }
     return normalizedLocationId;
 }
@@ -32153,6 +32199,29 @@ async function assertAppUserPortalOrderWarehouseAccess(client, user, orderId) {
         throw error;
     }
     return explicitIds;
+}
+
+async function assertAppUserCustomerWarehouseAccess(client, user, {
+    accountName = "",
+    orderId = null,
+    fulfillmentLocationId = null,
+    resourceType = "RESOURCE",
+    resourceId = ""
+} = {}) {
+    const normalizedAccount = await assertAppUserCompanyAccess(client, user, accountName);
+    let fulfillmentLocationIds = null;
+    if (toPositiveInt(orderId)) {
+        fulfillmentLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, user, orderId);
+    } else if (toPositiveInt(fulfillmentLocationId)) {
+        await assertAppUserFulfillmentLocationAccess(client, user, fulfillmentLocationId);
+        fulfillmentLocationIds = [toPositiveInt(fulfillmentLocationId)];
+    }
+    return {
+        accountName: normalizedAccount,
+        fulfillmentLocationIds,
+        resourceType: normalizeText(resourceType),
+        resourceId: normalizeFreeText(resourceId || orderId || fulfillmentLocationId || "")
+    };
 }
 
 async function filterPortalOrdersForAppUserWarehouses(client, orders = [], user = null) {
@@ -40157,6 +40226,7 @@ module.exports = {
     getAccessibleFulfillmentLocationIdsForAppUser,
     getExplicitFulfillmentLocationIdsForAppUser,
     getPortalOrderFulfillmentLocationIds,
+    assertAppUserCustomerWarehouseAccess,
     assertAppUserPortalOrderWarehouseAccess,
     filterPortalOrdersForAppUserWarehouses,
     scopePortalOrderToFulfillmentLocationIds,
