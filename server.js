@@ -4305,8 +4305,9 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
             return;
         }
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
+        const companyScopedOrders = orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
         res.json({
-            orders: orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
+            orders: await filterPortalOrdersForAppUserWarehouses(pool, companyScopedOrders, req.appUser)
         });
     } catch (error) {
         next(error);
@@ -4323,11 +4324,12 @@ app.get("/api/admin/shipment-email-alerts", async (req, res, next) => {
             accountName: requestedAccount,
             appUser: req.appUser
         });
+        const warehouseScopedOrders = await filterPortalOrdersForAppUserWarehouses(pool, orders, req.appUser);
         res.setHeader("Cache-Control", "no-store");
         res.json({
             success: true,
-            count: orders.length,
-            orders
+            count: warehouseScopedOrders.length,
+            orders: warehouseScopedOrders
         });
     } catch (error) {
         next(error);
@@ -4479,6 +4481,22 @@ app.post("/api/billing/storage-snapshots/:id/review", async (req, res, next) => 
     }
 });
 
+app.use("/api/admin/portal-orders/:id", async (req, _res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) {
+            next();
+            return;
+        }
+        const accountName = await getPortalOrderAccountNameById(pool, orderId);
+        await assertAppUserCompanyAccess(pool, req.appUser, accountName);
+        await assertAppUserPortalOrderWarehouseAccess(pool, req.appUser, orderId);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/portal-orders/:id/shipments", async (req, res, next) => {
     try {
         const orderId = toPositiveInt(req.params.id);
@@ -4486,7 +4504,13 @@ app.get("/api/admin/portal-orders/:id/shipments", async (req, res, next) => {
         const shipments = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const result = await client.query("select id from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id", [orderId]);
+            const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+            const result = Array.isArray(explicitLocationIds) && explicitLocationIds.length
+                ? await client.query(
+                    "select id from warehouse_shipments where order_id = $1 and fulfillment_location_id = any($2::bigint[]) order by fulfillment_location_id, id",
+                    [orderId, explicitLocationIds]
+                )
+                : await client.query("select id from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id", [orderId]);
             return Promise.all(result.rows.map((row) => getWarehouseShipmentDetail(client, row.id, accountName)));
         });
         res.setHeader("Cache-Control", "no-store");
@@ -4502,6 +4526,7 @@ app.patch("/api/admin/warehouse-shipments/:id", async (req, res, next) => {
             const current = await getWarehouseShipmentDetail(client, req.params.id);
             if (!current) throw httpError(404, "That warehouse shipment could not be found.");
             await assertAppUserCompanyAccess(client, req.appUser, current.account_name);
+            await assertAppUserFulfillmentLocationAccess(client, req.appUser, current.fulfillment_location_id);
             return updateWarehouseShipmentDetail(client, current.id, req.body || {}, {
                 accountName: current.account_name,
                 actor: req.appUser?.full_name || req.appUser?.email || "Warehouse"
@@ -4667,7 +4692,12 @@ app.get("/api/admin/portal-orders/batch-pick-tickets.pdf", async (req, res, next
             for (const orderId of orderIds) {
                 const accountName = await getPortalOrderAccountNameById(client, orderId);
                 await assertAppUserCompanyAccess(client, req.appUser, accountName);
-                const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+                const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+                const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+                if (!fullOrder) {
+                    throw httpError(404, `Order ${orderId} could not be found.`);
+                }
+                const order = scopePortalOrderToFulfillmentLocationIds(fullOrder, explicitLocationIds || []);
                 if (!order) {
                     throw httpError(404, `Order ${orderId} could not be found.`);
                 }
@@ -4696,7 +4726,9 @@ app.get("/api/admin/portal-orders/:id", async (req, res, next) => {
         const order = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            return getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+            const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+            const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+            return fullOrder ? scopePortalOrderToFulfillmentLocationIds(fullOrder, explicitLocationIds || []) : null;
         });
         if (!order) {
             throw httpError(404, "That sales order could not be found.");
@@ -4880,8 +4912,10 @@ app.get("/api/admin/portal-orders/:id/ucc128-labels.pdf", async (req, res, next)
         const attachment = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
             await assertAppUserCompanyAccess(client, req.appUser, accountName);
-            const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
-            if (!order) throw httpError(404, "That sales order could not be found.");
+            const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, req.appUser, orderId);
+            const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+            if (!fullOrder) throw httpError(404, "That sales order could not be found.");
+            const order = scopePortalOrderToFulfillmentLocationIds(fullOrder, explicitLocationIds || []);
             if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
                 throw httpError(400, `Orders in ${order.status} cannot have UCC128 labels generated.`);
             }
@@ -6635,6 +6669,16 @@ app.get("/api/admin/portal-order-documents/:id", async (req, res, next) => {
             throw httpError(404, "That shipped document could not be found.");
         }
         await assertAppUserCompanyAccess(pool, req.appUser, document.account_name);
+        await assertAppUserPortalOrderWarehouseAccess(pool, req.appUser, document.order_id);
+        if (document.warehouse_shipment_id) {
+            const shipment = await pool.query(
+                "select fulfillment_location_id from warehouse_shipments where id = $1 limit 1",
+                [document.warehouse_shipment_id]
+            );
+            if (shipment.rowCount === 1) {
+                await assertAppUserFulfillmentLocationAccess(pool, req.appUser, shipment.rows[0].fulfillment_location_id);
+            }
+        }
 
         sendSafeUploadedDocument(res, document, { inline: req.query.preview === "1" });
     } catch (error) {
@@ -7306,7 +7350,11 @@ function mapPartnerApiShipment(row) {
         externalId: row.shipment_code,
         orderExternalId: row.order_code || "",
         status: row.status,
-        warehouse: { code: row.warehouse_code || "", name: row.warehouse_name || "" },
+        warehouse: {
+            id: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+            code: row.warehouse_code || "",
+            name: row.warehouse_name || ""
+        },
         shipmentMethod: row.shipment_method || "",
         carrier: row.carrier_name || "",
         trackingReference: row.tracking_reference || "",
@@ -18052,7 +18100,8 @@ async function getMobilePickOrdersForAppUser(client, appUser, { accountName = ""
     const orders = requestedAccount
         ? await getPortalOrdersForAccount(requestedAccount, client)
         : await getAdminPortalOrders(client);
-    return filterMobilePickOrdersForAppUser(orders, appUser, { accessibleCompanies, assignedOrderIds, accountName: requestedAccount });
+    const roleScopedOrders = filterMobilePickOrdersForAppUser(orders, appUser, { accessibleCompanies, assignedOrderIds, accountName: requestedAccount });
+    return filterPortalOrdersForAppUserWarehouses(client, roleScopedOrders, appUser);
 }
 
 async function getPortalOrderById(client, orderId, accountName, downloadPathPrefix = "/api/admin/portal-order-documents") {
@@ -23417,6 +23466,11 @@ async function getPortalOrderReleaseAssignedUsers(client = pool, accountName = "
                 u.email,
                 u.role,
                 u.is_active,
+                coalesce((
+                    select array_agg(distinct location_access.fulfillment_location_id)
+                    from app_user_fulfillment_location_access location_access
+                    where location_access.app_user_id = u.id
+                ), '{}'::bigint[]) as assigned_fulfillment_location_ids,
                 exists (
                     select 1
                     from app_user_company_access direct_access
@@ -23622,16 +23676,27 @@ function normalizeRecipientRows(rows = [], emailField = "email") {
     return recipients;
 }
 
-async function getPortalOrderReleaseRecipients(client = pool, accountName = "") {
+async function getPortalOrderReleaseRecipients(client = pool, accountName = "", { fulfillmentLocationIds = [] } = {}) {
     const normalizedAccount = normalizeText(accountName);
     const recipients = new Set();
+    const targetLocationIds = [...new Set((fulfillmentLocationIds || []).map(toPositiveInt).filter((id) => id > 0))];
 
     if (normalizedAccount) {
         const assignedUsers = await getPortalOrderReleaseAssignedUsers(client, normalizedAccount);
-        assignedUsers.forEach((row) => addValidEmailRecipient(recipients, row.email));
+        assignedUsers
+            .filter((row) => {
+                if (!targetLocationIds.length) return true;
+                const assignedIds = (row.assigned_fulfillment_location_ids || []).map(toPositiveInt).filter((id) => id > 0);
+                if (assignedIds.length) return assignedIds.some((id) => targetLocationIds.includes(id));
+                return row.direct_company_access === true;
+            })
+            .forEach((row) => addValidEmailRecipient(recipients, row.email));
 
         const fulfillmentLocations = await getPortalOrderReleaseFulfillmentLocations(client, normalizedAccount);
-        choosePortalReleaseFulfillmentRecipients(fulfillmentLocations)
+        const targetLocations = targetLocationIds.length
+            ? fulfillmentLocations.filter((row) => targetLocationIds.includes(toPositiveInt(row.fulfillment_location_id)))
+            : fulfillmentLocations;
+        choosePortalReleaseFulfillmentRecipients(targetLocations)
             .forEach((row) => addValidEmailRecipient(recipients, row.contact_email));
     }
 
@@ -24850,6 +24915,61 @@ function buildSimpleTextPdfBuffer(lines = [], options = {}) {
     return buildSimpleTextPdfPagesBuffer(pages, { pageWidth, pageHeight, marginX, marginTop, lineHeight, barcodeText: options.barcodeText || "" });
 }
 
+function scopePortalOrderToFulfillmentLocationIds(order = {}, fulfillmentLocationIds = []) {
+    const allowedIds = new Set((fulfillmentLocationIds || []).map((id) => String(toPositiveInt(id))).filter((id) => id !== "0"));
+    if (!allowedIds.size) return order;
+    const allGroups = getPortalOrderSplitFulfillmentGroups(order);
+    const allowedGroups = allGroups.filter((group) => allowedIds.has(String(toPositiveInt(group?.location?.id))));
+    if (!allowedGroups.length) {
+        throw httpError(403, "This sales order is assigned to another warehouse and is not available to your login.");
+    }
+    if (allowedGroups.length === allGroups.length) return order;
+
+    const linesById = new Map();
+    allowedGroups.forEach((group) => {
+        (group.lines || []).forEach((line) => {
+            const key = String(line.id || line.orderLineId || line.lineNumber || line.sku);
+            const existing = linesById.get(key);
+            if (!existing) {
+                linesById.set(key, {
+                    ...line,
+                    quantity: Number(line.quantity) || 0,
+                    pickLocations: [...(line.pickLocations || [])]
+                });
+                return;
+            }
+            existing.quantity += Number(line.quantity) || 0;
+            existing.pickLocations.push(...(line.pickLocations || []));
+        });
+    });
+
+    const primaryGroup = allowedGroups[0];
+    const scoped = {
+        ...order,
+        lines: [...linesById.values()].sort((left, right) => (Number(left.lineNumber) || 0) - (Number(right.lineNumber) || 0)),
+        fulfillmentLocationId: primaryGroup.location?.id || order.fulfillmentLocationId,
+        fulfillmentLocationCode: primaryGroup.location?.code || order.fulfillmentLocationCode,
+        fulfillmentLocationName: primaryGroup.location?.name || primaryGroup.location?.publicName || order.fulfillmentLocationName,
+        fulfillmentPartnerName: primaryGroup.location?.partnerName || order.fulfillmentPartnerName,
+        fulfillmentAddress1: primaryGroup.location?.address1 || order.fulfillmentAddress1,
+        fulfillmentAddress2: primaryGroup.location?.address2 || order.fulfillmentAddress2,
+        fulfillmentCity: primaryGroup.location?.city || order.fulfillmentCity,
+        fulfillmentState: primaryGroup.location?.state || order.fulfillmentState,
+        fulfillmentPostalCode: primaryGroup.location?.postalCode || order.fulfillmentPostalCode,
+        fulfillmentCountry: primaryGroup.location?.country || order.fulfillmentCountry,
+        warehouseAccessScoped: true
+    };
+    if (Array.isArray(order.warehouseShipments)) {
+        scoped.warehouseShipments = order.warehouseShipments.filter((shipment) => {
+            const shipmentId = shipment?.warehouse?.id || shipment?.fulfillmentLocationId || shipment?.fulfillment_location_id;
+            const shipmentCode = normalizeText(shipment?.warehouse?.code || shipment?.fulfillmentLocationCode || "");
+            return allowedIds.has(String(toPositiveInt(shipmentId)))
+                || allowedGroups.some((group) => normalizeText(group.location?.code) === shipmentCode);
+        });
+    }
+    return scoped;
+}
+
 function buildSimpleTextPdfPagesBuffer(inputPages = [], options = {}) {
     const pageWidth = options.pageWidth || 612;
     const pageHeight = options.pageHeight || 792;
@@ -25109,38 +25229,77 @@ async function sendPortalOrderReleaseEmail(order, { bccRecipients = [], subjectP
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     }
 
-    const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName);
-    if (!recipients.length) {
-        throw httpError(400, "No warehouse notification email is configured. Assign an active warehouse user to this company, or set ORDER_RELEASE_TO or SMTP_REPLY_TO.");
-    }
-
     const visibleRecipient = normalizeEmail(SMTP_REPLY_TO || SMTP_FROM);
     if (!visibleRecipient) {
         throw httpError(500, "A WMS365 service email address is required for private warehouse notifications.");
     }
-    const normalizedBccRecipients = normalizeEmailList([...recipients, ...normalizeEmailList(bccRecipients)])
-        .filter((email) => email !== visibleRecipient);
-    const attachments = testMode ? [] : buildPortalOrderPickTicketPdfAttachments(order);
-    await sendSystemEmail({
-        from: SMTP_FROM,
-        to: visibleRecipient,
-        bcc: normalizedBccRecipients.join(", "),
-        replyTo: SMTP_REPLY_TO || undefined,
-        subject: `${subjectPrefix || ""}Order Released - ${order.orderCode} - ${order.accountName}`,
-        text: buildPortalReleaseEmailText(order, { testMode, testRequestedBy }),
-        html: buildPortalReleaseEmailHtml(order, { testMode, testRequestedBy }),
-        attachments,
-        emailContext: {
-            accountName: order.accountName,
-            sourceType: testMode ? "PORTAL_ORDER_TEST" : "PORTAL_ORDER",
-            sourceRef: order.orderCode || order.id
+    const groups = getPortalOrderSplitFulfillmentGroups(order);
+    const routes = groups.length ? groups : [{ location: buildOrderDefaultFulfillmentLocation(order), lines: order.lines || [] }];
+    const allRecipients = new Set();
+    const allBccRecipients = new Set();
+    const allAttachments = [];
+
+    for (let groupIndex = 0; groupIndex < routes.length; groupIndex += 1) {
+        const group = routes[groupIndex];
+        const fulfillmentLocationId = toPositiveInt(group?.location?.id);
+        if (!fulfillmentLocationId) {
+            throw httpError(409, `Warehouse notification blocked for ${order.orderCode || "this order"}: the ship-from warehouse is missing.`);
         }
-    }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+        const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName, {
+            fulfillmentLocationIds: [fulfillmentLocationId]
+        });
+        if (!recipients.length) {
+            throw httpError(400, `No warehouse notification email is configured for ${group.location?.publicName || group.location?.code || "the assigned warehouse"}.`);
+        }
+        const normalizedBccRecipients = normalizeEmailList([...recipients, ...normalizeEmailList(bccRecipients)])
+            .filter((email) => email !== visibleRecipient);
+        const scopedOrder = {
+            ...order,
+            lines: group.lines || order.lines || [],
+            fulfillmentLocationId: String(fulfillmentLocationId),
+            fulfillmentLocationCode: group.location?.code || "",
+            fulfillmentLocationName: group.location?.name || group.location?.publicName || "",
+            fulfillmentPartnerName: group.location?.partnerName || "",
+            fulfillmentAddress1: group.location?.address1 || "",
+            fulfillmentAddress2: group.location?.address2 || "",
+            fulfillmentCity: group.location?.city || "",
+            fulfillmentState: group.location?.state || "",
+            fulfillmentPostalCode: group.location?.postalCode || "",
+            fulfillmentCountry: group.location?.country || ""
+        };
+        const attachments = testMode
+            ? []
+            : [buildPortalOrderPickTicketPdfAttachment(scopedOrder, {
+                fulfillmentGroup: group,
+                groupIndex,
+                groupCount: routes.length
+            })];
+        await sendSystemEmail({
+            from: SMTP_FROM,
+            to: visibleRecipient,
+            bcc: normalizedBccRecipients.join(", "),
+            replyTo: SMTP_REPLY_TO || undefined,
+            subject: `${subjectPrefix || ""}Order Released - ${order.orderCode} - ${order.accountName}`,
+            text: buildPortalReleaseEmailText(scopedOrder, { testMode, testRequestedBy }),
+            html: buildPortalReleaseEmailHtml(scopedOrder, { testMode, testRequestedBy }),
+            attachments,
+            emailContext: {
+                accountName: order.accountName,
+                sourceType: testMode ? "PORTAL_ORDER_TEST" : "PORTAL_ORDER",
+                sourceRef: order.orderCode || order.id,
+                fulfillmentLocationId: String(fulfillmentLocationId),
+                fulfillmentLocationCode: group.location?.code || ""
+            }
+        }, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
+        recipients.forEach((email) => allRecipients.add(email));
+        normalizedBccRecipients.forEach((email) => allBccRecipients.add(email));
+        allAttachments.push(...attachments);
+    }
 
     return {
-        recipients,
-        bccRecipients: normalizedBccRecipients,
-        attachments
+        recipients: [...allRecipients],
+        bccRecipients: [...allBccRecipients],
+        attachments: allAttachments
     };
 }
 
@@ -25800,7 +25959,12 @@ async function schedulePortalOrderReleaseEmailForSend(order, { bccRecipients = [
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Warehouse email is not configured yet. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.");
     }
-    const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName);
+    const releaseLocationIds = getPortalOrderSplitFulfillmentGroups(order)
+        .map((group) => toPositiveInt(group?.location?.id))
+        .filter((id) => id > 0);
+    const recipients = await getPortalOrderReleaseRecipients(pool, order.accountName, {
+        fulfillmentLocationIds: releaseLocationIds
+    });
     if (!recipients.length) {
         throw httpError(400, "No warehouse notification email is configured. Assign an active warehouse user to this company, or set ORDER_RELEASE_TO or SMTP_REPLY_TO.");
     }
@@ -27409,6 +27573,22 @@ async function getAccessibleFulfillmentLocationIdsForAppUser(client, user) {
     const assignedLocationIds = (user.assignedFulfillmentLocations || user.assigned_fulfillment_locations || [])
         .map((location) => toPositiveInt(location?.id || location?.fulfillmentLocationId || location?.fulfillment_location_id || location))
         .filter((id) => id > 0);
+    if (assignedLocationIds.length) {
+        return [...new Set(assignedLocationIds)];
+    }
+    const userId = toPositiveInt(user.id || user.app_user_id);
+    if (userId) {
+        const explicitAssignments = await client.query(
+            "select fulfillment_location_id from app_user_fulfillment_location_access where app_user_id = $1",
+            [userId]
+        );
+        const explicitIds = explicitAssignments.rows
+            .map((row) => toPositiveInt(row.fulfillment_location_id))
+            .filter((id) => id > 0);
+        if (explicitIds.length) {
+            return [...new Set(explicitIds)];
+        }
+    }
     const accessibleCompanies = await getAccessibleCompanyNamesForAppUser(client, user);
     const result = accessibleCompanies.length
         ? await client.query(
@@ -27976,8 +28156,10 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
     const documentType = normalizePortalOrderPrintDocumentType(input.documentType || input.document_type || input.type);
     if (!documentType) throw httpError(400, "Choose a printable document type.");
     const accountName = await getPortalOrderAccountNameById(client, orderId);
-    const order = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
-    if (!order) throw httpError(404, "That sales order could not be found.");
+    const explicitLocationIds = await assertAppUserPortalOrderWarehouseAccess(client, appUser, orderId);
+    const fullOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+    if (!fullOrder) throw httpError(404, "That sales order could not be found.");
+    const order = scopePortalOrderToFulfillmentLocationIds(fullOrder, explicitLocationIds || []);
     if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
         throw httpError(400, `Orders in ${order.status} cannot be printed for warehouse processing.`);
     }
@@ -31779,6 +31961,93 @@ async function recordPortalOrderAllocationTransactions(client, orderId, action =
         if (transaction) transactions.push(transaction);
     }
     return transactions;
+}
+
+async function getExplicitFulfillmentLocationIdsForAppUser(client, user) {
+    if (!user || isSuperAdminUser(user)) return null;
+    const attachedIds = (user.assignedFulfillmentLocations || user.assigned_fulfillment_locations || [])
+        .map((location) => toPositiveInt(location?.id || location?.fulfillmentLocationId || location?.fulfillment_location_id || location))
+        .filter((id) => id > 0);
+    if (attachedIds.length) return [...new Set(attachedIds)];
+    const userId = toPositiveInt(user.id || user.app_user_id);
+    if (!userId) return [];
+    const result = await client.query(
+        "select fulfillment_location_id from app_user_fulfillment_location_access where app_user_id = $1",
+        [userId]
+    );
+    return [...new Set(result.rows.map((row) => toPositiveInt(row.fulfillment_location_id)).filter((id) => id > 0))];
+}
+
+async function getPortalOrderFulfillmentLocationIds(client, orderId) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return [];
+    const result = await client.query(
+        `
+            select distinct fulfillment_location_id
+            from (
+                select ws.fulfillment_location_id
+                from warehouse_shipments ws
+                where ws.order_id = $1
+                  and ws.status <> 'CANCELLED'
+                union all
+                select o.fulfillment_location_id
+                from portal_orders o
+                where o.id = $1
+                  and not exists (
+                      select 1
+                      from warehouse_shipments active_ws
+                      where active_ws.order_id = o.id
+                        and active_ws.status <> 'CANCELLED'
+                  )
+            ) order_warehouses
+            where fulfillment_location_id is not null
+        `,
+        [normalizedOrderId]
+    );
+    return [...new Set(result.rows.map((row) => toPositiveInt(row.fulfillment_location_id)).filter((id) => id > 0))];
+}
+
+async function assertAppUserPortalOrderWarehouseAccess(client, user, orderId) {
+    const explicitIds = await getExplicitFulfillmentLocationIdsForAppUser(client, user);
+    if (explicitIds === null || !explicitIds.length) return explicitIds;
+    const orderLocationIds = await getPortalOrderFulfillmentLocationIds(client, orderId);
+    if (!orderLocationIds.some((id) => explicitIds.includes(id))) {
+        throw httpError(403, "This sales order is assigned to another warehouse and is not available to your login.");
+    }
+    return explicitIds;
+}
+
+async function filterPortalOrdersForAppUserWarehouses(client, orders = [], user = null) {
+    const explicitIds = await getExplicitFulfillmentLocationIdsForAppUser(client, user);
+    if (explicitIds === null || !explicitIds.length || !orders.length) return orders;
+    const orderIds = orders.map((order) => toPositiveInt(order?.id)).filter((id) => id > 0);
+    if (!orderIds.length) return [];
+    const result = await client.query(
+        `
+            select distinct o.id
+            from portal_orders o
+            where o.id = any($1::bigint[])
+              and (
+                exists (
+                    select 1
+                    from warehouse_shipments ws
+                    where ws.order_id = o.id
+                      and ws.status <> 'CANCELLED'
+                      and ws.fulfillment_location_id = any($2::bigint[])
+                )
+                or (
+                    not exists (
+                        select 1 from warehouse_shipments active_ws
+                        where active_ws.order_id = o.id and active_ws.status <> 'CANCELLED'
+                    )
+                    and o.fulfillment_location_id = any($2::bigint[])
+                )
+              )
+        `,
+        [orderIds, explicitIds]
+    );
+    const allowedOrderIds = new Set(result.rows.map((row) => String(row.id)));
+    return orders.filter((order) => allowedOrderIds.has(String(order?.id || "")));
 }
 
 function encodeCode128BValues(value) {
@@ -39745,6 +40014,13 @@ module.exports = {
     updateWarehouseShipmentDetail,
     backfillWarehouseShipments,
     syncWarehouseShipmentsForOrder,
+    getAccessibleFulfillmentLocationIdsForAppUser,
+    getExplicitFulfillmentLocationIdsForAppUser,
+    getPortalOrderFulfillmentLocationIds,
+    assertAppUserPortalOrderWarehouseAccess,
+    filterPortalOrdersForAppUserWarehouses,
+    scopePortalOrderToFulfillmentLocationIds,
+    getPortalOrderReleaseRecipients,
     httpError
 };
 

@@ -21,7 +21,7 @@
     "test:warehouse-billing": "node --test warehouse-billing.spec.js",
     "test:kitting-reservations": "node --test kitting-reservations.spec.js",
     "test:warehouse-entry-routes": "node --test warehouse-entry-routes.spec.js",
-    "check:deploy": "node --check server.js && node --test warehouse-entry-routes.spec.js security-hardening.spec.js rbac.spec.js sales-order-duplicate-return.spec.js order-routing.spec.js carrier-tracking.spec.js warehouse-profile-settings.spec.js",
+    "check:deploy": "node --check server.js && node --test warehouse-entry-routes.spec.js warehouse-order-isolation.spec.js security-hardening.spec.js rbac.spec.js sales-order-duplicate-return.spec.js order-routing.spec.js carrier-tracking.spec.js warehouse-profile-settings.spec.js",
     "test:guides": "node scripts/validate-guide-screenshots.js",
     "research:wms": "node scripts/audit-wms-feature-competitiveness.js"
   },
