@@ -2765,6 +2765,43 @@ app.put("/api/app/profile", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/security/access-restrictions", requireSuperAdmin(), async (req, res, next) => {
+    try {
+        const limit = Math.max(1, Math.min(Number(req.query?.limit) || 100, 500));
+        const result = await pool.query(
+            `
+                select *
+                from access_restriction_log
+                order by created_at desc, id desc
+                limit $1
+            `,
+            [limit]
+        );
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            success: true,
+            count: result.rows.length,
+            attempts: result.rows.map((row) => ({
+                id: String(row.id),
+                userEmail: row.user_email || "",
+                userName: row.user_name || "",
+                userRole: row.user_role || "",
+                requestMethod: row.request_method || "",
+                requestPath: row.request_path || "",
+                resourceType: row.resource_type || "",
+                resourceId: row.resource_id || "",
+                accountName: row.account_name || "",
+                reason: row.reason || "",
+                requestId: row.request_id || "",
+                metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+                createdAt: row.created_at ? new Date(row.created_at).toISOString() : null
+            }))
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/product-intelligence", requireSuperAdmin(), async (_req, res, next) => {
     try {
         const reportPath = path.join(ROOT_DIR, "product-intelligence-report.json");
@@ -7243,7 +7280,13 @@ function buildUserFacingError(error, req, statusCode) {
     if(statusCode===429)return{message:"Too many requests were submitted. Wait a moment, then try again.",requestId};
     if(statusCode===413)return{message:"The selected file is too large. Choose a smaller file and try again.",requestId};
     if(statusCode===401&&!normalizeText(error?.message))return{message:isPortal?"Your customer portal session has expired. Sign in again to continue.":"Your warehouse session has expired. Sign in again to continue.",requestId};
-    if(statusCode===403&&!normalizeText(error?.message))return{message:"You do not have access to complete this action. Contact your administrator if you need access.",requestId};
+    if(statusCode===403){
+        const reason=normalizeFreeText(error?.message||"");
+        const message=error?.code==="ACCESS_RESTRICTED"
+            ? (reason||"Access restricted. This information belongs to another warehouse.")
+            : `Access restricted.${reason?` ${reason}`:" Contact your administrator if you need access."}`;
+        return{message,requestId};
+    }
     if(statusCode===404&&!normalizeText(error?.message))return{message:"This record could not be found. It may have been changed or removed. Refresh the page and try again.",requestId};
     return{message:normalizeFreeText(error?.message)||"We could not complete this request. Review the information and try again.",requestId};
 }
@@ -7647,6 +7690,11 @@ function ensureAsyncJobWorkerStarted() {
 app.use((error, req, res, _next) => {
     const statusCode = error.statusCode || 500;
     const publicError = buildUserFacingError(error, req, statusCode);
+    if (statusCode === 403) {
+        void recordAccessRestrictionAttempt(error, req, publicError.requestId).catch((auditError) => {
+            console.error("Access restriction audit logging failed:", auditError.message || auditError);
+        });
+    }
     if (statusCode >= 500) {
         console.error(`[${publicError.requestId}]`, error);
     }
@@ -8042,6 +8090,28 @@ async function initializeDatabase() {
             created_at timestamptz not null default now()
         );
     `);
+
+    await pool.query(`
+        create table if not exists access_restriction_log (
+            id bigserial primary key,
+            app_user_id bigint references app_users(id) on delete set null,
+            user_email text not null default '',
+            user_name text not null default '',
+            user_role text not null default '',
+            request_method text not null default '',
+            request_path text not null default '',
+            resource_type text not null default '',
+            resource_id text not null default '',
+            account_name text not null default '',
+            reason text not null default '',
+            request_id text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create index if not exists idx_access_restriction_log_created on access_restriction_log (created_at desc)");
+    await pool.query("create index if not exists idx_access_restriction_log_user_created on access_restriction_log (user_email, created_at desc)");
+    await pool.query("create index if not exists idx_access_restriction_log_resource on access_restriction_log (resource_type, resource_id, created_at desc)");
 
     await pool.query(`
         create table if not exists email_delivery_log (
@@ -12010,6 +12080,66 @@ async function createPortalOrderBillingEvents(client, order) {
     if (labourHours > 0) await pushCreated("SPECIAL_LABOUR", labourHours, "SPECIAL_LABOUR");
 
     return created;
+}
+
+function buildAccessRestrictionAuditEntry(error, req, requestId = "") {
+    const appUser = req?.appUser || {};
+    const context = error?.accessRestriction && typeof error.accessRestriction === "object"
+        ? error.accessRestriction
+        : {};
+    return {
+        appUserId: toPositiveInt(appUser.id || appUser.app_user_id) || null,
+        userEmail: normalizeEmail(appUser.email || ""),
+        userName: normalizeFreeText(appUser.full_name || appUser.fullName || ""),
+        userRole: normalizeText(appUser.role || ""),
+        requestMethod: normalizeText(req?.method || ""),
+        requestPath: normalizeFreeText(req?.path || "").slice(0, 500),
+        resourceType: normalizeText(context.resourceType || "REQUEST").slice(0, 80),
+        resourceId: normalizeFreeText(context.resourceId || req?.params?.id || "").slice(0, 120),
+        accountName: normalizeText(context.accountName || "").slice(0, 240),
+        reason: normalizeFreeText(error?.message || "Access restricted.").slice(0, 1000),
+        requestId: normalizeFreeText(requestId || req?.requestId || "").slice(0, 120),
+        metadata: {
+            assignedFulfillmentLocationIds: Array.isArray(context.assignedFulfillmentLocationIds)
+                ? context.assignedFulfillmentLocationIds.map(String)
+                : [],
+            resourceFulfillmentLocationIds: Array.isArray(context.resourceFulfillmentLocationIds)
+                ? context.resourceFulfillmentLocationIds.map(String)
+                : []
+        }
+    };
+}
+
+async function recordAccessRestrictionAttempt(error, req, requestId = "") {
+    if (!DATABASE_URL || !databaseReady) return null;
+    const entry = buildAccessRestrictionAuditEntry(error, req, requestId);
+    const result = await pool.query(
+        `
+            insert into access_restriction_log (
+                app_user_id, user_email, user_name, user_role, request_method, request_path,
+                resource_type, resource_id, account_name, reason, request_id, metadata
+            )
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+            returning *
+        `,
+        [
+            entry.appUserId, entry.userEmail, entry.userName, entry.userRole,
+            entry.requestMethod, entry.requestPath, entry.resourceType, entry.resourceId,
+            entry.accountName, entry.reason, entry.requestId, JSON.stringify(entry.metadata)
+        ]
+    );
+    await pool.query(
+        "insert into activity_log (type, title, details) values ('security', 'Access restricted', $1)",
+        [[
+            entry.userEmail || entry.userName || "Unknown user",
+            entry.userRole || "Unknown role",
+            `${entry.requestMethod} ${entry.requestPath}`.trim(),
+            entry.resourceType && entry.resourceId ? `${entry.resourceType} ${entry.resourceId}` : "",
+            entry.accountName,
+            entry.requestId ? `Reference ${entry.requestId}` : ""
+        ].filter(Boolean).join(" | ")]
+    );
+    return result.rows[0] || null;
 }
 
 async function sendAsyncJobErrorCsv(res, jobIdInput, accountName) {
@@ -32012,7 +32142,15 @@ async function assertAppUserPortalOrderWarehouseAccess(client, user, orderId) {
     if (explicitIds === null || !explicitIds.length) return explicitIds;
     const orderLocationIds = await getPortalOrderFulfillmentLocationIds(client, orderId);
     if (!orderLocationIds.some((id) => explicitIds.includes(id))) {
-        throw httpError(403, "This sales order is assigned to another warehouse and is not available to your login.");
+        const error = httpError(403, "Access restricted. This sales order is assigned to another warehouse and is not available to your login.");
+        error.code = "ACCESS_RESTRICTED";
+        error.accessRestriction = {
+            resourceType: "PORTAL_ORDER",
+            resourceId: String(toPositiveInt(orderId) || ""),
+            assignedFulfillmentLocationIds: explicitIds,
+            resourceFulfillmentLocationIds: orderLocationIds
+        };
+        throw error;
     }
     return explicitIds;
 }
@@ -39999,6 +40137,8 @@ module.exports = {
     buildInventoryCountVarianceFacts,
     postInventoryCountAdjustment,
     buildUserFacingError,
+    buildAccessRestrictionAuditEntry,
+    recordAccessRestrictionAttempt,
     renderWms365ServiceUnavailablePage,
     shouldServeWms365MaintenancePage,
     sanitizePartnerApiScopes,

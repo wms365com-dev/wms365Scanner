@@ -6831,7 +6831,7 @@
         function friendlyRequestFailure(status, requestId = "") {
             const reference = requestId ? ` Reference: ${requestId}.` : "";
             if (status === 401) return "Your session has expired. Sign in again to continue.";
-            if (status === 403) return "You do not have access to complete this action. Contact your company administrator if you need access.";
+            if (status === 403) return "Access restricted. This information or action is outside your assigned access. Contact your company administrator if you believe this is incorrect.";
             if (status === 404) return "This information could not be found. Refresh the page and try again.";
             if (status === 409) return "This information changed while you were working. Refresh the page, review the latest details, and try again.";
             if (status === 413) return "The selected file is too large. Choose a smaller file and try again.";

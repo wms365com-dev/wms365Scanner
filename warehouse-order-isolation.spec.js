@@ -7,7 +7,9 @@ const {
     getAccessibleFulfillmentLocationIdsForAppUser,
     assertAppUserPortalOrderWarehouseAccess,
     scopePortalOrderToFulfillmentLocationIds,
-    getPortalOrderReleaseRecipients
+    getPortalOrderReleaseRecipients,
+    buildUserFacingError,
+    buildAccessRestrictionAuditEntry
 } = require("./server");
 
 test("explicit warehouse assignments do not inherit every warehouse used by the company", async () => {
@@ -36,7 +38,10 @@ test("Edwards-only user is denied a Courtney Park order even when the company is
             role: "warehouse_customer_service",
             assigned_fulfillment_locations: [{ id: "2", code: "WHS01" }]
         }, 573),
-        (error) => error.statusCode === 403 && /another warehouse/i.test(error.message)
+        (error) => error.statusCode === 403
+            && error.code === "ACCESS_RESTRICTED"
+            && /^Access restricted\./i.test(error.message)
+            && /another warehouse/i.test(error.message)
     );
 });
 
@@ -100,4 +105,50 @@ test("admin order and document routes enforce warehouse isolation before access 
     assert.match(source, /batch-pick-tickets\.pdf[\s\S]*assertAppUserPortalOrderWarehouseAccess/);
     assert.match(source, /portal-order-documents\/:id[\s\S]*assertAppUserPortalOrderWarehouseAccess/);
     assert.match(source, /filterPortalOrdersForAppUserWarehouses\(pool, companyScopedOrders, req\.appUser\)/);
+});
+
+test("restricted warehouse access uses plain language without exposing a technical status", () => {
+    const response = buildUserFacingError({
+        statusCode: 403,
+        code: "ACCESS_RESTRICTED",
+        message: "Access restricted. This sales order is assigned to another warehouse and is not available to your login."
+    }, { path: "/api/admin/portal-orders/573" }, 403);
+    assert.match(response.message, /^Access restricted\./);
+    assert.doesNotMatch(response.message, /\b403\b/);
+});
+
+test("restricted attempts capture reviewable user, route, order, and warehouse context", () => {
+    const entry = buildAccessRestrictionAuditEntry({
+        message: "Access restricted.",
+        accessRestriction: {
+            resourceType: "PORTAL_ORDER",
+            resourceId: "573",
+            assignedFulfillmentLocationIds: [2],
+            resourceFulfillmentLocationIds: [1]
+        }
+    }, {
+        method: "GET",
+        path: "/api/admin/portal-orders/573",
+        appUser: {
+            id: 10,
+            email: "warehouse@example.com",
+            full_name: "Warehouse User",
+            role: "warehouse_customer_service"
+        },
+        params: { id: "573" }
+    }, "request-123");
+    assert.equal(entry.userEmail, "warehouse@example.com");
+    assert.equal(entry.requestPath, "/api/admin/portal-orders/573");
+    assert.equal(entry.resourceType, "PORTAL_ORDER");
+    assert.equal(entry.resourceId, "573");
+    assert.deepEqual(entry.metadata.assignedFulfillmentLocationIds, ["2"]);
+    assert.deepEqual(entry.metadata.resourceFulfillmentLocationIds, ["1"]);
+});
+
+test("restricted attempts are retained and reviewable by super admins", () => {
+    const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    assert.match(source, /create table if not exists access_restriction_log/);
+    assert.match(source, /statusCode === 403[\s\S]*recordAccessRestrictionAttempt/);
+    assert.match(source, /\/api\/admin\/security\/access-restrictions", requireSuperAdmin\(\)/);
+    assert.match(source, /insert into activity_log \(type, title, details\) values \('security', 'Access restricted'/);
 });
