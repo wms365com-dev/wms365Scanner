@@ -129,6 +129,19 @@ test("warehouse exception email uses service recipient plus BCC only", () => {
     assert.match(resolver, /app_user_fulfillment_location_access/);
 });
 
+test("warehouse shipment sync preserves mapped outbound pallet counts", () => {
+    const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    const syncFunction = source.slice(
+        source.indexOf("async function syncWarehouseShipmentsForOrder"),
+        source.indexOf("function hasFulfillmentLocationDocumentDetails")
+    );
+    assert.match(syncFunction, /sanitizePortalOutboundPalletInput\([\s\S]*order\.outboundPallets/);
+    assert.match(syncFunction, /outboundPallets\.totalPalletsOut/);
+    assert.match(syncFunction, /outboundPallets\.existingPalletsOut/);
+    assert.match(syncFunction, /outboundPallets\.newPalletsUsed/);
+    assert.match(syncFunction, /outboundPallets\.mixedPalletsBuilt/);
+});
+
 test("nightly audit becomes due at 3:00 AM Eastern", () => {
     assert.equal(isShipmentDataQualityAuditDue(new Date("2026-09-01T06:59:00Z")), false);
     assert.equal(isShipmentDataQualityAuditDue(new Date("2026-09-01T07:00:00Z")), true);

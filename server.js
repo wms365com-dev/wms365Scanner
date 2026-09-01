@@ -24489,6 +24489,10 @@ function buildWarehouseShipmentQuantityAllocator(order = {}) {
 async function syncWarehouseShipmentsForOrder(client, order = {}, { status = "" } = {}) {
     if (!order?.id) return [];
     const groups = getPortalOrderSplitFulfillmentGroups(order);
+    const outboundPallets = sanitizePortalOutboundPalletInput(
+        order.outboundPallets || order.outbound_pallets || order,
+        order.shipmentMethod || order.shipment_method || "LTL_FREIGHT"
+    );
     const normalizedStatus = normalizeText(status || order.status || "RELEASED");
     const shipmentStatus = ["RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(normalizedStatus)
         ? normalizedStatus
@@ -24532,10 +24536,10 @@ async function syncWarehouseShipmentsForOrder(client, order = {}, { status = "" 
                 normalizeText(order.shipmentMethod || order.shipment_method || "LTL_FREIGHT"),
                 normalizeFreeText(order.shippedCarrierName || order.shipped_carrier_name || ""),
                 normalizeFreeText(order.shippedTrackingReference || order.shipped_tracking_reference || ""),
-                Math.max(0, Number(order.outboundTotalPallets || order.outbound_total_pallets) || 0),
-                Math.max(0, Number(order.outboundExistingPallets || order.outbound_existing_pallets) || 0),
-                Math.max(0, Number(order.outboundNewPallets || order.outbound_new_pallets) || 0),
-                Math.max(0, Number(order.outboundMixedPallets || order.outbound_mixed_pallets) || 0),
+                outboundPallets.totalPalletsOut,
+                outboundPallets.existingPalletsOut,
+                outboundPallets.newPalletsUsed,
+                outboundPallets.mixedPalletsBuilt,
                 shipmentStatus === "SHIPPED"
                     ? (order.shippedAt || order.shipped_at || new Date())
                     : null
