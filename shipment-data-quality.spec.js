@@ -124,6 +124,7 @@ test("warehouse exception email uses service recipient plus BCC only", () => {
     assert.match(sendFunction, /to:\s*visibleRecipient/);
     assert.match(sendFunction, /bcc:\s*bccRecipients\.join/);
     assert.doesNotMatch(sendFunction, /\bcc:/);
+    assert.match(sendFunction, /findings\.length\s*-\s*notifiedFindings/);
     assert.doesNotMatch(resolver, /portal_vendor_access|owner_accounts|portal_login_email|billing_email/i);
     assert.match(resolver, /app_user_fulfillment_location_access/);
 });

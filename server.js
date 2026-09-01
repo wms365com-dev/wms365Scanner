@@ -40044,12 +40044,11 @@ async function notifyWarehousesOfShipmentDataQualityFindings(client, findings = 
     const visibleRecipient = normalizeEmail(SMTP_REPLY_TO || SMTP_FROM);
     if (!visibleRecipient) return { sent: 0, skipped: findings.length };
     let sent = 0;
-    let skipped = 0;
+    let notifiedFindings = 0;
     for (const [locationId, warehouseFindings] of groupShipmentDataQualityFindingsByWarehouse(findings)) {
         const route = await getShipmentDataQualityWarehouseRecipients(client, locationId);
         const bccRecipients = normalizeEmailList(route.recipients).filter((email) => email !== visibleRecipient);
         if (!route.warehouse || !bccRecipients.length) {
-            skipped += warehouseFindings.length;
             continue;
         }
         await sendSystemEmail({
@@ -40072,8 +40071,9 @@ async function notifyWarehousesOfShipmentDataQualityFindings(client, findings = 
         const ids = warehouseFindings.map((finding) => toPositiveInt(finding.id)).filter(Boolean);
         if (ids.length) await client.query("update shipment_data_quality_findings set last_notified_at=now(), updated_at=now() where id=any($1::bigint[])", [ids]);
         sent += 1;
+        notifiedFindings += warehouseFindings.length;
     }
-    return { sent, skipped };
+    return { sent, skipped: Math.max(0, findings.length - notifiedFindings) };
 }
 
 async function runShipmentDataQualityAudit({ sendEmails = true, runKey = "" } = {}) {
