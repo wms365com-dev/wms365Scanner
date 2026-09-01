@@ -233,6 +233,8 @@ How to use:
   - company-to-fulfillment-location assignment
   - BIN locations
   - item master
+  - distinct inventory tracking UOM, unit UOM, and quantity-per-case packaging fields
+  - item CSV import/export preservation of unit UOM metadata
   - store SKU mapping
   - lot required flag
   - expiration required flag

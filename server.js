@@ -8727,6 +8727,7 @@ async function initializeDatabase() {
     await pool.query(`alter table item_catalog add column if not exists account_name text not null default '${LEGACY_ACCOUNT}';`);
     await pool.query("alter table item_catalog add column if not exists tracking_level text not null default 'UNIT';");
     await pool.query("alter table item_catalog add column if not exists uom_label text not null default '';");
+    await pool.query("alter table item_catalog add column if not exists unit_uom text not null default '';");
     await pool.query("alter table item_catalog add column if not exists units_per_case integer;");
     await pool.query("alter table item_catalog add column if not exists each_length double precision;");
     await pool.query("alter table item_catalog add column if not exists each_width double precision;");
@@ -20186,6 +20187,7 @@ async function savePortalCatalogItemForAccount(
         upc: finalEntry.upc,
         description: finalEntry.description,
         tracking_level: finalEntry.trackingLevel,
+        unit_uom: finalEntry.unitUom,
         units_per_case: finalEntry.unitsPerCase,
         each_length: finalEntry.eachLength,
         each_width: finalEntry.eachWidth,
@@ -33519,7 +33521,7 @@ async function upsertItemMaster(client, item) {
     await client.query(
         `
             insert into item_catalog (
-                account_name, sku, upc, description, tracking_level, units_per_case,
+                account_name, sku, upc, description, tracking_level, unit_uom, units_per_case,
                 each_length, each_width, each_height, image_url,
                 case_length, case_width, case_height, lot_tracked, expiration_tracked,
                 item_type, item_category, blocked, costing_method, unit_cost, unit_price,
@@ -33527,7 +33529,7 @@ async function upsertItemMaster(client, item) {
             )
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, $25)
+                    $21, $22, $23, $24, $25, $26)
             on conflict (account_name, sku)
             do update set
                 upc = case
@@ -33541,6 +33543,10 @@ async function upsertItemMaster(client, item) {
                 tracking_level = case
                     when excluded.tracking_level <> '' then excluded.tracking_level
                     else item_catalog.tracking_level
+                end,
+                unit_uom = case
+                    when excluded.unit_uom <> '' then excluded.unit_uom
+                    else item_catalog.unit_uom
                 end,
                 units_per_case = coalesce(excluded.units_per_case, item_catalog.units_per_case),
                 each_length = coalesce(excluded.each_length, item_catalog.each_length),
@@ -33591,6 +33597,7 @@ async function upsertItemMaster(client, item) {
             entry.upc,
             entry.description,
             entry.trackingLevel,
+            entry.unitUom,
             entry.unitsPerCase,
             entry.eachLength,
             entry.eachWidth,
@@ -33622,7 +33629,7 @@ async function replaceItemMaster(client, item) {
     await client.query(
         `
             insert into item_catalog (
-                account_name, sku, upc, description, tracking_level, units_per_case,
+                account_name, sku, upc, description, tracking_level, unit_uom, units_per_case,
                 each_length, each_width, each_height, image_url,
                 case_length, case_width, case_height, lot_tracked, expiration_tracked,
                 item_type, item_category, blocked, costing_method, unit_cost, unit_price,
@@ -33630,12 +33637,13 @@ async function replaceItemMaster(client, item) {
             )
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, $25)
+                    $21, $22, $23, $24, $25, $26)
             on conflict (account_name, sku)
             do update set
                 upc = excluded.upc,
                 description = excluded.description,
                 tracking_level = excluded.tracking_level,
+                unit_uom = excluded.unit_uom,
                 units_per_case = excluded.units_per_case,
                 each_length = excluded.each_length,
                 each_width = excluded.each_width,
@@ -33664,6 +33672,7 @@ async function replaceItemMaster(client, item) {
             entry.upc,
             entry.description,
             entry.trackingLevel,
+            entry.unitUom,
             entry.unitsPerCase,
             entry.eachLength,
             entry.eachWidth,
@@ -33707,6 +33716,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
         upc: item.upc,
         description: item.description,
         trackingLevel: item.trackingLevel,
+        unitUom: item.unitUom,
         unitsPerCase: item.unitsPerCase,
         eachLength: item.eachLength,
         eachWidth: item.eachWidth,
@@ -33743,6 +33753,7 @@ async function updateItemMasterAndInventory(client, originalAccountName, origina
             upc: mergedEntry.upc || targetMaster.upc || "",
             description: mergedEntry.description || targetMaster.description || "",
             trackingLevel: mergedEntry.trackingLevel || targetMaster.trackingLevel || "UNIT",
+            unitUom: mergedEntry.unitUom || targetMaster.unitUom || "",
             unitsPerCase: mergedEntry.unitsPerCase ?? targetMaster.unitsPerCase ?? null,
             eachLength: mergedEntry.eachLength ?? targetMaster.eachLength ?? null,
             eachWidth: mergedEntry.eachWidth ?? targetMaster.eachWidth ?? null,
@@ -36044,6 +36055,7 @@ function sanitizeItemMasterInput(item) {
         vendorItemNo: normalizeText(item?.vendorItemNo || item?.vendor_item_no || item?.supplierSku || item?.supplier_sku || ""),
         leadTimeDays: toPositiveInt(item?.leadTimeDays ?? item?.lead_time_days),
         trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+        unitUom: normalizeText(item?.unitUom || item?.unit_uom || item?.unitOfMeasure || item?.unit_of_measure || ""),
         unitsPerCase: toPositiveInt(item?.unitsPerCase),
         eachLength: toPositiveNumber(item?.eachLength),
         eachWidth: toPositiveNumber(item?.eachWidth),
@@ -36352,6 +36364,7 @@ function mapItemMasterRow(row) {
         leadTimeDays: row.lead_time_days == null ? null : Number(row.lead_time_days),
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
         uomLabel: row.uom_label || "",
+        unitUom: row.unit_uom || "",
         unitsPerCase: row.units_per_case == null ? null : Number(row.units_per_case),
         eachLength: toNullableNumber(row.each_length),
         eachWidth: toNullableNumber(row.each_width),
@@ -36527,6 +36540,7 @@ function mapPortalItemRow(row) {
         upc: row.upc || "",
         description: row.description || "",
         trackingLevel: normalizeTrackingLevel(row.tracking_level),
+        unitUom: row.unit_uom || "",
         unitsPerCase: row.units_per_case == null ? null : Number(row.units_per_case),
         eachLength: row.each_length == null ? null : Number(row.each_length),
         eachWidth: row.each_width == null ? null : Number(row.each_width),
@@ -40650,6 +40664,9 @@ function delay(ms) {
 module.exports = {
     app,
     runDatabaseHealthProbe,
+    sanitizeItemMasterInput,
+    mapItemMasterRow,
+    mapPortalItemRow,
     APP_USER_ROLES,
     CUSTOMER_PORTAL_ROLE,
     RBAC_PERMISSIONS,

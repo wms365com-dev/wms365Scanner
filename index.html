@@ -8100,6 +8100,15 @@
                                     </select>
                                 </label>
                                 <label class="field">
+                                    <span>Unit UOM</span>
+                                    <input id="masterItemUnitUom" type="text" list="unitUomList" maxlength="20" placeholder="EA" enterkeyhint="next">
+                                    <datalist id="unitUomList">
+                                        <option value="EA"></option>
+                                        <option value="UNIT"></option>
+                                        <option value="PIECE"></option>
+                                    </datalist>
+                                </label>
+                                <label class="field">
                                     <span>Qty. per Case</span>
                                     <input id="masterItemUnitsPerCase" type="number" min="1" inputmode="numeric" placeholder="Optional">
                                 </label>
@@ -11543,6 +11552,7 @@
             masterItemSubmitBtn: document.getElementById("masterItemSubmitBtn"),
             cancelMasterItemEditBtn: document.getElementById("cancelMasterItemEditBtn"),
             masterItemTrackingLevel: document.getElementById("masterItemTrackingLevel"),
+            masterItemUnitUom: document.getElementById("masterItemUnitUom"),
             masterItemUnitsPerCase: document.getElementById("masterItemUnitsPerCase"),
             masterItemLotTracked: document.getElementById("masterItemLotTracked"),
             masterItemExpirationTracked: document.getElementById("masterItemExpirationTracked"),
@@ -12648,6 +12658,7 @@
                 ui.masterItemVendorItemNo,
                 ui.masterItemLeadTimeDays,
                 ui.masterItemTrackingLevel,
+                ui.masterItemUnitUom,
                 ui.masterItemUnitsPerCase,
                 ui.masterItemLotTracked,
                 ui.masterItemExpirationTracked
@@ -26030,6 +26041,7 @@
             const leadTimeDays = toPositiveInt(ui.masterItemLeadTimeDays?.value);
             const imageUrl = normalizeImageReference(ui.masterItemImageUrl.value);
             const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel.value);
+            const unitUom = norm(ui.masterItemUnitUom?.value || "");
             const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase.value);
             const lotTracked = ui.masterItemLotTracked.value === "true";
             const expirationTracked = ui.masterItemExpirationTracked.value === "true";
@@ -26061,6 +26073,7 @@
                     leadTimeDays,
                     imageUrl,
                     trackingLevel,
+                    unitUom,
                     unitsPerCase,
                     lotTracked,
                     expirationTracked,
@@ -26209,6 +26222,7 @@
             const costingMethod = normalizeCostingMethod(ui.masterItemCostingMethod?.value || "FIFO");
             const replenishmentSystem = normalizeReplenishmentSystem(ui.masterItemReplenishmentSystem?.value || "PURCHASE");
             const trackingLevel = normalizeTrackingLevel(ui.masterItemTrackingLevel?.value || "UNIT");
+            const unitUom = norm(ui.masterItemUnitUom?.value || "");
             const unitsPerCase = toPositiveInt(ui.masterItemUnitsPerCase?.value);
             const lotTracked = ui.masterItemLotTracked?.value === "true";
             const expirationTracked = ui.masterItemExpirationTracked?.value === "true";
@@ -26220,10 +26234,12 @@
                 upc ? `UPC ${upc}` : "UPC optional",
                 `${itemTypeLabel(itemType)} item`,
                 itemCategory ? `Category ${itemCategory}` : "",
-                `${trackingText} stock`
+                `${trackingText} stock`,
+                unitUom ? `Unit UOM ${unitUom}` : ""
             ];
             const ruleBadges = [
                 `<span class="item-card-rule strong">${esc(trackingText)} stock unit</span>`,
+                unitUom ? `<span class="item-card-rule">Unit UOM ${esc(unitUom)}</span>` : "",
                 `<span class="item-card-rule">${esc(costingMethod)} costing</span>`,
                 `<span class="item-card-rule">${esc(replenishmentSystem)} replenishment</span>`,
                 unitsPerCase ? `<span class="item-card-rule">${num(unitsPerCase)} units per case</span>` : `<span class="item-card-rule">Case pack optional</span>`,
@@ -26266,6 +26282,7 @@
             if (ui.masterItemCostingMethod) ui.masterItemCostingMethod.value = "FIFO";
             if (ui.masterItemReplenishmentSystem) ui.masterItemReplenishmentSystem.value = "PURCHASE";
             ui.masterItemTrackingLevel.value = "UNIT";
+            if (ui.masterItemUnitUom) ui.masterItemUnitUom.value = "";
             ui.masterItemLotTracked.value = "false";
             ui.masterItemExpirationTracked.value = "false";
             clearImageField({
@@ -26303,6 +26320,7 @@
             if (ui.masterItemLeadTimeDays) ui.masterItemLeadTimeDays.value = item.leadTimeDays ?? "";
             ui.masterItemImageUrl.value = item.imageUrl || "";
             ui.masterItemTrackingLevel.value = normalizeTrackingLevel(item.trackingLevel);
+            if (ui.masterItemUnitUom) ui.masterItemUnitUom.value = item.unitUom || "";
             ui.masterItemUnitsPerCase.value = item.unitsPerCase ?? "";
             ui.masterItemLotTracked.value = item.lotTracked === true ? "true" : "false";
             ui.masterItemExpirationTracked.value = item.expirationTracked === true ? "true" : "false";
@@ -26919,6 +26937,7 @@
                     item.expirationTracked ? "Expiration" : ""
                 ].filter(Boolean).join(" + ") || "None";
                 const packageText = [
+                    item.unitUom ? `Unit UOM ${item.unitUom}` : "",
                     item.unitsPerCase ? `${num(item.unitsPerCase)} ea/case` : "",
                     formatDimensions(item.eachLength, item.eachWidth, item.eachHeight, "Each"),
                     formatDimensions(item.caseLength, item.caseWidth, item.caseHeight, "Case")
@@ -26938,6 +26957,7 @@
                             <div class="quick-meta">${packageText === "&mdash;" ? "No dimensions saved" : packageText}</div>
                         </td>
                         <td>${esc(trackingLabel(item.trackingLevel))}</td>
+                        <td>${esc(item.unitUom || "") || "&mdash;"}</td>
                         <td>${esc(formatTrackedQuantity(summary.onHand, summary.trackingLevel))}</td>
                         <td>${esc(formatTrackedQuantity(summary.available, summary.trackingLevel))}</td>
                         <td>${esc(formatTrackedQuantity(summary.reserved, summary.trackingLevel))}</td>
@@ -26960,6 +26980,7 @@
                                 <th>No.</th>
                                 <th>Description</th>
                                 <th>Base Unit</th>
+                                <th>Unit UOM</th>
                                 <th>Inventory</th>
                                 <th>Available</th>
                                 <th>Reserved</th>
@@ -27022,6 +27043,7 @@
                     "LEAD_TIME_DAYS",
                     "IMAGE_URL",
                     "TRACKING",
+                    "UNIT_UOM",
                     "LOT_TRACKED",
                     "EXPIRATION_TRACKED",
                     "UNITS_PER_CASE",
@@ -27054,6 +27076,7 @@
                             entry.leadTimeDays ?? "",
                             entry.imageUrl || "",
                             normalizeTrackingLevel(entry.trackingLevel),
+                            entry.unitUom || "",
                             entry.lotTracked ? "YES" : "NO",
                             entry.expirationTracked ? "YES" : "NO",
                             entry.unitsPerCase ?? "",
@@ -31899,6 +31922,8 @@
                 "LEADTIMEDAYS",
                 "TRACKING",
                 "TRACKINGLEVEL",
+                "UNITUOM",
+                "UNITOFMEASURE",
                 "UNITSPERCASE",
                 "CASEPACK",
                 "PACK",
@@ -31927,6 +31952,7 @@
                 let leadTimeDays = null;
                 let imageUrl = "";
                 let trackingLevel = "UNIT";
+                let unitUom = "";
                 let unitsPerCase = null;
                 let eachLength = null;
                 let eachWidth = null;
@@ -31971,6 +31997,7 @@
                     leadTimeDays = toPositiveInt(csvRecordValue(record, ["LEADTIMEDAYS", "LEAD_TIME_DAYS", "LEADTIME"]));
                     imageUrl = csvRecordValue(record, ["IMAGEURL", "IMAGE", "PHOTOURL", "PHOTO", "GOOGLEDRIVEURL", "DRIVEURL"]);
                     trackingLevel = csvRecordValue(record, ["TRACKING", "TRACKINGLEVEL", "LEVEL", "UOM"]) || "UNIT";
+                    unitUom = csvRecordValue(record, ["UNITUOM", "UNITOFMEASURE", "EACHUOM", "EACHUNIT"]);
                     unitsPerCase = toPositiveInt(csvRecordValue(record, ["UNITSPERCASE", "CASEPACK", "PACK", "QTYPERCASE"]));
                     lotTracked = /^(1|true|yes|y)$/i.test(csvRecordValue(record, ["LOTTRACKED", "LOTCONTROLLED", "TRACKLOT", "LOT"]) || "");
                     expirationTracked = /^(1|true|yes|y)$/i.test(csvRecordValue(record, ["EXPIRATIONTRACKED", "EXPIRYTRACKED", "EXPIRATIONCONTROLLED", "TRACKEXPIRATION", "TRACKEXPIRY"]) || "");
@@ -32005,6 +32032,7 @@
                     leadTimeDays,
                     imageUrl: normalizeImageReference(imageUrl),
                     trackingLevel: normalizeTrackingLevel(trackingLevel),
+                    unitUom: norm(unitUom),
                     unitsPerCase,
                     lotTracked,
                     expirationTracked,

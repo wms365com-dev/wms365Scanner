@@ -1310,6 +1310,7 @@
                             <option value="PALLET">Pallets</option>
                         </select>
                     </label>
+                    <label class="field"><span>Unit UOM</span><input id="itemUnitUom" type="text" maxlength="20" placeholder="EA"></label>
                     <label class="field"><span>Units per Case</span><input id="itemUnitsPerCase" type="number" min="1" step="1" placeholder="Optional"></label>
                     <label class="field"><span>Each Length</span><input id="itemEachLength" type="number" min="0" step="0.01" placeholder="Optional"></label>
                     <label class="field"><span>Each Width</span><input id="itemEachWidth" type="number" min="0" step="0.01" placeholder="Optional"></label>
@@ -2057,6 +2058,7 @@
             itemUpc: document.getElementById("itemUpc"),
             itemDescription: document.getElementById("itemDescription"),
             itemTrackingLevel: document.getElementById("itemTrackingLevel"),
+            itemUnitUom: document.getElementById("itemUnitUom"),
             itemUnitsPerCase: document.getElementById("itemUnitsPerCase"),
             itemEachLength: document.getElementById("itemEachLength"),
             itemEachWidth: document.getElementById("itemEachWidth"),
@@ -3275,6 +3277,7 @@
                     </div>
                     <div class="order-summary-grid">
                         <div class="detail"><span>UPC</span><strong>${esc(item.upc || "Not saved")}</strong></div>
+                        <div class="detail"><span>Unit UOM</span><strong>${esc(item.unitUom || "Not set")}</strong></div>
                         <div class="detail"><span>Units / Case</span><strong>${esc(item.unitsPerCase ? num(item.unitsPerCase) : "Not set")}</strong></div>
                         <div class="detail"><span>Each Size</span><strong>${esc([
                             item.eachLength != null ? item.eachLength : "",
@@ -3645,6 +3648,7 @@
             ui.itemUpc.value = item?.upc || "";
             ui.itemDescription.value = item?.description || "";
             ui.itemTrackingLevel.value = item?.trackingLevel || "UNIT";
+            ui.itemUnitUom.value = item?.unitUom || "";
             ui.itemUnitsPerCase.value = item?.unitsPerCase ?? "";
             ui.itemEachLength.value = item?.eachLength ?? "";
             ui.itemEachWidth.value = item?.eachWidth ?? "";
@@ -3664,6 +3668,7 @@
                 upc: ui.itemUpc.value.trim(),
                 description: ui.itemDescription.value.trim(),
                 trackingLevel: ui.itemTrackingLevel.value,
+                unitUom: ui.itemUnitUom.value.trim(),
                 unitsPerCase: ui.itemUnitsPerCase.value,
                 eachLength: ui.itemEachLength.value,
                 eachWidth: ui.itemEachWidth.value,
@@ -7019,6 +7024,7 @@
                 upc: norm(item?.upc || ""),
                 description: String(item?.description || "").trim(),
                 trackingLevel: normalizeTrackingLevel(item?.trackingLevel),
+                unitUom: norm(item?.unitUom || ""),
                 unitsPerCase: toPositiveInt(item?.unitsPerCase),
                 eachLength: toPositiveNumber(item?.eachLength),
                 eachWidth: toPositiveNumber(item?.eachWidth),
