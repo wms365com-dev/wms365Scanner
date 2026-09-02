@@ -32290,6 +32290,10 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
                 status = $2,
                 ${timestampColumn} = coalesce(${timestampColumn}, now()),
                 picked_pallet_details = $3::jsonb,
+                outbound_total_pallets = case
+                    when $2 = 'PICKED' and jsonb_array_length($3::jsonb) > 0 then jsonb_array_length($3::jsonb)
+                    else outbound_total_pallets
+                end,
                 updated_at = now()
             where id = $1
         `,

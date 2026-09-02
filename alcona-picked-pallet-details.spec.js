@@ -15,6 +15,7 @@ test("Alcona picked status requires pallet-level location and weight", () => {
     assert.match(serverSource, /does not have one uncommitted pallet/);
     assert.match(serverSource, /Actual pick bin/);
     assert.match(serverSource, /picked_pallet_details = \$3::jsonb/);
+    assert.match(serverSource, /outbound_total_pallets = case[\s\S]*jsonb_array_length\(\$3::jsonb\)/);
 });
 
 test("actual pallet-bin substitutions preserve customer, warehouse, and pickable-stock boundaries", () => {
