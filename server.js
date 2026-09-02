@@ -9438,6 +9438,7 @@ async function initializeDatabase() {
     `);
     await pool.query("create index if not exists idx_order_routing_templates_lookup on order_routing_templates (account_name, fulfillment_location_id, is_active)");
     await pool.query("alter table order_routing_templates add column if not exists recipient_email text not null default ''");
+    await pool.query("alter table order_routing_templates add column if not exists preferred_weight_uom text not null default 'LB'");
     await pool.query(`create table if not exists order_routing_requests (
         id bigserial primary key,
         order_id bigint not null unique references portal_orders(id) on delete cascade,
@@ -9458,12 +9459,13 @@ async function initializeDatabase() {
     await pool.query(`
         insert into order_routing_templates (
             account_name, fulfillment_location_id, ship_to_name_match, ship_to_address_match,
-            ship_to_postal_match, template_name, recipient_email, subject_template, body_template
+            ship_to_postal_match, template_name, recipient_email, preferred_weight_uom, subject_template, body_template
         )
         select
             oa.name, fl.id, 'NUTEM CUSTOM MANUFACTURING', '1105 CLAY AVE', 'L7L0A1',
             'Alcona - Edwards to Nutem Clay',
             'shipping.receiving@nutem.com',
+            'KG',
             'Delivery appointment request - PO {{po_number}} - {{requested_delivery_date}}',
             E'{{greeting}},\n\nCan you please provide a delivery appointment for the following,\n\nAfter 9:00 AM would be ideal on {{requested_delivery_date}}.\n\nPO: {{po_number}}\nTotal pallets: {{total_pallets}}\nTotal weight: {{total_weight}} {{weight_uom}}\n\nDelivery address:\n{{ship_to_name}}\n{{ship_to_address1}}{{ship_to_address2_line}}\n{{ship_to_city}},\n{{ship_to_postal_code}} {{ship_to_state}}, {{ship_to_country}}{{ship_to_alias_line}}\n\nThank you,\n\nGrey Wolf 3PL & Logistics Inc.'
         from owner_accounts oa
@@ -9475,6 +9477,7 @@ async function initializeDatabase() {
         do update set
             template_name = excluded.template_name,
             recipient_email = excluded.recipient_email,
+            preferred_weight_uom = excluded.preferred_weight_uom,
             subject_template = excluded.subject_template,
             body_template = excluded.body_template,
             is_active = true,
@@ -21055,7 +21058,7 @@ async function buildOrderRoutingDraft(client, orderId, input = {}, appUser = nul
         deriveOrderRoutingPalletCount(order)
     ].map(toPositiveInt).find(Boolean) || 0;
     if (!totalPallets) throw httpError(400, "Enter the total pallet count before routing this order.");
-    const weightUom = normalizeText(input.weightUom || input.weight_uom || order.routingWeightUom || "LB").toUpperCase() === "KG" ? "KG" : "LB";
+    const weightUom = normalizeText(template.preferred_weight_uom || input.weightUom || input.weight_uom || order.routingWeightUom || "LB").toUpperCase() === "KG" ? "KG" : "LB";
     const derivedWeight = deriveOrderRoutingWeight(order, weightUom);
     const submittedWeight = Number(input.totalWeight ?? input.total_weight);
     const totalWeight = Number.isFinite(submittedWeight) && submittedWeight > 0

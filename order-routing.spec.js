@@ -31,7 +31,9 @@ test("routing library is specific to company, ship-from, and ship-to", () => {
     assert.match(server, /ship_to_postal_match/);
     assert.match(server, /Alcona - Edwards to Nutem Clay/);
     assert.match(server, /recipient_email text not null default ''/);
+    assert.match(server, /preferred_weight_uom text not null default 'LB'/);
     assert.match(server, /shipping\.receiving@nutem\.com/);
+    assert.match(server, /template\.preferred_weight_uom/);
 });
 
 test("routing derives a shipment total from saved pallet weights", () => {
