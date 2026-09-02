@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
 const desktop = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+const { deriveOrderRoutingWeight } = require("./server");
 
 test("sales order stores routing contact, shipment weight, and route history", () => {
     assert.match(server, /add column if not exists routing_email/);
@@ -29,6 +30,23 @@ test("routing library is specific to company, ship-from, and ship-to", () => {
     assert.match(server, /ship_to_address_match/);
     assert.match(server, /ship_to_postal_match/);
     assert.match(server, /Alcona - Edwards to Nutem Clay/);
+    assert.match(server, /recipient_email text not null default ''/);
+    assert.match(server, /shipping\.receiving@nutem\.com/);
+});
+
+test("routing derives a shipment total from saved pallet weights", () => {
+    assert.deepEqual(deriveOrderRoutingWeight({
+        routingWeightUom: "LB",
+        pickedPalletDetails: [
+            { weight: 2325, weightUom: "LB" },
+            { weight: 2322, weightUom: "LB" },
+            { weight: 2308, weightUom: "LB" },
+            { weight: 2320, weightUom: "LB" }
+        ]
+    }), { totalWeight: 9275, weightUom: "LB" });
+    assert.match(desktop, /derivedPalletWeight/);
+    assert.match(server, /template\.recipient_email/);
+    assert.match(server, /derivedWeight\.totalWeight/);
 });
 
 test("route order creates a review draft before sending", () => {

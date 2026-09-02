@@ -9437,6 +9437,7 @@ async function initializeDatabase() {
         )
     `);
     await pool.query("create index if not exists idx_order_routing_templates_lookup on order_routing_templates (account_name, fulfillment_location_id, is_active)");
+    await pool.query("alter table order_routing_templates add column if not exists recipient_email text not null default ''");
     await pool.query(`create table if not exists order_routing_requests (
         id bigserial primary key,
         order_id bigint not null unique references portal_orders(id) on delete cascade,
@@ -9457,11 +9458,12 @@ async function initializeDatabase() {
     await pool.query(`
         insert into order_routing_templates (
             account_name, fulfillment_location_id, ship_to_name_match, ship_to_address_match,
-            ship_to_postal_match, template_name, subject_template, body_template
+            ship_to_postal_match, template_name, recipient_email, subject_template, body_template
         )
         select
             oa.name, fl.id, 'NUTEM CUSTOM MANUFACTURING', '1105 CLAY AVE', 'L7L0A1',
             'Alcona - Edwards to Nutem Clay',
+            'shipping.receiving@nutem.com',
             'Delivery appointment request - PO {{po_number}} - {{requested_delivery_date}}',
             E'{{greeting}},\n\nCan you please provide a delivery appointment for the following,\n\nAfter 9:00 AM would be ideal on {{requested_delivery_date}}.\n\nPO: {{po_number}}\nTotal pallets: {{total_pallets}}\nTotal weight: {{total_weight}} {{weight_uom}}\n\nDelivery address:\n{{ship_to_name}}\n{{ship_to_address1}}{{ship_to_address2_line}}\n{{ship_to_city}},\n{{ship_to_postal_code}} {{ship_to_state}}, {{ship_to_country}}{{ship_to_alias_line}}\n\nThank you,\n\nGrey Wolf 3PL & Logistics Inc.'
         from owner_accounts oa
@@ -9472,6 +9474,7 @@ async function initializeDatabase() {
         on conflict (account_name, fulfillment_location_id, ship_to_name_match, ship_to_address_match, ship_to_postal_match)
         do update set
             template_name = excluded.template_name,
+            recipient_email = excluded.recipient_email,
             subject_template = excluded.subject_template,
             body_template = excluded.body_template,
             is_active = true,
@@ -21011,6 +21014,24 @@ function deriveOrderRoutingPalletCount(order) {
     return lines.reduce((total, line) => total + (Number(line.quantity) || 0), 0);
 }
 
+function deriveOrderRoutingWeight(order, preferredUom = "LB") {
+    const weightUom = normalizeText(preferredUom || order?.routingWeightUom || "LB").toUpperCase() === "KG" ? "KG" : "LB";
+    const recordedWeight = Number(order?.routingTotalWeight ?? order?.routing_total_weight);
+    if (Number.isFinite(recordedWeight) && recordedWeight > 0) {
+        return { totalWeight: Number(recordedWeight.toFixed(3)), weightUom };
+    }
+    const pallets = Array.isArray(order?.pickedPalletDetails)
+        ? order.pickedPalletDetails
+        : (Array.isArray(order?.picked_pallet_details) ? order.picked_pallet_details : []);
+    const totalWeight = pallets.reduce((sum, pallet) => (
+        sum + convertPortalShipmentWeight(pallet?.weight, pallet?.weightUom || pallet?.weight_uom || "LB", weightUom)
+    ), 0);
+    return {
+        totalWeight: totalWeight > 0 ? Number(totalWeight.toFixed(3)) : null,
+        weightUom
+    };
+}
+
 async function buildOrderRoutingDraft(client, orderId, input = {}, appUser = null) {
     const normalizedOrderId = toPositiveInt(orderId);
     const locked = await client.query("select id, account_name from portal_orders where id=$1 for update", [normalizedOrderId]);
@@ -21021,7 +21042,11 @@ async function buildOrderRoutingDraft(client, orderId, input = {}, appUser = nul
     if (order.status !== "STAGED") {
         throw httpError(409, `Order ${order.orderCode} must be STAGED before it can be routed. Current status: ${order.status}.`);
     }
-    const routingEmail = normalizeText(input.routingEmail || input.routing_email || order.routingEmail).toLowerCase();
+    const template = await findOrderRoutingTemplate(client, order);
+    if (!template) {
+        throw httpError(400, `No routing template is configured for ${order.accountName}, ship-from ${order.fulfillmentLocationName || order.fulfillmentLocationCode || "warehouse"}, and ship-to ${order.shipToName || order.shipToAddress1}. Add this mapping before routing the order.`);
+    }
+    const routingEmail = normalizeText(input.routingEmail || input.routing_email || order.routingEmail || template.recipient_email).toLowerCase();
     if (!isValidEmailAddress(routingEmail)) throw httpError(400, "Enter a valid routing email address before routing this order.");
     const totalPallets = [
         input.totalPallets,
@@ -21030,9 +21055,13 @@ async function buildOrderRoutingDraft(client, orderId, input = {}, appUser = nul
         deriveOrderRoutingPalletCount(order)
     ].map(toPositiveInt).find(Boolean) || 0;
     if (!totalPallets) throw httpError(400, "Enter the total pallet count before routing this order.");
-    const totalWeight = Number(input.totalWeight ?? input.total_weight ?? order.routingTotalWeight);
-    if (!Number.isFinite(totalWeight) || totalWeight <= 0) throw httpError(400, "Enter the total shipment weight before routing this order.");
     const weightUom = normalizeText(input.weightUom || input.weight_uom || order.routingWeightUom || "LB").toUpperCase() === "KG" ? "KG" : "LB";
+    const derivedWeight = deriveOrderRoutingWeight(order, weightUom);
+    const submittedWeight = Number(input.totalWeight ?? input.total_weight);
+    const totalWeight = Number.isFinite(submittedWeight) && submittedWeight > 0
+        ? submittedWeight
+        : derivedWeight.totalWeight;
+    if (!Number.isFinite(totalWeight) || totalWeight <= 0) throw httpError(400, "Enter the total shipment weight before routing this order.");
     const requestedDeliveryDate = normalizeDateInput(
         input.requestedDeliveryDate
         || input.requested_delivery_date
@@ -21046,10 +21075,6 @@ async function buildOrderRoutingDraft(client, orderId, input = {}, appUser = nul
         [normalizedOrderId, routingEmail, totalPallets, Number(totalWeight.toFixed(3)), weightUom, requestedDeliveryDate]
     );
     order = await getPortalOrderById(client, normalizedOrderId, locked.rows[0].account_name);
-    const template = await findOrderRoutingTemplate(client, order);
-    if (!template) {
-        throw httpError(400, `No routing template is configured for ${order.accountName}, ship-from ${order.fulfillmentLocationName || order.fulfillmentLocationCode || "warehouse"}, and ship-to ${order.shipToName || order.shipToAddress1}. Add this mapping before routing the order.`);
-    }
     const values = {
         greeting: routingGreeting(),
         order_number: order.orderCode,
@@ -21070,6 +21095,13 @@ async function buildOrderRoutingDraft(client, orderId, input = {}, appUser = nul
     return {
         order,
         template: { id: String(template.id), name: template.template_name },
+        routing: {
+            routingEmail,
+            requestedDeliveryDate,
+            totalPallets,
+            totalWeight: Number(totalWeight.toFixed(3)),
+            weightUom
+        },
         to: routingEmail,
         cc: [ORDER_ROUTING_CC_EMAIL],
         subject: applyRoutingTemplate(template.subject_template, values),
@@ -42986,6 +43018,7 @@ module.exports = {
     duplicateWarehousePortalOrder,
     createReturnInboundFromShippedOrder,
     reallocatePortalOrderToActualPalletLocations,
+    deriveOrderRoutingWeight,
     buildOrderRoutingDraft,
     sendOrderRoutingEmail,
     releasePortalOrderForAccount,

@@ -22621,8 +22621,16 @@
                 : 0;
             ui.warehouseOrderRoutingDeliveryDate.value = order?.routingRequestedDeliveryDate || order?.requestedShipDate || "";
             ui.warehouseOrderRoutingPallets.value = order?.outboundPallets?.totalPalletsOut || orderedPallets || "";
-            ui.warehouseOrderRoutingWeight.value = order?.routingTotalWeight || "";
-            ui.warehouseOrderRoutingWeightUom.value = order?.routingWeightUom || "LB";
+            const routingWeightUom = order?.routingWeightUom || "LB";
+            const derivedPalletWeight = (Array.isArray(order?.pickedPalletDetails) ? order.pickedPalletDetails : []).reduce((total, pallet) => {
+                const weight = Number(pallet?.weight) || 0;
+                const palletUom = String(pallet?.weightUom || "LB").toUpperCase() === "KG" ? "KG" : "LB";
+                if (!weight) return total;
+                if (palletUom === routingWeightUom) return total + weight;
+                return total + (palletUom === "LB" ? weight * 0.45359237 : weight / 0.45359237);
+            }, 0);
+            ui.warehouseOrderRoutingWeight.value = order?.routingTotalWeight || (derivedPalletWeight > 0 ? Number(derivedPalletWeight.toFixed(3)) : "");
+            ui.warehouseOrderRoutingWeightUom.value = routingWeightUom;
             if (ui.warehouseOrderRoutingAppointment) {
                 const appointment = order?.routingAppointment;
                 ui.warehouseOrderRoutingAppointment.classList.toggle("hidden", !appointment);
@@ -22908,11 +22916,9 @@
         function getWarehouseOrderRoutingRequirements(order, payload) {
             const missing = [];
             if (order?.status !== "STAGED") missing.push(`Order status must be STAGED (current status: ${order?.status || "not saved"})`);
-            if (!payload.routingEmail) missing.push("Routing email");
-            else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.routingEmail)) missing.push("Valid routing email");
+            if (payload.routingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.routingEmail)) missing.push("Valid routing email");
             if (!payload.requestedDeliveryDate) missing.push("Requested delivery date");
             if (!Number.isInteger(payload.totalPallets) || payload.totalPallets < 1) missing.push("Total pallets");
-            if (!Number.isFinite(payload.totalWeight) || payload.totalWeight <= 0) missing.push("Total shipment weight");
             if (!String(order?.poNumber || ui.warehouseOrderPoNumber.value || "").trim()) missing.push("PO number");
             if (!String(order?.fulfillmentLocationId || "").trim()) missing.push("Ship-from warehouse");
             if (!String(order?.shipToName || ui.warehouseOrderShipToName.value || "").trim()) missing.push("Ship-to company name");
@@ -22963,7 +22969,21 @@
                         method: "POST",
                         body: JSON.stringify(payload)
                     });
-                    currentOrderRoutingDraft = { ...response.draft, payload };
+                    const resolvedRouting = response.draft?.routing || {};
+                    const resolvedPayload = {
+                        ...payload,
+                        routingEmail: resolvedRouting.routingEmail || payload.routingEmail,
+                        requestedDeliveryDate: resolvedRouting.requestedDeliveryDate || payload.requestedDeliveryDate,
+                        totalPallets: resolvedRouting.totalPallets || payload.totalPallets,
+                        totalWeight: resolvedRouting.totalWeight || payload.totalWeight,
+                        weightUom: resolvedRouting.weightUom || payload.weightUom
+                    };
+                    currentOrderRoutingDraft = { ...response.draft, payload: resolvedPayload };
+                    ui.warehouseOrderRoutingEmail.value = resolvedPayload.routingEmail || "";
+                    ui.warehouseOrderRoutingDeliveryDate.value = resolvedPayload.requestedDeliveryDate || "";
+                    ui.warehouseOrderRoutingPallets.value = resolvedPayload.totalPallets || "";
+                    ui.warehouseOrderRoutingWeight.value = resolvedPayload.totalWeight || "";
+                    ui.warehouseOrderRoutingWeightUom.value = resolvedPayload.weightUom || "LB";
                     ui.orderRoutingDraftTemplate.textContent = `Template: ${response.draft?.template?.name || "Mapped routing template"}`;
                     ui.orderRoutingDraftTo.value = response.draft?.to || "";
                     ui.orderRoutingDraftCc.value = Array.isArray(response.draft?.cc) ? response.draft.cc.join(", ") : "";
