@@ -2932,20 +2932,143 @@
             display: none;
             margin-top: 1rem;
             padding: 0.95rem 1rem;
-            border-radius: 14px;
+            border-radius: 8px;
             border: 1px solid transparent;
             line-height: 1.5;
+            font-weight: 700;
         }
 
         .status.show { display: block; }
-        .status.success { background: rgba(93, 212, 165, 0.12); border-color: rgba(93, 212, 165, 0.34); color: #cbf4df; }
-        .status.error { background: rgba(255, 141, 141, 0.12); border-color: rgba(255, 141, 141, 0.34); color: #ffd8d8; }
-        .status.info { background: rgba(89, 183, 255, 0.12); border-color: rgba(89, 183, 255, 0.34); color: #d8edff; }
+        .status.success { background: #ecfdf3; border-color: #6ce9a6; color: #05603a; }
+        .status.error {
+            background: #fff1f0;
+            border: 2px solid #d92d20;
+            border-left-width: 7px;
+            color: #7a271a;
+            box-shadow: 0 8px 18px rgba(180, 35, 24, 0.12);
+        }
+        .status.info { background: #eff8ff; border-color: #84caff; color: #1849a9; }
         .status.strong-confirmation {
             border-width: 2px;
             border-left-width: 6px;
             font-weight: 800;
             box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+        }
+
+        .warehouse-viewport-alert {
+            position: fixed;
+            top: max(1rem, env(safe-area-inset-top));
+            left: 50%;
+            z-index: 5000;
+            width: min(760px, calc(100vw - 2rem));
+            transform: translateX(-50%);
+        }
+
+        .warehouse-viewport-alert[hidden] {
+            display: none !important;
+        }
+
+        .warehouse-viewport-alert-panel {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: start;
+            gap: 0.8rem;
+            padding: 1rem;
+            border: 2px solid #d92d20;
+            border-left-width: 8px;
+            border-radius: 8px;
+            background: #fff;
+            color: #7a271a;
+            box-shadow: 0 18px 48px rgba(52, 20, 16, 0.28);
+        }
+
+        .warehouse-viewport-alert-icon {
+            display: grid;
+            width: 2rem;
+            height: 2rem;
+            place-items: center;
+            border-radius: 50%;
+            background: #d92d20;
+            color: #fff;
+            font-size: 1.15rem;
+            font-weight: 900;
+        }
+
+        .warehouse-viewport-alert-copy strong,
+        .warehouse-viewport-alert-copy p {
+            display: block;
+            margin: 0;
+        }
+
+        .warehouse-viewport-alert-copy strong {
+            color: #912018;
+            font-size: 1rem;
+        }
+
+        .warehouse-viewport-alert-copy p {
+            margin-top: 0.25rem;
+            color: #5f201a;
+            font-weight: 700;
+            line-height: 1.45;
+        }
+
+        .warehouse-viewport-alert-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .warehouse-viewport-alert-review,
+        .warehouse-viewport-alert-close {
+            min-height: 2.4rem;
+            border: 1px solid #d92d20;
+            border-radius: 6px;
+            background: #fff;
+            color: #912018;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .warehouse-viewport-alert-review {
+            padding: 0.55rem 0.75rem;
+            white-space: nowrap;
+        }
+
+        .warehouse-viewport-alert-close {
+            width: 2.4rem;
+            padding: 0;
+            font-size: 1.35rem;
+        }
+
+        .warehouse-viewport-alert-review:hover,
+        .warehouse-viewport-alert-close:hover,
+        .warehouse-viewport-alert-review:focus-visible,
+        .warehouse-viewport-alert-close:focus-visible {
+            background: #fee4e2;
+            outline: 3px solid rgba(217, 45, 32, 0.22);
+            outline-offset: 2px;
+        }
+
+        [data-picked-pallet-location].warehouse-error-target {
+            border: 3px solid #d92d20 !important;
+            background: #fff1f0 !important;
+            box-shadow: 0 0 0 4px rgba(217, 45, 32, 0.16) !important;
+        }
+
+        @media (max-width: 640px) {
+            .warehouse-viewport-alert {
+                width: calc(100vw - 1rem);
+                top: max(0.5rem, env(safe-area-inset-top));
+            }
+
+            .warehouse-viewport-alert-panel {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .warehouse-viewport-alert-actions {
+                grid-column: 1 / -1;
+                justify-content: flex-end;
+            }
         }
 
         .warehouse-sync-meta,
@@ -6373,6 +6496,19 @@
     </style>
 </head>
 <body>
+    <div class="warehouse-viewport-alert" id="warehouseViewportAlert" hidden>
+        <section class="warehouse-viewport-alert-panel" id="warehouseViewportAlertPanel" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">
+            <span class="warehouse-viewport-alert-icon" aria-hidden="true">!</span>
+            <div class="warehouse-viewport-alert-copy">
+                <strong>Action required</strong>
+                <p id="warehouseViewportAlertText"></p>
+            </div>
+            <div class="warehouse-viewport-alert-actions">
+                <button class="warehouse-viewport-alert-review" id="warehouseViewportAlertReview" type="button" hidden>Review field</button>
+                <button class="warehouse-viewport-alert-close" id="warehouseViewportAlertClose" type="button" aria-label="Dismiss error" title="Dismiss error">&times;</button>
+            </div>
+        </section>
+    </div>
     <button id="desktopPreviewToggle" class="desktop-preview-toggle" type="button" hidden aria-pressed="false">Mobile Preview</button>
     <div class="app">
         <header class="hero">
@@ -9412,6 +9548,7 @@
                         <div id="warehouseOrderLines" class="line-items"></div>
                     </div>
                     <div class="erp-document-process hidden" id="warehouseOrderWorkflowPanel"></div>
+                    <div class="status" id="warehouseOrderMessage" aria-live="polite"></div>
                     <div class="button-row" style="margin-top: 1rem;">
                         <button class="btn secondary" id="saveWarehouseOrderDraftBtn" type="button">Save Draft</button>
                         <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Cancel Order</button>
@@ -9422,7 +9559,6 @@
                         <button class="btn secondary" id="routeWarehouseOrderBtn" type="button" hidden>Route Order</button>
                         <button class="btn secondary" id="generateWarehouseOrderBolBtn" type="button" hidden>Generate BOL</button>
                     </div>
-                    <div class="status" id="warehouseOrderMessage"></div>
                 </article>
 
                 <article class="card desktop-complex workspace-sheet-card" id="portalOrdersQueueCard">
@@ -12017,6 +12153,11 @@
             salesOrderCommandPackingSlipBtn: document.getElementById("salesOrderCommandPackingSlipBtn"),
             salesOrderCommandAddLineBtn: document.getElementById("salesOrderCommandAddLineBtn"),
             warehouseOrderMessage: document.getElementById("warehouseOrderMessage"),
+            warehouseViewportAlert: document.getElementById("warehouseViewportAlert"),
+            warehouseViewportAlertPanel: document.getElementById("warehouseViewportAlertPanel"),
+            warehouseViewportAlertText: document.getElementById("warehouseViewportAlertText"),
+            warehouseViewportAlertReview: document.getElementById("warehouseViewportAlertReview"),
+            warehouseViewportAlertClose: document.getElementById("warehouseViewportAlertClose"),
             ordersPanelMobileTitle: document.getElementById("ordersPanelMobileTitle"),
             ordersPanelTitle: document.getElementById("ordersPanelTitle"),
             ordersPanelLead: document.getElementById("ordersPanelLead"),
@@ -12258,6 +12399,8 @@
             input.dataset.desktopList = input.getAttribute("list") || "";
             managedListInputs.push(input);
         });
+
+        let warehouseViewportAlertTarget = null;
 
         init();
 
@@ -12502,6 +12645,11 @@
             ui.refreshSiteTrafficBtn?.addEventListener("click", refreshSiteTraffic);
             ui.accountSettingsCloseBtn?.addEventListener("click", () => {
                 if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
+            });
+            ui.warehouseViewportAlertClose?.addEventListener("click", dismissWarehouseViewportAlert);
+            ui.warehouseViewportAlertReview?.addEventListener("click", reviewWarehouseViewportAlertTarget);
+            ui.warehouseViewportAlertPanel?.addEventListener("keydown", (event) => {
+                if (event.key === "Escape") dismissWarehouseViewportAlert();
             });
             ui.accountSettingsMenu?.addEventListener("toggle", () => {
                 if (!ui.accountSettingsMenu.open) return;
@@ -22491,6 +22639,7 @@
                 ui.warehouseOrderMessage.textContent = "";
                 ui.warehouseOrderMessage.className = "status";
             }
+            dismissWarehouseViewportAlert();
             renderWarehouseSalesOrderContext();
             renderWarehouseSalesOrderWorkflow(order);
         }
@@ -31753,10 +31902,61 @@
             }
         }
 
+        function clearWarehouseViewportAlertTarget() {
+            if (!warehouseViewportAlertTarget) return;
+            warehouseViewportAlertTarget.classList.remove("warehouse-error-target");
+            warehouseViewportAlertTarget.removeAttribute("aria-invalid");
+            warehouseViewportAlertTarget = null;
+        }
+
+        function dismissWarehouseViewportAlert() {
+            clearWarehouseViewportAlertTarget();
+            if (!ui.warehouseViewportAlert) return;
+            ui.warehouseViewportAlert.hidden = true;
+            if (ui.warehouseViewportAlertText) ui.warehouseViewportAlertText.textContent = "";
+            if (ui.warehouseViewportAlertReview) ui.warehouseViewportAlertReview.hidden = true;
+        }
+
+        function findWarehouseErrorTarget(text, sourceElement) {
+            const documentCard = sourceElement?.closest?.(".erp-document-card");
+            if (!documentCard) return null;
+            const palletMatch = String(text || "").match(/\bpallet\s+(\d+)\b/i);
+            if (!palletMatch) return documentCard.querySelector('[aria-invalid="true"]');
+            const palletIndex = Math.max(Number(palletMatch[1]) - 1, 0);
+            const palletRows = documentCard.querySelectorAll("[data-picked-pallet-row]");
+            return palletRows[palletIndex]?.querySelector("[data-picked-pallet-location]") || null;
+        }
+
+        function showWarehouseViewportAlert(text, sourceElement) {
+            if (!ui.warehouseViewportAlert || !ui.warehouseViewportAlertText) return;
+            clearWarehouseViewportAlertTarget();
+            warehouseViewportAlertTarget = findWarehouseErrorTarget(text, sourceElement);
+            if (warehouseViewportAlertTarget) {
+                warehouseViewportAlertTarget.classList.add("warehouse-error-target");
+                warehouseViewportAlertTarget.setAttribute("aria-invalid", "true");
+            }
+            ui.warehouseViewportAlertText.textContent = text;
+            ui.warehouseViewportAlert.hidden = false;
+            if (ui.warehouseViewportAlertReview) ui.warehouseViewportAlertReview.hidden = !warehouseViewportAlertTarget;
+            window.requestAnimationFrame(() => ui.warehouseViewportAlertPanel?.focus({ preventScroll: true }));
+        }
+
+        function reviewWarehouseViewportAlertTarget() {
+            const target = warehouseViewportAlertTarget;
+            if (!target) return;
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            window.setTimeout(() => target.focus({ preventScroll: true }), 250);
+        }
+
         function showMessage(element, text, tone, options = {}) {
             if (!element) return;
             element.textContent = text;
             element.className = `status show ${tone}${options.strong ? " strong-confirmation" : ""}`;
+            element.setAttribute("role", tone === "error" ? "alert" : "status");
+            element.setAttribute("aria-live", tone === "error" ? "assertive" : "polite");
+            const isDocumentError = tone === "error" && (options.viewport || element.closest?.(".erp-document-card"));
+            if (isDocumentError) showWarehouseViewportAlert(text, element);
+            else if (tone !== "error" && element.closest?.(".erp-document-card")) dismissWarehouseViewportAlert();
         }
 
         function fail(element, text, focusEl) {
