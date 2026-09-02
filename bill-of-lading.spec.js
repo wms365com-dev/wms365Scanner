@@ -158,4 +158,9 @@ test("BOL routes and UI preserve warehouse access controls and staged-only visib
     assert.match(html, /order\.status === "STAGED"[^\n]*data-generate-bol/);
     assert.match(html, /id="orderBolModal"/);
     assert.match(html, /bill-of-lading\/prepare/);
+    assert.match(
+        html,
+        /#orderRoutingDraftModal,\s*#orderBolModal\s*\{\s*z-index:\s*4100;/,
+        "BOL and routing dialogs must render above the desktop sales-order window"
+    );
 });
