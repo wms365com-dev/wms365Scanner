@@ -15,10 +15,10 @@ test("expired desktop and mobile sessions return users to login with a next path
     assert.match(server, /buildWarehouseLoginRedirect\(req, "\/mobile"\)/);
 });
 
-test("production health fails when either warehouse entry route is missing", () => {
+test("production health waits for the schema and both warehouse entry routes", () => {
     assert.match(server, /const WAREHOUSE_ENTRY_ROUTE_HEALTH = \{ desktop: false, mobile: false \}/);
     assert.match(server, /entryRoutesReady = WAREHOUSE_ENTRY_ROUTE_HEALTH\.desktop && WAREHOUSE_ENTRY_ROUTE_HEALTH\.mobile/);
-    assert.match(server, /const healthy = probe\.ok && entryRoutesReady/);
+    assert.match(server, /const healthy = databaseSchemaInitialized && databaseReady && probe\.ok && entryRoutesReady/);
     assert.match(server, /WAREHOUSE_ENTRY_ROUTE_HEALTH\.desktop = true/);
     assert.match(server, /WAREHOUSE_ENTRY_ROUTE_HEALTH\.mobile = true/);
 });

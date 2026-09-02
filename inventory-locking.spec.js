@@ -133,10 +133,13 @@ class SharedInventoryStore {
             is_active: warehouse.is_active !== false
         }));
         this.confirmations = new Map();
+        this.movements = new Map();
+        this.movementAttachments = [];
         this.transactions = [];
         this.nextLineId = lines.reduce((max, line) => Math.max(max, Number(line.id) || 0), 0) + 1;
         this.nextTransactionId = 1;
         this.nextConfirmationId = 1;
+        this.nextMovementId = 1;
         this.lineLocks = new Map();
         this.countLocks = new Map();
     }
@@ -152,6 +155,8 @@ class SharedInventoryStore {
             locations: new Map([...this.locations.entries()].map(([code, row]) => [code, { ...row }])),
             warehouses: this.warehouses.map((row) => ({ ...row })),
             confirmations: new Map([...this.confirmations.entries()].map(([key, row]) => [key, { ...row }])),
+            movements: new Map([...this.movements.entries()].map(([key, row]) => [key, { ...row }])),
+            movementAttachments: this.movementAttachments.map((row) => ({ ...row })),
             transactions: this.transactions.map((row) => ({ ...row }))
         };
     }
@@ -162,6 +167,8 @@ class SharedInventoryStore {
         this.locations = new Map([...snapshot.locations.entries()].map(([code, row]) => [code, { ...row }]));
         this.warehouses = snapshot.warehouses.map((row) => ({ ...row }));
         this.confirmations = new Map([...snapshot.confirmations.entries()].map(([key, row]) => [key, { ...row }]));
+        this.movements = new Map([...snapshot.movements.entries()].map(([key, row]) => [key, { ...row }]));
+        this.movementAttachments = snapshot.movementAttachments.map((row) => ({ ...row }));
         this.transactions = snapshot.transactions.map((row) => ({ ...row }));
     }
 }
@@ -487,6 +494,34 @@ class FakeInventoryClient {
             return { rowCount: 1, rows: [{ id: 1, type: "test", title: "test", details: "", created_at: new Date().toISOString() }] };
         }
 
+        if (normalizedSql.startsWith("insert into inventory_movements")) {
+            const [movementKey, accountName, fulfillmentLocationId, movementType, fromLocation, toLocation, sku, lotNumber, expirationDate, quantity, trackingLevel, reason, performedBy] = params;
+            const row = {
+                id: this.store.nextMovementId++,
+                movement_key: movementKey,
+                account_name: accountName,
+                fulfillment_location_id: fulfillmentLocationId,
+                movement_type: movementType,
+                from_location: fromLocation,
+                to_location: toLocation,
+                sku,
+                lot_number: lotNumber,
+                expiration_date: expirationDate,
+                quantity,
+                tracking_level: trackingLevel,
+                reason,
+                performed_by: performedBy,
+                created_at: new Date().toISOString()
+            };
+            this.store.movements.set(String(movementKey), row);
+            return { rowCount: 1, rows: [cloneRow(row)] };
+        }
+
+        if (normalizedSql.startsWith("insert into inventory_movement_attachments")) {
+            this.store.movementAttachments.push({ movement_id: params[0], file_name: params[1] });
+            return { rowCount: 1, rows: [] };
+        }
+
         throw new Error(`Unhandled fake query: ${normalizedSql}`);
     }
 
@@ -577,6 +612,7 @@ test("two simultaneous transfers preserve total quantity", async () => {
 
 test("mobile investigation hold moves available stock into a non-pickable hold location once", async () => {
     const store = new SharedInventoryStore({
+        warehouses: [{ id: 1, account_name: "PURE FOODS BY ESTEE", code: "GW3PL-MISS", is_primary: true }],
         lines: [{ id: 1, account_name: "PURE FOODS BY ESTEE", location: "PUREFOODS-BULK", sku: "140", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 124 }]
     });
     const appUser = { id: 42, role: APP_USER_ROLES.SUPER_ADMIN, email: "admin@example.com" };
@@ -590,12 +626,12 @@ test("mobile investigation hold moves available stock into a non-pickable hold l
         idempotencyKey: "hold-140-once"
     }, appUser);
 
-    assert.equal(result.holdLocation, "PURE-FOODS-INVESTIGATION");
+    assert.equal(result.holdLocation, "GW3PL-MISS-INV");
     assert.equal(store.lines.has("1"), false);
-    const heldLine = [...store.lines.values()].find((line) => line.location === "PURE-FOODS-INVESTIGATION" && line.sku === "140");
+    const heldLine = [...store.lines.values()].find((line) => line.location === "GW3PL-MISS-INV" && line.sku === "140");
     assert.equal(heldLine.quantity, 124);
-    assert.equal(store.locations.get("PURE-FOODS-INVESTIGATION").location_type, "QA_HOLD");
-    assert.equal(store.locations.get("PURE-FOODS-INVESTIGATION").is_pickable, false);
+    assert.equal(store.locations.get("GW3PL-MISS-INV").location_type, "QA_HOLD");
+    assert.equal(store.locations.get("GW3PL-MISS-INV").is_pickable, false);
     assert.equal(store.confirmations.size, 1);
     assert.deepEqual(store.transactions.map((row) => row.quantity_delta).sort((a, b) => a - b), [-124, 124]);
 
@@ -614,6 +650,7 @@ test("mobile investigation hold moves available stock into a non-pickable hold l
 
 test("mobile investigation hold cannot move stock committed to active orders", async () => {
     const store = new SharedInventoryStore({
+        warehouses: [{ id: 1, account_name: "PURE FOODS BY ESTEE", code: "GW3PL-MISS", is_primary: true }],
         lines: [{ id: 1, account_name: "PURE FOODS BY ESTEE", location: "PUREFOODS-BULK", sku: "133", upc: "", lot_number: "", expiration_date: "", tracking_level: "CASE", quantity: 109 }],
         allocations: [{ id: 10, inventory_line_id: 1, allocated_quantity: 5, status: "RELEASED" }]
     });
@@ -631,7 +668,7 @@ test("mobile investigation hold cannot move stock committed to active orders", a
     );
 
     assert.equal(store.lines.get("1").quantity, 109);
-    assert.equal([...store.lines.values()].some((line) => line.location === "PURE-FOODS-INVESTIGATION" && line.sku === "133"), false);
+    assert.equal([...store.lines.values()].some((line) => line.location === "GW3PL-MISS-INV" && line.sku === "133"), false);
     assert.equal(store.confirmations.size, 0);
     assert.equal(store.transactions.length, 0);
 });

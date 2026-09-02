@@ -18,3 +18,15 @@ test("move location fields support typing and scanning", () => {
     assert.match(desktop, /list="transferFromList"/);
     assert.match(desktop, /list="moveToList"/);
 });
+
+test("inventory moves supports warehouse-scoped locations and up to five evidence images", () => {
+    assert.match(desktop, /id="inventoryLocationCard"/);
+    assert.match(desktop, /id="inventoryLocationWarehouse"/);
+    assert.match(desktop, /Storage - pickable/);
+    assert.match(desktop, /Damaged - not pickable/);
+    assert.match(desktop, /id="transferImages"[^>]*multiple/);
+    assert.match(desktop, /id="investigationImages"[^>]*multiple/);
+    assert.match(desktop, /Choose no more than 5 images/);
+    assert.match(desktop, /image\\\/jpeg\|image\\\/png\|image\\\/webp/);
+    assert.match(desktop, /Each image must be under 4 MB/);
+});

@@ -12,6 +12,7 @@ outputs/
 tmp/
 debug.log
 product-intelligence-*.json
+!product-intelligence-sources.json
 scripts/local-operations/
 docs/local-customer-artifacts/
 *.bak

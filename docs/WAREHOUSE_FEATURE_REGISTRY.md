@@ -45,6 +45,23 @@ How to use:
 
 ## Home
 
+### Customer Portal Home
+- Customer portal section: `home`
+- Primary file: `C:\WMS365Scanner\portal.html`
+- Related touchpoints:
+  - active fulfillment-location selector
+  - pickable inventory scoped to the selected warehouse
+  - selected-warehouse stocked SKU and quantity totals
+  - selected-warehouse open sales-order and inbound counts
+  - draft stock warnings, overdue inbound notices, requested appointments, and billing attention
+  - recent sales-order, inbound, and delivery activity
+  - quick creation for sales orders, purchase orders, and delivery appointments
+  - desktop sidebar and mobile bottom navigation
+  - selected-warehouse portal search across pickable inventory, sales orders, POs, tracking, and references
+  - search results must never include records from another assigned warehouse until that warehouse is selected
+  - tenant and warehouse negative tests
+  - competitor evidence and acceptance criteria in `docs/WMS365_CUSTOMER_PORTAL_BENCHMARK.md`
+
 ### Warehouse Dashboard
 - Desktop section: `home`
 - Related touchpoints:
@@ -123,19 +140,33 @@ How to use:
   - lot and expiration visibility
   - inventory export permissions
 
-### Adjust & Move
-- Desktop section: `actions`
-- Mobile section: `actions`
+### Inventory Moves
+- Desktop section: `moves`
+- Mobile section: `moves`
 - Related touchpoints:
+  - warehouse-worker move permission without inventory-total adjustment permission
+  - company and fulfillment-warehouse isolation on every source and destination
+  - dedicated move-only workspace with type-to-fill and scan-ready location inputs
+  - customer-owned, warehouse-prefixed stock location creation
+  - storage locations remain pickable; QC hold, damaged, and quarantine locations are non-pickable
+  - up to five JPEG, PNG, or WebP evidence images per QC/damage move, each under 4 MB
+  - idempotent movement records, immutable inventory ledger entries, and attachment audit history
   - inventory row safety
   - lot/expiration ambiguity rules
-  - quantity removal
-  - line deletion
   - stock transfer
   - put-away from receiving/staging into storage BINs
-  - item conversion
   - BIN move
-  - company permissions
+  - company and warehouse permissions
+
+### Inventory Adjustments
+- Desktop section: `actions`
+- Mobile section: `actions`
+- Warehouse admin only.
+- Related touchpoints:
+  - quantity adjustment and removal
+  - line deletion
+  - item conversion
+  - inventory count review and posting
 
 ### Labels
 - Desktop section: `labels`
@@ -147,6 +178,20 @@ How to use:
   - pallet label print layout
   - reprint workflow
 
+### Kitting / Display Builds
+- Customer portal sections: `kitting`, `kittingRequests`
+- Warehouse desktop section: `actions`
+- Standard service commitment: minimum 4 business days from submission.
+- Related touchpoints:
+  - customer-selected kitting warehouse is stored on the request
+  - earliest standard completion is calculated from that warehouse's weekend and holiday calendar
+  - needed-by dates earlier than the standard commitment are blocked and directed to sales for expedited review
+  - earliest and requested completion dates remain visible in portal history, warehouse review, and notification emails
+  - component inventory is reserved only from the selected warehouse
+  - finished inventory must be posted to a pickable location in the same warehouse
+  - legacy requests without a recorded warehouse remain readable for backward compatibility
+  - warehouse notifications are scoped to the selected warehouse and use BCC recipient privacy
+
 ## Outbound
 
 ### Sales Orders
@@ -156,16 +201,50 @@ How to use:
 - Related touchpoints:
   - warehouse sales order entry
   - customer sales order draft/release
+  - guided customer order entry: Order Setup, Items, Ship To, and Documents
+  - account-scoped saved ship-to address selection
+  - privacy-preserving live suggestions for new manual ship-to addresses
+  - server-validated and standardized ship-to addresses before customer release
+  - signed address verification bound to the exact company and physical destination
+  - provider-neutral address checking with Geoapify free-tier and Google adapters
+  - controlled manual address confirmation when a legitimate destination is unavailable or unresolved
+  - manual override reason, confirmer, timestamp, and exact-address audit fields
+  - obvious placeholder and malformed postal-code rejection before provider validation
+  - mobile Save/Release actions remain non-sticky until an order line exists
+  - searchable repeat item entry with duplicate-SKU prevention
   - release email prompt and CC list
   - release PDF copy
   - warehouse notification email
+  - warehouse-only routing readiness reminder two business days before freight or customer-pickup delivery
+  - warehouse-calendar-aware reminder dates with customer-portal recipients excluded
+  - duplicate-protected reminders per order, ship-from warehouse, and delivery date
+  - physical PICKED and STAGED confirmation remains required before the one-time routing request can be sent
   - stock allocation and FEFO picking
   - pick ticket
   - packing slip
+  - staged-only bill of lading generation for LTL, FTL, truck, and customer-pickup shipments
+  - required BOL readiness capture for carrier, pallets, shipment weight/unit, and delivery date
+  - separate warehouse-shipment BOL pages and freight details for split-location orders
+  - customer and warehouse access checks on BOL preparation and PDF retrieval
+  - BOL print-event audit history; generated unsigned BOLs do not satisfy signed shipment-proof requirements
   - released/picked/staged/shipped status transitions
   - visual processing feedback on buttons
   - outbound billing event capture
   - Shopify/SFTP order imports
+
+### Ship-To Address Validation
+- Customer portal section: `order`
+- Feature flag key: `ORDER_ENTRY`
+- Provider configuration: `ADDRESS_VALIDATION_PROVIDER` with `GEOAPIFY_API_KEY` or `GOOGLE_ADDRESS_VALIDATION_API_KEY`
+- Related touchpoints:
+  - saved destinations remain immediately reusable within the same customer account
+  - new manual destinations can be entered, suggested as the user types, corrected, and explicitly accepted
+  - release is blocked unless the destination is saved, verified, or explicitly confirmed manually; draft saving remains available
+  - verification tokens expire and cannot be reused by another customer or for an edited address
+  - warehouse-created and integration-created orders retain their existing internal workflow
+  - typed address queries are sent in authenticated request bodies rather than query-string URLs
+  - provider outages fail closed and never display an unverified address as verified
+  - manual override still blocks missing fields, malformed Canadian/US postal codes, and obvious placeholder data
 
 ### Quote & Ship
 - Planned desktop section: `shipping`
@@ -341,6 +420,12 @@ Primary file:
 
 Portal features:
 - customer login
+- compact signed-in application header
+- persistent desktop sidebar with permission-scoped destinations
+- mobile bottom navigation with an overflow menu
+- Home-only activity overview and quick actions
+- URL-backed portal views with browser Back/Forward support
+- automatic scroll and heading focus after navigation
 - inventory view
 - inventory export
 - item master view
@@ -359,6 +444,9 @@ Portal safety checks:
 - customer can only submit orders for its own company
 - customer company is derived from login/session, not a visible selector
 - ship-to address suggestions are company scoped
+- navigation destinations inherit existing company permissions and feature flags
+- changing portal screens preserves unsaved form fields
+- desktop and mobile visual tests verify that selected work is immediately visible
 
 ## Mobile Worker Features
 
@@ -422,4 +510,12 @@ Always check these when changing related workflows:
 - billing events
 - mobile behavior
 - customer portal behavior
+- customer portal inventory, dashboard quantity, bin list, order availability, and exports follow the active assigned warehouse
+- sole-warehouse legacy bins remain visible only to that assigned warehouse and are verified against a real database transaction
+- invalid or unassigned customer warehouse inventory requests fail closed
 - build/version visibility
+
+Release verification:
+- `npm run check:release` is the complete local release gate, including Node tests, access-control audit, customer-portal browser journeys, billing UI browser audit, and guide screenshot validation.
+- `railway run npm run check:database` verifies production schema controls and rollback-only test-company workflows before a high-risk release.
+- `railway run npm run check:fresh-database` boots WMS365 against an isolated temporary schema, waits for full readiness, verifies core platform tables, and removes the schema.

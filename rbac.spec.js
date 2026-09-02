@@ -8,6 +8,7 @@ const {
     roleHasPermission,
     requireWarehouseAdmin,
     requireInventoryAdjustPermission,
+    requireInventoryMovePermission,
     requireMobileWorkerAction,
     taskTypesForPortalInboundStatus,
     assertPortalAccountAccess
@@ -89,6 +90,24 @@ test("mobile worker action permission is limited to worker-safe actions", async 
 
     assert.equal(allowed, null);
     assert.equal(denied?.statusCode, 403);
+});
+
+test("warehouse worker can move stock but cannot adjust inventory totals", async () => {
+    const moveAllowed = await runMiddleware(requireInventoryMovePermission(), {
+        method: "POST",
+        originalUrl: "/api/transfer",
+        appUser: appUser(APP_USER_ROLES.WAREHOUSE_WORKER)
+    });
+    const adjustmentDenied = await runMiddleware(requireInventoryAdjustPermission(), {
+        method: "POST",
+        originalUrl: "/api/adjust-quantity",
+        appUser: appUser(APP_USER_ROLES.WAREHOUSE_WORKER)
+    });
+
+    assert.equal(moveAllowed, null);
+    assert.equal(adjustmentDenied?.statusCode, 403);
+    assert.equal(roleHasPermission(APP_USER_ROLES.WAREHOUSE_WORKER, RBAC_PERMISSIONS.INVENTORY_MOVE), true);
+    assert.equal(roleHasPermission(APP_USER_ROLES.WAREHOUSE_WORKER, RBAC_PERMISSIONS.INVENTORY_ADJUST), false);
 });
 
 test("inbound mobile status gates keep receiving and putaway assigned-task safe", () => {

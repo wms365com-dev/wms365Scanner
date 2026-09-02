@@ -4,7 +4,9 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const testFiles = readdirSync(root)
-    .filter((name) => name.endsWith(".spec.js") && name !== "audit-billing-finance.spec.js")
+    .filter((name) => name.endsWith(".spec.js")
+        && !name.endsWith(".visual.spec.js")
+        && name !== "audit-billing-finance.spec.js")
     .sort();
 
 if (!testFiles.length) {

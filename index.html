@@ -3804,6 +3804,39 @@
             line-height: 1.5;
         }
 
+        .move-image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+            gap: 0.65rem;
+            margin-top: 0.65rem;
+        }
+
+        .move-image-tile {
+            position: relative;
+            min-width: 0;
+            padding: 0.4rem;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--panel);
+        }
+
+        .move-image-tile img {
+            display: block;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .move-image-tile small {
+            display: block;
+            overflow: hidden;
+            margin-top: 0.35rem;
+            color: var(--muted);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .editor-banner strong {
             display: block;
             margin-bottom: 0.35rem;
@@ -8617,6 +8650,10 @@
                         <span class="menu-card-title">Move Item</span>
                         <span class="menu-card-meta">Scan from, to, SKU, and move the available quantity.</span>
                     </button>
+                    <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="location">
+                        <span class="menu-card-title">Add Stock Location</span>
+                        <span class="menu-card-meta">Create a storage, QC, damaged, or quarantine location in this warehouse.</span>
+                    </button>
                     <button class="btn ghost menu-card-btn" type="button" data-mobile-subview-btn-group="actions" data-mobile-subview-target="investigation">
                         <span class="menu-card-title">Investigation Hold</span>
                         <span class="menu-card-meta">Move questionable stock into a non-pickable hold location.</span>
@@ -8722,8 +8759,62 @@
                             <span>Quantity</span>
                             <input id="transferQty" type="number" min="1" inputmode="numeric" placeholder="Auto fills available qty">
                         </label>
+                        <div class="helper span-2 hidden" id="transferEvidenceFields">
+                            <label class="field">
+                                <span>Reason / Notes</span>
+                                <input id="transferNote" type="text" maxlength="240" placeholder="Describe the damage or QC concern">
+                            </label>
+                            <label class="field">
+                                <span>QC / Damage Images</span>
+                                <input id="transferImages" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+                            </label>
+                            <p class="meta">Optional. Add up to 5 clear images. Each image must be under 4 MB.</p>
+                            <div class="move-image-grid" id="transferImagePreview"></div>
+                        </div>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Move Item</button>
+                        </div>
+                    </form>
+                </article>
+
+                <article class="card mobile-subview workspace-action-card" id="inventoryLocationCard" data-mobile-subview-group="actions" data-mobile-subview="location">
+                    <div class="card-head">
+                        <div>
+                            <h2>Add Stock Location</h2>
+                            <p class="lead">Create a location only inside your assigned warehouse and customer account.</p>
+                        </div>
+                    </div>
+                    <form id="inventoryLocationForm" class="form-grid" autocomplete="off">
+                        <label class="field span-2 hidden">
+                            <span>Company</span>
+                            <input id="inventoryLocationAccount" hidden list="ownerList" type="text" placeholder="Required company">
+                        </label>
+                        <label class="field span-2">
+                            <span>Warehouse</span>
+                            <select id="inventoryLocationWarehouse"></select>
+                        </label>
+                        <label class="field">
+                            <span>Location Code</span>
+                            <input id="inventoryLocationCode" type="text" maxlength="32" placeholder="Example: GW3PL-EDW-A01" autocapitalize="characters">
+                        </label>
+                        <label class="field">
+                            <span>Location Type</span>
+                            <select id="inventoryLocationType">
+                                <option value="STORAGE">Storage - pickable</option>
+                                <option value="QA_HOLD">QC hold - not pickable</option>
+                                <option value="DAMAGED">Damaged - not pickable</option>
+                                <option value="QUARANTINE">Quarantine - not pickable</option>
+                            </select>
+                        </label>
+                        <label class="field span-2">
+                            <span>Note</span>
+                            <input id="inventoryLocationNote" type="text" maxlength="240" placeholder="Optional location note">
+                        </label>
+                        <div class="helper span-2">
+                            <p class="meta" id="inventoryLocationRule">Choose a warehouse to see the required location prefix.</p>
+                        </div>
+                        <div class="button-row span-2">
+                            <button class="btn secondary" type="submit">Add Location</button>
                         </div>
                     </form>
                 </article>
@@ -8754,6 +8845,10 @@
                                 <button class="btn ghost" type="button" data-action-scan-target="investigationSku">Scan</button>
                             </div>
                         </label>
+                        <label class="field span-2 hidden" id="investigationInventoryLineField">
+                            <span>Lot / Expiry Stock Line</span>
+                            <select id="investigationInventoryLineId"></select>
+                        </label>
                         <label class="field">
                             <span>Quantity</span>
                             <input id="investigationQty" type="number" min="1" inputmode="numeric" placeholder="Auto fills available qty">
@@ -8762,8 +8857,13 @@
                             <span>Reason</span>
                             <input id="investigationNote" type="text" maxlength="180" placeholder="Optional note">
                         </label>
+                        <label class="field span-2">
+                            <span>QC / Damage Images</span>
+                            <input id="investigationImages" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+                        </label>
+                        <div class="move-image-grid span-2" id="investigationImagePreview"></div>
                         <div class="helper span-2">
-                            <p class="meta">Moved stock stays on hand but cannot be released to sales orders until it is moved back to a pickable location.</p>
+                            <p class="meta">Moved stock stays on hand but cannot be released to sales orders until it is moved back to a pickable location. You can attach up to 5 images, each under 4 MB.</p>
                         </div>
                         <div class="button-row span-2">
                             <button class="btn warn" type="submit">Move To Investigation</button>
@@ -9204,6 +9304,7 @@
                             <button class="erp-command-link" type="button" id="salesOrderCommandDuplicateBtn" hidden>Duplicate Order</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReturnBtn" hidden>Create Return Inbound</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandRouteBtn" hidden>Route Order</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandBolBtn" hidden>Generate BOL</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPickTicketBtn">Print Pick Ticket</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandPackingSlipBtn">Print Packing Slip</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandAddLineBtn">Select items...</button>
@@ -9319,6 +9420,7 @@
                         <button class="btn secondary" id="duplicateWarehouseOrderBtn" type="button" hidden>Duplicate Order</button>
                         <button class="btn" id="createWarehouseReturnBtn" type="button" hidden>Create Return Inbound</button>
                         <button class="btn secondary" id="routeWarehouseOrderBtn" type="button" hidden>Route Order</button>
+                        <button class="btn secondary" id="generateWarehouseOrderBolBtn" type="button" hidden>Generate BOL</button>
                     </div>
                     <div class="status" id="warehouseOrderMessage"></div>
                 </article>
@@ -10749,7 +10851,7 @@
             </div>
         </section>
 
-        <p class="footer"><strong>WMS365 Warehouse Management System</strong><span class="footer-build" id="appBuildFooter">Deployment: loading...</span><span class="footer-build policy-note">Automated access, scraping, AI analysis, reverse engineering, or copying of WMS365 is prohibited unless authorized by WMS365 ownership. The only authorized automation owner is k.prathab@gmail.com.</span></p>
+        <p class="footer"><strong>WMS365 Warehouse Management System</strong><span class="footer-build" id="appBuildFooter">Deployment: loading...</span></p>
     </div>
     <button class="feedback-launcher" id="openFeedbackBtn" type="button">Report Issue</button>
     <div id="feedbackModal" class="feedback-modal hidden" aria-hidden="true">
@@ -10845,6 +10947,25 @@
                 <button class="btn ghost" type="button" data-routing-draft-close>Cancel</button>
             </div>
             <div class="status" id="orderRoutingDraftMessage"></div>
+        </div>
+    </div>
+    <div id="orderBolModal" class="feedback-modal hidden" aria-hidden="true">
+        <div class="feedback-modal-backdrop" data-order-bol-close></div>
+        <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="orderBolTitle">
+            <div class="card-head">
+                <div>
+                    <h2 id="orderBolTitle">Generate Bill of Lading</h2>
+                    <p class="meta" id="orderBolMeta">Confirm the freight details recorded on this staged order.</p>
+                </div>
+                <button class="btn ghost mini" type="button" data-order-bol-close>Close</button>
+            </div>
+            <div class="helper" id="orderBolRequirements">The carrier, pallets, shipment weight, and delivery date are required.</div>
+            <div id="orderBolShipmentFields" class="quick-detail-stack" style="margin-top:0.8rem;"></div>
+            <div class="button-row" style="margin-top:1rem;">
+                <button class="btn" id="saveAndGenerateOrderBolBtn" type="button">Save and Open BOL</button>
+                <button class="btn ghost" type="button" data-order-bol-close>Cancel</button>
+            </div>
+            <div class="status" id="orderBolMessage"></div>
         </div>
     </div>
 
@@ -11027,6 +11148,7 @@
         let emailQueueLoading = false;
         let editingWarehouseOrderId = "";
         let currentOrderRoutingDraft = null;
+        let currentOrderBolOrderId = "";
         let productRecommendationRecords = [];
         let editingWarehouseInboundId = "";
         let warehouseDocumentPreviewObjectUrl = "";
@@ -11719,11 +11841,25 @@
             transferInventoryLineField: document.getElementById("transferInventoryLineField"),
             transferInventoryLineId: document.getElementById("transferInventoryLineId"),
             transferQty: document.getElementById("transferQty"),
+            transferEvidenceFields: document.getElementById("transferEvidenceFields"),
+            transferNote: document.getElementById("transferNote"),
+            transferImages: document.getElementById("transferImages"),
+            transferImagePreview: document.getElementById("transferImagePreview"),
+            inventoryLocationAccount: document.getElementById("inventoryLocationAccount"),
+            inventoryLocationWarehouse: document.getElementById("inventoryLocationWarehouse"),
+            inventoryLocationCode: document.getElementById("inventoryLocationCode"),
+            inventoryLocationType: document.getElementById("inventoryLocationType"),
+            inventoryLocationNote: document.getElementById("inventoryLocationNote"),
+            inventoryLocationRule: document.getElementById("inventoryLocationRule"),
             investigationAccount: document.getElementById("investigationAccount"),
             investigationFrom: document.getElementById("investigationFrom"),
             investigationSku: document.getElementById("investigationSku"),
+            investigationInventoryLineField: document.getElementById("investigationInventoryLineField"),
+            investigationInventoryLineId: document.getElementById("investigationInventoryLineId"),
             investigationQty: document.getElementById("investigationQty"),
             investigationNote: document.getElementById("investigationNote"),
+            investigationImages: document.getElementById("investigationImages"),
+            investigationImagePreview: document.getElementById("investigationImagePreview"),
             putAwayAccount: document.getElementById("putAwayAccount"),
             putAwayFrom: document.getElementById("putAwayFrom"),
             putAwayTo: document.getElementById("putAwayTo"),
@@ -11867,6 +12003,7 @@
             duplicateWarehouseOrderBtn: document.getElementById("duplicateWarehouseOrderBtn"),
             createWarehouseReturnBtn: document.getElementById("createWarehouseReturnBtn"),
             routeWarehouseOrderBtn: document.getElementById("routeWarehouseOrderBtn"),
+            generateWarehouseOrderBolBtn: document.getElementById("generateWarehouseOrderBolBtn"),
             salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
             salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
             salesOrderCommandDeleteBtn: document.getElementById("salesOrderCommandDeleteBtn"),
@@ -11875,6 +12012,7 @@
             salesOrderCommandDuplicateBtn: document.getElementById("salesOrderCommandDuplicateBtn"),
             salesOrderCommandReturnBtn: document.getElementById("salesOrderCommandReturnBtn"),
             salesOrderCommandRouteBtn: document.getElementById("salesOrderCommandRouteBtn"),
+            salesOrderCommandBolBtn: document.getElementById("salesOrderCommandBolBtn"),
             salesOrderCommandPickTicketBtn: document.getElementById("salesOrderCommandPickTicketBtn"),
             salesOrderCommandPackingSlipBtn: document.getElementById("salesOrderCommandPackingSlipBtn"),
             salesOrderCommandAddLineBtn: document.getElementById("salesOrderCommandAddLineBtn"),
@@ -12018,6 +12156,14 @@
             orderRoutingDraftBody: document.getElementById("orderRoutingDraftBody"),
             sendOrderRoutingEmailBtn: document.getElementById("sendOrderRoutingEmailBtn"),
             orderRoutingDraftMessage: document.getElementById("orderRoutingDraftMessage"),
+            orderBolModal: document.getElementById("orderBolModal"),
+            orderBolCloseButtons: [...document.querySelectorAll("[data-order-bol-close]")],
+            orderBolTitle: document.getElementById("orderBolTitle"),
+            orderBolMeta: document.getElementById("orderBolMeta"),
+            orderBolRequirements: document.getElementById("orderBolRequirements"),
+            orderBolShipmentFields: document.getElementById("orderBolShipmentFields"),
+            saveAndGenerateOrderBolBtn: document.getElementById("saveAndGenerateOrderBolBtn"),
+            orderBolMessage: document.getElementById("orderBolMessage"),
             feedbackAdminCard: document.getElementById("feedbackAdminCard"),
             feedbackTypeFilter: document.getElementById("feedbackTypeFilter"),
             feedbackStatusFilter: document.getElementById("feedbackStatusFilter"),
@@ -12430,6 +12576,7 @@
                 ui.searchAccount,
                 ui.adjustAccount,
                 ui.transferAccount,
+                ui.inventoryLocationAccount,
                 ui.investigationAccount,
                 ui.putAwayAccount,
                 ui.convertAccount,
@@ -12717,6 +12864,7 @@
             ui.duplicateWarehouseOrderBtn?.addEventListener("click", duplicateWarehouseSalesOrder);
             ui.createWarehouseReturnBtn?.addEventListener("click", createWarehouseSalesOrderReturnInbound);
             ui.routeWarehouseOrderBtn?.addEventListener("click", openWarehouseOrderRoutingDraft);
+            ui.generateWarehouseOrderBolBtn?.addEventListener("click", openWarehouseOrderBolModal);
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.salesOrderCommandDeleteBtn?.addEventListener("click", deleteWarehouseSalesOrder);
@@ -12725,8 +12873,11 @@
             ui.salesOrderCommandDuplicateBtn?.addEventListener("click", duplicateWarehouseSalesOrder);
             ui.salesOrderCommandReturnBtn?.addEventListener("click", createWarehouseSalesOrderReturnInbound);
             ui.salesOrderCommandRouteBtn?.addEventListener("click", openWarehouseOrderRoutingDraft);
+            ui.salesOrderCommandBolBtn?.addEventListener("click", openWarehouseOrderBolModal);
             ui.orderRoutingDraftCloseButtons?.forEach((button) => button.addEventListener("click", closeOrderRoutingDraft));
             ui.sendOrderRoutingEmailBtn?.addEventListener("click", sendWarehouseOrderRoutingEmail);
+            ui.orderBolCloseButtons?.forEach((button) => button.addEventListener("click", closeOrderBolModal));
+            ui.saveAndGenerateOrderBolBtn?.addEventListener("click", saveAndGenerateWarehouseOrderBol);
             ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
             ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
             ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
@@ -12814,19 +12965,24 @@
             document.getElementById("removeQtyBtn").addEventListener("click", removeQuantity);
             document.getElementById("deleteLineBtn").addEventListener("click", deleteLine);
             document.getElementById("transferForm").addEventListener("submit", transferQuantity);
+            document.getElementById("inventoryLocationForm").addEventListener("submit", saveInventoryLocation);
             document.getElementById("investigationHoldForm").addEventListener("submit", moveToInvestigationHold);
             document.getElementById("putAwayForm").addEventListener("submit", putAwayQuantity);
             document.getElementById("convertForm").addEventListener("submit", convertInventoryItems);
             ui.refreshKittingRequestsAdminBtn?.addEventListener("click", () => refreshKittingRequestsAdmin(false));
             ui.customerKittingRequestsList?.addEventListener("click", onCustomerKittingRequestsClick);
             document.getElementById("moveForm").addEventListener("submit", moveAllItems);
+            ui.inventoryLocationWarehouse?.addEventListener("change", refreshInventoryLocationWarehouseOptions);
+            ui.transferImages?.addEventListener("change", () => renderInventoryMoveImagePreview(ui.transferImages, ui.transferImagePreview));
+            ui.investigationImages?.addEventListener("change", () => renderInventoryMoveImagePreview(ui.investigationImages, ui.investigationImagePreview));
             document.querySelectorAll("[data-action-scan-target]").forEach((button) => {
                 button.addEventListener("click", () => startActionFieldScan(button.dataset.actionScanTarget || ""));
             });
             [
                 ui.adjustAccount, ui.adjustLocation, ui.adjustSku,
                 ui.transferAccount, ui.transferFrom, ui.transferTo, ui.transferSku, ui.transferInventoryLineId,
-                ui.investigationAccount, ui.investigationFrom, ui.investigationSku, ui.investigationQty, ui.investigationNote,
+                ui.inventoryLocationAccount, ui.inventoryLocationWarehouse, ui.inventoryLocationCode, ui.inventoryLocationType,
+                ui.investigationAccount, ui.investigationFrom, ui.investigationSku, ui.investigationInventoryLineId, ui.investigationQty, ui.investigationNote,
                 ui.putAwayAccount, ui.putAwayFrom, ui.putAwayTo, ui.putAwaySku,
                 ui.convertAccount, ui.convertFrom, ui.convertTo, ui.convertSourceSku, ui.convertSourceQty, ui.convertTargetSku,
                 ui.moveAccount, ui.moveFrom, ui.moveTo
@@ -12836,7 +12992,7 @@
             [ui.transferFrom, ui.transferSku, ui.transferInventoryLineId].forEach((input) => {
                 ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("transfer")));
             });
-            [ui.investigationFrom, ui.investigationSku].forEach((input) => {
+            [ui.investigationFrom, ui.investigationSku, ui.investigationInventoryLineId].forEach((input) => {
                 ["change", "blur"].forEach((eventName) => input?.addEventListener(eventName, () => autofillActionMoveQuantity("investigation")));
             });
             [ui.putAwayFrom, ui.putAwaySku].forEach((input) => {
@@ -13546,11 +13702,15 @@
         function syncInventoryActionScreen(section = activeSection) {
             const moveOnly = String(section || "").toLowerCase() === "moves";
             const adjustmentOnly = String(section || "").toLowerCase() === "actions";
-            ["transferInventoryCard", "investigationHoldCard", "putAwayInventoryCard", "moveInventoryCard"].forEach((id) => {
+            const role = norm(getCurrentAppUser()?.role || "");
+            const canAdjust = ["SUPER_ADMIN", "ADMIN", "WAREHOUSE_ADMIN"].includes(role);
+            const adjustmentTab = document.querySelector('[data-section="actions"]');
+            adjustmentTab?.classList.toggle("hidden", !canAdjust);
+            ["transferInventoryCard", "inventoryLocationCard", "investigationHoldCard", "putAwayInventoryCard", "moveInventoryCard"].forEach((id) => {
                 document.getElementById(id)?.classList.toggle("hidden", adjustmentOnly);
             });
             ["customerKittingRequestsCard", "adjustInventoryCard", "convertInventoryCard", "inventoryActionsRecentActivityCard"].forEach((id) => {
-                document.getElementById(id)?.classList.toggle("hidden", moveOnly);
+                document.getElementById(id)?.classList.toggle("hidden", moveOnly || !canAdjust);
             });
         }
 
@@ -15870,11 +16030,15 @@
 
             const noteByLocation = new Map();
             state.masters.locations.forEach((location) => {
+                if (location.accountName && norm(location.accountName) !== owner) return;
                 noteByLocation.set(norm(location.code), location.note || "");
             });
 
             const allLocations = new Set();
-            state.masters.locations.forEach((location) => allLocations.add(norm(location.code)));
+            state.masters.locations.forEach((location) => {
+                if (location.accountName && norm(location.accountName) !== owner) return;
+                allLocations.add(norm(location.code));
+            });
             state.inventory.forEach((line) => allLocations.add(norm(line.location)));
 
             [...allLocations].forEach((location) => {
@@ -17724,6 +17888,9 @@
         function syncActionItemSelectors() {
             renderActionSkuDatalists();
             syncTransferInventoryLineSelector();
+            syncInvestigationInventoryLineSelector();
+            syncTransferEvidenceFields();
+            refreshInventoryLocationWarehouseOptions();
             refreshMobileAutocomplete();
         }
 
@@ -17845,6 +18012,136 @@
                 }).join("")}`
                 : matches.map((line) => `<option value="${attr(line.id)}">${esc(line.sku || "Stock line")}</option>`).join("");
             if (matches.some((line) => String(line.id) === current)) ui.transferInventoryLineId.value = current;
+        }
+
+        function getInvestigationInventoryLineMatches() {
+            const accountName = getScopedCompanyValue(ui.investigationAccount?.value || "");
+            const location = norm(ui.investigationFrom?.value || "");
+            const skuOrUpc = norm(ui.investigationSku?.value || "");
+            if (!accountName || !location || !skuOrUpc) return [];
+            const skuMatches = state.inventory.filter((line) =>
+                norm(line.accountName) === accountName
+                && norm(line.location) === location
+                && norm(line.sku) === skuOrUpc
+            );
+            if (skuMatches.length) return skuMatches;
+            return state.inventory.filter((line) =>
+                norm(line.accountName) === accountName
+                && norm(line.location) === location
+                && norm(line.upc) === skuOrUpc
+            );
+        }
+
+        function syncInvestigationInventoryLineSelector() {
+            if (!ui.investigationInventoryLineId || !ui.investigationInventoryLineField) return;
+            const matches = getInvestigationInventoryLineMatches();
+            const current = String(ui.investigationInventoryLineId.value || "");
+            ui.investigationInventoryLineField.classList.toggle("hidden", matches.length <= 1);
+            ui.investigationInventoryLineId.innerHTML = matches.length > 1
+                ? `<option value="">Choose the exact lot / expiry row</option>${matches.map((line) => {
+                    const lot = line.lotNumber || line.lot_number || "No lot";
+                    const expiry = line.expirationDate || line.expiration_date || "No expiry";
+                    return `<option value="${attr(line.id)}">${esc(`${lot} | ${expiry} | ${formatTrackedQuantity(lineAvailableQuantity(line), line.trackingLevel || "UNIT")} available`)}</option>`;
+                }).join("")}`
+                : matches.map((line) => `<option value="${attr(line.id)}">${esc(line.sku || "Stock line")}</option>`).join("");
+            if (matches.some((line) => String(line.id) === current)) ui.investigationInventoryLineId.value = current;
+        }
+
+        function inventoryMoveDestinationNeedsEvidence(locationCode = "") {
+            const code = norm(locationCode);
+            const location = (state.masters.locations || []).find((entry) => norm(entry.code) === code);
+            const type = norm(location?.locationType || "STORAGE");
+            return location?.isPickable === false || ["QA_HOLD", "DAMAGED", "QUARANTINE", "INVESTIGATION", "HOLD"].includes(type);
+        }
+
+        function syncTransferEvidenceFields() {
+            if (!ui.transferEvidenceFields) return;
+            const visible = inventoryMoveDestinationNeedsEvidence(ui.transferTo?.value || "");
+            ui.transferEvidenceFields.classList.toggle("hidden", !visible);
+            if (!visible) {
+                if (ui.transferNote) ui.transferNote.value = "";
+                if (ui.transferImages) ui.transferImages.value = "";
+                renderInventoryMoveImagePreview(ui.transferImages, ui.transferImagePreview);
+            }
+        }
+
+        function refreshInventoryLocationWarehouseOptions() {
+            if (!ui.inventoryLocationWarehouse) return;
+            const accountName = getScopedCompanyValue(ui.inventoryLocationAccount?.value || "");
+            const assignments = getCompanyFulfillmentAssignments(accountName).filter((entry) => entry.allowStorage !== false);
+            const current = String(ui.inventoryLocationWarehouse.value || "");
+            ui.inventoryLocationWarehouse.innerHTML = assignments.length
+                ? assignments.map((entry) => `<option value="${attr(entry.fulfillmentLocationId)}" data-code="${attr(entry.locationCode)}">${esc(entry.locationName || entry.locationCode)}</option>`).join("")
+                : `<option value="">No assigned warehouse</option>`;
+            if (assignments.some((entry) => String(entry.fulfillmentLocationId) === current)) {
+                ui.inventoryLocationWarehouse.value = current;
+            }
+            const selected = ui.inventoryLocationWarehouse.selectedOptions?.[0];
+            const warehouseCode = norm(selected?.dataset?.code || "");
+            if (ui.inventoryLocationRule) {
+                ui.inventoryLocationRule.textContent = warehouseCode
+                    ? `Location codes for this warehouse must start with ${warehouseCode}-. Example: ${warehouseCode}-A01.`
+                    : "Choose a company with an assigned warehouse before adding a location.";
+            }
+        }
+
+        function readInventoryMoveImages(input) {
+            const files = [...(input?.files || [])];
+            if (files.length > 5) return Promise.reject(new Error("Choose no more than 5 images."));
+            files.forEach((file) => {
+                if (!/^(image\/jpeg|image\/png|image\/webp)$/i.test(file.type || "")) {
+                    throw new Error(`${file.name || "File"} must be a JPEG, PNG, or WebP image.`);
+                }
+                if (file.size > 4 * 1024 * 1024) {
+                    throw new Error(`${file.name || "Image"} is too large. Keep each image under 4 MB.`);
+                }
+            });
+            return Promise.all(files.map((file) => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve({
+                    fileName: file.name || "inventory-move-image",
+                    fileType: file.type || "image/jpeg",
+                    dataUrl: String(reader.result || "")
+                });
+                reader.onerror = () => reject(new Error(`Unable to read ${file.name || "that image"}.`));
+                reader.readAsDataURL(file);
+            })));
+        }
+
+        function renderInventoryMoveImagePreview(input, container) {
+            if (!container) return;
+            const files = [...(input?.files || [])].slice(0, 5);
+            container.innerHTML = files.map((file) => `
+                <div class="move-image-tile">
+                    <img src="${attr(URL.createObjectURL(file))}" alt="${attr(file.name || "QC or damage image")}">
+                    <small title="${attr(file.name || "Image")}">${esc(file.name || "Image")}</small>
+                </div>
+            `).join("");
+        }
+
+        async function saveInventoryLocation(event) {
+            event.preventDefault();
+            const accountName = getScopedCompanyValue(ui.inventoryLocationAccount?.value || "");
+            const fulfillmentLocationId = String(ui.inventoryLocationWarehouse?.value || "");
+            const code = norm(ui.inventoryLocationCode?.value || "");
+            const locationType = norm(ui.inventoryLocationType?.value || "STORAGE");
+            const note = String(ui.inventoryLocationNote?.value || "").trim();
+            if (!accountName || !fulfillmentLocationId || !code) {
+                return showMessage(ui.actionMessage, "Choose the company and warehouse, then enter a location code.", "error");
+            }
+            try {
+                const response = await requestJson("/api/inventory-locations", {
+                    method: "POST",
+                    body: JSON.stringify({ accountName, fulfillmentLocationId, code, locationType, note })
+                });
+                await syncServerState(true);
+                showMessage(ui.actionMessage, `${response.location?.code || code} is ready for ${locationType === "STORAGE" ? "pickable stock" : "non-pickable stock"}.`, "success");
+                ui.inventoryLocationCode.value = "";
+                ui.inventoryLocationNote.value = "";
+                ui.inventoryLocationCode.focus();
+            } catch (error) {
+                showMessage(ui.actionMessage, error.message, "error");
+            }
         }
 
         function convertTrackedQuantityToEachUnits(quantity, trackingLevel, unitsPerCase, label = "item") {
@@ -22018,6 +22315,7 @@
                     <div class="erp-document-process-actions">
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-pick-ticket="${attr(order.id)}">Print Pick Ticket${pickPrintCount ? ` (${esc(`${pickPrintCount}x`)})` : ""}</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-print-packing-slip="${attr(order.id)}">Print Packing Slip${packingPrintCount ? ` (${esc(`${packingPrintCount}x`)})` : ""}</button>` : ""}
+                        ${order.status === "STAGED" ? `<button class="btn ghost mini" type="button" data-generate-bol="${attr(order.id)}">Generate BOL</button>` : ""}
                         ${canPrintUcc128Labels ? `<button class="btn ghost mini" type="button" data-print-ucc128-labels="${attr(order.id)}">Print UCC128 Labels${ucc128PrintCount ? ` (${esc(`${ucc128PrintCount}x`)})` : ""}</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-pick-ticket="${attr(order.id)}">Send Pick to Warehouse Printer</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-packing-slip="${attr(order.id)}">Send Pack to Warehouse Printer</button>` : ""}
@@ -22145,6 +22443,14 @@
                     : order?.status === "STAGED"
                     ? "Create and review the mapped delivery appointment email."
                     : "The order must be staged before it can be routed.";
+            });
+            const canGenerateBol = !!order?.id && order.status === "STAGED";
+            [ui.salesOrderCommandBolBtn, ui.generateWarehouseOrderBolBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canGenerateBol;
+                button.disabled = !canGenerateBol;
+                button.title = canGenerateBol
+                    ? "Confirm the freight details and generate the warehouse shipment BOL."
+                    : "The order must be staged before a BOL can be generated.";
             });
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
@@ -22550,6 +22856,194 @@
                 });
             } catch (error) {
                 showMessage(ui.orderRoutingDraftMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        function getOrderBolCommonMissing(order) {
+            const missing = [];
+            if (order?.status !== "STAGED") missing.push("Order must be staged");
+            if (!String(order?.accountName || "").trim()) missing.push("Customer company");
+            if (!String(order?.poNumber || order?.shippingReference || "").trim()) missing.push("PO number or shipping reference");
+            if (!String(order?.shipToName || "").trim()) missing.push("Ship-to company name");
+            if (!String(order?.shipToAddress1 || "").trim()) missing.push("Ship-to street address");
+            if (!String(order?.shipToCity || "").trim()) missing.push("Ship-to city");
+            if (!String(order?.shipToState || "").trim()) missing.push("Ship-to province/state");
+            if (!String(order?.shipToPostalCode || "").trim()) missing.push("Ship-to postal/ZIP code");
+            if (!String(order?.shipToCountry || "").trim()) missing.push("Ship-to country");
+            return missing;
+        }
+
+        function closeOrderBolModal() {
+            currentOrderBolOrderId = "";
+            ui.orderBolModal?.classList.add("hidden");
+            ui.orderBolModal?.setAttribute("aria-hidden", "true");
+            if (ui.orderBolShipmentFields) ui.orderBolShipmentFields.innerHTML = "";
+            if (ui.orderBolMessage) {
+                ui.orderBolMessage.textContent = "";
+                ui.orderBolMessage.className = "status";
+            }
+        }
+
+        function renderOrderBolShipmentFields(order) {
+            const shipments = Array.isArray(order?.warehouseShipments) ? order.warehouseShipments : [];
+            const isSingleShipment = shipments.length === 1;
+            ui.orderBolShipmentFields.innerHTML = shipments.map((shipment, index) => {
+                const warehouseName = shipment.warehouse?.name || shipment.warehouse?.code || `Warehouse shipment ${index + 1}`;
+                const carrier = shipment.carrier || (isSingleShipment ? order.shippedCarrierName : "") || "";
+                const totalPallets = shipment.pallets?.total || (isSingleShipment ? order.outboundPallets?.totalPalletsOut : 0) || "";
+                const totalWeight = shipment.totalWeight || (isSingleShipment ? order.routingTotalWeight : null) || "";
+                const weightUom = shipment.weightUom || (isSingleShipment ? order.routingWeightUom : "LB") || "LB";
+                const deliveryDate = shipment.deliveryDate || order.routingAppointment?.appointmentDate || order.routingRequestedDeliveryDate || order.requestedShipDate || "";
+                const method = normalizeShipmentMethod(shipment.shipmentMethod || order.shipmentMethod || "LTL_FREIGHT");
+                return `
+                    <section class="portal-order-shipping-box" data-order-bol-shipment="${attr(shipment.id)}">
+                        <div class="header-copy">
+                            <h3>${esc(warehouseName)}</h3>
+                            <p class="meta">${esc(shipment.externalId || order.orderCode || "Warehouse shipment")}${shipments.length > 1 ? " | A separate BOL page will be generated for this warehouse." : ""}</p>
+                        </div>
+                        <div class="form-grid compact-grid">
+                            <label class="field">
+                                <span>Shipment Type</span>
+                                <select data-bol-shipment-method>
+                                    <option value="LTL_FREIGHT" ${method === "LTL_FREIGHT" ? "selected" : ""}>LTL freight</option>
+                                    <option value="FTL_FREIGHT" ${method === "FTL_FREIGHT" ? "selected" : ""}>FTL freight</option>
+                                    <option value="CUSTOMER_PICKUP" ${method === "CUSTOMER_PICKUP" ? "selected" : ""}>Customer pickup</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>Carrier</span>
+                                <input data-bol-carrier type="text" list="bol-carriers-${attr(shipment.id)}" value="${attr(carrier)}" placeholder="Required">
+                                <datalist id="bol-carriers-${attr(shipment.id)}">${TRACKABLE_CARRIER_OPTIONS.map((entry) => `<option value="${attr(entry)}"></option>`).join("")}</datalist>
+                            </label>
+                            <label class="field">
+                                <span>Tracking / PRO Number</span>
+                                <input data-bol-tracking type="text" value="${attr(shipment.trackingReference || "")}" placeholder="Optional until assigned">
+                            </label>
+                            <label class="field">
+                                <span>Total Pallets</span>
+                                <input data-bol-total-pallets type="number" min="1" step="1" inputmode="numeric" value="${attr(totalPallets)}" placeholder="Required">
+                            </label>
+                            <label class="field">
+                                <span>Total Shipment Weight</span>
+                                <input data-bol-total-weight type="number" min="0.001" step="0.001" inputmode="decimal" value="${attr(totalWeight)}" placeholder="Required">
+                            </label>
+                            <label class="field">
+                                <span>Weight Unit</span>
+                                <select data-bol-weight-uom><option value="LB" ${weightUom === "LB" ? "selected" : ""}>lb</option><option value="KG" ${weightUom === "KG" ? "selected" : ""}>kg</option></select>
+                            </label>
+                            <label class="field">
+                                <span>Delivery / Requested Ship Date</span>
+                                <input data-bol-delivery-date type="date" value="${attr(deliveryDate)}">
+                            </label>
+                        </div>
+                    </section>
+                `;
+            }).join("");
+        }
+
+        async function openWarehouseOrderBolModal(orderOrEvent = null, context = null) {
+            const eventOrderId = orderOrEvent?.currentTarget?.dataset?.generateBol || "";
+            const orderId = typeof orderOrEvent === "string" ? orderOrEvent : (eventOrderId || editingWarehouseOrderId);
+            if (!orderId) return showMessage(ui.warehouseOrderMessage, "Open a staged sales order before generating its BOL.", "error");
+            const actionButton = resolveActionButton(context || orderOrEvent, ui.generateWarehouseOrderBolBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Checking...",
+                    messageElement: ui.warehouseOrderMessage,
+                    progressMessage: "Checking the staged shipment and BOL details..."
+                }, async () => {
+                    const order = await requestPortalOrderDetail(orderId);
+                    if (!order) throw new Error("That sales order could not be loaded.");
+                    if (order.status !== "STAGED") throw new Error(`The BOL is available after the order is staged. ${order.orderCode || "This order"} is currently ${order.status}.`);
+                    if (!order.warehouseShipments?.length) throw new Error("No warehouse shipment is assigned to this order yet.");
+                    currentOrderBolOrderId = String(order.id);
+                    ui.orderBolTitle.textContent = `Generate BOL - ${order.orderCode}`;
+                    ui.orderBolMeta.textContent = order.warehouseShipments.length > 1
+                        ? `${order.warehouseShipments.length} warehouse shipments will produce separate BOL pages.`
+                        : "Confirm the freight details recorded on this staged order.";
+                    const commonMissing = getOrderBolCommonMissing(order);
+                    ui.orderBolRequirements.textContent = commonMissing.length
+                        ? `Update the sales order before generating the BOL: ${commonMissing.join(", ")}.`
+                        : "Required: freight shipment type, carrier, total pallets, total shipment weight, and delivery date.";
+                    ui.orderBolRequirements.classList.toggle("error", commonMissing.length > 0);
+                    renderOrderBolShipmentFields(order);
+                    ui.orderBolModal.classList.remove("hidden");
+                    ui.orderBolModal.setAttribute("aria-hidden", "false");
+                    ui.orderBolShipmentFields.querySelector("[data-bol-carrier]")?.focus();
+                    return order;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        function collectOrderBolPayload() {
+            const shipments = [...ui.orderBolShipmentFields.querySelectorAll("[data-order-bol-shipment]")].map((section, index) => {
+                const shipment = {
+                    shipmentId: section.dataset.orderBolShipment,
+                    shipmentMethod: section.querySelector("[data-bol-shipment-method]")?.value || "",
+                    carrier: section.querySelector("[data-bol-carrier]")?.value.trim() || "",
+                    trackingReference: section.querySelector("[data-bol-tracking]")?.value.trim() || "",
+                    totalPallets: Number.parseInt(section.querySelector("[data-bol-total-pallets]")?.value || "", 10),
+                    totalWeight: Number(section.querySelector("[data-bol-total-weight]")?.value || 0),
+                    weightUom: section.querySelector("[data-bol-weight-uom]")?.value || "LB",
+                    deliveryDate: section.querySelector("[data-bol-delivery-date]")?.value || ""
+                };
+                const label = section.querySelector("h3")?.textContent?.trim() || `Shipment ${index + 1}`;
+                const missing = [];
+                if (!shipment.carrier) missing.push("carrier");
+                if (!Number.isInteger(shipment.totalPallets) || shipment.totalPallets < 1) missing.push("total pallets");
+                if (!Number.isFinite(shipment.totalWeight) || shipment.totalWeight <= 0) missing.push("total shipment weight");
+                if (!shipment.deliveryDate) missing.push("delivery date");
+                return { shipment, label, missing };
+            });
+            return {
+                shipments: shipments.map((entry) => entry.shipment),
+                missing: shipments.flatMap((entry) => entry.missing.map((field) => `${entry.label}: ${field}`))
+            };
+        }
+
+        async function saveAndGenerateWarehouseOrderBol(context = null) {
+            const order = getPortalOrderById(currentOrderBolOrderId);
+            const commonMissing = getOrderBolCommonMissing(order);
+            const payload = collectOrderBolPayload();
+            const missing = [...commonMissing, ...payload.missing];
+            if (missing.length) {
+                return showMessage(ui.orderBolMessage, `Complete these items before generating the BOL: ${missing.join(", ")}.`, "error");
+            }
+            const previewWindow = window.open("about:blank", "_blank");
+            if (!previewWindow) return showMessage(ui.orderBolMessage, "Allow pop-ups for WMS365, then try again to open the BOL.", "error");
+            previewWindow.opener = null;
+            previewWindow.document.write("<title>Preparing WMS365 BOL</title><p style='font-family:Arial;padding:24px'>Preparing bill of lading...</p>");
+            const actionButton = resolveActionButton(context, ui.saveAndGenerateOrderBolBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Generating...",
+                    messageElement: ui.orderBolMessage,
+                    progressMessage: "Saving the shipment details and generating the BOL...",
+                    scopeBusy: true,
+                    scopeElement: ui.orderBolModal
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${currentOrderBolOrderId}/bill-of-lading/prepare`, {
+                        method: "POST",
+                        body: JSON.stringify({ shipments: payload.shipments })
+                    });
+                    if (!response?.readiness?.ready) {
+                        throw new Error(`The BOL still needs: ${(response?.readiness?.missingFields || []).join(", ")}.`);
+                    }
+                    applyPortalOrderUpdate(response.order, "BOL details saved.", ui.warehouseOrderMessage);
+                    previewWindow.location.replace(`/api/admin/portal-orders/${currentOrderBolOrderId}/bill-of-lading.pdf`);
+                    closeOrderBolModal();
+                    showMessage(ui.warehouseOrderMessage, `Opened the BOL for ${response.order?.orderCode || "the staged order"}.`, "success");
+                    return response;
+                });
+            } catch (error) {
+                previewWindow.close();
+                showMessage(ui.orderBolMessage, error.message, "error");
                 return null;
             }
         }
@@ -23393,13 +23887,14 @@
                     <div class="order-head">
                         <div>
                             <strong>${esc(request.requestCode || request.id)}</strong>
-                            <div class="meta">${esc(request.accountName)} | ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed ${esc(request.requestedCompletionDate)}` : ""}</div>
+                            <div class="meta">${esc(request.accountName)} | ${esc(request.fulfillmentLocationName || request.fulfillmentLocationCode || "Warehouse not recorded")} | ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed ${esc(request.requestedCompletionDate)}` : ""}</div>
                         </div>
                         <span class="badge ${norm(request.status) === "COMPLETED" ? "success" : ""}">${esc(request.status)}</span>
                     </div>
                     <div class="order-meta">
                         <div><strong>Build:</strong> ${esc(formatKittingComponentSummary(request))}</div>
                         <div><strong>Finished item:</strong> ${esc(request.targetQuantity)} of ${esc(request.targetSku)}${request.targetDescription ? ` - ${esc(request.targetDescription)}` : ""}</div>
+                        <div><strong>Service commitment:</strong> ${esc(String(request.processingBusinessDays || 4))} business days${request.earliestCompletionDate ? ` | Earliest standard completion ${esc(request.earliestCompletionDate)}` : ""}</div>
                         <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
                         ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
                     </div>
@@ -24875,6 +25370,7 @@
         function portalOrderPrintDocumentType(type = "") {
             const normalized = norm(type).replace(/[\s-]+/g, "_");
             if (normalized === "PACKING" || normalized === "PACKING_SLIP") return "PACKING_SLIP";
+            if (["BOL", "BILL_OF_LADING", "BILL_LADING"].includes(normalized)) return "BILL_OF_LADING";
             if (["UCC128", "UCC_128", "UCC128_LABELS", "GS1_128", "GS1_128_LABELS", "SSCC", "SSCC_LABELS"].includes(normalized)) return "UCC128_LABELS";
             return "PICK_TICKET";
         }
@@ -24882,6 +25378,7 @@
         function portalOrderPrintDocumentLabel(type = "") {
             const documentType = portalOrderPrintDocumentType(type);
             if (documentType === "UCC128_LABELS") return "UCC128 labels";
+            if (documentType === "BILL_OF_LADING") return "bill of lading";
             return documentType === "PACKING_SLIP" ? "packing slip" : "pick ticket";
         }
 
@@ -25430,6 +25927,15 @@
                 } catch (error) {
                     showMessage(actionMessageElement, error.message, "error");
                 }
+                return;
+            }
+
+            const generateBolButton = event.target.closest("[data-generate-bol]");
+            if (generateBolButton) {
+                await openWarehouseOrderBolModal(generateBolButton.dataset.generateBol || "", {
+                    button: generateBolButton,
+                    messageElement: actionMessageElement
+                });
                 return;
             }
 
@@ -28531,8 +29037,10 @@
             }
         }
 
-        function getActionAvailableQuantity(accountName, fromLocation, skuOrUpc) {
-            const selectedLineId = toPositiveInt(ui.transferInventoryLineId?.value);
+        function getActionAvailableQuantity(accountName, fromLocation, skuOrUpc, mode = "transfer") {
+            const selectedLineId = toPositiveInt(mode === "investigation"
+                ? ui.investigationInventoryLineId?.value
+                : ui.transferInventoryLineId?.value);
             if (selectedLineId) {
                 const selectedLine = state.inventory.find((line) => Number(line.id) === selectedLineId);
                 if (selectedLine) return Math.max(lineAvailableQuantity(selectedLine), 0);
@@ -28554,7 +29062,7 @@
             const skuOrUpc = norm(skuInput?.value);
             if (!quantityInput || (!force && String(quantityInput.value || "").trim())) return 0;
             if (!accountName || !fromLocation || !skuOrUpc) return 0;
-            const availableQuantity = getActionAvailableQuantity(accountName, fromLocation, skuOrUpc);
+            const availableQuantity = getActionAvailableQuantity(accountName, fromLocation, skuOrUpc, mode);
             if (availableQuantity > 0) quantityInput.value = String(availableQuantity);
             return availableQuantity;
         }
@@ -28646,7 +29154,12 @@
             if (!accountName || !from || !to || !skuOrUpc || !quantity) return showMessage(ui.actionMessage, "Scan from, to, and SKU. Quantity fills automatically when stock is available.", "error");
             if (from === to) return showMessage(ui.actionMessage, "Source and destination locations cannot be the same.", "error");
             setActiveCompany(accountName, { force: true, rerender: false });
-            const matchingLine = findClientInventoryLine(accountName, from, skuOrUpc);
+            if (inventoryLineMatches.length > 1 && !inventoryLineId) {
+                return showMessage(ui.actionMessage, "Choose the exact lot / expiry stock line to move.", "error");
+            }
+            const matchingLine = inventoryLineId
+                ? inventoryLineMatches.find((line) => Number(line.id) === inventoryLineId)
+                : findClientInventoryLine(accountName, from, skuOrUpc);
             if (matchingLine?.duplicateUpc) {
                 return showMessage(ui.actionMessage, "Multiple items matched that UPC in the source location. Use the SKU instead.", "error");
             }
@@ -28666,9 +29179,20 @@
             }
 
             try {
+                const images = inventoryMoveDestinationNeedsEvidence(to) ? await readInventoryMoveImages(ui.transferImages) : [];
                 await requestJson("/api/transfer", {
                     method: "POST",
-                    body: JSON.stringify({ accountName, fromLocation: from, toLocation: to, skuOrUpc, quantity })
+                    body: JSON.stringify({
+                        accountName,
+                        fromLocation: from,
+                        toLocation: to,
+                        skuOrUpc,
+                        quantity,
+                        inventoryLineId,
+                        reason: String(ui.transferNote?.value || "").trim(),
+                        images,
+                        idempotencyKey: makeId("inventory-move")
+                    })
                 });
                 await syncServerState(true);
                 showMessage(ui.actionMessage, `Moved ${formatTrackedQuantity(quantity, matchingLine.trackingLevel || matchingLine.tracking_level || "UNIT")} of ${matchingLine.sku || skuOrUpc} to ${to}.`, "success");
@@ -28676,6 +29200,9 @@
                 if (ui.transferInventoryLineId) ui.transferInventoryLineId.innerHTML = "";
                 ui.transferInventoryLineField?.classList.add("hidden");
                 ui.transferQty.value = "";
+                if (ui.transferNote) ui.transferNote.value = "";
+                if (ui.transferImages) ui.transferImages.value = "";
+                renderInventoryMoveImagePreview(ui.transferImages, ui.transferImagePreview);
                 focusActionField("transferSku");
                 syncActionItemSelectors();
             } catch (error) {
@@ -28688,6 +29215,8 @@
             const accountName = getScopedCompanyValue(ui.investigationAccount.value);
             const from = norm(ui.investigationFrom.value);
             const skuOrUpc = norm(ui.investigationSku.value);
+            const inventoryLineMatches = getInvestigationInventoryLineMatches();
+            const inventoryLineId = toPositiveInt(ui.investigationInventoryLineId?.value);
             let quantity = toPositiveInt(ui.investigationQty.value);
             if (!quantity) quantity = autofillActionMoveQuantity("investigation", { force: true });
             const note = String(ui.investigationNote.value || "").trim();
@@ -28718,6 +29247,7 @@
             if (!window.confirm(`Move ${formatTrackedQuantity(quantity, trackingLevel)} of ${matchingLine.sku || skuOrUpc} to Investigation Hold? This stock will no longer be available to release orders until it is moved back to a pickable location.`)) return;
 
             try {
+                const images = await readInventoryMoveImages(ui.investigationImages);
                 const payload = await requestJson("/api/mobile/investigation-hold", {
                     method: "POST",
                     body: JSON.stringify({
@@ -28726,6 +29256,9 @@
                         skuOrUpc,
                         quantity,
                         note,
+                        lotNumber: matchingLine.lotNumber || matchingLine.lot_number || "",
+                        expirationDate: matchingLine.expirationDate || matchingLine.expiration_date || "",
+                        images,
                         idempotencyKey: makeId("investigation-hold"),
                         source: "mobile_web"
                     })
@@ -28733,8 +29266,12 @@
                 await syncServerState(true);
                 showMessage(ui.actionMessage, `Moved ${formatTrackedQuantity(quantity, trackingLevel)} of ${matchingLine.sku || skuOrUpc} to ${payload?.holdLocation || "investigation hold"}.`, "success");
                 ui.investigationSku.value = "";
+                if (ui.investigationInventoryLineId) ui.investigationInventoryLineId.innerHTML = "";
+                ui.investigationInventoryLineField?.classList.add("hidden");
                 ui.investigationQty.value = "";
                 ui.investigationNote.value = "";
+                if (ui.investigationImages) ui.investigationImages.value = "";
+                renderInventoryMoveImagePreview(ui.investigationImages, ui.investigationImagePreview);
                 focusActionField("investigationSku");
                 syncActionItemSelectors();
             } catch (error) {
@@ -30244,7 +30781,11 @@
             return {
                 id: typeof item.id === "string" ? item.id : makeId("loc"),
                 code,
+                accountName: norm(item?.accountName || item?.account_name || ""),
+                fulfillmentLocationId: String(item?.fulfillmentLocationId || item?.fulfillment_location_id || ""),
                 note: String(item?.note || "").trim().replace(/\s+/g, " "),
+                locationType: norm(item?.locationType || item?.location_type || "STORAGE"),
+                isPickable: item?.isPickable !== false && item?.is_pickable !== false,
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
             };
@@ -30749,6 +31290,11 @@
                 targetQuantity: Number(item.targetQuantity || item.target_quantity || 0) || 0,
                 targetDescription: String(item.targetDescription || item.target_description || "").trim(),
                 requestedCompletionDate: String(item.requestedCompletionDate || item.requested_completion_date || "").trim().slice(0, 10),
+                processingBusinessDays: Number(item.processingBusinessDays || item.processing_business_days || 4) || 4,
+                earliestCompletionDate: String(item.earliestCompletionDate || item.earliest_completion_date || "").trim().slice(0, 10),
+                fulfillmentLocationId: String(item.fulfillmentLocationId || item.fulfillment_location_id || "").trim(),
+                fulfillmentLocationCode: String(item.fulfillmentLocationCode || item.fulfillment_location_code || "").trim(),
+                fulfillmentLocationName: String(item.fulfillmentLocationName || item.fulfillment_location_name || "").trim(),
                 requestedByName: String(item.requestedByName || item.requested_by_name || "").trim(),
                 requestedByEmail: String(item.requestedByEmail || item.requested_by_email || "").trim(),
                 notes: String(item.notes || "").trim(),
@@ -30757,6 +31303,35 @@
                 completedBy: String(item.completedBy || item.completed_by || "").trim(),
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString())
+            };
+        }
+
+        function sanitizeWarehouseShipmentRecord(item) {
+            if (!item?.id) return null;
+            const warehouse = item.warehouse && typeof item.warehouse === "object" ? item.warehouse : {};
+            return {
+                id: String(item.id),
+                externalId: String(item.externalId || item.external_id || item.shipmentCode || item.shipment_code || "").trim(),
+                status: norm(item.status || "RELEASED"),
+                warehouse: {
+                    id: String(warehouse.id || item.fulfillmentLocationId || item.fulfillment_location_id || "").trim(),
+                    code: String(warehouse.code || item.fulfillmentLocationCode || item.fulfillment_location_code || "").trim(),
+                    name: String(warehouse.name || item.fulfillmentLocationName || item.fulfillment_location_name || "Warehouse").trim()
+                },
+                shipmentMethod: normalizeShipmentMethod(item.shipmentMethod || item.shipment_method || "LTL_FREIGHT"),
+                carrier: String(item.carrier || item.carrierName || item.carrier_name || "").trim(),
+                trackingReference: String(item.trackingReference || item.tracking_reference || "").trim(),
+                bolReference: String(item.bolReference || item.bol_reference || "").trim(),
+                pallets: {
+                    total: Number(item.pallets?.total ?? item.totalPallets ?? item.total_pallets ?? 0) || 0,
+                    existing: Number(item.pallets?.existing ?? item.existingPallets ?? item.existing_pallets ?? 0) || 0,
+                    new: Number(item.pallets?.new ?? item.newPallets ?? item.new_pallets ?? 0) || 0,
+                    mixed: Number(item.pallets?.mixed ?? item.mixedPallets ?? item.mixed_pallets ?? 0) || 0
+                },
+                totalWeight: Number(item.totalWeight ?? item.total_weight ?? 0) || null,
+                weightUom: norm(item.weightUom || item.weight_uom || "LB") === "KG" ? "KG" : "LB",
+                deliveryDate: String(item.deliveryDate || item.delivery_date || "").slice(0, 10),
+                lines: Array.isArray(item.lines) ? item.lines : []
             };
         }
 
@@ -30842,6 +31417,9 @@
                 lines: Array.isArray(item.lines) ? item.lines.map(sanitizePortalOrderLineRecord).filter(Boolean) : [],
                 shipmentLines: Array.isArray(item.shipmentLines)
                     ? item.shipmentLines.map(sanitizePortalShipmentLineRecord).filter(Boolean)
+                    : [],
+                warehouseShipments: Array.isArray(item.warehouseShipments || item.warehouse_shipments)
+                    ? (item.warehouseShipments || item.warehouse_shipments).map(sanitizeWarehouseShipmentRecord).filter(Boolean)
                     : [],
                 printSummary: sanitizePortalOrderPrintSummary(item.printSummary || item.print_summary || {})
             };

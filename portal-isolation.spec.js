@@ -16,7 +16,8 @@ const {
     buildPortalOrderConfirmationEmailText,
     buildPortalOrderPickTicketLines,
     buildPortalOrderStockWarnings,
-    portalOrderRequiresRushApproval
+    portalOrderRequiresRushApproval,
+    resolvePortalFulfillmentLocation
 } = require("./server.js");
 
 function portalSession(accountName, permissions = {}) {
@@ -81,6 +82,30 @@ test("portal middleware scope allows same-account parameters", async () => {
         request({ query: { accountName: "CUSTOMER A" }, body: { owner: "CUSTOMER A" } }),
         portalSession("CUSTOMER A")
     ));
+});
+
+test("portal warehouse selection rejects a warehouse not assigned to the customer", async () => {
+    const client = {
+        query: async () => ({
+            rows: [{
+                fulfillment_location_id: 10,
+                account_name: "CUSTOMER A",
+                code: "CUSTOMER-A-WH",
+                name: "Customer A Warehouse",
+                is_active: true,
+                allow_inbound: true,
+                allow_outbound: true
+            }]
+        })
+    };
+
+    await assert.rejects(
+        () => resolvePortalFulfillmentLocation(client, "CUSTOMER A", { fulfillmentLocationId: 99 }, {
+            direction: "",
+            requiredLabel: "warehouse"
+        }),
+        (error) => error.statusCode === 400 && /assigned to this company/i.test(error.message)
+    );
 });
 
 test("portal document and invoice resources hide cross-account id guessing", async () => {

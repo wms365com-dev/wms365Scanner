@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const http = require("node:http");
 const nodemailer = require("nodemailer");
+const path = require("node:path");
 
 const {
     app,
@@ -224,6 +226,27 @@ test("llms.txt is public and carries the no-automation policy", async () => {
     } finally {
         await new Promise((resolve) => server.close(resolve));
     }
+});
+
+test("automation policy remains machine-readable and is not rendered in human interfaces", () => {
+    const visibleFiles = [
+        "access.html",
+        "index.html",
+        "login.html",
+        "marketing.js",
+        "mobile-count.html",
+        "mobile-pick.html",
+        "portal.html",
+        "android-app/nativeScanner/src/main/java/com/wms365/nativeapp/MainActivity.kt",
+        "android-app/alienLegacy/src/main/java/com/wms365/alien/MainActivity.java"
+    ];
+    visibleFiles.forEach((relativePath) => {
+        const absolutePath = path.join(__dirname, relativePath);
+        if (!fs.existsSync(absolutePath)) return;
+        const source = fs.readFileSync(absolutePath, "utf8");
+        assert.doesNotMatch(source, /Automated access, scraping, AI analysis/i, relativePath);
+        assert.doesNotMatch(source, /only authorized automation owner/i, relativePath);
+    });
 });
 
 test("database health probe reports unavailable when database is not configured", async () => {
