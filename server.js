@@ -2454,10 +2454,7 @@ app.post("/api/mobile/pick-exceptions", requireMobileWorkerAction(), async (req,
 app.get("/api/mobile/pick-orders", requireMobileWorkerAction(), async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || req.query?.company || "");
-        const orders = await withTransaction(async (client) => {
-            await syncWarehouseTasksFromOperationalRecords(client);
-            return getMobilePickOrdersForAppUser(client, req.appUser, { accountName: requestedAccount });
-        });
+        const orders = await getMobilePickOrdersForAppUser(pool, req.appUser, { accountName: requestedAccount });
         res.setHeader("Cache-Control", "no-store");
         res.json({ success: true, orders });
     } catch (error) {
@@ -32218,7 +32215,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     }
     const existingStatusAction = await getExistingPortalOrderStatusAction(client, getMobileIdempotencyKey(details), orderId);
     if (existingStatusAction) {
-        await syncWarehouseTasksForOrder(client, currentOrder, appUser);
+        await syncWarehouseTasksForOrderWithoutBlockingStatus(client, currentOrder, appUser);
         currentOrder.duplicateStatusAction = true;
         return currentOrder;
     }
@@ -32229,7 +32226,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
             await recordPortalOrderStatusAction(client, savedOrder, nextStatus, details, appUser);
             return savedOrder;
         }
-        await syncWarehouseTasksForOrder(client, currentOrder, appUser);
+        await syncWarehouseTasksForOrderWithoutBlockingStatus(client, currentOrder, appUser);
         await recordPortalOrderStatusAction(client, currentOrder, nextStatus, details, appUser);
         return currentOrder;
     }
@@ -32277,7 +32274,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
                 actor
             ].filter(Boolean).join(" | ")
         );
-        await syncWarehouseTasksForOrder(client, cancelledOrder, appUser);
+        await syncWarehouseTasksForOrderWithoutBlockingStatus(client, cancelledOrder, appUser);
         await recordPortalOrderStatusAction(client, cancelledOrder, nextStatus, details, appUser);
         return cancelledOrder;
     }
@@ -32347,7 +32344,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         `Marked portal order ${updatedOrder.orderCode} ${nextStatus.toLowerCase()}`,
         `${updatedOrder.accountName} | ${formatCount(updatedOrder.lines.length, "line")} | ${actor}`
     );
-    await syncWarehouseTasksForOrder(client, updatedOrder, appUser);
+    await syncWarehouseTasksForOrderWithoutBlockingStatus(client, updatedOrder, appUser);
     await recordPortalOrderStatusAction(client, updatedOrder, nextStatus, details, appUser);
     return updatedOrder;
 }
@@ -33474,6 +33471,51 @@ async function closeWarehouseTasksForSource(client, sourceType, sourceId, taskTy
         `,
         [normalizedSourceType, normalizedSourceId, normalizedTaskTypes, normalizedStatus, normalizeFreeText(actor), ACTIVE_WAREHOUSE_TASK_STATUSES]
     );
+}
+
+async function syncWarehouseTasksForOrderWithoutBlockingStatus(client, order, appUser = null) {
+    if (!order?.id) return true;
+    const savepoint = `warehouse_task_sync_${toPositiveInt(order.id) || "order"}`;
+    await client.query(`savepoint ${savepoint}`);
+    try {
+        await syncWarehouseTasksForOrder(client, order, appUser);
+        await client.query(`release savepoint ${savepoint}`);
+        return true;
+    } catch (error) {
+        await client.query(`rollback to savepoint ${savepoint}`);
+        await client.query(`release savepoint ${savepoint}`);
+        if (!isRetryableTransactionError(error)) throw error;
+        order.warehouseTaskSyncDeferred = true;
+        console.warn(`Warehouse task sync deferred for ${order.orderCode || makePortalOrderCode(order.id)}: ${error.code || "LOCK"} ${error.message || ""}`);
+        queueDeferredWarehouseTaskSyncForOrder(order, appUser);
+        return false;
+    }
+}
+
+function queueDeferredWarehouseTaskSyncForOrder(order, appUser = null) {
+    const orderId = toPositiveInt(order?.id);
+    const accountName = normalizeText(order?.accountName || order?.account_name || "");
+    if (!orderId || !accountName) return;
+    const actor = appUser ? {
+        id: toPositiveInt(appUser.id || appUser.app_user_id) || null,
+        email: normalizeText(appUser.email || ""),
+        full_name: normalizeFreeText(appUser.full_name || appUser.fullName || "")
+    } : null;
+    const timer = setTimeout(async () => {
+        try {
+            await withTransaction(async (retryClient) => {
+                const refreshedOrder = await getPortalOrderById(retryClient, orderId, accountName);
+                if (refreshedOrder) await syncWarehouseTasksForOrder(retryClient, refreshedOrder, actor);
+            }, {
+                maxAttempts: 5,
+                lockTimeoutMs: 1500,
+                context: { action: "deferred_warehouse_task_sync", accountName, orderId }
+            });
+        } catch (error) {
+            console.error(`Deferred warehouse task sync failed for ${order.orderCode || makePortalOrderCode(orderId)}:`, error);
+        }
+    }, 350);
+    timer.unref?.();
 }
 
 async function syncWarehouseTasksForOrder(client, order, appUser = null) {

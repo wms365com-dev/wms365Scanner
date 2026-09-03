@@ -1,6 +1,7 @@
 .git/
 .agents/
 .codex/
+.codex-tmp/
 node_modules/
 .npm-cache/
 test-results/
