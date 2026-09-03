@@ -154,6 +154,11 @@ test("BOL routes and UI preserve warehouse access controls and staged-only visib
     assert.match(server, /portal-orders\/:id\/bill-of-lading\/prepare[\s\S]*?assertAppUserCustomerWarehouseAccess/);
     assert.match(server, /portal-orders\/:id\/bill-of-lading\.pdf[\s\S]*?assertAppUserCustomerWarehouseAccess/);
     assert.match(server, /scopePortalOrderToFulfillmentLocationIds[\s\S]*?buildPortalOrderBillOfLadingPdfAttachment/);
+    assert.match(
+        server,
+        /portal_order_print_events_document_type_check check \(document_type in \('PICK_TICKET', 'PACKING_SLIP', 'UCC128_LABELS', 'BILL_OF_LADING'\)\)/,
+        "the production print-event constraint must accept BOL audit records"
+    );
     assert.match(html, /id="salesOrderCommandBolBtn"[^>]*hidden/);
     assert.match(html, /order\.status === "STAGED"[^\n]*data-generate-bol/);
     assert.match(html, /id="orderBolModal"/);

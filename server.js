@@ -10064,7 +10064,7 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("alter table portal_order_print_events drop constraint if exists portal_order_print_events_document_type_check");
-    await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_document_type_check check (document_type in ('PICK_TICKET', 'PACKING_SLIP', 'UCC128_LABELS'))");
+    await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_document_type_check check (document_type in ('PICK_TICKET', 'PACKING_SLIP', 'UCC128_LABELS', 'BILL_OF_LADING'))");
     await pool.query("alter table portal_order_print_events drop constraint if exists portal_order_print_events_action_check");
     await pool.query("alter table portal_order_print_events add constraint portal_order_print_events_action_check check (print_action in ('PRINT', 'REPRINT'))");
     await pool.query("create index if not exists idx_portal_order_print_events_order_type on portal_order_print_events (order_id, document_type, created_at desc)");
