@@ -158,6 +158,9 @@ test("BOL routes and UI preserve warehouse access controls and staged-only visib
     assert.match(html, /order\.status === "STAGED"[^\n]*data-generate-bol/);
     assert.match(html, /id="orderBolModal"/);
     assert.match(html, /bill-of-lading\/prepare/);
+    assert.match(html, /openWarehouseOrderBolModal[\s\S]*?orderBolModal\.classList\.remove\("hidden"\)[\s\S]*?requestPortalOrderDetail\(orderId\)/);
+    assert.match(html, /saveAndGenerateWarehouseOrderBol[\s\S]*?openWarehouseDocumentPreview\(\{[\s\S]*?bill-of-lading\.pdf/);
+    assert.doesNotMatch(html, /saveAndGenerateWarehouseOrderBol[\s\S]*?window\.open\("about:blank"/);
     assert.match(
         html,
         /#orderRoutingDraftModal,\s*#orderBolModal\s*\{\s*z-index:\s*4100;/,

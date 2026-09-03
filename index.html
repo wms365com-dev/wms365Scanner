@@ -11101,12 +11101,12 @@
                 <button class="btn ghost mini" type="button" data-order-bol-close>Close</button>
             </div>
             <div class="helper" id="orderBolRequirements">The carrier, pallets, shipment weight, and delivery date are required.</div>
+            <div class="status" id="orderBolMessage"></div>
             <div id="orderBolShipmentFields" class="quick-detail-stack" style="margin-top:0.8rem;"></div>
             <div class="button-row" style="margin-top:1rem;">
                 <button class="btn" id="saveAndGenerateOrderBolBtn" type="button">Save and Open BOL</button>
                 <button class="btn ghost" type="button" data-order-bol-close>Cancel</button>
             </div>
-            <div class="status" id="orderBolMessage"></div>
         </div>
     </div>
 
@@ -23121,11 +23121,19 @@
             const orderId = typeof orderOrEvent === "string" ? orderOrEvent : (eventOrderId || editingWarehouseOrderId);
             if (!orderId) return showMessage(ui.warehouseOrderMessage, "Open a staged sales order before generating its BOL.", "error");
             const actionButton = resolveActionButton(context || orderOrEvent, ui.generateWarehouseOrderBolBtn);
+            currentOrderBolOrderId = String(orderId);
+            ui.orderBolTitle.textContent = "Generate Bill of Lading";
+            ui.orderBolMeta.textContent = "Loading the staged shipment details...";
+            ui.orderBolRequirements.textContent = "Checking the freight shipment before the BOL is generated.";
+            ui.orderBolRequirements.classList.remove("error");
+            ui.orderBolShipmentFields.innerHTML = `<div class="empty">Loading shipment details...</div>`;
+            ui.orderBolModal.classList.remove("hidden");
+            ui.orderBolModal.setAttribute("aria-hidden", "false");
             try {
                 return await runActionWithFeedback({
                     button: actionButton,
                     busyLabel: "Checking...",
-                    messageElement: ui.warehouseOrderMessage,
+                    messageElement: ui.orderBolMessage,
                     progressMessage: "Checking the staged shipment and BOL details..."
                 }, async () => {
                     const order = await requestPortalOrderDetail(orderId);
@@ -23143,13 +23151,16 @@
                         : "Required: freight shipment type, carrier, total pallets, total shipment weight, and delivery date.";
                     ui.orderBolRequirements.classList.toggle("error", commonMissing.length > 0);
                     renderOrderBolShipmentFields(order);
-                    ui.orderBolModal.classList.remove("hidden");
-                    ui.orderBolModal.setAttribute("aria-hidden", "false");
+                    if (ui.orderBolMessage) {
+                        ui.orderBolMessage.textContent = "";
+                        ui.orderBolMessage.className = "status";
+                    }
                     ui.orderBolShipmentFields.querySelector("[data-bol-carrier]")?.focus();
                     return order;
                 });
             } catch (error) {
-                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                ui.orderBolShipmentFields.innerHTML = "";
+                showMessage(ui.orderBolMessage, error.message, "error");
                 return null;
             }
         }
@@ -23188,10 +23199,6 @@
             if (missing.length) {
                 return showMessage(ui.orderBolMessage, `Complete these items before generating the BOL: ${missing.join(", ")}.`, "error");
             }
-            const previewWindow = window.open("about:blank", "_blank");
-            if (!previewWindow) return showMessage(ui.orderBolMessage, "Allow pop-ups for WMS365, then try again to open the BOL.", "error");
-            previewWindow.opener = null;
-            previewWindow.document.write("<title>Preparing WMS365 BOL</title><p style='font-family:Arial;padding:24px'>Preparing bill of lading...</p>");
             const actionButton = resolveActionButton(context, ui.saveAndGenerateOrderBolBtn);
             try {
                 return await runActionWithFeedback({
@@ -23210,13 +23217,18 @@
                         throw new Error(`The BOL still needs: ${(response?.readiness?.missingFields || []).join(", ")}.`);
                     }
                     applyPortalOrderUpdate(response.order, "BOL details saved.", ui.warehouseOrderMessage);
-                    previewWindow.location.replace(`/api/admin/portal-orders/${currentOrderBolOrderId}/bill-of-lading.pdf`);
+                    const orderId = currentOrderBolOrderId;
+                    const orderCode = response.order?.orderCode || order?.orderCode || "Sales Order";
                     closeOrderBolModal();
-                    showMessage(ui.warehouseOrderMessage, `Opened the BOL for ${response.order?.orderCode || "the staged order"}.`, "success");
+                    await openWarehouseDocumentPreview({
+                        url: `/api/admin/portal-orders/${orderId}/bill-of-lading.pdf`,
+                        fileName: `${orderCode} - Bill of Lading.pdf`,
+                        fileType: "application/pdf"
+                    }, null, ui.warehouseOrderMessage);
+                    showMessage(ui.warehouseOrderMessage, `Opened the BOL for ${orderCode}.`, "success");
                     return response;
                 });
             } catch (error) {
-                previewWindow.close();
                 showMessage(ui.orderBolMessage, error.message, "error");
                 return null;
             }
