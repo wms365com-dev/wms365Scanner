@@ -141,6 +141,27 @@ test("Shopify settings preserve allowed ship-to country filters", () => {
     assert.deepEqual(settings.allowedShipCountries, ["CA", "US"]);
 });
 
+test("Shopify location picker does not treat province letters inside a US city as Canada", () => {
+    const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "index.html"), "utf8");
+    const start = source.indexOf("async function fetchShopifyLocationsForSelectedIntegration");
+    const end = source.indexOf("async function loadAsyncJobs", start);
+    const implementation = source.slice(start, end);
+
+    assert.match(implementation, /country === "CANADA"/);
+    assert.match(implementation, /\["ON", "ONTARIO", "QC", "QUEBEC"\]\.includes\(province\)/);
+    assert.doesNotMatch(implementation, /\|on\/i/);
+});
+
+test("editing a Shopify connection preserves its allowed ship countries", () => {
+    const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "index.html"), "utf8");
+    const start = source.indexOf("function buildIntegrationSettingsPayload");
+    const end = source.indexOf("async function saveStoreIntegration", start);
+    const implementation = source.slice(start, end);
+
+    assert.match(implementation, /savedIntegration\?\.settings\?\.allowedShipCountries/);
+    assert.match(implementation, /allowedShipCountries:/);
+});
+
 test("Shopify ship country guard accepts Canada and rejects non-Canada orders", () => {
     const settings = sanitizeStoreIntegrationSettingsInput("SHOPIFY", {
         allowedShipCountries: ["Canada"]

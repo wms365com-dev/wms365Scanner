@@ -21096,9 +21096,14 @@
         function buildIntegrationSettingsPayload(provider) {
             const normalizedProvider = norm(provider);
             if (normalizedProvider === "SHOPIFY") {
+                const integrationId = String(ui.integrationId?.value || "").trim();
+                const savedIntegration = integrationRecords.find((entry) => entry.id === integrationId);
                 return {
                     shopifyLocationId: String(ui.integrationShopifyLocationId?.value || "").trim(),
                     primaryLocationName: String(ui.integrationShopifyLocationName?.value || "").trim(),
+                    allowedShipCountries: Array.isArray(savedIntegration?.settings?.allowedShipCountries)
+                        ? [...savedIntegration.settings.allowedShipCountries]
+                        : [],
                     syncOrders: ui.integrationShopifySyncOrders?.checked !== false,
                     syncShipmentConfirmations: ui.integrationShopifySyncShipments?.checked !== false,
                     syncInventory: ui.integrationShopifySyncInventory?.checked === true,
@@ -21351,13 +21356,18 @@
                         return showMessage(ui.integrationMessage, "Shopify did not return any locations for this store.", "error");
                     }
                     const activeLocations = locations.filter((location) => location.active !== false);
-                    const preferred = activeLocations.find((location) => /canada| ca$| ca,|ontario|mississauga|toronto|qc|on/i.test([
-                        location.name,
-                        location.country,
-                        location.province,
-                        location.city,
-                        location.address1
-                    ].filter(Boolean).join(" "))) || activeLocations[0] || locations[0];
+                    const preferred = activeLocations.find((location) => {
+                        const country = norm(location.country || location.countryCode || "");
+                        const province = norm(location.province || location.provinceCode || "");
+                        const locationText = [location.name, location.city, location.address1]
+                            .filter(Boolean)
+                            .join(" ");
+                        return country === "CA"
+                            || country === "CAN"
+                            || country === "CANADA"
+                            || ["ON", "ONTARIO", "QC", "QUEBEC"].includes(province)
+                            || /\b(canada|ontario|quebec|mississauga|toronto)\b/i.test(locationText);
+                    }) || activeLocations[0] || locations[0];
                     if (preferred) {
                         if (ui.integrationShopifyLocationId) ui.integrationShopifyLocationId.value = preferred.id || "";
                         if (ui.integrationShopifyLocationName) ui.integrationShopifyLocationName.value = preferred.name || "";
