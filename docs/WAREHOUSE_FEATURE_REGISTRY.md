@@ -1,6 +1,6 @@
 # WMS365 Warehouse Feature Registry
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-04
 
 Purpose:
 - Internal feature inventory so changes do not break related workflow pieces.
@@ -381,6 +381,12 @@ How to use:
   - labeling charges
   - supplies used
   - storage billing
+  - company billing automation policies with effective dates and per-activity controls
+  - transaction-date billing for shipped orders and received purchase orders
+  - initial inbound storage billing by actual standard, oversize, or non-standard pallet count
+  - BCC-only billing notifications with system summaries and all stored transaction backup
+  - delivery-ledger idempotency and scheduled reconciliation for missed completion notifications
+  - company-specific rates remain mandatory; missing rates produce a billing-setup alert instead of an invented charge
   - shipping cost capture
   - package material charges
   - address validation charges

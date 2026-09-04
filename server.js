@@ -779,6 +779,9 @@ let adminActivityDigestSchedulerTimer = null;
 let shipmentDataQualitySchedulerStarted = false;
 let shipmentDataQualitySchedulerRunning = false;
 let shipmentDataQualitySchedulerTimer = null;
+let companyBillingReconciliationSchedulerStarted = false;
+let companyBillingReconciliationSchedulerRunning = false;
+let companyBillingReconciliationSchedulerTimer = null;
 
 const storeIntegrationSyncLocks = new Set();
 const portalOrderPickTicketEmailLocks = new Set();
@@ -9162,6 +9165,31 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_billing_events_account_date on billing_events (account_name, service_date desc)");
     await pool.query("create index if not exists idx_billing_events_status on billing_events (status, service_date desc)");
     await pool.query(`
+        create table if not exists company_billing_automation_policies (
+            account_name text primary key,
+            is_enabled boolean not null default false,
+            effective_from date not null,
+            notify_on_inbound_received boolean not null default true,
+            notify_on_order_shipped boolean not null default true,
+            include_source_documents boolean not null default true,
+            include_system_documents boolean not null default true,
+            charge_initial_storage_on_receipt boolean not null default false,
+            billing_recipient_email text not null default '',
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        );
+    `);
+    await pool.query("create index if not exists idx_company_billing_automation_enabled on company_billing_automation_policies (is_enabled, effective_from)");
+    await pool.query(`
+        insert into company_billing_automation_policies (
+            account_name, is_enabled, effective_from, notify_on_inbound_received,
+            notify_on_order_shipped, include_source_documents, include_system_documents,
+            charge_initial_storage_on_receipt, billing_recipient_email, note
+        ) values ($1, true, date '2026-09-01', true, true, true, true, true, '', $2)
+        on conflict (account_name) do nothing
+    `, ["ALCONA TRADING LTD", "Initial controlled billing automation rollout. Rates remain company-configured."]);
+    await pool.query(`
         create table if not exists storage_billing_snapshots (
             id bigserial primary key,
             account_name text not null,
@@ -11571,6 +11599,7 @@ async function initializeDatabaseWithRetry() {
             ensureOrderRoutingReadinessSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
             ensureShipmentDataQualitySchedulerStarted();
+            ensureCompanyBillingReconciliationSchedulerStarted();
             ensureAsyncJobWorkerStarted();
             ensureDatabaseHealthWatchdogStarted();
             void backfillWarehouseShipments().catch((error) => {
@@ -12130,6 +12159,70 @@ async function getResolvedBillingFee(client, accountName, feeCode) {
     };
 }
 
+function mapCompanyBillingAutomationPolicyRow(row) {
+    if (!row) return null;
+    return {
+        accountName: row.account_name || "",
+        isEnabled: row.is_enabled === true,
+        effectiveFrom: normalizeDateOnly(row.effective_from),
+        notifyOnInboundReceived: row.notify_on_inbound_received !== false,
+        notifyOnOrderShipped: row.notify_on_order_shipped !== false,
+        includeSourceDocuments: row.include_source_documents !== false,
+        includeSystemDocuments: row.include_system_documents !== false,
+        chargeInitialStorageOnReceipt: row.charge_initial_storage_on_receipt === true,
+        billingRecipientEmail: normalizeEmail(row.billing_recipient_email || ""),
+        note: row.note || ""
+    };
+}
+
+async function getCompanyBillingAutomationPolicy(client = pool, accountName = "") {
+    const normalizedAccount = normalizeText(accountName);
+    if (!normalizedAccount) return null;
+    const result = await client.query(
+        "select * from company_billing_automation_policies where account_name = $1 limit 1",
+        [normalizedAccount]
+    );
+    return result.rowCount === 1 ? mapCompanyBillingAutomationPolicyRow(result.rows[0]) : null;
+}
+
+function getWarehouseBillingActivityServiceDate(activity = {}, billingEvents = []) {
+    const document = activity.document || {};
+    const eventDate = (Array.isArray(billingEvents) ? billingEvents : [])
+        .map((event) => normalizeDateInput(event?.serviceDate || event?.service_date || ""))
+        .find(Boolean);
+    if (eventDate) return eventDate;
+    if (normalizeText(activity.activityType) === "ORDER_SHIPPED") {
+        return normalizeDateInput(
+            document.confirmedShipDate || document.confirmed_ship_date
+            || document.shippedAt || document.shipped_at
+            || document.requestedShipDate || document.requested_ship_date
+            || ""
+        );
+    }
+    if (normalizeText(activity.activityType) === "INBOUND_RECEIVED") {
+        return normalizeDateInput(
+            document.receivedAt || document.received_at
+            || document.receivedDate || document.received_date
+            || document.expectedDate || document.expected_date
+            || ""
+        );
+    }
+    return normalizeDateInput(activity.serviceDate || activity.service_date || "");
+}
+
+function shouldSendWarehouseBillingActivityEmail(policy, activity = {}, billingEvents = [], globalEnabled = WAREHOUSE_BILLING_ACTIVITY_EMAIL_ENABLED) {
+    const activityType = normalizeText(activity.activityType);
+    if (policy) {
+        if (!policy.isEnabled) return false;
+        if (activityType === "ORDER_SHIPPED" && !policy.notifyOnOrderShipped) return false;
+        if (activityType === "INBOUND_RECEIVED" && !policy.notifyOnInboundReceived) return false;
+        const serviceDate = getWarehouseBillingActivityServiceDate(activity, billingEvents);
+        if (!serviceDate || (policy.effectiveFrom && serviceDate < policy.effectiveFrom)) return false;
+        return true;
+    }
+    return globalEnabled === true && Array.isArray(billingEvents) && billingEvents.length > 0;
+}
+
 async function createBillingEventForFee(client, accountName, feeCode, quantity, options = {}) {
     const normalizedAccount = normalizeText(accountName);
     const numericQuantity = roundBillingNumber(quantity);
@@ -12334,6 +12427,20 @@ function buildPortalInboundPalletBillingRollups(inbound, palletLineQuantity = 0)
     return rollups;
 }
 
+function buildPortalInboundInitialStorageBillingRollups(inbound, palletLineQuantity = 0) {
+    const storageCodeByInboundCode = {
+        PALLET_RECEIVING_FEE: "STANDARD_PALLET_STORAGE",
+        OVERSIZED_PALLET_INBOUND: "OVERSIZED_PALLET_STORAGE",
+        NON_STANDARD_PALLET_INBOUND: "NON_STANDARD_PALLET_STORAGE"
+    };
+    return buildPortalInboundPalletBillingRollups(inbound, palletLineQuantity)
+        .map((rollup) => ({
+            feeCode: storageCodeByInboundCode[rollup.feeCode] || "",
+            quantity: rollup.quantity
+        }))
+        .filter((rollup) => rollup.feeCode && Number(rollup.quantity) > 0);
+}
+
 async function createBatchBillingEvents(client, items, batchRef) {
     const grouped = new Map();
     for (const item of Array.isArray(items) ? items : []) {
@@ -12375,9 +12482,20 @@ async function createBatchBillingEvents(client, items, batchRef) {
     return created;
 }
 
-async function createPortalInboundBillingEvents(client, inbound) {
+async function createPortalInboundBillingEvents(client, inbound, options = {}) {
     if (!inbound?.id || !inbound?.accountName) return [];
 
+    const serviceDate = normalizeDateInput(
+        inbound.receivedAt
+        || inbound.received_at
+        || inbound.receivedDate
+        || inbound.received_date
+        || inbound.expectedDate
+        || inbound.expected_date
+        || inbound.createdAt
+        || inbound.created_at
+        || ""
+    );
     const grouped = new Map();
     addBillingRollup(grouped, inbound.accountName, "INBOUND_PROCESSING_FEE", 1);
 
@@ -12408,21 +12526,21 @@ async function createPortalInboundBillingEvents(client, inbound) {
     for (const rollup of buildPortalInboundPalletBillingRollups(inbound, palletQuantity)) {
         addBillingRollup(grouped, inbound.accountName, rollup.feeCode, rollup.quantity);
     }
+    const billingPolicy = options.billingPolicy || null;
+    if (billingPolicy?.chargeInitialStorageOnReceipt && shouldSendWarehouseBillingActivityEmail(
+        billingPolicy,
+        { activityType: "INBOUND_RECEIVED", document: inbound },
+        [{ serviceDate }],
+        false
+    )) {
+        for (const rollup of buildPortalInboundInitialStorageBillingRollups(inbound, palletQuantity)) {
+            addBillingRollup(grouped, inbound.accountName, rollup.feeCode, rollup.quantity);
+        }
+    }
 
     const created = [];
     const sourceRef = inbound.inboundCode || `INBOUND-${inbound.id}`;
     const reference = inbound.referenceNumber || sourceRef;
-    const serviceDate = normalizeDateInput(
-        inbound.receivedAt
-        || inbound.received_at
-        || inbound.receivedDate
-        || inbound.received_date
-        || inbound.expectedDate
-        || inbound.expected_date
-        || inbound.createdAt
-        || inbound.created_at
-        || ""
-    );
     for (const entry of grouped.values()) {
         const billLine = await createBillingEventForFee(client, entry.accountName, entry.feeCode, entry.quantity, {
             sourceType: "INBOUND_RECEIPT",
@@ -12461,12 +12579,20 @@ async function createPortalOrderBillingEvents(client, order) {
     const sourceType = "OUTBOUND_ORDER";
     const sourceRef = order.orderCode || `ORDER-${order.id}`;
     const reference = order.poNumber || order.shippingReference || sourceRef;
+    const serviceDate = normalizeDateInput(
+        order.confirmedShipDate || order.confirmed_ship_date
+        || order.shippedAt || order.shipped_at
+        || order.requestedShipDate || order.requested_ship_date
+        || order.createdAt || order.created_at
+        || ""
+    );
 
     const pushCreated = async (feeCode, quantity, suffix) => {
         const line = await createBillingEventForFee(client, order.accountName, feeCode, quantity, {
             sourceType,
             sourceRef,
             reference,
+            serviceDate,
             note: `Auto-created when portal order ${sourceRef} was shipped.`,
             eventKey: `ORDER:${order.id}:${suffix || feeCode}`
         });
@@ -12751,6 +12877,9 @@ function buildWarehouseBillingActivityDetails(activity = {}, warehouse = {}) {
         const lineSummaries = summarizeBillingActivityDocumentLines(document.lines, ["receivedQuantity", "quantity"]);
         if (lineSummaries.length) details.push(["Received Lines", lineSummaries.join("; ")]);
     }
+    if (activity.backupSummary) {
+        details.push(["Backup Included", normalizeFreeText(activity.backupSummary)]);
+    }
 
     return details;
 }
@@ -12765,7 +12894,9 @@ function buildWarehouseBillingActivityEmailText(activity = {}, warehouse = {}, b
     const lines = [
         "Billable warehouse activity completed.",
         "",
-        "Invoice action: please invoice the customer today using these billing events as backup.",
+        billingEvents.length
+            ? "Invoice action: please invoice the customer today using these billing events as backup."
+            : "Billing setup action: no active company rates produced billing lines. Review the attached transaction backup and configure the missing rates before invoicing.",
         "",
         ...details.map(([label, value]) => `${label}: ${value}`),
         "",
@@ -12775,7 +12906,7 @@ function buildWarehouseBillingActivityEmailText(activity = {}, warehouse = {}, b
         lines.push(`- Event ${event.id}: ${event.feeCode} | ${event.feeName} | Qty ${formatBillingQuantity(event.quantity)} ${event.unitLabel || ""} | Rate ${formatBillingCurrencyAmount(event.rate, event.currencyCode)} | Amount ${formatBillingCurrencyAmount(event.amount, event.currencyCode)} | Service date ${event.serviceDate || "-"}`);
     });
     lines.push("");
-    lines.push(`Total: ${[...totalsByCurrency.entries()].map(([currency, total]) => formatBillingCurrencyAmount(total, currency)).join(" | ") || "$0.00"}`);
+    lines.push(`Total: ${[...totalsByCurrency.entries()].map(([currency, total]) => formatBillingCurrencyAmount(total, currency)).join(" | ") || "Rate setup required"}`);
     return lines.join("\n");
 }
 
@@ -12804,11 +12935,13 @@ function buildWarehouseBillingActivityEmailHtml(activity = {}, warehouse = {}, b
             <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(event.serviceDate || "-")}</td>
         </tr>
     `).join("");
-    const totalText = [...totalsByCurrency.entries()].map(([currency, total]) => formatBillingCurrencyAmount(total, currency)).join(" | ") || "$0.00";
+    const totalText = [...totalsByCurrency.entries()].map(([currency, total]) => formatBillingCurrencyAmount(total, currency)).join(" | ") || "Rate setup required";
     return `
         <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.45;">
             <h2 style="margin:0 0 10px;">${escapeHtml(billingActivityLabel(activity.activityType))} - billing backup</h2>
-            <p style="margin:0 0 14px;">Billable warehouse activity is complete. Please invoice the customer today using the billing events below.</p>
+            <p style="margin:0 0 14px;">${billingEvents.length
+                ? "Billable warehouse activity is complete. Please invoice the customer today using the billing events below."
+                : "The warehouse activity is complete, but no active company rates produced billing lines. Review the attached transaction backup and configure the missing rates before invoicing."}</p>
             <table style="border-collapse:collapse;width:100%;margin:0 0 16px;">${detailRows}</table>
             <table style="border-collapse:collapse;width:100%;font-size:13px;">
                 <thead>
@@ -12852,29 +12985,105 @@ async function getWarehouseBillingLocationForActivity(client, activity = {}) {
     };
 }
 
+function buildWarehouseBillingEventsCsvAttachment(activity = {}, billingEvents = []) {
+    const document = activity.document || {};
+    const sourceRef = normalizeFreeText(activity.sourceRef || document.orderCode || document.inboundCode || "transaction");
+    const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const header = ["Event ID", "Customer", "Activity", "Document", "Fee Code", "Description", "Quantity", "Unit", "Rate", "Amount", "Currency", "Service Date"];
+    const rows = (Array.isArray(billingEvents) ? billingEvents : []).map((event) => [
+        event.id || "", event.accountName || activity.accountName || document.accountName || "",
+        billingActivityLabel(activity.activityType), sourceRef, event.feeCode || "", event.feeName || "",
+        event.quantity ?? "", event.unitLabel || "", event.rate ?? "", event.amount ?? "",
+        event.currencyCode || "CAD", event.serviceDate || getWarehouseBillingActivityServiceDate(activity, billingEvents) || ""
+    ]);
+    if (!rows.length) {
+        rows.push(["", activity.accountName || document.accountName || "", billingActivityLabel(activity.activityType), sourceRef,
+            "RATE_SETUP_REQUIRED", "No active company billing rates produced transaction charges", "", "", "", "", "CAD",
+            getWarehouseBillingActivityServiceDate(activity, billingEvents) || ""]);
+    }
+    return {
+        filename: normalizeUploadFileName(`wms365-${sourceRef}-billing-backup.csv`),
+        content: Buffer.from([header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n"), "utf8"),
+        contentType: "text/csv"
+    };
+}
+
+function buildPortalInboundReceiptPdfAttachment(inbound = {}) {
+    const sourceRef = inbound.inboundCode || `INBOUND-${inbound.id || "receipt"}`;
+    const lines = ["WMS365 RECEIVING CONFIRMATION", "", `Purchase Order: ${sourceRef}`,
+        `Customer: ${inbound.accountName || "-"}`, `Reference: ${inbound.referenceNumber || "-"}`,
+        `Warehouse: ${[inbound.fulfillmentLocationCode, inbound.fulfillmentLocationName].filter(Boolean).join(" - ") || "-"}`,
+        `Expected Date: ${inbound.expectedDate || "-"}`, `Received At: ${inbound.receivedAt || "-"}`,
+        `Carrier: ${inbound.carrierName || "-"}`, "", "Received Items:"];
+    for (const line of Array.isArray(inbound.lines) ? inbound.lines : []) {
+        const quantity = Number(line.receivedQuantity ?? line.quantity) || 0;
+        if (quantity <= 0) continue;
+        lines.push(`${line.sku || "-"} | ${formatTrackedQuantity(quantity, line.trackingLevel || "UNIT")} | ${line.description || ""}`);
+        for (const allocation of Array.isArray(line.receiptAllocations) ? line.receiptAllocations : []) {
+            lines.push(`  Location ${allocation.location || "-"} | Pallet ${allocation.palletReference || "-"} | Lot ${allocation.lotNumber || "-"} | Expiry ${allocation.expirationDate || "-"}`);
+        }
+    }
+    lines.push("", `Received pallets: ${Number(inbound.receiptPalletSummary?.totalPallets) || 0}`, `Generated: ${new Date().toISOString()}`);
+    return { filename: normalizeUploadFileName(`wms365-${sourceRef}-receiving-confirmation.pdf`), content: buildSimpleTextPdfBuffer(lines, { barcodeText: sourceRef }), contentType: "application/pdf" };
+}
+
+async function getWarehouseBillingActivityBackupAttachments(client, activity = {}, policy = null, billingEvents = []) {
+    const document = activity.document || {};
+    const accountName = normalizeText(activity.accountName || document.accountName || "");
+    const attachments = [];
+    if (policy?.includeSystemDocuments !== false) {
+        attachments.push(buildWarehouseBillingEventsCsvAttachment(activity, billingEvents));
+        if (normalizeText(activity.activityType) === "ORDER_SHIPPED") attachments.push(...buildPortalOrderPackingSlipPdfAttachments(document));
+        else if (normalizeText(activity.activityType) === "INBOUND_RECEIVED") attachments.push(buildPortalInboundReceiptPdfAttachment(document));
+    }
+    if (policy?.includeSourceDocuments !== false && document.id && accountName) {
+        const isOrder = normalizeText(activity.activityType) === "ORDER_SHIPPED";
+        const result = await client.query(isOrder
+            ? `select d.file_name, d.file_type, d.file_data from portal_order_documents d join portal_orders o on o.id=d.order_id where d.order_id=$1 and o.account_name=$2 order by d.created_at, d.id`
+            : `select d.file_name, d.file_type, d.file_data from portal_inbound_documents d join portal_inbounds i on i.id=d.inbound_id where d.inbound_id=$1 and i.account_name=$2 order by d.created_at, d.id`,
+            [toPositiveInt(document.id), accountName]);
+        result.rows.forEach((row) => {
+            if (row.file_data) attachments.push({ filename: normalizeUploadFileName(row.file_name || "transaction-document"), content: row.file_data, contentType: row.file_type || "application/octet-stream" });
+        });
+    }
+    const names = new Map();
+    return attachments.map((attachment) => {
+        const original = attachment.filename;
+        const count = (names.get(original) || 0) + 1;
+        names.set(original, count);
+        if (count === 1) return attachment;
+        const dot = original.lastIndexOf(".");
+        return { ...attachment, filename: dot > 0 ? `${original.slice(0, dot)}-${count}${original.slice(dot)}` : `${original}-${count}` };
+    });
+}
+
 async function sendWarehouseBillingActivityEmail(activity = {}) {
     const billingEvents = (Array.isArray(activity.billingEvents) ? activity.billingEvents : []).filter((event) => event && Number(event.amount || 0) >= 0);
-    if (!billingEvents.length) return { emailed: false, reason: "No billing events were created." };
-    const warehouse = await getWarehouseBillingLocationForActivity(pool, activity);
-    const toEmail = normalizeEmail(warehouse.billingContactEmail || DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL);
-    if (!toEmail) return { emailed: false, reason: "No warehouse billing email is configured." };
     const document = activity.document || {};
-    const sourceRef = normalizeFreeText(activity.sourceRef || document.orderCode || document.inboundCode || billingEvents[0]?.sourceRef || "");
     const accountName = normalizeText(activity.accountName || document.accountName || billingEvents[0]?.accountName || "");
-    const subject = `Billable activity completed - ${sourceRef || billingActivityLabel(activity.activityType)} - ${accountName || "Customer"}`;
+    const policy = await getCompanyBillingAutomationPolicy(pool, accountName);
+    if (!shouldSendWarehouseBillingActivityEmail(policy, activity, billingEvents)) return { emailed: false, reason: "Billing email is not enabled for this company or service date." };
+    const warehouse = await getWarehouseBillingLocationForActivity(pool, activity);
+    const toEmail = normalizeEmail(policy?.billingRecipientEmail || warehouse.billingContactEmail || DEFAULT_WAREHOUSE_BILLING_CONTACT_EMAIL);
+    if (!toEmail) return { emailed: false, reason: "No warehouse billing email is configured." };
+    const sourceRef = normalizeFreeText(activity.sourceRef || document.orderCode || document.inboundCode || billingEvents[0]?.sourceRef || "");
+    const serviceDate = getWarehouseBillingActivityServiceDate(activity, billingEvents);
+    const attachments = await getWarehouseBillingActivityBackupAttachments(pool, activity, policy, billingEvents);
+    const preparedActivity = { ...activity, backupSummary: `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}: billing summary, system document, and all stored transaction documents.` };
+    const subject = `${billingEvents.length ? "Billable activity completed" : "Billing rate setup required"} - ${sourceRef || billingActivityLabel(activity.activityType)} - ${accountName || "Customer"}`;
+    const deliveryKey = `WAREHOUSE_BILLING:${normalizeText(activity.activityType)}:${accountName}:${sourceRef}:${serviceDate}`.slice(0, 200);
     const result = await sendSystemEmail({
-        to: toEmail,
+        to: WMS365_SYSTEM_EMAIL_ADDRESS,
+        bcc: toEmail,
         subject,
-        text: buildWarehouseBillingActivityEmailText(activity, warehouse, billingEvents),
-        html: buildWarehouseBillingActivityEmailHtml(activity, warehouse, billingEvents),
+        text: buildWarehouseBillingActivityEmailText(preparedActivity, warehouse, billingEvents),
+        html: buildWarehouseBillingActivityEmailHtml(preparedActivity, warehouse, billingEvents),
+        attachments,
+        deliveryKey,
         emailContext: {
-            accountName,
-            sourceType: "warehouse_billing_activity",
-            sourceRef,
-            billingEventIds: billingEvents.map((event) => event.id),
-            activityType: normalizeText(activity.activityType),
-            warehouseCode: warehouse.code || "",
-            warehouseBillingContactName: warehouse.billingContactName || DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
+            accountName, sourceType: "warehouse_billing_activity", sourceRef, serviceDate,
+            billingEventIds: billingEvents.map((event) => event.id), activityType: normalizeText(activity.activityType),
+            warehouseCode: warehouse.code || "", warehouseBillingContactName: warehouse.billingContactName || DEFAULT_WAREHOUSE_BILLING_CONTACT_NAME,
             warehouseBillingContactEmail: toEmail
         }
     }, "Warehouse billing activity email is not configured. Set SMTP/Resend/SendGrid settings first.");
@@ -12882,13 +13091,148 @@ async function sendWarehouseBillingActivityEmail(activity = {}) {
 }
 
 function queueWarehouseBillingActivityEmail(activity = {}) {
-    if (!WAREHOUSE_BILLING_ACTIVITY_EMAIL_ENABLED) return;
-    if (!Array.isArray(activity.billingEvents) || !activity.billingEvents.length) return;
     setImmediate(() => {
         sendWarehouseBillingActivityEmail(activity).catch((error) => {
             console.error(`Warehouse billing activity email failed for ${activity.sourceRef || activity.activityType || "activity"}:`, error);
         });
     });
+}
+
+async function getCompanyBillingReconciliationCandidates(client = pool, limit = 50) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
+    const result = await client.query(
+        `
+            select *
+            from (
+                select
+                    'ORDER_SHIPPED'::text as activity_type,
+                    o.id as document_id,
+                    o.account_name,
+                    o.order_code as source_ref,
+                    coalesce(o.confirmed_ship_date, o.shipped_at::date, o.requested_ship_date, o.created_at::date)::date as service_date,
+                    coalesce(o.shipped_at, o.updated_at, o.created_at) as completed_at
+                from portal_orders o
+                join company_billing_automation_policies p on p.account_name = o.account_name
+                where p.is_enabled = true
+                  and p.notify_on_order_shipped = true
+                  and o.status = 'SHIPPED'
+                  and coalesce(o.confirmed_ship_date, o.shipped_at::date, o.requested_ship_date, o.created_at::date) >= p.effective_from
+                  and not exists (
+                      select 1
+                      from email_delivery_log e
+                      where e.account_name = o.account_name
+                        and e.source_type = 'warehouse_billing_activity'
+                        and e.source_ref = o.order_code
+                        and coalesce(e.metadata->>'activityType', '') = 'ORDER_SHIPPED'
+                  )
+                union all
+                select
+                    'INBOUND_RECEIVED'::text as activity_type,
+                    i.id as document_id,
+                    i.account_name,
+                    i.inbound_code as source_ref,
+                    coalesce(i.received_at::date, i.expected_date, i.created_at::date)::date as service_date,
+                    coalesce(i.received_at, i.updated_at, i.created_at) as completed_at
+                from portal_inbounds i
+                join company_billing_automation_policies p on p.account_name = i.account_name
+                where p.is_enabled = true
+                  and p.notify_on_inbound_received = true
+                  and i.status = any($1::text[])
+                  and coalesce(i.received_at::date, i.expected_date, i.created_at::date) >= p.effective_from
+                  and not exists (
+                      select 1
+                      from email_delivery_log e
+                      where e.account_name = i.account_name
+                        and e.source_type = 'warehouse_billing_activity'
+                        and e.source_ref = i.inbound_code
+                        and coalesce(e.metadata->>'activityType', '') = 'INBOUND_RECEIVED'
+                  )
+            ) candidates
+            order by completed_at asc, activity_type asc, document_id asc
+            limit $2
+        `,
+        [RECEIVED_INBOUND_STATUSES, safeLimit]
+    );
+    return result.rows.map((row) => ({
+        activityType: normalizeText(row.activity_type),
+        documentId: Number(row.document_id),
+        accountName: normalizeText(row.account_name),
+        sourceRef: normalizeFreeText(row.source_ref),
+        serviceDate: normalizeDateOnly(row.service_date)
+    }));
+}
+
+async function processCompanyBillingReconciliationCandidate(candidate) {
+    const result = await withTransaction(async (client) => {
+        const policy = await getCompanyBillingAutomationPolicy(client, candidate.accountName);
+        if (!policy?.isEnabled) return null;
+        if (candidate.activityType === 'ORDER_SHIPPED') {
+            const document = await getPortalOrderById(client, candidate.documentId, candidate.accountName);
+            if (!document || normalizeText(document.status) !== 'SHIPPED') return null;
+            const billingEvents = await createPortalOrderBillingEvents(client, document);
+            return { policy, document, billingEvents };
+        }
+        const document = await getPortalInboundById(client, candidate.documentId);
+        if (!document || normalizeText(document.accountName) !== candidate.accountName || !RECEIVED_INBOUND_STATUSES.includes(normalizeText(document.status))) return null;
+        const billingEvents = await createPortalInboundBillingEvents(client, document, { billingPolicy: policy });
+        return { policy, document, billingEvents };
+    });
+    if (!result) return { processed: false, reason: 'Transaction is no longer eligible.' };
+    const email = await sendWarehouseBillingActivityEmail({
+        activityType: candidate.activityType,
+        accountName: candidate.accountName,
+        sourceRef: candidate.sourceRef,
+        serviceDate: candidate.serviceDate,
+        document: result.document,
+        billingEvents: result.billingEvents
+    });
+    return { processed: email.emailed === true, email, billingEventCount: result.billingEvents.length };
+}
+
+async function runCompanyBillingAutomationReconciliation({ limit = 50 } = {}) {
+    if (companyBillingReconciliationSchedulerRunning || !DATABASE_URL || !databaseReady) {
+        return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+    companyBillingReconciliationSchedulerRunning = true;
+    const summary = { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    try {
+        const candidates = await getCompanyBillingReconciliationCandidates(pool, limit);
+        for (const candidate of candidates) {
+            try {
+                const result = await processCompanyBillingReconciliationCandidate(candidate);
+                if (result?.processed) summary.processedCount += 1;
+                else summary.skippedCount += 1;
+            } catch (error) {
+                if (Number(error?.statusCode) === 409) summary.skippedCount += 1;
+                else {
+                    summary.failedCount += 1;
+                    console.error(`Billing reconciliation failed for ${candidate.sourceRef}:`, error.message || error);
+                }
+            }
+        }
+        if (summary.processedCount || summary.failedCount) {
+            console.log(`Billing reconciliation completed: ${summary.processedCount} sent, ${summary.skippedCount} skipped, ${summary.failedCount} failed.`);
+        }
+        return summary;
+    } finally {
+        companyBillingReconciliationSchedulerRunning = false;
+    }
+}
+
+function ensureCompanyBillingReconciliationSchedulerStarted() {
+    if (companyBillingReconciliationSchedulerStarted) return;
+    companyBillingReconciliationSchedulerStarted = true;
+    setTimeout(() => {
+        void runCompanyBillingAutomationReconciliation().catch((error) => {
+            console.error('Initial billing reconciliation failed:', error.message || error);
+        });
+    }, 5000).unref();
+    companyBillingReconciliationSchedulerTimer = setInterval(() => {
+        void runCompanyBillingAutomationReconciliation().catch((error) => {
+            console.error('Scheduled billing reconciliation failed:', error.message || error);
+        });
+    }, 15 * 60 * 1000);
+    companyBillingReconciliationSchedulerTimer.unref();
 }
 
 async function captureStorageBillingSnapshot(client, accountName, month, actor = "") {
@@ -31925,7 +32269,8 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
 
     const updatedInbound = await getPortalInboundById(client, inboundId);
     if (nextStatus === "RECEIVED") {
-        updatedInbound.billingEventsCreated = await createPortalInboundBillingEvents(client, updatedInbound);
+        const billingPolicy = await getCompanyBillingAutomationPolicy(client, updatedInbound.accountName);
+        updatedInbound.billingEventsCreated = await createPortalInboundBillingEvents(client, updatedInbound, { billingPolicy });
     }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const statusNote = normalizeFreeText(details?.cancelReason || details?.reason || details?.note || details?.arrivalNote || "");
@@ -42996,9 +43341,18 @@ module.exports = {
     portalPalletSizeBillingCode,
     portalPalletSizeInboundBillingCode,
     buildPortalInboundPalletBillingRollups,
+    buildPortalInboundInitialStorageBillingRollups,
     sanitizePortalInboundReceivingInput,
     createPortalInboundBillingEvents,
     createPortalOrderBillingEvents,
+    getCompanyBillingAutomationPolicy,
+    getWarehouseBillingActivityServiceDate,
+    shouldSendWarehouseBillingActivityEmail,
+    buildWarehouseBillingEventsCsvAttachment,
+    buildPortalInboundReceiptPdfAttachment,
+    getCompanyBillingReconciliationCandidates,
+    processCompanyBillingReconciliationCandidate,
+    runCompanyBillingAutomationReconciliation,
     captureStorageBillingSnapshot,
     reviewStorageBillingSnapshot,
     createMonthlyStorageBillingEvents,
