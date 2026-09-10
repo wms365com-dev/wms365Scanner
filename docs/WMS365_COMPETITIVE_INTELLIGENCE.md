@@ -1,6 +1,6 @@
 # WMS365 Competitive Intelligence
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-07
 
 ## Guardrails
 
@@ -32,6 +32,8 @@ Deposco is now both an architecture reference and a primary portal comparison fo
 
 Current Extensiv public documentation is inconsistent on scan-to-pack and cross-customer picking availability. The June 30, 2026 release notes describe cross-customer pick jobs and SmartScan pack improvements, while the current Managing Warehouses help article still labels `SmartPack - Require Scan to Pack` and `Enable cross-customer pick jobs` as sandbox-only. Treat both as strong market signals, but do not assume uniform general availability without another official confirmation point.
 
+Extensiv's September 3, 2026 Q3 release notes add verified market signals for multi-part GS1 scanning in receipt and pick workflows, retry of timed-out webhooks, richer item/replenishment configuration, normalized parcel tracking (open beta), and more complete billing/payment visibility. These reinforce WMS365 priorities for scan-directed execution, retry-safe integrations, replenishment, shipment visibility, and billing reconciliation; beta status is retained where Extensiv states it.
+
 ## Prioritized Gaps
 
 | Priority | Capability | WMS365 direction |
@@ -57,6 +59,7 @@ Current Extensiv public documentation is inconsistent on scan-to-pack and cross-
 - ShipHero weight discrepancy detection blocks label printing until pack variance is resolved or overridden: https://software-help.shiphero.com/hc/en-us/articles/11801446343309-Setting-Up-Weight-Discrepancy-Detection
 - Extensiv documents 3PL billing, mobile scanning, customer visibility, reporting, carrier/marketplace integrations, assemblies, and custom labels: https://www.extensiv.com/solutions/3pls
 - Extensiv 2026 release notes describe rapid receiving, replenishment controls, cycle-count reporting, SmartScan move/pick/pack fixes, and cross-customer pick jobs: https://help.extensiv.com/en_US/2026/extensiv-2026-q2-release-notes
+- Extensiv's Q3 2026 release notes document multi-part GS1 receipt/pick scanning, automatic retry of timed-out webhooks, expanded replenishment controls, normalized parcel tracking in open beta, and billing/payment visibility improvements. Reviewed 2026-09-07: https://help.extensiv.com/en_US/2026/extensiv-2026-q3-release-notes
 - Extensiv's current replenishment guidance documents quantity-driven allocation, pick-line minimum/maximum triggers, and SmartScan replenishment execution: https://help.extensiv.com/en_US/3pl-warehouse-manager-inventory-management/replenishments
 - Extensiv's current warehouse-settings guide still labels `SmartPack - Require Scan to Pack` and `Enable cross-customer pick jobs` as sandbox-only controls: https://help.extensiv.com/warehouse-setup/managing-warehouses
 - Deposco's official developer portal exposes first-party API reference, guides, and changelog resources for integration architecture review: https://developer.deposco.com/

@@ -56,6 +56,44 @@ test("multi-warehouse inventory writes require a warehouse-prefixed location", a
     });
 
     assert.equal([...store.lines.values()].find((line) => line.location === "GW3PL-MISS-A01")?.quantity, 5);
+    assert.equal(store.locations.get("GW3PL-MISS-A01")?.account_name, "MULTI WAREHOUSE CO");
+    assert.equal(store.locations.get("GW3PL-MISS-A01")?.fulfillment_location_id, 1);
+});
+
+test("inventory writes reject a BIN owned by another company", async () => {
+    const store = new SharedInventoryStore({
+        locations: [{ code: "A01", account_name: "COMPANY A", fulfillment_location_id: 1 }],
+        warehouses: [{ id: 1, account_name: "COMPANY B", code: "MAIN", is_primary: true }]
+    });
+
+    await assert.rejects(
+        () => upsertInventoryLine(store.client(), {
+            accountName: "COMPANY B",
+            location: "A01",
+            sku: "SKU-1",
+            quantity: 1
+        }),
+        /belongs to another company or warehouse/
+    );
+    assert.equal(store.lines.size, 0);
+});
+
+test("inventory writes reject a BIN containing another company's inventory", async () => {
+    const store = new SharedInventoryStore({
+        lines: [{ id: 1, account_name: "COMPANY A", location: "A01", sku: "SKU-A", quantity: 2 }],
+        warehouses: [{ id: 1, account_name: "COMPANY B", code: "MAIN", is_primary: true }]
+    });
+
+    await assert.rejects(
+        () => upsertInventoryLine(store.client(), {
+            accountName: "COMPANY B",
+            location: "A01",
+            sku: "SKU-B",
+            quantity: 1
+        }),
+        /already contains inventory for another company/
+    );
+    assert.equal(store.lines.size, 1);
 });
 
 test("multi-warehouse legacy generic locations cannot have quantity increased", async () => {
@@ -291,9 +329,13 @@ class FakeInventoryClient {
         }
 
         if (normalizedSql.startsWith("insert into bin_locations")) {
-            const [code, note = ""] = params;
-            const existing = this.store.locations.get(code) || { code, note: "", location_type: "STORAGE", is_pickable: true };
+            const [code, note = "", accountName = "", fulfillmentLocationId = null] = params;
+            const existing = this.store.locations.get(code) || { code, note: "", account_name: "", fulfillment_location_id: null, location_type: "STORAGE", is_pickable: true };
+            if (existing.account_name && accountName && existing.account_name !== accountName) return { rowCount: 0, rows: [] };
+            if (existing.fulfillment_location_id && fulfillmentLocationId && String(existing.fulfillment_location_id) !== String(fulfillmentLocationId)) return { rowCount: 0, rows: [] };
             if (note) existing.note = note;
+            if (!existing.account_name) existing.account_name = accountName;
+            if (!existing.fulfillment_location_id) existing.fulfillment_location_id = fulfillmentLocationId;
             this.store.locations.set(code, existing);
             return { rowCount: 1, rows: [cloneRow(existing)] };
         }

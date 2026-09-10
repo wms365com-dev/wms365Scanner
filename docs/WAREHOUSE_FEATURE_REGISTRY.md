@@ -148,6 +148,9 @@ How to use:
   - company and fulfillment-warehouse isolation on every source and destination
   - dedicated move-only workspace with type-to-fill and scan-ready location inputs
   - customer-owned, warehouse-prefixed stock location creation
+  - inventory writes persist resolved company and fulfillment-warehouse ownership onto the BIN master and reject conflicting BIN reuse
+  - BIN ownership audit after imports and migrations; findings block release until physically verified
+  - operating procedure: `docs/WMS365_BIN_OWNERSHIP_SOP.md`
   - storage locations remain pickable; QC hold, damaged, and quarantine locations are non-pickable
   - up to five JPEG, PNG, or WebP evidence images per QC/damage move, each under 4 MB
   - idempotent movement records, immutable inventory ledger entries, and attachment audit history
@@ -228,6 +231,10 @@ How to use:
   - customer and warehouse access checks on BOL preparation and PDF retrieval
   - BOL print-event audit history; generated unsigned BOLs do not satisfy signed shipment-proof requirements
   - released/picked/staged/shipped status transitions
+  - shipped parcel orders queue a warehouse- and customer-scoped background package-count verification
+  - carrier package identifiers are deduplicated; Canpar lead tracking is expanded through the carrier tracking response when available
+  - temporary carrier failures retry without blocking shipment completion; unresolved counts enter warehouse-only billing review
+  - parcel box supply billing is created only from a verified package count with a shipment-scoped idempotency key
   - visual processing feedback on buttons
   - outbound billing event capture
   - Shopify/SFTP order imports
@@ -335,6 +342,9 @@ How to use:
   - Shopify store URL
   - Shopify Admin API access token
   - Shopify client credentials
+  - public Shopify app install from WMS365 with HMAC-verified callback and signed company/store-bound OAuth state
+  - OAuth install upserts only the selected company's matching Shopify integration and preserves other tenants
+  - Shopify app configuration uses the registered `/shopify/callback` redirect and least-privilege Admin API scopes
   - SFTP host/port/user/folders
   - marketplace provider catalog
   - Best Buy marketplace connector staging
@@ -344,6 +354,9 @@ How to use:
   - push shipped confirmations
   - push receipt confirmations
   - push inventory snapshots
+  - shared-pool Shopify variant mappings with a whole-number WMS-unit multiplier per store item
+  - imported store quantities expand into the mapped WMS base unit
+  - Shopify availability is derived as `floor(pickable WMS units / variant multiplier)` so every mapped pack size draws from one stock pool
   - manual sync
   - integration run logs
   - company scoping

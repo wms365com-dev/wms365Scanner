@@ -12,6 +12,7 @@ const {
     sanitizeStoreIntegrationSettingsInput,
     normalizeStoreOrderCountry,
     getShopifyOrderShipCountryDecision,
+    applyStoreSkuMappingsToPortalOrderPayload,
     exportShopifyInventoryLevels,
     createIntegrationCredentialRequestToken,
     hashIntegrationCredentialRequestToken,
@@ -24,6 +25,22 @@ const {
     signShopifyOAuthState,
     verifyShopifyOAuthState
 } = require("./server");
+
+test("store SKU mappings convert Shopify pack quantities into WMS base units", () => {
+    const mapped = applyStoreSkuMappingsToPortalOrderPayload({
+        lines: [{ sku: "6-Pack", quantity: 2 }]
+    }, new Map([
+        ["6-PACK", { localSku: "RTC-4OZ-12", localQuantityMultiplier: 6 }]
+    ]));
+
+    assert.deepEqual(mapped.lines, [{
+        sku: "RTC-4OZ-12",
+        quantity: 12,
+        externalSku: "6-PACK",
+        externalQuantity: 2,
+        localQuantityMultiplier: 6
+    }]);
+});
 
 test("store integration sync claims allow only one worker to own an integration", async () => {
     let activeToken = "";
@@ -315,6 +332,80 @@ test("Shopify inventory export enforces tracked inventory and deny overselling",
     }
 });
 
+test("Shopify pack variants share one WMS inventory pool using mapping multipliers", async () => {
+    const variants = [
+        ["Ranchers1", 1],
+        ["6-Pack", 6],
+        ["12-Pack", 12],
+        ["18-Pack", 18],
+        ["RC-WS-5C", 60],
+        ["RC-WS-10C", 120],
+        ["RC-WS-63C", 756]
+    ];
+    const inventoryUpdates = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+        if (String(url).includes("/variants.json")) {
+            return new Response(JSON.stringify({
+                variants: variants.map(([sku], index) => ({
+                    id: 1000 + index,
+                    sku,
+                    inventory_item_id: 2000 + index,
+                    inventory_management: "shopify",
+                    inventory_policy: "deny"
+                }))
+            }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (String(url).includes("/inventory_levels/set.json")) {
+            inventoryUpdates.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ inventory_level: { available: inventoryUpdates.at(-1).available } }), {
+                status: 200,
+                headers: { "content-type": "application/json" }
+            });
+        }
+        return new Response(JSON.stringify({ errors: "unexpected request" }), { status: 500, headers: { "content-type": "application/json" } });
+    };
+
+    const client = {
+        async query(sql) {
+            const text = String(sql);
+            if (text.includes("with known_skus")) {
+                return { rows: [{ sku: "RTC-4OZ-12", on_hand_quantity: 2304, available_quantity: 2304 }], rowCount: 1 };
+            }
+            if (text.includes("from store_sku_mappings")) {
+                return {
+                    rows: variants.map(([externalSku, multiplier]) => ({
+                        external_sku: externalSku,
+                        local_sku: "RTC-4OZ-12",
+                        local_quantity_multiplier: multiplier
+                    })),
+                    rowCount: variants.length
+                };
+            }
+            if (text.includes("from store_sync_exports")) return { rows: [], rowCount: 0 };
+            if (text.includes("insert into store_sync_exports")) return { rows: [], rowCount: 1 };
+            throw new Error(`Unexpected query: ${text.slice(0, 80)}`);
+        }
+    };
+
+    try {
+        const summary = await exportShopifyInventoryLevels(client, {
+            id: 44,
+            account_name: "TEST COMPANY",
+            provider: "SHOPIFY",
+            store_identifier: "test-store.myshopify.com",
+            access_token: "shpat_test",
+            settings: { syncInventory: true, shopifyLocationId: "333" }
+        });
+
+        assert.equal(summary.exportedCount, 7);
+        assert.equal(summary.failedCount, 0);
+        assert.deepEqual(inventoryUpdates.map((entry) => entry.available), [2304, 384, 192, 128, 38, 19, 3]);
+    } finally {
+        global.fetch = originalFetch;
+    }
+});
+
 test("Shopify inventory export still enforces oversell policy when quantity export is unchanged", async () => {
     const calls = [];
     const originalFetch = global.fetch;
@@ -447,12 +538,21 @@ test("Shopify OAuth HMAC verification sorts query parameters and ignores hmac", 
 
 test("Shopify OAuth state is signed, scoped to company, and rejects tampering", () => {
     const secret = "state-secret";
-    const state = signShopifyOAuthState({ accountName: "Pack Fire", integrationId: 12 }, secret);
+    const state = signShopifyOAuthState({
+        accountName: "Pack Fire",
+        integrationId: 12,
+        shop: "PackFire.myshopify.com"
+    }, secret);
     const payload = verifyShopifyOAuthState(state, secret);
 
     assert.equal(payload.accountName, "PACK FIRE");
     assert.equal(payload.integrationId, 12);
+    assert.equal(payload.shop, "packfire.myshopify.com");
     assert.throws(() => verifyShopifyOAuthState(`${state.slice(0, -1)}x`, secret), /could not be verified|missing or invalid/);
+    assert.throws(
+        () => signShopifyOAuthState({ accountName: "Pack Fire", shop: "not-shopify.example" }, secret),
+        /valid \.myshopify\.com store/
+    );
 });
 
 test("Shopify shop domains normalize to safe myshopify host names only", () => {

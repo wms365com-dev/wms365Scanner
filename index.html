@@ -8364,7 +8364,11 @@
                                         <span>Store / Online SKU</span>
                                         <input id="masterItemExternalSku" type="text" placeholder="Example: SHOPIFY-SKU-123" enterkeyhint="next">
                                     </label>
-                                    <label class="field span-2">
+                                    <label class="field">
+                                        <span>WMS Units per Store Item</span>
+                                        <input id="masterItemExternalQuantityMultiplier" type="number" min="1" max="1000000" step="1" value="1" inputmode="numeric">
+                                    </label>
+                                    <label class="field">
                                         <span>Note</span>
                                         <input id="masterItemSkuMappingNote" type="text" placeholder="Optional note for this mapping" enterkeyhint="done">
                                     </label>
@@ -11829,6 +11833,7 @@
             masterItemSkuMappingForm: document.getElementById("masterItemSkuMappingForm"),
             masterItemSkuMappingIntegration: document.getElementById("masterItemSkuMappingIntegration"),
             masterItemExternalSku: document.getElementById("masterItemExternalSku"),
+            masterItemExternalQuantityMultiplier: document.getElementById("masterItemExternalQuantityMultiplier"),
             masterItemSkuMappingNote: document.getElementById("masterItemSkuMappingNote"),
             masterItemSkuMappingSubmitBtn: document.getElementById("masterItemSkuMappingSubmitBtn"),
             masterItemSkuMappingMessage: document.getElementById("masterItemSkuMappingMessage"),
@@ -21556,6 +21561,7 @@
             const canAdd = !!(accountName && localSku && savedItem && featureEnabled && stores.length);
             if (ui.masterItemSkuMappingSubmitBtn) ui.masterItemSkuMappingSubmitBtn.disabled = !canAdd;
             if (ui.masterItemExternalSku) ui.masterItemExternalSku.disabled = !canAdd;
+            if (ui.masterItemExternalQuantityMultiplier) ui.masterItemExternalQuantityMultiplier.disabled = !canAdd;
             if (ui.masterItemSkuMappingNote) ui.masterItemSkuMappingNote.disabled = !canAdd;
             if (ui.masterItemSkuMappingIntegration) ui.masterItemSkuMappingIntegration.disabled = !canAdd;
             syncItemCardCommandState();
@@ -21594,6 +21600,7 @@
                     <div class="quick-main">
                         <strong>${esc(entry.externalSku)} -> ${esc(entry.localSku)}</strong>
                         <div class="quick-meta">${esc(integrationProviderLabel(entry.provider))} | ${esc(entry.integrationName || entry.storeIdentifier)} | ${esc(entry.storeIdentifier)}</div>
+                        <div class="quick-meta">1 store item consumes ${esc(entry.localQuantityMultiplier)} WMS ${entry.localQuantityMultiplier === 1 ? "unit" : "units"}</div>
                         ${entry.note ? `<div class="quick-meta">${esc(entry.note)}</div>` : ""}
                     </div>
                     <div class="quick-row-actions">
@@ -21608,6 +21615,7 @@
             const { accountName, localSku, savedItem } = getMasterItemSkuMappingContext();
             const integrationId = String(ui.masterItemSkuMappingIntegration?.value || "");
             const externalSku = norm(ui.masterItemExternalSku?.value || "");
+            const localQuantityMultiplier = Number.parseInt(ui.masterItemExternalQuantityMultiplier?.value || "1", 10);
             const note = String(ui.masterItemSkuMappingNote?.value || "").trim();
             if (!accountName || !localSku || !savedItem) {
                 return showMessage(ui.masterItemSkuMappingMessage, "Save the item before adding store SKU mappings.", "error");
@@ -21618,6 +21626,10 @@
             if (!externalSku) {
                 ui.masterItemExternalSku?.focus();
                 return showMessage(ui.masterItemSkuMappingMessage, "Enter the online store SKU to map.", "error");
+            }
+            if (!Number.isInteger(localQuantityMultiplier) || localQuantityMultiplier < 1 || localQuantityMultiplier > 1000000) {
+                ui.masterItemExternalQuantityMultiplier?.focus();
+                return showMessage(ui.masterItemSkuMappingMessage, "Enter a whole-number WMS unit quantity from 1 to 1,000,000.", "error");
             }
             const store = integrationRecords.find((entry) => entry.id === integrationId && entry.accountName === accountName);
             if (!store) {
@@ -21634,9 +21646,10 @@
                 }, async () => {
                     await requestJson("/api/admin/sku-mappings", {
                         method: "POST",
-                        body: JSON.stringify({ accountName, localSku, integrationId, externalSku, note })
+                        body: JSON.stringify({ accountName, localSku, integrationId, externalSku, localQuantityMultiplier, note })
                     });
                     if (ui.masterItemExternalSku) ui.masterItemExternalSku.value = "";
+                    if (ui.masterItemExternalQuantityMultiplier) ui.masterItemExternalQuantityMultiplier.value = "1";
                     if (ui.masterItemSkuMappingNote) ui.masterItemSkuMappingNote.value = "";
                     await refreshSkuMappingsList(true);
                     showMessage(ui.masterItemSkuMappingMessage, `Mapped ${externalSku} to local SKU ${localSku}.`, "success");
@@ -22322,6 +22335,17 @@
             const shipmentMethod = normalizeShipmentMethod(order.shipmentMethod || "LTL_FREIGHT");
             const isParcelShipment = shipmentMethod === "PARCEL";
             const isFreightShipment = shipmentMethodRequiresFreightProof(shipmentMethod);
+            const packageVerifications = (order.warehouseShipments || []).map((shipment) => shipment.packageVerification || {});
+            const verifiedPackageCount = packageVerifications.reduce((sum, verification) => sum + (verification.status === "VERIFIED" ? Number(verification.count) || 0 : 0), 0);
+            const packageVerificationNeedsReview = packageVerifications.some((verification) => verification.status === "REVIEW_REQUIRED");
+            const packageVerificationPending = packageVerifications.some((verification) => ["PENDING", "PROCESSING", "RETRY"].includes(verification.status));
+            const packageVerificationMessage = !isParcelShipment || order.status !== "SHIPPED" ? "" : packageVerificationNeedsReview
+                ? `Package count needs billing review. ${packageVerifications.find((verification) => verification.status === "REVIEW_REQUIRED")?.lastError || "Check the carrier and tracking number."}`
+                : (packageVerificationPending
+                    ? "Package count is being checked in the background. Parcel box billing will wait for verification."
+                    : (verifiedPackageCount > 0
+                        ? `${verifiedPackageCount} parcel package${verifiedPackageCount === 1 ? "" : "s"} verified for billing.`
+                        : "Package verification has not started yet."));
             const usesPalletTracking = shipmentMethodUsesPalletTracking(shipmentMethod);
             const outboundPallets = order.outboundPallets || {};
             const requiresPickedPalletDetails = norm(order.accountName).includes("ALCONA TRADING");
@@ -22429,6 +22453,7 @@
                             <tbody>${shippedQuantityRows || `<tr><td colspan="4">No lines to confirm.</td></tr>`}</tbody>
                         </table>
                     </div>
+                    ${packageVerificationMessage ? `<div class="status-banner ${packageVerificationNeedsReview ? "error" : (verifiedPackageCount > 0 ? "success" : "info")}" role="status" style="margin-top:0.8rem;">${esc(packageVerificationMessage)}</div>` : ""}
                     <div class="quick-meta" data-portal-ship-help="${attr(order.id)}">${esc(shippingHelpText)}</div>
                     <div class="quick-row-actions">
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
@@ -31317,6 +31342,7 @@
                 isActive: item?.isActive !== false,
                 localSku,
                 externalSku,
+                localQuantityMultiplier: Math.max(1, Number.parseInt(item?.localQuantityMultiplier || item?.local_quantity_multiplier || 1, 10) || 1),
                 note: String(item?.note || item?.notes || "").trim(),
                 createdAt: typeof item?.createdAt === "string" ? item.createdAt : (typeof item?.created_at === "string" ? item.created_at : null),
                 updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : (typeof item?.updated_at === "string" ? item.updated_at : null)
@@ -31518,6 +31544,14 @@
                 carrier: String(item.carrier || item.carrierName || item.carrier_name || "").trim(),
                 trackingReference: String(item.trackingReference || item.tracking_reference || "").trim(),
                 bolReference: String(item.bolReference || item.bol_reference || "").trim(),
+                packageVerification: {
+                    count: item.packageVerification?.count == null ? null : Number(item.packageVerification.count),
+                    status: norm(item.packageVerification?.status || item.package_count_status || "NOT_REQUIRED"),
+                    source: String(item.packageVerification?.source || item.package_count_source || "").trim(),
+                    attempts: Number(item.packageVerification?.attempts || item.package_count_attempts || 0) || 0,
+                    lastError: String(item.packageVerification?.lastError || item.package_count_last_error || "").trim(),
+                    verifiedAt: item.packageVerification?.verifiedAt || item.package_count_verified_at || null
+                },
                 pallets: {
                     total: Number(item.pallets?.total ?? item.totalPallets ?? item.total_pallets ?? 0) || 0,
                     existing: Number(item.pallets?.existing ?? item.existingPallets ?? item.existing_pallets ?? 0) || 0,

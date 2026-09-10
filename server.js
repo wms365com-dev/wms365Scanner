@@ -251,6 +251,10 @@ const SHIPMENT_DATA_QUALITY_HOUR = 3;
 const SHIPMENT_DATA_QUALITY_MINUTE = 0;
 const SHIPMENT_DATA_QUALITY_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
 const SHIPMENT_DATA_QUALITY_EMAIL_ENABLED = readBooleanEnv("SHIPMENT_DATA_QUALITY_EMAIL_ENABLED", true);
+const SHIPMENT_PACKAGE_VERIFICATION_INTERVAL_MS = Math.max(15000, Number.parseInt(readEnv("SHIPMENT_PACKAGE_VERIFICATION_INTERVAL_MS", "30000") || "30000", 10) || 30000);
+const SHIPMENT_PACKAGE_VERIFICATION_TIMEOUT_MS = Math.max(3000, Number.parseInt(readEnv("SHIPMENT_PACKAGE_VERIFICATION_TIMEOUT_MS", "10000") || "10000", 10) || 10000);
+const SHIPMENT_PACKAGE_VERIFICATION_MAX_ATTEMPTS = Math.max(1, Number.parseInt(readEnv("SHIPMENT_PACKAGE_VERIFICATION_MAX_ATTEMPTS", "5") || "5", 10) || 5);
+const CANPAR_PACKAGE_TRACKING_API_URL = "https://canship.canpar.com/api/CanparAddons/trackByBarcodeV2";
 const STORE_INTEGRATION_SCHEDULE_TIME_ZONE = readEnv("STORE_INTEGRATION_SCHEDULE_TIME_ZONE", ADMIN_ACTIVITY_DIGEST_TIME_ZONE) || ADMIN_ACTIVITY_DIGEST_TIME_ZONE;
 const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
@@ -462,6 +466,7 @@ const BILLING_FINANCE_CHARGE_TYPES = Object.freeze([
     ["CONTAINER_UNLOAD_40HQ", "Receiving", "Container unload 40HQ", "Flat fee"],
     ["WMS_ACCESS_FEE", "Administrative", "WMS access fee", "Flat fee"],
     ["MONTHLY_MINIMUM", "Administrative", "Monthly minimum", "Flat fee"],
+    ["PARCEL_BOX_SUPPLY", "Packaging Materials", "Parcel box supply", "Per package"],
     ["CUSTOM_CHARGE", "Custom", "Custom charge", "Flat fee"]
 ]);
 const BILLING_FINANCE_UNITS = Object.freeze(["Per pallet", "Per carton", "Per unit", "Per hour", "Per order", "Per shipment", "Flat fee", "Percentage"]);
@@ -684,6 +689,7 @@ const BILLING_FEE_SEED = [
     { code: "BILL_OF_LADING_PREPARATION", category: "Shipping & Handling", name: "Bill of lading preparation", unitLabel: "per shipment", defaultRate: 0 },
     { code: "CARRIER_BOOKING_COORDINATION", category: "Shipping & Handling", name: "Carrier booking coordination", unitLabel: "per shipment", defaultRate: 0 },
     { code: "SHIPPING_ADMINISTRATION_FEE", category: "Shipping & Handling", name: "Shipping administration fee", unitLabel: "per shipment", defaultRate: 0 },
+    { code: "PARCEL_BOX_SUPPLY", category: "Packaging Materials", name: "Parcel box supply", unitLabel: "per package", defaultRate: 0 },
     { code: "FREIGHT_COST_MARKUP_PERCENTAGE", category: "Shipping & Handling", name: "Freight cost markup percentage", unitLabel: "percent", defaultRate: 0 },
 
     { code: "PRODUCT_LABELING", category: "Value Added Services", name: "Product labeling (UPC, FNSKU, barcode)", unitLabel: "per unit", defaultRate: 0 },
@@ -779,6 +785,8 @@ let adminActivityDigestSchedulerTimer = null;
 let shipmentDataQualitySchedulerStarted = false;
 let shipmentDataQualitySchedulerRunning = false;
 let shipmentDataQualitySchedulerTimer = null;
+let shipmentPackageVerificationWorkerRunning = false;
+let shipmentPackageVerificationWorkerTimer = null;
 let companyBillingReconciliationSchedulerStarted = false;
 let companyBillingReconciliationSchedulerRunning = false;
 let companyBillingReconciliationSchedulerTimer = null;
@@ -1778,7 +1786,7 @@ app.get("/shopify/install", async (req, res) => {
         if (!accountName) {
             throw httpError(400, "Open WMS365 Integrations, choose the company, and start the Shopify install from that screen.");
         }
-        const state = signShopifyOAuthState({ accountName, integrationId });
+        const state = signShopifyOAuthState({ accountName, integrationId, shop });
         const authorizeUrl = buildShopifyOAuthAuthorizeUrl({ shop, state });
         res.setHeader("Cache-Control", "no-store");
         res.redirect(authorizeUrl);
@@ -1801,6 +1809,9 @@ app.get("/shopify/callback", async (req, res) => {
         }
         const shop = normalizeShopifyShopDomain(req.query?.shop);
         const state = verifyShopifyOAuthState(req.query?.state);
+        if (!shop || state.shop !== shop) {
+            throw httpError(400, "Shopify install session does not match this store.");
+        }
         const tokenResult = await exchangeShopifyAuthorizationCode({
             shop,
             code: String(req.query?.code || "").trim()
@@ -7836,6 +7847,14 @@ function mapPartnerApiShipment(row) {
         lineCount: Number(row.line_count) || 0,
         orderedQuantity: Number(row.ordered_quantity) || 0,
         shippedQuantity: Number(row.shipped_quantity) || 0,
+        packageVerification: {
+            count: row.package_count == null ? null : Number(row.package_count),
+            status: row.package_count_status || "NOT_REQUIRED",
+            source: row.package_count_source || "",
+            attempts: Number(row.package_count_attempts) || 0,
+            lastError: row.package_count_last_error || "",
+            verifiedAt: row.package_count_verified_at ? new Date(row.package_count_verified_at).toISOString() : null
+        },
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
     };
@@ -9914,8 +9933,24 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("alter table portal_order_documents add column if not exists warehouse_shipment_id bigint references warehouse_shipments(id) on delete set null");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count integer");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_status text not null default 'NOT_REQUIRED'");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_source text not null default ''");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_evidence jsonb not null default '{}'::jsonb");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_reference_hash text not null default ''");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_attempts integer not null default 0");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_claimed_at timestamptz");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_next_retry_at timestamptz");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_verified_at timestamptz");
+    await pool.query("alter table warehouse_shipments add column if not exists package_count_last_error text not null default ''");
+    await pool.query("update warehouse_shipments set package_count_evidence = '{}'::jsonb where package_count_evidence is null");
+    await pool.query("alter table warehouse_shipments drop constraint if exists warehouse_shipments_package_count_check");
+    await pool.query("alter table warehouse_shipments add constraint warehouse_shipments_package_count_check check (package_count is null or package_count > 0)");
+    await pool.query("alter table warehouse_shipments drop constraint if exists warehouse_shipments_package_count_status_check");
+    await pool.query("alter table warehouse_shipments add constraint warehouse_shipments_package_count_status_check check (package_count_status in ('NOT_REQUIRED', 'PENDING', 'PROCESSING', 'RETRY', 'VERIFIED', 'REVIEW_REQUIRED'))");
     await pool.query("create index if not exists idx_warehouse_shipments_account_status on warehouse_shipments (account_name, status, updated_at desc)");
     await pool.query("create index if not exists idx_warehouse_shipments_order on warehouse_shipments (order_id, fulfillment_location_id)");
+    await pool.query("create index if not exists idx_warehouse_shipments_package_verification on warehouse_shipments (package_count_status, package_count_next_retry_at, updated_at) where status = 'SHIPPED' and shipment_method = 'PARCEL'");
     await pool.query("create index if not exists idx_warehouse_shipment_lines_shipment on warehouse_shipment_lines (shipment_id, order_line_id)");
     await pool.query(`
         create table if not exists async_jobs (
@@ -10557,7 +10592,10 @@ async function initializeDatabase() {
     await pool.query("alter table store_sku_mappings add column if not exists account_name text not null default ''");
     await pool.query("alter table store_sku_mappings add column if not exists local_sku text not null default ''");
     await pool.query("alter table store_sku_mappings add column if not exists external_sku text not null default ''");
+    await pool.query("alter table store_sku_mappings add column if not exists local_quantity_multiplier integer not null default 1");
     await pool.query("alter table store_sku_mappings add column if not exists note text not null default ''");
+    await pool.query("alter table store_sku_mappings drop constraint if exists store_sku_mappings_local_quantity_multiplier_check");
+    await pool.query("alter table store_sku_mappings add constraint store_sku_mappings_local_quantity_multiplier_check check (local_quantity_multiplier > 0)");
     await pool.query("update store_sku_mappings m set account_name = i.account_name from store_integrations i where m.integration_id = i.id and (m.account_name is null or m.account_name = '')");
     await pool.query("create unique index if not exists idx_store_sku_mappings_integration_external on store_sku_mappings (integration_id, external_sku)");
     await pool.query("create index if not exists idx_store_sku_mappings_account_local on store_sku_mappings (account_name, local_sku)");
@@ -11599,6 +11637,7 @@ async function initializeDatabaseWithRetry() {
             ensureOrderRoutingReadinessSchedulerStarted();
             ensureAdminActivityDigestSchedulerStarted();
             ensureShipmentDataQualitySchedulerStarted();
+            ensureShipmentPackageVerificationWorkerStarted();
             ensureCompanyBillingReconciliationSchedulerStarted();
             ensureAsyncJobWorkerStarted();
             ensureDatabaseHealthWatchdogStarted();
@@ -14769,9 +14808,13 @@ function signShopifyOAuthState(payload = {}, secret = getShopifyOAuthSecret()) {
     const body = {
         accountName: normalizeText(payload.accountName || payload.account_name || ""),
         integrationId: toPositiveInt(payload.integrationId || payload.integration_id) || null,
+        shop: normalizeShopifyShopDomain(payload.shop || payload.store || payload.storeIdentifier || ""),
         nonce: crypto.randomBytes(16).toString("hex"),
         issuedAt: Date.now()
     };
+    if (!body.accountName || !body.shop) {
+        throw httpError(400, "Shopify install session requires a company and a valid .myshopify.com store.");
+    }
     const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
     const signature = crypto.createHmac("sha256", secret).update(encoded, "utf8").digest("base64url");
     return `${encoded}.${signature}`;
@@ -14799,6 +14842,10 @@ function verifyShopifyOAuthState(state, secret = getShopifyOAuthSecret(), now = 
     }
     payload.accountName = normalizeText(payload.accountName || "");
     payload.integrationId = toPositiveInt(payload.integrationId) || null;
+    payload.shop = normalizeShopifyShopDomain(payload.shop || "");
+    if (!payload.accountName || !payload.shop) {
+        throw httpError(400, "Shopify install session is missing its company or store scope.");
+    }
     return payload;
 }
 
@@ -15000,6 +15047,13 @@ async function saveStoreSkuMapping(client, rawInput = {}) {
     const integrationId = toPositiveInt(rawInput?.integrationId || rawInput?.integration_id);
     const localSku = normalizeText(rawInput?.localSku || rawInput?.local_sku || rawInput?.sku);
     const externalSku = normalizeText(rawInput?.externalSku || rawInput?.external_sku || rawInput?.storeSku || rawInput?.store_sku || rawInput?.onlineSku || rawInput?.online_sku);
+    const localQuantityMultiplier = toPositiveInt(
+        rawInput?.localQuantityMultiplier
+        || rawInput?.local_quantity_multiplier
+        || rawInput?.quantityMultiplier
+        || rawInput?.quantity_multiplier
+        || 1
+    );
     const note = normalizeFreeText(rawInput?.note || rawInput?.notes || "");
 
     if (!accountName) {
@@ -15010,6 +15064,9 @@ async function saveStoreSkuMapping(client, rawInput = {}) {
     }
     if (!localSku || !externalSku) {
         throw httpError(400, "Local SKU and store SKU are required.");
+    }
+    if (!localQuantityMultiplier || localQuantityMultiplier > 1000000) {
+        throw httpError(400, "WMS units per store item must be a whole number from 1 to 1,000,000.");
     }
 
     const integrationRow = await getStoreIntegrationRowById(client, integrationId);
@@ -15027,17 +15084,18 @@ async function saveStoreSkuMapping(client, rawInput = {}) {
 
     const result = await client.query(
         `
-            insert into store_sku_mappings (account_name, integration_id, local_sku, external_sku, note)
-            values ($1, $2, $3, $4, $5)
+            insert into store_sku_mappings (account_name, integration_id, local_sku, external_sku, local_quantity_multiplier, note)
+            values ($1, $2, $3, $4, $5, $6)
             on conflict (integration_id, external_sku)
             do update set
                 account_name = excluded.account_name,
                 local_sku = excluded.local_sku,
+                local_quantity_multiplier = excluded.local_quantity_multiplier,
                 note = excluded.note,
                 updated_at = now()
             returning *
         `,
-        [accountName, integrationId, localSku, externalSku, note]
+        [accountName, integrationId, localSku, externalSku, localQuantityMultiplier, note]
     );
     return (await getStoreSkuMappingById(client, result.rows[0].id)) || mapStoreSkuMappingRow({
         ...result.rows[0],
@@ -15053,13 +15111,19 @@ async function getStoreSkuMappingLookup(client, integrationId) {
     if (!normalizedIntegrationId) return new Map();
     const result = await client.query(
         `
-            select external_sku, local_sku
+            select external_sku, local_sku, local_quantity_multiplier
             from store_sku_mappings
             where integration_id = $1
         `,
         [normalizedIntegrationId]
     );
-    return new Map(result.rows.map((row) => [normalizeText(row.external_sku), normalizeText(row.local_sku)]));
+    return new Map(result.rows.map((row) => [
+        normalizeText(row.external_sku),
+        {
+            localSku: normalizeText(row.local_sku),
+            localQuantityMultiplier: toPositiveInt(row.local_quantity_multiplier) || 1
+        }
+    ]));
 }
 
 function applyStoreSkuMappingsToPortalOrderPayload(payload, skuMappingLookup) {
@@ -15070,8 +15134,25 @@ function applyStoreSkuMappingsToPortalOrderPayload(payload, skuMappingLookup) {
         ...payload,
         lines: payload.lines.map((line) => {
             const externalSku = normalizeText(line?.sku || "");
-            const mappedSku = skuMappingLookup.get(externalSku);
-            return mappedSku ? { ...line, sku: mappedSku } : line;
+            const mapping = skuMappingLookup.get(externalSku);
+            if (!mapping) return line;
+            const localSku = typeof mapping === "string" ? normalizeText(mapping) : normalizeText(mapping.localSku);
+            const localQuantityMultiplier = typeof mapping === "string"
+                ? 1
+                : (toPositiveInt(mapping.localQuantityMultiplier) || 1);
+            const sourceQuantity = toPositiveInt(line?.quantity);
+            const mappedQuantity = sourceQuantity * localQuantityMultiplier;
+            if (!localSku || !sourceQuantity || !Number.isSafeInteger(mappedQuantity)) {
+                throw httpError(400, `Store SKU ${externalSku || "(blank)"} has an invalid WMS quantity conversion.`);
+            }
+            return {
+                ...line,
+                sku: localSku,
+                quantity: mappedQuantity,
+                externalSku,
+                externalQuantity: sourceQuantity,
+                localQuantityMultiplier
+            };
         })
     };
 }
@@ -16162,14 +16243,17 @@ async function exportShopifyInventoryLevels(client, integrationRow, options = {}
     const disconnectIfNecessary = settings.inventoryDisconnectIfNecessary === true;
 
     for (const variant of variantResult.variants) {
-        const localSku = externalToLocalSku.get(variant.sku) || variant.sku;
+        const mapping = externalToLocalSku.get(variant.sku);
+        const localSku = mapping?.localSku || variant.sku;
+        const localQuantityMultiplier = toPositiveInt(mapping?.localQuantityMultiplier) || 1;
         const availability = availabilityBySku.get(localSku);
         if (!availability) {
             summary.skippedCount += 1;
             continue;
         }
 
-        const available = Math.max(Number(availability.availableQuantity) || 0, 0);
+        const localAvailable = Math.max(Number(availability.availableQuantity) || 0, 0);
+        const available = Math.floor(localAvailable / localQuantityMultiplier);
         const payload = {
             location_id: locationId,
             inventory_item_id: toPositiveInt(variant.inventoryItemId),
@@ -16196,6 +16280,8 @@ async function exportShopifyInventoryLevels(client, integrationRow, options = {}
             entityRef,
             sku: localSku,
             storeSku: variant.sku,
+            localQuantityMultiplier,
+            localAvailable,
             inventoryItemId: payload.inventory_item_id,
             locationId,
             available
@@ -17931,24 +18017,50 @@ async function getPortalInventorySummary(accountName, client = pool, { fulfillme
                     where cfl.account_name = $1
                     group by cfl.account_name
                 ), reserved as (
-                    select o.fulfillment_location_id, l.sku,
+                    select
+                        case
+                            when o.fulfillment_location_id is null
+                             and scope.assigned_warehouse_count = 1
+                            then scope.sole_fulfillment_location_id
+                            else o.fulfillment_location_id
+                        end as fulfillment_location_id,
+                        l.sku,
                         coalesce(sum(l.requested_quantity), 0)::integer as reserved_quantity
                     from portal_orders o
                     join portal_order_lines l on l.order_id = o.id
+                    join assigned_scope scope on scope.account_name = o.account_name
                     where o.account_name = $1
                       and o.status = any($3::text[])
-                      and o.fulfillment_location_id is not null
-                    group by o.fulfillment_location_id, l.sku
+                      and (o.fulfillment_location_id is not null or scope.assigned_warehouse_count = 1)
+                    -- Previously: group by o.fulfillment_location_id, l.sku. Sole-warehouse legacy rows now use the normalized key above.
+                    group by 1, l.sku
+                ), kitting_reserved as (
+                    select
+                        case
+                            when k.fulfillment_location_id is null
+                             and scope.assigned_warehouse_count = 1
+                            then scope.sole_fulfillment_location_id
+                            else k.fulfillment_location_id
+                        end as fulfillment_location_id,
+                        a.sku,
+                        coalesce(sum(a.allocated_quantity), 0)::integer as reserved_quantity
+                    from portal_kitting_allocations a
+                    join portal_kitting_requests k on k.id = a.kitting_request_id
+                    join assigned_scope scope on scope.account_name = k.account_name
+                    where k.account_name = $1
+                      and k.status in ('SUBMITTED', 'IN_PROGRESS')
+                      and (k.fulfillment_location_id is not null or scope.assigned_warehouse_count = 1)
+                    group by 1, a.sku
                 )
                 select cfl.fulfillment_location_id, fl.code as location_code,
                     fl.name as location_name, i.sku,
                     coalesce(sum(case when coalesce(bl.is_pickable, true) = true
                         and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
                         then i.quantity else 0 end), 0)::integer as on_hand_quantity,
-                    coalesce(r.reserved_quantity, 0)::integer as reserved_quantity,
+                    (coalesce(r.reserved_quantity, 0) + coalesce(kr.reserved_quantity, 0))::integer as reserved_quantity,
                     greatest(coalesce(sum(case when coalesce(bl.is_pickable, true) = true
                         and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
-                        then i.quantity else 0 end), 0) - coalesce(r.reserved_quantity, 0), 0)::integer as pickable_quantity,
+                        then i.quantity else 0 end), 0) - coalesce(r.reserved_quantity, 0) - coalesce(kr.reserved_quantity, 0), 0)::integer as pickable_quantity,
                     count(distinct i.location) filter (
                         where coalesce(bl.is_pickable, true) = true
                           and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
@@ -17982,8 +18094,11 @@ async function getPortalInventorySummary(accountName, client = pool, { fulfillme
                 left join reserved r
                   on r.fulfillment_location_id = cfl.fulfillment_location_id
                  and r.sku = i.sku
+                left join kitting_reserved kr
+                  on kr.fulfillment_location_id = cfl.fulfillment_location_id
+                 and kr.sku = i.sku
                 where cfl.account_name = $1
-                group by cfl.fulfillment_location_id, fl.code, fl.name, i.sku, r.reserved_quantity
+                group by cfl.fulfillment_location_id, fl.code, fl.name, i.sku, r.reserved_quantity, kr.reserved_quantity
                 order by fl.name asc, i.sku asc
             `,
             [normalizedAccount, [...NON_PICKABLE_LOCATION_TYPES], ACTIVE_PORTAL_ORDER_STATUSES]
@@ -21107,7 +21222,7 @@ async function releasePortalOrderForAccount(
     }
 
     for (const line of order.lines) {
-        await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku, line.quantity);
+        await assertPortalOrderSkuAllowed(client, normalizedAccount, line.sku);
     }
 
     await allocatePortalOrderInventory(client, order, {
@@ -26231,8 +26346,12 @@ async function syncWarehouseShipmentsForOrder(client, order = {}, { status = "" 
                 fulfillmentLocationId,
                 shipmentStatus,
                 normalizeText(storedShipment?.shipmentMethod || storedShipment?.shipment_method || order.shipmentMethod || order.shipment_method || "LTL_FREIGHT"),
-                normalizeFreeText(storedShipment?.carrier || storedShipment?.carrier_name || order.shippedCarrierName || order.shipped_carrier_name || ""),
-                normalizeFreeText(storedShipment?.trackingReference || storedShipment?.tracking_reference || order.shippedTrackingReference || order.shipped_tracking_reference || ""),
+                normalizeFreeText(groups.length === 1
+                    ? (order.shippedCarrierName || order.shipped_carrier_name || storedShipment?.carrier || storedShipment?.carrier_name || "")
+                    : (storedShipment?.carrier || storedShipment?.carrier_name || order.shippedCarrierName || order.shipped_carrier_name || "")),
+                normalizeFreeText(groups.length === 1
+                    ? (order.shippedTrackingReference || order.shipped_tracking_reference || storedShipment?.trackingReference || storedShipment?.tracking_reference || "")
+                    : (storedShipment?.trackingReference || storedShipment?.tracking_reference || order.shippedTrackingReference || order.shipped_tracking_reference || "")),
                 groupOutboundPallets.totalPalletsOut,
                 groupOutboundPallets.existingPalletsOut,
                 groupOutboundPallets.newPalletsUsed,
@@ -26566,6 +26685,270 @@ function buildCarrierTrackingUrl(carrierName = "", trackingNumber = "") {
     const carrier = inferCarrierForTrackingNumber(carrierName, tracking);
     const encodedTracking = encodeURIComponent(tracking);
     return getCarrierTrackingConfig(carrier)?.buildUrl(encodedTracking) || "";
+}
+
+function normalizeParcelPackageReference(value = "") {
+    return normalizeFreeText(value).replace(/[\s-]+/g, "").toUpperCase();
+}
+
+function getUniqueParcelPackageReferences(value = "") {
+    return [...new Set(splitShipmentTrackingReferences(value).map(normalizeParcelPackageReference).filter(Boolean))];
+}
+
+function buildShipmentPackageReferenceHash(shipment = {}) {
+    const method = normalizePortalShipmentMethod(shipment.shipment_method || shipment.shipmentMethod || "");
+    const carrier = normalizeCarrierLookupText(shipment.carrier_name || shipment.carrierName || shipment.carrier || "");
+    const references = getUniqueParcelPackageReferences(shipment.tracking_reference || shipment.trackingReference || "");
+    return crypto.createHash("sha256").update(JSON.stringify({ method, carrier, references })).digest("hex");
+}
+
+function isParcelPackageReferenceValid(carrierKey, reference) {
+    const value = normalizeParcelPackageReference(reference);
+    if (!value) return false;
+    if (carrierKey === "UPS") return /^1Z[0-9A-Z]{16}$/.test(value);
+    if (carrierKey === "CANPAR") return /^D\d{18,24}$/.test(value);
+    if (carrierKey === "PUROLATOR") return /^\d{12}$/.test(value);
+    if (carrierKey === "FEDEX") return /^\d{12,15}$/.test(value);
+    if (carrierKey === "CANADA_POST") return /^(?:\d{16}|\d{22}|[A-Z]{2}\d{9}[A-Z]{2})$/.test(value);
+    return /^[0-9A-Z]{5,40}$/.test(value);
+}
+
+function extractCanparPackageBarcodes(payload) {
+    const barcodes = new Set();
+    const seen = new Set();
+    const visit = (value) => {
+        if (typeof value === "string") {
+            (value.toUpperCase().match(/D\d{18,24}/g) || []).forEach((match) => barcodes.add(match));
+            return;
+        }
+        if (!value || typeof value !== "object" || seen.has(value)) return;
+        seen.add(value);
+        if (Array.isArray(value)) value.forEach(visit);
+        else Object.values(value).forEach(visit);
+    };
+    visit(payload);
+    return [...barcodes].sort();
+}
+
+async function verifyParcelPackageCount(shipment = {}, { fetchImpl = globalThis.fetch, now = new Date() } = {}) {
+    const carrierName = normalizeFreeText(shipment.carrier_name || shipment.carrierName || shipment.carrier || "");
+    const trackingReference = shipment.tracking_reference || shipment.trackingReference || "";
+    const references = getUniqueParcelPackageReferences(trackingReference);
+    const rawReferenceCount = splitShipmentTrackingReferences(trackingReference).filter(Boolean).length;
+    if (!references.length) {
+        return { status: "REVIEW_REQUIRED", packageCount: null, source: "", error: "No parcel tracking number is stored.", evidence: { referenceCount: 0 } };
+    }
+
+    const normalizedCarrier = normalizeCarrierLookupText(carrierName);
+    const configuredCarrier = TRACKING_CARRIER_LINKS.find((config) => config.aliases.some((alias) => carrierAliasMatches(normalizedCarrier, alias)))?.key || "";
+    const carrierKeys = [...new Set(references.map((reference) => inferCarrierForTrackingNumber(carrierName, reference)).filter(Boolean))];
+    const carrierKey = carrierKeys[0] || configuredCarrier;
+    if (!carrierKey || carrierKeys.length > 1) {
+        return {
+            status: "REVIEW_REQUIRED", packageCount: null, source: "", error: "The carrier or tracking-number format could not be verified.",
+            evidence: { carrierKey: carrierKey || "UNKNOWN", referenceCount: references.length }
+        };
+    }
+    if (references.some((reference) => !isParcelPackageReferenceValid(carrierKey, reference))) {
+        return {
+            status: "REVIEW_REQUIRED", packageCount: null, source: "", error: `One or more ${carrierKey} tracking numbers have an invalid format.`,
+            evidence: { carrierKey, referenceCount: references.length }
+        };
+    }
+
+    const baseEvidence = {
+        carrierKey,
+        referenceCount: references.length,
+        duplicateReferencesIgnored: Math.max(0, rawReferenceCount - references.length),
+        checkedAt: now.toISOString()
+    };
+    if (carrierKey !== "CANPAR" || references.length > 1) {
+        return { status: "VERIFIED", packageCount: references.length, source: "CARRIER_PACKAGE_IDENTIFIERS", error: "", evidence: baseEvidence };
+    }
+    if (typeof fetchImpl !== "function") {
+        return { status: "RETRY", packageCount: null, source: "CANPAR_TRACKING", error: "The carrier tracking service is unavailable.", evidence: baseEvidence };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SHIPMENT_PACKAGE_VERIFICATION_TIMEOUT_MS);
+    try {
+        const response = await fetchImpl(CANPAR_PACKAGE_TRACKING_API_URL, {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({ barcode: references[0], track_shipment: true }),
+            signal: controller.signal
+        });
+        if (!response?.ok) {
+            const retryable = !response || response.status === 408 || response.status === 429 || response.status >= 500;
+            return {
+                status: retryable ? "RETRY" : "REVIEW_REQUIRED", packageCount: null, source: "CANPAR_TRACKING",
+                error: retryable ? "Canpar tracking is temporarily unavailable." : "Canpar did not accept this tracking number.",
+                evidence: { ...baseEvidence, httpStatus: Number(response?.status) || 0 }
+            };
+        }
+        let payload;
+        try {
+            payload = await response.json();
+        } catch (_error) {
+            return { status: "RETRY", packageCount: null, source: "CANPAR_TRACKING", error: "Canpar returned an unreadable tracking response.", evidence: baseEvidence };
+        }
+        const packageBarcodes = extractCanparPackageBarcodes(payload);
+        if (!packageBarcodes.length) {
+            return { status: "REVIEW_REQUIRED", packageCount: null, source: "CANPAR_TRACKING", error: "Canpar did not return a verifiable package count.", evidence: baseEvidence };
+        }
+        return {
+            status: "VERIFIED", packageCount: packageBarcodes.length, source: "CANPAR_TRACKING", error: "",
+            evidence: { ...baseEvidence, carrierPackageIdentifiers: packageBarcodes }
+        };
+    } catch (error) {
+        return {
+            status: "RETRY", packageCount: null, source: "CANPAR_TRACKING",
+            error: error?.name === "AbortError" ? "Canpar tracking timed out." : "Canpar tracking could not be reached.", evidence: baseEvidence
+        };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function queueShipmentPackageVerificationForShipments(client, shipments = []) {
+    for (const shipment of Array.isArray(shipments) ? shipments : []) {
+        const shipmentId = toPositiveInt(shipment?.id);
+        const accountName = normalizeText(shipment?.account_name || shipment?.accountName || "");
+        if (!shipmentId || !accountName) continue;
+        const method = normalizePortalShipmentMethod(shipment.shipment_method || shipment.shipmentMethod || "");
+        const referenceHash = buildShipmentPackageReferenceHash(shipment);
+        await client.query(`
+            update warehouse_shipments
+            set package_count_status = case
+                    when $3 <> 'PARCEL' then 'NOT_REQUIRED'
+                    when package_count_reference_hash = $4 and package_count_status in ('PENDING','PROCESSING','RETRY','VERIFIED','REVIEW_REQUIRED') then package_count_status
+                    else 'PENDING'
+                end,
+                package_count = case when $3 = 'PARCEL' and package_count_reference_hash = $4 then package_count else null end,
+                package_count_source = case when $3 = 'PARCEL' and package_count_reference_hash = $4 then package_count_source else '' end,
+                package_count_evidence = case when $3 = 'PARCEL' and package_count_reference_hash = $4 then package_count_evidence else '{}'::jsonb end,
+                package_count_attempts = case when $3 = 'PARCEL' and package_count_reference_hash = $4 then package_count_attempts else 0 end,
+                package_count_claimed_at = null,
+                package_count_next_retry_at = null,
+                package_count_verified_at = case when $3 = 'PARCEL' and package_count_reference_hash = $4 then package_count_verified_at else null end,
+                package_count_last_error = case when $3 = 'PARCEL' and package_count_reference_hash = $4 then package_count_last_error else '' end,
+                package_count_reference_hash = case when $3 = 'PARCEL' then $4 else '' end,
+                updated_at = now()
+            where id = $1 and account_name = $2
+        `, [shipmentId, accountName, method, referenceHash]);
+    }
+}
+
+async function claimShipmentPackageVerifications(client = pool, limit = 10, workerId = `wms365-${process.pid}`) {
+    const result = await client.query(`
+        with candidates as (
+            select id
+            from warehouse_shipments
+            where status = 'SHIPPED' and shipment_method = 'PARCEL'
+              and package_count_attempts < $1
+              and (
+                package_count_status = 'PENDING'
+                or (package_count_status = 'RETRY' and coalesce(package_count_next_retry_at, now()) <= now())
+                or (package_count_status = 'PROCESSING' and package_count_claimed_at < now() - interval '30 minutes')
+              )
+            order by updated_at, id
+            for update skip locked
+            limit $2
+        )
+        update warehouse_shipments shipment
+        set package_count_status = 'PROCESSING', package_count_attempts = package_count_attempts + 1,
+            package_count_claimed_at = now(), package_count_last_error = '', updated_at = now()
+        from candidates
+        where shipment.id = candidates.id
+        returning shipment.*, $3::text as worker_id
+    `, [SHIPMENT_PACKAGE_VERIFICATION_MAX_ATTEMPTS, Math.min(Math.max(Number(limit) || 10, 1), 50), workerId]);
+    return result.rows;
+}
+
+async function completeShipmentPackageVerification(shipment, result) {
+    const shipmentId = toPositiveInt(shipment?.id);
+    if (!shipmentId) return null;
+    return withTransaction(async (transaction) => {
+        const currentResult = await transaction.query(`
+            select shipment.*, orders.order_code, orders.po_number, orders.confirmed_ship_date
+            from warehouse_shipments shipment
+            join portal_orders orders on orders.id = shipment.order_id
+            where shipment.id = $1 and shipment.account_name = $2
+            limit 1 for update of shipment
+        `, [shipmentId, normalizeText(shipment.account_name)]);
+        if (currentResult.rowCount !== 1) return null;
+        const current = currentResult.rows[0];
+        if (current.package_count_reference_hash !== shipment.package_count_reference_hash || current.package_count_status !== "PROCESSING") return null;
+        const attempts = Number(current.package_count_attempts) || 0;
+        const verified = result?.status === "VERIFIED" && Number(result.packageCount) > 0;
+        const shouldRetry = result?.status === "RETRY" && attempts < SHIPMENT_PACKAGE_VERIFICATION_MAX_ATTEMPTS;
+        const finalStatus = verified ? "VERIFIED" : (shouldRetry ? "RETRY" : "REVIEW_REQUIRED");
+        const packageCount = verified ? Number(result.packageCount) : null;
+        const errorMessage = verified ? "" : normalizeFreeText(result?.error || "Package count could not be verified.").slice(0, 1000);
+        await transaction.query(`
+            update warehouse_shipments
+            set package_count = $2, package_count_status = $3, package_count_source = $4,
+                package_count_evidence = $5::jsonb, package_count_claimed_at = null,
+                package_count_next_retry_at = case when $3 = 'RETRY' then now() + make_interval(mins => least(60, greatest(5, package_count_attempts * 5))) else null end,
+                package_count_verified_at = case when $3 = 'VERIFIED' then now() else null end,
+                package_count_last_error = $6, updated_at = now()
+            where id = $1 and account_name = $7
+        `, [shipmentId, packageCount, finalStatus, normalizeText(result?.source || ""), JSON.stringify(result?.evidence || {}), errorMessage, current.account_name]);
+
+        let billingEvent = null;
+        if (verified) {
+            billingEvent = await createBillingEventForFee(transaction, current.account_name, "PARCEL_BOX_SUPPLY", packageCount, {
+                sourceType: "OUTBOUND_ORDER",
+                sourceRef: current.order_code,
+                reference: current.po_number || current.order_code,
+                serviceDate: normalizeDateInput(current.confirmed_ship_date || current.shipped_at),
+                note: `Auto-created after carrier package verification for ${current.shipment_code}.`,
+                eventKey: `SHIPMENT:${shipmentId}:PARCEL_BOX_SUPPLY`,
+                metadata: {
+                    warehouseShipmentId: String(shipmentId),
+                    packageCountSource: normalizeText(result.source || ""),
+                    packageCountReferenceHash: current.package_count_reference_hash
+                }
+            });
+        }
+        await insertActivity(transaction, "shipment", `${verified ? "Verified" : "Flagged"} parcel package count for ${current.shipment_code}`, [
+            current.account_name,
+            verified ? `${packageCount} package${packageCount === 1 ? "" : "s"}` : errorMessage,
+            normalizeText(result?.source || "BACKGROUND_VERIFICATION"),
+            billingEvent ? "Parcel box billing event updated" : "No enabled parcel box rate"
+        ].filter(Boolean).join(" | "));
+        return { shipmentId: String(shipmentId), status: finalStatus, packageCount, billingEvent };
+    });
+}
+
+async function runShipmentPackageVerificationWorker({ fetchImpl = globalThis.fetch, limit = 10 } = {}) {
+    if (!databaseReady || shipmentPackageVerificationWorkerRunning) return { claimed: 0, processed: 0 };
+    shipmentPackageVerificationWorkerRunning = true;
+    try {
+        const shipments = await withTransaction((client) => claimShipmentPackageVerifications(client, limit));
+        let processed = 0;
+        for (const shipment of shipments) {
+            try {
+                const result = await verifyParcelPackageCount(shipment, { fetchImpl });
+                await completeShipmentPackageVerification(shipment, result);
+                processed += 1;
+            } catch (error) {
+                console.error(`Shipment package verification ${shipment.id} failed:`, error.message || error);
+            }
+        }
+        return { claimed: shipments.length, processed };
+    } finally {
+        shipmentPackageVerificationWorkerRunning = false;
+    }
+}
+
+function ensureShipmentPackageVerificationWorkerStarted() {
+    if (shipmentPackageVerificationWorkerTimer) return;
+    setImmediate(() => void runShipmentPackageVerificationWorker().catch((error) => console.error("Shipment package verification failed:", error.message || error)));
+    shipmentPackageVerificationWorkerTimer = setInterval(() => {
+        void runShipmentPackageVerificationWorker().catch((error) => console.error("Shipment package verification failed:", error.message || error));
+    }, SHIPMENT_PACKAGE_VERIFICATION_INTERVAL_MS);
+    shipmentPackageVerificationWorkerTimer.unref?.();
 }
 
 function formatTrackingReferenceForEmailText(carrierName = "", trackingNumber = "") {
@@ -28659,6 +29042,17 @@ async function sendStoreShipmentConfirmationsForPortalOrder(order, rawConfirmati
     }
 }
 
+function buildShopifyShipmentActivityDetails(order, integrationRow, externalOrderId, { isUpdate = false } = {}) {
+    return [
+        normalizeText(order?.accountName),
+        integrationRow?.integration_name || integrationRow?.store_identifier || "Shopify",
+        `External order ${externalOrderId}`,
+        `Carrier ${normalizeFreeText(order?.shippedCarrierName || "")}`,
+        `Tracking ${normalizeFreeText(order?.shippedTrackingReference || "")}`,
+        isUpdate ? "Updated shipped order" : "Marked shipped"
+    ].filter(Boolean).join(" | ");
+}
+
 async function sendShopifyShipmentConfirmationForImport(client, integrationRow, order, externalOrderId, _rawConfirmation = {}, { isUpdate = false } = {}) {
     const orderLabel = order?.orderCode || String(order?.id || "");
     const storeLabel = integrationRow?.integration_name || integrationRow?.store_identifier || "Shopify";
@@ -28715,14 +29109,7 @@ async function sendShopifyShipmentConfirmationForImport(client, integrationRow, 
         client,
         "order",
         `Shopify fulfillment sent for portal order ${orderLabel}`,
-        [
-            normalizedAccount,
-            storeLabel,
-            `External order ${externalOrderId}`,
-            `Carrier ${carrier}`,
-            `Tracking ${tracking}`,
-            isUpdate ? "Updated shipped order" : "Marked shipped"
-        ].filter(Boolean).join(" | ")
+        buildShopifyShipmentActivityDetails(order, integrationRow, externalOrderId, { isUpdate })
     );
     return {
         skipped: false,
@@ -32567,7 +32954,8 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     if (currentOrder.status === nextStatus) {
         if (nextStatus === "SHIPPED") {
             const savedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
-            await syncWarehouseShipmentsForOrder(client, savedOrder, { status: "SHIPPED" });
+            const shipments = await syncWarehouseShipmentsForOrder(client, savedOrder, { status: "SHIPPED" });
+            await queueShipmentPackageVerificationForShipments(client, shipments);
             await recordPortalOrderStatusAction(client, savedOrder, nextStatus, details, appUser);
             return savedOrder;
         }
@@ -32636,7 +33024,8 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
 
     if (nextStatus === "SHIPPED") {
         const shippedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: true });
-        await syncWarehouseShipmentsForOrder(client, shippedOrder, { status: "SHIPPED" });
+        const shipments = await syncWarehouseShipmentsForOrder(client, shippedOrder, { status: "SHIPPED" });
+        await queueShipmentPackageVerificationForShipments(client, shipments);
         await recordPortalOrderStatusAction(client, shippedOrder, nextStatus, details, appUser);
         return shippedOrder;
     }
@@ -35032,8 +35421,9 @@ async function upsertInventoryLine(client, item, { recordLedger = true, ...ledge
     const entry = sanitizeInventoryLineInput(item);
     if (!entry) return;
     const fulfillmentLocationId = ledgerOptions.fulfillmentLocationId || ledgerOptions.fulfillment_location_id;
+    let fulfillmentLocation = null;
     if (fulfillmentLocationId) {
-        await assertWarehouseLocationIsolation(client, {
+        fulfillmentLocation = await assertWarehouseLocationIsolation(client, {
             accountName: entry.accountName,
             fulfillmentLocationId,
             location: entry.location,
@@ -35041,12 +35431,16 @@ async function upsertInventoryLine(client, item, { recordLedger = true, ...ledge
             purpose: "Inventory location"
         });
     } else {
-        await assertCompanyLocationScopedForMultiWarehouse(client, {
+        fulfillmentLocation = await assertCompanyLocationScopedForMultiWarehouse(client, {
             accountName: entry.accountName,
             location: entry.location,
             purpose: "Inventory location"
         });
     }
+    await upsertLocationMaster(client, entry.location, "", {
+        accountName: entry.accountName,
+        fulfillmentLocationId: fulfillmentLocation?.id || fulfillmentLocationId || null
+    });
 
     const result = await client.query(
         `
@@ -35129,25 +35523,57 @@ async function removeInventoryContribution(client, item) {
     await safeDeductInventoryLineQuantity(client, line, quantity, { actionLabel: "update pallet inventory" });
 }
 
-async function upsertLocationMaster(client, code, note = "") {
+async function upsertLocationMaster(client, code, note = "", { accountName = "", fulfillmentLocationId = null } = {}) {
     const normalizedCode = assertStructuredLocationCode(code);
     if (!normalizedCode) return;
     const normalizedNote = normalizeFreeText(note);
-
-    await client.query(
+    const normalizedAccountName = normalizeText(accountName);
+    const normalizedFulfillmentLocationId = toPositiveInt(fulfillmentLocationId);
+    if (normalizedAccountName) {
+        const otherOwners = await client.query(
+            `
+                select distinct account_name
+                from inventory_lines
+                where location = $1
+                  and account_name <> $2
+                order by account_name
+                limit 5
+            `,
+            [normalizedCode, normalizedAccountName]
+        );
+        if (otherOwners.rowCount) {
+            throw httpError(409, `BIN ${normalizedCode} already contains inventory for another company and cannot be reused.`);
+        }
+    }
+    const result = await client.query(
         `
-            insert into bin_locations (code, note)
-            values ($1, $2)
+            insert into bin_locations (code, note, account_name, fulfillment_location_id)
+            values ($1, $2, $3, $4)
             on conflict (code)
             do update set
                 note = case
                     when excluded.note <> '' then excluded.note
                     else bin_locations.note
                 end,
+                account_name = case
+                    when btrim(coalesce(bin_locations.account_name, '')) = '' then excluded.account_name
+                    else bin_locations.account_name
+                end,
+                fulfillment_location_id = coalesce(bin_locations.fulfillment_location_id, excluded.fulfillment_location_id),
                 updated_at = now()
+            where (btrim(coalesce(bin_locations.account_name, '')) = ''
+                   or btrim(coalesce(excluded.account_name, '')) = ''
+                   or bin_locations.account_name = excluded.account_name)
+              and (bin_locations.fulfillment_location_id is null
+                   or excluded.fulfillment_location_id is null
+                   or bin_locations.fulfillment_location_id = excluded.fulfillment_location_id)
+            returning account_name, fulfillment_location_id
         `,
-        [normalizedCode, normalizedNote]
+        [normalizedCode, normalizedNote, normalizedAccountName, normalizedFulfillmentLocationId]
     );
+    if (!result.rowCount) {
+        throw httpError(409, `BIN ${normalizedCode} belongs to another company or warehouse and cannot be reused.`);
+    }
 }
 
 async function ensureReceivingStageLocation(client, code = DEFAULT_RECEIVING_STAGE_LOCATION) {
@@ -37237,7 +37663,8 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
     if (!["RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(status)) {
         throw httpError(400, "Shipment status must be released, picked, staged, shipped, or cancelled.");
     }
-    for (const line of Array.isArray(input.lines) ? input.lines : []) {
+    const inputLines = Array.isArray(input.lines) ? input.lines : [];
+    for (const line of inputLines) {
         const lineId = toPositiveInt(line.id || line.shipmentLineId || line.shipment_line_id);
         const quantity = toNonNegativeInt(line.shippedQuantity ?? line.shipped_quantity ?? line.quantity);
         if (!lineId || quantity == null) throw httpError(400, "Each shipment line needs its line id and shipped quantity.");
@@ -37273,7 +37700,7 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
     const deliveryDate = normalizeDateInput(input.deliveryDate || input.delivery_date || current.delivery_date || "");
     assertShipmentMethodMatchesTrackingReference({ shipmentMethod, carrierName, trackingReference });
     if (status === "SHIPPED") {
-        if (!lines.length || lines.length !== current.lines.length) throw httpError(400, "Confirm the shipped quantity for every warehouse shipment line before marking it shipped.");
+        if (!inputLines.length || inputLines.length !== current.lines.length) throw httpError(400, "Confirm the shipped quantity for every warehouse shipment line before marking it shipped.");
         if (shipmentMethod === "PARCEL" && !trackingReference) {
             throw httpError(400, "Enter the parcel tracking number before marking this warehouse shipment shipped.");
         }
@@ -37312,7 +37739,12 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
             input.shippedAt || input.shipped_at || null]
     );
     await insertActivity(client, "shipment", `Updated warehouse shipment ${current.shipment_code}`, [current.account_name, current.warehouse_name, status, actor].filter(Boolean).join(" | "));
-    return getWarehouseShipmentDetail(client, current.id, current.account_name);
+    let updatedShipment = await getWarehouseShipmentDetail(client, current.id, current.account_name);
+    if (status === "SHIPPED" && updatedShipment) {
+        await queueShipmentPackageVerificationForShipments(client, [updatedShipment]);
+        updatedShipment = await getWarehouseShipmentDetail(client, current.id, current.account_name);
+    }
+    return updatedShipment;
 }
 
 async function preparePortalOrderBillOfLading(client, fullOrder, scopedOrder, input = {}, appUser = null) {
@@ -39002,6 +39434,7 @@ function mapStoreSkuMappingRow(row) {
         isActive: row.is_active === true,
         localSku: normalizeText(row.local_sku || ""),
         externalSku: normalizeText(row.external_sku || ""),
+        localQuantityMultiplier: toPositiveInt(row.local_quantity_multiplier) || 1,
         note: row.note || "",
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
@@ -42310,6 +42743,10 @@ function buildShipmentDataQualityFindingCandidates(rows = []) {
         const shipmentLineCount = Math.max(0, Number(row.shipment_line_count ?? row.shipmentLineCount) || 0);
         const shippedQuantity = Math.max(0, Number(row.shipped_quantity ?? row.shippedQuantity) || 0);
         const billingDateMismatchCount = Math.max(0, Number(row.billing_date_mismatch_count ?? row.billingDateMismatchCount) || 0);
+        const packageCount = Math.max(0, Number(row.package_count ?? row.packageCount) || 0);
+        const packageCountStatus = normalizeText(row.package_count_status || row.packageCountStatus || "NOT_REQUIRED");
+        const packageCountAttempts = Math.max(0, Number(row.package_count_attempts ?? row.packageCountAttempts) || 0);
+        const packageCountError = normalizeFreeText(row.package_count_last_error || row.packageCountLastError || "");
         const conflict = getShipmentMethodTrackingConflict({ shipmentMethod: method, carrierName, trackingReference });
 
         if (conflict) {
@@ -42325,6 +42762,18 @@ function buildShipmentDataQualityFindingCandidates(rows = []) {
             add(row, "PARCEL_PALLET_COUNT_PRESENT", "MEDIUM", "Parcel shipment contains a pallet count",
                 `The order is marked Parcel but records ${totalPallets} pallet${totalPallets === 1 ? "" : "s"}.`,
                 "Verify whether this should be LTL/FTL or remove the pallet count if it is truly parcel.", { method, totalPallets });
+        }
+        if (method === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && packageCountStatus === "REVIEW_REQUIRED") {
+            add(row, "PARCEL_PACKAGE_COUNT_REVIEW", "HIGH", "Parcel package count needs review",
+                packageCountError || "The background carrier check could not verify the number of shipped packages.",
+                "Confirm the carrier and every package tracking number before billing parcel boxes.",
+                { method, carrierName, trackingReference, packageCountAttempts });
+        }
+        if (method === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && packageCountStatus === "VERIFIED" && packageCount <= 0) {
+            add(row, "PARCEL_PACKAGE_COUNT_INVALID", "CRITICAL", "Verified parcel shipment has no package count",
+                "The shipment is marked package-verified, but no positive package count is stored.",
+                "Re-run package verification and review any related parcel-box billing event before invoicing.",
+                { method, carrierName, trackingReference, packageCountStatus });
         }
         if ([PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT, PORTAL_ORDER_SHIPMENT_METHODS.FTL_FREIGHT].includes(method)) {
             if (!bolReference && !hasBolDocument) {
@@ -42398,7 +42847,9 @@ async function getShipmentDataQualitySourceRows(client = pool) {
                 ws.id as shipment_id, ws.shipment_code,
                 ws.fulfillment_location_id,
                 ws.shipment_method, ws.carrier_name, ws.tracking_reference, ws.bol_reference,
-                ws.total_pallets, ws.shipped_at
+                ws.total_pallets, ws.shipped_at,
+                ws.package_count, ws.package_count_status, ws.package_count_source,
+                ws.package_count_attempts, ws.package_count_last_error
             from portal_orders o
             join warehouse_shipments ws on ws.order_id = o.id and ws.status = 'SHIPPED'
             where o.status = 'SHIPPED'
@@ -42408,7 +42859,8 @@ async function getShipmentDataQualitySourceRows(client = pool) {
                 o.shipment_method,
                 null::bigint, '', o.fulfillment_location_id,
                 o.shipment_method, o.shipped_carrier_name, o.shipped_tracking_reference, '',
-                o.outbound_total_pallets, o.shipped_at
+                o.outbound_total_pallets, o.shipped_at,
+                null::integer, 'NOT_REQUIRED'::text, ''::text, 0::integer, ''::text
             from portal_orders o
             where o.status = 'SHIPPED'
               and not exists (select 1 from warehouse_shipments ws where ws.order_id = o.id)
@@ -43252,6 +43704,7 @@ module.exports = {
     verifyShopifyOAuthState,
     buildShopifyOAuthAuthorizeUrl,
     mapShopifyOrderToPortalDraft,
+    applyStoreSkuMappingsToPortalOrderPayload,
     buildShopifyInventoryAvailabilityLookup,
     exportShopifyInventoryLevels,
     syncShopifyIntegration,
@@ -43288,6 +43741,15 @@ module.exports = {
     buildPortalShipmentEmailLineSummaries,
     splitShipmentTrackingReferences,
     buildCarrierTrackingUrl,
+    normalizeParcelPackageReference,
+    getUniqueParcelPackageReferences,
+    buildShipmentPackageReferenceHash,
+    isParcelPackageReferenceValid,
+    extractCanparPackageBarcodes,
+    verifyParcelPackageCount,
+    queueShipmentPackageVerificationForShipments,
+    claimShipmentPackageVerifications,
+    completeShipmentPackageVerification,
     extractPortalParcelTrackingFromText,
     extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
@@ -43422,6 +43884,10 @@ module.exports = {
     sendOrderRoutingEmail,
     releasePortalOrderForAccount,
     updateAdminPortalOrderStatus,
+    getPortalOrderById,
+    sendStoreShipmentConfirmationsForPortalOrder,
+    buildShopifyShipmentActivityDetails,
+    sendWarehouseBillingActivityEmail,
     savePortalInboundForAccount,
     updateAdminPortalInboundStatus,
     submitInventoryCount,

@@ -18,5 +18,12 @@ bluehost-site/
 !warehouse-entry-routes.spec.js
 !security-hardening.spec.js
 !rbac.spec.js
+!shipment-package-verification.spec.js
+scripts/add-exim-tiger-stock.js
+scripts/audit-pretty-gutsy-portal-stock.js
+scripts/cleanup-exim-outbound-guide-session.js
+scripts/create-exim-outbound-order-guide.js
+scripts/prepare-exim-outbound-guide-session.js
+scripts/send-exim-inventory-updated-email.js
 CODEX_TASKS.md
 debug.log

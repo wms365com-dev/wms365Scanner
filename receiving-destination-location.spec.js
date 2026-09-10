@@ -9,6 +9,9 @@ function createRecordingClient() {
         calls,
         async query(sql, params = []) {
             calls.push({ sql: String(sql), params });
+            if (/insert into bin_locations/i.test(String(sql))) {
+                return { rows: [{ account_name: params[2] || "", fulfillment_location_id: params[3] || null }], rowCount: 1 };
+            }
             return { rows: [], rowCount: 0 };
         }
     };
