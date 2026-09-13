@@ -5,6 +5,17 @@ const nodemailer = require("nodemailer");
 const path = require("path");
 const zlib = require("zlib");
 const { Pool } = require("pg");
+const {
+    afterShipCarrierSlug,
+    calculateNextTrackingPoll,
+    isTerminalTrackingStatus,
+    normalizeAfterShipTracking,
+    normalizeTrackingCarrier,
+    normalizeTrackingStatus,
+    sanitizeTrackingEvent,
+    trackingStatusLabel,
+    verifyWebhookHmac
+} = require("./carrier-tracking");
 let Stripe = null;
 try {
     Stripe = require("stripe");
@@ -108,6 +119,7 @@ const ROOT_DIR = __dirname;
 const APP_BUILD_FILES = [
     "package.json",
     "server.js",
+    "carrier-tracking.js",
     "marketing.css",
     "marketing.js",
     "wms365-i18n.js",
@@ -255,6 +267,12 @@ const SHIPMENT_PACKAGE_VERIFICATION_INTERVAL_MS = Math.max(15000, Number.parseIn
 const SHIPMENT_PACKAGE_VERIFICATION_TIMEOUT_MS = Math.max(3000, Number.parseInt(readEnv("SHIPMENT_PACKAGE_VERIFICATION_TIMEOUT_MS", "10000") || "10000", 10) || 10000);
 const SHIPMENT_PACKAGE_VERIFICATION_MAX_ATTEMPTS = Math.max(1, Number.parseInt(readEnv("SHIPMENT_PACKAGE_VERIFICATION_MAX_ATTEMPTS", "5") || "5", 10) || 5);
 const CANPAR_PACKAGE_TRACKING_API_URL = "https://canship.canpar.com/api/CanparAddons/trackByBarcodeV2";
+const CARRIER_TRACKING_INTERVAL_MS = Math.max(30000, Number.parseInt(readEnv("CARRIER_TRACKING_INTERVAL_MS", "300000") || "300000", 10) || 300000);
+const CARRIER_TRACKING_TIMEOUT_MS = Math.max(3000, Number.parseInt(readEnv("CARRIER_TRACKING_TIMEOUT_MS", "10000") || "10000", 10) || 10000);
+const CARRIER_TRACKING_MAX_ATTEMPTS = Math.max(1, Number.parseInt(readEnv("CARRIER_TRACKING_MAX_ATTEMPTS", "12") || "12", 10) || 12);
+const AFTERSHIP_TRACKING_API_URL = readEnv("AFTERSHIP_TRACKING_API_URL", "https://api.aftership.com/tracking/2026-07").replace(/\/+$/, "");
+const AFTERSHIP_TRACKING_API_KEY = readEnv("AFTERSHIP_TRACKING_API_KEY", "");
+const AFTERSHIP_TRACKING_WEBHOOK_SECRET = readEnv("AFTERSHIP_TRACKING_WEBHOOK_SECRET", "");
 const STORE_INTEGRATION_SCHEDULE_TIME_ZONE = readEnv("STORE_INTEGRATION_SCHEDULE_TIME_ZONE", ADMIN_ACTIVITY_DIGEST_TIME_ZONE) || ADMIN_ACTIVITY_DIGEST_TIME_ZONE;
 const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
 const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
@@ -328,6 +346,9 @@ const PORTAL_BUSINESS_END_HOUR = 16;
 const PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR = 9;
 const PORTAL_B2B_MINIMUM_BUSINESS_DAYS = 2;
 const PORTAL_KITTING_MINIMUM_BUSINESS_DAYS = 4;
+const PORTAL_KITTING_COMPLETION_BCC_BY_ACCOUNT = Object.freeze({
+    HEALTEA: Object.freeze(["landry@drinkhealtea.com"])
+});
 const PORTAL_RUSH_FEE_CONTACT_EMAIL = "info@greywolf3pl.com";
 const PORTAL_STANDARD_PROCESSING_NOTE = "Standard processing selected in customer portal; requested ship/pickup date is before the earliest ready date.";
 const RECEIVED_INBOUND_STATUSES = ["RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE"];
@@ -1182,7 +1203,14 @@ app.use((req, res, next) => {
     return next();
 });
 
-const jsonBodyParser = express.json({ limit: "30mb" });
+const jsonBodyParser = express.json({
+    limit: "30mb",
+    verify: (req, _res, buffer) => {
+        if ((req.path || req.url || "") === "/api/carrier-tracking/webhooks/aftership") {
+            req.rawBody = Buffer.from(buffer);
+        }
+    }
+});
 app.use((req, res, next) => {
     const pathName = req.path || req.url || "";
     if (pathName === "/api/site/stripe-webhook") {
@@ -2312,6 +2340,23 @@ app.post("/api/site/stripe-webhook", express.raw({ type: "application/json" }), 
             });
         }
         res.json({ received: true, duplicate: result?.duplicate === true });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/carrier-tracking/webhooks/aftership", async (req, res, next) => {
+    try {
+        assertDatabaseAvailable();
+        if (!AFTERSHIP_TRACKING_WEBHOOK_SECRET) {
+            throw httpError(503, "Carrier tracking webhook is not configured yet.");
+        }
+        const signature = req.get("aftership-hmac-sha256") || req.get("x-aftership-hmac-sha256") || "";
+        if (!verifyWebhookHmac(req.rawBody || Buffer.from(JSON.stringify(req.body || {})), signature, AFTERSHIP_TRACKING_WEBHOOK_SECRET)) {
+            throw httpError(401, "Carrier tracking webhook signature was not accepted.");
+        }
+        const result = await processAfterShipTrackingWebhook(req.body || {}, req.rawBody || Buffer.from(""));
+        res.status(202).json({ received: true, duplicate: result.duplicate === true });
     } catch (error) {
         next(error);
     }
@@ -4841,6 +4886,30 @@ app.get("/api/admin/portal-orders/:id/shipments", async (req, res, next) => {
     }
 });
 
+app.get("/api/admin/portal-orders/:id/tracking", async (req, res, next) => {
+    try {
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) throw httpError(400, "A valid order id is required.");
+        const tracking = await withTransaction(async (client) => {
+            const accountName = await getPortalOrderAccountNameById(client, orderId);
+            const { fulfillmentLocationIds } = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName,
+                orderId,
+                resourceType: "PORTAL_ORDER_TRACKING",
+                resourceId: orderId
+            });
+            const all = await getShipmentTrackingForOrder(client, orderId, accountName);
+            if (!Array.isArray(fulfillmentLocationIds) || !fulfillmentLocationIds.length) return all;
+            const allowed = new Set(fulfillmentLocationIds.map((id) => String(id)));
+            return all.filter((tracker) => allowed.has(tracker.warehouse.id));
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ tracking });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.patch("/api/admin/warehouse-shipments/:id", async (req, res, next) => {
     try {
         const shipment = await withTransaction(async (client) => {
@@ -4858,6 +4927,45 @@ app.patch("/api/admin/warehouse-shipments/:id", async (req, res, next) => {
             });
         });
         res.json({ success: true, shipment: mapPartnerApiShipment(shipment) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/warehouse-shipments/:id/tracking-events", async (req, res, next) => {
+    try {
+        const tracking = await withTransaction(async (client) => {
+            const shipment = await getWarehouseShipmentDetail(client, req.params.id);
+            if (!shipment) throw httpError(404, "That warehouse shipment could not be found.");
+            await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName: shipment.account_name,
+                fulfillmentLocationId: shipment.fulfillment_location_id,
+                resourceType: "WAREHOUSE_SHIPMENT_TRACKING",
+                resourceId: shipment.id
+            });
+            await syncShipmentTrackersForWarehouseShipment(client, shipment);
+            const trackerResult = await client.query(
+                "select * from shipment_trackers where warehouse_shipment_id=$1 and tracking_number=$2 limit 1",
+                [shipment.id, normalizeExtractedTrackingNumber(req.body?.trackingNumber || shipment.tracking_reference)]
+            );
+            if (trackerResult.rowCount !== 1) throw httpError(400, "Choose a tracking number recorded on this warehouse shipment.");
+            await applyShipmentTrackingUpdate(client, trackerResult.rows[0].id, {
+                status: req.body?.status,
+                statusDetail: req.body?.description,
+                estimatedDelivery: req.body?.estimatedDeliveryAt,
+                events: [{
+                    status: req.body?.status,
+                    description: req.body?.description || "Tracking status updated by the warehouse.",
+                    location: req.body?.location,
+                    eventAt: req.body?.eventAt || new Date(),
+                    source: "WAREHOUSE"
+                }]
+            });
+            return getShipmentTrackingForOrder(client, shipment.order_id, shipment.account_name, {
+                fulfillmentLocationId: shipment.fulfillment_location_id
+            });
+        });
+        res.json({ success: true, tracking });
     } catch (error) {
         next(error);
     }
@@ -6473,6 +6581,46 @@ app.get("/api/portal/orders", async (req, res, next) => {
         if (error.statusCode === 401) {
             clearPortalSessionCookie(res, req);
         }
+        next(error);
+    }
+});
+
+app.get("/api/v1/shipments/:id/tracking", requirePartnerApiScope("shipments:read"), async (req, res, next) => {
+    try {
+        const shipment = await getWarehouseShipmentDetail(pool, req.params.id, req.partnerApi.accountName);
+        if (!shipment) throw httpError(404, "That shipment could not be found.");
+        const tracking = await getShipmentTrackingForOrder(pool, shipment.order_id, req.partnerApi.accountName, {
+            fulfillmentLocationId: shipment.fulfillment_location_id
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ data: tracking.filter((tracker) => tracker.warehouseShipmentId === String(shipment.id)) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/api/portal/orders/:id/tracking", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        const orderId = toPositiveInt(req.params.id);
+        if (!orderId) throw httpError(404, "That shipment could not be found.");
+        const requestedLocationId = toPositiveInt(req.query?.fulfillmentLocationId || req.query?.warehouseId);
+        if (requestedLocationId) {
+            await resolvePortalFulfillmentLocation(pool, session.access.accountName, { fulfillmentLocationId: requestedLocationId }, {
+                direction: "",
+                requiredLabel: "warehouse"
+            });
+        }
+        const order = await pool.query("select id from portal_orders where id=$1 and account_name=$2 limit 1", [orderId, session.access.accountName]);
+        if (order.rowCount !== 1) throw httpError(404, "That shipment could not be found.");
+        const tracking = await getShipmentTrackingForOrder(pool, orderId, session.access.accountName, {
+            fulfillmentLocationId: requestedLocationId
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ tracking });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
         next(error);
     }
 });
@@ -9953,6 +10101,90 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_warehouse_shipments_package_verification on warehouse_shipments (package_count_status, package_count_next_retry_at, updated_at) where status = 'SHIPPED' and shipment_method = 'PARCEL'");
     await pool.query("create index if not exists idx_warehouse_shipment_lines_shipment on warehouse_shipment_lines (shipment_id, order_line_id)");
     await pool.query(`
+        create table if not exists shipment_trackers (
+            id bigserial primary key,
+            warehouse_shipment_id bigint not null references warehouse_shipments(id) on delete cascade,
+            order_id bigint not null references portal_orders(id) on delete cascade,
+            account_name text not null,
+            fulfillment_location_id bigint not null references fulfillment_locations(id) on delete restrict,
+            provider_key text not null default 'AFTERSHIP',
+            provider_tracker_id text not null default '',
+            carrier_key text not null default 'UNKNOWN',
+            carrier_name text not null default '',
+            carrier_slug text not null default '',
+            tracking_number text not null,
+            tracking_url text not null default '',
+            status text not null default 'PENDING',
+            status_detail text not null default '',
+            estimated_delivery_at timestamptz,
+            delivered_at timestamptz,
+            last_event_at timestamptz,
+            last_checked_at timestamptz,
+            next_poll_at timestamptz,
+            attempts integer not null default 0 check (attempts >= 0),
+            claimed_at timestamptz,
+            claimed_by text not null default '',
+            last_error text not null default '',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (warehouse_shipment_id, tracking_number)
+        );
+    `);
+    await pool.query(`
+        create table if not exists shipment_tracking_events (
+            id bigserial primary key,
+            tracker_id bigint not null references shipment_trackers(id) on delete cascade,
+            event_key text not null,
+            provider_event_id text not null default '',
+            status text not null,
+            raw_status_code text not null default '',
+            description text not null default '',
+            location text not null default '',
+            event_at timestamptz not null,
+            source text not null default 'PROVIDER',
+            safe_metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now(),
+            unique (tracker_id, event_key)
+        );
+    `);
+    await pool.query(`
+        create table if not exists carrier_webhook_receipts (
+            id bigserial primary key,
+            provider_key text not null,
+            receipt_key text not null,
+            signature_valid boolean not null default false,
+            processing_status text not null default 'RECEIVED',
+            tracker_id bigint references shipment_trackers(id) on delete set null,
+            error_message text not null default '',
+            received_at timestamptz not null default now(),
+            processed_at timestamptz,
+            unique (provider_key, receipt_key)
+        );
+    `);
+    await pool.query("alter table shipment_trackers drop constraint if exists shipment_trackers_status_check");
+    await pool.query("alter table shipment_trackers add constraint shipment_trackers_status_check check (status in ('PENDING','LABEL_CREATED','PICKED_UP','IN_TRANSIT','OUT_FOR_DELIVERY','AVAILABLE_FOR_PICKUP','DELIVERED','DELIVERY_ATTEMPTED','EXCEPTION','RETURNED','CANCELLED','UNKNOWN'))");
+    await pool.query("alter table shipment_tracking_events drop constraint if exists shipment_tracking_events_status_check");
+    await pool.query("alter table shipment_tracking_events add constraint shipment_tracking_events_status_check check (status in ('PENDING','LABEL_CREATED','PICKED_UP','IN_TRANSIT','OUT_FOR_DELIVERY','AVAILABLE_FOR_PICKUP','DELIVERED','DELIVERY_ATTEMPTED','EXCEPTION','RETURNED','CANCELLED','UNKNOWN'))");
+    await pool.query("create index if not exists idx_shipment_trackers_order on shipment_trackers (order_id, warehouse_shipment_id)");
+    await pool.query("create index if not exists idx_shipment_trackers_account_warehouse on shipment_trackers (account_name, fulfillment_location_id, updated_at desc)");
+    await pool.query("create index if not exists idx_shipment_trackers_poll on shipment_trackers (next_poll_at, updated_at) where is_active = true");
+    await pool.query("create index if not exists idx_shipment_tracking_events_timeline on shipment_tracking_events (tracker_id, event_at desc, id desc)");
+    await pool.query(`
+        create or replace function prevent_shipment_tracking_event_mutation()
+        returns trigger as $$
+        begin
+            raise exception 'Shipment tracking events are append-only';
+        end;
+        $$ language plpgsql
+    `);
+    await pool.query("drop trigger if exists shipment_tracking_events_append_only on shipment_tracking_events");
+    await pool.query(`
+        create trigger shipment_tracking_events_append_only
+        before update or delete on shipment_tracking_events
+        for each row execute function prevent_shipment_tracking_event_mutation()
+    `);
+    await pool.query(`
         create table if not exists async_jobs (
             id bigserial primary key,
             job_code text not null unique,
@@ -10146,6 +10378,25 @@ async function initializeDatabase() {
             updated_at timestamptz not null default now()
         );
     `);
+    await pool.query(`
+        create table if not exists temporary_sku_oversell_policies (
+            id bigserial primary key,
+            account_name text not null,
+            sku text not null,
+            fulfillment_location_id bigint references fulfillment_locations(id) on delete cascade,
+            starts_at timestamptz not null default now(),
+            expires_at timestamptz not null,
+            max_oversell_quantity integer check (max_oversell_quantity is null or max_oversell_quantity > 0),
+            reason text not null default '',
+            created_by text not null default '',
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            check (expires_at > starts_at)
+        );
+    `);
+    await pool.query("alter table portal_order_allocations add column if not exists is_oversell boolean not null default false");
+    await pool.query("alter table portal_order_allocations add column if not exists oversell_policy_id bigint references temporary_sku_oversell_policies(id) on delete set null");
     await pool.query("alter table warehouse_print_stations add column if not exists fulfillment_location_id bigint references fulfillment_locations(id) on delete set null");
     await pool.query("alter table warehouse_print_stations add column if not exists token_hash text");
     await pool.query("alter table warehouse_print_stations add column if not exists status text not null default 'OFFLINE'");
@@ -10704,6 +10955,8 @@ async function initializeDatabase() {
     await pool.query("create index if not exists idx_portal_order_allocations_order_line_id on portal_order_allocations (order_line_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_inventory_line_id on portal_order_allocations (inventory_line_id);");
     await pool.query("create index if not exists idx_portal_order_allocations_sku on portal_order_allocations (sku);");
+    await pool.query("create index if not exists idx_portal_order_allocations_oversell_policy on portal_order_allocations (oversell_policy_id) where is_oversell = true;");
+    await pool.query("create index if not exists idx_temporary_sku_oversell_lookup on temporary_sku_oversell_policies (account_name, sku, fulfillment_location_id, expires_at) where is_active = true;");
     await pool.query("create index if not exists idx_portal_kitting_allocations_request on portal_kitting_allocations (kitting_request_id);");
     await pool.query("create index if not exists idx_portal_kitting_allocations_inventory on portal_kitting_allocations (inventory_line_id);");
     await pool.query("create index if not exists idx_portal_kitting_allocations_sku on portal_kitting_allocations (sku);");
@@ -11638,12 +11891,15 @@ async function initializeDatabaseWithRetry() {
             ensureAdminActivityDigestSchedulerStarted();
             ensureShipmentDataQualitySchedulerStarted();
             ensureShipmentPackageVerificationWorkerStarted();
+            ensureCarrierTrackingWorkerStarted();
             ensureCompanyBillingReconciliationSchedulerStarted();
             ensureAsyncJobWorkerStarted();
             ensureDatabaseHealthWatchdogStarted();
-            void backfillWarehouseShipments().catch((error) => {
-                console.error("Warehouse shipment backfill failed:", error.message || error);
-            });
+            void backfillWarehouseShipments()
+                .then(() => backfillShipmentTrackers())
+                .catch((error) => {
+                    console.error("Warehouse shipment or carrier tracking backfill failed:", error.message || error);
+                });
             console.log("PostgreSQL schema ready.");
         } catch (error) {
             databaseReady = false;
@@ -13782,6 +14038,7 @@ function requiresAppAuth(req) {
         || pathName === "/api/site/stripe-checkout-session"
         || pathName === "/api/site/stripe-checkout"
         || pathName === "/api/site/stripe-webhook"
+        || pathName === "/api/carrier-tracking/webhooks/aftership"
         || pathName === "/api/email-preferences/unsubscribe"
         || pathName === "/api/delivery-appointment-action"
         || pathName === "/api/order-routing-appointment"
@@ -16320,12 +16577,29 @@ function normalizeShopifyTrackingCompany(value) {
         POSTESCANADA: "Canada Post",
         CANPAR: "Canpar",
         PUROLATOR: "Purolator",
+        ICS: "ICS Courier",
+        ICSCOURIER: "ICS Courier",
         DHL: "DHL Express",
         DHLEXPRESS: "DHL Express",
         USPS: "USPS",
         UNITEDSTATESPOSTALSERVICE: "USPS"
     };
     return aliases[key] || text;
+}
+
+function buildShopifyFulfillmentTrackingInfo(order = {}) {
+    const trackingNumber = normalizeFreeText(order.shippedTrackingReference || "");
+    const trackingCompany = normalizeShopifyTrackingCompany(order.shippedCarrierName || "");
+    const trackingReferences = splitShipmentTrackingReferences(trackingNumber);
+    const trackingUrl = trackingReferences.length === 1
+        ? buildCarrierTrackingUrl(order.shippedCarrierName || trackingCompany, trackingReferences[0])
+        : "";
+    if (!trackingNumber && !trackingCompany) return null;
+    return {
+        ...(trackingNumber ? { number: trackingNumber } : {}),
+        ...(trackingCompany ? { company: trackingCompany } : {}),
+        ...(trackingUrl ? { url: trackingUrl } : {})
+    };
 }
 
 function isShopifyFulfillmentOrderFulfillable(fulfillmentOrder) {
@@ -16354,8 +16628,7 @@ async function fetchShopifyFulfillmentOrdersForIntegration(integrationRow, exter
 }
 
 function buildShopifyFulfillmentRequestBody(order, fulfillmentOrders, { notifyCustomer = true } = {}) {
-    const trackingNumber = normalizeFreeText(order?.shippedTrackingReference || "");
-    const trackingCompany = normalizeShopifyTrackingCompany(order?.shippedCarrierName || "");
+    const trackingInfo = buildShopifyFulfillmentTrackingInfo(order);
     const fulfillment = {
         line_items_by_fulfillment_order: fulfillmentOrders.map((fulfillmentOrder) => ({
             fulfillment_order_id: fulfillmentOrder.id
@@ -16364,11 +16637,7 @@ function buildShopifyFulfillmentRequestBody(order, fulfillmentOrders, { notifyCu
         message: `Shipped from WMS365${order?.orderCode ? ` for ${order.orderCode}` : ""}`
     };
 
-    if (trackingNumber || trackingCompany) {
-        fulfillment.tracking_info = {};
-        if (trackingNumber) fulfillment.tracking_info.number = trackingNumber;
-        if (trackingCompany) fulfillment.tracking_info.company = trackingCompany;
-    }
+    if (trackingInfo) fulfillment.tracking_info = trackingInfo;
 
     return { fulfillment };
 }
@@ -16386,6 +16655,7 @@ function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
         shippedAt: order?.shippedAt || "",
         shippedCarrierName: order?.shippedCarrierName || "",
         shippedTrackingReference: order?.shippedTrackingReference || "",
+        shippedTrackingUrl: buildShopifyFulfillmentTrackingInfo(order)?.url || "",
         lines: Array.isArray(order?.lines)
             ? order.lines.map((line) => ({
                 sku: line.sku || "",
@@ -16397,15 +16667,103 @@ function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
     };
 }
 
+async function fetchShopifyOrderFulfillmentsForIntegration(integrationRow, externalOrderId) {
+    const safeExternalOrderId = encodeURIComponent(String(externalOrderId || "").trim());
+    if (!safeExternalOrderId) {
+        throw httpError(400, "This Shopify order is missing its external order id.");
+    }
+    const result = await shopifyAdminRequestForIntegration(
+        integrationRow,
+        `/orders/${safeExternalOrderId}/fulfillments.json`
+    );
+    return {
+        ...result,
+        fulfillments: Array.isArray(result.payload?.fulfillments) ? result.payload.fulfillments : []
+    };
+}
+
+function selectShopifyFulfillmentForTrackingUpdate(fulfillments = [], trackingNumber = "") {
+    const active = fulfillments.filter((fulfillment) => normalizeText(fulfillment?.status) !== "CANCELLED");
+    const normalizedTracking = normalizeExtractedTrackingNumber(trackingNumber);
+    const matching = normalizedTracking
+        ? active.filter((fulfillment) => {
+            const references = [
+                fulfillment?.tracking_number,
+                ...(Array.isArray(fulfillment?.tracking_numbers) ? fulfillment.tracking_numbers : [])
+            ];
+            return references.some((reference) => normalizeExtractedTrackingNumber(reference) === normalizedTracking);
+        })
+        : [];
+    if (matching.length === 1) return matching[0];
+    if (!matching.length && active.length === 1) {
+        const existingReferences = [
+            active[0]?.tracking_number,
+            ...(Array.isArray(active[0]?.tracking_numbers) ? active[0].tracking_numbers : [])
+        ].map(normalizeExtractedTrackingNumber).filter(Boolean);
+        if (!existingReferences.length) return active[0];
+    }
+    return null;
+}
+
+async function updateShopifyFulfillmentTrackingForImportedOrder(integrationRow, order, externalOrderId, { notifyCustomer = false } = {}) {
+    const trackingInfo = buildShopifyFulfillmentTrackingInfo(order);
+    if (!trackingInfo?.number) {
+        return { updated: false, reason: "WMS365 does not have a tracking number to send." };
+    }
+    const fulfillmentResult = await fetchShopifyOrderFulfillmentsForIntegration(integrationRow, externalOrderId);
+    const fulfillment = selectShopifyFulfillmentForTrackingUpdate(fulfillmentResult.fulfillments, trackingInfo.number);
+    if (!fulfillment?.id) {
+        return {
+            updated: false,
+            reason: fulfillmentResult.fulfillments.length > 1
+                ? "Shopify has multiple fulfillments and WMS365 could not safely identify which tracking record to update."
+                : "Shopify did not return an existing fulfillment to update."
+        };
+    }
+    const result = await shopifyAdminRequestForIntegration(
+        fulfillmentResult.integrationRow,
+        `/fulfillments/${encodeURIComponent(String(fulfillment.id))}/update_tracking.json`,
+        {
+            method: "POST",
+            body: {
+                fulfillment: {
+                    notify_customer: notifyCustomer === true,
+                    tracking_info: trackingInfo
+                }
+            }
+        }
+    );
+    return {
+        updated: true,
+        shopDomain: result.shopDomain || fulfillmentResult.shopDomain || "",
+        fulfillment: result.payload?.fulfillment || fulfillment
+    };
+}
+
 async function createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId) {
     const fulfillmentOrderResult = await fetchShopifyFulfillmentOrdersForIntegration(integrationRow, externalOrderId);
     const fulfillableOrders = fulfillmentOrderResult.fulfillmentOrders.filter(isShopifyFulfillmentOrderFulfillable);
     if (!fulfillableOrders.length) {
+        const trackingUpdate = await updateShopifyFulfillmentTrackingForImportedOrder(
+            fulfillmentOrderResult.integrationRow,
+            order,
+            externalOrderId,
+            { notifyCustomer: false }
+        );
+        if (trackingUpdate.updated) {
+            return {
+                skipped: false,
+                updated: true,
+                shopDomain: trackingUpdate.shopDomain || fulfillmentOrderResult.shopDomain || "",
+                fulfillment: trackingUpdate.fulfillment || null,
+                fulfillmentOrderCount: 0
+            };
+        }
         return {
             skipped: true,
-            reason: fulfillmentOrderResult.fulfillmentOrders.length
+            reason: trackingUpdate.reason || (fulfillmentOrderResult.fulfillmentOrders.length
                 ? "Shopify has no open fulfillment orders left for this order."
-                : "Shopify did not return any fulfillment orders for this order."
+                : "Shopify did not return any fulfillment orders for this order.")
         };
     }
 
@@ -18707,6 +19065,62 @@ async function getAdminPortalInbounds(client = pool) {
 }
 
 
+async function attachActiveTemporaryOversellPoliciesToOrderLines(client, lineRows = []) {
+    const lineIds = [...new Set(lineRows.map((row) => toPositiveInt(row.id)).filter((id) => id > 0))];
+    if (!lineIds.length) return lineRows;
+    const result = await client.query(
+        `
+            select
+                l.id as order_line_id,
+                policy.id as temporary_oversell_policy_id,
+                policy.expires_at as temporary_oversell_expires_at,
+                policy.max_oversell_quantity as temporary_oversell_max_quantity,
+                policy.reason as temporary_oversell_reason,
+                coalesce(usage.used_quantity, 0)::integer as temporary_oversell_used_quantity
+            from portal_order_lines l
+            join portal_orders o on o.id = l.order_id
+            left join lateral (
+                select p.*
+                from temporary_sku_oversell_policies p
+                where p.account_name = o.account_name
+                  and p.sku = l.sku
+                  and p.is_active = true
+                  and p.starts_at <= now()
+                  and p.expires_at > now()
+                  and (p.fulfillment_location_id is null or p.fulfillment_location_id = o.fulfillment_location_id)
+                order by (p.fulfillment_location_id is null) asc, p.expires_at asc, p.id desc
+                limit 1
+            ) policy on true
+            left join lateral (
+                select coalesce(sum(a.allocated_quantity), 0)::integer as used_quantity
+                from portal_order_allocations a
+                join portal_orders active_order on active_order.id = a.order_id
+                where a.oversell_policy_id = policy.id
+                  and a.is_oversell = true
+                  and active_order.status = any($2::text[])
+            ) usage on policy.id is not null
+            where l.id = any($1::bigint[])
+        `,
+        [lineIds, ACTIVE_PORTAL_ORDER_STATUSES]
+    );
+    const policiesByLineId = new Map(result.rows.map((row) => [String(row.order_line_id), row]));
+    for (const row of lineRows) {
+        const policy = policiesByLineId.get(String(row.id));
+        if (!policy?.temporary_oversell_policy_id) continue;
+        const maximum = policy.temporary_oversell_max_quantity == null
+            ? null
+            : Number(policy.temporary_oversell_max_quantity) || 0;
+        const used = Number(policy.temporary_oversell_used_quantity) || 0;
+        row.temporary_oversell_policy_id = String(policy.temporary_oversell_policy_id);
+        row.temporary_oversell_expires_at = policy.temporary_oversell_expires_at;
+        row.temporary_oversell_max_quantity = maximum;
+        row.temporary_oversell_used_quantity = used;
+        row.temporary_oversell_remaining_quantity = maximum == null ? null : Math.max(maximum - used, 0);
+        row.temporary_oversell_reason = policy.temporary_oversell_reason || "";
+    }
+    return lineRows;
+}
+
 async function buildPortalOrderLocationSummaries(client, lineRows = []) {
     const skuPairs = [];
     const seen = new Set();
@@ -18872,12 +19286,14 @@ async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
         if (!summaries.has(key)) {
             summaries.set(key, {
                 allocatedQuantity: 0,
+                oversellQuantity: 0,
                 locations: []
             });
         }
         const summary = summaries.get(key);
         const quantity = Number(row.allocated_quantity) || 0;
         summary.allocatedQuantity += quantity;
+        if (row.is_oversell === true) summary.oversellQuantity += quantity;
         summary.locations.push({
             inventoryLineId: row.inventory_line_id ? String(row.inventory_line_id) : "",
             location: row.location || "",
@@ -18885,6 +19301,8 @@ async function buildPortalOrderAllocationSummaries(client, lineRows = []) {
             trackingLevel: normalizeTrackingLevel(row.tracking_level || "UNIT"),
             lotNumber: row.lot_number || "",
             expirationDate: normalizeDateOnly(row.expiration_date),
+            isOversell: row.is_oversell === true,
+            oversellPolicyId: row.oversell_policy_id ? String(row.oversell_policy_id) : "",
             fulfillmentLocationId: row.pick_fulfillment_location_id ? String(row.pick_fulfillment_location_id) : "",
             fulfillmentLocationCode: row.pick_fulfillment_location_code || "",
             fulfillmentLocationName: row.pick_fulfillment_location_name || "",
@@ -18984,6 +19402,7 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
             [orderIds]
         )
         : { rows: [] };
+    await attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows);
     const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const documentsResult = orderIds.length
         ? await client.query(
@@ -19045,6 +19464,7 @@ async function getPortalOrderList({ accountName = "", limit = 100, client = pool
             [orderIds]
         )
         : { rows: [] };
+    await attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows);
     const documentsResult = orderIds.length
         ? await client.query(
             `
@@ -19189,6 +19609,7 @@ async function getAdminPortalOrders(client = pool) {
             [orderIds]
         )
         : { rows: [] };
+    await attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows);
     const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
     const documentsResult = orderIds.length
         ? await client.query(
@@ -19329,6 +19750,7 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
         `,
         [orderId]
     );
+    await attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows);
     const documentsResult = await client.query(
         `
             select *
@@ -19349,6 +19771,7 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
     order.warehouseShipments = (await Promise.all(shipmentIds.rows.map((row) => getWarehouseShipmentDetail(client, row.id, normalizedAccount))))
         .filter(Boolean)
         .map(mapPartnerApiShipment);
+    order.shipmentTracking = await getShipmentTrackingForOrder(client, orderId, normalizedAccount);
     return order;
 }
 
@@ -20921,6 +21344,62 @@ async function createManualPickAllocationFromScan(client, { orderRow, line, loca
     return inserted;
 }
 
+async function getActiveTemporarySkuOversellPolicies(client, {
+    accountName = "",
+    skus = [],
+    fulfillmentLocationId = null,
+    excludeOrderId = null
+} = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const normalizedSkus = [...new Set((skus || []).map(normalizeText).filter(Boolean))];
+    if (!normalizedAccount || !normalizedSkus.length) return new Map();
+    const result = await client.query(
+        `
+            select
+                policy.*,
+                coalesce(usage.used_quantity, 0)::integer as used_quantity
+            from (
+                select distinct on (p.sku) p.*
+                from temporary_sku_oversell_policies p
+                where p.account_name = $1
+                  and p.sku = any($2::text[])
+                  and p.is_active = true
+                  and p.starts_at <= now()
+                  and p.expires_at > now()
+                  and (p.fulfillment_location_id is null or p.fulfillment_location_id = $3::bigint)
+                order by p.sku, (p.fulfillment_location_id is null) asc, p.expires_at asc, p.id desc
+            ) policy
+            left join lateral (
+                select coalesce(sum(a.allocated_quantity), 0)::integer as used_quantity
+                from portal_order_allocations a
+                join portal_orders o on o.id = a.order_id
+                where a.oversell_policy_id = policy.id
+                  and a.is_oversell = true
+                  and o.status = any($4::text[])
+                  and ($5::bigint is null or o.id <> $5)
+            ) usage on true
+        `,
+        [
+            normalizedAccount,
+            normalizedSkus,
+            toPositiveInt(fulfillmentLocationId) || null,
+            ACTIVE_PORTAL_ORDER_STATUSES,
+            toPositiveInt(excludeOrderId) || null
+        ]
+    );
+    return new Map(result.rows.map((row) => [normalizeText(row.sku), {
+        id: String(row.id),
+        accountName: row.account_name,
+        sku: row.sku,
+        fulfillmentLocationId: row.fulfillment_location_id ? String(row.fulfillment_location_id) : "",
+        startsAt: row.starts_at ? new Date(row.starts_at).toISOString() : null,
+        expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+        maxOversellQuantity: row.max_oversell_quantity == null ? null : Number(row.max_oversell_quantity) || 0,
+        usedQuantity: Number(row.used_quantity) || 0,
+        reason: row.reason || ""
+    }]));
+}
+
 async function allocatePortalOrderInventory(client, order, { allowSplitFulfillment = false } = {}) {
     const normalizedAccount = normalizeText(order.accountName);
     const lineIds = order.lines.map((line) => Number(line.id) || 0).filter((value) => value > 0);
@@ -20930,6 +21409,18 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
 
     const skus = [...new Set(order.lines.map((line) => normalizeText(line.sku)).filter(Boolean))];
     const fulfillmentLocation = await resolveFulfillmentLocationForWarehouseRule(client, order);
+    const fulfillmentLocationId = toPositiveInt(
+        fulfillmentLocation?.fulfillment_location_id
+        || fulfillmentLocation?.fulfillmentLocationId
+        || fulfillmentLocation?.id
+        || order.fulfillmentLocationId
+    ) || null;
+    const temporaryOversellPolicies = await getActiveTemporarySkuOversellPolicies(client, {
+        accountName: normalizedAccount,
+        skus,
+        fulfillmentLocationId,
+        excludeOrderId: order.id
+    });
     const warehouseLocationPrefix = await getWarehouseLocationFilterPrefix(client, normalizedAccount, fulfillmentLocation, { direction: "OUTBOUND" });
     const inventoryParams = [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]];
     const warehouseLocationCode = warehouseLocationPrefix ? warehouseLocationPrefix.slice(0, -1) : "";
@@ -21081,11 +21572,31 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
             ]
             : sortInventoryRowsForAllocation(allRows, line);
         const allocatableQuantity = candidateRows.reduce((sum, row) => sum + (Number(row.availableQuantity) || 0), 0);
-        if (allocatableQuantity < remainingQuantity) {
+        const shortageQuantity = Math.max(remainingQuantity - allocatableQuantity, 0);
+        const temporaryOversellPolicy = temporaryOversellPolicies.get(sku) || null;
+        if (shortageQuantity > 0 && !temporaryOversellPolicy) {
             throw httpError(
                 409,
                 `Release blocked for ${order.orderCode}: ${line.sku} only has ${formatTrackedQuantity(allocatableQuantity, line.trackingLevel)} available in pickable stock.`
             );
+        }
+        if (shortageQuantity > 0 && !candidateRows.length) {
+            throw httpError(
+                409,
+                `Release blocked for ${order.orderCode}: temporary oversell for ${line.sku} needs an existing pickable warehouse location before it can be used.`
+            );
+        }
+        if (shortageQuantity > 0 && temporaryOversellPolicy?.maxOversellQuantity != null) {
+            const remainingApproval = Math.max(
+                temporaryOversellPolicy.maxOversellQuantity - temporaryOversellPolicy.usedQuantity,
+                0
+            );
+            if (shortageQuantity > remainingApproval) {
+                throw httpError(
+                    409,
+                    `Release blocked for ${order.orderCode}: the temporary oversell approval for ${line.sku} only has ${formatTrackedQuantity(remainingApproval, line.trackingLevel)} remaining.`
+                );
+            }
         }
 
         for (const row of candidateRows) {
@@ -21104,8 +21615,29 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
                 lotNumber: row.lot_number || "",
                 expirationDate: normalizeDateOnly(row.expiration_date),
                 trackingLevel: normalizeTrackingLevel(row.tracking_level || line.trackingLevel || "UNIT"),
-                quantity: allocatedQuantity
+                quantity: allocatedQuantity,
+                isOversell: false,
+                oversellPolicyId: null
             });
+        }
+        if (remainingQuantity > 0 && temporaryOversellPolicy) {
+            const fallbackRow = candidateRows[0];
+            const oversellQuantity = remainingQuantity;
+            allocations.push({
+                orderId: String(order.id),
+                orderLineId: String(line.id),
+                inventoryLineId: String(fallbackRow.id),
+                sku,
+                location: fallbackRow.location || "",
+                lotNumber: fallbackRow.lot_number || "",
+                expirationDate: normalizeDateOnly(fallbackRow.expiration_date),
+                trackingLevel: normalizeTrackingLevel(fallbackRow.tracking_level || line.trackingLevel || "UNIT"),
+                quantity: oversellQuantity,
+                isOversell: true,
+                oversellPolicyId: temporaryOversellPolicy.id
+            });
+            temporaryOversellPolicy.usedQuantity += oversellQuantity;
+            remainingQuantity = 0;
         }
     }
 
@@ -21116,9 +21648,9 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
             `
                 insert into portal_order_allocations (
                     order_id, order_line_id, inventory_line_id, sku, location, lot_number,
-                    expiration_date, tracking_level, allocated_quantity
+                    expiration_date, tracking_level, allocated_quantity, is_oversell, oversell_policy_id
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             `,
             [
                 allocation.orderId,
@@ -21129,7 +21661,9 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
                 allocation.lotNumber || "",
                 allocation.expirationDate || "",
                 allocation.trackingLevel || "UNIT",
-                allocation.quantity
+                allocation.quantity,
+                allocation.isOversell === true,
+                allocation.oversellPolicyId || null
             ]
         );
     }
@@ -26603,7 +27137,7 @@ const TRACKING_CARRIER_LINKS = [
     {
         key: "ICS_COURIER",
         aliases: ["ICS", "ICS COURIER"],
-        buildUrl: () => "https://www.icscourier.ca/online-tools/track-a-package/"
+        buildUrl: () => "https://www.icscourier.ca/online-services/parcel-tracking.aspx"
     },
     {
         key: "DRAGONFLY",
@@ -26685,6 +27219,324 @@ function buildCarrierTrackingUrl(carrierName = "", trackingNumber = "") {
     const carrier = inferCarrierForTrackingNumber(carrierName, tracking);
     const encodedTracking = encodeURIComponent(tracking);
     return getCarrierTrackingConfig(carrier)?.buildUrl(encodedTracking) || "";
+}
+
+function mapShipmentTrackingEventRow(row = {}) {
+    return {
+        id: String(row.id || ""),
+        status: normalizeTrackingStatus(row.status),
+        statusLabel: trackingStatusLabel(row.status),
+        description: row.description || "",
+        location: row.location || "",
+        eventAt: row.event_at ? new Date(row.event_at).toISOString() : null,
+        source: row.source || ""
+    };
+}
+
+function mapShipmentTrackerRow(row = {}, events = []) {
+    return {
+        id: String(row.id || ""),
+        warehouseShipmentId: String(row.warehouse_shipment_id || ""),
+        shipmentCode: row.shipment_code || "",
+        orderId: String(row.order_id || ""),
+        orderCode: row.order_code || "",
+        accountName: row.account_name || "",
+        warehouse: {
+            id: String(row.fulfillment_location_id || ""),
+            code: row.warehouse_code || "",
+            name: row.warehouse_name || ""
+        },
+        provider: row.provider_key || "",
+        carrierKey: row.carrier_key || "UNKNOWN",
+        carrierName: row.carrier_name || "",
+        trackingNumber: row.tracking_number || "",
+        trackingUrl: row.tracking_url || buildCarrierTrackingUrl(row.carrier_name, row.tracking_number),
+        status: normalizeTrackingStatus(row.status),
+        statusLabel: trackingStatusLabel(row.status),
+        statusDetail: row.status_detail || "",
+        estimatedDeliveryAt: row.estimated_delivery_at ? new Date(row.estimated_delivery_at).toISOString() : null,
+        deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
+        lastEventAt: row.last_event_at ? new Date(row.last_event_at).toISOString() : null,
+        lastCheckedAt: row.last_checked_at ? new Date(row.last_checked_at).toISOString() : null,
+        trackingActive: row.is_active === true,
+        liveTrackingAvailable: Boolean(row.carrier_slug && AFTERSHIP_TRACKING_API_KEY),
+        events: (events || []).map(mapShipmentTrackingEventRow)
+    };
+}
+
+async function getShipmentTrackingForOrder(client, orderId, accountName, { fulfillmentLocationId = null } = {}) {
+    const params = [toPositiveInt(orderId), normalizeText(accountName)];
+    let locationSql = "";
+    const locationId = toPositiveInt(fulfillmentLocationId);
+    if (locationId) {
+        params.push(locationId);
+        locationSql = `and t.fulfillment_location_id = $${params.length}`;
+    }
+    const trackersResult = await client.query(
+        `select t.*, s.shipment_code, o.order_code, fl.code as warehouse_code, fl.name as warehouse_name
+         from shipment_trackers t
+         join warehouse_shipments s on s.id = t.warehouse_shipment_id
+         join portal_orders o on o.id = t.order_id and o.account_name = t.account_name
+         join fulfillment_locations fl on fl.id = t.fulfillment_location_id
+         where t.order_id = $1 and t.account_name = $2 ${locationSql}
+         order by t.id`,
+        params
+    );
+    const trackerIds = trackersResult.rows.map((row) => row.id);
+    const eventsResult = trackerIds.length
+        ? await client.query(
+            `select * from shipment_tracking_events
+             where tracker_id = any($1::bigint[])
+             order by event_at desc, id desc`,
+            [trackerIds]
+        )
+        : { rows: [] };
+    const eventsByTracker = new Map();
+    for (const event of eventsResult.rows) {
+        const key = String(event.tracker_id);
+        if (!eventsByTracker.has(key)) eventsByTracker.set(key, []);
+        eventsByTracker.get(key).push(event);
+    }
+    return trackersResult.rows.map((row) => mapShipmentTrackerRow(row, eventsByTracker.get(String(row.id)) || []));
+}
+
+async function appendShipmentTrackingEvent(client, trackerId, rawEvent = {}) {
+    const event = sanitizeTrackingEvent(rawEvent);
+    const eventAt = event.eventAt || new Date().toISOString();
+    const inserted = await client.query(
+        `insert into shipment_tracking_events (
+            tracker_id, event_key, provider_event_id, status, raw_status_code,
+            description, location, event_at, source, safe_metadata
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'{}'::jsonb)
+         on conflict (tracker_id, event_key) do nothing
+         returning *`,
+        [trackerId, event.eventKey, event.providerEventId, event.status, event.rawStatusCode,
+            event.description, event.location, eventAt, event.source]
+    );
+    return inserted.rows[0] || null;
+}
+
+async function applyShipmentTrackingUpdate(client, trackerId, update = {}, { checkedAt = new Date() } = {}) {
+    const currentResult = await client.query("select * from shipment_trackers where id = $1 for update", [trackerId]);
+    if (currentResult.rowCount !== 1) return null;
+    const current = currentResult.rows[0];
+    for (const event of Array.isArray(update.events) ? update.events : []) {
+        await appendShipmentTrackingEvent(client, current.id, event);
+    }
+    const latestResult = await client.query(
+        "select * from shipment_tracking_events where tracker_id = $1 order by event_at desc, id desc limit 1",
+        [current.id]
+    );
+    const latest = latestResult.rows[0] || null;
+    const status = normalizeTrackingStatus(update.status || latest?.status || current.status);
+    const attempts = Number(current.attempts) || 0;
+    const nextPollAt = calculateNextTrackingPoll({ status, attempts, now: checkedAt });
+    const updated = await client.query(
+        `update shipment_trackers set
+            provider_tracker_id = coalesce(nullif($2,''), provider_tracker_id),
+            carrier_slug = coalesce(nullif($3,''), carrier_slug),
+            status = $4,
+            status_detail = $5,
+            estimated_delivery_at = $6,
+            delivered_at = coalesce($7, delivered_at),
+            last_event_at = coalesce($8, last_event_at),
+            last_checked_at = $9,
+            next_poll_at = $10,
+            attempts = 0,
+            claimed_at = null,
+            claimed_by = '',
+            last_error = '',
+            is_active = $11,
+            updated_at = now()
+         where id = $1 returning *`,
+        [current.id, update.providerTrackerId || "", update.carrierSlug || "", status,
+            normalizeFreeText(update.statusDetail || latest?.description || current.status_detail || "").slice(0, 600),
+            update.estimatedDelivery || current.estimated_delivery_at || null,
+            update.deliveredAt || (status === "DELIVERED" ? latest?.event_at || checkedAt : null),
+            latest?.event_at || current.last_event_at || null, checkedAt, nextPollAt,
+            !isTerminalTrackingStatus(status)]
+    );
+    return updated.rows[0] || null;
+}
+
+async function syncShipmentTrackersForWarehouseShipment(client, shipment) {
+    const shipmentId = toPositiveInt(shipment?.id);
+    if (!shipmentId) return [];
+    const references = [...new Set(splitShipmentTrackingReferences(shipment.tracking_reference || shipment.trackingReference || "")
+        .map(normalizeExtractedTrackingNumber).filter(Boolean))];
+    if (!references.length) {
+        await client.query("update shipment_trackers set is_active=false, next_poll_at=null, updated_at=now() where warehouse_shipment_id=$1", [shipmentId]);
+        return [];
+    }
+    const carrierName = normalizeFreeText(shipment.carrier_name || shipment.carrierName || shipment.carrier || "");
+    const carrierKey = normalizeTrackingCarrier(carrierName || inferCarrierForTrackingNumber("", references[0]));
+    const carrierSlug = afterShipCarrierSlug(carrierKey);
+    const canPoll = Boolean(AFTERSHIP_TRACKING_API_KEY && carrierSlug);
+    const trackerIds = [];
+    for (const trackingNumber of references) {
+        const trackingUrl = buildCarrierTrackingUrl(carrierName, trackingNumber);
+        const result = await client.query(
+            `insert into shipment_trackers (
+                warehouse_shipment_id, order_id, account_name, fulfillment_location_id,
+                provider_key, carrier_key, carrier_name, carrier_slug, tracking_number,
+                tracking_url, status, next_poll_at
+             ) values ($1,$2,$3,$4,'AFTERSHIP',$5,$6,$7,$8,$9,$10,$11)
+             on conflict (warehouse_shipment_id, tracking_number) do update set
+                carrier_key=excluded.carrier_key, carrier_name=excluded.carrier_name,
+                carrier_slug=excluded.carrier_slug, tracking_url=excluded.tracking_url,
+                is_active=case when shipment_trackers.status in ('DELIVERED','RETURNED','CANCELLED') then false else true end,
+                next_poll_at=case when shipment_trackers.status in ('DELIVERED','RETURNED','CANCELLED') then null else excluded.next_poll_at end,
+                updated_at=now()
+             returning *`,
+            [shipmentId, shipment.order_id, normalizeText(shipment.account_name), shipment.fulfillment_location_id,
+                carrierKey, carrierName, carrierSlug, trackingNumber, trackingUrl,
+                canPoll ? "LABEL_CREATED" : "PENDING", canPoll ? new Date() : null]
+        );
+        const tracker = result.rows[0];
+        trackerIds.push(tracker.id);
+        await appendShipmentTrackingEvent(client, tracker.id, {
+            status: canPoll ? "LABEL_CREATED" : "PENDING",
+            description: canPoll
+                ? "Shipment details recorded and queued for carrier updates."
+                : "Tracking number recorded. Live carrier updates are not connected yet.",
+            eventAt: shipment.shipped_at || shipment.updated_at || new Date(),
+            source: "WMS365"
+        });
+    }
+    await client.query(
+        "update shipment_trackers set is_active=false, next_poll_at=null, updated_at=now() where warehouse_shipment_id=$1 and not (id = any($2::bigint[]))",
+        [shipmentId, trackerIds]
+    );
+    return trackerIds;
+}
+
+async function fetchAfterShipTrackingStatus(tracker, { fetchImpl = fetch } = {}) {
+    if (!AFTERSHIP_TRACKING_API_KEY) throw new Error("Live carrier tracking is not configured.");
+    if (!tracker.carrier_slug) throw new Error("This carrier is not supported by the configured tracking provider.");
+    const headers = { "as-api-key": AFTERSHIP_TRACKING_API_KEY, "as-api-version": "2026-07", "Content-Type": "application/json" };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CARRIER_TRACKING_TIMEOUT_MS);
+    try {
+        const lookupUrl = tracker.provider_tracker_id
+            ? `${AFTERSHIP_TRACKING_API_URL}/trackings/${encodeURIComponent(tracker.provider_tracker_id)}?fields=tag,checkpoints`
+            : `${AFTERSHIP_TRACKING_API_URL}/trackings?tracking_numbers=${encodeURIComponent(tracker.tracking_number)}&slug=${encodeURIComponent(tracker.carrier_slug)}&limit=2`;
+        let response = await fetchImpl(lookupUrl, {
+            headers,
+            signal: controller.signal
+        });
+        let payload = response.ok ? await response.json() : null;
+        const hasExistingTracking = Boolean(payload?.data?.tracking || payload?.data?.trackings?.length || payload?.tracking || payload?.trackings?.length);
+        if (response.status === 404 || (response.ok && !hasExistingTracking)) {
+            response = await fetchImpl(`${AFTERSHIP_TRACKING_API_URL}/trackings`, {
+                method: "POST",
+                headers,
+                signal: controller.signal,
+                body: JSON.stringify({ tracking: { slug: tracker.carrier_slug, tracking_number: tracker.tracking_number } })
+            });
+            payload = response.ok ? await response.json() : null;
+        }
+        if (!response.ok) throw new Error(`Carrier tracking provider returned HTTP ${response.status}.`);
+        return normalizeAfterShipTracking(payload);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function claimShipmentTrackers(client, { limit = 20, workerId = "" } = {}) {
+    if (!AFTERSHIP_TRACKING_API_KEY) return [];
+    const result = await client.query(
+        `with due as (
+            select id from shipment_trackers
+            where is_active=true and carrier_slug<>'' and attempts < $1
+              and coalesce(next_poll_at, now()) <= now()
+              and (claimed_at is null or claimed_at < now() - interval '15 minutes')
+            order by coalesce(next_poll_at, created_at), id
+            for update skip locked
+            limit $2
+         )
+         update shipment_trackers t set claimed_at=now(), claimed_by=$3, attempts=t.attempts+1, updated_at=now()
+         from due where t.id=due.id returning t.*`,
+        [CARRIER_TRACKING_MAX_ATTEMPTS, Math.max(1, Math.min(Number(limit) || 20, 50)), workerId]
+    );
+    return result.rows;
+}
+
+async function runCarrierTrackingWorker({ fetchImpl = fetch } = {}) {
+    if (!databaseReady || !AFTERSHIP_TRACKING_API_KEY) return { processed: 0 };
+    const workerId = `carrier-tracking-${process.pid}-${crypto.randomUUID()}`;
+    const trackers = await withTransaction((client) => claimShipmentTrackers(client, { workerId }));
+    for (const tracker of trackers) {
+        try {
+            const update = await fetchAfterShipTrackingStatus(tracker, { fetchImpl });
+            await withTransaction((client) => applyShipmentTrackingUpdate(client, tracker.id, update));
+        } catch (error) {
+            const nextPollAt = calculateNextTrackingPoll({ status: tracker.status, attempts: tracker.attempts, now: new Date() });
+            await pool.query(
+                `update shipment_trackers set claimed_at=null, claimed_by='', last_checked_at=now(),
+                 next_poll_at=$2, last_error=$3, is_active=$4, updated_at=now() where id=$1`,
+                [tracker.id, nextPollAt, normalizeFreeText(error?.message || "Carrier tracking check failed.").slice(0, 600),
+                    Number(tracker.attempts) < CARRIER_TRACKING_MAX_ATTEMPTS]
+            );
+        }
+    }
+    return { processed: trackers.length };
+}
+
+let carrierTrackingWorkerStarted = false;
+function ensureCarrierTrackingWorkerStarted() {
+    if (carrierTrackingWorkerStarted || !IS_PRODUCTION || !AFTERSHIP_TRACKING_API_KEY) return;
+    carrierTrackingWorkerStarted = true;
+    const tick = () => void runCarrierTrackingWorker().catch((error) => console.error("Carrier tracking worker failed:", error.message || error));
+    tick();
+    const timer = setInterval(tick, CARRIER_TRACKING_INTERVAL_MS);
+    if (typeof timer.unref === "function") timer.unref();
+}
+
+async function processAfterShipTrackingWebhook(payload = {}, rawBody = Buffer.from("")) {
+    const receiptKey = crypto.createHash("sha256").update(rawBody.length ? rawBody : Buffer.from(JSON.stringify(payload))).digest("hex");
+    return withTransaction(async (client) => {
+        const receipt = await client.query(
+            `insert into carrier_webhook_receipts (provider_key, receipt_key, signature_valid)
+             values ('AFTERSHIP', $1, true)
+             on conflict (provider_key, receipt_key) do nothing returning id`,
+            [receiptKey]
+        );
+        if (receipt.rowCount !== 1) return { duplicate: true };
+        const tracking = payload?.msg?.tracking || payload?.data?.tracking || payload?.tracking || {};
+        const providerTrackerId = normalizeFreeText(tracking.id || "");
+        const trackingNumber = normalizeExtractedTrackingNumber(tracking.tracking_number || "");
+        const carrierSlug = normalizeFreeText(tracking.slug || "");
+        let trackerRows = [];
+        if (providerTrackerId) {
+            trackerRows = (await client.query(
+                "select * from shipment_trackers where provider_key='AFTERSHIP' and provider_tracker_id=$1",
+                [providerTrackerId]
+            )).rows;
+        }
+        if (!trackerRows.length && trackingNumber && carrierSlug) {
+            trackerRows = (await client.query(
+                "select * from shipment_trackers where provider_key='AFTERSHIP' and tracking_number=$1 and carrier_slug=$2",
+                [trackingNumber, carrierSlug]
+            )).rows;
+        }
+        if (trackerRows.length !== 1) {
+            const message = trackerRows.length > 1
+                ? "Webhook matched more than one customer shipment and was quarantined."
+                : "Webhook did not match a registered WMS365 shipment tracker.";
+            await client.query(
+                "update carrier_webhook_receipts set processing_status='REVIEW_REQUIRED', error_message=$2, processed_at=now() where id=$1",
+                [receipt.rows[0].id, message]
+            );
+            return { duplicate: false, reviewRequired: true };
+        }
+        const update = normalizeAfterShipTracking(payload);
+        await applyShipmentTrackingUpdate(client, trackerRows[0].id, update);
+        await client.query(
+            "update carrier_webhook_receipts set processing_status='PROCESSED', tracker_id=$2, processed_at=now() where id=$1",
+            [receipt.rows[0].id, trackerRows[0].id]
+        );
+        return { duplicate: false, trackerId: String(trackerRows[0].id) };
+    });
 }
 
 function normalizeParcelPackageReference(value = "") {
@@ -27523,6 +28375,18 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
         appendPortalOrderShipFromSection(lines, [{ location: ticketLocation, label: ticketLabel }], { includeLocationNumbers: false, accountName: order.accountName });
     }
 
+    const temporaryOversellQuantity = ticketLines.reduce(
+        (total, line) => total + Math.max(Number(line?.oversellQuantity) || 0, 0),
+        0
+    );
+    if (temporaryOversellQuantity > 0) {
+        lines.push(
+            "",
+            `TEMPORARY STOCK APPROVAL: ${formatCount(temporaryOversellQuantity, "case")} require physical stock confirmation before shipping.`,
+            "Do not ship unavailable stock or reduce physical inventory below zero."
+        );
+    }
+
     lines.push("", "Order Lines:", "LN  SKU                 QTY            PICK LOCATION / LOT / EXPIRATION", "--- ------------------- -------------- -----------------------------------------------");
     ticketLines.forEach((line, index) => {
         const lineNumber = Number(line.lineNumber) || (index + 1);
@@ -28304,6 +29168,7 @@ async function sendPortalKittingRequestStatusEmail(request) {
     }
     const recipients = [...new Set([
         normalizeEmail(request.requestedByEmail || request.requested_by_email || ""),
+        ...getPortalKittingCompletionCopyRecipients(request),
         ...(await getPortalShipmentRecipients(pool, request.accountName))
     ].filter(Boolean))];
     if (!recipients.length) return { recipients: [] };
@@ -29040,6 +29905,14 @@ async function sendStoreShipmentConfirmationsForPortalOrder(order, rawConfirmati
             await sendShopifyShipmentConfirmationForImport(pool, integration, latestOrder, integration.external_order_id, rawConfirmation, { isUpdate });
         }
     }
+}
+
+function getPortalKittingCompletionCopyRecipients(request = {}) {
+    if (normalizeText(request.status) !== "COMPLETED") return [];
+    const accountName = normalizeText(request.accountName || request.account_name || "");
+    return [...(PORTAL_KITTING_COMPLETION_BCC_BY_ACCOUNT[accountName] || [])]
+        .map(normalizeEmail)
+        .filter(Boolean);
 }
 
 function buildShopifyShipmentActivityDetails(order, integrationRow, externalOrderId, { isUpdate = false } = {}) {
@@ -31073,6 +31946,7 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
 }
 
 async function claimNextWarehousePrintJob(client, station, input = {}) {
+    await recoverStaleWarehousePrintJobs(client, station);
     const limit = Math.max(1, Math.min(toPositiveInt(input.limit) || 1, 5));
     const result = await client.query(
         `
@@ -31113,6 +31987,46 @@ async function claimNextWarehousePrintJob(client, station, input = {}) {
         [job.id]
     );
     return mapWarehousePrintJobRow(enriched.rows[0], { includePayload: true });
+}
+
+function warehousePrintAgentSupportsDurableReceipts(version) {
+    const match = String(version || "").trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (!match) return false;
+    const [major] = match.slice(1).map(Number);
+    return major >= 1;
+}
+
+async function recoverStaleWarehousePrintJobs(client, station, leaseSeconds = 15 * 60) {
+    if (!warehousePrintAgentSupportsDurableReceipts(station?.agent_version || station?.agentVersion)) return [];
+    const safeLeaseSeconds = Math.max(180, Math.min(Number(leaseSeconds) || 900, 60 * 60));
+    const result = await client.query(
+        `
+            update warehouse_print_jobs
+            set status = case when attempts < max_attempts then 'QUEUED' else 'FAILED' end,
+                claimed_at = case when attempts < max_attempts then null else claimed_at end,
+                failed_at = case when attempts < max_attempts then failed_at else now() end,
+                last_error = 'The print agent stopped before confirming this job. WMS365 recovered it automatically.',
+                updated_at = now()
+            where station_id = $1
+              and status = 'CLAIMED'
+              and claimed_at < now() - ($2::int * interval '1 second')
+            returning *
+        `,
+        [station.id, safeLeaseSeconds]
+    );
+    for (const job of result.rows) {
+        const requeued = job.status === WAREHOUSE_PRINT_JOB_STATUSES.QUEUED;
+        await insertWarehousePrintJobEvent(
+            client,
+            job.id,
+            requeued ? "LEASE_RECOVERED" : "FAILED",
+            "WMS365",
+            requeued
+                ? "The agent did not confirm this job within 15 minutes. It was safely returned to the queue."
+                : "The agent did not confirm this job and the maximum attempts were reached."
+        );
+    }
+    return result.rows;
 }
 
 async function completeWarehousePrintJob(client, station, jobId, input = {}) {
@@ -32956,6 +33870,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
             const savedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: false });
             const shipments = await syncWarehouseShipmentsForOrder(client, savedOrder, { status: "SHIPPED" });
             await queueShipmentPackageVerificationForShipments(client, shipments);
+            for (const shipment of shipments) await syncShipmentTrackersForWarehouseShipment(client, shipment);
             await recordPortalOrderStatusAction(client, savedOrder, nextStatus, details, appUser);
             return savedOrder;
         }
@@ -33026,6 +33941,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         const shippedOrder = await savePortalShippingConfirmation(client, currentOrder, details, appUser, { transitionToShipped: true });
         const shipments = await syncWarehouseShipmentsForOrder(client, shippedOrder, { status: "SHIPPED" });
         await queueShipmentPackageVerificationForShipments(client, shipments);
+        for (const shipment of shipments) await syncShipmentTrackersForWarehouseShipment(client, shipment);
         await recordPortalOrderStatusAction(client, shippedOrder, nextStatus, details, appUser);
         return shippedOrder;
     }
@@ -37742,9 +38658,26 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
     let updatedShipment = await getWarehouseShipmentDetail(client, current.id, current.account_name);
     if (status === "SHIPPED" && updatedShipment) {
         await queueShipmentPackageVerificationForShipments(client, [updatedShipment]);
+        await syncShipmentTrackersForWarehouseShipment(client, updatedShipment);
         updatedShipment = await getWarehouseShipmentDetail(client, current.id, current.account_name);
     }
     return updatedShipment;
+}
+
+async function backfillShipmentTrackers({ batchSize = 1000 } = {}) {
+    if (!databaseReady) return { processed: 0 };
+    const result = await pool.query(
+        `select s.* from warehouse_shipments s
+         where s.status='SHIPPED' and nullif(trim(s.tracking_reference),'') is not null
+           and not exists (select 1 from shipment_trackers t where t.warehouse_shipment_id=s.id)
+         order by s.id limit $1`,
+        [Math.max(1, Math.min(Number(batchSize) || 1000, 5000))]
+    );
+    for (const shipment of result.rows) {
+        await withTransaction((client) => syncShipmentTrackersForWarehouseShipment(client, shipment));
+    }
+    if (result.rowCount) console.log(`Created carrier tracking records for ${result.rowCount} shipped warehouse shipment(s).`);
+    return { processed: result.rowCount };
 }
 
 async function preparePortalOrderBillOfLading(client, fullOrder, scopedOrder, input = {}, appUser = null) {
@@ -39735,7 +40668,13 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
             .map((document) => mapPortalOrderDocumentRow(document, downloadPathPrefix))
     };
     mappedOrder.stockWarnings = buildPortalOrderStockWarnings(lines, { status: mappedOrder.status });
-    mappedOrder.hasStockShortage = mappedOrder.stockWarnings.length > 0;
+    mappedOrder.hasStockShortage = mappedOrder.stockWarnings.some((warning) => warning.blocking !== false);
+    mappedOrder.hasTemporaryOversell = mappedOrder.stockWarnings.some((warning) => warning.temporaryOversellAllowed === true)
+        || lines.some((line) => Number(line?.oversellQuantity) > 0);
+    mappedOrder.temporaryOversellQuantity = lines.reduce(
+        (total, line) => total + Math.max(Number(line?.oversellQuantity) || 0, 0),
+        0
+    );
     mappedOrder.processingTiming = buildPortalOrderProcessingTiming(mappedOrder);
     mappedOrder.expectedReadyAt = mappedOrder.processingTiming.expectedReadyAt;
     mappedOrder.expectedReadyDate = mappedOrder.processingTiming.expectedReadyDate;
@@ -39771,18 +40710,33 @@ function buildPortalOrderStockWarnings(lines = [], { status = "DRAFT" } = {}) {
                 sku,
                 requestedQuantity: 0,
                 availableQuantity: Math.max(Number(line?.availableQuantity ?? line?.available_quantity) || 0, 0),
-                trackingLevel: normalizeTrackingLevel(line?.trackingLevel || line?.tracking_level || "UNIT")
+                trackingLevel: normalizeTrackingLevel(line?.trackingLevel || line?.tracking_level || "UNIT"),
+                temporaryOversellExpiresAt: line?.temporaryOversellExpiresAt || line?.temporary_oversell_expires_at || null,
+                temporaryOversellRemainingQuantity: line?.temporaryOversellRemainingQuantity == null
+                    && line?.temporary_oversell_remaining_quantity == null
+                    ? null
+                    : Math.max(Number(line?.temporaryOversellRemainingQuantity ?? line?.temporary_oversell_remaining_quantity) || 0, 0),
+                temporaryOversellReason: line?.temporaryOversellReason || line?.temporary_oversell_reason || ""
             });
         }
         bySku.get(sku).requestedQuantity += Math.max(Number(line?.quantity ?? line?.requested_quantity) || 0, 0);
     }
     return [...bySku.values()]
         .filter((entry) => entry.requestedQuantity > entry.availableQuantity)
-        .map((entry) => ({
-            ...entry,
-            shortQuantity: entry.requestedQuantity - entry.availableQuantity,
-            message: `Insufficient pickable stock for SKU ${entry.sku}: requested ${formatTrackedQuantity(entry.requestedQuantity, entry.trackingLevel)}, available ${formatTrackedQuantity(entry.availableQuantity, entry.trackingLevel)}. Save as draft is allowed, but release is blocked until stock is available.`
-        }));
+        .map((entry) => {
+            const shortQuantity = entry.requestedQuantity - entry.availableQuantity;
+            const temporaryOversellAllowed = Boolean(entry.temporaryOversellExpiresAt)
+                && (entry.temporaryOversellRemainingQuantity == null || shortQuantity <= entry.temporaryOversellRemainingQuantity);
+            return {
+                ...entry,
+                shortQuantity,
+                blocking: !temporaryOversellAllowed,
+                temporaryOversellAllowed,
+                message: temporaryOversellAllowed
+                    ? `Temporary oversell approval is active for SKU ${entry.sku}: requested ${formatTrackedQuantity(entry.requestedQuantity, entry.trackingLevel)}, currently available ${formatTrackedQuantity(entry.availableQuantity, entry.trackingLevel)}. Release is allowed during the approved period, but the warehouse must confirm physical stock before shipping.`
+                    : `Insufficient pickable stock for SKU ${entry.sku}: requested ${formatTrackedQuantity(entry.requestedQuantity, entry.trackingLevel)}, available ${formatTrackedQuantity(entry.availableQuantity, entry.trackingLevel)}. Save as draft is allowed, but release is blocked until stock is available.`
+            };
+        });
 }
 
 function mapPortalOrderPrintSummaryRows(rows = []) {
@@ -39923,6 +40877,8 @@ function mapPortalOrderLineRow(row, locationSummary = null, allocationSummary = 
             trackingLevel: normalizeTrackingLevel(entry.trackingLevel || row.item_tracking_level || "UNIT"),
             lotNumber: entry.lotNumber || "",
             expirationDate: normalizeDateOnly(entry.expirationDate),
+            isOversell: entry.isOversell === true,
+            oversellPolicyId: entry.oversellPolicyId || "",
             fulfillmentLocationId: entry.fulfillmentLocationId || "",
             fulfillmentLocationCode: entry.fulfillmentLocationCode || "",
             fulfillmentLocationName: entry.fulfillmentLocationName || "",
@@ -39950,6 +40906,13 @@ function mapPortalOrderLineRow(row, locationSummary = null, allocationSummary = 
         onHandQuantity: Number(locationSummary?.onHandQuantity) || 0,
         availableQuantity: Number(locationSummary?.availableQuantity) || 0,
         allocatedQuantity: Number(allocationSummary?.allocatedQuantity) || 0,
+        oversellQuantity: Number(allocationSummary?.oversellQuantity) || 0,
+        temporaryOversellPolicyId: row.temporary_oversell_policy_id ? String(row.temporary_oversell_policy_id) : "",
+        temporaryOversellExpiresAt: row.temporary_oversell_expires_at ? new Date(row.temporary_oversell_expires_at).toISOString() : null,
+        temporaryOversellMaxQuantity: row.temporary_oversell_max_quantity == null ? null : Number(row.temporary_oversell_max_quantity) || 0,
+        temporaryOversellUsedQuantity: Number(row.temporary_oversell_used_quantity) || 0,
+        temporaryOversellRemainingQuantity: row.temporary_oversell_remaining_quantity == null ? null : Number(row.temporary_oversell_remaining_quantity) || 0,
+        temporaryOversellReason: row.temporary_oversell_reason || "",
         pickLocations: allocatedLocations.length ? allocatedLocations : normalizedLocations,
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString()
@@ -43435,6 +44398,7 @@ function isPublicRequest(req) {
     if (pathName === "/api/site/stripe-checkout-session") return true;
     if (pathName === "/api/site/stripe-checkout") return true;
     if (pathName === "/api/site/stripe-webhook") return true;
+    if (pathName === "/api/carrier-tracking/webhooks/aftership") return true;
     if (pathName === "/api/email-preferences/unsubscribe") return true;
     if (pathName === "/email-preferences/unsubscribe") return true;
     if (pathName === "/" || pathName === "/index.html") return true;
@@ -43706,6 +44670,15 @@ module.exports = {
     mapShopifyOrderToPortalDraft,
     applyStoreSkuMappingsToPortalOrderPayload,
     buildShopifyInventoryAvailabilityLookup,
+    normalizeShopifyTrackingCompany,
+    buildShopifyFulfillmentTrackingInfo,
+    buildShopifyFulfillmentRequestBody,
+    buildShopifyFulfillmentExportPayload,
+    selectShopifyFulfillmentForTrackingUpdate,
+    decryptStoreIntegrationRow,
+    fetchShopifyOrderFulfillmentsForIntegration,
+    updateShopifyFulfillmentTrackingForImportedOrder,
+    sendShopifyShipmentConfirmationForImport,
     exportShopifyInventoryLevels,
     syncShopifyIntegration,
     createIntegrationCredentialRequestToken,
@@ -43720,6 +44693,7 @@ module.exports = {
     WAREHOUSE_PRINTER_ROLES,
     normalizeWarehousePrinterRole,
     normalizeWarehousePrintJobStatus,
+    warehousePrintAgentSupportsDurableReceipts,
     hashWarehousePrintStationToken,
     mapWarehousePrintJobRow,
     buildPortalOrderPackingSlipPdfAttachment,
@@ -43835,6 +44809,7 @@ module.exports = {
     assertPortalShipmentProofRequirements,
     buildPortalOrderProcessingTiming,
     buildPortalKittingProcessingTiming,
+    getPortalKittingCompletionCopyRecipients,
     PORTAL_KITTING_MINIMUM_BUSINESS_DAYS,
     portalOrderRequiresRushApproval,
     validatePortalShipmentLineConfirmations,

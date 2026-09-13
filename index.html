@@ -22370,6 +22370,19 @@
             const shippingHelpText = insufficientLines.length
                 ? "Shipping stays blocked until every line has enough available stock."
                 : shipmentCloseoutHelpText(shipmentMethod);
+            const shipmentTrackingPanel = order.status === "SHIPPED" && Array.isArray(order.shipmentTracking) && order.shipmentTracking.length ? `
+                <div class="portal-order-shipping-box erp-document-shipping-panel">
+                    <div class="header-copy"><h3>Delivery Tracking</h3><p class="meta">Latest carrier status recorded by WMS365.</p></div>
+                    ${order.shipmentTracking.map((tracker) => `
+                        <div class="line-card" style="margin-top:0.7rem;">
+                            <div class="line-head"><strong>${esc(tracker.carrierName || "Carrier")} | ${esc(tracker.trackingNumber || "Tracking pending")}</strong><span class="pill">${esc(tracker.statusLabel || tracker.status)}</span></div>
+                            <div class="line-note">${esc(tracker.statusDetail || "Waiting for the next carrier checkpoint.")}${tracker.estimatedDeliveryAt ? ` | Estimated ${esc(formatDate(tracker.estimatedDeliveryAt))}` : ""}</div>
+                            ${tracker.trackingUrl ? `<div class="quick-row-actions"><a class="btn ghost" href="${attr(tracker.trackingUrl)}" target="_blank" rel="noopener">Open Carrier Tracking</a></div>` : ""}
+                            ${tracker.events?.length ? `<div class="quick-meta" style="margin-top:0.55rem;">${tracker.events.slice(0, 5).map((event) => `${esc(event.statusLabel || event.status)}${event.location ? ` | ${esc(event.location)}` : ""}${event.eventAt ? ` | ${esc(formatDate(event.eventAt))}` : ""}`).join("<br>")}</div>` : ""}
+                        </div>
+                    `).join("")}
+                </div>
+            ` : "";
             const shippingPanel = (order.status === "STAGED" || order.status === "SHIPPED") ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel">
                     <div class="form-grid compact-grid">
@@ -22459,6 +22472,7 @@
                         <button class="btn ${order.status === "STAGED" ? "" : "secondary"}" type="button" data-portal-ship-confirmation="${attr(order.id)}" data-portal-transition="${attr(order.status === "STAGED" ? "SHIPPED" : "SAVE")}" ${insufficientLines.length ? "disabled" : ""}>${order.status === "STAGED" ? "Mark Shipped" : "Save Shipping Confirmation"}</button>
                     </div>
                 </div>
+                ${shipmentTrackingPanel}
             ` : "";
             const shortPickReviewTitle = norm(shortPickException?.reason || "") === "PARTIAL_PICK" ? "Partial Pick Review" : "Short Pick Review";
             const shortPickApproveLabel = norm(shortPickException?.reason || "") === "PARTIAL_PICK" ? "Approve Partial Pick" : "Approve Short Pick";
@@ -31565,6 +31579,30 @@
             };
         }
 
+        function sanitizeShipmentTrackerRecord(item) {
+            if (!item?.id) return null;
+            return {
+                id: String(item.id),
+                warehouseShipmentId: String(item.warehouseShipmentId || item.warehouse_shipment_id || ""),
+                carrierName: String(item.carrierName || item.carrier_name || "").trim(),
+                trackingNumber: String(item.trackingNumber || item.tracking_number || "").trim(),
+                trackingUrl: String(item.trackingUrl || item.tracking_url || "").trim(),
+                status: norm(item.status || "UNKNOWN"),
+                statusLabel: String(item.statusLabel || item.status_label || "Status unavailable").trim(),
+                statusDetail: String(item.statusDetail || item.status_detail || "").trim(),
+                estimatedDeliveryAt: item.estimatedDeliveryAt || item.estimated_delivery_at || null,
+                lastCheckedAt: item.lastCheckedAt || item.last_checked_at || null,
+                warehouse: item.warehouse && typeof item.warehouse === "object" ? item.warehouse : {},
+                events: Array.isArray(item.events) ? item.events.map((event) => ({
+                    status: norm(event.status || "UNKNOWN"),
+                    statusLabel: String(event.statusLabel || event.status_label || event.status || "Status updated").trim(),
+                    description: String(event.description || "").trim(),
+                    location: String(event.location || "").trim(),
+                    eventAt: event.eventAt || event.event_at || null
+                })) : []
+            };
+        }
+
         function sanitizePortalOrderRecord(item) {
             const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
             if (!item?.id || !accountName) return null;
@@ -31650,6 +31688,9 @@
                     : [],
                 warehouseShipments: Array.isArray(item.warehouseShipments || item.warehouse_shipments)
                     ? (item.warehouseShipments || item.warehouse_shipments).map(sanitizeWarehouseShipmentRecord).filter(Boolean)
+                    : [],
+                shipmentTracking: Array.isArray(item.shipmentTracking || item.shipment_tracking)
+                    ? (item.shipmentTracking || item.shipment_tracking).map(sanitizeShipmentTrackerRecord).filter(Boolean)
                     : [],
                 printSummary: sanitizePortalOrderPrintSummary(item.printSummary || item.print_summary || {})
             };

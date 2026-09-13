@@ -144,6 +144,21 @@ paths:
       responses:
         "200":
           description: Updated warehouse shipment
+  /shipments/{id}/tracking:
+    get:
+      summary: Read the current carrier status and immutable tracking timeline for one warehouse shipment
+      security:
+        - bearerAuth: [shipments:read]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Customer-scoped shipment tracking records and events
+        "404":
+          description: Shipment is unavailable to this customer integration
   /jobs:
     get:
       summary: List asynchronous import jobs

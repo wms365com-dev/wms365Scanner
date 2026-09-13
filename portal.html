@@ -667,6 +667,7 @@
         .inventory-meta, .order-meta, .line-note { display: grid; gap: 0.35rem; margin-top: 0.6rem; color: var(--muted); font-size: 0.92rem; }
         .line-note.stock-warning { color: #9b2c2c; font-weight: 700; }
         .stock-warning-banner { margin-top: 0.75rem; padding: 0.85rem; border: 2px solid #d95c5c; background: #fff0f0; color: #721c24; border-radius: 6px; font-weight: 700; line-height: 1.45; }
+        .stock-warning-banner.notice { border-color: #c58a13; background: #fff8df; color: #573b00; }
         .stock-warning-list { display: grid; gap: 0.65rem; }
         .stock-warning-item { padding-bottom: 0.65rem; border-bottom: 1px solid #efcaca; }
         .stock-warning-item:last-child { padding-bottom: 0; border-bottom: 0; }
@@ -2867,6 +2868,9 @@
             editingOrderId: null,
             editingItemSku: null,
             selectedShippedOrderId: null,
+            shipmentTrackingByOrder: {},
+            shipmentTrackingLoading: {},
+            shipmentTrackingErrors: {},
             expandedOrderId: null,
             expandedInboundId: null,
             expandedDeliveryId: null,
@@ -3328,6 +3332,12 @@
             ));
             const selectedLabel = selectedLocation ? getFulfillmentLocationLabel(selectedLocation) : (order.fulfillmentLocationName || "the selected warehouse");
             return `<div class="stock-warning-list">${warnings.map((warning) => {
+                if (warning.temporaryOversellAllowed === true || warning.blocking === false) {
+                    const expiry = warning.temporaryOversellExpiresAt ? formatDate(warning.temporaryOversellExpiresAt) : "the approved expiry";
+                    const summary = `Temporary stock approval: ${warning.sku} may be released even though ${formatTrackedQuantity(warning.shortQuantity, warning.trackingLevel)} is above current availability.`;
+                    const action = `Release is allowed until ${expiry}. The warehouse must confirm physical stock before shipping.`;
+                    return `<div class="stock-warning-item"><strong>${esc(summary)}</strong><span class="stock-warning-action">${esc(action)}</span></div>`;
+                }
                 const item = portalState.inventory.find((entry) => entry.sku === warning.sku);
                 const entries = getItemWarehouseAvailability(item);
                 const selected = entries.find((entry) => String(entry.fulfillmentLocationId) === String(order.fulfillmentLocationId || ""));
@@ -3450,6 +3460,11 @@
             setMessage(`Loading stock for ${getFulfillmentLocationLabel(active)}...`, "info");
             try {
                 await loadWarehouseScopedInventory();
+                portalState.shipmentTrackingByOrder = {};
+                portalState.shipmentTrackingErrors = {};
+                if (portalState.activeView === "shipped" && portalState.selectedShippedOrderId) {
+                    await loadShipmentTracking(portalState.selectedShippedOrderId);
+                }
                 await loadKittingTiming({ silent: true }).catch(() => {});
                 setMessage("", "");
             } catch (error) {
@@ -4625,13 +4640,15 @@
             const items = [];
             const today = portalTodayDateKey();
             orders.filter((order) => order.status === "DRAFT").forEach((order) => {
-                const warningCount = Array.isArray(order.stockWarnings) ? order.stockWarnings.length : 0;
+                const warnings = Array.isArray(order.stockWarnings) ? order.stockWarnings : [];
+                const warningCount = warnings.filter((warning) => warning.blocking !== false).length;
+                const temporaryOversellCount = warnings.filter((warning) => warning.temporaryOversellAllowed === true).length;
                 items.push({
                     view: "orders",
                     id: order.id,
-                    title: warningCount ? "Inventory check required" : "Draft order not released",
-                    detail: `${order.orderCode}${warningCount ? ` has ${warningCount} stock warning${warningCount === 1 ? "" : "s"}` : " is waiting for completion"}`,
-                    badge: warningCount ? "Stock" : "Draft",
+                    title: warningCount ? "Inventory check required" : (temporaryOversellCount ? "Temporary stock approval active" : "Draft order not released"),
+                    detail: `${order.orderCode}${warningCount ? ` has ${warningCount} blocking stock warning${warningCount === 1 ? "" : "s"}` : (temporaryOversellCount ? " can be released during its approved stock-exception window" : " is waiting for completion")}`,
+                    badge: warningCount ? "Stock" : (temporaryOversellCount ? "Approved" : "Draft"),
                     tone: warningCount ? "error" : "warn",
                     sortAt: order.updatedAt || order.createdAt || ""
                 });
@@ -5521,6 +5538,8 @@
                 const shipToSummary = [order.shipToName || order.contactName || "", formatAddress(order)].filter(Boolean).join(" | ") || "Not provided";
                 const hasShippingConfirmation = order.confirmedShipDate || order.shippedCarrierName || order.shippedTrackingReference || order.shippedConfirmationNote;
                 const stockWarnings = Array.isArray(order.stockWarnings) ? order.stockWarnings : [];
+                const blockingStockWarnings = stockWarnings.filter((warning) => warning.blocking !== false);
+                const temporaryOversellWarnings = stockWarnings.filter((warning) => warning.temporaryOversellAllowed === true || warning.blocking === false);
                 const addressReady = ["SAVED", "VERIFIED", "OVERRIDDEN"].includes(String(order.shipToAddressStatus || "SAVED").toUpperCase());
                 return `
                     <article class="order-card order-summary-card">
@@ -5538,12 +5557,13 @@
                             <div class="detail"><span>Expected Ready</span><strong>${esc(order.expectedReadyLabel || order.expectedReadyDate || "Not calculated")}</strong></div>
                             <div class="detail"><span>Lines / Qty</span><strong>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} / ${esc(num(orderTotalQuantity(order)))}</strong></div>
                         </div>
-                        ${stockWarnings.length ? `<div class="stock-warning-banner" role="alert">${renderSavedOrderStockWarnings(order, stockWarnings)}</div>` : ""}
+                        ${blockingStockWarnings.length ? `<div class="stock-warning-banner" role="alert">${renderSavedOrderStockWarnings(order, blockingStockWarnings)}</div>` : ""}
+                        ${temporaryOversellWarnings.length ? `<div class="stock-warning-banner notice" role="status">${renderSavedOrderStockWarnings(order, temporaryOversellWarnings)}</div>` : ""}
                         ${order.status === "DRAFT" && !addressReady ? `<div class="stock-warning-banner" role="alert">New ship-to address needs verification. Select Edit Draft, check the destination, and verify it before release.</div>` : ""}
                         <div class="button-row">
                             <button class="btn ghost" type="button" data-toggle-order-details="${attr(order.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
                             ${order.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-order="${attr(order.id)}">Edit Draft</button>` : ""}
-                            ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}" ${stockWarnings.length || !addressReady ? "disabled" : ""}>Release</button>` : ""}
+                            ${order.status === "DRAFT" ? `<button class="btn" type="button" data-release-order="${attr(order.id)}" ${blockingStockWarnings.length || !addressReady ? "disabled" : ""}>Release</button>` : ""}
                         </div>
                         ${isExpanded ? `
                             <div class="order-details-panel">
@@ -5662,11 +5682,85 @@
             renderShippedOrderDetails();
         }
 
+        function shipmentTrackingPillClass(status = "") {
+            const normalized = String(status || "").toUpperCase();
+            if (normalized === "DELIVERED") return "success";
+            if (["EXCEPTION", "DELIVERY_ATTEMPTED", "RETURNED", "CANCELLED"].includes(normalized)) return "error";
+            if (["IN_TRANSIT", "OUT_FOR_DELIVERY", "AVAILABLE_FOR_PICKUP", "PICKED_UP"].includes(normalized)) return "info";
+            return "warn";
+        }
+
+        function renderShipmentTrackingTimeline(orderId) {
+            if (portalState.shipmentTrackingLoading[orderId]) {
+                return `<div class="order-documents"><strong>Delivery Tracking</strong><span class="meta">Checking the latest carrier status...</span></div>`;
+            }
+            const error = portalState.shipmentTrackingErrors[orderId];
+            if (error) {
+                return `<div class="order-documents"><strong>Delivery Tracking</strong><span class="meta">${esc(error)}</span></div>`;
+            }
+            const trackers = portalState.shipmentTrackingByOrder[orderId];
+            if (!Array.isArray(trackers)) {
+                return `<div class="order-documents"><strong>Delivery Tracking</strong><span class="meta">Loading shipment status...</span></div>`;
+            }
+            if (!trackers.length) {
+                return `<div class="order-documents"><strong>Delivery Tracking</strong><span class="meta">Live carrier updates are not available for this shipment yet.</span></div>`;
+            }
+            return trackers.map((tracker) => `
+                <div class="order-documents">
+                    <div class="order-head">
+                        <div>
+                            <strong>${esc(tracker.carrierName || "Carrier")} | ${esc(tracker.trackingNumber || "Tracking pending")}</strong>
+                            <div class="meta">${esc(tracker.warehouse?.name || tracker.warehouse?.code || "Warehouse shipment")}</div>
+                        </div>
+                        <span class="pill ${shipmentTrackingPillClass(tracker.status)}">${esc(tracker.statusLabel || tracker.status || "Status unavailable")}</span>
+                    </div>
+                    <div class="order-meta" style="margin-top:0.7rem;">
+                        ${tracker.statusDetail ? `<div>${esc(tracker.statusDetail)}</div>` : ""}
+                        ${tracker.estimatedDeliveryAt ? `<div>Estimated delivery: ${esc(formatDate(tracker.estimatedDeliveryAt))}</div>` : ""}
+                        ${tracker.lastCheckedAt ? `<div>Last carrier check: ${esc(formatDate(tracker.lastCheckedAt))}</div>` : ""}
+                    </div>
+                    ${tracker.trackingUrl ? `<div class="button-row" style="margin-top:0.7rem;"><a class="btn ghost" href="${attr(tracker.trackingUrl)}" target="_blank" rel="noopener">Open Carrier Tracking</a></div>` : ""}
+                    ${Array.isArray(tracker.events) && tracker.events.length ? `
+                        <div class="line-items" style="margin-top:0.8rem;">
+                            ${tracker.events.slice(0, 12).map((event) => `
+                                <div class="line-card">
+                                    <div class="line-head"><strong>${esc(event.statusLabel || event.status)}</strong><span class="meta">${esc(event.eventAt ? formatDate(event.eventAt) : "")}</span></div>
+                                    <div class="line-note">${esc(event.description || "Carrier status updated")}${event.location ? ` | ${esc(event.location)}` : ""}</div>
+                                </div>
+                            `).join("")}
+                        </div>
+                    ` : ""}
+                </div>
+            `).join("");
+        }
+
+        async function loadShipmentTracking(orderId) {
+            if (!orderId || portalState.shipmentTrackingLoading[orderId]) return;
+            portalState.shipmentTrackingLoading[orderId] = true;
+            delete portalState.shipmentTrackingErrors[orderId];
+            renderShippedOrderDetails();
+            try {
+                const payload = await requestJson(portalWarehouseScopedUrl(`/api/portal/orders/${encodeURIComponent(orderId)}/tracking`));
+                portalState.shipmentTrackingByOrder[orderId] = Array.isArray(payload?.tracking) ? payload.tracking : [];
+            } catch (error) {
+                portalState.shipmentTrackingErrors[orderId] = error.message || "Carrier status could not be loaded right now.";
+            } finally {
+                portalState.shipmentTrackingLoading[orderId] = false;
+                if (String(portalState.selectedShippedOrderId || "") === String(orderId)) renderShippedOrderDetails();
+            }
+        }
+
         function renderShippedOrderDetails() {
             const order = getShippedOrders().find((entry) => entry.id === portalState.selectedShippedOrderId);
             if (!order) {
                 ui.shippedOrderDetails.innerHTML = `<div class="empty">Select an order marked shipped in WMS to view shipment details.</div>`;
                 return;
+            }
+
+            if (!Object.prototype.hasOwnProperty.call(portalState.shipmentTrackingByOrder, order.id)
+                && !portalState.shipmentTrackingLoading[order.id]
+                && !portalState.shipmentTrackingErrors[order.id]) {
+                queueMicrotask(() => loadShipmentTracking(order.id));
             }
 
             ui.shippedOrderDetails.innerHTML = `
@@ -5697,6 +5791,7 @@
                         ${renderOrderLineCards(order.lines, "No lines saved on this shipment.")}
                     </div>
                 </div>
+                ${renderShipmentTrackingTimeline(order.id)}
                 ${order.documents?.length ? renderDocumentList(order.documents, "Shipment Documents") : `<div class="order-documents"><strong>Shipment Documents</strong><span class="meta">No shipment documents or labels saved yet.</span></div>`}
             `;
         }
@@ -5706,6 +5801,7 @@
             if (!detailButton) return;
             portalState.selectedShippedOrderId = detailButton.dataset.shippedOrder;
             renderShippedOrders();
+            await loadShipmentTracking(portalState.selectedShippedOrderId);
         }
 
         async function refreshShippedOrders(event) {
@@ -9330,6 +9426,13 @@
                         availableQuantity: Number(warning?.availableQuantity || warning?.available_quantity || 0) || 0,
                         shortQuantity: Number(warning?.shortQuantity || warning?.short_quantity || 0) || 0,
                         trackingLevel: normalizeTrackingLevel(warning?.trackingLevel || warning?.tracking_level || "UNIT"),
+                        blocking: warning?.blocking !== false,
+                        temporaryOversellAllowed: warning?.temporaryOversellAllowed === true || warning?.temporary_oversell_allowed === true,
+                        temporaryOversellExpiresAt: warning?.temporaryOversellExpiresAt || warning?.temporary_oversell_expires_at || null,
+                        temporaryOversellRemainingQuantity: warning?.temporaryOversellRemainingQuantity == null && warning?.temporary_oversell_remaining_quantity == null
+                            ? null
+                            : Number(warning?.temporaryOversellRemainingQuantity ?? warning?.temporary_oversell_remaining_quantity) || 0,
+                        temporaryOversellReason: String(warning?.temporaryOversellReason || warning?.temporary_oversell_reason || "").trim(),
                         message: String(warning?.message || "").trim()
                     })).filter((warning) => warning.sku && warning.message)
                     : [],

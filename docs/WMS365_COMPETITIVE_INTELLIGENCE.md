@@ -1,6 +1,6 @@
 # WMS365 Competitive Intelligence
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-13
 
 ## Guardrails
 
@@ -44,6 +44,7 @@ Extensiv's September 3, 2026 Q3 release notes add verified market signals for mu
 | High | Wave and batch picking | Safe cross-order batches, tote/cart assignment, optimized routes, and strict customer/warehouse boundaries. |
 | High | Shipping automation | Complete the provider rollout for the implemented customer address-verification gate, then add shipping-method mapping, explainable warehouse routing rules, and automation audit history. |
 | High | Parcel rate shopping and labels | Complete carrier rating, labels, manifests, voids, package templates, and tracking callbacks. |
+| High | Carrier visibility | The WMS365 carrier tracking hub now provides normalized, immutable shipment timelines, signed webhook ingestion, retry-safe polling, selected-warehouse portal visibility, and a partner API. Activate a broad provider for Canadian carrier coverage, then add direct adapters where volume or cost justifies them. |
 | High | Dock scheduling | Door/capacity calendars, check-in, dwell time, carrier status, and late-arrival management. |
 | High | Returns/RMA | Inspection, disposition, quarantine, restock, disposal, photos, reason codes, and billable events. |
 | High | Customer notifications | Scoped, deduplicated in-app and email exceptions for shortages, arrivals, missing documents, appointments, shipments, and billing. |
@@ -70,6 +71,10 @@ Extensiv's September 3, 2026 Q3 release notes add verified market signals for mu
 - Google documents session-token continuity between Places Autocomplete and Address Validation: https://developers.google.com/maps/documentation/places/web-service/place-autocomplete
 - Geoapify documents worldwide address autocomplete, confidence signals, storage-friendly results, and a 3,000-credit daily free tier with required attribution and limited commercial use: https://apidocs.geoapify.com/docs/geocoding/address-autocomplete/ and https://www.geoapify.com/pricing/
 - The public OpenStreetMap Nominatim policy expressly forbids client-side autocomplete, so WMS365 must not use that public endpoint for live order entry: https://operations.osmfoundation.org/policies/nominatim/
+- Karrio demonstrates a provider-adapter model for normalized rates, labels, manifests, and tracking while keeping carrier differences behind one API. Reviewed 2026-09-13: https://github.com/karrioapi/karrio
+- Karrio's community carrier repository includes Canada Post, Purolator, UPS, FedEx, Canpar, Dicom, and Freightcom adapters; it does not provide the full Canadian carrier set WMS365 needs. Reviewed 2026-09-13: https://github.com/karrioapi/community
+- AfterShip documents broad carrier tracking coverage including ICS Courier and Day & Ross plus signed tracking webhooks. Reviewed 2026-09-13: https://www.aftership.com/docs/tracking/others/supported-couriers
+- Canada Post and Purolator publish first-party tracking integration services, supporting a future direct-adapter path for high-volume Canadian accounts: https://www.canadapost-postescanada.ca/info/mc/business/productsservices/developers/services/tracking/default.jsf and https://www.purolator.com/en/services/technology-solutions/e-ship-web-services
 
 ## Agent Workflow
 

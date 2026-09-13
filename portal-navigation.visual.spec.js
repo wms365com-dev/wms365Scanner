@@ -80,6 +80,44 @@ test.beforeAll(async () => {
         shipToCity: "Burnaby",
         shipToState: "British Columbia",
         shipToAddressStatus: "SAVED"
+    }, {
+        id: "test-order-shipped",
+        orderCode: "TEST-ORDER-SHIPPED",
+        status: "SHIPPED",
+        fulfillmentLocationId: "test-warehouse",
+        createdAt: "2026-09-01T13:00:00Z",
+        updatedAt: "2026-09-04T16:00:00Z",
+        shippedAt: "2026-09-04T16:00:00Z",
+        shippedCarrierName: "UPS",
+        shippedTrackingReference: "1Z999AA10123456784",
+        shipToName: "Test Customer",
+        shipToCity: "Toronto",
+        shipToState: "Ontario",
+        lines: [{ sku: "MAIN-ONLY", quantity: 1, trackingLevel: "CASE" }]
+    }] }));
+    app.get("/api/portal/orders/test-order-shipped/tracking", (_request, response) => response.json({ tracking: [{
+        id: "test-tracker",
+        carrierName: "UPS",
+        trackingNumber: "1Z999AA10123456784",
+        trackingUrl: "https://www.ups.com/track?tracknum=1Z999AA10123456784",
+        status: "IN_TRANSIT",
+        statusLabel: "In transit",
+        statusDetail: "Shipment departed the carrier facility.",
+        estimatedDeliveryAt: "2026-09-08T21:00:00Z",
+        lastCheckedAt: "2026-09-07T15:00:00Z",
+        warehouse: { id: "test-warehouse", code: "TEST-WH", name: "WMS365 Test Warehouse" },
+        events: [{
+            status: "IN_TRANSIT",
+            statusLabel: "In transit",
+            description: "Shipment departed the carrier facility.",
+            location: "Toronto, ON",
+            eventAt: "2026-09-07T14:45:00Z"
+        }, {
+            status: "LABEL_CREATED",
+            statusLabel: "Label created",
+            description: "Carrier received the shipment details.",
+            eventAt: "2026-09-04T16:00:00Z"
+        }]
     }] }));
     app.get("/api/portal/inbounds", (_request, response) => response.json({ inbounds: [{
         id: "test-inbound-main",
@@ -326,6 +364,20 @@ test("manual ship-to override is explicit and usable on mobile", async ({ page }
     await expect(page.locator("#orderShipToVerificationStatus")).toContainText("entered manually and confirmed");
     await expect(page.locator("#releaseOrderBtn")).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath("portal-mobile-address-manual-confirmed.png"), fullPage: false });
+});
+
+test("shipped order shows a clear carrier timeline and official tracking link", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${baseUrl}/portal.html#shipped`);
+
+    await expect(page.locator("#shippedPanel")).toBeVisible();
+    await expect(page.locator("#shippedOrderDetails")).toContainText("TEST-ORDER-SHIPPED");
+    await expect(page.locator("#shippedOrderDetails")).toContainText("In transit");
+    await expect(page.locator("#shippedOrderDetails")).toContainText("Estimated delivery");
+    await expect(page.locator("#shippedOrderDetails")).toContainText("Toronto, ON");
+    const carrierLink = page.locator("#shippedOrderDetails").getByRole("link", { name: "Open Carrier Tracking" });
+    await expect(carrierLink).toHaveAttribute("href", "https://www.ups.com/track?tracknum=1Z999AA10123456784");
+    await page.screenshot({ path: testInfo.outputPath("portal-desktop-carrier-tracking.png"), fullPage: false });
 });
 
 test("critical form warnings remain visible in the current mobile viewport", async ({ page }, testInfo) => {

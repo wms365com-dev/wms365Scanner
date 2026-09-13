@@ -13,6 +13,7 @@ Purpose:
 - Separate customer orders and warehouse shipments for split fulfillment
 - Immutable inventory transaction records for integration reconciliation
 - GS1/UCC-128 shipment labels and carrier tracking support
+- Shopify fulfillment tracking sends normalized carrier names plus explicit carrier tracking URLs, and existing fulfillments are updated only when the tracking match is unambiguous
 - EDI readiness is tracked in `docs/WMS365_EDI_READINESS.md`; X12 translation, acknowledgements, exception handling, and partner certification remain required
 - Customer and warehouse isolation is governed by `docs/ACCESS_CONTROL_AUDIT_PROCESS.md` and enforced by `npm run audit:access-control` before deployment.
 
@@ -180,6 +181,15 @@ How to use:
   - location label print layout
   - pallet label print layout
   - reprint workflow
+  - WMS365 Print Agent for direct printing from WMS365 to printers installed on a warehouse Windows PC
+  - one print station is bound to one fulfillment location and cannot claim another warehouse's jobs
+  - outbound-only HTTPS connection; warehouse printers and inbound network ports are not exposed
+  - station token encrypted for the signed-in Windows user and hidden after setup
+  - exact printer-name routing by document role for pick tickets, packing slips, shipping labels, pallet labels, and general documents
+  - local printer discovery and test-page workflow
+  - durable local print receipts prevent duplicate output when completion confirmation is interrupted
+  - stale claimed jobs are automatically recovered only for receipt-capable agents
+  - WMS365 job events and document print counts provide an auditable history
 
 ### Kitting / Display Builds
 - Customer portal sections: `kitting`, `kittingRequests`
@@ -223,6 +233,9 @@ How to use:
   - duplicate-protected reminders per order, ship-from warehouse, and delivery date
   - physical PICKED and STAGED confirmation remains required before the one-time routing request can be sent
   - stock allocation and FEFO picking
+  - temporary oversell approvals are explicitly scoped by customer, SKU, and warehouse, with a fixed quantity cap and automatic expiry
+  - temporary oversell allocates physical stock first, preserves an auditable exception allocation, and never permits shipment inventory to fall below zero
+  - customer warnings become non-blocking only within the active approval cap; released orders and pick tickets retain a warehouse-facing physical-stock warning
   - pick ticket
   - packing slip
   - staged-only bill of lading generation for LTL, FTL, truck, and customer-pickup shipments
@@ -538,3 +551,31 @@ Release verification:
 - `npm run check:release` is the complete local release gate, including Node tests, access-control audit, customer-portal browser journeys, billing UI browser audit, and guide screenshot validation.
 - `railway run npm run check:database` verifies production schema controls and rollback-only test-company workflows before a high-risk release.
 - `railway run npm run check:fresh-database` boots WMS365 against an isolated temporary schema, waits for full readiness, verifies core platform tables, and removes the schema.
+
+## Carrier Tracking Hub
+
+Primary files:
+- `carrier-tracking.js`
+- `server.js`
+- `portal.html`
+- `docs/wms365-partner-api-v1.yaml`
+
+Platform behavior:
+- creates one customer- and warehouse-owned tracker for each warehouse shipment tracking number
+- normalizes carrier checkpoints into a shared WMS365 status vocabulary
+- stores tracking checkpoints as immutable, deduplicated events
+- supports signed provider webhooks plus retry-safe background polling
+- stops polling terminal delivered, returned, or cancelled shipments
+- exposes selected-warehouse delivery timelines in the customer portal
+- exposes shipment tracking through the customer-scoped partner API
+- keeps provider credentials server-side and remains safely inactive when credentials are absent
+- quarantines ambiguous webhook matches instead of guessing across customers
+
+Carrier tracking release checks:
+- verify customer, warehouse, partner API, and guessed-ID isolation
+- verify duplicate webhook delivery creates no duplicate event
+- verify failed polling backs off and a successful response resets the failure count
+- verify terminal shipments are no longer polled
+- verify compact provider statuses such as `InTransit` and `InfoReceived`
+- verify the customer portal follows the active warehouse selector
+- use only the designated test company for end-to-end transaction tests
