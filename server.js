@@ -9407,9 +9407,25 @@ async function initializeDatabase() {
             end if;
             if tg_op = 'UPDATE'
                and lower(trim(old.status)) in ('approved', 'invoiced')
-               and (to_jsonb(old) - array['status','invoice_id','invoice_number','invoiced_at','updated_at'])
-                   is distinct from
-                   (to_jsonb(new) - array['status','invoice_id','invoice_number','invoiced_at','updated_at']) then
+               and (
+                   (to_jsonb(old) - array[
+                       'status','invoice_id','invoice_number','invoiced_at','updated_at',
+                       'master_customer_id','master_customer_name','sub_customer_id','sub_customer_name'
+                   ]) is distinct from
+                   (to_jsonb(new) - array[
+                       'status','invoice_id','invoice_number','invoiced_at','updated_at',
+                       'master_customer_id','master_customer_name','sub_customer_id','sub_customer_name'
+                   ])
+                   or exists (
+                       select 1
+                       from unnest(array[
+                           'master_customer_id','master_customer_name','sub_customer_id','sub_customer_name'
+                       ]) as backfill_field(field_name)
+                       where (to_jsonb(old) -> backfill_field.field_name)
+                             is distinct from (to_jsonb(new) -> backfill_field.field_name)
+                         and nullif(trim(coalesce(to_jsonb(old) ->> backfill_field.field_name, '')), '') is not null
+                   )
+               ) then
                 raise exception 'Approved billing source facts are locked; create a void or credit event';
             end if;
             insert into billing_event_audit (

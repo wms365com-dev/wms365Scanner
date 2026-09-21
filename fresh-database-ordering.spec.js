@@ -18,3 +18,17 @@ test("health stays unavailable until the complete database schema is initialized
     assert.match(source, /const healthy = databaseSchemaInitialized && databaseReady && probe\.ok && entryRoutesReady/);
     assert.match(source, /await initializeDatabase\(\);\s*databaseSchemaInitialized = true;\s*databaseReady = true;/);
 });
+
+test("approved billing events permit one-time ownership backfill during fresh database boot", () => {
+    const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    const triggerStart = source.indexOf("create or replace function protect_and_audit_billing_event");
+    const triggerEnd = source.indexOf("$$ language plpgsql", triggerStart);
+    const trigger = source.slice(triggerStart, triggerEnd);
+
+    assert.ok(triggerStart >= 0 && triggerEnd > triggerStart, "billing event protection trigger is missing");
+    for (const field of ["master_customer_id", "master_customer_name", "sub_customer_id", "sub_customer_name"]) {
+        assert.match(trigger, new RegExp(`'${field}'`), `${field} must be included in the controlled backfill`);
+    }
+    assert.match(trigger, /nullif\(trim\(coalesce\(to_jsonb\(old\) ->> backfill_field\.field_name, ''\)\), ''\) is not null/);
+    assert.match(trigger, /raise exception 'Approved billing source facts are locked; create a void or credit event'/);
+});
