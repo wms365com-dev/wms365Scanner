@@ -21,6 +21,17 @@ When researching, planning, or reviewing a WMS365 feature:
 5. The designated company is `CODEX PORTAL SYSTEM TEST`, owner account ID `1510` (verified read-only on 2026-09-17). Use `scripts/designated-test-company.js` to verify its exact ID, exact name and active status before transaction tests. Never select a company by a fuzzy `TEST`/`CODEX` name match, environment override, or fallback. Stop if the pinned company is unavailable.
 6. Browser and Android transaction tests must confirm the selected company matches this identity before writing. Test-company ownership does not authorize emails to real contacts, carrier purchases, Shopify writes, or billing sends; use isolated fixtures and explicit approval for external effects.
 
+## Mandatory Staging-First Releases
+
+1. Never deploy application code directly to the production environment. Every release must first deploy the exact committed artifact to Railway environment `customer-sandbox` and service `wms365-sandbox`, using only its isolated PostgreSQL service `Postgres-XihR`.
+2. Never point sandbox services, scripts, tests, or credentials at the production database, production buckets, live integrations, real email recipients, carrier APIs, Shopify stores, or billing providers.
+3. Before production promotion, require: a clean committed release repository; `npm run check:deploy`; access-control audit; fresh-database boot; sandbox health `200`; schema readiness; designated test-company workflow checks; and a documented rollback artifact.
+4. Exercise affected workflows in sandbox as the actual restricted user roles, including negative tenant and warehouse isolation checks. Do not substitute static tests for an authenticated workflow when the change affects navigation, permissions, receiving, inventory, picking, staging, shipping, documents, emails, billing, or integrations.
+5. Observe the sandbox deployment through startup and a minimum 10-minute health soak. Any restart, readiness timeout, connection-pool exhaustion, schema delay, worker conflict, or unexplained warning blocks production.
+6. Promote the same tested commit or immutable build to production. Do not rebuild from a dirty or different worktree. Verify production health and database readiness read-only before any live transaction.
+7. If production health fails, stop promotion and restore the last known-good artifact. Do not repeatedly redeploy an unhealthy candidate. Record the incident and blocker in `docs/WMS365_SYSTEM_FIX_QUEUE.md`.
+8. Follow `docs/WMS365_STAGING_RELEASE_POLICY.md` for evidence and sign-off requirements. A user request to deploy does not waive these gates unless the user explicitly declares an emergency rollback to a named known-good artifact.
+
 ## Global Product Impact
 
 1. Evaluate every feature and fix as a change to the complete WMS365 platform, even when the request starts with one company, customer, warehouse, order, or integration.
