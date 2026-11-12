@@ -35,8 +35,8 @@ Acceptance: Open every module; reconcile dashboard/task/order counts from one sc
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
 | 1 | WMS-01 | critical | Module navigation freezes; Items crashed the browser tab | FIXED - NEEDS RETEST |
-| 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | FIXED - NEEDS RETEST |
-| 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | FIXED - NEEDS RETEST |
+| 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | REOPENED |
+| 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | REOPENED |
 | 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | FIXED - NEEDS RETEST |
 | 5 | WMS-25 | high | Normal page load produces `/api/app/me` and `/api/state` 401 noise | FIXED - NEEDS RETEST |
 | 6 | WMS-27 | medium | Green/amber system status dot has no label or explanation | QUEUED |
@@ -120,6 +120,13 @@ Every batch must cover:
 5. Move tickets to `FIXED - NEEDS RETEST` only with code references and test evidence; move to `VERIFIED` only after an independent test-company pass.
 
 ## Engineering Evidence
+
+### WMS-02 and WMS-03
+
+- Independent retest: 2026-11-12. The clean production baseline still capped the application state to 240 active warehouse tasks and the task endpoint to 300 rows. Order history also applied its row limit before preserving all active outbound orders. Both critical findings were reopened.
+- Repair candidate: active task reads now request the complete authorized scope; restricted users retain both company and explicit warehouse filtering; optional task-page limits remain bounded; and the order-history cap applies only to inactive history while every active outbound order remains present.
+- Regression coverage: `warehouse-dashboard-counts.spec.js` passed 3/3, covering uncapped active reads, tenant and warehouse isolation, and preservation of active orders outside the history cap. `npm run audit:access-control` passed 12/12 across 290 routes. `npm run check:deploy` passed 737/737.
+- Status: `REOPENED`. Fresh-database verification, exact sandbox deployment, authenticated production-scale task-count reconciliation, isolation checks, and a 10-minute healthy soak remain required before any production promotion.
 
 ### Item UPC spreadsheet normalization
 

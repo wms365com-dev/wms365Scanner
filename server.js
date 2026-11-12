@@ -5016,7 +5016,7 @@ app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
                 status: req.query?.status,
                 type: req.query?.type,
                 activeOnly: normalizeText(req.query?.activeOnly || req.query?.active_only || "true") !== "FALSE",
-                limit: 300
+                limit: 0
             });
             return result.rows.map(mapWarehouseTaskRow);
         });
@@ -12370,7 +12370,9 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
     const billingEventsQuery = Number.isFinite(billingEventLimit) && billingEventLimit > 0
         ? client.query("select * from billing_events order by service_date desc, id desc limit $1", [billingEventLimit])
         : client.query("select * from billing_events order by service_date desc, id desc");
-    const warehouseTasksQuery = getWarehouseTaskRowsForAppUser(client, appUser, { activeOnly: true, limit: 240 });
+    // Active task counts must be authoritative. A row cap here makes the dashboard
+    // report the page size instead of the scoped operational total.
+    const warehouseTasksQuery = getWarehouseTaskRowsForAppUser(client, appUser, { activeOnly: true, limit: 0 });
 
     const [inventoryResult, inventoryCountResult, activityResult, locationResult, ownerResult, fulfillmentLocationResult, companyFulfillmentLocationResult, partnerResult, itemResult, palletResult, billingFeeResult, ownerRateResult, billingEventResult, warehouseTaskResult, mobileDeviceResult, metaResult] = await Promise.all([
         client.query(
@@ -20272,15 +20274,28 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
         params.push(normalizedStatus);
         filters.push(`status = $${params.length}`);
     }
+    params.push(ACTIVE_PORTAL_ORDER_STATUSES);
+    const activeStatusesPlaceholder = `$${params.length}`;
     params.push(Math.max(1, Math.min(Number(limit) || 100, 200)));
-    const limitPlaceholder = `$${params.length}`;
+    const historyLimitPlaceholder = `$${params.length}`;
     const ordersResult = await client.query(
         `
+            with scoped_orders as (
+                select *
+                from portal_orders
+                where ${filters.join(" and ")}
+            ), recent_history as (
+                select id
+                from scoped_orders
+                where status <> all(${activeStatusesPlaceholder}::text[])
+                order by created_at desc, id desc
+                limit ${historyLimitPlaceholder}
+            )
             select *
-            from portal_orders
-            where ${filters.join(" and ")}
+            from scoped_orders
+            where status = any(${activeStatusesPlaceholder}::text[])
+               or id in (select id from recent_history)
             order by created_at desc, id desc
-            limit ${limitPlaceholder}
         `,
         params
     );
@@ -37205,6 +37220,11 @@ async function getWarehouseTaskRowsForAppUser(client, appUser, {
         if (!accessibleCompanies.length) return { rows: [] };
         params.push(accessibleCompanies);
         clauses.push(`wt.account_name = any($${params.length}::text[])`);
+        const explicitFulfillmentLocationIds = await getExplicitFulfillmentLocationIdsForAppUser(client, appUser);
+        if (Array.isArray(explicitFulfillmentLocationIds) && explicitFulfillmentLocationIds.length) {
+            params.push(explicitFulfillmentLocationIds);
+            clauses.push(`wt.fulfillment_location_id = any($${params.length}::bigint[])`);
+        }
     }
     const normalizedStatus = normalizeWarehouseTaskStatus(status);
     if (normalizedStatus) {
@@ -37219,8 +37239,12 @@ async function getWarehouseTaskRowsForAppUser(client, appUser, {
         params.push(normalizedType);
         clauses.push(`wt.task_type = $${params.length}`);
     }
-    params.push(Math.min(Math.max(toPositiveInt(limit) || 240, 1), 500));
-    const limitIndex = params.length;
+    const requestedLimit = Number(limit);
+    const boundedLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 500)
+        : 0;
+    if (boundedLimit) params.push(boundedLimit);
+    const limitSql = boundedLimit ? `limit $${params.length}` : "";
     const whereSql = clauses.length ? `where ${clauses.join(" and ")}` : "";
     return client.query(
         `
@@ -37241,7 +37265,7 @@ async function getWarehouseTaskRowsForAppUser(client, appUser, {
                 wt.due_at asc nulls last,
                 wt.updated_at desc,
                 wt.id desc
-            limit $${limitIndex}
+            ${limitSql}
         `,
         params
     );
