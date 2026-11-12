@@ -1,13 +1,14 @@
 import fs from "node:fs/promises";
 import { SpreadsheetFile, Workbook } from "file:///C:/Users/T470/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@oai/artifact-tool/dist/artifact_tool.mjs";
 
-const root = "C:/WMS365Scanner-shopify-scheduler-fix";
+const root = process.cwd().replaceAll("\\", "/");
 const inputDir = `${root}/outputs/healtea-month-end`;
 const outputDir = `${root}/outputs/healtea-month-end`;
 const periods = [
   { key: "2026-07", label: "July 2026", file: "Healtea_July_2026_Month_End_Activity.xlsx" },
   { key: "2026-08", label: "August 2026", file: "Healtea_August_2026_Month_End_Activity.xlsx" },
   { key: "2026-09", label: "September 2026", file: "Healtea_September_2026_Month_End_Activity.xlsx" },
+  { key: "2026-10", label: "October 2026", file: "Healtea_October_2026_Month_End_Activity.xlsx" },
 ];
 const requestedPeriods = new Set(process.argv.slice(2));
 const selectedPeriods = requestedPeriods.size ? periods.filter((period) => requestedPeriods.has(period.key)) : periods;
@@ -29,7 +30,7 @@ function title(sheet, lastCol, heading, subtitle) {
   sheet.getRange("A1").values = [[heading]];
   sheet.getRange(`A2:${lastCol}2`).merge();
   sheet.getRange("A2").values = [[subtitle]];
-  sheet.getRange(`A1:${lastCol}1`).format = { fill: colors.navy, font: { bold: true, color: colors.white, size: 16 }, verticalAlignment: "center" };
+  sheet.getRange(`A1:${lastCol}1`).format = { fill: colors.navy, font: { bold: true, color: colors.white, size: 14 }, verticalAlignment: "center" };
   sheet.getRange(`A1:${lastCol}1`).format.rowHeight = 32;
   sheet.getRange(`A2:${lastCol}2`).format = { fill: colors.blue, font: { color: colors.navy, italic: true }, wrapText: true, verticalAlignment: "center" };
   sheet.getRange(`A2:${lastCol}2`).format.rowHeight = 28;
@@ -61,23 +62,28 @@ for (const period of selectedPeriods) {
   const data = JSON.parse(await fs.readFile(`${inputDir}/healtea-month-end-${period.key}.json`, "utf8"));
   const wb = Workbook.create();
   const summary = wb.worksheets.add("Summary");
-  title(summary, "H", `WMS365 | HEALTEA ${period.label.toUpperCase()} MONTH-END ACTIVITY`, "Read-only production activity report; dates use America/Toronto warehouse time.");
+  title(summary, "H", `HEALTEA | ${period.label.toUpperCase()} MONTH-END ACTIVITY`, "Read-only WMS365 production activity report; dates use America/Toronto warehouse time.");
   const outboundOrders = uniqueCount(data.outbound, "order_code");
   const inboundReceipts = uniqueCount(data.inbound, "inbound_code");
   const shippedQty = data.outbound.reduce((sum, row) => sum + n(row.shipped_quantity), 0);
   const receivedQty = data.inbound.reduce((sum, row) => sum + n(row.received_quantity), 0);
   const netInventory = data.inventoryActivity.reduce((sum, row) => sum + n(row.quantity_delta), 0);
-  const billingAmount = data.billing.reduce((sum, row) => sum + n(row.amount), 0);
-  const currency = [...new Set(data.billing.map((row) => row.currency_code).filter(Boolean))].join(", ") || "n.a.";
+  const billingByCurrency = data.billing.reduce((totals, row) => {
+    const currency = row.currency_code || "Unspecified";
+    totals[currency] = (totals[currency] || 0) + n(row.amount);
+    return totals;
+  }, {});
   summary.getRange("A4:B11").values = [["Report Information", "Value"], ["Company", data.account], ["Period", period.label], ["Period start", dateOnly(data.period.start)], ["Period end (exclusive)", dateOnly(data.period.end)], ["Generated", d(data.generatedAt)], ["Time zone", "America/Toronto"], ["Source", "WMS365 production database"]];
   summary.getRange("D4:E11").values = [["Activity Summary", "Total"], ["Shipped orders", outboundOrders], ["Shipped line quantity", shippedQty], ["Received inbounds", inboundReceipts], ["Received line quantity", receivedQty], ["Inventory transactions", data.inventoryActivity.length], ["Net inventory quantity change", netInventory], ["Billing activity", data.billing.length]];
-  summary.getRange("G4:H7").values = [["Billing Summary", "Value"], ["Non-void amount", billingAmount], ["Currency", currency], ["Billing rows", data.billing.length]];
+  const billingSummaryRows = [["Billing Summary", "Value"], ...Object.entries(billingByCurrency).sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => [`Non-void amount (${currency})`, amount]), ["Billing rows", data.billing.length]];
+  const billingSummaryEnd = 3 + billingSummaryRows.length;
+  summary.getRange(`G4:H${billingSummaryEnd}`).values = billingSummaryRows;
   for (const range of ["A4:B4", "D4:E4", "G4:H4"]) summary.getRange(range).format = { fill: colors.teal, font: { bold: true, color: colors.white }, borders: { preset: "all", style: "thin", color: colors.line } };
-  for (const range of ["A4:B11", "D4:E11", "G4:H7"]) summary.getRange(range).format.borders = { preset: "outside", style: "thin", color: colors.line };
+  for (const range of ["A4:B11", "D4:E11", `G4:H${billingSummaryEnd}`]) summary.getRange(range).format.borders = { preset: "outside", style: "thin", color: colors.line };
   summary.getRange("B7:B8").format.numberFormat = "yyyy-mm-dd";
   summary.getRange("B9").format.numberFormat = "yyyy-mm-dd hh:mm";
   summary.getRange("E5:E11").format.numberFormat = "#,##0";
-  summary.getRange("H5").format.numberFormat = '"$"#,##0.00';
+  if (billingSummaryRows.length > 2) summary.getRange(`H5:H${billingSummaryEnd - 1}`).format.numberFormat = '#,##0.00';
   summary.getRange("A13:H13").merge();
   summary.getRange("A13").values = [["Reconciliation: summary totals are calculated from the detail tabs. Cancelled orders, cancelled inbounds, and void billing events are excluded."]];
   summary.getRange("A13:H13").format = { fill: colors.pale, font: { color: colors.navy }, wrapText: true, borders: { preset: "outside", style: "thin", color: colors.line } };
@@ -94,5 +100,5 @@ for (const period of selectedPeriods) {
   const errorScan = await wb.inspect({ kind: "match", searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A", options: { useRegex: true, maxResults: 100 }, summary: `${period.key} formula error scan` });
   const preview = await wb.render({ sheetName: "Summary", range: "A1:H13", scale: 1.3, format: "png" });
   await fs.writeFile(`${outputDir}/healtea-month-end-${period.key}-summary.png`, new Uint8Array(await preview.arrayBuffer()));
-  console.log(JSON.stringify({ outputPath, period: period.key, outboundOrders, inboundReceipts, shippedQty, receivedQty, netInventory, billingAmount, formulaErrors: errorScan.ndjson }));
+  console.log(JSON.stringify({ outputPath, period: period.key, outboundOrders, inboundReceipts, shippedQty, receivedQty, netInventory, billingByCurrency, formulaErrors: errorScan.ndjson }));
 }

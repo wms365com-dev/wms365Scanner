@@ -5,14 +5,14 @@ const ACCOUNT = "HEALTEA";
 const PERIODS = [
     { key: "2026-07", start: "2026-07-01", end: "2026-08-01" },
     { key: "2026-08", start: "2026-08-01", end: "2026-09-01" },
-    { key: "2026-09", start: "2026-09-01", end: "2026-10-01" }
+    { key: "2026-09", start: "2026-09-01", end: "2026-10-01" },
+    { key: "2026-10", start: "2026-10-01", end: "2026-11-01" }
 ];
 
 async function queryPeriod(client, period) {
     const params = [ACCOUNT, period.start, period.end];
-    const [company, outbound, inbound, inventory, billing, endingInventory] = await Promise.all([
-        client.query(`select id, name, is_active from owner_accounts where name = $1`, [ACCOUNT]),
-        client.query(`
+    const company = await client.query(`select id, name, is_active from owner_accounts where name = $1`, [ACCOUNT]);
+    const outbound = await client.query(`
             select o.order_code, o.status, o.po_number, o.order_type, o.shipment_method,
                    o.confirmed_ship_date, o.shipped_at, o.shipped_carrier_name,
                    o.outbound_total_pallets,
@@ -27,8 +27,8 @@ async function queryPeriod(client, period) {
                and coalesce(o.confirmed_ship_date, (o.shipped_at at time zone 'America/Toronto')::date) < $3::date
                and o.status = 'SHIPPED'
              order by coalesce(o.confirmed_ship_date, (o.shipped_at at time zone 'America/Toronto')::date), o.order_code, l.line_number
-        `, params),
-        client.query(`
+        `, params);
+    const inbound = await client.query(`
             select i.inbound_code, i.status, i.reference_number, i.carrier_name,
                    (i.received_at at time zone 'America/Toronto')::date as received_date,
                    l.line_number, l.sku, l.expected_quantity,
@@ -41,8 +41,8 @@ async function queryPeriod(client, period) {
                and (i.received_at at time zone 'America/Toronto')::date < $3::date
                and i.status not in ('CANCELLED')
              order by received_date, i.inbound_code, l.line_number
-        `, params),
-        client.query(`
+        `, params);
+    const inventory = await client.query(`
             select (t.server_timestamp at time zone 'America/Toronto') as activity_time,
                    t.transaction_type, t.source_type, t.source_id, t.location,
                    t.sku, t.lot_number, t.expiration_date, t.quantity_delta,
@@ -52,8 +52,8 @@ async function queryPeriod(client, period) {
                and (t.server_timestamp at time zone 'America/Toronto')::date >= $2::date
                and (t.server_timestamp at time zone 'America/Toronto')::date < $3::date
              order by t.server_timestamp, t.id
-        `, params),
-        client.query(`
+        `, params);
+    const billing = await client.query(`
             select service_date, fee_category, fee_code, fee_name, unit_label,
                    quantity, rate, amount, currency_code, status,
                    source_type, source_ref, reference, note
@@ -62,14 +62,13 @@ async function queryPeriod(client, period) {
                and service_date >= $2::date and service_date < $3::date
                and lower(status) not in ('void', 'voided')
              order by service_date, id
-        `, params),
-        client.query(`
+        `, params);
+    const endingInventory = await client.query(`
             select sku, tracking_level, location, lot_number, expiration_date, quantity
               from inventory_lines
              where account_name = $1 and quantity > 0
              order by sku, location, lot_number, expiration_date
-        `, [ACCOUNT])
-    ]);
+        `, [ACCOUNT]);
 
     if (company.rowCount !== 1 || company.rows[0].name !== ACCOUNT || company.rows[0].is_active !== true) {
         throw new Error("Exact active HEALTEA company verification failed.");
