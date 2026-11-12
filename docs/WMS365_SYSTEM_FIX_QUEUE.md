@@ -132,11 +132,12 @@ Every batch must cover:
 
 ### WMS-01
 
-- Independent retest: 2026-11-12. The focused navigation/items regression passed all 4 tests. It confirms inline-script validity, deferred master-library rendering outside Inventory, bounded 50-row preview and 200-row focused item surfaces, and the narrowing message for larger result sets.
-- Global safety gate: `npm run audit:access-control` passed all 12 checks across 286 routes, including tenant and warehouse intersection, protected order/document/shipment routes, customer-portal isolation, restricted-decision logging, and warehouse-scoped release recipients. `npm run check:deploy` passed all 445 tests with zero failures.
-- Production health: Railway production deployment `5044c966-edf1-46da-b95b-a14c0ef3dca4` is `SUCCESS`; the application started, PostgreSQL schema initialization completed, and Railway reports no staged or applying work.
-- Retest result: remains `FIXED - NEEDS RETEST`. The current engineering worktree contains mixed unrelated tracked and untracked changes, and the deployment metadata does not expose a source commit hash. Therefore the exact WMS-01 source-to-production identity cannot yet be proven, and the authenticated production Items workflow has not been independently exercised at production-scale under `BISON TRANSPORT TEST COMPANY`. No deployment was attempted from the dirty worktree.
-- Next safe action: isolate the WMS-01 change and focused test in a clean release worktree, compare that exact source with the live deployment (or deploy the isolated candidate after gates pass), then run the authenticated test-company navigation/Items retest and read-only production verification before changing status to `VERIFIED`.
+- Independent retest: 2026-11-12. Retesting the clean production baseline reopened the issue because the deployed source lacked deferred master-library rendering and both item-list bounds. The isolated repair in `index.html` now defers the master library outside Inventory, renders it when Inventory is entered, limits the preview to 50 rows, and limits the focused Items list to 200 rows while preserving total-match counts and narrowing guidance.
+- Regression coverage: `wms01-navigation-items-regression.spec.js` passed all 4 tests, covering inline-script validity, deferred rendering, both row limits, and the narrowing message.
+- Global safety gate: `npm run audit:access-control` passed all 12 checks across 290 routes. `npm run check:deploy` passed all 734 tests with zero failures, including tenant and warehouse isolation, receiving, inventory, order workflow, documents, email, billing, integrations, and warehouse task transitions.
+- Retest result: remains `FIXED - NEEDS RETEST` until the exact committed repair is deployed and authenticated production-scale navigation is exercised in the canonical designated test company.
+- Safety blocker: test-company instructions conflict. `AGENTS.md` identifies `CODEX PORTAL SYSTEM TEST` account ID `1510`, while the automation instructions require `BISON TRANSPORT TEST COMPANY`. No transactional or authenticated test-company write may be performed until the canonical identity is reconciled.
+- Next safe action: commit and deploy this isolated repair, verify Railway health and the live source read-only, then complete the authenticated Items workflow in the confirmed canonical test company before changing status to `VERIFIED`.
 
 ### WMS-17
 

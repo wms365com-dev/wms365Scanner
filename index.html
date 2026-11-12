@@ -11268,6 +11268,8 @@
         const MOBILE_DEVICE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
         const LOCAL_CACHE_ACTIVITY_LIMIT = 30;
         const AUTOCOMPLETE_OPTION_LIMIT = 24;
+        const MASTER_ITEM_PREVIEW_LIMIT = 50;
+        const MASTER_ITEM_FOCUSED_LIMIT = 200;
         const MOBILE_PICKER_ROW_HEIGHT = 68;
         const COMPANY_FEATURE_KEYS = Object.freeze({
             CUSTOMER_PORTAL: "CUSTOMER_PORTAL",
@@ -14099,6 +14101,9 @@
                     ui.integrationName.focus();
                 }
             }
+            if (section === "inventory") {
+                renderMasterLibrary();
+            }
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();
             syncFeedbackContext();
@@ -16876,7 +16881,7 @@
             renderBatch();
             renderStats();
             renderDatalists();
-            renderMasterLibrary();
+            if (activeSection === "inventory") renderMasterLibrary();
             renderWarehouseUserDashboard();
             renderMobileDevices();
             renderCompanyFeatureDashboard();
@@ -27674,13 +27679,14 @@
                 return;
             }
             if (type === "ITEM") {
-                const items = [...state.masters.items]
+                const itemMatches = [...state.masters.items]
                     .filter((item) => item.accountName === accountName)
                     .filter((item) => view !== "INACTIVE")
                     .filter((item) => recordMatchesFocusedSearch(item, ["sku", "upc", "description", "trackingLevel"], query))
                     .sort((a, b) => a.sku.localeCompare(b.sku));
-                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = `${num(items.length)} saved`;
-                ui.masterRecordListContent.innerHTML = renderMasterItemRows(items, items.length, query);
+                const visibleItems = itemMatches.slice(0, MASTER_ITEM_FOCUSED_LIMIT);
+                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = `${num(itemMatches.length)} saved`;
+                ui.masterRecordListContent.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
                 return;
             }
             const partners = (state.masters.partners || [])
@@ -27969,7 +27975,7 @@
             const visibleOwners = ownerMatches.slice(0, query ? 24 : 12);
             const visibleFulfillmentLocations = fulfillmentMatches.slice(0, query ? 24 : 12);
             const visibleLocations = locationMatches.slice(0, query ? 24 : 12);
-            const visibleItems = itemMatches;
+            const visibleItems = itemMatches.slice(0, MASTER_ITEM_PREVIEW_LIMIT);
 
             ui.masterOwnerCount.textContent = query
                 ? `${num(ownerMatches.length)} shown / ${num(state.masters.ownerRecords.length)} saved`
