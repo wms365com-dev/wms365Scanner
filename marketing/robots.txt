@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://wms365.co/sitemap.xml

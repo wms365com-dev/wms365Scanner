@@ -1,0 +1,81 @@
+{
+  "name": "wms365-scanner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared login-free WMS365 Scanner for Railway",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node scripts/run-node-tests.js",
+    "test:audit": "playwright test --config=playwright.audit.config.js",
+    "test:rbac": "node --test rbac.spec.js",
+    "test:inventory-locking": "node --test inventory-locking.spec.js",
+    "test:mobile-execution": "node --test mobile-execution.spec.js",
+    "test:security-hardening": "node --test security-hardening.spec.js",
+    "test:portal-isolation": "node --test portal-isolation.spec.js",
+    "test:portal-item-picker": "node --test portal-order-item-picker.spec.js",
+    "test:portal-password-reset": "node --test portal-password-reset.spec.js",
+    "test:portal-navigation": "node --test portal-navigation.spec.js",
+    "test:portal-navigation-visual": "playwright test --config=playwright.portal.config.js",
+    "test:warehouse-errors-visual": "playwright test --config=playwright.warehouse-errors.config.js",
+    "test:print-agent": "node --test print-agent/wms365-print-agent.spec.js print-agent/connector-updater.spec.js print-connector-security.spec.js warehouse-print-queue.spec.js",
+    "test:print-agent-visual": "playwright test --config=playwright.print-connector.config.js",
+    "build:print-agent": "powershell.exe -NoProfile -File print-agent/build-windows-package.ps1",
+    "test:user-errors": "node --test user-facing-errors.spec.js",
+    "test:platform-architecture": "node --test platform-architecture.spec.js",
+    "audit:access-control": "node scripts/audit-access-control-coverage.js",
+    "test:warehouse-billing": "node --test warehouse-billing.spec.js",
+    "test:kitting-reservations": "node --test kitting-reservations.spec.js",
+    "test:warehouse-entry-routes": "node --test warehouse-entry-routes.spec.js",
+    "test:inventory-move-database": "node scripts/verify-test-company-inventory-move-flow.js",
+    "test:pallet-pick-reallocation-database": "node scripts/verify-test-company-pallet-pick-reallocation.js",
+    "test:bill-of-lading": "node --test bill-of-lading.spec.js",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "check:deploy": "node --check server.js && node scripts/audit-access-control-coverage.js && node --test warehouse-entry-routes.spec.js && node scripts/run-node-tests.js",
+    "check:release": "npm run check:deploy && npm run test:portal-navigation-visual && npm run test:warehouse-errors-visual && npm run test:audit && npm run test:guides",
+    "check:database": "node scripts/verify-platform-controls.js && node verify-portal-inventory-database.js && node scripts/verify-test-company-platform-flow.js && node scripts/verify-test-company-bol-flow.js && node scripts/verify-test-company-inventory-move-flow.js",
+    "check:fresh-database": "node verify-fresh-database-boot.js",
+    "test:guides": "node scripts/validate-guide-screenshots.js",
+    "research:wms": "node scripts/audit-wms-feature-competitiveness.js",
+    "test:backup": "npm --prefix ops/backup test",
+    "report:ranchers-labels:generate": "node scripts/generate-ranchers-new-order-label-report.mjs",
+    "report:ranchers-labels:confirm-upload": "node scripts/confirm-ranchers-label-report-upload.mjs",
+    "sync:ranchers-label-sheet": "node scripts/sync-ranchers-label-sheet.js",
+    "sync:ranchers-label-sheet:watch": "node scripts/sync-ranchers-label-sheet.js --watch",
+    "report:healtea:month-end": "node scripts/download-healtea-month-end-report.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "devalue": "^5.9.2",
+    "express": "^4.22.2",
+    "google-auth-library": "^11.1.0",
+    "jose": "6.2.12",
+    "nodemailer": "^9.1.0",
+    "pg": "^8.13.1",
+    "ssh2-sftp-client": "^12.0.1",
+    "stripe": "^18.4.0"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "pg-mem": "^3.0.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wms365com-dev/wms365Scanner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/wms365com-dev/wms365Scanner/issues"
+  },
+  "homepage": "https://github.com/wms365com-dev/wms365Scanner#readme"
+}

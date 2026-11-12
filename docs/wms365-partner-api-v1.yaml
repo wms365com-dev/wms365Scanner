@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: WMS365 Partner API
+  version: 1.0.0
+  description: Customer-scoped warehouse inventory, order, shipment, and import API.
+servers:
+  - url: https://app.wms365.co/api/v1
+    description: Production
+paths:
+  /oauth/token:
+    post:
+      summary: Issue or refresh an access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Access and refresh token pair
+  /inventory:
+    get:
+      summary: List positive pickable inventory
+      security:
+        - bearerAuth: [inventory:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          $ref: "#/components/responses/Page"
+  /orders:
+    get:
+      summary: List customer orders
+      security:
+        - bearerAuth: [orders:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: createdFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: createdTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          $ref: "#/components/responses/Page"
+    post:
+      summary: Create a customer order draft
+      security:
+        - bearerAuth: [orders:write]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 180 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [poNumber, requestedShipDate, fulfillmentLocationId, lines]
+              properties:
+                poNumber: { type: string }
+                shippingReference: { type: string }
+                requestedShipDate: { type: string, format: date }
+                fulfillmentLocationId: { type: integer }
+                shipmentMethod: { type: string, enum: [PARCEL, LTL_FREIGHT, FTL_FREIGHT, CUSTOMER_PICKUP] }
+                shipToName: { type: string }
+                shipToAddress1: { type: string }
+                shipToCity: { type: string }
+                shipToState: { type: string }
+                shipToPostalCode: { type: string }
+                shipToCountry: { type: string }
+                lines:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [sku, quantity]
+                    properties:
+                      sku: { type: string }
+                      quantity: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Customer order draft created
+  /shipments:
+    get:
+      summary: List warehouse shipments
+      security:
+        - bearerAuth: [shipments:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          $ref: "#/components/responses/Page"
+  /shipments/{id}:
+    patch:
+      summary: Update one warehouse shipment closeout
+      security:
+        - bearerAuth: [shipments:write]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 180 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [RELEASED, PICKED, STAGED, SHIPPED, CANCELLED] }
+                shipmentMethod: { type: string, enum: [PARCEL, LTL_FREIGHT, FTL_FREIGHT, CUSTOMER_PICKUP] }
+                carrier: { type: string }
+                trackingReference: { type: string }
+                bolReference: { type: string }
+                totalPallets: { type: integer, minimum: 0 }
+                existingPallets: { type: integer, minimum: 0 }
+                newPallets: { type: integer, minimum: 0 }
+                mixedPallets: { type: integer, minimum: 0 }
+                shippedAt: { type: string, format: date-time }
+                documentIds: { type: array, items: { type: integer } }
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, shippedQuantity]
+                    properties:
+                      id: { type: integer }
+                      shippedQuantity: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Updated warehouse shipment
+  /shipments/{id}/tracking:
+    get:
+      summary: Read the current carrier status and immutable tracking timeline for one warehouse shipment
+      security:
+        - bearerAuth: [shipments:read]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Customer-scoped shipment tracking records and events
+        "404":
+          description: Shipment is unavailable to this customer integration
+  /jobs:
+    get:
+      summary: List asynchronous import jobs
+      security:
+        - bearerAuth: [jobs:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          $ref: "#/components/responses/Page"
+    post:
+      summary: Queue an inventory receipt, order, or address import
+      security:
+        - bearerAuth: [jobs:write]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 180 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobType, rows]
+              properties:
+                jobType:
+                  type: string
+                  enum: [INVENTORY_RECEIPT, ORDER_IMPORT, ADDRESS_IMPORT]
+                sourceFileName: { type: string }
+                sourceChecksum: { type: string }
+                rows:
+                  type: array
+                  maxItems: 5000
+                  items: { type: object }
+      responses:
+        "202":
+          description: Job accepted
+  /jobs/{id}/errors.csv:
+    get:
+      summary: Download warning and rejection details
+      security:
+        - bearerAuth: [jobs:read]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: CSV error report
+components:
+  securitySchemes:
+    bearerAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: /api/v1/oauth/token
+          scopes:
+            inventory:read: Read pickable inventory
+            orders:read: Read orders
+            orders:write: Create orders
+            shipments:read: Read shipments
+            shipments:write: Update shipments
+            jobs:read: Read import jobs
+            jobs:write: Create import jobs
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+  responses:
+    Page:
+      description: Cursor-paginated response
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta, links]
+            properties:
+              data: { type: array, items: { type: object } }
+              meta:
+                type: object
+                properties:
+                  count: { type: integer }
+                  limit: { type: integer }
+                  hasMore: { type: boolean }
+                  nextCursor: { type: string, nullable: true }
+              links:
+                type: object
+                properties:
+                  next: { type: string, nullable: true }

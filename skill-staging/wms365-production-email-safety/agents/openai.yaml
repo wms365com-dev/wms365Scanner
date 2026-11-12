@@ -1,0 +1,4 @@
+interface:
+  display_name: WMS365 Production Email Safety
+  short_description: Verify recipient privacy and live worker parity before production email sends.
+  default_prompt: Safely review or change this WMS365 production email workflow and verify the live deployment before any external send.

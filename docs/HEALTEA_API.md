@@ -1,0 +1,156 @@
+# HEALTEA WMS365 API
+
+This API is intentionally scoped to the `HEALTEA` company only. It is for trusted service-to-service use by the shipping/label project.
+
+## Authentication
+
+Set this production environment variable in WMS365:
+
+```text
+HEALTEA_API_TOKEN=<long random secret>
+```
+
+Every request must send:
+
+```http
+Authorization: Bearer <HEALTEA_API_TOKEN>
+Content-Type: application/json
+```
+
+Do not share this token with browser users.
+
+## Endpoints
+
+Base URL:
+
+```text
+https://app.wms365.co/api/healtea/v1
+```
+
+### Health
+
+```http
+GET /health
+```
+
+Returns API/database readiness for the HEALTEA API.
+
+### Month-End Activity
+
+```http
+GET /month-end/activity?month=2026-09
+```
+
+Returns a downloadable JSON report scoped to `HEALTEA` for one calendar month. The response includes:
+
+- reconciled summary totals
+- shipped order lines
+- received inbound lines
+- append-only inventory transactions
+- non-void billing events, summarized by currency
+
+The month must use `YYYY-MM`. Warehouse dates are evaluated in `America/Toronto`. The response excludes ship-to names, addresses, phone numbers, email addresses, documents, and credentials. It is read-only and sends no emails.
+
+Example:
+
+```bash
+curl -fsS "https://app.wms365.co/api/healtea/v1/month-end/activity?month=2026-09" \
+  -H "Authorization: Bearer $HEALTEA_API_TOKEN" \
+  -o healtea-month-end-2026-09.json
+```
+
+The checked-in downloader also validates the returned tenant and period before saving:
+
+```bash
+node scripts/download-healtea-month-end-report.js 2026-09
+```
+
+### List Orders
+
+```http
+GET /orders?status=open&limit=50
+```
+
+`status` options:
+
+- `open`: draft, released, picked, staged
+- `all`
+- `draft`
+- `released`
+- `picked`
+- `staged`
+- `shipped`
+- `cancelled`
+
+### Get One Order
+
+```http
+GET /orders/ORD-000330
+```
+
+Returns order header, ship-to, shipment status, lines, pick locations, documents, and timestamps.
+
+### Record Label Request
+
+```http
+POST /orders/ORD-000330/label-request
+```
+
+Payload:
+
+```json
+{
+  "carrier": "UPS",
+  "service": "Ground",
+  "idempotencyKey": "label-ORD-000330-20260624",
+  "note": "Requested by external label project"
+}
+```
+
+This records an audited WMS activity marker. It does not buy a carrier label by itself.
+
+### Mark Shipped
+
+You can close an order with either route. Both use the same WMS365 shipping workflow:
+
+```http
+POST /orders/ORD-000330/ship
+POST /orders/ORD-000330/status
+```
+
+For `/status`, include `status: "SHIPPED"` in the payload.
+
+Payload:
+
+```json
+{
+  "status": "SHIPPED",
+  "shipmentMethod": "PARCEL",
+  "carrier": "UPS",
+  "tracking": "1Z9999999999999999",
+  "shipDate": "2026-06-24",
+  "packingSlipQuantityConfirmed": true,
+  "note": "Closed by external label project"
+}
+```
+
+For parcel shipments, `tracking` is required and `carrier` is optional. For LTL/FTL shipments, WMS365 requires shipment proof documents: signed BOL/POD, checked packing slip, and loaded freight photo. `packingSlipQuantityConfirmed` must be `true` when marking an order shipped; this confirms the checked packing slip quantity matches the WMS365 shipped quantity for every SKU.
+
+If `shippedLines` is omitted, WMS365 closes the full order quantity for every line. To send explicit line quantities:
+
+```json
+{
+  "status": "SHIPPED",
+  "shipmentMethod": "PARCEL",
+  "carrier": "UPS",
+  "tracking": "1Z9999999999999999",
+  "packingSlipQuantityConfirmed": true,
+  "shippedLines": [
+    { "sku": "20628693486136", "shippedQuantity": 2 }
+  ]
+}
+```
+
+The endpoint accepts `carrier`, `carrierName`, `tracking`, `trackingNumber`, `trackingReference`, `proNumber`, or `bolNumber`. It uses the same WMS365 shipped-closeout logic as the warehouse UI, including inventory deduction, audit trail, shipment email scheduling, and Shopify confirmation flow where available.
+
+For speed, the endpoint can advance a `RELEASED` order through `PICKED` and `STAGED` before shipping. It refuses `DRAFT`, `CANCELLED`, or archived orders.

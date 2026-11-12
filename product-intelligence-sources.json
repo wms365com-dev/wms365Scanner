@@ -1,0 +1,125 @@
+{
+  "reviewedAt": "2026-09-01",
+  "privacyMode": "feature-metadata-only",
+  "vendors": [
+    {
+      "name": "ShipHero",
+      "comparisonTier": "primary",
+      "comparisonFocus": "e-commerce fulfillment, multi-warehouse allocation, mobile picking, batch picking, replenishment, packing, shipping automation, and customer experience",
+      "officialSources": [
+        "https://get.shiphero.com/ecommerce-wms/",
+        "https://www.shiphero.com/software/inventory",
+        "https://software-help.shiphero.com/"
+      ]
+    },
+    {
+      "name": "Extensiv 3PL Warehouse Manager",
+      "comparisonTier": "primary",
+      "comparisonFocus": "3PL warehouse operations, customer portal, mobile scanning, receiving, billing automation, integrations, reporting, and EDI/API maturity",
+      "officialSources": [
+        "https://www.extensiv.com/solutions/3pls",
+        "https://www.extensiv.com/extensiv-3pl-warehouse-manager",
+        "https://help.extensiv.com/"
+      ]
+    },
+    {
+      "name": "Deposco",
+      "comparisonTier": "primary",
+      "comparisonFocus": "3PL customer portal, API boundaries, inventory transactions, asynchronous imports, warehouse tasks, billing visibility, and integration architecture",
+      "officialSources": [
+        "https://developer.deposco.com/docs/reference",
+        "https://deposco.com/blog/deposco-launches-bright-portal/"
+      ]
+    },
+    {
+      "name": "CartonCloud",
+      "comparisonTier": "primary",
+      "comparisonFocus": "3PL customer self-service, live inventory, orders, delivery status, proof of delivery, invoices, reports, and tenant isolation",
+      "officialSources": ["https://www.cartoncloud.com/en-us/platform/customer-portal"]
+    },
+    {
+      "name": "Mintsoft",
+      "comparisonTier": "primary",
+      "comparisonFocus": "3PL client portal, orders, inventory, returns, reporting, and customer billing visibility",
+      "officialSources": ["https://www.mintsoft.com/3pl-third-party-logistics/3pl-client-portal/"]
+    },
+    {
+      "name": "Logiwa IO",
+      "comparisonTier": "primary",
+      "comparisonFocus": "4PL client portal, inventory, orders, shipments, returns, channel connections, and imported purchase orders",
+      "officialSources": ["https://www.logiwa.com/solutions/4pl-software-client-portal"]
+    },
+    {
+      "name": "Ongoing WMS",
+      "comparisonTier": "primary",
+      "comparisonFocus": "3PL customer order and purchase-order entry, goods flow, inventory, tracking, statistics, permissions, and 2FA",
+      "officialSources": [
+        "https://docs.ongoingwarehouse.com/manuals/customer-manual",
+        "https://docs.ongoingwarehouse.com/manuals/user-administration"
+      ]
+    },
+    {
+      "name": "Mecalux Easy WMS",
+      "comparisonTier": "secondary",
+      "comparisonFocus": "3PL customer portal, controlled inventory access, inventory filtering, and proactive notifications",
+      "officialSources": ["https://www.mecalux.pl/oprogramowanie/3pl-wms"]
+    },
+    {
+      "name": "SnapFulfil",
+      "comparisonTier": "secondary",
+      "comparisonFocus": "3PL Customer Biz Portal, client-scoped inventory, shipments, orders, and billing",
+      "officialSources": ["https://snapfulfil.com/news/key-features-to-leverage-in-snapfulfil-for-2025"]
+    },
+    {
+      "name": "Oracle WMS Cloud",
+      "comparisonTier": "architecture",
+      "comparisonFocus": "3PL hierarchy, role permissions, and company/facility data isolation",
+      "officialSources": ["https://docs.oracle.com/en/cloud/saas/warehouse-management/26a/owsec/companies-and-facilities.html"]
+    },
+    {
+      "name": "Manhattan Active Warehouse Management",
+      "comparisonTier": "architecture",
+      "comparisonFocus": "unified real-time inbound, inventory, outbound, labor, automation, and transportation visibility",
+      "officialSources": ["https://www.manh.com/en-in/our-solutions/supply-chain-management-software/warehouse-management-system"]
+    },
+    {
+      "name": "Blue Yonder WMS",
+      "comparisonTier": "architecture",
+      "comparisonFocus": "connected orders, inventory, transportation, planning, capacity, and fulfillment promises",
+      "officialSources": ["https://blueyonder.com/solutions/warehouse-management"]
+    },
+    {
+      "name": "SAP EWM",
+      "comparisonTier": "architecture",
+      "comparisonFocus": "3PL process boundaries, stock visibility, portals, and warehouse execution architecture",
+      "officialSources": ["https://help.sap.com/doc/7e73eb3b5b884a9581464663f021d2a8/7.0/en-US/Master_Guide_for_SAP_EWM_70E.PDF"]
+    },
+    {
+      "name": "Hopstack",
+      "comparisonTier": "secondary",
+      "comparisonFocus": "inventory ledger, damaged stock, orders, inbound, returns, omnichannel fulfillment, and analytics",
+      "officialSources": [
+        "https://help.hopstack.io/home/introduction-to-hopstack-product-documentation",
+        "https://help.hopstack.io/home/inventory-product-documentation"
+      ]
+    },
+    {
+      "name": "Infoplus",
+      "comparisonTier": "secondary",
+      "comparisonFocus": "real-time integrations, API extensibility, reporting, and branded customer outputs",
+      "officialSources": ["https://www.infopluscommerce.com/standard-wms-integrations"]
+    },
+    {
+      "name": "Peoplevox",
+      "comparisonTier": "secondary",
+      "comparisonFocus": "order progress, inventory history, configurable dashboards, documents, and ecommerce synchronization",
+      "officialSources": ["https://www.peoplevox.com/en-us/features/"]
+    },
+    {
+      "name": "Korber WMS",
+      "comparisonTier": "architecture",
+      "comparisonFocus": "multi-client operations, onboarding, configurable workflows, EDI, invoicing, and value-added services",
+      "officialSources": ["https://koerber-supplychain.com/supply-chain-solutions/supply-chain-software/warehouse-management/"]
+    }
+  ]
+}

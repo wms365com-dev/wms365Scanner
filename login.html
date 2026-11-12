@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e6edf0">
+  <link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+  <link rel="shortcut icon" href="/marketing-logo.svg">
+  <link rel="manifest" href="/site.webmanifest">
+  <title>WMS365 Warehouse Login</title>
+  <style>
+    :root{--bg:#f3f5f6;--panel:#ffffff;--panel-2:#f7f9fa;--line:#d5dde4;--text:#20303a;--muted:#657582;--brand:#5c7b92;--brand-2:#3f5f76;--brand-soft:#edf3f6;--radius:16px;--shadow:0 2px 8px rgba(32,48,58,.05)}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans-serif}
+    body{padding:16px;display:grid;place-items:center}
+    a{color:inherit}
+    .shell{width:min(940px,100%);display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.88fr);gap:16px;align-items:stretch}
+    .intro,.card{border:1px solid var(--line);border-radius:18px;background:#ffffff;box-shadow:var(--shadow)}
+    .intro{padding:20px;display:grid;gap:14px;background:var(--panel-2)}
+    .brand{display:flex;align-items:center;gap:14px}
+    .brand img{width:52px;height:52px;flex:0 0 52px;object-fit:contain}
+    .brand-copy{display:grid;gap:3px}
+    .brand-copy span{font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#607892}
+    .brand-copy strong{font-size:26px;line-height:1;color:#1f3446}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:7px 11px;border-radius:999px;background:var(--brand-soft);color:var(--brand-2);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;width:max-content}
+    .eyebrow::before{content:"";width:8px;height:8px;border-radius:999px;background:var(--brand)}
+    h1{margin:0;font-size:clamp(1.9rem,3vw,2.8rem);line-height:1;color:#1f3446}
+    .lead{margin:0;color:var(--muted);font-size:.96rem;line-height:1.6;max-width:52ch}
+    .feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .feature{padding:12px;border-radius:12px;border:1px solid #dce4ea;background:#ffffff}
+    .feature strong{display:block;font-size:14px;color:#23394b}
+    .feature span{display:block;margin-top:5px;color:#67798b;font-size:12px;line-height:1.45}
+    .card{width:100%;padding:22px;display:grid;gap:14px}
+    .login-brand{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:#fff}
+    .login-brand img{width:32px;height:32px;flex:0 0 32px;object-fit:contain}
+    .login-brand-copy{display:grid;gap:2px;min-width:0;flex:1 1 auto}
+    .login-brand-copy span{display:none}
+    .login-brand-copy strong{font-size:19px;font-weight:800;line-height:1.08;color:var(--text)}
+    .login-brand-badge{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:#fff;color:var(--brand-2);font-size:12px;font-weight:800;flex:0 0 auto}
+    .card-head{display:grid;gap:8px}
+    .card-head h2{margin:0;font-size:1.4rem;color:#203548}
+    .card-head p{margin:0;color:var(--muted);line-height:1.55}
+    label{display:grid;gap:6px;font-size:13px;font-weight:700;color:#3f5a72}
+    input{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:#fff;color:var(--text)}
+    input:focus{outline:none;border-color:rgba(92,123,146,.65);box-shadow:0 0 0 3px rgba(92,123,146,.12)}
+    button{width:100%;margin-top:4px;padding:13px 16px;border:1px solid transparent;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px;transition:opacity .18s ease,filter .18s ease,transform .18s ease}
+    button:hover:enabled{filter:brightness(1.03)}
+    button:disabled{opacity:.7;cursor:not-allowed}
+    button.is-busy,button[aria-busy="true"]{opacity:.92;cursor:progress}
+    button.is-busy::after,button[aria-busy="true"]::after{content:"";width:14px;height:14px;flex:0 0 auto;border-radius:999px;border:2px solid currentColor;border-right-color:transparent;animation:buttonSpin .75s linear infinite}
+    @keyframes buttonSpin{to{transform:rotate(360deg)}}
+    .msg{margin-top:2px;font-size:14px;min-height:20px}
+    .err{color:#b93c3c}
+    .ok{color:#1c8a5f}
+    .small{font-size:12px;color:#7b8fa2}
+    .policy-note{font-size:11px;line-height:1.4;color:#6d7f8f;border-top:1px solid #e3edf6;padding-top:9px}
+    .card-links{display:flex;flex-wrap:wrap;gap:12px}
+    .card-link{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;color:#30475a;text-decoration:none;font-size:13px;font-weight:700}
+    .card-link.recovery-action{width:auto;margin-top:0;background:#fff;color:#30475a;border-color:var(--line)}
+    .recovery-box{display:grid;gap:10px;padding:12px;border:1px solid #dce4ea;border-radius:14px;background:#f8fafc}
+    .recovery-box p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+    .recovery-actions{display:flex;flex-wrap:wrap;gap:10px}
+    .recovery-actions button{width:auto;margin:0;padding:10px 13px;background:#fff;color:#30475a;border:1px solid var(--line)}
+    .build{padding-top:4px;border-top:1px solid #e3edf6}
+    @media (max-width:900px){.shell{grid-template-columns:1fr}.intro{order:2}.card{order:1}}
+    @media (max-width:640px){body{padding:12px}.intro,.card{padding:18px}.brand img{width:46px;height:46px;flex-basis:46px}.brand-copy strong{font-size:23px}.feature-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="intro" aria-label="WMS365 overview">
+      <div class="brand">
+        <img src="/marketing-logo.svg" alt="WMS365 logo" width="56" height="56">
+        <div class="brand-copy">
+          <span>Warehouse Software</span>
+          <strong>WMS365</strong>
+        </div>
+      </div>
+      <div class="eyebrow">Warehouse Access</div>
+      <h1>Warehouse staff sign in here to work the system.</h1>
+      <p class="lead">Receiving, inventory control, outbound execution, billing, and support workflows stay in the same WMS365 workspace.</p>
+      <div class="feature-grid">
+        <div class="feature"><strong>Inbound</strong><span>Receive stock, manage purchase orders, and save live warehouse inventory from one shell.</span></div>
+        <div class="feature"><strong>Inventory</strong><span>Search, adjust, move, count, and relabel stock without switching tools.</span></div>
+        <div class="feature"><strong>Outbound</strong><span>Work released orders through pick, stage, ship, and shipped-history review.</span></div>
+        <div class="feature"><strong>Deployment</strong><span>Every screen shows the live build label so teams can confirm the environment fast.</span></div>
+      </div>
+    </section>
+    <form class="card" id="loginForm">
+      <div class="login-brand">
+        <img src="/marketing-logo.svg" alt="WMS365 logo" width="32" height="32">
+        <div class="login-brand-copy">
+          <span>WMS365</span>
+          <strong>WMS365 Scanner</strong>
+        </div>
+        <span class="login-brand-badge">Login</span>
+      </div>
+      <div class="card-head">
+        <h2>Warehouse Login</h2>
+        <p>Warehouse staff login required to access the internal WMS365 application.</p>
+      </div>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+      <div class="msg" id="message"></div>
+      <div class="recovery-box">
+        <p>Forgot your username or password? Enter the email tied to your WMS365 warehouse access. We only send recovery emails to active registered users.</p>
+        <label for="recoveryEmail">Recovery email</label>
+        <input id="recoveryEmail" name="recoveryEmail" type="email" autocomplete="email" placeholder="name@company.com">
+        <div class="recovery-actions">
+          <button id="forgotUsernameBtn" type="button">Forgot username</button>
+          <button id="forgotPasswordBtn" type="button">Forgot password</button>
+        </div>
+      </div>
+      <div class="card-links">
+        <a class="card-link" href="/access">Access Center</a>
+        <a class="card-link" href="https://app.wms365.co/portal">Customer Portal</a>
+        <a class="card-link" href="mailto:support@wms365.co">Support</a>
+      </div>
+      <div class="small">Customer portal users should use the separate portal login page.</div>
+      <div class="small build" id="loginBuildLabel">Deployment: loading...</div>
+    </form>
+  </div>
+  <script src="/mobile-bridge.js"></script>
+  <script>
+    const form=document.getElementById('loginForm');
+    const message=document.getElementById('message');
+    const buildLabel=document.getElementById('loginBuildLabel');
+    const submitButton=form.querySelector('button[type="submit"]');
+    const recoveryEmail=document.getElementById('recoveryEmail');
+    const forgotUsernameBtn=document.getElementById('forgotUsernameBtn');
+    const forgotPasswordBtn=document.getElementById('forgotPasswordBtn');
+    function setButtonBusy(button,busy,label){
+      if(!button) return;
+      if(busy){
+        if(!button.dataset.busyOriginalLabel) button.dataset.busyOriginalLabel=button.textContent||'';
+        if(!button.dataset.busyOriginalDisabled) button.dataset.busyOriginalDisabled=button.disabled?'true':'false';
+        button.disabled=true;
+        button.classList.add('is-busy');
+        button.setAttribute('aria-busy','true');
+        if(label) button.textContent=label;
+        return;
+      }
+      if('busyOriginalLabel' in button.dataset) button.textContent=button.dataset.busyOriginalLabel||'';
+      button.disabled=button.dataset.busyOriginalDisabled==='true';
+      button.classList.remove('is-busy');
+      button.removeAttribute('aria-busy');
+      delete button.dataset.busyOriginalLabel;
+      delete button.dataset.busyOriginalDisabled;
+    }
+    function sanitizeNextWarehousePath(value){
+      const text=String(value||'').trim();
+      if(!text || !text.startsWith('/') || text.startsWith('//') || text === '/login' || text === '/login.html'){
+        return '/app';
+      }
+      return text;
+    }
+    function getAndroidDevicePayload(){
+      if(typeof window.WMS365Android === 'undefined') return {};
+      const model=String(window.WMS365Android.getDeviceModel?.()||'').trim();
+      const manufacturer=String(window.WMS365Android.getDeviceManufacturer?.()||'').trim();
+      return {
+        source:'android_webview',
+        appSource:'android_webview',
+        appName:'WMS365 Scanner',
+        packageName:'com.wms365.app',
+        platform:'android',
+        deviceId:String(window.WMS365Android.getDeviceId?.()||'').trim()?`android-${String(window.WMS365Android.getDeviceId?.()||'').trim()}`:'',
+        manufacturer,
+        model:model.replace(manufacturer,'').trim()||model,
+        appVersion:String(window.WMS365Android.getAppVersion?.()||'').trim(),
+        scannerType:String(window.WMS365Android.getScannerProfile?.()||'Android WebView scanner').trim()
+      };
+    }
+    const warehouseAppEntryPath=sanitizeNextWarehousePath(new URLSearchParams(window.location.search||'').get('next'));
+    fetch('/api/version').then(r=>r.ok?r.json():null).then(data=>{ if(buildLabel){ const label=data?.build?.label||'Build unavailable'; buildLabel.textContent=`Deployment: ${label}`; } }).catch(()=>{ if(buildLabel) buildLabel.textContent='Deployment: Build unavailable'; });
+    fetch('/api/app/me').then(r=>r.ok?r.json():null).then(data=>{ if(data&&data.authenticated){ window.location.href=warehouseAppEntryPath; } }).catch(()=>{});
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      message.className='msg';
+      message.textContent='Signing in...';
+      const payload={email:form.email.value.trim(), password:form.password.value, ...getAndroidDevicePayload()};
+      try{
+        setButtonBusy(submitButton,true,'Signing in...');
+        const res=await fetch('/api/app/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const data=await res.json().catch(()=>({}));
+        if(!res.ok){ throw new Error(data.error||'Login failed.'); }
+        message.className='msg ok';
+        message.textContent='Login accepted. Opening warehouse app...';
+        window.location.href=warehouseAppEntryPath;
+      }catch(err){
+        message.className='msg err';
+        message.textContent=err.message||'Login failed.';
+      }finally{
+        setButtonBusy(submitButton,false);
+      }
+    });
+    async function runRecovery(kind){
+      const email=(recoveryEmail.value||form.email.value||'').trim();
+      if(!email){
+        message.className='msg err';
+        message.textContent='Enter the email address used for WMS365 access.';
+        recoveryEmail.focus();
+        return;
+      }
+      const button=kind==='username'?forgotUsernameBtn:forgotPasswordBtn;
+      try{
+        message.className='msg';
+        message.textContent=kind==='username'?'Checking username access...':'Creating a temporary password...';
+        setButtonBusy(button,true,kind==='username'?'Sending...':'Resetting...');
+        const res=await fetch(`/api/app/recovery/${kind}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+        const data=await res.json().catch(()=>({}));
+        if(!res.ok){ throw new Error(data.error||'Recovery request failed.'); }
+        message.className='msg ok';
+        message.textContent=data.message||'Recovery email sent from support@wms365.co.';
+      }catch(err){
+        message.className='msg err';
+        message.textContent=err.message||'No registered WMS365 user was found. If you want to sign up, visit wms365.co/pricing or contact support@wms365.co.';
+      }finally{
+        setButtonBusy(button,false);
+      }
+    }
+    forgotUsernameBtn.addEventListener('click',()=>runRecovery('username'));
+    forgotPasswordBtn.addEventListener('click',()=>runRecovery('password'));
+  </script>
+</body>
+</html>

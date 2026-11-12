@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e6edf0">
+<link rel="icon" type="image/svg+xml" href="/marketing-logo.svg">
+<link rel="shortcut icon" href="/marketing-logo.svg">
+<link rel="manifest" href="/site.webmanifest">
+<title>WMS365 Mobile Inventory Count</title>
+<style>
+:root{--bg:#f3f5f6;--card:#fff;--text:#20303a;--muted:#657582;--line:#d5dde4;--brand:#5c7b92;--brand2:#3f5f76;--brandsoft:#edf3f6;--good:#5f8169;--bad:#b66363;--warn:#b08b47;--warnbg:#fff8e8}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--text)}.app{min-height:100vh;min-height:100dvh;display:grid;grid-template-rows:auto 1fr;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}.top{padding:8px 4px}.appbar{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:#fff}.appbar img{width:32px;height:32px;flex:0 0 32px;object-fit:contain}.appbar-copy{display:grid;gap:2px;min-width:0;flex:1 1 auto}.kicker{display:none}.title-text{font-size:19px;font-weight:800;line-height:1.08}.badge{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:#fff;color:var(--brand2);font-weight:700;font-size:12px;flex:0 0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;box-shadow:none}.stack{display:grid;gap:10px;align-content:start}.field{display:grid;gap:6px}.field span{font-size:13px;font-weight:700;color:var(--text)}input,select,button{font:inherit}input,select{width:100%;border:1px solid var(--line);border-radius:8px;padding:12px 11px;font-size:16px;background:#fff;color:var(--text)}input:focus,select:focus{outline:3px solid rgba(92,123,146,.16);border-color:var(--brand)}.scan-row{display:grid;grid-template-columns:minmax(0,1fr) 86px;gap:8px}.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 140px}.btn{border:0;border-radius:8px;padding:12px 13px;background:var(--brand);color:#fff;font-weight:700;min-height:44px}.btn.secondary{background:var(--brand2)}.btn.ghost{background:#fff;color:var(--brand2);border:1px solid var(--line)}.btn.warn{background:#fff8e8;color:#8a5d1f;border:1px solid #ead39f}.btn:disabled{opacity:.55}.hidden{display:none!important}.meta,.status{font-size:13px;line-height:1.35;color:var(--muted)}.status{min-height:20px}.status.good{color:#3f6f4d}.status.bad{color:#9a4d4d}.queue-status{margin-top:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;font-size:13px;color:var(--muted)}.queue-status.warn{border-color:#e4c983;background:var(--warnbg);color:#8a5d1f}.queue-status.good{border-color:#c9d9cd;background:#f0f5f1;color:#3f6f4d}.prompt{border-top:1px solid var(--line);padding-top:12px;margin-top:4px}.summary{display:grid;grid-template-columns:1fr 1fr;gap:8px}.summary div{border:1px solid var(--line);border-radius:8px;padding:8px;background:#f7f9fa}.summary span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700}.summary strong{display:block;margin-top:3px}.locked{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:8px;background:#f7f9fa;padding:9px 10px}.locked span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700}.locked strong{font-size:16px}.locked-actions{display:flex;gap:6px;align-items:center;flex:0 0 auto}.locked .btn{flex:0 0 auto;min-height:38px;padding:9px 11px}.warnbox{border:1px solid #e4c983;background:var(--warnbg);color:#8a5d1f;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.35}.photo-preview{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#f7f9fa}.photo-preview img{display:block;width:100%;max-height:220px;object-fit:cover}.scanner{position:fixed;inset:0;background:rgba(32,48,58,.82);display:grid;place-items:center;padding:16px;z-index:50}.scanner-card{background:#fff;border-radius:8px;padding:12px;width:min(100%,420px);display:grid;gap:10px}.scanner video{width:100%;border-radius:8px;background:#000;aspect-ratio:4/3;object-fit:cover}.footer{display:none}body.count-active .app{grid-template-rows:1fr;padding:6px}body.count-active .top{display:none}body.count-active .stack{gap:7px}body.count-active .card{padding:9px}body.count-active .locked{padding:8px 9px}body.count-active .field{gap:4px}body.count-active input,body.count-active select{padding:10px 11px}body.count-active .btn{padding:10px 12px}body.count-active .status{min-height:0}@media (max-height:700px){.top{padding-top:8px}.stack{gap:8px}.card{padding:10px}.btn{padding:10px 12px}input,select{padding:10px 11px}}
+body{font-family:"Segoe UI Variable Text","Segoe UI","Helvetica Neue",Arial,sans-serif}.card,.locked,.queue-status,.prompt,.summary div,.warnbox,.photo-preview,.scanner-card,input,select,.btn{border-radius:12px}.scan-row{grid-template-columns:minmax(0,1fr) 82px}.btn{font-weight:800}.btn.ghost{color:var(--brand2);background:#fff;border:1px solid var(--line)}.badge{font-weight:800}.field span,.locked span,.summary span{letter-spacing:.08em}.policy-note{font-size:11px;line-height:1.35;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="appbar">
+      <img src="/marketing-logo.svg" alt="WMS365 logo" width="32" height="32">
+      <div class="appbar-copy">
+        <div class="kicker">WMS365</div>
+        <div class="title-text">WMS365 Scanner</div>
+      </div>
+      <span class="badge">Count</span>
+    </div>
+    <div class="meta" id="buildLabel">Loading...</div>
+    <div class="queue-status hidden" id="queueStatus"></div>
+  </header>
+
+  <main class="stack">
+    <section class="card stack" id="companyStep">
+      <label class="field">
+        <span>Company</span>
+        <select id="accountSelect"></select>
+      </label>
+      <div class="row">
+        <button class="btn" id="lockCompanyBtn" type="button">Continue To Count</button>
+        <button class="btn ghost" id="companyMenuBtn" type="button">Menu</button>
+      </div>
+      <div class="status" id="companyMessage">Choose the company for this count.</div>
+    </section>
+
+    <section class="card stack hidden" id="countStep">
+      <div class="locked">
+        <div><span>Company Locked</span><strong id="lockedCompanyLabel">-</strong></div>
+        <div class="locked-actions">
+          <button class="btn ghost" id="menuBtn" type="button">Menu</button>
+          <button class="btn ghost" id="switchCompanyBtn" type="button">Switch</button>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>Location</span>
+        <div class="scan-row">
+          <input id="locationInput" list="locationList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or key location" enterkeyhint="next">
+          <button class="btn ghost" type="button" data-scan-target="locationInput">Scan</button>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>SKU / UPC</span>
+        <div class="scan-row">
+          <input id="skuInput" list="skuList" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or key SKU" enterkeyhint="next">
+          <button class="btn ghost" type="button" data-scan-target="skuInput">Scan</button>
+        </div>
+      </label>
+
+      <label class="field">
+        <span>Quantity In Cases</span>
+        <input id="casesInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Counted cases" enterkeyhint="done" autocomplete="off">
+      </label>
+
+      <div class="row hidden" id="traceFields">
+        <label class="field hidden" id="lotField">
+          <span>Lot</span>
+          <div class="scan-row">
+            <input id="lotInput" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or enter lot" enterkeyhint="next">
+            <button class="btn ghost" type="button" data-scan-target="lotInput">Scan</button>
+          </div>
+        </label>
+        <label class="field hidden" id="expirationField">
+          <span>Expiry</span>
+          <input id="expirationInput" type="date">
+        </label>
+      </div>
+
+      <div class="summary" id="itemSummary">
+        <div><span>Tracking</span><strong id="trackingValue">-</strong></div>
+        <div><span>System Qty</span><strong id="systemValue">-</strong></div>
+      </div>
+
+      <div class="warnbox hidden" id="warningBox"></div>
+
+      <div class="stack hidden" id="photoBlock">
+        <div class="meta">Take a quick photo so desktop review can verify this without sending someone back.</div>
+        <div class="row">
+          <button class="btn ghost" id="photoBtn" type="button">Take Picture</button>
+          <button class="btn ghost hidden" id="clearPhotoBtn" type="button">Clear Photo</button>
+        </div>
+        <input id="photoInput" class="hidden" type="file" accept="image/*" capture="environment">
+        <div class="photo-preview hidden" id="photoPreviewWrap"><img id="photoPreview" alt="Count verification photo"></div>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="saveBtn" type="button">Save Count</button>
+        <button class="btn ghost" id="clearBtn" type="button">Clear SKU</button>
+      </div>
+      <div class="status" id="message">Scan the location, SKU, and counted cases.</div>
+
+      <div class="prompt hidden" id="afterSavePrompt">
+        <div class="meta" id="savedMeta">Count saved.</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn secondary" id="anotherSkuBtn" type="button">Add Another SKU</button>
+          <button class="btn ghost" id="nextLocationBtn" type="button">Next Location</button>
+        </div>
+      </div>
+    </section>
+
+    <datalist id="locationList"></datalist>
+    <datalist id="skuList"></datalist>
+  </main>
+
+  <footer class="footer"><a href="/mobile" style="color:inherit">Back to mobile menu</a></footer>
+</div>
+
+<div class="scanner hidden" id="scannerOverlay">
+  <div class="scanner-card">
+    <video id="scannerVideo" playsinline muted></video>
+    <div class="status" id="scannerMessage">Point the camera at the barcode.</div>
+    <button class="btn ghost" id="closeScannerBtn" type="button">Close Scanner</button>
+  </div>
+</div>
+
+<script src="/mobile-bridge.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const LOCKED_COMPANY_KEY="wms365_inventory_count_company";
+const GLOBAL_COMPANY_KEY="wms365-mobile-company-context";
+const MOBILE_DEVICE_STATE_CACHE_KEY="warehouse-state-v1";
+const MOBILE_DEVICE_CACHE_MAX_AGE_MS=12*60*60*1000;
+const LOCAL_DB_NAME="wms365-mobile-count";
+const LOCAL_DB_VERSION=1;
+const state={inventory:[],items:[],locations:[],owners:[],session:null,lockedAccount:"",photoData:"",scanTarget:"",scannerStream:null,scannerTimer:null,offlineMode:false,pendingCount:0};
+function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
+function norm(v){return String(v||"").trim().replace(/\s+/g," ").toUpperCase()}
+function getGlobalCompany(){return norm(window.WMS365Mobile?.getCompanyContext?.()||localStorage.getItem(GLOBAL_COMPANY_KEY)||"")}
+function setGlobalCompany(account){const normalized=norm(account);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
+function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
+function requestedCompany(){const params=new URLSearchParams(location.search);return norm(params.get("accountName")||params.get("account")||"")}
+function stripCompanyFromUrl(){try{const url=new URL(location.href);url.searchParams.delete("accountName");url.searchParams.delete("account");history.replaceState(null,"",`${url.pathname}${url.search}${url.hash}`)}catch{}}
+function provisionalCompany(){return requestedCompany()||getGlobalCompany()||norm(localStorage.getItem(LOCKED_COMPANY_KEY)||"")}
+function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+function trackingLabel(v){const t=norm(v);return t==="PALLET"?"Pallets":t==="CASE"?"Cases":"Units"}
+function qtyText(q,t){const n=Number(q)||0;return `${n} ${trackingLabel(t).toLowerCase()}`}
+async function requestJson(url,options={}){
+  let res;
+  try{
+    res=await fetch(url,{cache:"no-store",headers:{"Content-Type":"application/json",...(options.headers||{})},...options});
+  }catch(error){
+    error.offline=true;
+    error.message="WMS365 could not connect. The count was not submitted. Check the scanner network connection and try again.";
+    throw error;
+  }
+  const text=await res.text();let data={};
+  try{data=text?JSON.parse(text):{}}catch{throw new Error("WMS365 received an unexpected response. Refresh this screen and try again.")}
+  if(!res.ok){if(res.status===401){location.href="/login";return}const error=new Error(data.error||friendlyCountRequestFailure(res.status,data.requestId));error.status=res.status;throw error}
+  return data;
+}
+function friendlyCountRequestFailure(status,requestId=""){
+  const reference=requestId?` Reference: ${requestId}.`:"";
+  if(status===403)return "You do not have access to submit this count. Ask a warehouse lead for help.";
+  if(status===404)return "This count task is no longer available. Refresh the task list.";
+  if(status===409)return "This inventory was updated on another device. Refresh and recount before submitting.";
+  if(status>=500)return `WMS365 could not save this count right now. The count was not confirmed. Try again.${reference}`;
+  return `WMS365 could not complete this action. Review the count and try again.${reference}`;
+}
+function openLocalDb(){
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open(LOCAL_DB_NAME,LOCAL_DB_VERSION);
+    request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains("pendingCounts"))db.createObjectStore("pendingCounts",{keyPath:"localId"});if(!db.objectStoreNames.contains("stateCache"))db.createObjectStore("stateCache",{keyPath:"key"})};
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error||new Error("Device storage is not available."));
+  });
+}
+async function localStore(storeName,mode,work){
+  const db=await openLocalDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(storeName,mode);const store=tx.objectStore(storeName);let request;
+    try{request=work(store)}catch(error){db.close();reject(error);return}
+    tx.oncomplete=()=>{const result=request&&"result" in request?request.result:undefined;db.close();resolve(result)};
+    tx.onerror=()=>{const error=tx.error||new Error("Device storage failed.");db.close();reject(error)};
+  });
+}
+const localPut=(store,value)=>localStore(store,"readwrite",s=>s.put(value));
+const localDelete=(store,key)=>localStore(store,"readwrite",s=>s.delete(key));
+const localGet=(store,key)=>localStore(store,"readonly",s=>s.get(key));
+const localAll=(store)=>localStore(store,"readonly",s=>s.getAll());
+function makeLocalId(){return `count-${Date.now()}-${Math.random().toString(36).slice(2,8)}`}
+function shouldQueueSave(error){return error?.offline||!navigator.onLine||error?.status===503||error?.status>=500}
+function compactStatePayload(payload){return{inventory:payload?.inventory||[],inventoryCounts:payload?.inventoryCounts||[],warehouseTasks:payload?.warehouseTasks||[],masters:payload?.masters||{},meta:payload?.meta||{},session:payload?.session||{}}}
+async function cacheStatePayload(payload){
+  await localPut("stateCache",{key:"latest",payload,cachedAt:new Date().toISOString()});
+  if(window.WMS365Mobile?.cacheData)await window.WMS365Mobile.cacheData(MOBILE_DEVICE_STATE_CACHE_KEY,compactStatePayload(payload)).catch(()=>{});
+}
+async function readCachedStatePayload(){
+  const cached=await localGet("stateCache","latest");
+  if(cached?.payload)return cached.payload;
+  const shared=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData(MOBILE_DEVICE_STATE_CACHE_KEY,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
+  return shared?.payload||null;
+}
+async function hydrateFromFastCompany(company){
+  const account=norm(company);
+  if(!account||!window.WMS365Mobile?.getCompanyFastData)return false;
+  const fast=await window.WMS365Mobile.getCompanyFastData(account,{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null);
+  if(!fast)return false;
+  const index=window.WMS365Mobile?.getCachedData?await window.WMS365Mobile.getCachedData("warehouse-company-index-v1",{maxAgeMs:MOBILE_DEVICE_CACHE_MAX_AGE_MS}).catch(()=>null):null;
+  const owners=Array.isArray(index?.payload?.companies)&&index.payload.companies.length?index.payload.companies:[account];
+  applyStatePayload({
+    inventory:fast.inventory||[],
+    inventoryCounts:fast.inventoryCounts||[],
+    warehouseTasks:fast.warehouseTasks||[],
+    masters:{items:fast.items||[],locations:fast.locations||[],owners},
+    session:fast.session||{},
+    meta:fast.meta||{}
+  });
+  state.lockedAccount=account;
+  $("accountSelect").innerHTML=state.owners.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
+  $("accountSelect").value=state.owners.find(o=>norm(o)===account)||account;
+  renderOptions();
+  renderCompanyStep();
+  $("message").className="status good";
+  $("message").textContent="Ready to count.";
+  return true;
+}
+async function queuedCounts(){
+  if(window.WMS365Mobile?.getQueuedTransactions){
+    const queued=await window.WMS365Mobile.getQueuedTransactions().catch(()=>[]);
+    return queued.filter(record=>record.actionType==="INVENTORY_COUNT_SUBMIT");
+  }
+  try{return await localAll("pendingCounts")}catch{return[]}
+}
+async function updateQueueStatus(){
+  const queued=await queuedCounts();state.pendingCount=queued.length;
+  const el=$("queueStatus");if(!el)return;
+  const failed=queued.filter(record=>record.status==="FAILED").length;
+  el.className=`queue-status ${failed?"warn":queued.length||state.offlineMode?"warn":"good"} ${queued.length||state.offlineMode?"":"hidden"}`;
+  if(failed)el.textContent=`${failed} count sync failed. Tap Retry to send again.`;
+  else if(queued.length)el.textContent=`${queued.length} count${queued.length===1?"":"s"} saved on this device and waiting to sync.`;
+  else if(state.offlineMode)el.textContent="Offline mode: using the last saved company, location, and SKU data on this device.";
+  else el.textContent="";
+}
+async function queuePendingCount(payload){
+  if(window.WMS365Mobile?.queueTransaction){
+    const record=await window.WMS365Mobile.queueTransaction({url:"/api/inventory-counts",method:"POST",payload,actionType:"INVENTORY_COUNT_SUBMIT"});
+    await updateQueueStatus();
+    return record;
+  }
+  const record={localId:makeLocalId(),payload,createdAt:new Date().toISOString(),attempts:0};
+  await localPut("pendingCounts",record);
+  await updateQueueStatus();
+  return record;
+}
+async function syncPendingCounts(){
+  if(window.WMS365Mobile?.syncQueue){
+    const result=await window.WMS365Mobile.syncQueue().catch(()=>({synced:0}));
+    await updateQueueStatus();
+    return Number(result?.synced)||0;
+  }
+  const queued=await queuedCounts();
+  if(!queued.length||!navigator.onLine){await updateQueueStatus();return 0}
+  let synced=0;
+  for(const record of queued.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)))){
+    try{
+      await requestJson("/api/inventory-counts",{method:"POST",body:JSON.stringify(record.payload)});
+      await localDelete("pendingCounts",record.localId);
+      synced+=1;
+    }catch(error){
+      record.attempts=(Number(record.attempts)||0)+1;record.lastError=error.message||"Sync failed";record.lastAttemptAt=new Date().toISOString();
+      await localPut("pendingCounts",record);
+      break;
+    }
+  }
+  await updateQueueStatus();
+  return synced;
+}
+function applyStatePayload(payload){
+  state.inventory=Array.isArray(payload.inventory)?payload.inventory:[];
+  state.items=Array.isArray(payload.masters?.items)?payload.masters.items:[];
+  state.locations=Array.isArray(payload.masters?.locations)?payload.masters.locations:[];
+  state.owners=Array.isArray(payload.masters?.owners)?payload.masters.owners:[];
+  state.session=payload.session?.appUser||null;
+  $("buildLabel").textContent=state.offlineMode?"Offline - using last sync":`Signed in${state.session?.email?` as ${state.session.email}`:""}`;
+}
+function selectedAccount(){return norm(state.lockedAccount)}
+function selectedItem(){
+  const account=selectedAccount();const code=norm($("skuInput").value);
+  if(!account||!code)return null;
+  const matches=state.items.filter(i=>norm(i.accountName)===account&&(norm(i.sku)===code||norm(i.upc)===code));
+  return matches.length===1?matches[0]:null;
+}
+function knownLocation(){
+  const loc=norm($("locationInput").value);
+  return !loc || state.locations.some(entry=>norm(entry.code)===loc) || state.inventory.some(line=>norm(line.accountName)===selectedAccount()&&norm(line.location)===loc);
+}
+function knownSku(){
+  const code=norm($("skuInput").value);
+  return !code || !!selectedItem() || state.inventory.some(line=>norm(line.accountName)===selectedAccount()&&(norm(line.sku)===code||norm(line.upc)===code));
+}
+function matchingInventory(){
+  const account=selectedAccount();const loc=norm($("locationInput").value);const code=norm($("skuInput").value);const item=selectedItem();
+  if(!account||!loc||!code)return[];
+  const sku=item?.sku||code;const lot=norm($("lotInput").value);const exp=$("expirationInput").value||"";
+  return state.inventory.filter(line=>norm(line.accountName)===account&&norm(line.location)===loc&&norm(line.sku)===norm(sku)&&norm(line.lotNumber||"")===lot&&String(line.expirationDate||"").slice(0,10)===exp);
+}
+function renderOptions(){
+  const account=selectedAccount();
+  $("locationList").innerHTML=state.locations.map(loc=>`<option value="${esc(loc.code)}">${esc(loc.note||"")}</option>`).join("");
+  $("skuList").innerHTML=state.items.filter(i=>!account||norm(i.accountName)===account).map(i=>`<option value="${esc(i.sku)}">${esc([i.upc?`UPC ${i.upc}`:"",i.description||""].filter(Boolean).join(" | "))}</option>`).join("");
+}
+function exceptionMessages(){
+  const messages=[];
+  if(norm($("locationInput").value)&&!knownLocation()) messages.push("Location is not in the saved location list.");
+  if(norm($("skuInput").value)&&!knownSku()) messages.push("SKU or UPC is not in the item master.");
+  return messages;
+}
+function renderWarnings(){
+  const messages=exceptionMessages();
+  $("warningBox").classList.toggle("hidden",!messages.length);
+  $("photoBlock").classList.toggle("hidden",!messages.length);
+  $("warningBox").textContent=messages.length?`${messages.join(" ")} You can continue, but take a picture for review.`:"";
+}
+function renderItem(){
+  renderOptions();
+  const hasSku=!!norm($("skuInput").value);
+  $("itemSummary").classList.toggle("hidden",!hasSku);
+  const item=selectedItem();
+  const needsLot=item?.lotTracked===true;const needsExp=item?.expirationTracked===true;
+  $("traceFields").classList.toggle("hidden",!(needsLot||needsExp));
+  $("lotField").classList.toggle("hidden",!needsLot);
+  $("expirationField").classList.toggle("hidden",!needsExp);
+  $("trackingValue").textContent=item?trackingLabel(item.trackingLevel):"Cases";
+  const total=matchingInventory().reduce((sum,line)=>sum+(Number(line.quantity)||0),0);
+  $("systemValue").textContent=hasSku?qtyText(total,item?.trackingLevel||"CASE"):"-";
+  renderWarnings();
+}
+function clearPhoto(){
+  state.photoData="";
+  $("photoInput").value="";
+  $("photoPreview").removeAttribute("src");
+  $("photoPreviewWrap").classList.add("hidden");
+  $("clearPhotoBtn").classList.add("hidden");
+}
+function clearSku(){
+  $("skuInput").value="";$("casesInput").value="";$("lotInput").value="";$("expirationInput").value="";
+  clearPhoto();
+  $("afterSavePrompt").classList.add("hidden");renderItem();$("skuInput").focus();
+}
+function nextLocation(){
+  $("locationInput").value="";clearSku();$("locationInput").focus();
+}
+function renderCompanyStep(){
+  const locked=selectedAccount();
+  document.body.classList.toggle("count-active",!!locked);
+  $("companyStep").classList.toggle("hidden",!!locked);
+  $("countStep").classList.toggle("hidden",!locked);
+  $("lockedCompanyLabel").textContent=locked||"-";
+  $("lockCompanyBtn").disabled=!norm($("accountSelect").value);
+  if(locked)renderItem();
+}
+function lockCompany(){
+  const account=norm($("accountSelect").value);
+  if(!account){$("companyMessage").className="status bad";$("companyMessage").textContent="Choose a company before counting.";return}
+  state.lockedAccount=account;
+  try{localStorage.setItem(LOCKED_COMPANY_KEY,account)}catch{}
+  setGlobalCompany(account);
+  $("companyMessage").className="status";$("companyMessage").textContent="Choose the company for this count.";
+  clearSku();renderCompanyStep();$("locationInput").focus();
+}
+function switchCompany(){
+  state.lockedAccount="";
+  try{localStorage.removeItem(LOCKED_COMPANY_KEY)}catch{}
+  clearGlobalCompany();
+  stripCompanyFromUrl();
+  $("locationInput").value="";clearSku();renderCompanyStep();$("accountSelect").focus();
+}
+async function load(){
+  const provisional=provisionalCompany();
+  if(provisional&&!state.lockedAccount){state.lockedAccount=provisional;renderCompanyStep();$("message").className="status";$("message").textContent="Loading company data..."}
+  await hydrateFromFastCompany(provisional||getGlobalCompany()||state.lockedAccount).catch(()=>false);
+  let payload;
+  try{
+    payload=await requestJson("/api/state");
+    state.offlineMode=false;
+    await cacheStatePayload(payload);
+  }catch(error){
+    payload=await readCachedStatePayload();
+    if(!payload)throw error;
+    state.offlineMode=true;
+  }
+  applyStatePayload(payload);
+  $("accountSelect").innerHTML=state.owners.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
+  const requested=requestedCompany();
+  if(requested&&state.owners.map(norm).includes(requested))$("accountSelect").value=state.owners.find(o=>norm(o)===requested);
+  const globalCompany=getGlobalCompany();
+  const saved=norm(localStorage.getItem(LOCKED_COMPANY_KEY)||"");const allowed=state.owners.map(norm);
+  if(requested&&allowed.includes(requested))state.lockedAccount=requested;
+  else if(globalCompany&&allowed.includes(globalCompany))state.lockedAccount=globalCompany;
+  else if(state.lockedAccount&&allowed.includes(state.lockedAccount))state.lockedAccount=state.lockedAccount;
+  else if(saved&&allowed.includes(saved))state.lockedAccount=saved;
+  else state.lockedAccount="";
+  if(state.lockedAccount&&allowed.includes(state.lockedAccount)){setGlobalCompany(state.lockedAccount);try{localStorage.setItem(LOCKED_COMPANY_KEY,state.lockedAccount)}catch{};$("accountSelect").value=state.owners.find(o=>norm(o)===state.lockedAccount)||state.lockedAccount}
+  renderOptions();renderCompanyStep();(state.lockedAccount?$("locationInput"):$("accountSelect")).focus();
+  await updateQueueStatus();
+  if(!state.offlineMode){
+    const synced=await syncPendingCounts();
+    if(synced)$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;
+  }
+  if(state.lockedAccount&&/Loading company data/i.test($("message").textContent||"")){
+    $("message").className="status good";
+    $("message").textContent="Ready to count.";
+  }
+}
+async function saveCount(){
+  try{
+    const item=selectedItem();const account=selectedAccount();const locationValue=norm($("locationInput").value);const skuValue=norm($("skuInput").value);const casesRaw=cleanScanValue($("casesInput").value);const cases=Number.parseInt(casesRaw,10);
+    if(!account)throw new Error("Choose a company.");
+    if(!locationValue)throw new Error("Scan or key in a location.");
+    if(!skuValue)throw new Error("Scan a product barcode or key in the SKU.");
+    if(!isLikelyCaseQuantity(casesRaw))throw new Error("Enter case quantity only. Barcode scans belong in Location or SKU.");
+    if(!Number.isFinite(cases)||cases<0)throw new Error("Enter counted cases as zero or greater.");
+    if(item?.lotTracked&&!norm($("lotInput").value))throw new Error("Lot is required for this SKU.");
+    if(item?.expirationTracked&&!$("expirationInput").value)throw new Error("Expiry is required for this SKU.");
+    if(exceptionMessages().length&&!state.photoData){$("message").className="status";$("message").textContent="Photo is recommended for this exception, but the count will still save."}
+    $("saveBtn").disabled=true;$("message").className="status";$("message").textContent="Saving pending count...";
+    const rawBody={accountName:account,location:locationValue,sku:item?.sku||skuValue,upc:item?.upc||"",countedCases:cases,lotNumber:$("lotInput").value,expirationDate:$("expirationInput").value,countPhoto:state.photoData};
+    const body=window.WMS365Mobile?.envelope?.(rawBody,"INVENTORY_COUNT_SUBMIT")||rawBody;
+    let payload=null;
+    try{
+      payload=await requestJson("/api/inventory-counts",{method:"POST",body:JSON.stringify(body)});
+      $("message").className="status good";$("message").textContent="Pending count saved for desktop review.";
+    }catch(error){
+      if(!shouldQueueSave(error))throw error;
+      await queuePendingCount(body);
+      $("message").className="status good";$("message").textContent="No connection. Count saved on this device and will sync automatically.";
+    }
+    $("savedMeta").textContent=`${payload?.count?.sku||item?.sku||skuValue} at ${locationValue}: ${cases} case${cases===1?"":"s"} saved.`;
+    $("afterSavePrompt").classList.remove("hidden");
+    if(payload)await load();
+  }catch(error){$("message").className="status bad";$("message").textContent=error.message}
+  finally{$("saveBtn").disabled=false}
+}
+function compressImageFile(file,{maxWidth=1000,maxHeight=1000,quality=.72}={}){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>{const img=new Image();img.onload=()=>{const scale=Math.min(1,maxWidth/img.width,maxHeight/img.height);const w=Math.max(1,Math.round(img.width*scale));const h=Math.max(1,Math.round(img.height*scale));const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;const ctx=canvas.getContext("2d");if(!ctx)return reject(new Error("Photo capture is not available."));ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);resolve(canvas.toDataURL("image/jpeg",quality))};img.onerror=()=>reject(new Error("Unable to read the photo."));img.src=String(reader.result||"")};
+    reader.onerror=()=>reject(new Error("Unable to read the photo."));
+    reader.readAsDataURL(file);
+  });
+}
+async function handlePhotoChange(event){
+  const file=event.target.files&&event.target.files[0];if(!file)return;
+  try{
+    state.photoData=await compressImageFile(file);
+    $("photoPreview").src=state.photoData;
+    $("photoPreviewWrap").classList.remove("hidden");
+    $("clearPhotoBtn").classList.remove("hidden");
+    $("message").className="status good";$("message").textContent="Photo attached for review.";
+  }catch(error){$("message").className="status bad";$("message").textContent=error.message}
+}
+function cleanScanValue(value){
+  return norm(String(value||"").replace(/[\u0000-\u001f\u007f]/g,""));
+}
+function looksLikeBadScan(value){
+  const text=cleanScanValue(value);
+  if(!text)return true;
+  const alnum=(text.match(/[A-Z0-9]/g)||[]).length;
+  return alnum<2;
+}
+function isLikelyCaseQuantity(value){
+  const text=cleanScanValue(value);
+  return /^\d{1,5}$/.test(text);
+}
+function resolveScanTarget(targetId,value){
+  const requested=String(targetId||"").trim();
+  const scanned=cleanScanValue(value);
+  const activeId=document.activeElement?.id||"";
+  const visible=id=>$(id)&&!$(id).closest(".hidden");
+  const scanFields=["locationInput","skuInput","lotInput","expirationInput"];
+  if(scanFields.includes(requested)&&visible(requested))return requested;
+  if(requested==="casesInput"&&!isLikelyCaseQuantity(scanned)){
+    if(!cleanScanValue($("locationInput").value))return"locationInput";
+    if(!cleanScanValue($("skuInput").value))return"skuInput";
+    return"skuInput";
+  }
+  if(scanFields.includes(activeId)&&visible(activeId))return activeId;
+  if(!cleanScanValue($("locationInput").value))return"locationInput";
+  if(!cleanScanValue($("skuInput").value))return"skuInput";
+  if(visible("lotInput")&&!cleanScanValue($("lotInput").value))return"lotInput";
+  if(visible("expirationInput")&&!cleanScanValue($("expirationInput").value))return"expirationInput";
+  if(isLikelyCaseQuantity(scanned))return"casesInput";
+  return"skuInput";
+}
+function acceptScanValue(targetId,value){
+  targetId=resolveScanTarget(targetId,value);
+  value=cleanScanValue(value);
+  const target=$(targetId);if(!target)return;
+  if(looksLikeBadScan(value)){
+    $("message").className="status bad";
+    $("message").textContent="Bad scan. Aim at the barcode and try again.";
+    window.WMS365Mobile?.beep?.("error");
+    target.focus();
+    return;
+  }
+  if(targetId==="casesInput"&&!isLikelyCaseQuantity(value)){
+    $("message").className="status bad";
+    $("message").textContent="That scan looks like a barcode, not a case quantity. Scan Location or SKU first.";
+    window.WMS365Mobile?.beep?.("error");
+    (cleanScanValue($("locationInput").value)?$("skuInput"):$("locationInput"))?.focus();
+    return;
+  }
+  target.value=value;
+  renderItem();
+  window.WMS365Mobile?.vibrate?.(45);
+  window.WMS365Mobile?.beep?.("success");
+  const item=selectedItem();
+  const visible=id=>$(id)&&!$(id).closest(".hidden");
+  let next=$("casesInput");
+  if(targetId==="locationInput")next=$("skuInput");
+  else if(targetId==="skuInput")next=item?.lotTracked&&visible("lotInput")?$("lotInput"):(item?.expirationTracked&&visible("expirationInput")?$("expirationInput"):$("casesInput"));
+  else if(targetId==="lotInput")next=item?.expirationTracked&&visible("expirationInput")?$("expirationInput"):$("casesInput");
+  next?.focus();
+}
+async function startScanner(targetId){
+  state.scanTarget=targetId;
+  if(window.WMS365Mobile?.scanBarcode?.(targetId)){
+    $("scannerOverlay").classList.add("hidden");
+    if(window.WMS365Mobile?.hasHardwareScanner?.()){
+      $("message").className="status";
+      $("message").textContent="Ready for hardware scanner. Press the physical scan trigger.";
+    }
+    return;
+  }
+  $("scannerOverlay").classList.remove("hidden");
+  $("scannerMessage").textContent="Starting camera...";
+  if(!("BarcodeDetector" in window)){
+    $("scannerMessage").textContent="Camera barcode scan is not supported here. Key in the value instead.";
+    return;
+  }
+  try{
+    state.scannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    $("scannerVideo").srcObject=state.scannerStream;
+    await $("scannerVideo").play();
+    const detector=new BarcodeDetector({formats:["code_128","code_39","ean_13","ean_8","upc_a","upc_e","qr_code","data_matrix"]});
+    $("scannerMessage").textContent="Point the camera at the barcode.";
+    state.scannerTimer=window.setInterval(async()=>{
+      try{
+        const codes=await detector.detect($("scannerVideo"));
+        if(codes&&codes.length){
+          const value=norm(codes[0].rawValue||"");
+          if(value&&$(state.scanTarget)){
+            acceptScanValue(state.scanTarget,value);
+            stopScanner();
+          }
+        }
+      }catch{}
+    },350);
+  }catch(error){
+    $("scannerMessage").textContent="Camera could not open. Key in the value instead.";
+  }
+}
+function stopScanner(){
+  if(state.scannerTimer)window.clearInterval(state.scannerTimer);
+  state.scannerTimer=null;
+  if(state.scannerStream)state.scannerStream.getTracks().forEach(track=>track.stop());
+  state.scannerStream=null;
+  $("scannerVideo").srcObject=null;
+  $("scannerOverlay").classList.add("hidden");
+}
+window.__wms365ResolveScanTarget=(targetId,value)=>resolveScanTarget(targetId,value);
+window.wms365ReceiveAndroidScan=(targetId,value)=>acceptScanValue(targetId,value);
+function setupScanControls(){
+  const hasHardware=window.WMS365Mobile?.hasHardwareScanner?.();
+  document.querySelectorAll("[data-scan-target]").forEach(button=>{
+    button.textContent=hasHardware?"Trigger":"Scan";
+    button.title=hasHardware?"Press this, then use the physical scanner trigger.":"Open camera scanner.";
+  });
+}
+setupScanControls();
+function goToMenu(){
+  const company=selectedAccount()||getGlobalCompany();
+  const query=company?`?mode=mobile&accountName=${encodeURIComponent(company)}`:"?mode=mobile";
+  location.href=`/mobile${query}`;
+}
+$("accountSelect").addEventListener("input",renderCompanyStep);
+["locationInput","skuInput","lotInput","expirationInput"].forEach(id=>$(id).addEventListener("input",renderItem));
+document.querySelectorAll("[data-scan-target]").forEach(button=>button.addEventListener("click",()=>startScanner(button.dataset.scanTarget)));
+$("lockCompanyBtn").addEventListener("click",lockCompany);
+$("switchCompanyBtn").addEventListener("click",switchCompany);
+$("menuBtn").addEventListener("click",goToMenu);
+$("companyMenuBtn").addEventListener("click",goToMenu);
+$("saveBtn").addEventListener("click",saveCount);
+$("clearBtn").addEventListener("click",clearSku);
+$("anotherSkuBtn").addEventListener("click",clearSku);
+$("nextLocationBtn").addEventListener("click",nextLocation);
+$("photoBtn").addEventListener("click",()=>$("photoInput").click());
+$("photoInput").addEventListener("change",handlePhotoChange);
+$("clearPhotoBtn").addEventListener("click",clearPhoto);
+$("closeScannerBtn").addEventListener("click",stopScanner);
+$("queueStatus").addEventListener("click",()=>window.WMS365Mobile?.retryFailedTransactions?.(["INVENTORY_COUNT_SUBMIT"]).then(updateQueueStatus).catch(()=>updateQueueStatus()));
+window.addEventListener("wms365:queue-changed",()=>updateQueueStatus());
+window.addEventListener("online",()=>syncPendingCounts().then((synced)=>{if(synced){$("message").className="status good";$("message").textContent=`Synced ${synced} locally saved count${synced===1?"":"s"}.`;return load()}}).catch(()=>updateQueueStatus()));
+window.addEventListener("offline",()=>{state.offlineMode=true;updateQueueStatus()});
+window.addEventListener("beforeunload",()=>window.WMS365Mobile?.setKeepAwake?.(false));
+let wedgeBuffer="";
+let wedgeTimer=null;
+function flushWedgeBuffer(){
+  const value=cleanScanValue(wedgeBuffer);
+  const activeId=document.activeElement?.id;
+  wedgeBuffer="";
+  if(wedgeTimer)window.clearTimeout(wedgeTimer);
+  wedgeTimer=null;
+  if(value.length>=3){
+    if(activeId==="casesInput"&&!isLikelyCaseQuantity(value))$("casesInput").value="";
+    acceptScanValue("",value);
+  }else if(value&&looksLikeBadScan(value)){
+    $("message").className="status bad";
+    $("message").textContent="Bad scan. Aim at the barcode and try again.";
+    window.WMS365Mobile?.beep?.("error");
+  }
+}
+["locationInput","skuInput","lotInput","expirationInput"].forEach(id=>{
+  $(id)?.addEventListener("input",event=>{
+    const value=cleanScanValue(event.target.value);
+    if(value&&looksLikeBadScan(value)){
+      event.target.value="";
+      $("message").className="status bad";
+      $("message").textContent="Bad scan. Aim at the barcode and try again.";
+      window.WMS365Mobile?.beep?.("error");
+    }
+  });
+});
+document.addEventListener("keydown",event=>{
+  const activeId=document.activeElement?.id;
+  if(activeId==="casesInput"&&event.key&&event.key.length===1){
+    wedgeBuffer+=event.key;
+    if(wedgeTimer)window.clearTimeout(wedgeTimer);
+    wedgeTimer=window.setTimeout(flushWedgeBuffer,90);
+    if(wedgeBuffer.length>5||/[^\d]/.test(wedgeBuffer)){
+      event.preventDefault();
+      return;
+    }
+  }
+  if(event.key!=="Enter")return;
+  if(wedgeBuffer){event.preventDefault();flushWedgeBuffer();return;}
+  const order=["locationInput","skuInput","lotInput","expirationInput","casesInput"];const index=order.indexOf(activeId);if(index>=0){event.preventDefault();if(activeId==="casesInput")$("saveBtn").focus();else(order.slice(index+1).map($).find(el=>el&&!el.closest(".hidden"))||$("casesInput")||$("saveBtn")).focus()}
+});
+window.WMS365Mobile?.setKeepAwake?.(true);
+load().catch(error=>{$("message").className="status bad";$("message").textContent=error.message});
+</script>
+</body>
+</html>

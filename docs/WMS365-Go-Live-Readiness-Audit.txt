@@ -1,0 +1,393 @@
+WMS365 Go-Live Readiness Audit
+Date: May 22, 2026
+
+Go-Live Readiness Score
+54 / 100
+
+WMS365 has a strong functional base, but it is not ready for real paying warehouse customers yet. It is suitable for controlled internal pilot use, but paid go-live should wait until the critical blockers below are fixed.
+
+
+Critical Blockers
+
+1. Warehouse worker permissions are too broad.
+Many inventory-changing and admin routes check company access, but not the user role or capability. A warehouse worker may be able to call APIs for inventory count approval/posting, inventory adjustments, transfers, shipping status updates, and other actions that should require supervisor/admin approval.
+
+Files/routes:
+- server.js: /api/inventory-counts
+- server.js: /api/inventory-counts/:id/approve
+- server.js: /api/inventory-counts/:id/post
+- server.js: /api/batch-save
+- server.js: /api/transfer
+- server.js: /api/put-away
+- server.js: /api/move-location
+- server.js: /api/admin/portal-orders/:id/status
+
+Required fix:
+Add role/capability checks so warehouse workers can submit work only. Warehouse admins or supervisors should approve, post, adjust, cancel, ship, and manage exceptions.
+
+
+2. Inventory updates are not safely locked.
+Inventory deductions, transfers, count posting, and shipping consume inventory after reading rows without row-level locks. Two users can potentially ship, transfer, or post counts against the same inventory at the same time.
+
+Files/functions:
+- server.js: consumePortalOrderInventory
+- server.js: upsertInventoryLine
+- server.js: findInventoryLine
+- server.js: postInventoryCountAdjustment
+
+Required fix:
+Use SELECT ... FOR UPDATE in transactions or atomic UPDATE statements with quantity checks. Inventory-changing code must lock the affected inventory rows before calculating available quantity or changing balances.
+
+
+3. No immutable inventory ledger.
+The current activity_log is text-based and not enough for real inventory audit. Real warehouse customers need a permanent transaction ledger.
+
+Required fix:
+Add an inventory_transactions table with:
+- id
+- account_name
+- warehouse_id / fulfillment_location_id
+- location
+- sku
+- upc
+- lot_number
+- expiration_date
+- transaction_type
+- quantity_delta
+- quantity_before
+- quantity_after
+- source_type
+- source_id
+- user_id
+- device_id
+- source = desktop / mobile_web / android_app / portal / integration
+- client_timestamp
+- server_timestamp
+
+Every inventory-changing action must write to this ledger.
+
+
+4. Mobile picking lacks server-side scan audit.
+mobile-pick.html validates scans on the client, but the backend mostly receives final status changes. There is not enough proof of which worker scanned which location, SKU, lot, expiry, and quantity.
+
+Required fix:
+Add backend pick confirmation records for each line/location scan. The mobile app should POST each confirmed pick step with device_id, user_id, order_id, line_id, location, SKU, lot, expiry, quantity, timestamp, and source.
+
+
+5. Production health check always returns HTTP 200 even when the database is not ready.
+Railway may treat the app as healthy even when the database is unavailable.
+
+File:
+- server.js: /api/health
+
+Required fix:
+Return HTTP 503 when databaseReady is false. Keep HTTP 200 only when databaseReady is true.
+
+
+6. Default super admin password exists if environment variable is missing.
+server.js has a fallback admin password of ChangeMeNow123!. This should never be allowed in production.
+
+File:
+- server.js: DEFAULT_ADMIN_PASSWORD
+
+Required fix:
+In production, refuse to start if APP_ADMIN_EMAIL or APP_ADMIN_PASSWORD is missing. Do not create a default production admin using a fallback password.
+
+
+High-Priority Fixes Before Paid Launch
+
+1. Add full role-based access control.
+Recommended permissions:
+- SUPER_ADMIN: platform setup, all companies, users, imports, billing, integrations
+- WAREHOUSE_ADMIN: warehouse operations, review/post counts, approve adjustments, manage orders
+- WAREHOUSE_CUSTOMER_SERVICE: create/review orders, inbounds, customer communication
+- WAREHOUSE_WORKER: mobile task execution only
+
+2. Add idempotency keys for offline/mobile submissions.
+Offline inventory counts can queue locally and sync later, but the backend should reject duplicate submissions using a unique idempotency key.
+
+3. Harden uploaded files.
+Current document upload validation allows application/pdf and image/*. image/* can include SVG, which is unsafe when served inline.
+
+Required fix:
+- Allow only PDF, JPEG, PNG, and WebP.
+- Serve customer uploads as attachment unless there is a strong reason to render inline.
+- Consider virus scanning before production.
+
+4. Stop emailing plaintext portal passwords.
+Portal welcome emails can include passwords. Replace this with secure invite/reset links.
+
+5. Encrypt integration tokens/secrets at rest.
+Shopify/SFTP credentials are stored in database columns. Encrypt sensitive credentials using an app-level encryption key stored outside the database.
+
+6. Protect /api/import.
+/api/import truncates live operational tables. It is super-admin only, but still too dangerous for production.
+
+Required fix:
+- Add DISABLE_IMPORT_IN_PRODUCTION=true by default.
+- Require a typed confirmation token.
+- Create backup/export before import.
+- Log import actor, timestamp, IP, and row counts.
+
+7. Set Android production URL.
+android-app/gradle.properties still uses a placeholder WMS365_BASE_URL. The official APK must be built with the real production URL.
+
+
+Medium-Priority Improvements
+
+1. Add warehouse/location ownership to inventory_lines.
+Company separation exists, but multi-warehouse operations need fulfillment_location_id or warehouse_id on inventory balances.
+
+2. Add stronger database integrity.
+Several records rely on account_name text instead of foreign keys. Add or enforce relationships for company, SKU, location, orders, inbounds, and inventory.
+
+3. Improve offline support beyond inventory count.
+Inventory count has local queue behavior. Picking, receiving, moves, and shipping proof are not fully offline-safe.
+
+4. Add operational dashboards.
+Needed dashboards:
+- failed emails
+- failed integrations
+- failed mobile sync
+- pending inventory counts
+- pending shipment confirmations
+- pending customer documents
+
+5. Separate demo/seed data from production.
+Any demo seed data should be disabled in production unless explicitly requested.
+
+6. Add count variance controls.
+Desktop review should be able to filter high variance counts and require manager approval for large adjustments.
+
+
+Nice-To-Have Improvements
+
+1. Return/RMA workflow.
+2. Zebra scanner and Bluetooth scanner support.
+3. Warehouse exception workflow for damage, shortage, overage, wrong item, and wrong location.
+4. Configurable customer-specific rules for lot, expiry, FEFO, and shipping proof.
+5. Better CSV/Excel import preview before committing data.
+6. Supervisor mobile approval queue.
+7. Push notifications for assigned urgent work.
+
+
+Missing Database Tables / Fields / Constraints
+
+Recommended new tables:
+- inventory_transactions
+- mobile_action_events
+- pick_confirmations
+- offline_sync_requests
+- warehouse_exceptions
+- shipment_proof_documents or document_type on existing document tables
+- inventory_adjustment_requests
+
+Recommended fields:
+- inventory_lines.fulfillment_location_id or warehouse_id
+- inventory_count_records.device_id
+- inventory_count_records.source
+- inventory_count_records.warehouse_id
+- inventory_count_records.client_timestamp
+- portal_order_documents.document_type
+- portal_inbound_documents.document_type
+- portal_order_allocations.picked_quantity
+- portal_order_allocations.picked_by
+- portal_order_allocations.picked_at
+- portal_order_allocations.pick_device_id
+
+Recommended constraints/indexes:
+- unique idempotency_key on offline/mobile submissions
+- inventory line identity unique index including account, warehouse, location, sku, lot, expiry
+- indexes for active order/inbound queues by account_name, status, requested/expected date
+- strict checks for non-negative inventory movement results
+
+
+Unsafe API Routes / Permission Gaps
+
+Routes needing stronger role checks:
+- POST /api/inventory-counts/:id/approve
+- POST /api/inventory-counts/:id/post
+- POST /api/batch-save
+- POST /api/remove-quantity
+- POST /api/delete-line
+- POST /api/transfer
+- POST /api/put-away
+- POST /api/move-location
+- POST /api/inventory/bulk-update
+- POST /api/admin/portal-orders/:id/status
+- POST /api/admin/portal-inbounds/:id/status
+- POST /api/admin/integrations
+- POST /api/admin/integrations/:id/sync
+- POST /api/import
+
+Recommended fix:
+Create middleware such as:
+- requireRole(...)
+- requireWarehouseAdmin(...)
+- requireInventoryAdjustPermission(...)
+- requireMobileWorkerAction(...)
+- requireSuperAdmin(...)
+
+
+Customer Portal Data-Leak Risks
+
+The portal routes mostly scope by session.access.accountName, which is good. However, these issues should be fixed before launch:
+
+1. Uploaded documents are served inline.
+Use attachment disposition or sanitize/limit content types.
+
+2. Portal password emails are unsafe.
+Use secure invite/reset tokens instead.
+
+3. Portal access is account-based, not granular.
+Future customers may need separate permissions for inventory-only, order entry, billing, documents, and admin users.
+
+4. Customer portal depends heavily on correct account_name setup.
+Add tests to confirm customers cannot access another customer's inventory, orders, inbounds, documents, invoices, or kitting requests.
+
+
+Mobile Workflow Gaps
+
+1. Picking needs server-side per-scan confirmation.
+2. Picking/offline queue is not complete.
+3. Receiving flow is less guided than inventory count and picking.
+4. Put-away and bin move should capture scan confirmations and exceptions.
+5. Shipping proof requires online save when photos are included.
+6. Hardware scanner keyboard wedge is supported by input focus, but should be tested across all screens.
+7. Worker role should force mobile-only or restrict desktop capabilities.
+8. Mobile cache must avoid stale company/order data causing work against old assignments.
+
+
+Reporting and Documents Gaps
+
+Needed before paid launch:
+- Inventory transaction ledger report
+- Inventory by customer/location/lot/expiry
+- Available vs committed inventory report
+- Cycle count variance report
+- Receiving discrepancy report
+- Shipment proof report
+- Order aging report
+- Failed integration/email report
+- Customer-visible export tests against database truth
+
+
+Operational Readiness Gaps
+
+Before paid customers:
+- Document onboarding process for new warehouse/company/customer.
+- Document how to add users and assign warehouses/companies.
+- Add password reset/invite flow.
+- Add import preview and rollback/backup plan.
+- Add support dashboard for errors, failed syncs, failed emails, and failed integrations.
+- Add production runbook for Railway, database, backups, restore testing, and Android APK deployment.
+
+
+Deployment Readiness Gaps
+
+1. Health check must return 503 when DB is down.
+2. Android base URL must be production-ready.
+3. Environment variables need production validation.
+4. Backups and restore tests must be documented.
+5. Logs should not expose secrets or customer-sensitive data.
+6. Demo/seed data should be disabled in production.
+7. Add production deployment checklist and rollback steps.
+
+
+Billing / Commercial Readiness Gaps
+
+1. Super Admin/platform owner should never count as billable.
+2. Seat enforcement needs clearer policy and tests.
+3. Trial/demo mode should be separated from paid customer mode.
+4. Company plan limits should be enforced consistently.
+5. Billing access should be tested per role.
+
+
+Step-By-Step Launch Checklist
+
+Phase 1: Security and access
+1. Remove default admin password fallback in production.
+2. Add role-based route middleware.
+3. Confirm warehouse worker cannot approve/post/adjust/delete/import/manage users.
+4. Replace plaintext password email with invite/reset links.
+5. Harden file upload content types.
+6. Encrypt integration credentials.
+
+Phase 2: Inventory integrity
+1. Add inventory_transactions ledger.
+2. Add row locking or atomic update patterns.
+3. Add idempotency keys for mobile/offline actions.
+4. Add tests for simultaneous ship/transfer/count posting.
+5. Add warehouse_id/fulfillment_location_id to inventory balances.
+
+Phase 3: Mobile workflow
+1. Add per-scan pick confirmations.
+2. Add mobile receiving confirmations.
+3. Add move/put-away confirmations.
+4. Add offline queue for supported actions or explicitly block unsupported offline actions.
+5. Test Android and Chrome mobile side by side.
+
+Phase 4: Portal and customer readiness
+1. Test portal account isolation for every portal route.
+2. Test customer inventory, orders, inbounds, invoices, documents, and exports.
+3. Polish customer-facing labels and statuses.
+4. Add customer-facing help/guide.
+
+Phase 5: Deployment
+1. Set production env vars.
+2. Set Android production URL and rebuild APK.
+3. Change health check behavior.
+4. Confirm Railway deployment.
+5. Confirm scheduled jobs and email providers.
+6. Run backup and restore test.
+
+Phase 6: Pilot launch
+1. Create one pilot customer.
+2. Import item master and starting inventory.
+3. Run test receive, put-away, order, pick, ship, count, adjustment.
+4. Confirm customer portal visibility.
+5. Monitor logs, failed emails, failed syncs, and support feedback.
+6. Only then add paid customers.
+
+
+Exact Recommended File-by-File Tasks
+
+server.js
+- Add role middleware near auth helpers.
+- Apply role middleware to inventory count approve/post, inventory adjustments, order status changes, inbound status changes, imports, integrations, billing, and user management.
+- Change /api/health to return 503 when databaseReady is false.
+- Remove DEFAULT_ADMIN_PASSWORD fallback in production.
+- Add inventory_transactions insert helper and call it from every inventory-changing function.
+- Add SELECT ... FOR UPDATE or atomic update logic in consumePortalOrderInventory, transfer, put-away, move-location, remove-quantity, delete-line, count posting, and conversions.
+- Add idempotency key handling for mobile/offline submissions.
+- Restrict uploads to safe MIME types.
+- Add encryption/decryption helpers for integration secrets.
+
+mobile-pick.html
+- POST each confirmed pick step to the backend.
+- Show synced/pending/failed status for pick confirmations.
+- Add offline behavior or block offline pick completion clearly.
+
+mobile-count.html
+- Add idempotency key per queued count.
+- Show failed sync reason and allow retry/delete for pending counts.
+
+mobile-bridge.js
+- Standardize offline queue for all mobile action types, not only count-specific flows.
+
+android-app/gradle.properties
+- Replace placeholder WMS365_BASE_URL with the real production URL before building any worker APK.
+
+sw.js
+- Be careful caching authenticated mobile routes. Confirm stale shells cannot keep old workflows after deployment.
+
+README.md / docs
+- Add production deployment runbook.
+- Add backup/restore runbook.
+- Add customer onboarding checklist.
+- Add worker mobile SOPs for receiving, picking, shipping, and counts.
+
+
+Final Recommendation
+
+Do not launch WMS365 to paying customers until the critical blockers are fixed. The product is close enough for a controlled warehouse pilot, but paid customer launch requires stronger permissions, inventory locking, immutable audit trail, upload hardening, production configuration, and better mobile action audit.

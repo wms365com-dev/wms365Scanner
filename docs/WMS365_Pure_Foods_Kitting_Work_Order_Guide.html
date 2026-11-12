@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WMS365 Pure Foods Work Order / Kitting Request Guide</title>
+  <style>
+    :root {
+      --ink: #0f2f44;
+      --muted: #52697a;
+      --line: #d7e2ea;
+      --panel: #f6f9fb;
+      --brand: #5b7f98;
+      --dark: #183247;
+      --warn: #fff7df;
+      --warn-border: #e3b84b;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eaf0f4;
+    }
+    .slide {
+      width: 11in;
+      min-height: 8.5in;
+      padding: 0.45in;
+      margin: 0 auto 18px;
+      background: white;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:last-child { page-break-after: auto; }
+    .eyebrow {
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1, h2 {
+      margin: 0 0 14px;
+      color: var(--dark);
+      line-height: 1.08;
+    }
+    h1 { font-size: 40px; }
+    h2 { font-size: 30px; }
+    h3 {
+      margin: 0 0 8px;
+      color: var(--dark);
+      font-size: 20px;
+    }
+    p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    ul {
+      margin: 10px 0 0 22px;
+      padding: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    li { margin-bottom: 8px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      align-items: stretch;
+    }
+    .screen-grid {
+      grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+      align-items: start;
+    }
+    .screen-grid.reverse {
+      grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.78fr);
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      background: var(--panel);
+    }
+    .callout {
+      border: 1px solid var(--warn-border);
+      border-radius: 8px;
+      background: var(--warn);
+      color: #7b5712;
+      padding: 16px 18px;
+      font-size: 17px;
+      line-height: 1.4;
+      margin-top: 16px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 120px;
+      background: #fff;
+    }
+    .step strong {
+      display: block;
+      color: var(--dark);
+      margin-bottom: 7px;
+      font-size: 18px;
+    }
+    .screen {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f7fafc;
+      overflow: hidden;
+      box-shadow: 0 10px 28px rgba(24, 50, 71, 0.12);
+    }
+    .screen-title {
+      background: var(--dark);
+      color: white;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .crop {
+      height: 420px;
+      overflow: hidden;
+      background: #f7fafc;
+      position: relative;
+    }
+    .crop img {
+      width: 100%;
+      display: block;
+      transform-origin: top left;
+    }
+    .crop.menu img { transform: translateY(-220px); }
+    .crop.form img { transform: translateY(-230px); }
+    .crop.status img { transform: translateY(-230px); }
+    .actual-shot {
+      padding: 10px;
+      background: #f7fafc;
+    }
+    .actual-shot img {
+      width: 100%;
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+    .actual-shot.tall img {
+      max-height: 510px;
+      object-fit: contain;
+    }
+    .actual-shot.compact img {
+      max-height: 360px;
+      object-fit: contain;
+    }
+    .footer {
+      position: absolute;
+      left: 0.45in;
+      right: 0.45in;
+      bottom: 0.28in;
+      display: flex;
+      justify-content: space-between;
+      color: #7890a2;
+      font-size: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .small { font-size: 14px; }
+    .ok {
+      color: #166534;
+      background: #ecfdf3;
+      border: 1px solid #bbf7d0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+    }
+    @page {
+      size: Letter landscape;
+      margin: 0;
+    }
+    @media print {
+      body { background: white; }
+      .slide { margin: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <section class="slide">
+    <div class="eyebrow">WMS365 Customer Portal</div>
+    <h1>Pure Foods Store Display Work Order Guide</h1>
+    <p>This guide shows how to request a warehouse work order to pull multiple existing SKUs and build them into one finished store display, bundle, or kit SKU.</p>
+    <div class="grid" style="margin-top: 28px;">
+      <div class="card">
+        <h3>Pure Foods access status</h3>
+        <p class="ok">Enabled for Pure Foods by Estee</p>
+        <ul>
+          <li>Customer Portal is enabled.</li>
+          <li>Order Entry permission is enabled.</li>
+          <li>Added Services / Display Build Work Order is available in the portal.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Important inventory rule</h3>
+        <p>The warehouse can only complete the work if every component SKU is available in inventory.</p>
+        <div class="callout">Before submitting, confirm all display components are on hand. If any SKU is short, receive or replenish the stock first.</div>
+      </div>
+    </div>
+    <div class="footer"><span>Prepared for Pure Foods by Estee</span><span>support@wms365.co</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Before You Start</div>
+    <h2>Information needed for a display build</h2>
+    <div class="steps">
+      <div class="step"><strong>1. Component SKUs</strong>Each SKU that goes into the finished display, normally 4-6 SKUs.</div>
+      <div class="step"><strong>2. Qty per display</strong>How many cases or units of each component are needed for one display.</div>
+      <div class="step"><strong>3. Finished display SKU</strong>The SKU that should be created after the display is built.</div>
+      <div class="step"><strong>4. Displays to build</strong>Total number of finished displays requested.</div>
+      <div class="step"><strong>5. Reference</strong>Optional sales order, purchase order, promotion, or project name.</div>
+      <div class="step"><strong>6. Needed by</strong>Date the display build is requested, if there is a deadline.</div>
+    </div>
+    <div class="callout">Pure Foods stock is normally managed in cases. If the item should be managed as units, use the unit SKU ending in "s" where applicable.</div>
+    <div class="footer"><span>Step preparation</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 1</div>
+    <h2>Open the Customer Portal</h2>
+    <div class="grid screen-grid">
+      <div>
+        <p>Go to <strong>www.wms365.co</strong> and sign in to the customer portal using your Pure Foods portal login.</p>
+        <p>After login, use the main menu to select <strong>Added Services</strong>.</p>
+        <ul>
+          <li>Use Added Services for special warehouse work.</li>
+          <li>Use standard Sales Orders and Purchase Orders for normal inbound/outbound work.</li>
+        </ul>
+      </div>
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Added Services</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-added-services.png" alt="Actual WMS365 Added Services screen">
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 1 - Added Services</span><span>Pure Foods by Estee</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 2</div>
+    <h2>Select New Work Order</h2>
+    <div class="grid screen-grid reverse">
+      <div class="screen">
+        <div class="screen-title">Actual system screen - New Work Order</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-added-services.png" alt="Actual WMS365 New Work Order option">
+        </div>
+      </div>
+      <div>
+        <p>Click <strong>New Work Order</strong>.</p>
+        <p>This opens the work order form for creating a display or bundle from multiple component SKUs.</p>
+        <ul>
+          <li>Use it when 4-6 SKUs need to be pulled and packed into one finished display SKU.</li>
+          <li>Use clear quantities and notes so the warehouse can complete the build without calling for clarification.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer"><span>Step 2 - New request</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 3</div>
+    <h2>Screen 1: Enter the display components</h2>
+    <div class="grid screen-grid">
+      <div>
+        <p>Start by entering each SKU that goes into one finished display.</p>
+        <ul>
+          <li><strong>Component SKU:</strong> item the warehouse will pull from stock.</li>
+          <li><strong>Qty Per Display:</strong> how many of that SKU go into one display.</li>
+          <li><strong>Placement / Notes:</strong> optional shelf, layer, flavor, or packing note.</li>
+          <li>Use <strong>Add Component SKU</strong> if the display has more than four SKUs.</li>
+        </ul>
+        <div class="callout">Check Inventory first. Every component SKU must be available before submitting the work order.</div>
+      </div>
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Component SKUs</div>
+        <div class="actual-shot tall">
+          <img src="screenshots/pure-foods-display-work-order-components.png" alt="Actual WMS365 component entry screen">
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 3 - Components</span><span>support@wms365.co</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 4</div>
+    <h2>Screen 2: Enter the finished display item</h2>
+    <div class="grid screen-grid">
+      <div>
+        <p>After components are entered, fill in the item that should be created.</p>
+        <ul>
+          <li><strong>Finished Display SKU:</strong> SKU that should exist after the build.</li>
+          <li><strong>Displays to Build:</strong> number of finished displays requested.</li>
+          <li><strong>Needed By:</strong> requested completion date, if applicable.</li>
+          <li><strong>References:</strong> optional sales order, PO, or promotion name.</li>
+        </ul>
+        <div class="callout">Make sure the finished display SKU exists in Items first. If it is brand new, create it before submitting the work order.</div>
+      </div>
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Finished display item</div>
+        <div class="actual-shot tall">
+          <img src="screenshots/pure-foods-display-work-order-finished.png" alt="Actual WMS365 finished display entry screen">
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 4 - Finished display</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 5</div>
+    <h2>Review the build summary and submit</h2>
+    <div class="grid screen-grid reverse">
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Build summary</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-summary.png" alt="Actual WMS365 build summary">
+        </div>
+      </div>
+      <div>
+        <p>Before submitting, review the summary and confirm the component totals make sense.</p>
+        <ul>
+          <li>The system shows the quantity needed per display.</li>
+          <li>The system shows the total quantity needed for the full build.</li>
+          <li>If a component is short, do not submit yet. Replenish or receive stock first.</li>
+        </ul>
+        <div class="callout">Submitting the request does not immediately change inventory. The warehouse reviews the request, performs the physical work, and then updates inventory.</div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 5 - Submit</span><span>WMS365</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Step 6</div>
+    <h2>Track the request status</h2>
+    <div class="grid screen-grid">
+      <div>
+        <p>After submission, open <strong>My Display Build / Kitting Requests</strong> to track status.</p>
+        <ul>
+          <li><strong>Submitted:</strong> warehouse has received the request.</li>
+          <li><strong>In Progress:</strong> warehouse is working on it.</li>
+          <li><strong>Completed:</strong> work is done and inventory should be updated.</li>
+          <li><strong>Cancelled:</strong> request will not be completed.</li>
+        </ul>
+      </div>
+      <div class="screen">
+        <div class="screen-title">Actual system screen - Request status</div>
+        <div class="actual-shot compact">
+          <img src="screenshots/pure-foods-display-work-order-status.png" alt="Actual WMS365 display build request status">
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span>Step 6 - Track status</span><span>Pure Foods by Estee</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Final Checklist</div>
+    <h2>Before sending a work order to the warehouse</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Customer checklist</h3>
+        <ul>
+          <li>All component SKUs are correct.</li>
+          <li>All component quantities per display are correct.</li>
+          <li>All component stock is available on hand.</li>
+          <li>Finished display SKU is correct and already set up.</li>
+          <li>Displays to build is correct.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What happens next</h3>
+        <ul>
+          <li>The request is sent to the warehouse team.</li>
+          <li>The warehouse pulls the components.</li>
+          <li>The warehouse completes the physical display build.</li>
+          <li>Inventory is updated after the work is completed.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">Questions or changes should be submitted through WMS365 or sent to the warehouse email. This keeps the request history and inventory trail clear.</div>
+    <div class="footer"><span>End of guide</span><span>support@wms365.co</span></div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,215 @@
+WMS365 PROJECT TRACKER
+Last Updated: 2026-05-15
+
+PURPOSE
+This file is the quick project log for WMS365 Scanner.
+Use it to track:
+- current features
+- important fixes
+- deployment-related setup
+- open follow-up items
+
+HOW TO USE THIS FILE
+- Add a new dated section whenever a meaningful feature or fix is completed.
+- Keep notes short and practical.
+- Put open items at the bottom so they are easy to review before the next work session.
+
+CURRENT SYSTEM SUMMARY
+- Warehouse-side web app with desktop and mobile workflows.
+- Shared server-backed data stored in PostgreSQL on Railway.
+- Separate warehouse login and customer portal login.
+- Company-scoped inventory so warehouse activity can be filtered to one 3PL customer at a time.
+
+RECENT UPDATE - 2026-05-15
+- Simplified the customer portal navigation by moving kitting into an Added Services flow:
+  - main portal nav now has one Added Services button instead of separate kitting buttons
+  - Added Services shows New Kitting Request and View Kitting Requests choices
+  - kitting request and kitting status pages have Back to Added Services navigation
+  - Playwright walkthrough passed for menu, kitting page, back navigation, and request list
+
+RECENT UPDATE - 2026-05-13
+- Added dedicated marketing folder for the public WMS365 promotional site.
+- Updated pricing language for Launch Warehouse at $129/month plus published add-ons.
+- Added card-backed 14-day Stripe trial for Launch Warehouse signup.
+- Added company-level pricing/paywall controls in Master Data.
+- Customer portal paywall allows no-charge access for companies assigned to Grey Wolf 3PL fulfillment locations.
+
+CURRENT FEATURE SET
+
+1. Warehouse Operations
+- Receive inventory by company, location, SKU, UPC, quantity, and tracking level.
+- Track inventory by Units, Cases, and Pallets.
+- Search by SKU, UPC, location, or multiple item list.
+- Remove quantity, delete line, transfer stock, BIN-to-BIN move.
+- Convert item workflow to move inventory from one item to another:
+  Example: CASE to EACH, EACH to CASE, or re-SKU conversion using case-pack math.
+
+2. Master Data
+- Company master records.
+- BIN / location master records.
+- Item master records with:
+  - SKU
+  - UPC
+  - Description
+  - Tracking level
+  - Units per case
+  - Each dimensions
+  - Case dimensions
+  - Optional image
+- Portal user setup by company with support for multiple users per company.
+
+3. Labels
+- Location label generation.
+- Pallet label generation with:
+  - Company
+  - SKU
+  - Description
+  - Cases on pallet
+  - Date
+- Pallet lookup / reprint flow by pallet ID.
+
+4. Reports
+- Inventory by company.
+- Inventory by location.
+- Inventory by item.
+- Excel-style inventory by vendor/company report.
+- Pallet location and utilization reporting.
+
+5. Billing
+- Billing fee schedule by company.
+- Manual billing line entry.
+- Storage billing generation.
+- Billing export for invoice processing.
+- Auto billing hooks for receiving and shipped portal orders.
+
+6. Customer Portal
+- Portal login by company user email/password.
+- Vendor/customer-scoped inventory visibility.
+- Order entry with ship-to details and order lines.
+- Draft and release order flow.
+- Inbound request flow.
+- Portal users only see data for their assigned company.
+
+7. Shipping Confirmation
+- Warehouse can move portal orders through:
+  - RELEASED
+  - PICKED
+  - STAGED
+  - SHIPPED
+- Warehouse can upload shipped documents:
+  - POD
+  - signed BOL
+  - packing slip
+  - carrier confirmation
+- Portal users can view shipped confirmation details and download uploaded documents.
+- Shipment confirmation email support is now wired in for shipped orders.
+
+RECENT FIXES COMPLETED
+
+2026-05-14
+- Added public WMS365 affiliate program page and route:
+  - /affiliate-program
+  - /affiliate-program.html
+- Added public WMS365 hiring / sales-member page and route:
+  - /hiring
+  - /hiring.html
+- Added sendable affiliate package under marketing/affiliate-program:
+  - promotion plan
+  - outreach email scripts
+  - screenshot shot list
+  - ready-to-send marketing screenshots
+- Added sales-member recruiting package under marketing/hiring:
+  - role details
+  - commission rules
+  - recruiting email script
+- Added Grey Wolf 3PL no-charge paywall guard script so Stripe changes do not break existing 3PL customer portal access.
+- Changed warehouse release emails to send as Pick Ticket emails:
+  - subject starts with Pick Ticket
+  - email body shows pick lines with pick location / lot / expiration
+  - printable pick-ticket PDF remains attached
+- Added a 30-minute pick-ticket email grace window:
+  - released orders schedule the warehouse email instead of sending immediately
+  - the scheduler re-checks the order before emailing so edits/reopens during the window stop the email
+  - email/PDF labels show Ready to Pick while core order status remains Released until the warehouse physically picks it
+- Added customer kitting / SKU conversion request workflow:
+  - portal users submit source SKU, source qty, target SKU, target qty, and related order refs
+  - requests are company-scoped and notify the assigned warehouse by email
+  - warehouse users can review requests under Adjust & Move and complete the physical work with Convert Item
+- Added matching Bluehost affiliate folder for static upload.
+- Added matching Bluehost hiring folder for static upload.
+- Added affiliate and hiring footer/details blocks to the marketing homepage copies.
+- Added affiliate and hiring links to pricing/footer navigation and sitemap entries.
+- Affiliate offer copy: 25% of monthly software fees collected, paid within 15 days after customer payment is received.
+- Sales-member offer copy: 25% recurring monthly commission on WMS365 software fees collected from customers they bring in.
+
+2026-04-17
+- Synced E:\WMS365Scanner to the current C:\WMS365Scanner version before patching.
+- Finished the Convert Item module frontend logic:
+  - preview
+  - validation
+  - submit flow
+- Fixed customer portal order entry so Requested Ship Date is captured and posted.
+- Added order notes field to the portal order form.
+- Fixed portal order display so shipped confirmation details are visible to the customer.
+- Fixed portal order display so uploaded shipped documents show as downloadable links.
+- Added shipment confirmation email support through SMTP configuration.
+- Added SMTP settings to .env.example.
+- Split warehouse access into dedicated routes:
+  - /desktop
+  - /mobile
+- Root / now auto-routes to the correct warehouse experience by device user agent.
+- Forced route mode now wins over viewport/orientation changes so mobile and desktop layouts stop mixing.
+- Added warehouse-side sales order entry for the ops team:
+  - create draft sales orders by active company
+  - release warehouse-created orders to the warehouse queue
+  - load/edit draft warehouse sales orders from the queue
+- Tightened warehouse sales order item selection so blank rows are filtered out before save/release.
+- Improved warehouse order queue usability:
+  - DRAFT orders now show a Load Draft action
+  - draft orders no longer show print actions that only make sense after release
+- Expanded admin-side order normalization so these fields round-trip cleanly:
+  - ship-to phone
+  - address 2
+  - country
+  - updated timestamps
+- Completed a pre-deploy sweep:
+  - server syntax check passed
+  - warehouse app script check passed
+  - portal script check passed
+  - login script check passed
+  - duplicate HTML id check passed
+  - verified main desktop/mobile/portal route references against server routes
+- Added customer-side item master setup inside the portal:
+  - customers can create and edit their own SKUs
+  - saved items now feed inbound creation
+- Added warehouse-side purchase order / inbound entry:
+  - create internal inbound notices for the active company
+  - review inbound queue from the warehouse side
+  - uses the same underlying inbound model as the customer portal
+- Added warehouse-side store integrations inside Master Data & Setup:
+  - save customer-scoped ecommerce connections
+  - Shopify manual pull imports new store orders into the warehouse sales order queue
+  - imported orders stay locked to the selected customer account
+- Split customer portal shipped stats into a dedicated Shipped box.
+- Hardened desktop panel visibility rules so inactive sections stop bleeding through behind the active workspace.
+
+DEPLOYMENT / CONFIG NOTES
+- Main shared data lives in PostgreSQL.
+- Shipment emails require these env vars:
+  - SMTP_HOST
+  - SMTP_PORT
+  - SMTP_FROM
+  - optional SMTP_USER
+  - optional SMTP_PASS
+  - optional SMTP_REPLY_TO
+
+WORKFLOW NOTE
+- C:\WMS365Scanner is now the single working repo and deploy copy.
+- The old E:\WMS365Scanner working copy is retired and should not be used for future edits.
+- The push batch file now runs directly from the local repo folder without cross-drive sync.
+
+OPEN ITEMS / NEXT CHECKS
+- Live end-to-end test on Railway with real SMTP credentials.
+- Confirm shipped email formatting and attachments with a real outbound order.
+- Re-check company hierarchy logic if the system expands from Company-only scope into a deeper Company -> Vendor -> Customer model.
+- Continue UI cleanup for consistent desktop and app-like mobile feel.
