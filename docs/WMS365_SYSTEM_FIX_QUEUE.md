@@ -121,6 +121,15 @@ Every batch must cover:
 
 ## Engineering Evidence
 
+### Inbound draft correction workflow
+
+- Status: `FIXED - NEEDS RETEST` for production; sandbox verification completed on 2026-11-13.
+- Code: application commit `76346d6f345321741094e914d6281a46546e7bf6` adds inbound `DRAFT`, customer and warehouse edit/submit/return-to-draft/cancel actions, document retention, audited transitions, tenant scoping, and fail-closed reopening after receipt allocations, non-planned pallet labels, or active appointments. It also adds the idempotent `company_fulfillment_locations.customer_portal_visible` boot migration required by fresh environments.
+- Tests: focused inbound coverage passed 5/5; access-control audit passed 12/12 across 292 routes; global deployment gate passed 756/756 with zero failures.
+- Sandbox: exact commit deployed as Railway deployment `516ee6b8-19b4-4f39-9ba7-e1cbca93d79e`. The authenticated `CODEX PORTAL SYSTEM TEST` workflow passed `DRAFT -> SUBMITTED -> DRAFT -> EDITED -> SUBMITTED -> CANCELLED`, returned 404 for a foreign resource identifier, and removed its test fixtures while restoring the prior company feature setting.
+- Soak: sandbox retained application, database, schema, desktop, and mobile readiness for 10 minutes, with zero service issues, zero recent failures, no pending changes, and no deployment warnings or errors. Production remained healthy and unchanged throughout.
+- Production blocker: Railway exposes same-service redeploys but no supported immutable promotion of this already-built sandbox snapshot to the separate production service. Rebuilding in production would violate `docs/WMS365_STAGING_RELEASE_POLICY.md`, so no production deployment was attempted. The next action is to establish an immutable image/registry promotion path, then promote this exact release candidate and verify production read-only. The named production rollback artifact remains deployment `81360938-733d-4119-954a-131b6a0905c5`.
+
 ### Sales-order queue performance and rolling-startup resilience
 
 - Status: `VERIFIED` on 2026-11-12 after the complete staging-first release cycle.
