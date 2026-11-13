@@ -23812,7 +23812,7 @@
             const itemCount = hasCompany ? getWarehouseInboundCatalogItemCount(company) : 0;
             const hasItemCatalog = itemCount > 0;
             const inboundStatus = norm(ui.warehouseInboundStatusChip?.textContent || "");
-            const lockedInbound = !!editingWarehouseInboundId && inboundStatus !== "SUBMITTED";
+            const lockedInbound = !!editingWarehouseInboundId && inboundStatus !== "DRAFT";
             ui.warehouseInboundCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
                     ? (hasItemCatalog
@@ -23842,12 +23842,12 @@
                 ui.purchaseOrderCommandReceiveBtn.disabled = !editingWarehouseInboundId || !["SUBMITTED", "ARRIVED"].includes(inboundStatus);
             }
             [ui.cancelWarehouseInboundBtn, ui.purchaseOrderCommandCancelBtn].filter(Boolean).forEach((button) => {
-                const canCancelInbound = !!editingWarehouseInboundId && ["SUBMITTED", "ARRIVED"].includes(inboundStatus);
+                const canCancelInbound = !!editingWarehouseInboundId && ["DRAFT", "SUBMITTED", "ARRIVED"].includes(inboundStatus);
                 button.hidden = !canCancelInbound;
                 button.disabled = !canCancelInbound;
                 button.title = canCancelInbound
                     ? "Cancel this purchase order, keep the number, and close active receiving work."
-                    : "Only submitted or arrived purchase orders can be cancelled.";
+                    : "Only draft, submitted, or arrived purchase orders can be cancelled.";
             });
             if (ui.warehouseInboundLines) {
                 [...ui.warehouseInboundLines.querySelectorAll(".line-card")].forEach((card) => {
@@ -24023,10 +24023,11 @@
                     <div class="erp-document-process-actions">
                         <button class="btn ghost mini" type="button" data-print-receiving-document="${attr(inbound.id)}">Print Receiving Document</button>
                         ${palletLabels.length ? `<button class="btn ghost mini" type="button" data-print-inbound-pallet-labels="${attr(inbound.id)}">Print Pallet Labels (${esc(num(palletLabels.length))})</button>` : ""}
-                        ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Check In Freight</button>` : ""}
+                        ${isSubmitted ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="DRAFT">Return to Draft</button><button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="ARRIVED">Check In Freight</button>` : ""}
+                        ${inbound.status === "DRAFT" ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="SUBMITTED">Submit PO</button>` : ""}
                         ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="RECEIVED">Mark Received</button>` : ""}
                         ${needsPutaway ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="PUTAWAY_COMPLETE">Mark Putaway Complete</button>` : ""}
-                        ${(isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="CANCELLED">Cancel PO</button>` : ""}
+                        ${(inbound.status === "DRAFT" || isSubmitted || isArrived) ? `<button class="btn ghost mini" type="button" data-portal-inbound-status="${attr(inbound.id)}" data-next-status="CANCELLED">Cancel PO</button>` : ""}
                     </div>
                 </div>
                 <div class="quick-meta">

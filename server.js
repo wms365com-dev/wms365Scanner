@@ -7084,6 +7084,45 @@ app.post("/api/portal/inbounds", async (req, res, next) => {
     }
 });
 
+app.put("/api/portal/inbounds/:id", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        const inboundId = toPositiveInt(req.params.id);
+        if (!inboundId) throw httpError(400, "A valid purchase order id is required.");
+        const inbound = await withTransaction((client) => updatePortalInboundDraftForAccount(
+            client, session.access.accountName, inboundId, req.body || {}, {
+                downloadPathPrefix: "/api/portal/inbound-documents",
+                activityActor: session.access.email || "Company portal"
+            }
+        ));
+        res.json({ success: true, inbound });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
+app.post("/api/portal/inbounds/:id/status", async (req, res, next) => {
+    try {
+        const session = await requirePortalSession(req);
+        assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+        const inboundId = toPositiveInt(req.params.id);
+        if (!inboundId) throw httpError(400, "A valid purchase order id is required.");
+        const inbound = await withTransaction((client) => transitionPortalInboundCorrectionStatus(
+            client, session.access.accountName, inboundId, req.body?.status, {
+                downloadPathPrefix: "/api/portal/inbound-documents",
+                activityActor: session.access.email || "Company portal",
+                reason: req.body?.reason
+            }
+        ));
+        res.json({ success: true, inbound });
+    } catch (error) {
+        if (error.statusCode === 401) clearPortalSessionCookie(res, req);
+        next(error);
+    }
+});
+
 app.post("/api/portal/inbounds/:id/documents", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
@@ -9215,6 +9254,7 @@ async function initializeDatabase() {
             unique (account_name, fulfillment_location_id)
         );
     `);
+    await pool.query("alter table company_fulfillment_locations add column if not exists customer_portal_visible boolean not null default true;");
 
     await pool.query(`
         create table if not exists company_partner_accounts (
@@ -10095,7 +10135,7 @@ async function initializeDatabase() {
             inbound_code text,
             account_name text not null,
             portal_access_id bigint references portal_vendor_access(id) on delete set null,
-            status text not null default 'SUBMITTED',
+            status text not null default 'DRAFT',
             reference_number text not null default '',
             carrier_name text not null default '',
             expected_date date,
@@ -10105,11 +10145,14 @@ async function initializeDatabase() {
             notes text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED'))
+            constraint portal_inbounds_status_check check (status in ('DRAFT', 'SUBMITTED', 'ARRIVED', 'RECEIVED', 'CANCELLED'))
         );
     `);
     await pool.query("alter table portal_inbounds drop constraint if exists portal_inbounds_status_check");
-    await pool.query("alter table portal_inbounds add constraint portal_inbounds_status_check check (status in ('SUBMITTED', 'ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE', 'CANCELLED'))");
+    await pool.query("alter table portal_inbounds add constraint portal_inbounds_status_check check (status in ('DRAFT', 'SUBMITTED', 'ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE', 'CANCELLED'))");
+    await pool.query("alter table portal_inbounds add column if not exists submitted_at timestamptz");
+    await pool.query("alter table portal_inbounds add column if not exists cancelled_at timestamptz");
+    await pool.query("alter table portal_inbounds add column if not exists correction_reason text not null default ''");
     await pool.query("alter table portal_inbounds alter column inbound_code drop not null");
     await pool.query("alter table portal_inbounds alter column inbound_code drop default");
     await pool.query("alter table portal_inbounds add column if not exists arrived_at timestamptz");
@@ -34609,7 +34652,8 @@ async function savePortalInboundForAccount(
         creatorEmail = "",
         taskAppUser = null,
         requiredDocuments = [],
-        inboundCodeOverride = ""
+        inboundCodeOverride = "",
+        status = "SUBMITTED"
     } = {}
 ) {
     const normalizedAccount = normalizeText(accountName);
@@ -34629,13 +34673,14 @@ async function savePortalInboundForAccount(
         requiredLabel: "receiving warehouse"
     });
 
+    const normalizedStatus = normalizePortalInboundStatus(status) === "DRAFT" ? "DRAFT" : "SUBMITTED";
     const insertResult = await client.query(
         `
             insert into portal_inbounds (
                 account_name, portal_access_id, fulfillment_location_id, reference_number, carrier_name,
-                expected_date, contact_name, contact_phone, notes, created_by_email
+                expected_date, contact_name, contact_phone, notes, created_by_email, status, submitted_at
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $11 = 'SUBMITTED' then now() else null end)
             returning id
         `,
         [
@@ -34648,7 +34693,8 @@ async function savePortalInboundForAccount(
             inbound.contactName,
             inbound.contactPhone,
             inbound.notes,
-            normalizeEmail(creatorEmail || "")
+            normalizeEmail(creatorEmail || ""),
+            normalizedStatus
         ]
     );
     const inboundId = insertResult.rows[0].id;
@@ -34682,7 +34728,7 @@ async function savePortalInboundForAccount(
     await insertActivity(
         client,
         "receipt",
-        `Submitted ${activityTitlePrefix} purchase order ${savedInbound.inboundCode}`,
+        `${normalizedStatus === "DRAFT" ? "Saved" : "Submitted"} ${activityTitlePrefix} purchase order ${savedInbound.inboundCode}`,
         [
             savedInbound.accountName,
             `${formatCount(savedInbound.lines.length, "line")}`,
@@ -34696,9 +34742,10 @@ async function savePortalInboundForAccount(
 
 async function savePortalInbound(client, accessRow, rawInbound) {
     const access = mapPortalAccessRow(accessRow);
+    const saveAsDraft = normalizeText(rawInbound?.status || rawInbound?.action) === "DRAFT";
     const expectedDate = normalizeDateOnly(rawInbound?.expectedDate || rawInbound?.expected_date);
     const today = getTimeZoneDateKey(new Date(), PORTAL_INBOUND_FOLLOWUP_TIME_ZONE);
-    if (!expectedDate || expectedDate <= today) {
+    if (!saveAsDraft && (!expectedDate || expectedDate <= today)) {
         throw httpError(
             400,
             "Same-day inbound notices cannot be created. Please choose tomorrow or a future arrival date."
@@ -34707,7 +34754,7 @@ async function savePortalInbound(client, accessRow, rawInbound) {
     const requiredDocuments = sanitizePortalOrderDocumentsInput(
         Array.isArray(rawInbound?.documents) ? rawInbound.documents : []
     );
-    if (!requiredDocuments.length) {
+    if (!saveAsDraft && !requiredDocuments.length) {
         throw httpError(400, "Attach at least one BOL or packing slip before submitting this inbound.");
     }
     const allowedCategories = new Set([
@@ -34722,8 +34769,70 @@ async function savePortalInbound(client, accessRow, rawInbound) {
         activityTitlePrefix: "portal",
         activityActor: "Company portal",
         creatorEmail: access.email,
-        requiredDocuments
+        requiredDocuments,
+        status: saveAsDraft ? "DRAFT" : "SUBMITTED"
     });
+}
+
+async function updatePortalInboundDraftForAccount(client, accountName, inboundId, rawInbound, { downloadPathPrefix = "/api/admin/portal-inbound-documents", activityActor = "" } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const current = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    if (!current || normalizeText(current.accountName) !== normalizedAccount) throw httpError(404, "That purchase order could not be found.");
+    if (current.status !== "DRAFT") throw httpError(409, "Only draft purchase orders can be edited. Return this purchase order to draft first.");
+    const inbound = sanitizePortalInboundInput(rawInbound, normalizedAccount);
+    if (!inbound.referenceNumber || !inbound.contactName) throw httpError(400, "Reference number and contact name are required.");
+    if (!inbound.lines.length) throw httpError(400, "Add at least one line before saving.");
+    for (const line of inbound.lines) await assertPortalInboundSkuAllowed(client, normalizedAccount, line.sku);
+    const fulfillmentLocation = await resolvePortalFulfillmentLocation(client, normalizedAccount, inbound, { direction: "INBOUND", requiredLabel: "receiving warehouse" });
+    if (toPositiveInt(current.fulfillmentLocationId) !== toPositiveInt(fulfillmentLocation.fulfillmentLocationId)) throw httpError(400, "The receiving warehouse cannot be changed after the purchase order is created.");
+    await client.query(`update portal_inbounds set reference_number=$2,carrier_name=$3,expected_date=$4,contact_name=$5,
+        contact_phone=$6,notes=$7,updated_at=now() where id=$1`,
+    [inboundId, inbound.referenceNumber, inbound.carrierName, inbound.expectedDate || null, inbound.contactName, inbound.contactPhone, inbound.notes]);
+    await client.query("delete from portal_inbound_lines where inbound_id=$1", [inboundId]);
+    for (const [index, line] of inbound.lines.entries()) {
+        await client.query("insert into portal_inbound_lines (inbound_id,line_number,sku,expected_quantity) values ($1,$2,$3,$4)", [inboundId, index + 1, line.sku, line.quantity]);
+    }
+    const updated = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    await insertActivity(client, "receipt", `Updated draft purchase order ${updated.inboundCode}`, [updated.accountName, activityActor].filter(Boolean).join(" | "));
+    await syncWarehouseTasksForInbound(client, updated);
+    return updated;
+}
+
+async function transitionPortalInboundCorrectionStatus(client, accountName, inboundId, requestedStatus, { downloadPathPrefix = "/api/admin/portal-inbound-documents", activityActor = "", reason = "", taskAppUser = null } = {}) {
+    const normalizedAccount = normalizeText(accountName);
+    const nextStatus = normalizePortalInboundStatus(requestedStatus);
+    if (!["DRAFT", "SUBMITTED", "CANCELLED"].includes(nextStatus)) throw httpError(400, "Choose draft, submitted, or cancelled.");
+    const lockResult = await client.query("select account_name,status,arrived_at,received_at from portal_inbounds where id=$1 for update", [inboundId]);
+    if (lockResult.rowCount !== 1 || normalizeText(lockResult.rows[0].account_name) !== normalizedAccount) throw httpError(404, "That purchase order could not be found.");
+    const current = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    if (current.status === nextStatus) return current;
+    const allowed = current.status === "DRAFT" ? ["SUBMITTED", "CANCELLED"] : current.status === "SUBMITTED" ? ["DRAFT", "CANCELLED"] : [];
+    if (!allowed.includes(nextStatus)) throw httpError(409, `Purchase orders in ${current.status} cannot be moved to ${nextStatus}. Receiving corrections require a controlled inventory reversal.`);
+    if (nextStatus === "SUBMITTED") {
+        const today = getTimeZoneDateKey(new Date(), PORTAL_INBOUND_FOLLOWUP_TIME_ZONE);
+        if (!current.expectedDate || current.expectedDate <= today) throw httpError(400, "Choose tomorrow or a future arrival date before submitting.");
+        if (!current.documents?.some((document) => [PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL, PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP].includes(document.documentCategory))) throw httpError(400, "Attach at least one BOL or packing slip before submitting this inbound.");
+    }
+    if (nextStatus === "DRAFT") {
+        const downstream = await client.query(`select
+            exists(select 1 from portal_inbound_receipt_allocations where inbound_id=$1) as has_receipts,
+            exists(select 1 from portal_inbound_pallet_labels where inbound_id=$1 and pallet_status <> 'PLANNED') as has_received_labels,
+            exists(select 1 from portal_delivery_appointments where inbound_id=$1 and status in ('REQUESTED','APPROVED')) as has_appointment`, [inboundId]);
+        const evidence = downstream.rows[0] || {};
+        if (evidence.has_receipts || evidence.has_received_labels) throw httpError(409, "This purchase order has receiving activity and cannot return to draft. Use the controlled receiving correction workflow.");
+        if (evidence.has_appointment) throw httpError(409, "Cancel the active delivery appointment before returning this purchase order to draft.");
+    }
+    const correctionReason = normalizeFreeText(reason || "");
+    await client.query(`update portal_inbounds set status=$2,
+        submitted_at=case when $2='SUBMITTED' then coalesce(submitted_at,now()) else submitted_at end,
+        cancelled_at=case when $2='CANCELLED' then now() else null end,
+        correction_reason=case when $2='DRAFT' then $3 else correction_reason end,
+        updated_at=now() where id=$1`, [inboundId, nextStatus, correctionReason]);
+    const updated = await getPortalInboundById(client, inboundId, downloadPathPrefix);
+    const action = nextStatus === "DRAFT" ? "Returned" : nextStatus === "SUBMITTED" ? "Submitted" : "Cancelled";
+    await insertActivity(client, "receipt", `${action} purchase order ${updated.inboundCode}${nextStatus === "DRAFT" ? " to draft" : ""}`, [updated.accountName, correctionReason, activityActor].filter(Boolean).join(" | "));
+    await syncWarehouseTasksForInbound(client, updated, taskAppUser);
+    return updated;
 }
 
 async function savePortalInboundDocumentsForAccount(
@@ -35120,7 +35229,8 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
         activityTitlePrefix: "warehouse purchase order",
         activityActor: actor,
         creatorEmail: appUser?.email || "",
-        taskAppUser: appUser
+        taskAppUser: appUser,
+        status: normalizePortalInboundStatus(rawInbound?.status) === "DRAFT" ? "DRAFT" : "SUBMITTED"
     });
 }
 
@@ -35133,8 +35243,8 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
     if (normalizeText(currentInbound.accountName) !== normalizedAccount) {
         throw httpError(400, "Purchase order company cannot be changed.");
     }
-    if (currentInbound.status !== "SUBMITTED") {
-        throw httpError(400, "Only open submitted purchase orders can be edited.");
+    if (currentInbound.status !== "DRAFT") {
+        throw httpError(400, "Only draft purchase orders can be edited. Return this purchase order to draft first.");
     }
 
     const inbound = sanitizePortalInboundInput(rawInbound, normalizedAccount);
@@ -35209,6 +35319,13 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     const currentInbound = await getPortalInboundById(client, inboundId);
     if (!currentInbound) {
         throw httpError(404, "That purchase order could not be found.");
+    }
+    if (["DRAFT", "SUBMITTED"].includes(currentInbound.status) && ["DRAFT", "SUBMITTED", "CANCELLED"].includes(nextStatus)) {
+        return transitionPortalInboundCorrectionStatus(client, currentInbound.accountName, inboundId, nextStatus, {
+            activityActor: appUser?.full_name || appUser?.email || "Warehouse",
+            reason: details?.reason || details?.cancelReason || details?.note,
+            taskAppUser: appUser
+        });
     }
     if (currentInbound.status === nextStatus) {
         await syncWarehouseTasksForInbound(client, currentInbound, appUser);
@@ -43341,7 +43458,7 @@ function normalizePortalOrderStatus(value) {
 
 function normalizePortalInboundStatus(value) {
     const normalized = normalizeText(value);
-    return ["SUBMITTED", "ARRIVED", "RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE", "CANCELLED"].includes(normalized) ? normalized : "";
+    return ["DRAFT", "SUBMITTED", "ARRIVED", "RECEIVED", "RECEIVED_PENDING_PUTAWAY", "PARTIALLY_PUTAWAY", "PUTAWAY_COMPLETE", "CANCELLED"].includes(normalized) ? normalized : "";
 }
 
 function categoryAccountCode(category) {

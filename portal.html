@@ -2518,6 +2518,7 @@
                 </div>
 
                 <div class="order-actions">
+                    <button class="btn secondary" id="saveInboundDraftBtn" type="button">Save Draft</button>
                     <button class="btn" id="submitInboundBtn" type="button">Submit Purchase Order</button>
                 </div>
             </section>
@@ -2857,6 +2858,7 @@
             applyingShipToAddress: false,
             activeView: "home",
             editingOrderId: null,
+            editingInboundId: null,
             editingItemSku: null,
             selectedShippedOrderId: null,
             shipmentTrackingByOrder: {},
@@ -3117,6 +3119,7 @@
             addInboundLineBtn: document.getElementById("addInboundLineBtn"),
             inboundLines: document.getElementById("inboundLines"),
             resetInboundBtn: document.getElementById("resetInboundBtn"),
+            saveInboundDraftBtn: document.getElementById("saveInboundDraftBtn"),
             submitInboundBtn: document.getElementById("submitInboundBtn"),
             inboundsList: document.getElementById("inboundsList"),
             deliveryForm: document.getElementById("deliveryForm"),
@@ -3536,6 +3539,7 @@
                 input?.addEventListener("input", updateOrderRushNotice);
             });
             ui.saveDraftBtn.addEventListener("click", saveDraftOrder);
+            ui.saveInboundDraftBtn.addEventListener("click", saveInboundDraft);
             ui.releaseOrderBtn.addEventListener("click", promptCurrentOrderRelease);
             ui.submitInboundBtn.addEventListener("click", submitInbound);
             ui.submitDeliveryBtn.addEventListener("click", submitDeliveryAppointment);
@@ -5917,7 +5921,9 @@
                         </div>
                         <div class="button-row">
                             <button class="btn ghost" type="button" data-toggle-inbound-details="${attr(inbound.id)}" aria-expanded="${isExpanded ? "true" : "false"}">${isExpanded ? "Hide Details" : "View Details"}</button>
-                            ${inbound.status !== "CANCELLED" ? `<button class="btn" type="button" data-book-inbound-appointment="${attr(inbound.id)}">Book Appointment</button>` : ""}
+                            ${inbound.status === "DRAFT" ? `<button class="btn ghost" type="button" data-edit-inbound="${attr(inbound.id)}">Edit</button><button class="btn" type="button" data-submit-inbound="${attr(inbound.id)}">Submit</button>` : ""}
+                            ${inbound.status === "SUBMITTED" ? `<button class="btn ghost" type="button" data-return-inbound-draft="${attr(inbound.id)}">Return to Draft</button><button class="btn" type="button" data-book-inbound-appointment="${attr(inbound.id)}">Book Appointment</button>` : ""}
+                            ${["DRAFT", "SUBMITTED"].includes(inbound.status) ? `<button class="btn ghost" type="button" data-cancel-inbound="${attr(inbound.id)}">Cancel</button>` : ""}
                         </div>
                         ${isExpanded ? `
                             <div class="order-details-panel">
@@ -6464,6 +6470,9 @@
 
         function resetInboundForm() {
             ui.inboundForm.reset();
+            portalState.editingInboundId = null;
+            ui.saveInboundDraftBtn.textContent = "Save Draft";
+            ui.submitInboundBtn.textContent = "Submit Purchase Order";
             setInboundExpectedDateMinimum();
             portalState.inboundDraftDocumentFiles = [];
             renderDraftInboundDocumentSelection();
@@ -6539,6 +6548,41 @@
             };
         }
 
+        function editInboundDraft(inbound) {
+            if (!inbound || inbound.status !== "DRAFT") return;
+            portalState.editingInboundId = String(inbound.id);
+            ui.inboundReferenceNumber.value = inbound.referenceNumber || "";
+            ui.inboundCarrierName.value = inbound.carrierName || "";
+            ui.inboundExpectedDate.value = inbound.expectedDate || "";
+            ui.inboundContactName.value = inbound.contactName || "";
+            ui.inboundContactPhone.value = inbound.contactPhone || "";
+            ui.inboundNotes.value = inbound.notes || "";
+            ui.inboundLines.innerHTML = "";
+            (inbound.lines || []).forEach((line) => addInboundLine(line));
+            ui.saveInboundDraftBtn.textContent = "Save Changes";
+            ui.submitInboundBtn.textContent = "Save and Submit";
+            setView("inbound");
+            ui.inboundReferenceNumber.focus();
+        }
+
+        async function saveInboundDraft(event) {
+            const actionButton = resolveActionButton(event, ui.saveInboundDraftBtn);
+            try {
+                await runActionWithFeedback({ button: actionButton, busyLabel: "Saving...", progressMessage: "Saving purchase order draft..." }, async () => {
+                    if (!portalState.activeFulfillmentLocationId) return fail(ui.portalMessage, "Select the receiving warehouse first.", ui.portalWarehouseSelect);
+                    const inbound = { ...collectInboundForm(), status: "DRAFT" };
+                    const response = await requestJson(portalState.editingInboundId ? `/api/portal/inbounds/${portalState.editingInboundId}` : "/api/portal/inbounds", {
+                        method: portalState.editingInboundId ? "PUT" : "POST", body: JSON.stringify(inbound)
+                    });
+                    const saved = sanitizeInbound(response?.inbound);
+                    await loadPortalData();
+                    resetInboundForm();
+                    setView("inbounds");
+                    setMessage(`Saved purchase order ${saved?.inboundCode || "draft"}.`, "success");
+                });
+            } catch (error) { setMessage(error.message, "error"); }
+        }
+
         async function submitInbound(event) {
             if (!portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES)) {
                 return setMessage("Purchase orders are not enabled for your company.", "error");
@@ -6563,26 +6607,29 @@
                         );
                     }
                     const documentCategory = String(ui.inboundDocumentType?.value || "");
-                    if (!["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP"].includes(documentCategory)) {
+                    if (portalState.inboundDraftDocumentFiles.length && !["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP"].includes(documentCategory)) {
                         return fail(
                             ui.portalMessage,
                             "Choose whether the required receiving document is a BOL or packing slip.",
                             ui.inboundDocumentType
                         );
                     }
-                    if (!portalState.inboundDraftDocumentFiles.length) {
+                    if (!portalState.editingInboundId && !portalState.inboundDraftDocumentFiles.length) {
                         return fail(
                             ui.portalMessage,
                             "Attach at least one BOL or packing slip before submitting this inbound.",
                             ui.inboundDocumentFiles
                         );
                     }
-                    const documents = (await readOrderDocumentFiles(portalState.inboundDraftDocumentFiles))
-                        .map((document) => ({ ...document, documentCategory }));
-                    const response = await requestJson('/api/portal/inbounds', {
-                        method: 'POST',
-                        body: JSON.stringify({ ...inbound, documents })
-                    });
+                    const documents = portalState.inboundDraftDocumentFiles.length ? (await readOrderDocumentFiles(portalState.inboundDraftDocumentFiles)).map((document) => ({ ...document, documentCategory })) : [];
+                    let response;
+                    if (portalState.editingInboundId) {
+                        response = await requestJson(`/api/portal/inbounds/${portalState.editingInboundId}`, { method: "PUT", body: JSON.stringify(inbound) });
+                        if (documents.length) await requestJson(`/api/portal/inbounds/${portalState.editingInboundId}/documents`, { method: "POST", body: JSON.stringify({ documents }) });
+                        response = await requestJson(`/api/portal/inbounds/${portalState.editingInboundId}/status`, { method: "POST", body: JSON.stringify({ status: "SUBMITTED" }) });
+                    } else {
+                        response = await requestJson('/api/portal/inbounds', { method: 'POST', body: JSON.stringify({ ...inbound, documents }) });
+                    }
                     const savedInbound = sanitizeInbound(response?.inbound);
                     if (!savedInbound?.inboundCode) {
                         throw new Error("The purchase order was submitted, but the confirmation could not be read. Refresh My Purchase Orders to confirm it is listed.");
@@ -8664,6 +8711,24 @@
         }
 
         async function onInboundsListClick(event) {
+            const editButton = event.target.closest("[data-edit-inbound]");
+            if (editButton) { editInboundDraft(getInboundById(editButton.dataset.editInbound || "")); return; }
+            const statusButton = event.target.closest("[data-submit-inbound], [data-return-inbound-draft], [data-cancel-inbound]");
+            if (statusButton) {
+                const inboundId = statusButton.dataset.submitInbound || statusButton.dataset.returnInboundDraft || statusButton.dataset.cancelInbound || "";
+                const inbound = getInboundById(inboundId);
+                const status = statusButton.dataset.submitInbound ? "SUBMITTED" : statusButton.dataset.returnInboundDraft ? "DRAFT" : "CANCELLED";
+                if (!inbound) return;
+                let reason = "";
+                if (status === "DRAFT") { reason = window.prompt("Why does this purchase order need correction?") || ""; if (!reason) return; }
+                if (status === "CANCELLED" && !window.confirm(`Cancel purchase order ${inbound.inboundCode}?`)) return;
+                try {
+                    await requestJson(`/api/portal/inbounds/${inbound.id}/status`, { method: "POST", body: JSON.stringify({ status, reason }) });
+                    await loadPortalData(); setView("inbounds");
+                    setMessage(`Purchase order ${inbound.inboundCode} ${status === "DRAFT" ? "returned to draft" : status.toLowerCase()}.`, "success");
+                } catch (error) { setMessage(error.message, "error"); }
+                return;
+            }
             const clearInboundDocumentSelection = event.target.closest("[data-clear-inbound-document-selection]");
             if (clearInboundDocumentSelection) {
                 const inboundId = String(clearInboundDocumentSelection.dataset.clearInboundDocumentSelection || "");
