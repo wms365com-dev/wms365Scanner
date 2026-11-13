@@ -1393,10 +1393,13 @@ app.post("/api/app/logout", async (req, res, next) => {
 app.get("/api/app/me", async (req, res, next) => {
     try {
         const session = await requireAppSession(req);
+        res.setHeader("Cache-Control", "no-store");
         res.json({ authenticated: true, user: mapAppUserRow(session.user) });
     } catch (error) {
         if (error.statusCode === 401) {
             clearAppSessionCookie(res, req);
+            res.setHeader("Cache-Control", "no-store");
+            return res.status(200).json({ authenticated: false, user: null });
         }
         next(error);
     }

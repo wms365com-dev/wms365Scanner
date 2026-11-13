@@ -12518,7 +12518,17 @@
 
         let warehouseViewportAlertTarget = null;
 
-        init();
+        void bootstrapWarehouseApp();
+
+        async function bootstrapWarehouseApp() {
+            const payload = await requestJson("/api/app/me");
+            if (!payload?.authenticated) {
+                window.location.replace("/login.html?next=%2Fdesktop");
+                return;
+            }
+            applyCurrentAppUser(payload.user || {});
+            init();
+        }
 
         function productRecommendationLabel(value = "") {
             return String(value || "").replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -12777,7 +12787,6 @@
             ui.accountProfileForm?.addEventListener("submit", saveCurrentWarehouseProfile);
             ui.accountResetPasswordBtn?.addEventListener("click", resetCurrentWarehousePassword);
             ui.accountLogoutBtn?.addEventListener("click", logoutCurrentWarehouseUser);
-            refreshCurrentAppUser().catch(() => {});
             ui.desktopSectionBackBtn?.addEventListener("click", () => goBackDesktopSection());
             ui.syncNowBtn?.addEventListener("click", async () => {
                 const previousSyncLabel = ui.workspaceSyncChip?.textContent || "Synced: waiting";

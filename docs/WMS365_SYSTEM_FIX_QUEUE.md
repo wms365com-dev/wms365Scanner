@@ -38,7 +38,7 @@ Acceptance: Open every module; reconcile dashboard/task/order counts from one sc
 | 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | REOPENED |
 | 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | REOPENED |
 | 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | FIXED - NEEDS RETEST |
-| 5 | WMS-25 | high | Normal page load produces `/api/app/me` and `/api/state` 401 noise | REOPENED |
+| 5 | WMS-25 | high | Normal page load produces `/api/app/me` and `/api/state` 401 noise | FIXED - NEEDS RETEST |
 | 6 | WMS-27 | medium | Green/amber system status dot has no label or explanation | QUEUED |
 
 ### Batch 2: Scope, Permissions, Feature Flags, and Inventory Clarity
@@ -241,4 +241,7 @@ Every batch must cover:
 - Global checks: `npm run audit:access-control` passed; `npm run check:deploy` passed with 423 tests, including warehouse entry-route, RBAC, tenant isolation, warehouse isolation, inventory, billing, document, email, integration, and system-error coverage.
 - Retest required: independently open the warehouse app with a valid session and an expired session, verify no `/api/app/me` or `/api/state` 401 noise during normal bootstrap, and confirm expired sessions redirect to login without protected state loading.
 - Independent retest 2026-11-13: **FAILED / REOPENED.** The isolated `customer-sandbox` deployment returned `401` with `{"error":"Warehouse login required."}` for an unauthenticated `/api/app/me` request. The reviewed baseline source still forwards the `401` from `requireAppSession`, and the referenced `session-bootstrap.spec.js` is absent from the clean release repository. Production was not changed. Repair must restore the quiet HTTP 200 probe, add the missing regression and negative coverage, then pass the full sandbox workflow and soak before promotion.
+- Repair 2026-11-13: `server.js` now returns HTTP 200 with `{ authenticated: false, user: null }` for an absent or expired warehouse session while retaining `401` enforcement on protected routes. `index.html` gates all application initialization and `/api/state` loading behind the successful session probe and redirects unauthenticated browsers before protected loading. `session-bootstrap.spec.js` restores focused positive and negative regression coverage.
+- Test evidence: focused session bootstrap tests passed 3/3; `npm run audit:access-control` passed all 12 checks across 290 routes; `npm run check:deploy` passed 750/750 tests when run with the required temporary-directory permissions.
+- Deployment blocker: `npm run check:fresh-database` stopped with `DATABASE_URL is required` because the release environment did not expose an isolated fresh-database connection. No sandbox deployment, soak, or production promotion was attempted. Next retest must run the fresh-database gate against isolated `Postgres-XihR`, commit and deploy the exact candidate to `wms365-sandbox`, verify expired and valid sessions plus tenant/warehouse isolation, and complete the 10-minute healthy soak before any production promotion.
 
