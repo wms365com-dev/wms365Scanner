@@ -138,7 +138,7 @@ test("system email accepts only safe recipients and in-memory attachments", () =
     assert.equal(options.attachments[0].content, attachmentContent);
 });
 
-test("Nodemailer 9 renders the normalized WMS365 message and attachment", async () => {
+test("Nodemailer 10 renders the normalized WMS365 message and attachment", async () => {
     const transporter = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "unix" });
     const options = normalizeSystemEmailMailOptions({
         to: "customer@example.com",
