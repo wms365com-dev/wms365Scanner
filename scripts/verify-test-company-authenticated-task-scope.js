@@ -94,6 +94,7 @@ async function insertTasks(client, { prefix, accountName, locationId, count }) {
 }
 
 async function fetchJson(origin, path, token, requestId) {
+    const startedAt = process.hrtime.bigint();
     const response = await fetch(`${origin}${path}`, {
         method: "GET",
         redirect: "error",
@@ -106,7 +107,19 @@ async function fetchJson(origin, path, token, requestId) {
     const text = await response.text();
     let body = null;
     try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-    return { status: response.status, body };
+    return {
+        status: response.status,
+        body,
+        elapsedMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+        serverTiming: response.headers.get("server-timing") || "",
+        resultCount: response.headers.get("x-wms365-result-count") || ""
+    };
+}
+
+function median(values) {
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 async function cleanup(pool, fixture) {
@@ -308,6 +321,31 @@ async function main(env = process.env) {
             throw new Error(`Denied-company authenticated task request returned HTTP ${deniedResponse.status}, expected 403.`);
         }
 
+        const queueMeasurements = [];
+        for (let iteration = 0; iteration < 6; iteration += 1) {
+            const response = await fetchJson(
+                config.origin,
+                `/api/admin/portal-orders?accountName=${encodeURIComponent(TEST_COMPANY.name)}`,
+                sessionToken,
+                `${fixture.requestId}-ORDERS-${iteration + 1}`
+            );
+            if (response.status !== 200 || !Array.isArray(response.body?.orders)) {
+                throw new Error(`Authenticated sales-order queue request returned HTTP ${response.status}.`);
+            }
+            if (!/^portal-orders;dur=\d+(?:\.\d+)?$/.test(response.serverTiming)) {
+                throw new Error("Authenticated sales-order queue response did not expose valid server timing.");
+            }
+            if (Number(response.resultCount) !== response.body.orders.length) {
+                throw new Error("Authenticated sales-order queue result-count header did not match its scoped response.");
+            }
+            if (iteration > 0) queueMeasurements.push(response.elapsedMs);
+        }
+        const queueMedianMs = median(queueMeasurements);
+        const queueMaxMs = Math.max(...queueMeasurements);
+        if (queueMedianMs > 750 || queueMaxMs > 1500) {
+            throw new Error(`Authenticated sales-order queue exceeded its sandbox budget (median ${queueMedianMs.toFixed(1)}ms, max ${queueMaxMs.toFixed(1)}ms).`);
+        }
+
         console.log(JSON.stringify({
             verified: true,
             designatedCompanyId: TEST_COMPANY.id,
@@ -315,6 +353,8 @@ async function main(env = process.env) {
             deniedWarehouseTaskCount: deniedWarehouseIds.length,
             deniedCompanyTaskCount: deniedCompanyIds.length,
             deniedCompanyStatus: deniedResponse.status,
+            salesOrderQueueMedianMs: Number(queueMedianMs.toFixed(1)),
+            salesOrderQueueMaxMs: Number(queueMaxMs.toFixed(1)),
             cleanupPending: true
         }));
         return { verified: true, allowedTaskCount: returnedCount };
@@ -346,6 +386,7 @@ module.exports = {
     DENIED_WAREHOUSE_TASK_COUNT,
     assertExactTaskScope,
     hashToken,
+    median,
     main,
     requireSandboxConfiguration,
     taskIds

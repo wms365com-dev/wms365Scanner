@@ -4870,6 +4870,7 @@ app.get("/api/admin/portal-access", async (req, res, next) => {
 });
 
 app.get("/api/admin/portal-orders", async (req, res, next) => {
+    const startedAt = process.hrtime.bigint();
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
         const requestedStatusInput = normalizeText(req.query?.status || "");
@@ -4883,16 +4884,20 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
         const orders = requestedAccount
             ? await getPortalOrderListForAccount(requestedAccount, pool, { status: requestedStatus })
             : await getAdminPortalOrderList(pool, { status: requestedStatus });
-        res.setHeader("Cache-Control", "no-store");
+        const sendOrders = (visibleOrders) => {
+            const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+            res.setHeader("Cache-Control", "no-store");
+            res.setHeader("Server-Timing", `portal-orders;dur=${durationMs.toFixed(1)}`);
+            res.setHeader("X-WMS365-Result-Count", String(visibleOrders.length));
+            res.json({ orders: visibleOrders });
+        };
         if (isSuperAdminUser(req.appUser)) {
-            res.json({ orders });
+            sendOrders(orders);
             return;
         }
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
         const companyScopedOrders = orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
-        res.json({
-            orders: await filterPortalOrdersForAppUserWarehouses(pool, companyScopedOrders, req.appUser)
-        });
+        sendOrders(await filterPortalOrdersForAppUserWarehouses(pool, companyScopedOrders, req.appUser));
     } catch (error) {
         next(error);
     }
@@ -20300,10 +20305,10 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
         params
     );
 
-    await attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows);
     const orderIds = ordersResult.rows.map((row) => row.id);
-    const linesResult = orderIds.length
-        ? await client.query(
+    const [linesResult, documentsResult, shipmentLinesResult, printSummariesResult] = await Promise.all([
+        orderIds.length
+            ? client.query(
             `
                 select
                     l.*,
@@ -20323,21 +20328,25 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
             `,
             [orderIds]
         )
-        : { rows: [] };
-    await attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows);
-    const documentsResult = orderIds.length
-        ? await client.query(
-            `
-                select id, order_id, file_name, file_type, file_size, document_category, uploaded_by, created_at
-                from portal_order_documents
-                where order_id = any($1::bigint[])
-                order by order_id desc, created_at asc, id asc
-            `,
-            [orderIds]
-        )
-        : { rows: [] };
-    const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, orderIds);
-    const printSummariesResult = await getPortalOrderPrintSummariesForOrders(client, orderIds);
+            : Promise.resolve({ rows: [] }),
+        orderIds.length
+            ? client.query(
+                `
+                    select id, order_id, file_name, file_type, file_size, document_category, uploaded_by, created_at
+                    from portal_order_documents
+                    where order_id = any($1::bigint[])
+                    order by order_id desc, created_at asc, id asc
+                `,
+                [orderIds]
+            )
+            : Promise.resolve({ rows: [] }),
+        getPortalShipmentLinesForOrders(client, orderIds),
+        getPortalOrderPrintSummariesForOrders(client, orderIds)
+    ]);
+    await Promise.all([
+        attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows),
+        attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows)
+    ]);
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map(), shipmentLinesResult.rows, printSummariesResult.rows);
 }
 

@@ -7,6 +7,7 @@ const path = require("node:path");
 const {
     ALLOWED_TASK_COUNT,
     assertExactTaskScope,
+    median,
     requireSandboxConfiguration
 } = require("./scripts/verify-test-company-authenticated-task-scope");
 
@@ -41,6 +42,15 @@ test("sandbox guard accepts only the pinned isolated service, origin and private
     assert.throws(() => requireSandboxConfiguration(sandboxEnv({ DATABASE_PRIVATE_URL: "postgresql://fallback/railway" })), /Postgres-XihR/);
     assert.throws(() => requireSandboxConfiguration(sandboxEnv({ DATABASE_PRIVATE_URL: "", DATABASE_URL: "postgresql://public.example/railway" })), /private database URL/);
     assert.throws(() => requireSandboxConfiguration(sandboxEnv({ WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED: "false" })), /external email/);
+});
+
+test("performance verifier uses a deterministic median and explicit queue budgets", () => {
+    assert.equal(median([30, 10, 20]), 20);
+    assert.equal(median([40, 10, 30, 20]), 25);
+    assert.match(script, /queueMedianMs > 750 \|\| queueMaxMs > 1500/);
+    assert.match(script, /server-timing/);
+    assert.match(script, /x-wms365-result-count/);
+    assert.match(script, /\/api\/admin\/portal-orders\?accountName=/);
 });
 
 test("scope reconciliation requires every allowed ID and rejects warehouse or company leaks", () => {
