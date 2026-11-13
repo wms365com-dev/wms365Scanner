@@ -72,6 +72,9 @@ test("harness statically pins identity, commits fixtures, injects a session and 
     assert.match(script, /delete from access_restriction_log/);
     assert.match(script, /delete from app_sessions/);
     assert.match(script, /delete from warehouse_tasks/);
+    assert.match(script, /delete from warehouse_task_history/);
+    assert.match(script, /set local session_replication_role = replica/);
+    assert.match(script, /cleanupStaleScopeFixtures/);
     assert.match(script, /delete from fulfillment_locations/);
     assert.match(script, /delete from owner_accounts/);
     assert.match(script, /fixture cleanup left sandbox residue/);

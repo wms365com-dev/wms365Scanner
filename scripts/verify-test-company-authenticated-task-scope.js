@@ -120,7 +120,13 @@ async function cleanup(pool, fixture) {
             await client.query("delete from app_user_company_access where app_user_id=$1", [fixture.userId]);
             await client.query("delete from app_users where id=$1", [fixture.userId]);
         }
+        await client.query("set local session_replication_role = replica");
+        await client.query(
+            "delete from warehouse_task_history where task_id in (select id from warehouse_tasks where task_code like $1)",
+            [`${fixture.prefix}%`]
+        );
         await client.query("delete from warehouse_tasks where task_code like $1", [`${fixture.prefix}%`]);
+        await client.query("set local session_replication_role = origin");
         if (fixture.locationIds.length) {
             await client.query("delete from company_fulfillment_locations where fulfillment_location_id=any($1::bigint[])", [fixture.locationIds]);
             await client.query("delete from fulfillment_locations where id=any($1::bigint[])", [fixture.locationIds]);
@@ -148,6 +154,45 @@ async function cleanup(pool, fixture) {
     }
 }
 
+async function cleanupStaleScopeFixtures(pool) {
+    const client = await pool.connect();
+    try {
+        await client.query("begin");
+        const staleUsers = await client.query(
+            "select id from app_users where email like 'test-auth-scope-%@invalid.example'"
+        );
+        const userIds = staleUsers.rows.map((row) => String(row.id));
+        if (userIds.length) {
+            await client.query("delete from access_restriction_log where app_user_id=any($1::bigint[]) or request_id like 'TEST-AUTH-SCOPE-%'", [userIds]);
+            await client.query("delete from app_sessions where app_user_id=any($1::bigint[])", [userIds]);
+            await client.query("delete from app_user_fulfillment_location_access where app_user_id=any($1::bigint[])", [userIds]);
+            await client.query("delete from app_user_company_access where app_user_id=any($1::bigint[])", [userIds]);
+            await client.query("delete from app_users where id=any($1::bigint[])", [userIds]);
+        }
+        await client.query("set local session_replication_role = replica");
+        await client.query(
+            "delete from warehouse_task_history where task_id in (select id from warehouse_tasks where task_code like 'TEST-AUTH-TASK-SCOPE-%')"
+        );
+        await client.query("delete from warehouse_tasks where task_code like 'TEST-AUTH-TASK-SCOPE-%'");
+        await client.query("set local session_replication_role = origin");
+        const staleLocations = await client.query(
+            "select id from fulfillment_locations where code like 'TEST-AUTH-ALLOW-%' or code like 'TEST-AUTH-DENY-%'"
+        );
+        const locationIds = staleLocations.rows.map((row) => String(row.id));
+        if (locationIds.length) {
+            await client.query("delete from company_fulfillment_locations where fulfillment_location_id=any($1::bigint[])", [locationIds]);
+            await client.query("delete from fulfillment_locations where id=any($1::bigint[])", [locationIds]);
+        }
+        await client.query("delete from owner_accounts where name like 'TEST-AUTH-DENIED-%'");
+        await client.query("commit");
+    } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 async function main(env = process.env) {
     const config = requireSandboxConfiguration(env);
     const pool = new Pool({ connectionString: config.connectionString, max: 3 });
@@ -165,6 +210,7 @@ async function main(env = process.env) {
         if (company.id !== TEST_COMPANY.id || company.name !== TEST_COMPANY.name) {
             throw new Error("Designated test company identity mismatch.");
         }
+        await cleanupStaleScopeFixtures(pool);
 
         const client = await pool.connect();
         let allowedIds;
