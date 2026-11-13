@@ -18,3 +18,14 @@ test("health stays unavailable until the complete database schema is initialized
     assert.match(source, /const healthy = databaseSchemaInitialized && databaseReady && probe\.ok && entryRoutesReady/);
     assert.match(source, /await initializeDatabase\(\);\s*databaseSchemaInitialized = true;\s*databaseReady = true;/);
 });
+
+test("rolling schema initialization is serialized and retries bounded lock waits", () => {
+    const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    assert.match(source, /const DATABASE_SESSION_LOCK_TIMEOUT_MS = Math\.max\(500,/);
+    assert.match(source, /options: `-c lock_timeout=\$\{DATABASE_SESSION_LOCK_TIMEOUT_MS\}`/);
+    assert.match(source, /pg_try_advisory_lock\(hashtextextended\(\$1, 0\)\)/);
+    assert.match(source, /WMS365_SCHEMA_INITIALIZATION_BUSY/);
+    assert.match(source, /pg_advisory_unlock\(hashtextextended\(\$1, 0\)\)/);
+    assert.match(source, /initializationLockClient\.release\(\)/);
+    assert.match(source, /Database initialization failed\. Retrying in 5 seconds\./);
+});

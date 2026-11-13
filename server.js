@@ -396,9 +396,11 @@ const DATABASE_CONNECTION_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("D
 const DATABASE_QUERY_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_QUERY_TIMEOUT_MS", "15000") || "15000", 10) || 15000);
 const DATABASE_TRANSACTION_STATEMENT_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_TRANSACTION_STATEMENT_TIMEOUT_MS", "20000") || "20000", 10) || 20000);
 const DATABASE_TRANSACTION_LOCK_TIMEOUT_MS = Math.max(500, Number.parseInt(readEnv("DATABASE_TRANSACTION_LOCK_TIMEOUT_MS", "5000") || "5000", 10) || 5000);
+const DATABASE_SESSION_LOCK_TIMEOUT_MS = Math.max(500, Number.parseInt(readEnv("DATABASE_SESSION_LOCK_TIMEOUT_MS", "5000") || "5000", 10) || 5000);
 const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATABASE_HEALTH_TIMEOUT_MS", "5000") || "5000", 10) || 5000);
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
+const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
@@ -928,6 +930,7 @@ const pool = DATABASE_URL
         connectionString: DATABASE_URL,
         ssl: shouldUseSsl(DATABASE_URL) ? { rejectUnauthorized: false } : false,
         connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
+        options: `-c lock_timeout=${DATABASE_SESSION_LOCK_TIMEOUT_MS}`,
         idleTimeoutMillis: 30000
     })
     : createUnavailablePool("DATABASE_URL or DATABASE_PRIVATE_URL is required. Add a PostgreSQL database in Railway and expose it to this service.");
@@ -12219,8 +12222,21 @@ async function initializeDatabaseWithRetry() {
     }
 
     while (!databaseReady) {
+        let initializationLockClient = null;
+        let initializationLockHeld = false;
         try {
             console.log("Initializing PostgreSQL schema...");
+            initializationLockClient = await pool.connect();
+            const initializationLockResult = await initializationLockClient.query(
+                "select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired",
+                [DATABASE_INITIALIZATION_LOCK_KEY]
+            );
+            if (!initializationLockResult.rows[0]?.acquired) {
+                const lockError = new Error("Another WMS365 instance is initializing the database schema.");
+                lockError.code = "WMS365_SCHEMA_INITIALIZATION_BUSY";
+                throw lockError;
+            }
+            initializationLockHeld = true;
             await initializeDatabase();
             databaseSchemaInitialized = true;
             databaseReady = true;
@@ -12247,8 +12263,19 @@ async function initializeDatabaseWithRetry() {
             databaseReady = false;
             databaseErrorMessage = error.message;
             console.error("Database initialization failed. Retrying in 5 seconds.", error);
-            await delay(5000);
+        } finally {
+            if (initializationLockClient) {
+                if (initializationLockHeld) {
+                    try {
+                        await initializationLockClient.query("select pg_advisory_unlock(hashtextextended($1, 0))", [DATABASE_INITIALIZATION_LOCK_KEY]);
+                    } catch (unlockError) {
+                        console.error("Database initialization lock release failed.", unlockError.message || unlockError);
+                    }
+                }
+                initializationLockClient.release();
+            }
         }
+        if (!databaseReady) await delay(5000);
     }
 }
 
