@@ -21252,6 +21252,7 @@ async function resolvePortalShipToAddressTrust(client, accountName, order, verif
 }
 
 function assertPortalShipToAddressCanRelease(order, { addressValidationRequired = true } = {}) {
+    if (!portalOrderRequiresShipToAddress(order)) return;
     if (!addressValidationRequired) {
         const errors = validateManualShipToAddressShape(sanitizeShipToAddressValidationInput(order));
         if (errors.length) throw httpError(409, errors.join(" "));
@@ -21263,6 +21264,15 @@ function assertPortalShipToAddressCanRelease(order, { addressValidationRequired 
     if (!["SAVED", "VERIFIED", "OVERRIDDEN"].includes(status) || (storedFingerprint && storedFingerprint !== fingerprint)) {
         throw httpError(409, "Verify this new ship-to address or confirm it manually before releasing the order. You can still save the order as a draft.");
     }
+}
+
+function portalOrderRequiresShipToAddress(order = {}) {
+    return normalizePortalShipmentMethod(
+        order?.shipmentMethod
+        || order?.shipment_method
+        || order?.shippingMethod
+        || order?.shipping_method
+    ) !== PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
 }
 
 async function upsertShipToAddressFromOrder(client, accountName, order) {
@@ -21345,7 +21355,8 @@ async function savePortalOrderDraftForAccount(
     if (!order.requestedShipDate) {
         throw httpError(400, "Requested ship date is required.");
     }
-    if (!order.shipToAddress1 || !order.shipToCity || !order.shipToState || !order.shipToPostalCode || !order.shipToCountry) {
+    const requiresShipToAddress = portalOrderRequiresShipToAddress(order);
+    if (requiresShipToAddress && (!order.shipToAddress1 || !order.shipToCity || !order.shipToState || !order.shipToPostalCode || !order.shipToCountry)) {
         throw httpError(400, "A full ship-to address is required.");
     }
     if (!order.lines.length) {
@@ -21360,13 +21371,15 @@ async function savePortalOrderDraftForAccount(
         direction: "OUTBOUND",
         requiredLabel: "ship-from warehouse"
     });
-    let shipToAddressTrust = await resolvePortalShipToAddressTrust(
-        client,
-        normalizedAccount,
-        order,
-        order.shipToAddressVerificationToken,
-        { portalAccessId }
-    );
+    let shipToAddressTrust = requiresShipToAddress
+        ? await resolvePortalShipToAddressTrust(
+            client,
+            normalizedAccount,
+            order,
+            order.shipToAddressVerificationToken,
+            { portalAccessId }
+        )
+        : { status: "INTERNAL", provider: "", placeId: "", responseId: "", formattedAddress: "", fingerprint: "", verifiedAt: null };
     const processingTiming = buildPortalOrderProcessingTiming(order, { location: fulfillmentLocation });
     const needsProcessingChoice = processingTiming.requestedBeforeReady === true;
     if (portalAccessId && needsProcessingChoice && !order.rushApproved && !order.rushExempt) {
@@ -22761,7 +22774,9 @@ async function releasePortalOrderForAccount(
     );
 
     const releasedOrder = await getPortalOrderById(client, orderId, normalizedAccount, downloadPathPrefix);
-    await upsertShipToAddressFromOrder(client, normalizedAccount, releasedOrder);
+    if (portalOrderRequiresShipToAddress(releasedOrder)) {
+        await upsertShipToAddressFromOrder(client, normalizedAccount, releasedOrder);
+    }
     await syncWarehouseShipmentsForOrder(client, releasedOrder, { status: "RELEASED" });
     await insertActivity(
         client,
@@ -46688,6 +46703,7 @@ module.exports = {
     signAddressVerificationToken,
     verifyAddressVerificationToken,
     assertPortalShipToAddressCanRelease,
+    portalOrderRequiresShipToAddress,
     sanitizePortalKittingComponents,
     reservePortalKittingComponents,
     completePortalKittingInventory,

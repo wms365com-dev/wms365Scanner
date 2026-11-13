@@ -37,7 +37,7 @@ Acceptance: Open every module; reconcile dashboard/task/order counts from one sc
 | 1 | WMS-01 | critical | Module navigation freezes; Items crashed the browser tab | FIXED - NEEDS RETEST |
 | 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | REOPENED |
 | 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | REOPENED |
-| 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | FIXED - NEEDS RETEST |
+| 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | REOPENED |
 | 5 | WMS-25 | high | Normal page load produces `/api/app/me` and `/api/state` 401 noise | FIXED - NEEDS RETEST |
 | 6 | WMS-27 | medium | Green/amber system status dot has no label or explanation | QUEUED |
 
@@ -232,6 +232,8 @@ Every batch must cover:
 - Global checks: `npm run audit:access-control` passed; `npm run check:deploy` passed with 427 tests, including tenant isolation, warehouse isolation, inventory, billing, documents, email, integrations, migrations, and system-error coverage.
 - Deployment: Railway production deployment `b86c10da-1bff-41d5-bebd-4a2f6a8a255e` completed successfully. Post-deployment health reported the application, database, schema initialization, and warehouse entry routes ready. Unauthenticated `/desktop` continued to redirect to login, confirming the entry guard remained active.
 - Retest required: in the designated test company, create one customer-pickup order without a delivery address and one delivery order with a valid assigned warehouse and carrier; release both, confirm the fields are read-only after release, and verify the pick ticket/BOL display the intended warehouse and carrier. Confirm an unassigned warehouse and malformed delivery postal code are rejected.
+- Independent retest 2026-11-13: **FAILED / REOPENED.** The referenced `portal-order-fulfillment-method.spec.js` is absent from the clean release repository and visible history. The shared draft path still required a full delivery address for `CUSTOMER_PICKUP`, release attempted to save that address, and no distinct planned-carrier/service fields exist in the order schema or sanitizer. Existing verification scripts use direct privileged database functions rather than authenticated restricted-role workflows, and sandbox external side effects are not controlled by one fail-closed master switch. Production was not changed.
+- Pickup-address repair candidate: `server.js` now derives whether an order requires a ship-to address from the normalized shipment method. Customer pickup keeps contact, item, inventory, assigned-warehouse, allocation, and release requirements but skips delivery-address validation and saved-address persistence; parcel and freight orders retain the full address and trust gates. `portal.html` disables delivery-address controls for pickup and explicitly states that pickup occurs at the selected ship-from warehouse. The focused address/isolation/availability suites passed 45/45, the access-control audit passed 12/12 across 290 routes, and the full deploy gate passed. Planned carrier/service persistence, post-release read-only fields, document output, authenticated restricted-role sandbox workflows, fresh-database verification, exact sandbox deployment, and the 10-minute soak remain required before WMS-21 can be marked fixed or promoted.
 
 ### WMS-25
 

@@ -3044,6 +3044,7 @@
             orderShipToCountry: document.getElementById("orderShipToCountry"),
             orderSavedShipToAddress: document.getElementById("orderSavedShipToAddress"),
             orderShipToVerificationStatus: document.getElementById("orderShipToVerificationStatus"),
+            orderShipToValidationHelp: document.getElementById("orderShipToValidationHelp"),
             orderShipToSuggestions: document.getElementById("orderShipToSuggestions"),
             verifyShipToAddressBtn: document.getElementById("verifyShipToAddressBtn"),
             acceptVerifiedShipToAddressBtn: document.getElementById("acceptVerifiedShipToAddressBtn"),
@@ -7252,6 +7253,36 @@
             if (ui.orderProcessingNotice) {
                 ui.orderProcessingNotice.textContent = portalProcessingNoticeMessage(payload);
             }
+            syncOrderDestinationRequirements();
+        }
+
+        function syncOrderDestinationRequirements() {
+            const isPickup = normalizePortalShipmentMethodValue(ui.orderShipmentMethod?.value) === PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
+            [
+                ui.orderSavedShipToAddress,
+                ui.orderShipToName,
+                ui.orderShipToPhone,
+                ui.orderShipToAddress1,
+                ui.orderShipToAddress2,
+                ui.orderShipToCity,
+                ui.orderShipToState,
+                ui.orderShipToPostalCode,
+                ui.orderShipToCountry,
+                ui.verifyShipToAddressBtn,
+                ui.acceptVerifiedShipToAddressBtn,
+                ui.manualOverrideShipToAddressBtn
+            ].forEach((control) => {
+                if (control) control.disabled = isPickup;
+            });
+            if (ui.orderShipToValidationHelp) {
+                ui.orderShipToValidationHelp.textContent = isPickup
+                    ? "Customer pickup uses the selected ship-from warehouse. A delivery address is not required."
+                    : "New addresses must be verified before the order can be released. Draft saving remains available.";
+            }
+            if (isPickup && ui.orderShipToVerificationStatus) {
+                ui.orderShipToVerificationStatus.className = "status show info ship-to-verification-summary";
+                ui.orderShipToVerificationStatus.textContent = "Customer pickup at the selected warehouse. No delivery address is required.";
+            }
         }
 
         function approveRushIfRequired(payload, { prompt = true } = {}) {
@@ -7344,6 +7375,7 @@
             renderOrderLinesEmptyState();
             updateOrderRushNotice();
             renderShipToVerificationStatus();
+            syncOrderDestinationRequirements();
         }
 
         function shipToAddressSummary(entry) {

@@ -15,7 +15,8 @@ const {
     createPortalShipToAddressOverride,
     signAddressVerificationToken,
     verifyAddressVerificationToken,
-    assertPortalShipToAddressCanRelease
+    assertPortalShipToAddressCanRelease,
+    portalOrderRequiresShipToAddress
 } = require("./server");
 
 const portalHtml = fs.readFileSync(path.join(__dirname, "portal.html"), "utf8");
@@ -234,6 +235,21 @@ test("portal release gate accepts trusted addresses and blocks pending or edited
         { ...validAddress, shipToAddress1: "123 Fake Street" },
         { addressValidationRequired: false }
     ), /real delivery address/i);
+});
+
+test("customer pickup does not require or persist a fabricated delivery address", () => {
+    const pickup = { shipmentMethod: "CUSTOMER_PICKUP" };
+    assert.equal(portalOrderRequiresShipToAddress(pickup), false);
+    assert.doesNotThrow(() => assertPortalShipToAddressCanRelease(pickup));
+    assert.equal(portalOrderRequiresShipToAddress({ shipmentMethod: "LTL_FREIGHT" }), true);
+    assert.throws(() => assertPortalShipToAddressCanRelease({
+        shipmentMethod: "LTL_FREIGHT",
+        shipToAddressStatus: "PENDING"
+    }), /Verify this new ship-to address/i);
+    assert.match(serverSource, /requiresShipToAddress && \(!order\.shipToAddress1/);
+    assert.match(serverSource, /requiresShipToAddress\s*\? await resolvePortalShipToAddressTrust/);
+    assert.match(serverSource, /if \(portalOrderRequiresShipToAddress\(releasedOrder\)\) \{\s*await upsertShipToAddressFromOrder/);
+    assert.match(portalHtml, /Customer pickup uses the selected ship-from warehouse\. A delivery address is not required\./);
 });
 
 test("manual address override requires an explicit reason and confirmation and is tenant-bound", () => {
