@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const packageJson = require('./package.json');
 const packageLock = require('./package-lock.json');
+const railwayConfig = require('./railway.json');
 
 function minimumMajor(engineRange) {
   const match = /^>=(\d+)$/.exec(engineRange || '');
@@ -28,4 +29,9 @@ test('deployment runtime satisfies production dependency Node requirements', () 
       `${dependency} requires ${engine}, above the configured runtime ${packageJson.engines.node}`,
     );
   }
+});
+
+test('Railway starts Node directly without deprecated npm production config', () => {
+  assert.equal(packageJson.scripts.start, 'node server.js');
+  assert.equal(railwayConfig.deploy.startCommand, packageJson.scripts.start);
 });
