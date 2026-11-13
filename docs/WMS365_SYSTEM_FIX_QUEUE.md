@@ -121,6 +121,16 @@ Every batch must cover:
 
 ## Engineering Evidence
 
+### Sales-order queue performance and rolling-startup resilience
+
+- Status: `VERIFIED` on 2026-11-12 after the complete staging-first release cycle.
+- Code: commit `283c1c4f8d8cc3b5c13328d4d375213594acff31` parallelizes independent sales-order queue reads, preserves the `{ orders: [...] }` response contract, and adds `Server-Timing` plus result-count observability. Commit `6f6071c59b23068429d8ea574360ec49db00a381` serializes application schema initialization with a PostgreSQL advisory lock and gives every database session a bounded five-second lock wait so rolling candidates retry instead of hanging indefinitely behind DDL locks.
+- Tests: focused performance/startup coverage passed 5/5; access-control audit passed 12/12 across 290 routes; the global deploy gate passed 747/747. The isolated fresh-database boot confirmed inventory, shipments, jobs, approvals, billing snapshots, ship-to addresses, and address-status controls.
+- Sandbox: exact commit `6f6071c59b23068429d8ea574360ec49db00a381` deployed successfully as Railway deployment `5d54df35-dba2-427b-8562-5f9141ccc952`, image digest `sha256:edba6c8db10d7da2e54f3eb2f5c40db73cafc8063fdb35499b9d1d19d621f2e5`. The authenticated exact test-company workflow verified account ID `1510`, tenant and warehouse denial paths, and cleanup. Sales-order queue timing was 42.2 ms median and 69.7 ms maximum against budgets of 750 ms and 1500 ms.
+- Soak: six health samples over 10 minutes retained database, schema, desktop, and mobile readiness with 6-15 ms database probes. Logs showed one successful initialization with no retry, restart, pool warning, migration warning, or external live side effect. Railway's Config-as-Code deprecation notice is understood and separately requires migration before 2026-12-01.
+- Production: the prior candidate `a970ee6d-f16f-4f42-a0e1-27a767da9e21` failed readiness before cutover because legacy startup DDL could wait indefinitely; the retained application remained healthy. After the startup repair passed sandbox, exact commit `6f6071c59b23068429d8ea574360ec49db00a381` was promoted as deployment `81360938-733d-4119-954a-131b6a0905c5`, image digest `sha256:58ab4010826bb344ebfd14678cd61a38a36be6bc7e9a0e105347415cd7fdd4fe`. Production schema initialization completed, Railway marked the deployment `SUCCESS`, and three post-cutover samples returned full readiness with 21-22 ms database probes.
+- Rollback: named prior application artifact is deployment `9831d93d-4927-4168-a527-e7ee1ef5c381`, image digest `sha256:d50e1539238fceb947287c0fbff16cbdd89bea6dc65af4e0ca323bda012ab623`. PostgreSQL was not restarted and no production test transaction or customer record was created or changed.
+
 ### WMS-02 and WMS-03
 
 - Independent retest: 2026-11-12. The clean production baseline still capped the application state to 240 active warehouse tasks and the task endpoint to 300 rows. Order history also applied its row limit before preserving all active outbound orders. Both critical findings were reopened.
