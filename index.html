@@ -6634,7 +6634,7 @@
                                 <button class="company-switcher-add-toggle" id="companySwitcherAddToggleBtn" type="button">+ Add Company</button>
                             </div>
                             <div class="company-switcher-list" id="companySwitcherList" role="listbox" aria-label="Available companies"></div>
-                            <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Show All Companies</button>
+                            <button class="btn ghost mini" id="clearActiveCompanyBtn" type="button">Show all companies</button>
                         </div>
                     </details>
                     <span class="topbar-icon">Find</span>
@@ -6665,7 +6665,7 @@
                         </div>
                     </details>
                     <span class="topbar-icon">Help</span>
-                    <span class="utility-account-pill" id="desktopUtilityCompany" hidden>All Companies</span>
+                    <span class="utility-account-pill" id="desktopUtilityCompany" hidden>All companies</span>
                 </div>
             </div>
             <div class="company-switcher-popout hidden" id="companySwitcherAddPopout" role="dialog" aria-modal="true" aria-labelledby="companySwitcherAddTitle">
@@ -6791,7 +6791,7 @@
             <div class="desktop-modulebar desktop-only" aria-label="Module navigation">
                 <div class="module-company" hidden>
                     <span>Company</span>
-                    <strong id="desktopModuleCompany">All Companies</strong>
+                    <strong id="desktopModuleCompany">All companies</strong>
                 </div>
                 <div class="module-menu-list">
                     <details class="module-menu">
@@ -6944,7 +6944,7 @@
                         <div class="workspace-context-bar">
                             <div class="workspace-context-primary">
                                 <span class="workspace-command-kicker">Active Company</span>
-                                <strong id="activeCompanyDisplay">All Companies</strong>
+                                <strong id="activeCompanyDisplay">All companies</strong>
                             </div>
                             <div class="workspace-command-chips">
                                 <span class="workspace-chip" id="workspaceCompanyChip">Company: all</span>
@@ -7043,7 +7043,7 @@
             <section class="factbox-part">
                 <h3>Page Information</h3>
                 <div class="factbox-line"><span>Page</span><strong id="desktopFactboxSection">Warehouse Dashboard</strong></div>
-                <div hidden><strong id="desktopFactboxCompany">All Companies</strong></div>
+                <div hidden><strong id="desktopFactboxCompany">All companies</strong></div>
                 <div class="factbox-line"><span>Sync</span><strong id="desktopFactboxSync">waiting</strong></div>
             </section>
             <section class="factbox-part">
@@ -11116,7 +11116,7 @@
                 </div>
                 <div class="feedback-context-card">
                     <span>Active Company</span>
-                    <strong id="feedbackContextCompany">All Companies</strong>
+                    <strong id="feedbackContextCompany">All companies</strong>
                 </div>
                 <div class="feedback-context-card">
                     <span>Build</span>
@@ -14263,7 +14263,7 @@
             const company = getActiveCompany();
             const companyDisplay = formatCompanySelectorLabel(company);
             if (ui.activeCompanyDisplay) {
-                ui.activeCompanyDisplay.textContent = companyDisplay || "All Companies";
+                ui.activeCompanyDisplay.textContent = companyDisplay || "All companies";
             }
             if (ui.activeCompanyMeta) {
                 const warehouseSummary = formatCompanyWarehouseSummary(company);
@@ -14964,7 +14964,7 @@
             if (!ui.feedbackContextSection || !ui.feedbackContextCompany || !ui.feedbackContextBuild || !ui.feedbackContextMeta) return;
             const company = getActiveCompany();
             ui.feedbackContextSection.textContent = getFeedbackSectionLabel();
-            ui.feedbackContextCompany.textContent = company || "All Companies";
+            ui.feedbackContextCompany.textContent = company || "All companies";
             ui.feedbackContextBuild.textContent = getFeedbackBuildLabel();
             ui.feedbackContextMeta.textContent = `Current URL ${window.location.pathname || "/"}${window.location.search || ""} will be attached automatically${company ? ` for ${company}` : ""}.`;
         }
@@ -15493,13 +15493,13 @@
                 ui.workspaceCompanyChip.textContent = company ? `Company: ${company}` : "Company: all";
             }
             if (ui.desktopUtilityCompany) {
-                ui.desktopUtilityCompany.textContent = company || "All Companies";
+                ui.desktopUtilityCompany.textContent = company || "All companies";
             }
             if (ui.desktopModuleCompany) {
-                ui.desktopModuleCompany.textContent = company || "All Companies";
+                ui.desktopModuleCompany.textContent = company || "All companies";
             }
             if (ui.desktopFactboxCompany) {
-                ui.desktopFactboxCompany.textContent = company || "All Companies";
+                ui.desktopFactboxCompany.textContent = company || "All companies";
             }
             if (ui.workspaceSyncChip) {
                 ui.workspaceSyncChip.textContent = refreshStamp ? `Synced: ${formatPreciseDate(refreshStamp)}` : "Synced: waiting";
@@ -17444,7 +17444,7 @@
             return `
                 <div class="dashboard-summary-block">
                     <strong>${num(count)} open ${label}${count === 1 ? "" : "s"} across all companies</strong>
-                    <span>${isTask ? "Detailed work stays in a drill-in list so the top-level dashboard does not get noisy." : `${esc(formatTrackedSummary(totals))}. Detailed rows are hidden in All Companies mode to keep the dashboard clean.`}</span>
+                    <span>${isTask ? "Detailed work stays in a drill-in list so the top-level dashboard does not get noisy." : `${esc(formatTrackedSummary(totals))}. Detailed rows are hidden in All companies mode to keep the dashboard clean.`}</span>
                     <button class="dashboard-drill-btn" type="button" data-dashboard-popout="${attr(type)}">${esc(action)}</button>
                 </div>
             `;
@@ -17941,7 +17941,7 @@
             return [...ui.activeCompany.options]
                 .map((option) => {
                     const value = normalizeCompanyContextValue(option.value || "");
-                    return { value, label: value ? formatCompanySelectorLabel(value) : "All Companies" };
+                    return { value, label: value ? formatCompanySelectorLabel(value) : "All companies" };
                 })
                 .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.value === entry.value) === index);
         }
@@ -17953,7 +17953,7 @@
             const query = norm(ui.companySwitcherSearch?.value || "");
             let options = getCompanySwitcherOptions();
             if (!options.some((entry) => !entry.value)) {
-                options = [{ value: "", label: "All Companies" }].concat(options);
+                options = [{ value: "", label: "All companies" }].concat(options);
             }
             const visibleOptions = options.filter((entry) => !query || norm(entry.label).includes(query));
             if (!visibleOptions.length) {
@@ -18126,7 +18126,7 @@
             if (!ui.activeCompany && !ui.mobileActiveCompany) return;
             const current = norm(ui.activeCompany?.value || state.preferences.activeCompany || "");
             const uniqueOwners = [...new Set((owners || []).map((owner) => norm(owner)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-            const options = ['<option value="">All Companies</option>']
+            const options = ['<option value="">All companies</option>']
                 .concat(uniqueOwners.map((owner) => `<option value="${attr(owner)}">${esc(formatCompanySelectorLabel(owner))}</option>`));
             if (ui.activeCompany) {
                 ui.activeCompany.innerHTML = options.join('');
@@ -25403,7 +25403,7 @@
                 portalOrderRecords = [];
                 renderPortalOrdersWorkspace();
                 if (showLoading) {
-                    setPortalOrdersLoadingMessage("Choose a company to load sales orders. Use Refresh if you need the All Companies view.", "info");
+                    setPortalOrdersLoadingMessage("Choose a company to load sales orders. Use Refresh if you need the All companies view.", "info");
                 }
                 return portalOrderRecords;
             }
