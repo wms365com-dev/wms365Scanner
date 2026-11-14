@@ -52,7 +52,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
-| 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | FIXED - NEEDS RETEST |
+| 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | REOPENED |
 | 8 | WMS-05 | high | Conflicting labels obscure active company scope | FIXED - NEEDS RETEST |
 | 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | FIXED - NEEDS RETEST |
 | 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | FIXED - NEEDS RETEST |
@@ -231,6 +231,7 @@ Every batch must cover:
 - Global checks: `npm run audit:access-control` passed; `npm run check:deploy` passed with 431 tests covering tenant and warehouse isolation, roles, inventory, documents, billing, email, integrations, migrations, and browser script validity.
 - Deployment: Railway production deployment `5044c966-edf1-46da-b95b-a14c0ef3dca4` completed successfully. Post-deployment health reported the application, database, schema, and entry routes ready; unauthenticated desktop access continued to redirect to login.
 - Retest required: in All Companies mode, open Customers, Vendors, Sales Orders, and Receiving, activate `Choose Company`, select the designated test company, and confirm each view refreshes without using a second selector. Confirm restricted users cannot select or submit work for an unauthorized company.
+- Independent retest 2026-11-14: **FAILED / REOPENED.** The clean reviewed release baseline does not contain the referenced `company-context-empty-states.spec.js`, and its current warehouse UI source contains no `Choose Company` recovery action. A read-only fetch of the deployed production UI likewise contained neither the recovery action nor the expected company-selection guidance, while `/api/health` remained fully ready. No authenticated transaction was attempted because the required control is absent before role and isolation behavior can be meaningfully exercised. Restore the recovery control and focused positive/negative coverage in one isolated change, then complete the sandbox role workflow, denied-company check, fresh-database gate, 10-minute soak, and exact-artifact promotion before verification.
 
 ### WMS-21
 
