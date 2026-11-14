@@ -53,7 +53,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
 | 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | REOPENED |
-| 8 | WMS-05 | high | Conflicting labels obscure active company scope | FIXED - NEEDS RETEST |
+| 8 | WMS-05 | high | Conflicting labels obscure active company scope | REOPENED |
 | 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | FIXED - NEEDS RETEST |
 | 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | FIXED - NEEDS RETEST |
 | 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | FIXED - NEEDS RETEST |
@@ -221,6 +221,7 @@ Every batch must cover:
 - Regression coverage: `company-scope-language.spec.js` verifies canonical scope wording, unambiguous list titles, and retention of the official selector and preference boundary. `company-context-empty-states.spec.js` continues to prove recovery actions use the official selector and protected APIs retain server-side company authorization.
 - Global checks: `npm run audit:access-control` passed; `npm run check:deploy` passed with 434 tests covering tenant and warehouse isolation, roles, inventory, documents, billing, email, integrations, migrations, entry routes, and browser script validity.
 - Retest required: in All companies mode and with `BISON TRANSPORT TEST COMPANY` selected, open Dashboard, Inventory, Purchase Orders, Sales Orders, Shipped Orders, and feedback context. Confirm every all-company scope reads `All companies`, the selected company is shown exactly, and switching company does not alter permissions or expose a denied warehouse.
+- Independent retest 2026-11-14: **FAILED / REOPENED.** The clean reviewed release baseline does not contain the referenced `company-scope-language.spec.js` or the adjacent `company-context-empty-states.spec.js`. Static inspection shows the warehouse command bar, module context, workspace context, FactBox, feedback context, selectors, and dashboard copy still use multiple `All Companies` labels instead of the documented canonical `All companies` wording. Production `/api/health` remained fully ready; the guarded warehouse asset could not be inspected unauthenticated, and no production session or customer data was used. Restore the canonical display-only scope language and focused regression coverage, then complete authenticated sandbox company-switch and denied-warehouse checks, the global gates, 10-minute soak, and exact-artifact promotion before verification.
 
 ### WMS-04
 
