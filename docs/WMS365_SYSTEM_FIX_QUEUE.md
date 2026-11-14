@@ -34,7 +34,7 @@ Acceptance: Open every module; reconcile dashboard/task/order counts from one sc
 
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
-| 1 | WMS-01 | critical | Module navigation freezes; Items crashed the browser tab | FIXED - NEEDS RETEST |
+| 1 | WMS-01 | critical | Module navigation freezes; Items crashed the browser tab | VERIFIED |
 | 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | REOPENED |
 | 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | REOPENED |
 | 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | REOPENED |
