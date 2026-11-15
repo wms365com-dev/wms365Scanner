@@ -30,7 +30,18 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 - Candidate: the health probe consolidates four readiness checks into one read-only SQL statement, reducing the probe from six sequential database round trips to two while preserving the same table and active-user readiness checks. `/api/health` now reports connection and readiness-query timing separately for diagnosis.
 - Isolation and integrity: the query is read-only, uses the existing pool and statement timeout, exposes no customer data, and does not alter tenant, warehouse, inventory, transaction, document, email, billing, integration, job, or permission behavior.
 - Tests: focused performance tests passed 2/2; access-control audit passed 12/12 across 292 routes; deployment gate passed 761/761; production dependency audit reported zero vulnerabilities.
-- Gate: local fresh-database execution correctly stopped because no isolated `DATABASE_URL` was exposed. Run the exact commit inside `customer-sandbox` against `Postgres-XihR`, verify all seven schema controls, compare the new connection/readiness timings, run authenticated scope checks, and complete a 10-minute healthy soak before considering production promotion.
+- Sandbox evidence: exact commit `103bc1e6294ff1f32af552f8f670f909ef2ae5dd` deployed as `fc1ffe46-b67c-479c-ac72-6e069a060e5c`. Fresh-database verification passed all seven schema controls. The designated-company authenticated scope check allowed 321 tasks, excluded 19 denied-warehouse and 11 denied-company tasks, and enforced cross-company HTTP 403. Eleven health samples over 10 minutes passed; median database probe time was 3 ms and maximum was 10 ms, versus the prior production observation of approximately 770-780 ms.
+- Promotion gate: sandbox checks are complete. Production remains pinned to reviewed commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` until the exact commit-pin diff, rollback deployment, and production plan are reviewed. Mark `VERIFIED` only after exact-artifact production deployment and read-only health confirmation.
+
+### OPS-03 - User-action latency and control map
+
+- Priority: `critical`
+- Status: `IN PROGRESS`
+- Scope: warehouse desktop, customer portal, warehouse actions, mobile picking, and mobile counting. The static inventory currently covers 2,602,440 bytes, 694 buttons, 556 event-listener registrations, and 151 direct endpoint references.
+- Findings: 676 controls have a verifiable form, inline, ID, data, or delegated-class action hook. Eighteen controls remain inert or dynamically unresolved: the desktop command-bar filter/share/search/Excel controls, one hidden legacy company control, twelve sales/purchase decorative action tabs, and one generated portal document-clear control that requires runtime confirmation.
+- Highest latency risks: the 1.9 MB warehouse shell and broad `/api/state` bootstrap; ten portal APIs loaded at login regardless of opened module; multi-round-trip sales-order detail reads; list payloads that include detail-only data; browser-buffered exports and documents.
+- Safety: authenticated business data must remain private, current, tenant scoped, and warehouse scoped. Do not persist orders, addresses, inventory, billing, credentials, or customer documents locally merely to improve speed. Use secure local storage only for versioned UI assets, preferences, and explicitly downloaded files.
+- Evidence and budgets: `docs/WMS365_USER_ACTION_PERFORMANCE_AUDIT.md`; static audit: `scripts/audit-user-action-performance-map.js`.
 
 ### OPS-01 - Railway configuration migration and release flow
 
