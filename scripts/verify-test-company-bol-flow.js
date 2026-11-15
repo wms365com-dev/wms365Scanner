@@ -64,6 +64,8 @@ async function main() {
             requestedShipDate,
             orderType: "RETAIL_WHOLESALE",
             shipmentMethod: "LTL_FREIGHT",
+            plannedCarrierName: "Day & Ross",
+            plannedServiceLevel: "Standard LTL",
             fulfillmentLocationId: warehouse.id,
             shipToName: "WMS365 Test Receiver",
             shipToAddress1: "100 Test Street",
@@ -77,7 +79,11 @@ async function main() {
             activityTitlePrefix: "test-company BOL verification",
             activityActor: actor.email
         });
+        if (order.plannedCarrierName !== "Day & Ross" || order.plannedServiceLevel !== "Standard LTL") {
+            throw new Error("Planned carrier or service did not persist independently on the draft order.");
+        }
         order = await releasePortalOrderForAccount(client, accountName, order.id, { activityActor: actor.email });
+        order = await updateAdminPortalOrderStatus(client, order.id, "PICKING", { idempotencyKey: `${suffix}-picking` }, actor);
         order = await updateAdminPortalOrderStatus(client, order.id, "PICKED", { idempotencyKey: `${suffix}-picked` }, actor);
         order = await updateAdminPortalOrderStatus(client, order.id, "STAGED", { idempotencyKey: `${suffix}-staged` }, actor);
         const shipment = order.warehouseShipments?.[0];
