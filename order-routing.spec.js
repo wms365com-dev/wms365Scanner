@@ -67,6 +67,17 @@ test("routing is limited to staged orders and missing details use one clear popu
     assert.match(desktop, /Order status must be STAGED/);
 });
 
+test("routing readiness stays visible and names every operator-controlled blocker", () => {
+    assert.match(desktop, /id="warehouseOrderRoutingReadiness"/);
+    assert.match(desktop, /function updateWarehouseOrderRoutingReadiness\(order = null\)/);
+    assert.match(desktop, /<strong>Routing blocked<\/strong>/);
+    assert.match(desktop, /<strong>Ready to route<\/strong>/);
+    for (const label of ["Valid routing email", "Requested delivery date", "Total pallets", "Total shipment weight", "PO number", "Ship-from warehouse", "Ship-to company name", "Ship-to street address", "Ship-to city", "Ship-to province/state", "Ship-to postal/ZIP code", "Ship-to country"]) {
+        assert.match(desktop, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    }
+    assert.match(desktop, /addEventListener\("input", updateWarehouseOrderRoutingReadiness\)/);
+});
+
 test("routing email always copies Grey Wolf orders", () => {
     assert.match(server, /const ORDER_ROUTING_CC_EMAIL = "gworders@greywolf3pl\.com"/);
     assert.match(server, /cc: \[ORDER_ROUTING_CC_EMAIL\]/);

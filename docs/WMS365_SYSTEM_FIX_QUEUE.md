@@ -30,7 +30,7 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 1 | OPS-06 rolling-release schema lock contention | VERIFIED | Versioned schema contract skips no-op startup DDL; fresh boot, rolling restart, sandbox soak, and production promotion passed |
 | 2 | WMS-08 marketplace feature visibility | VERIFIED | Exact sandbox-proven artifact promoted with clean startup and read-only production verification |
 | 3 | WMS-16 readiness explanation | VERIFIED | Exact candidate passed fresh database, sandbox role/isolation workflow, soak, and production promotion |
-| 4 | WMS-17 routing blockers | IN PROGRESS | Independent retest; reopen on any failed control |
+| 4 | WMS-17 routing blockers | FIXED - NEEDS RETEST | Exact candidate must pass fresh database, sandbox role/isolation workflow, soak, and production promotion |
 | 5 | OPS-05 allocation integrity | NEXT | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
 | 6 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
 | 7 | WMS-21 structured fulfillment | NEXT | Designated-company transaction cycle in sandbox only |
@@ -141,7 +141,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | 8 | WMS-05 | high | Conflicting labels obscure active company scope | VERIFIED |
 | 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | VERIFIED |
 | 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | VERIFIED |
-| 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | IN PROGRESS |
+| 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | FIXED - NEEDS RETEST |
 | 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | QUEUED |
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | QUEUED |
 | 14 | WMS-10 | medium | Company labels render without a field | QUEUED |
@@ -279,6 +279,8 @@ Every batch must cover:
 - Regression coverage: `order-routing.spec.js` verifies the live blocker summary, missing shipment weight, endpoint permission gates, and exact ship-from access. `rbac.spec.js` proves customer-service workflow users remain allowed while warehouse workers without order-status authority are denied.
 - Global checks: focused routing/readiness/RBAC tests passed (32 tests); `npm run audit:access-control` passed; `npm run check:deploy` passed with 445 tests across roles, tenant and warehouse isolation, inventory, documents, routing, shipment, billing, email, integrations, jobs, migrations, and browser validity.
 - Retest required: in `BISON TRANSPORT TEST COMPANY`, open a staged freight order and confirm the inline summary names each omitted routing field as it is cleared, changes to ready when all visible requirements are complete, and still presents the review draft before sending. Confirm a warehouse worker without order-status permission is denied, a customer-service user assigned to the exact ship-from warehouse can prepare the draft, and a user assigned only to another warehouse cannot route it.
+- Independent retest 2026-11-15: **FAILED / REOPENED.** The reviewed production source only presented client routing blockers after the operator clicked Route, had no persistent readiness region, and omitted total shipment weight from the client blocker list. Existing server draft/send validation and permission checks remained present. Production remained healthy and no routing request, email, or customer data changed.
+- Repair candidate 2026-11-15: the sales-order Routing section now contains a persistent live status region that names status, routing email, requested delivery date, pallet count, total shipment weight, PO, ship-from warehouse, and every destination-address blocker. It updates as visible controls change, reports `Ready to route` only when complete, preserves the review draft before sending, and reports the durable already-routed state. Focused routing/RBAC tests passed 21/21; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 777/777. Status is `FIXED - NEEDS RETEST` pending the remaining release gates.
 
 ### WMS-16
 

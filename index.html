@@ -9646,6 +9646,7 @@
                             </div>
                         </label>
                         <div class="quick-meta span-2 hidden" id="warehouseOrderRoutingAppointment"></div>
+                        <div class="status-banner info span-2" id="warehouseOrderRoutingReadiness" role="status" aria-live="polite"></div>
                     </form>
                     <div class="erp-lines-part">
                         <div class="line-head" style="margin-bottom: 0.8rem;">
@@ -12251,6 +12252,7 @@
             warehouseOrderRoutingWeight: document.getElementById("warehouseOrderRoutingWeight"),
             warehouseOrderRoutingWeightUom: document.getElementById("warehouseOrderRoutingWeightUom"),
             warehouseOrderRoutingAppointment: document.getElementById("warehouseOrderRoutingAppointment"),
+            warehouseOrderRoutingReadiness: document.getElementById("warehouseOrderRoutingReadiness"),
             warehouseOrderLines: document.getElementById("warehouseOrderLines"),
             warehouseOrderWorkflowPanel: document.getElementById("warehouseOrderWorkflowPanel"),
             openSalesOrderNewBtn: document.getElementById("openSalesOrderNewBtn"),
@@ -13160,6 +13162,20 @@
             ui.duplicateWarehouseOrderBtn?.addEventListener("click", duplicateWarehouseSalesOrder);
             ui.createWarehouseReturnBtn?.addEventListener("click", createWarehouseSalesOrderReturnInbound);
             ui.routeWarehouseOrderBtn?.addEventListener("click", openWarehouseOrderRoutingDraft);
+            [
+                ui.warehouseOrderRoutingEmail,
+                ui.warehouseOrderRoutingDeliveryDate,
+                ui.warehouseOrderRoutingPallets,
+                ui.warehouseOrderRoutingWeight,
+                ui.warehouseOrderRoutingWeightUom,
+                ui.warehouseOrderPoNumber,
+                ui.warehouseOrderShipToName,
+                ui.warehouseOrderShipToAddress1,
+                ui.warehouseOrderShipToCity,
+                ui.warehouseOrderShipToState,
+                ui.warehouseOrderShipToPostalCode,
+                ui.warehouseOrderShipToCountry
+            ].filter(Boolean).forEach((control) => control.addEventListener("input", updateWarehouseOrderRoutingReadiness));
             ui.generateWarehouseOrderBolBtn?.addEventListener("click", openWarehouseOrderBolModal);
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
@@ -23155,6 +23171,7 @@
             }, 0);
             ui.warehouseOrderRoutingWeight.value = order?.routingTotalWeight || (derivedPalletWeight > 0 ? Number(derivedPalletWeight.toFixed(3)) : "");
             ui.warehouseOrderRoutingWeightUom.value = routingWeightUom;
+            updateWarehouseOrderRoutingReadiness(order);
             if (ui.warehouseOrderRoutingAppointment) {
                 const appointment = order?.routingAppointment;
                 ui.warehouseOrderRoutingAppointment.classList.toggle("hidden", !appointment);
@@ -23440,9 +23457,10 @@
         function getWarehouseOrderRoutingRequirements(order, payload) {
             const missing = [];
             if (order?.status !== "STAGED") missing.push(`Order status must be STAGED (current status: ${order?.status || "not saved"})`);
-            if (payload.routingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.routingEmail)) missing.push("Valid routing email");
+            if (!payload.routingEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.routingEmail)) missing.push("Valid routing email");
             if (!payload.requestedDeliveryDate) missing.push("Requested delivery date");
             if (!Number.isInteger(payload.totalPallets) || payload.totalPallets < 1) missing.push("Total pallets");
+            if (!(Number(payload.totalWeight) > 0)) missing.push("Total shipment weight");
             if (!String(order?.poNumber || ui.warehouseOrderPoNumber.value || "").trim()) missing.push("PO number");
             if (!String(order?.fulfillmentLocationId || "").trim()) missing.push("Ship-from warehouse");
             if (!String(order?.shipToName || ui.warehouseOrderShipToName.value || "").trim()) missing.push("Ship-to company name");
@@ -23452,6 +23470,26 @@
             if (!String(order?.shipToPostalCode || ui.warehouseOrderShipToPostalCode.value || "").trim()) missing.push("Ship-to postal/ZIP code");
             if (!String(order?.shipToCountry || ui.warehouseOrderShipToCountry.value || "").trim()) missing.push("Ship-to country");
             return missing;
+        }
+
+        function updateWarehouseOrderRoutingReadiness(order = null) {
+            if (!ui.warehouseOrderRoutingReadiness) return;
+            const currentOrder = order?.id ? order : getPortalOrderById(editingWarehouseOrderId);
+            if (!currentOrder?.id) {
+                ui.warehouseOrderRoutingReadiness.className = "status-banner info span-2";
+                ui.warehouseOrderRoutingReadiness.textContent = "Save the sales order to check routing readiness.";
+                return;
+            }
+            if (currentOrder.routedAt) {
+                ui.warehouseOrderRoutingReadiness.className = "status-banner success span-2";
+                ui.warehouseOrderRoutingReadiness.textContent = "Routing request sent. This order cannot be routed again.";
+                return;
+            }
+            const missing = getWarehouseOrderRoutingRequirements(currentOrder, collectWarehouseOrderRoutingPayload());
+            ui.warehouseOrderRoutingReadiness.className = `status-banner ${missing.length ? "warning" : "success"} span-2`;
+            ui.warehouseOrderRoutingReadiness.innerHTML = missing.length
+                ? `<strong>Routing blocked</strong><br>${missing.map((item) => `• ${esc(item)}`).join("<br>")}`
+                : "<strong>Ready to route</strong><br>Review the mapped appointment request before sending.";
         }
 
         function showWarehouseOrderRoutingRequirements(missing) {
