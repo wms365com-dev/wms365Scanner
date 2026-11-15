@@ -8,7 +8,7 @@ const customerPortal = fs.readFileSync(path.join(__dirname, "portal.html"), "utf
 if (!server.includes('const requestedStatusInput = normalizeText(req.query?.status || "");')) {
     throw new Error("Admin order API does not read the requested server-side status filter.");
 }
-if (!server.includes("filters.push(`status = $${params.length}`);")) {
+if (!server.includes("filters.push(`o.status = $${params.length}`);")) {
     throw new Error("Portal order query does not apply an exact server-side status filter.");
 }
 if (!server.includes('throw httpError(400, "Choose a valid sales order status.");')) {
@@ -33,7 +33,7 @@ if (!desktop.includes('&& getPortalOrdersRequestStatus() === statusKey;')) {
 if (!server.includes('orders: await getPortalOrdersForAccount(session.access.accountName, pool, { status: requestedStatus })')) {
     throw new Error("Customer portal order API does not pass its validated status filter to the account-scoped query.");
 }
-if (!server.includes('const filters = ["account_name = $1", "status <> \'ARCHIVED\'"];')) {
+if (!server.includes('const filters = ["o.account_name = $1", "o.status <> \'ARCHIVED\'"];')) {
     throw new Error("Customer shipped-order query is not anchored to the authenticated customer account.");
 }
 if (!customerPortal.includes('requestJson("/api/portal/orders?status=SHIPPED")')) {

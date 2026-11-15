@@ -20480,19 +20480,29 @@ async function getPortalOrdersForAccount(accountName, client = pool, { status = 
     const normalizedAccount = normalizeText(accountName);
     const normalizedStatus = normalizePortalOrderStatus(status);
     const params = [normalizedAccount];
-    const filters = ["account_name = $1", "status <> 'ARCHIVED'"];
+    const filters = ["o.account_name = $1", "o.status <> 'ARCHIVED'"];
     if (normalizedStatus) {
         params.push(normalizedStatus);
-        filters.push(`status = $${params.length}`);
+        filters.push(`o.status = $${params.length}`);
     }
     params.push(normalizedStatus ? 200 : 100);
     const limitPlaceholder = `$${params.length}`;
     const ordersResult = await client.query(
         `
-            select *
-            from portal_orders
+            select
+                o.*,
+                source_order.order_code as duplicated_from_order_code,
+                replacement_order.id as duplicated_to_order_id,
+                replacement_order.order_code as duplicated_to_order_code
+            from portal_orders o
+            left join portal_orders source_order
+              on source_order.id = o.duplicated_from_order_id
+             and source_order.account_name = o.account_name
+            left join portal_orders replacement_order
+              on replacement_order.duplicated_from_order_id = o.id
+             and replacement_order.account_name = o.account_name
             where ${filters.join(" and ")}
-            order by created_at desc, id desc
+            order by o.created_at desc, o.id desc
             limit ${limitPlaceholder}
         `,
         params
@@ -20544,14 +20554,14 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
     const normalizedAccount = normalizeText(accountName);
     const normalizedStatus = normalizePortalOrderStatus(status);
     const params = [];
-    const filters = ["status <> 'ARCHIVED'"];
+    const filters = ["o.status <> 'ARCHIVED'"];
     if (normalizedAccount) {
         params.push(normalizedAccount);
-        filters.push(`account_name = $${params.length}`);
+        filters.push(`o.account_name = $${params.length}`);
     }
     if (normalizedStatus) {
         params.push(normalizedStatus);
-        filters.push(`status = $${params.length}`);
+        filters.push(`o.status = $${params.length}`);
     }
     params.push(ACTIVE_PORTAL_ORDER_STATUSES);
     const activeStatusesPlaceholder = `$${params.length}`;
@@ -20560,8 +20570,18 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
     const ordersResult = await client.query(
         `
             with scoped_orders as (
-                select *
-                from portal_orders
+                select
+                    o.*,
+                    source_order.order_code as duplicated_from_order_code,
+                    replacement_order.id as duplicated_to_order_id,
+                    replacement_order.order_code as duplicated_to_order_code
+                from portal_orders o
+                left join portal_orders source_order
+                  on source_order.id = o.duplicated_from_order_id
+                 and source_order.account_name = o.account_name
+                left join portal_orders replacement_order
+                  on replacement_order.duplicated_from_order_id = o.id
+                 and replacement_order.account_name = o.account_name
                 where ${filters.join(" and ")}
             ), recent_history as (
                 select id
@@ -20893,10 +20913,19 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
                 rr.responder_name as routing_responder_name,
                 rr.responder_note as routing_responder_note,
                 rr.responded_at as routing_responded_at,
-                rr.sent_at as routing_request_sent_at
+                rr.sent_at as routing_request_sent_at,
+                source_order.order_code as duplicated_from_order_code,
+                replacement_order.id as duplicated_to_order_id,
+                replacement_order.order_code as duplicated_to_order_code
             from portal_orders o
             left join fulfillment_locations fl on fl.id = o.fulfillment_location_id
             left join order_routing_requests rr on rr.order_id = o.id
+            left join portal_orders source_order
+              on source_order.id = o.duplicated_from_order_id
+             and source_order.account_name = o.account_name
+            left join portal_orders replacement_order
+              on replacement_order.duplicated_from_order_id = o.id
+             and replacement_order.account_name = o.account_name
             where o.id = $1
               and o.account_name = $2
             limit 1
@@ -42778,6 +42807,10 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         accountName: row.account_name,
         status: String(row.status || "DRAFT").toUpperCase(),
         poNumber: row.po_number || "",
+        duplicatedFromOrderId: row.duplicated_from_order_id ? String(row.duplicated_from_order_id) : "",
+        duplicatedFromOrderCode: row.duplicated_from_order_code || "",
+        duplicatedToOrderId: row.duplicated_to_order_id ? String(row.duplicated_to_order_id) : "",
+        duplicatedToOrderCode: row.duplicated_to_order_code || "",
         shippingReference: row.shipping_reference || "",
         contactName: row.contact_name || "",
         contactPhone: row.contact_phone || "",

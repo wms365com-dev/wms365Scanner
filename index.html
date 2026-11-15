@@ -23032,6 +23032,7 @@
 
             ui.warehouseOrderWorkflowPanel.classList.remove("hidden");
             ui.warehouseOrderWorkflowPanel.innerHTML = `
+                ${renderSalesOrderRelationship(order) ? `<div class="status-banner info" role="status">Related sales order: ${renderSalesOrderRelationship(order)}</div>` : ""}
                 <div class="erp-document-process-head">
                     <div>
                         <h3>Order Processing</h3>
@@ -25665,6 +25666,16 @@
             if (ui.salesOrderCancelledCount) ui.salesOrderCancelledCount.textContent = num(cancelled);
         }
 
+        function renderSalesOrderRelationship(order, { compact = false } = {}) {
+            if (order?.duplicatedFromOrderId && order?.duplicatedFromOrderCode) {
+                return `<span class="${compact ? "meta" : "pill info"}"${compact ? ' style="display:block;"' : ""}>Copy of <button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.duplicatedFromOrderId)}">${esc(order.duplicatedFromOrderCode)}</button></span>`;
+            }
+            if (order?.duplicatedToOrderId && order?.duplicatedToOrderCode) {
+                return `<span class="${compact ? "meta" : "pill info"}"${compact ? ' style="display:block;"' : ""}>Replacement <button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.duplicatedToOrderId)}">${esc(order.duplicatedToOrderCode)}</button></span>`;
+            }
+            return "";
+        }
+
         function formatSalesOrderListShipTo(order) {
             if (String(order?.shipmentMethod || "").toUpperCase() === "CUSTOMER_PICKUP") {
                 return {
@@ -25722,7 +25733,7 @@
                 return `
                     <tr data-open-warehouse-order="${attr(order.id)}">
                         <td><input type="checkbox" data-batch-pick-ticket-order="${attr(order.id)}" aria-label="Select ${attr(order.orderCode)} for batch pick ticket printing" ${canBatchPrintPickTicket ? "" : "disabled"}></td>
-                        <td><button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.id)}">${esc(order.orderCode)}</button></td>
+                        <td><button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.id)}">${esc(order.orderCode)}</button>${renderSalesOrderRelationship(order, { compact: true })}</td>
                         <td>${esc(order.accountName || "")}</td>
                         <td>${esc(order.poNumber || "None")}</td>
                         <td><strong>${esc(shipTo.primary)}</strong><span class="meta" style="display:block;">${esc(shipTo.secondary)}</span></td>
