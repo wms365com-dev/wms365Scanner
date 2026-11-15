@@ -1,6 +1,6 @@
 # WMS365 System Fix Queue
 
-Status: Queued for engineering review  
+Status: Active engineering execution
 Ingested: 2026-11-11 (America/New_York)  
 Source revision: Google Doc `Wms365 robot` revision `AHj4eMR1sKn1Y4vy8wCxOLi5JIbxeXrOo39CssVnRm06c9yCZkz6-xxEXAd55Y8SNsKWJEYdZYCVVxEVRXyXoQ`
 
@@ -33,8 +33,8 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 4 | WMS-17 routing blockers | VERIFIED | Exact candidate passed fresh database, sandbox role/isolation workflow, soak, and production promotion |
 | 5 | OPS-05 allocation integrity | IN PROGRESS | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
 | 6 | WMS-02 and WMS-03 task/count consistency | VERIFIED | Production-scale count exceeded the old cap while tenant and warehouse denial remained enforced |
-| 7 | WMS-21 structured fulfillment | IN PROGRESS | Designated-company transaction cycle in sandbox only |
-| 8 | WMS-04 company-selection recovery | NEXT | Authenticated All companies, selected-company, and denied-company checks |
+| 7 | WMS-21 structured fulfillment | VERIFIED | Exact candidate passed focused/global gates, fresh database, rollback-only sandbox BOL workflow, 10-minute soak, and production promotion |
+| 8 | WMS-04 company-selection recovery | IN PROGRESS | Authenticated All companies, selected-company, and denied-company checks |
 | 9 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
 ## Platform Migration Audit
@@ -123,9 +123,9 @@ Acceptance: Open every module; reconcile dashboard/task/order counts from one sc
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
 | 1 | WMS-01 | critical | Module navigation freezes; Items crashed the browser tab | VERIFIED |
-| 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | REOPENED |
-| 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | REOPENED |
-| 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | REOPENED |
+| 2 | WMS-02 | critical | Task counts appear capped at 300 and change between loads | VERIFIED |
+| 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | VERIFIED |
+| 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | VERIFIED |
 | 5 | WMS-25 | high | Normal page load produces `/api/app/me` and `/api/state` 401 noise | VERIFIED |
 | 6 | WMS-27 | medium | Green/amber system status dot has no label or explanation | QUEUED |
 
@@ -140,11 +140,11 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
-| 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | REOPENED |
+| 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | IN PROGRESS |
 | 8 | WMS-05 | high | Conflicting labels obscure active company scope | VERIFIED |
 | 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | VERIFIED |
 | 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | VERIFIED |
-| 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | FIXED - NEEDS RETEST |
+| 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | VERIFIED |
 | 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | QUEUED |
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | QUEUED |
 | 14 | WMS-10 | medium | Company labels render without a field | QUEUED |
@@ -349,6 +349,10 @@ Every batch must cover:
 - Pickup-address repair candidate: `server.js` now derives whether an order requires a ship-to address from the normalized shipment method. Customer pickup keeps contact, item, inventory, assigned-warehouse, allocation, and release requirements but skips delivery-address validation and saved-address persistence; parcel and freight orders retain the full address and trust gates. `portal.html` disables delivery-address controls for pickup and explicitly states that pickup occurs at the selected ship-from warehouse. The focused address/isolation/availability suites passed 45/45, the access-control audit passed 12/12 across 290 routes, and the full deploy gate passed. Planned carrier/service persistence, post-release read-only fields, document output, authenticated restricted-role sandbox workflows, fresh-database verification, exact sandbox deployment, and the 10-minute soak remain required before WMS-21 can be marked fixed or promoted.
 - Sandbox evidence 2026-11-13: clean commit `9502f901d6bbd49688ca3cf7e650612837c865aa` passed the isolated fresh-database gate with all seven schema controls ready and deployed only to `customer-sandbox` as Railway deployment `ed2e34c1-22f6-4c27-bd05-9a9081df074a`, image digest `sha256:e7e6c119d36bfb8f25f3db30271de2a803b70760ea12e61fc5afdc90d5505e8e`. Deployed `server.js` and `portal.html` checksums matched the clean commit. Eleven health samples from `2026-11-13T14:21:25Z` through `2026-11-13T14:32:18Z` kept application, database, schema, desktop, and mobile readiness true with 5-20 ms probes; runtime logs showed no restart, readiness timeout, pool exhaustion, migration retry, worker conflict, warning, or application error. The isolated test runner is intentionally excluded from the runtime image, so the checksum diagnostic's missing-test-file exit is not an application failure.
 - Current blockers: WMS-21 remains `REOPENED`. Planned carrier/service persistence, post-release read-only controls, pick-ticket/BOL verification, and authenticated restricted-role pickup and delivery workflows are not implemented or proven. Sandbox does not yet expose one fail-closed switch for every external side effect, so no authenticated transaction was created. The sandbox build also emits the npm production-config warning and two transitive deprecation warnings. These warnings, the incomplete workflow, and the absence of an immutable cross-service promotion path independently block production. Production remained healthy and unchanged on deployment `81360938-733d-4119-954a-131b6a0905c5`, which remains the named rollback artifact.
+- Final independent verification 2026-11-15: **VERIFIED.** Commits `f195308`, `11605f1`, `ae5ae00`, and `a79b394` complete structured shipment-method, assigned-warehouse, planned-carrier, and planned-service persistence and controls. Customer pickup remains address-free; delivery remains address-gated; planned carrier is available to the BOL until an authoritative shipped carrier exists. The bounded additive schema migration creates only the required missing columns and preserves the rolling-start fast path.
+- Test evidence: the focused structured-fulfillment and migration suites passed 28/28; access-control passed 12/12 across 292 routes; `npm run check:deploy` passed 786/786. Direct isolated fresh-database verification passed all schema controls. A rollback-only designated-company workflow reached `STAGED`, generated a 6,957-byte BOL using planned carrier `Day & Ross`, retained two pallets and 1,250 LB, and rolled back without persistence. The broader closeout workflow correctly stopped at the sandbox's intentionally absent email provider and rolled back rather than enabling an external side effect.
+- Sandbox evidence: exact commit `a79b394d9d17fac88d885b447f9306c6c3f254f4` deployed as `b62363e5-b953-4341-9e80-67c3949ba322`. Eleven health probes over 10 minutes kept application, database, schema, and entry routes ready; database probes were 2-10 ms after warm-up. Railway reported one running replica, zero warnings, zero recent failures, no pending work, and no HTTP 5xx. Expected 403 responses confirmed denied warehouse permissions.
+- Production evidence: named rollback deployment was `c167ce6f-c0d7-49db-96d0-effd9d9471d0`. The exact sandbox-proven commit deployed as `694357f1-43ed-4793-8b96-1add829614db`; Railway reported `SUCCESS`, one running replica, no application warning, and no failed deployment. Five read-only production probes confirmed database, schema, desktop, and mobile readiness with 10-16 ms database probes. Deployment logs contained no runtime warning/error or HTTP 5xx. No production transaction or customer data was created or changed.
 
 ### WMS-25
 
