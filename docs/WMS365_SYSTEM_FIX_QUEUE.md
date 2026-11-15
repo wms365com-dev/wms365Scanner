@@ -32,8 +32,8 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 3 | WMS-16 readiness explanation | VERIFIED | Exact candidate passed fresh database, sandbox role/isolation workflow, soak, and production promotion |
 | 4 | WMS-17 routing blockers | VERIFIED | Exact candidate passed fresh database, sandbox role/isolation workflow, soak, and production promotion |
 | 5 | OPS-05 allocation integrity | IN PROGRESS | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
-| 6 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
-| 7 | WMS-21 structured fulfillment | NEXT | Designated-company transaction cycle in sandbox only |
+| 6 | WMS-02 and WMS-03 task/count consistency | VERIFIED | Production-scale count exceeded the old cap while tenant and warehouse denial remained enforced |
+| 7 | WMS-21 structured fulfillment | IN PROGRESS | Designated-company transaction cycle in sandbox only |
 | 8 | WMS-04 company-selection recovery | NEXT | Authenticated All companies, selected-company, and denied-company checks |
 | 9 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
@@ -241,6 +241,7 @@ Every batch must cover:
 - Dependency remediation retest: 2026-11-12 20:48-20:50 America/New_York. Commits `b06af82` and `7c79b23` update the vulnerable production dependencies, including Nodemailer 10, and remove the remaining `moment` advisory from the test database dependency tree. `npm audit` and the Railway sandbox build both report zero vulnerabilities. The focused runtime suite passed 1/1, email security suite passed 16/16, print-connector security suite passed 13/13, access-control audit passed 12/12 across 290 routes, and the full deploy gate passed. Fresh-database verification ran inside the isolated sandbox service and confirmed all seven schema controls ready.
 - Exact sandbox evidence: Railway deployment `c73420ad-982b-4d99-ad87-e6aa5cf001fc` succeeded from final commit `7c79b23`; `/api/health` returned application, database, schema, desktop, and mobile readiness with a 9 ms database probe. Production remained healthy and unchanged.
 - Current promotion blocker: the sandbox build/runtime still emits the npm `production` configuration warning plus two known transitive deprecation warnings (`whatwg-encoding` through Cheerio and `node-domexception` through the Google client stack). Authenticated production-scale task-count and denied-scope workflows and a fresh 10-minute warning-free soak are also incomplete. Per staging policy, WMS-02 and WMS-03 remain `REOPENED`, and no production promotion was attempted.
+- Independent verification 2026-11-15: **VERIFIED.** The current release retains uncapped active task reads, company and explicit warehouse filtering, bounded optional history, and preservation of every active outbound order. Exact commit `8935835168d9dedec701c56ccaad076d4b182c44` passed 780/780 deployment tests, the 12/12 access-control audit across 292 routes, and all seven fresh-database controls. Authenticated sandbox deployment `6056a1d1-a76a-4711-9d08-a16d1c8bf714` returned 321 allowed active tasks, exceeding the former 300-row cap, while excluding 19 other-warehouse and 11 other-company tasks and returning HTTP 403 across company scope; its fixtures were cleaned. The 10-minute soak remained ready with 3-11 ms database checks. Exact production deployment `c167ce6f-c0d7-49db-96d0-effd9d9471d0` passed five read-only health probes. No production task, order, inventory, or customer record changed.
 
 ### Item UPC spreadsheet normalization
 
