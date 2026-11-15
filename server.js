@@ -401,6 +401,50 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
+const DATABASE_SCHEMA_VERSION = "2026-11-15-ops06-v1";
+const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
+    "inventory_lines",
+    "inventory_transactions",
+    "mobile_devices",
+    "inventory_count_records",
+    "app_users",
+    "app_sessions",
+    "owner_accounts",
+    "fulfillment_locations",
+    "company_fulfillment_locations",
+    "portal_vendor_access",
+    "item_catalog",
+    "portal_orders",
+    "portal_order_lines",
+    "portal_order_allocations",
+    "portal_inbounds",
+    "portal_inbound_lines",
+    "portal_inbound_receipt_allocations",
+    "warehouse_shipments",
+    "warehouse_shipment_lines",
+    "warehouse_tasks",
+    "warehouse_task_history",
+    "async_jobs",
+    "partner_api_approvals",
+    "storage_billing_snapshots",
+    "portal_ship_to_addresses",
+    "store_integrations",
+    "store_sku_mappings",
+    "store_order_imports",
+    "store_sync_exports",
+    "billing_finance_document_sequences"
+]);
+const DATABASE_SCHEMA_REQUIRED_COLUMNS = Object.freeze([
+    ["inventory_transactions", "idempotency_key"],
+    ["inventory_transactions", "fulfillment_location_id"],
+    ["owner_accounts", "feature_flags"],
+    ["portal_orders", "shipment_method"],
+    ["portal_orders", "picked_pallet_details"],
+    ["portal_inbounds", "status"],
+    ["portal_ship_to_addresses", "verification_status"],
+    ["warehouse_tasks", "fulfillment_location_id"],
+    ["store_integrations", "settings"]
+]);
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
@@ -8895,6 +8939,79 @@ async function start() {
     void initializeDatabaseWithRetry();
 }
 
+async function databaseSchemaContractIsCurrent(databasePool = pool) {
+    const markerTableResult = await databasePool.query("select to_regclass('public.wms365_schema_versions') is not null as ready");
+    if (markerTableResult.rows[0]?.ready === true) {
+        const markerResult = await databasePool.query(
+            "select exists(select 1 from wms365_schema_versions where version = $1) as current",
+            [DATABASE_SCHEMA_VERSION]
+        );
+        if (markerResult.rows[0]?.current === true) return true;
+    }
+
+    const contractResult = await databasePool.query(
+        `with required_tables(name) as (
+            select unnest($1::text[])
+         ), required_columns(table_name, column_name) as (
+            select entry->>0, entry->>1
+            from jsonb_array_elements($2::jsonb) entry
+         )
+         select
+            not exists (
+                select 1 from required_tables
+                where to_regclass('public.' || name) is null
+            ) as tables_ready,
+            not exists (
+                select 1
+                from required_columns required
+                left join information_schema.columns actual
+                  on actual.table_schema = 'public'
+                 and actual.table_name = required.table_name
+                 and actual.column_name = required.column_name
+                where actual.column_name is null
+            ) as columns_ready`,
+        [DATABASE_SCHEMA_REQUIRED_TABLES, JSON.stringify(DATABASE_SCHEMA_REQUIRED_COLUMNS)]
+    );
+    return contractResult.rows[0]?.tables_ready === true && contractResult.rows[0]?.columns_ready === true;
+}
+
+async function recordDatabaseSchemaVersion(databasePool = pool) {
+    await databasePool.query(`
+        create table if not exists wms365_schema_versions (
+            version text primary key,
+            applied_at timestamptz not null default now()
+        )
+    `);
+    await databasePool.query(
+        "insert into wms365_schema_versions (version) values ($1) on conflict (version) do nothing",
+        [DATABASE_SCHEMA_VERSION]
+    );
+}
+
+function markDatabaseInitializationComplete(message = "PostgreSQL schema ready.") {
+    databaseSchemaInitialized = true;
+    databaseReady = true;
+    databaseErrorMessage = "";
+    ensureStoreIntegrationSchedulerStarted();
+    ensurePortalOrderPickTicketEmailSchedulerStarted();
+    ensurePortalOrderShipmentEmailSchedulerStarted();
+    ensurePortalInboundFollowupEmailSchedulerStarted();
+    ensureOrderRoutingReadinessSchedulerStarted();
+    ensureAdminActivityDigestSchedulerStarted();
+    ensureShipmentDataQualitySchedulerStarted();
+    ensureShipmentPackageVerificationWorkerStarted();
+    ensureCarrierTrackingWorkerStarted();
+    ensureCompanyBillingReconciliationSchedulerStarted();
+    ensureAsyncJobWorkerStarted();
+    ensureDatabaseHealthWatchdogStarted();
+    void backfillWarehouseShipments()
+        .then(() => backfillShipmentTrackers())
+        .catch((error) => {
+            console.error("Warehouse shipment or carrier tracking backfill failed:", error.message || error);
+        });
+    console.log(message);
+}
+
 async function initializeDatabase() {
     await pool.query(`
         create table if not exists inventory_lines (
@@ -12331,6 +12448,11 @@ async function initializeDatabaseWithRetry() {
         let initializationLockHeld = false;
         try {
             console.log("Initializing PostgreSQL schema...");
+            if (await databaseSchemaContractIsCurrent()) {
+                await recordDatabaseSchemaVersion();
+                markDatabaseInitializationComplete("PostgreSQL schema already current; skipped startup DDL.");
+                break;
+            }
             initializationLockClient = await pool.connect();
             const initializationLockResult = await initializationLockClient.query(
                 "select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired",
@@ -12343,27 +12465,8 @@ async function initializeDatabaseWithRetry() {
             }
             initializationLockHeld = true;
             await initializeDatabase();
-            databaseSchemaInitialized = true;
-            databaseReady = true;
-            databaseErrorMessage = "";
-            ensureStoreIntegrationSchedulerStarted();
-            ensurePortalOrderPickTicketEmailSchedulerStarted();
-            ensurePortalOrderShipmentEmailSchedulerStarted();
-            ensurePortalInboundFollowupEmailSchedulerStarted();
-            ensureOrderRoutingReadinessSchedulerStarted();
-            ensureAdminActivityDigestSchedulerStarted();
-            ensureShipmentDataQualitySchedulerStarted();
-            ensureShipmentPackageVerificationWorkerStarted();
-            ensureCarrierTrackingWorkerStarted();
-            ensureCompanyBillingReconciliationSchedulerStarted();
-            ensureAsyncJobWorkerStarted();
-            ensureDatabaseHealthWatchdogStarted();
-            void backfillWarehouseShipments()
-                .then(() => backfillShipmentTrackers())
-                .catch((error) => {
-                    console.error("Warehouse shipment or carrier tracking backfill failed:", error.message || error);
-                });
-            console.log("PostgreSQL schema ready.");
+            await recordDatabaseSchemaVersion();
+            markDatabaseInitializationComplete();
         } catch (error) {
             databaseReady = false;
             databaseErrorMessage = error.message;
@@ -46702,6 +46805,11 @@ function delay(ms) {
 }
 
 module.exports = {
+    DATABASE_SCHEMA_VERSION,
+    DATABASE_SCHEMA_REQUIRED_TABLES,
+    DATABASE_SCHEMA_REQUIRED_COLUMNS,
+    databaseSchemaContractIsCurrent,
+    recordDatabaseSchemaVersion,
     getHealteaMonthEndPeriod,
     buildHealteaMonthEndActivity,
     isStateChangingRequestOriginAllowed,

@@ -27,16 +27,25 @@ This board is the release order. Only one focused repair is promoted at a time; 
 
 | Sequence | Work | State | Exit gate |
 | ---: | --- | --- | --- |
-| 1 | WMS-08 marketplace feature visibility | IN PROGRESS | Fresh database, exact sandbox artifact, authenticated super-admin and restricted-role checks, tenant/warehouse negatives, 10-minute soak, exact production promotion, read-only live verification |
-| 2 | WMS-16 readiness explanation | NEXT | Independent retest; reopen on any failed control |
-| 3 | WMS-17 routing blockers | NEXT | Independent retest; reopen on any failed control |
-| 4 | OPS-05 allocation integrity | NEXT | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
-| 5 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
-| 6 | WMS-21 structured fulfillment | NEXT | Designated-company transaction cycle in sandbox only |
-| 7 | WMS-04 company-selection recovery | NEXT | Authenticated All companies, selected-company, and denied-company checks |
-| 8 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+| 1 | OPS-06 rolling-release schema lock contention | IN PROGRESS | Profile the startup lock, prove bounded initialization in sandbox, and preserve zero-downtime rollback behavior before another production promotion |
+| 2 | WMS-08 marketplace feature visibility | BLOCKED | Sandbox-proven; repeat exact production promotion only after OPS-06 passes the full release gate |
+| 3 | WMS-16 readiness explanation | NEXT | Independent retest; reopen on any failed control |
+| 4 | WMS-17 routing blockers | NEXT | Independent retest; reopen on any failed control |
+| 5 | OPS-05 allocation integrity | NEXT | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
+| 6 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
+| 7 | WMS-21 structured fulfillment | NEXT | Designated-company transaction cycle in sandbox only |
+| 8 | WMS-04 company-selection recovery | NEXT | Authenticated All companies, selected-company, and denied-company checks |
+| 9 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
 ## Platform Migration Audit
+
+### OPS-06 - Rolling-release schema lock contention
+
+- Priority: `critical`
+- Status: `IN PROGRESS`
+- Trigger: production promotion of exact sandbox-proven WMS-08 commit `47443b27579d85b7782e35c7aeb3b2def9771689` reached repeated PostgreSQL `55P03` lock timeouts during `initializeDatabase` while the existing live replica continued serving. Railway eventually marked deployment `46e41b8b-427c-4578-b875-8618590a9e9c` successful, but the warning violates the release policy and blocks accepting the artifact.
+- Recovery: no PostgreSQL restart or customer-data operation was performed. The named last-known-good commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24` was restored as deployment `a09930cb-792c-4779-b532-bb71eaa74be9`; schema readiness completed in approximately six seconds and subsequent health requests returned HTTP 200.
+- Required fix: identify the blocking initialization statement and make no-op rolling starts avoid unnecessary heavyweight DDL locks while retaining serialized, bounded, retry-safe migrations and complete fresh-database creation.
 
 ### OPS-02 - Database health probe latency
 
@@ -286,6 +295,8 @@ Every batch must cover:
 - Retest required: with Marketplace Connections off in `BISON TRANSPORT TEST COMPANY`, open the integration module as a super administrator and a restricted user. Confirm credentials and Save/Sync controls are absent, navigation reads `(Off)`, only the super administrator sees Feature Access recovery, and direct write requests remain rejected. Enable the feature in the test company and confirm the form reappears, then disable it and confirm it hides again.
 - Independent retest 2026-11-14: **FAILED / REOPENED.** The reviewed production baseline did not contain `marketplace-feature-visibility.spec.js` or the documented unavailable panel. The integration form and credential fields remained visible and were only disabled individually, and navigation did not show the feature-off state. Existing server-side company feature assertions remained present. No production data or integration setting was changed.
 - Repair candidate 2026-11-14: the integration workspace now replaces the setup form and saved-connection list with one unavailable panel when Marketplace Connections is off, marks navigation `Integrations (Off)`, and exposes Feature Access recovery only to super administrators. Focused positive, restricted-role, and fail-closed server tests passed 3/3; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 768/768. Status remains `FIXED - NEEDS RETEST` pending fresh-database verification, exact sandbox deployment, authenticated designated-company role and isolation checks, a clean 10-minute soak, and exact-artifact production promotion.
+- Sandbox verification 2026-11-14: exact commit `47443b27579d85b7782e35c7aeb3b2def9771689` deployed as `a77104a3-3220-4ba9-9ec1-71c93d25129b` with image `sha256:00688083dad18f019083b266287354cfcd3027f662f035a05624dfc41036f5e7`. Fresh-database verification passed all seven schema controls. Authenticated designated-company scope returned exactly 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, and enforced HTTP 403 across company scope. Eleven health checks over more than ten minutes returned HTTP 200 with 3.9-16.1 ms server durations and no restart, warning, error, or HTTP 5xx after readiness.
+- Production promotion 2026-11-14: **BLOCKED / ROLLED BACK.** The candidate encountered repeated schema-initialization lock timeouts, so it was not accepted as verified even though Railway eventually reported success. Production was restored to named rollback commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24` as deployment `a09930cb-792c-4779-b532-bb71eaa74be9`. WMS-08 remains `FIXED - NEEDS RETEST` until OPS-06 is resolved and the exact candidate completes a clean promotion and read-only live verification.
 
 ### WMS-05
 

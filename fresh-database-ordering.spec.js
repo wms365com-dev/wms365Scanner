@@ -16,7 +16,8 @@ test("health stays unavailable until the complete database schema is initialized
     const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
     assert.match(source, /let databaseSchemaInitialized = false/);
     assert.match(source, /const healthy = databaseSchemaInitialized && databaseReady && probe\.ok && entryRoutesReady/);
-    assert.match(source, /await initializeDatabase\(\);\s*databaseSchemaInitialized = true;\s*databaseReady = true;/);
+    assert.match(source, /await initializeDatabase\(\);\s*await recordDatabaseSchemaVersion\(\);\s*markDatabaseInitializationComplete\(\);/);
+    assert.match(source, /function markDatabaseInitializationComplete[\s\S]*databaseSchemaInitialized = true;\s*databaseReady = true;/);
 });
 
 test("rolling schema initialization is serialized and retries bounded lock waits", () => {
