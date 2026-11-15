@@ -14,8 +14,7 @@ export default defineRailway((ctx) => {
 
     const wms365Sandbox = service("wms365-sandbox", {
       source: github("wms365com-dev/wms365Scanner", {
-        branch: "codex/release-9105375b",
-        commitSha: "9105375b97651d3a520be49e71c538cefb0d0e56",
+        branch: "codex/production-release",
       }),
       build: { buildCommand: "npm run check:deploy", buildEnvironment: "V3", builder: "RAILPACK" },
       start: "node server.js",
@@ -56,8 +55,7 @@ export default defineRailway((ctx) => {
 
   const wms365Scanner = service("wms365Scanner", {
     source: github("wms365com-dev/wms365Scanner", {
-      branch: "codex/release-9105375b",
-      commitSha: "9105375b97651d3a520be49e71c538cefb0d0e56",
+      branch: "codex/production-release",
     }),
     build: { buildCommand: "npm run check:deploy", buildEnvironment: "V3", builder: "RAILPACK" },
     start: "node server.js",
