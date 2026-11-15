@@ -438,6 +438,8 @@ const DATABASE_SCHEMA_REQUIRED_COLUMNS = Object.freeze([
     ["inventory_transactions", "idempotency_key"],
     ["inventory_transactions", "fulfillment_location_id"],
     ["owner_accounts", "feature_flags"],
+    ["company_fulfillment_locations", "customer_portal_visible"],
+    ["company_fulfillment_locations", "portal_inventory_rollup_location_id"],
     ["portal_orders", "shipment_method"],
     ["portal_orders", "planned_carrier_name"],
     ["portal_orders", "planned_service_level"],
@@ -8996,8 +8998,11 @@ async function recordDatabaseSchemaVersion(databasePool = pool) {
 
 async function applyPendingAdditiveMigrations(databasePool = pool) {
     const portalOrdersResult = await databasePool.query("select to_regclass('portal_orders') is not null as ready");
-    if (portalOrdersResult.rows[0]?.ready !== true) return false;
+    const companyLocationsResult = await databasePool.query("select to_regclass('company_fulfillment_locations') is not null as ready");
+    if (portalOrdersResult.rows[0]?.ready !== true || companyLocationsResult.rows[0]?.ready !== true) return false;
 
+    await databasePool.query("alter table company_fulfillment_locations add column if not exists customer_portal_visible boolean not null default true");
+    await databasePool.query("alter table company_fulfillment_locations add column if not exists portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null");
     await databasePool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
     await databasePool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
     return true;
@@ -9439,6 +9444,8 @@ async function initializeDatabase() {
             allow_outbound boolean not null default true,
             allow_storage boolean not null default true,
             allow_returns boolean not null default true,
+            customer_portal_visible boolean not null default true,
+            portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null,
             note text not null default '',
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
@@ -9446,6 +9453,7 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("alter table company_fulfillment_locations add column if not exists customer_portal_visible boolean not null default true;");
+    await pool.query("alter table company_fulfillment_locations add column if not exists portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null;");
 
     await pool.query(`
         create table if not exists company_partner_accounts (

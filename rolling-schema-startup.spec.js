@@ -80,19 +80,24 @@ test("schema version recording is idempotent and isolated to migration metadata"
 test("additive fulfillment migration is idempotent and changes schema only", async () => {
     const pool = fakePool([
         { rows: [{ ready: true }] },
+        { rows: [{ ready: true }] },
+        { rows: [] },
+        { rows: [] },
         { rows: [] },
         { rows: [] }
     ]);
     assert.equal(await applyPendingAdditiveMigrations(pool), true);
-    assert.equal(pool.calls.length, 3);
-    assert.match(pool.calls[1].sql, /add column if not exists planned_carrier_name/i);
-    assert.match(pool.calls[2].sql, /add column if not exists planned_service_level/i);
-    assert.equal(pool.calls.some((call) => /\b(update|delete|insert)\b/i.test(call.sql)), false);
+    assert.equal(pool.calls.length, 6);
+    assert.match(pool.calls[2].sql, /add column if not exists customer_portal_visible/i);
+    assert.match(pool.calls[3].sql, /add column if not exists portal_inventory_rollup_location_id/i);
+    assert.match(pool.calls[4].sql, /add column if not exists planned_carrier_name/i);
+    assert.match(pool.calls[5].sql, /add column if not exists planned_service_level/i);
+    assert.equal(pool.calls.some((call) => /^\s*(update|delete|insert)\b/i.test(call.sql)), false);
 });
 
 test("additive fulfillment migration defers fresh databases to the full initializer", async () => {
-    const pool = fakePool([{ rows: [{ ready: false }] }]);
+    const pool = fakePool([{ rows: [{ ready: false }] }, { rows: [{ ready: false }] }]);
     assert.equal(await applyPendingAdditiveMigrations(pool), false);
-    assert.equal(pool.calls.length, 1);
+    assert.equal(pool.calls.length, 2);
     assert.equal(pool.calls.some((call) => /alter table/i.test(call.sql)), false);
 });
