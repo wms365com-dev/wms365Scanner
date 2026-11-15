@@ -26,7 +26,7 @@ Sandbox must never reference production data or external live side effects.
 8. Confirm external effects are disabled or redirected to test fixtures. No real email, Shopify, carrier, billing, or customer notification is allowed.
 9. Maintain a 10-minute healthy soak with no readiness failures, restarts, pool exhaustion, migration retries, or unexplained errors.
 10. Record evidence in `docs/WMS365_SYSTEM_FIX_QUEUE.md`: commit, test counts, sandbox deployment ID, health results, workflow results, rollback artifact, reviewer, and timestamp.
-11. Promote the same commit or immutable build to production. Do not rebuild from another worktree.
+11. Promote the same commit or immutable build to production by explicitly updating the production source commit pin. Production must never follow the sandbox release branch without a commit pin. Do not rebuild from another worktree.
 12. Verify production health and database readiness read-only. Perform a live transaction only when it is an explicitly requested real business transaction.
 
 ## Production Stop Conditions

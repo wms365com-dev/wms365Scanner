@@ -31,6 +31,9 @@ test("Railway runs the route contract before accepting a build", () => {
     assert.equal((railway.match(/start: "node server\.js"/g) || []).length, 2);
     assert.match(railway, /ctx\.isEnvironment\("customer-sandbox"\)/);
     assert.match(railway, /ctx\.isEnvironment\("production"\)/);
+    assert.equal((railway.match(/commitSha:/g) || []).length, 1);
+    assert.match(railway, /Production advances only through an explicit reviewed IaC promotion/);
+    assert.match(railway, /commitSha: "75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec"/);
     assert.match(packageJson.scripts["check:deploy"], /warehouse-entry-routes\.spec\.js/);
     assert.equal(packageJson.scripts["check:railway-config"], "npm run check:railway-config:production && npm run check:railway-config:sandbox");
 });
