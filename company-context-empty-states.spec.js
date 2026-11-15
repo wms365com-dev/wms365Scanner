@@ -35,3 +35,12 @@ test("company recovery does not bypass server-side company or warehouse authoriz
     assert.match(server, /async function assertAppUserFulfillmentLocationAccess\(/);
     assert.doesNotMatch(warehouse, /data-choose-company[^>]+data-company-id=/);
 });
+
+test("clearing company scope cannot be undone by stale display labels", () => {
+    const activeCompanyFunction = warehouse.match(/function getActiveCompany\(\) \{[\s\S]*?\n        \}/)?.[0] || "";
+    assert.match(activeCompanyFunction, /ui\.activeCompany\?\.value/);
+    assert.match(activeCompanyFunction, /state\.preferences\.activeCompany/);
+    assert.match(activeCompanyFunction, /mobileCompanyContext/);
+    assert.doesNotMatch(activeCompanyFunction, /workspaceCompanyChip/);
+    assert.doesNotMatch(activeCompanyFunction, /activeCompanyDisplay/);
+});
