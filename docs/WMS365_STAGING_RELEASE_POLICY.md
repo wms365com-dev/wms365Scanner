@@ -19,14 +19,15 @@ Sandbox must never reference production data or external live side effects.
 1. Start from a clean release repository and record the commit SHA.
 2. Review the complete committed diff, migrations, untracked files, and rollback path.
 3. Run `npm run check:deploy`, access-control checks, focused regression tests, and fresh-database boot checks.
-4. Deploy the exact commit to `customer-sandbox` only.
-5. Verify application health, database schema readiness, route readiness, worker state, and logs.
-6. Run authenticated workflows under the designated test company and realistic restricted roles. Test the changed workflow plus adjacent receiving, inventory, order, document, and portal behavior as applicable.
-7. Confirm external effects are disabled or redirected to test fixtures. No real email, Shopify, carrier, billing, or customer notification is allowed.
-8. Maintain a 10-minute healthy soak with no readiness failures, restarts, pool exhaustion, migration retries, or unexplained errors.
-9. Record evidence in `docs/WMS365_SYSTEM_FIX_QUEUE.md`: commit, test counts, sandbox deployment ID, health results, workflow results, rollback artifact, reviewer, and timestamp.
-10. Promote the same commit or immutable build to production. Do not rebuild from another worktree.
-11. Verify production health and database readiness read-only. Perform a live transaction only when it is an explicitly requested real business transaction.
+4. Run `npm run check:railway-config`. Review both environment plans and require zero destructive changes. Variables must remain unmanaged, and the plan must preserve every service, database, volume, domain, build gate, start command, healthcheck, and restart policy.
+5. Deploy the exact commit to `customer-sandbox` only.
+6. Verify application health, database schema readiness, route readiness, worker state, and logs.
+7. Run authenticated workflows under the designated test company and realistic restricted roles. Test the changed workflow plus adjacent receiving, inventory, order, document, and portal behavior as applicable.
+8. Confirm external effects are disabled or redirected to test fixtures. No real email, Shopify, carrier, billing, or customer notification is allowed.
+9. Maintain a 10-minute healthy soak with no readiness failures, restarts, pool exhaustion, migration retries, or unexplained errors.
+10. Record evidence in `docs/WMS365_SYSTEM_FIX_QUEUE.md`: commit, test counts, sandbox deployment ID, health results, workflow results, rollback artifact, reviewer, and timestamp.
+11. Promote the same commit or immutable build to production. Do not rebuild from another worktree.
+12. Verify production health and database readiness read-only. Perform a live transaction only when it is an explicitly requested real business transaction.
 
 ## Production Stop Conditions
 
@@ -35,6 +36,7 @@ Do not promote when any of the following is true:
 - Sandbox identity, database isolation, credentials, or designated test company cannot be proven.
 - Repository or release diff is dirty, mixed, or unreviewed.
 - Any required test, access audit, migration check, or authenticated workflow fails.
+- Either Railway environment plan includes an unreviewed deletion, replacement, variable mutation, or resource ownership change.
 - Sandbox health is not continuously ready for 10 minutes.
 - Startup or schema initialization approaches the platform readiness timeout.
 - Database pool exhaustion, worker contention, duplicate side effects, or external integration writes occur.

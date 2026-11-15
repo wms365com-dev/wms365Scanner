@@ -43,7 +43,10 @@
     "report:ranchers-labels:confirm-upload": "node scripts/confirm-ranchers-label-report-upload.mjs",
     "sync:ranchers-label-sheet": "node scripts/sync-ranchers-label-sheet.js",
     "sync:ranchers-label-sheet:watch": "node scripts/sync-ranchers-label-sheet.js --watch",
-    "report:healtea:month-end": "node scripts/download-healtea-month-end-report.js"
+    "report:healtea:month-end": "node scripts/download-healtea-month-end-report.js",
+    "check:railway-config:production": "railway config plan --environment production",
+    "check:railway-config:sandbox": "railway config plan --environment customer-sandbox",
+    "check:railway-config": "npm run check:railway-config:production && npm run check:railway-config:sandbox"
   },
   "engines": {
     "node": ">=22"
@@ -64,7 +67,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
-    "pg-mem": "^3.0.14"
+    "pg-mem": "^3.0.14",
+    "railway": "3.10.0"
   },
   "repository": {
     "type": "git",

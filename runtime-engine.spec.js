@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const packageJson = require('./package.json');
 const packageLock = require('./package-lock.json');
-const railwayConfig = require('./railway.json');
+const railwayConfig = fs.readFileSync(path.join(__dirname, '.railway', 'railway.ts'), 'utf8');
 
 function minimumMajor(engineRange) {
   const match = /^>=(\d+)$/.exec(engineRange || '');
@@ -33,5 +35,6 @@ test('deployment runtime satisfies production dependency Node requirements', () 
 
 test('Railway starts Node directly without deprecated npm production config', () => {
   assert.equal(packageJson.scripts.start, 'node server.js');
-  assert.equal(railwayConfig.deploy.startCommand, packageJson.scripts.start);
+  assert.equal((railwayConfig.match(/start: "node server\.js"/g) || []).length, 2);
+  assert.doesNotMatch(railwayConfig, /npm (?:--production|config set production)/);
 });
