@@ -35,8 +35,9 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 6 | WMS-02 and WMS-03 task/count consistency | VERIFIED | Production-scale count exceeded the old cap while tenant and warehouse denial remained enforced |
 | 7 | WMS-21 structured fulfillment | VERIFIED | Exact candidate passed focused/global gates, fresh database, rollback-only sandbox BOL workflow, 10-minute soak, and production promotion |
 | 8 | WMS-04 company-selection recovery | VERIFIED | Exact sandbox-proven artifact passed role/isolation checks, soak, and production promotion |
-| 9 | WMS-22 inventory quantity clarity | IN PROGRESS | Reconcile on-hand, allocated, and available labels without changing inventory data |
-| 10 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+| 9 | WMS-22 inventory quantity clarity | VERIFIED | Exact display-only candidate passed inventory/isolation checks, sandbox soak, and production promotion |
+| 10 | WMS-11 report scope and quantity basis | IN PROGRESS | Reconcile report scope and totals without changing customer or inventory data |
+| 11 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
 ## Platform Migration Audit
 
@@ -146,10 +147,10 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | VERIFIED |
 | 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | VERIFIED |
 | 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | VERIFIED |
-| 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | IN PROGRESS |
+| 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | VERIFIED |
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | QUEUED |
 | 14 | WMS-10 | medium | Company labels render without a field | QUEUED |
-| 15 | WMS-11 | high | Reports omit scope and quantity basis and can show contradictory company totals | QUEUED |
+| 15 | WMS-11 | high | Reports omit scope and quantity basis and can show contradictory company totals | IN PROGRESS |
 | 16 | WMS-12 | medium | Company name overlaps FactBox content | QUEUED |
 
 ### Batch 3: Sales Order List, Record Continuity, and Deep Links
@@ -338,6 +339,13 @@ Every batch must cover:
 - Independent repair and retest 2026-11-15: **VERIFIED.** Exact commit `e59ce1f1265159dfcb2e53680dd1b3ecf5a94de7` removes stale display-label fallback from company state and supplies the reusable recovery action for customer/vendor, sales-order, and receiving empty states. Focused and designated-company tests passed 24/24; the access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 790/790; and a fresh-database check passed every schema control.
 - Sandbox evidence: exact deployment `9926d11c-3ab2-4947-8819-b3f054699b63` passed the authenticated designated-company workflow with 321 allowed tasks, 19 denied-warehouse tasks excluded, 11 denied-company tasks excluded, and HTTP 403 across denied company scope. Browser verification proved that clearing company scope remains cleared, each affected empty state exposes one recovery action, the action opens and focuses the official company switcher, and the designated test company can be restored. Eleven health probes over 10 minutes stayed fully ready with 2-7 ms database checks, one running replica, no restart, warning, failure, or proxy HTTP 5xx.
 - Production promotion: named rollback deployment `694357f1-43ed-4793-8b96-1add829614db`; exact production deployment `cf39b087-a9ec-43da-9ef9-2c8a3036441b` succeeded. Startup reported the schema already current and skipped DDL. Runtime and proxy logs contained no warning, failure, or HTTP 5xx. Five public read-only health probes returned `ok: true` and `databaseReady: true`; the final detailed probe also confirmed `databaseSchemaInitialized: true`, desktop and mobile entry routes ready, and a 7 ms database probe. No production customer or inventory data changed.
+
+### WMS-22
+
+- Independent repair and retest 2026-11-15: **VERIFIED.** Exact commit `d1de7de` changes display language only: warehouse inventory and sales-order surfaces now distinguish physical or pickable on-hand, committed active work, and quantity available to allocate; the customer portal distinguishes pickable on-hand, reserved active work, and quantity available to order. The existing pickable-on-hand-minus-active-reservations calculation and all tenant/warehouse authorization remain unchanged.
+- Test evidence: focused inventory, customer-portal pooling, and warehouse-isolation tests passed 20/20; the access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 793/793. Fresh-database verification passed all seven schema controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, and cleaned up through its rollback path.
+- Sandbox evidence: exact deployment `3c1546cd-3ff0-4088-a474-8d9d87ad8503` served the new warehouse and customer-portal labels. Eleven health probes over 10 minutes stayed fully ready with 2-26 ms database probes, one running replica, zero warnings/errors, and zero proxy HTTP 5xx across the final deployment/log review. External probe latency was usually 166-314 ms after warm-up; two network-path outliers reached 1.6 and 3.8 seconds while in-service database probes remained 2 and 7 ms, respectively, and remain visible in performance follow-up.
+- Production promotion: named rollback deployment `cf39b087-a9ec-43da-9ef9-2c8a3036441b`; exact deployment `ef4d7eac-78e1-48ce-9f8f-e99e41dbd35a` succeeded with one running replica. Startup reported the schema already current and skipped DDL. Five public read-only probes returned application, database, schema, desktop, and mobile readiness true with 9-18 ms database probes; runtime/proxy logs contained no warning, failure, or HTTP 5xx; and the public customer-portal asset contains the new pickable and reserved labels. No production customer, order, allocation, or inventory data changed.
 - Independent retest 2026-11-14: **FAILED / REOPENED.** The clean reviewed release baseline does not contain the referenced `company-context-empty-states.spec.js`, and its current warehouse UI source contains no `Choose Company` recovery action. A read-only fetch of the deployed production UI likewise contained neither the recovery action nor the expected company-selection guidance, while `/api/health` remained fully ready. No authenticated transaction was attempted because the required control is absent before role and isolation behavior can be meaningfully exercised. Restore the recovery control and focused positive/negative coverage in one isolated change, then complete the sandbox role workflow, denied-company check, fresh-database gate, 10-minute soak, and exact-artifact promotion before verification.
 
 ### WMS-21
