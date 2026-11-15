@@ -6964,7 +6964,7 @@
                     <p>Use the left navigation to drill into one warehouse workflow at a time without losing the shared company context.</p>
                 </div>
                 <div class="stats-grid" aria-label="Inventory totals">
-                    <div class="stat"><span>Available Qty</span><strong id="statUnits">0</strong></div>
+                    <div class="stat"><span>Available to Allocate</span><strong id="statUnits">0</strong></div>
                     <div class="stat"><span>Inventory Lines</span><strong id="statLines">0</strong></div>
                     <div class="stat"><span>Locations</span><strong id="statLocations">0</strong></div>
                     <div class="stat"><span>Open Batch</span><strong id="statBatch">0</strong></div>
@@ -8271,15 +8271,15 @@
                                 </div>
                                 <div class="item-card-inventory-facts" id="masterItemInventoryFacts">
                                     <div class="item-card-inventory-fact">
-                                        <span>On Hand</span>
+                                        <span>Physical On Hand</span>
                                         <strong>0 units</strong>
                                     </div>
                                     <div class="item-card-inventory-fact">
-                                        <span>Available</span>
+                                        <span>Available to Allocate</span>
                                         <strong>0 units</strong>
                                     </div>
                                     <div class="item-card-inventory-fact">
-                                        <span>Committed</span>
+                                        <span>Committed to Active Work</span>
                                         <strong>0 units</strong>
                                     </div>
                                     <div class="item-card-inventory-fact">
@@ -9399,11 +9399,11 @@
                                     <th>Expiration</th>
                                     <th>Description</th>
                                     <th>Tracking</th>
-                                    <th>On Hand</th>
+                                    <th>Physical On Hand</th>
                                     <th>Released</th>
                                     <th>Picked</th>
                                     <th>Staged</th>
-                                    <th>Available</th>
+                                    <th>Available to Allocate</th>
                                     <th>Updated</th>
                                 </tr>
                             </thead>
@@ -9423,7 +9423,7 @@
                         <div class="summary"><span>Total Locations</span><strong id="summaryLocations">0</strong></div>
                         <div class="summary"><span>Companies</span><strong id="summaryOwners">0</strong></div>
                         <div class="summary"><span>Company / SKU Pairs</span><strong id="summarySkus">0</strong></div>
-                        <div class="summary"><span>Available Qty</span><strong id="summaryUnits">0</strong></div>
+                        <div class="summary"><span>Available to Allocate</span><strong id="summaryUnits">0</strong></div>
                         <div class="summary"><span>Server Updated</span><strong id="summarySaved">Never</strong></div>
                     </div>
                     <p class="lead">Use the Backup tab to move or restore the shared server data when needed.</p>
@@ -22666,7 +22666,7 @@
             if (item && qtyInput) qtyInput.max = String(item.availableQuantity);
             else if (qtyInput) qtyInput.removeAttribute("max");
             meta.textContent = item
-                ? `${item.description || "No description"} | ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available | On hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
+                ? `${item.description || "No description"} | Pickable on hand ${formatTrackedQuantity(item.onHandQuantity, item.trackingLevel)} | Committed ${formatTrackedQuantity(item.reservedQuantity, item.trackingLevel)} | Available to allocate ${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} | ${item.locations.join(", ")}`
                 : "Choose a SKU from the active company's available inventory.";
         }
 
@@ -27552,9 +27552,9 @@
         function renderItemInventoryFacts(summary) {
             if (!ui.masterItemInventoryFacts) return;
             ui.masterItemInventoryFacts.innerHTML = [
-                ["On Hand", formatTrackedQuantity(summary.onHand, summary.trackingLevel)],
-                ["Available", formatTrackedQuantity(summary.available, summary.trackingLevel)],
-                ["Reserved", formatTrackedQuantity(summary.reserved, summary.trackingLevel)],
+                ["Physical On Hand", formatTrackedQuantity(summary.onHand, summary.trackingLevel)],
+                ["Available to Allocate", formatTrackedQuantity(summary.available, summary.trackingLevel)],
+                ["Committed to Active Work", formatTrackedQuantity(summary.reserved, summary.trackingLevel)],
                 ["Locations", num(summary.locationCount)]
             ].map(([label, value]) => `
                 <div class="item-card-inventory-fact">

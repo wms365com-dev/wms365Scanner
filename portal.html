@@ -4793,11 +4793,11 @@
                             <strong>${esc(item.sku)}</strong>
                             <div class="meta">${esc(item.description || "No description")}</div>
                         </div>
-                        <span class="pill">${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</span>
+                        <span class="pill">${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available to order</span>
                     </div>
                     <div class="order-summary-grid">
-                        <div class="detail"><span>On Hand</span><strong>${esc(formatTrackedQuantity(item.onHandQuantity, item.trackingLevel))}</strong></div>
-                        <div class="detail"><span>Reserved</span><strong>${esc(formatTrackedQuantity(item.reservedQuantity, item.trackingLevel))}</strong></div>
+                        <div class="detail"><span>Pickable On Hand</span><strong>${esc(formatTrackedQuantity(item.onHandQuantity, item.trackingLevel))}</strong></div>
+                        <div class="detail"><span>Reserved for Active Work</span><strong>${esc(formatTrackedQuantity(item.reservedQuantity, item.trackingLevel))}</strong></div>
                         <div class="detail"><span>Tracking</span><strong>${esc(trackingLabel(item.trackingLevel))}</strong></div>
                         <div class="detail"><span>Locations</span><strong>${esc(num(item.locationCount))}</strong></div>
                     </div>
