@@ -44,6 +44,15 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 - Safety: authenticated business data must remain private, current, tenant scoped, and warehouse scoped. Do not persist orders, addresses, inventory, billing, credentials, or customer documents locally merely to improve speed. Use secure local storage only for versioned UI assets, preferences, and explicitly downloaded files.
 - Evidence and budgets: `docs/WMS365_USER_ACTION_PERFORMANCE_AUDIT.md`; static audit: `scripts/audit-user-action-performance-map.js`.
 
+### OPS-04 - Privacy-safe action performance telemetry
+
+- Priority: `critical`
+- Status: `IN PROGRESS`
+- Candidate: one structured operational event per non-static response, sharing the same request ID as user-facing errors. Fields are limited to sanitized route pattern, HTTP method/status, role class, duration, response bytes, and outcome. This adds no database query or write to the user request.
+- Privacy and isolation: query strings, record numbers, numeric IDs, UUIDs, long tokens, customer identity, user email, addresses, SKUs, documents, request bodies, response bodies, and credentials are excluded. Role is reduced to a broad class.
+- Tests: focused telemetry tests cover identifier stripping, privacy exclusions, bounded fields, role classification, and error classification. Full access, deployment, sandbox, soak, and production gates remain required.
+- Next layer: batch client click-to-feedback/render measurements by stable action name so button latency can be separated into browser, network, server, database, and render phases without doubling request volume.
+
 ### OPS-01 - Railway configuration migration and release flow
 
 - Priority: `critical`

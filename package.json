@@ -32,7 +32,7 @@
     "test:pallet-pick-reallocation-database": "node scripts/verify-test-company-pallet-pick-reallocation.js",
     "test:bill-of-lading": "node --test bill-of-lading.spec.js",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "check:deploy": "node --check server.js && node scripts/audit-access-control-coverage.js && node --test warehouse-entry-routes.spec.js database-health-performance.spec.js && node scripts/run-node-tests.js",
+    "check:deploy": "node --check server.js && node scripts/audit-access-control-coverage.js && node --test warehouse-entry-routes.spec.js database-health-performance.spec.js performance-telemetry.spec.js && node scripts/run-node-tests.js",
     "check:release": "npm run check:deploy && npm run test:portal-navigation-visual && npm run test:warehouse-errors-visual && npm run test:audit && npm run test:guides",
     "check:database": "node scripts/verify-platform-controls.js && node verify-portal-inventory-database.js && node scripts/verify-test-company-platform-flow.js && node scripts/verify-test-company-bol-flow.js && node scripts/verify-test-company-inventory-move-flow.js",
     "check:fresh-database": "node verify-fresh-database-boot.js",

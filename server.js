@@ -1000,6 +1000,62 @@ function getRequestPathName(req) {
     return String(req?.path || req?.url || "").split("?")[0] || "/";
 }
 
+function normalizePerformancePath(value) {
+    return String(value || "/")
+        .split("?")[0]
+        .replace(/\b(?:ORD|INB|SHP|KIT|JOB|CNT|INV|BOL)-\d+\b/gi, ":record")
+        .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, ":uuid")
+        .replace(/\/(?:\d+)(?=\/|$)/g, "/:id")
+        .replace(/\/[A-Za-z0-9_-]{24,}(?=\/|$)/g, "/:token")
+        .slice(0, 240) || "/";
+}
+
+function getPerformanceRoleClass(req) {
+    const role = normalizeText(req?.appUser?.role || "");
+    if (role.includes("SUPER")) return "SUPER_ADMIN";
+    if (role.includes("ADMIN")) return "ADMIN";
+    if (role.includes("WAREHOUSE") || role.includes("WORKER")) return "WAREHOUSE";
+    if (String(req?.path || "").startsWith("/api/portal/")) return "CUSTOMER_PORTAL";
+    if (String(req?.path || "").startsWith("/api/v1/")) return "PARTNER_API";
+    return req?.appUser ? "AUTHENTICATED" : "ANONYMOUS";
+}
+
+function buildPerformanceEvent(req, res, durationMs) {
+    const contentLength = Number(res.getHeader("content-length"));
+    const registeredRoute = typeof req?.route?.path === "string"
+        ? `${String(req?.baseUrl || "")}${req.route.path}`
+        : "";
+    return {
+        type: "wms365.performance",
+        requestId: String(req?.requestId || ""),
+        method: String(req?.method || "GET").toUpperCase().slice(0, 12),
+        route: normalizePerformancePath(registeredRoute || req?.originalUrl || req?.url || req?.path || "/"),
+        roleClass: getPerformanceRoleClass(req),
+        status: Number(res?.statusCode || 0),
+        durationMs: Math.max(0, Math.round(Number(durationMs) * 10) / 10),
+        responseBytes: Number.isFinite(contentLength) && contentLength >= 0 ? contentLength : null,
+        outcome: Number(res?.statusCode || 0) >= 500 ? "server_error"
+            : Number(res?.statusCode || 0) >= 400 ? "request_error"
+                : "success"
+    };
+}
+
+function trackRequestPerformance(req, res, next) {
+    const startedAt = process.hrtime.bigint();
+    const suppliedRequestId = String(req.get?.("x-request-id") || "").trim();
+    req.requestId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suppliedRequestId)
+        ? suppliedRequestId
+        : crypto.randomUUID();
+    res.setHeader("X-Request-Id", req.requestId);
+    res.once("finish", () => {
+        const pathName = getRequestPathName(req);
+        if (STATIC_ASSET_PATH_PATTERN.test(pathName)) return;
+        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+        console.log(JSON.stringify(buildPerformanceEvent(req, res, durationMs)));
+    });
+    next();
+}
+
 function getRequestUserAgent(req) {
     return String(req?.headers?.["user-agent"] || "");
 }
@@ -1246,6 +1302,7 @@ function loginRateLimit(req, _res, next) {
 }
 
 app.use(applySecurityHeaders);
+app.use(trackRequestPerformance);
 app.use(blockKnownAutomationCrawler);
 app.use(denyProductionSourceMapAccess);
 app.use(requireSameOriginForStateChanges);
@@ -8224,7 +8281,7 @@ app.get(["/mobile", "/mobile/"], async (req, res) => {
 WAREHOUSE_ENTRY_ROUTE_HEALTH.mobile = true;
 
 function buildUserFacingError(error, req, statusCode) {
-    const requestId=crypto.randomUUID(),pathName=String(req?.path||""),isPortal=pathName.startsWith("/api/portal/");
+    const requestId=String(req?.requestId||"").trim()||crypto.randomUUID(),pathName=String(req?.path||""),isPortal=pathName.startsWith("/api/portal/");
     const databaseMessages={"23505":"This record already exists. Review the information and try again.","23503":"This change cannot be completed because the record is being used elsewhere.","40001":"Another update was completed at the same time. Refresh the page and try again.","40P01":"Another update was completed at the same time. Refresh the page and try again."};
     if(databaseMessages[error?.code])return{message:databaseMessages[error.code],requestId};
     if(statusCode>=500)return{message:`We could not complete this request right now. Please try again. If this continues, contact support@wms365.co and provide reference ${requestId}.`,requestId};
@@ -46948,6 +47005,9 @@ module.exports = {
     buildInventoryCountVarianceFacts,
     postInventoryCountAdjustment,
     buildUserFacingError,
+    normalizePerformancePath,
+    getPerformanceRoleClass,
+    buildPerformanceEvent,
     buildAccessRestrictionAuditEntry,
     recordAccessRestrictionAttempt,
     renderWms365ServiceUnavailablePage,

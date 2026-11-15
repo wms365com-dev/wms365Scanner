@@ -51,6 +51,7 @@ Static inventory on 2026-11-14 found 694 buttons across five user surfaces. Of t
 3. Consolidate health readiness checks and expose connection/query timing.
 4. Remove duplicate list fallbacks and prevent overlapping refreshes with one in-flight request per scope.
 5. Add automated budgets that fail sandbox verification when a primary action exceeds its threshold.
+6. Correlate privacy-safe performance events with the existing error reference ID. Keep telemetry out of the transactional database path; batch client render metrics and never include business-record content.
 
 ### Phase 2 - Route-scoped loading
 
