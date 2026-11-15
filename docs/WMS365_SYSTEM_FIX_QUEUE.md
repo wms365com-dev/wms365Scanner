@@ -29,8 +29,8 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | ---: | --- | --- | --- |
 | 1 | OPS-06 rolling-release schema lock contention | VERIFIED | Versioned schema contract skips no-op startup DDL; fresh boot, rolling restart, sandbox soak, and production promotion passed |
 | 2 | WMS-08 marketplace feature visibility | VERIFIED | Exact sandbox-proven artifact promoted with clean startup and read-only production verification |
-| 3 | WMS-16 readiness explanation | FIXED - NEEDS RETEST | Exact candidate must pass fresh database, sandbox role/isolation workflow, soak, and production promotion |
-| 4 | WMS-17 routing blockers | NEXT | Independent retest; reopen on any failed control |
+| 3 | WMS-16 readiness explanation | VERIFIED | Exact candidate passed fresh database, sandbox role/isolation workflow, soak, and production promotion |
+| 4 | WMS-17 routing blockers | IN PROGRESS | Independent retest; reopen on any failed control |
 | 5 | OPS-05 allocation integrity | NEXT | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
 | 6 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
 | 7 | WMS-21 structured fulfillment | NEXT | Designated-company transaction cycle in sandbox only |
@@ -140,8 +140,8 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | REOPENED |
 | 8 | WMS-05 | high | Conflicting labels obscure active company scope | VERIFIED |
 | 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | VERIFIED |
-| 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | FIXED - NEEDS RETEST |
-| 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | FIXED - NEEDS RETEST |
+| 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | VERIFIED |
+| 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | IN PROGRESS |
 | 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | QUEUED |
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | QUEUED |
 | 14 | WMS-10 | medium | Company labels render without a field | QUEUED |
@@ -290,6 +290,7 @@ Every batch must cover:
 - Retest required: in `BISON TRANSPORT TEST COMPANY`, open an active order whose expected-ready time is in the future and confirm the list and order page both show `Processing until` with the same server-calculated date. Confirm an allocated order says `Fully allocated`, and draft, cancelled, archived, and shipped records show no processing-window badge.
 - Independent retest 2026-11-15: **FAILED / REOPENED.** The reviewed production source still rendered the ambiguous `Not ready` pill in dashboard and sales-order list views, did not expose `Fully allocated` as a distinct order-level state, and did not contain the documented `order-processing-readiness.spec.js`. Production remained healthy and no customer data was changed.
 - Repair candidate 2026-11-15: active non-terminal orders now derive `Processing until` from the server-provided expected-ready label in dashboard, list, and opened-order workflow surfaces. `Fully allocated` is calculated separately from actual line allocation and is suppressed with the processing badge for draft, cancelled, archived, and shipped records. Focused positive and negative tests passed 3/3; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 776/776. Status is `FIXED - NEEDS RETEST` pending the remaining release gates.
+- Independent verification 2026-11-15: **VERIFIED.** Exact commit `5da99b4864298e3fd9a1ad5e19bb038f401af41e` deployed to isolated sandbox as `130de0ae-1ef4-4dfe-93fe-d8ba9227b944`. Fresh-database boot passed all seven schema controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, returned 403 for denied company scope, and cleaned up its fixtures; sales-order queue median was 43.3 ms. Eleven health checks over 10 minutes remained ready with 2-11 ms database probes, no restart, warning, error, or HTTP 5xx. Named production rollback was `78609f26-d300-4549-b1fb-9e931614a1ed`; exact production deployment `b78339a0-567a-43b0-aeee-90a40ec3ce41` succeeded, skipped startup DDL, and passed five fully ready read-only health probes with 9-16 ms database checks. The guarded warehouse asset continued redirecting unauthenticated reads to login. No production transaction or customer data changed.
 
 ### WMS-08
 
