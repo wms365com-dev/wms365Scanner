@@ -9769,11 +9769,9 @@
                             <p class="lead">Review pending mobile inventory counts, filter live inventory, print report snapshots, and export Excel-friendly CSV files from the desktop view.</p>
                         </div>
                     </div>
+                    <input id="reportOwner" hidden list="ownerList" type="text" aria-hidden="true">
+                    <div class="helper" id="reportScopeSummary" style="margin-bottom: 1rem;">Report scope: all permitted companies. Quantity basis: physical on-hand inventory; pallet totals are reported separately.</div>
                     <div class="button-row" style="margin-bottom: 1rem;">
-                        <label class="field" style="flex: 1 1 240px;">
-                            <span>Company</span>
-                            <input id="reportOwner" hidden list="ownerList" type="text" placeholder="Optional company filter">
-                        </label>
                         <label class="field" style="flex: 1 1 280px;">
                             <span>Filter Reports</span>
                             <input id="reportFilter" type="text" placeholder="Type a BIN, SKU, UPC, or item description">
@@ -9800,8 +9798,8 @@
                     <div class="summary-grid">
                         <div class="summary"><span>Reported Companies</span><strong id="reportOwnersCount">0</strong></div>
                         <div class="summary"><span>Pallet Locations</span><strong id="reportPalletLocationsCount">0</strong></div>
-                        <div class="summary"><span>Reported Qty</span><strong id="reportUnitsCount">0</strong></div>
-                        <div class="summary"><span>Reported Pallets</span><strong id="reportPalletsCount">0</strong></div>
+                        <div class="summary"><span>Physical On-Hand Qty</span><strong id="reportUnitsCount">0</strong></div>
+                        <div class="summary"><span>Physical On-Hand Pallets</span><strong id="reportPalletsCount">0</strong></div>
                     </div>
                     <p class="lead">Company utilization shows pallet usage by company. Location and item reports stay on the desktop side for deeper review.</p>
                 </article>
@@ -9861,7 +9859,7 @@
                                     <th>Locations</th>
                                     <th>Pallet Locations</th>
                                     <th>Total Pallets</th>
-                                    <th>Units / Cases</th>
+                                    <th>Physical On-Hand Units / Cases</th>
                                 </tr>
                             </thead>
                             <tbody id="ownerReportBody"></tbody>
@@ -9888,7 +9886,7 @@
                                     <th>Lines</th>
                                     <th>Pallets</th>
                                     <th>Unique SKUs</th>
-                                    <th>Units / Cases</th>
+                                    <th>Physical On-Hand Units / Cases</th>
                                 </tr>
                             </thead>
                             <tbody id="locationReportBody"></tbody>
@@ -9916,7 +9914,7 @@
                                     <th>Tracking</th>
                                     <th>Locations</th>
                                     <th>Lines</th>
-                                    <th>Total Qty</th>
+                                    <th>Physical On-Hand Qty</th>
                                 </tr>
                             </thead>
                             <tbody id="itemReportBody"></tbody>
@@ -9943,7 +9941,7 @@
                                     <th>UPC</th>
                                     <th>Description</th>
                                     <th>Tracking</th>
-                                    <th>Qty</th>
+                                    <th>Physical On-Hand Qty</th>
                                     <th>Updated</th>
                                 </tr>
                             </thead>
@@ -12196,6 +12194,7 @@
             ownerReportWrap: document.getElementById("ownerReportWrap"),
             ownerReportBody: document.getElementById("ownerReportBody"),
             reportOwner: document.getElementById("reportOwner"),
+            reportScopeSummary: document.getElementById("reportScopeSummary"),
             reportOwnersCount: document.getElementById("reportOwnersCount"),
             reportPalletLocationsCount: document.getElementById("reportPalletLocationsCount"),
             reportPalletsCount: document.getElementById("reportPalletsCount"),
@@ -28791,11 +28790,29 @@
             return matches.length === 1 ? matches[0] : null;
         }
 
+        function getReportScopeContext() {
+            const ownerFilter = getScopedCompanyValue(ui.reportOwner?.value || "");
+            return {
+                ownerFilter,
+                label: ownerFilter ? `Active company: ${ownerFilter}` : "All permitted companies",
+                quantityBasis: "Physical on-hand inventory; pallet totals are reported separately"
+            };
+        }
+
+        function reportCsvMetadata(context = getReportScopeContext()) {
+            return [
+                ["Report Scope", context.label],
+                ["Quantity Basis", context.quantityBasis],
+                []
+            ];
+        }
+
         function renderReports(filterText) {
-            const ownerFilter = getScopedCompanyValue(ui.reportOwner.value);
+            const reportContext = getReportScopeContext();
+            const ownerFilter = reportContext.ownerFilter;
             const ownerRows = getOwnerReportRows(filterText, ownerFilter);
-            const locationRows = getLocationReportRows(filterText);
-            const itemRows = getItemReportRows(filterText);
+            const locationRows = getLocationReportRows(filterText, ownerFilter);
+            const itemRows = getItemReportRows(filterText, ownerFilter);
             const vendorInventoryRows = getVendorInventoryReportRows(filterText, ownerFilter);
             const overallTotals = ownerRows.reduce((totals, row) => {
                 totals.UNIT += row.unitCount;
@@ -28814,6 +28831,9 @@
             ui.reportPalletLocationsCount.textContent = num(palletLocations.size);
             ui.reportUnitsCount.textContent = formatTrackedSummary(overallTotals);
             ui.reportPalletsCount.textContent = num(totalPallets);
+            if (ui.reportScopeSummary) {
+                ui.reportScopeSummary.textContent = `Report scope: ${reportContext.label}. Quantity basis: ${reportContext.quantityBasis}.`;
+            }
 
             ui.ownerReportMeta.textContent = `${num(ownerRows.length)} row${ownerRows.length === 1 ? "" : "s"}`;
             if (!ownerRows.length) {
@@ -29028,8 +29048,9 @@
         async function exportOwnerReportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Company", "Locations", "PalletLocations", "TotalPallets", "TotalCases", "TotalUnits"]].concat(
-                    getOwnerReportRows(ui.reportFilter.value, getScopedCompanyValue(ui.reportOwner.value)).map((row) => [
+                const reportContext = getReportScopeContext();
+                const rows = reportCsvMetadata(reportContext).concat([["Company", "Locations", "PalletLocations", "PhysicalOnHandPallets", "PhysicalOnHandCases", "PhysicalOnHandUnits"]],
+                    getOwnerReportRows(ui.reportFilter.value, reportContext.ownerFilter).map((row) => [
                         row.owner,
                         String(row.locationCount),
                         String(row.palletLocationCount),
@@ -29048,8 +29069,9 @@
         async function exportLocationReportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Company", "Location", "Note", "Lines", "Pallets", "UniqueSkus", "TotalCases", "TotalUnits"]].concat(
-                    getLocationReportRows(ui.reportFilter.value).map((row) => [
+                const reportContext = getReportScopeContext();
+                const rows = reportCsvMetadata(reportContext).concat([["Company", "Location", "Note", "Lines", "PhysicalOnHandPallets", "UniqueSkus", "PhysicalOnHandCases", "PhysicalOnHandUnits"]],
+                    getLocationReportRows(ui.reportFilter.value, reportContext.ownerFilter).map((row) => [
                         row.owner,
                         row.location,
                         row.note || "",
@@ -29070,8 +29092,9 @@
         async function exportItemReportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Company", "SKU", "UPC", "Description", "Tracking", "Locations", "Lines", "TotalQty"]].concat(
-                    getItemReportRows(ui.reportFilter.value).map((row) => [
+                const reportContext = getReportScopeContext();
+                const rows = reportCsvMetadata(reportContext).concat([["Company", "SKU", "UPC", "Description", "Tracking", "Locations", "Lines", "PhysicalOnHandQty"]],
+                    getItemReportRows(ui.reportFilter.value, reportContext.ownerFilter).map((row) => [
                         row.owner,
                         row.sku,
                         row.upc || "",
@@ -29092,8 +29115,9 @@
         async function exportVendorInventoryReportCsv() {
             try {
                 await syncServerState(true);
-                const rows = [["Company", "Location", "SKU", "UPC", "Description", "Tracking", "Qty", "Updated"]].concat(
-                    getVendorInventoryReportRows(ui.reportFilter.value, getScopedCompanyValue(ui.reportOwner.value)).map((row) => [
+                const reportContext = getReportScopeContext();
+                const rows = reportCsvMetadata(reportContext).concat([["Company", "Location", "SKU", "UPC", "Description", "Tracking", "PhysicalOnHandQty", "Updated"]],
+                    getVendorInventoryReportRows(ui.reportFilter.value, reportContext.ownerFilter).map((row) => [
                         row.owner,
                         row.location,
                         row.sku,
@@ -29112,10 +29136,11 @@
         }
 
         function printReports() {
-            const ownerFilter = getScopedCompanyValue(ui.reportOwner.value);
+            const reportContext = getReportScopeContext();
+            const ownerFilter = reportContext.ownerFilter;
             const ownerRows = getOwnerReportRows(ui.reportFilter.value, ownerFilter);
-            const locationRows = getLocationReportRows(ui.reportFilter.value);
-            const itemRows = getItemReportRows(ui.reportFilter.value);
+            const locationRows = getLocationReportRows(ui.reportFilter.value, ownerFilter);
+            const itemRows = getItemReportRows(ui.reportFilter.value, ownerFilter);
             const vendorInventoryRows = getVendorInventoryReportRows(ui.reportFilter.value, ownerFilter);
             const buildLabel = ui.appBuildBadge?.textContent || "Build unavailable";
             if (!ownerRows.length && !locationRows.length && !itemRows.length && !vendorInventoryRows.length) {
@@ -29129,33 +29154,34 @@
                     <h1>WMS365 Scanner</h1>
                         <div class="build-chip">${esc(buildLabel)}</div>
                     <p><strong>Inventory Reports</strong></p>
-                    <p>Company Filter: ${esc(ownerFilter || "ALL")}</p>
+                    <p>Report Scope: ${esc(reportContext.label)}</p>
+                    <p>Quantity Basis: ${esc(reportContext.quantityBasis)}</p>
                     <p>Filter: ${esc(norm(ui.reportFilter.value) || "ALL")}</p>
                     <section>
                         <h2>Company Utilization</h2>
                         ${reportTableMarkup(
-                            ["Company", "Locations", "Pallet Locations", "Total Pallets", "Units / Cases"],
+                            ["Company", "Locations", "Pallet Locations", "Physical On-Hand Pallets", "Physical On-Hand Units / Cases"],
                             ownerRows.map((row) => [row.owner, num(row.locationCount), num(row.palletLocationCount), num(row.totalPallets), row.quantitySummary])
                         )}
                     </section>
                     <section>
                         <h2>Location Report</h2>
                         ${reportTableMarkup(
-                            ["Company", "Location", "Note", "Lines", "Pallets", "Unique SKUs", "Units / Cases"],
+                            ["Company", "Location", "Note", "Lines", "Physical On-Hand Pallets", "Unique SKUs", "Physical On-Hand Units / Cases"],
                             locationRows.map((row) => [row.owner, row.location, row.note || "-", num(row.lineCount), num(row.palletCount), num(row.skuCount), row.quantitySummary])
                         )}
                     </section>
                     <section>
                         <h2>Item Report</h2>
                         ${reportTableMarkup(
-                            ["Company", "SKU", "UPC", "Description", "Tracking", "Locations", "Lines", "Total Qty"],
+                            ["Company", "SKU", "UPC", "Description", "Tracking", "Locations", "Lines", "Physical On-Hand Qty"],
                             itemRows.map((row) => [row.owner, row.sku, row.upc || "-", row.description || "-", trackingLabel(row.trackingLevel), num(row.locationCount), num(row.lineCount), num(row.totalUnits)])
                         )}
                     </section>
                     <section>
                         <h2>Inventory By Company</h2>
                         ${reportTableMarkup(
-                            ["Company", "Location", "SKU", "UPC", "Description", "Tracking", "Qty", "Updated"],
+                            ["Company", "Location", "SKU", "UPC", "Description", "Tracking", "Physical On-Hand Qty", "Updated"],
                             vendorInventoryRows.map((row) => [row.owner, row.location, row.sku, row.upc || "-", row.description || "-", trackingLabel(row.trackingLevel), formatTrackedQuantity(row.quantity, row.trackingLevel), formatDate(row.updatedAt)])
                         )}
                     </section>
@@ -29187,13 +29213,13 @@
                 );
         }
 
-        function getLocationReportRows(filterText = "") {
+        function getLocationReportRows(filterText = "", ownerFilter = "") {
             const query = norm(filterText);
-            const ownerFilter = getScopedCompanyValue(ui.reportOwner.value);
+            const scopedOwnerFilter = getScopedCompanyValue(ownerFilter);
             const locationMasterMap = new Map(state.masters.locations.map((entry) => [entry.code, entry]));
             const grouped = new Map();
 
-            filterInventoryByOwner(ownerFilter).forEach((line) => {
+            filterInventoryByOwner(scopedOwnerFilter).forEach((line) => {
                 if (!inventoryMatchesQuery(line, query) && !norm(locationMasterMap.get(line.location)?.note).includes(query)) return;
                 const key = `${line.accountName}::${line.location}`;
                 const current = grouped.get(key) || {
@@ -29229,13 +29255,13 @@
                 .sort((a, b) => a.owner.localeCompare(b.owner) || a.location.localeCompare(b.location));
         }
 
-        function getItemReportRows(filterText = "") {
+        function getItemReportRows(filterText = "", ownerFilter = "") {
             const query = norm(filterText);
-            const ownerFilter = getScopedCompanyValue(ui.reportOwner.value);
+            const scopedOwnerFilter = getScopedCompanyValue(ownerFilter);
             const itemMasterMap = new Map(state.masters.items.map((item) => [`${item.accountName}::${item.sku}`, item]));
             const grouped = new Map();
 
-            filterInventoryByOwner(ownerFilter).forEach((line) => {
+            filterInventoryByOwner(scopedOwnerFilter).forEach((line) => {
                 const master = itemMasterMap.get(`${line.accountName}::${line.sku}`);
                 const key = `${line.accountName}::${line.sku}`;
                 const current = grouped.get(key) || {
