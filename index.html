@@ -12902,6 +12902,12 @@
                 });
             });
             document.addEventListener("click", (event) => {
+                const chooseCompanyButton = event.target.closest("[data-choose-company]");
+                if (chooseCompanyButton) {
+                    event.preventDefault();
+                    focusOfficialCompanySelector();
+                    return;
+                }
                 if (event.target.closest(".module-menu")) return;
                 document.querySelectorAll(".module-menu[open]").forEach((menu) => menu.removeAttribute("open"));
             });
@@ -14331,6 +14337,22 @@
             syncFeedbackContext();
             updateMobileCompanyContextUi();
             renderMobileWarehouseTasks();
+        }
+
+        function renderCompanySelectionRecovery(message) {
+            return `
+                <div class="empty" data-company-selection-recovery>
+                    <p>${esc(message)}</p>
+                    <button class="btn ghost mini" type="button" data-choose-company>Choose Company</button>
+                </div>
+            `;
+        }
+
+        function focusOfficialCompanySelector() {
+            const selector = isMobileView() ? ui.mobileActiveCompany : ui.activeCompany;
+            if (!selector) return;
+            selector.scrollIntoView({ behavior: "smooth", block: "center" });
+            window.setTimeout(() => selector.focus(), 0);
         }
 
         function updateCompanyBoundUi() {
@@ -25040,7 +25062,10 @@
             }
 
             if (!openInbounds.length) {
-                ui.mobileInboundArrivalList.innerHTML = `<p class="empty">${esc(errorText || "No open purchase orders are waiting. Use Quick Inbound if freight is at the dock without a PO.")}</p>`;
+                const company = getActiveCompany();
+                ui.mobileInboundArrivalList.innerHTML = company
+                    ? `<p class="empty">${esc(errorText || "No open purchase orders are waiting. Use Quick Inbound if freight is at the dock without a PO.")}</p>`
+                    : renderCompanySelectionRecovery(errorText || "Choose a company before checking in inbound freight.");
                 return;
             }
 
@@ -25154,7 +25179,9 @@
                 const fallback = errorText || (company
                     ? "No purchase orders are loaded for the active company."
                     : "Choose a company to review warehouse and portal purchase orders.");
-                ui.portalInboundsList.innerHTML = `<p class="empty">${esc(fallback)}</p>`;
+                ui.portalInboundsList.innerHTML = company
+                    ? `<p class="empty">${esc(fallback)}</p>`
+                    : renderCompanySelectionRecovery(fallback);
                 return;
             }
 
@@ -25653,7 +25680,9 @@
                     : (shippedOnly
                         ? "Choose a company to review shipped orders."
                         : "Choose a company to review released sales orders."));
-                ui.portalOrdersList.innerHTML = `<p class="empty">${esc(fallback)}</p>`;
+                ui.portalOrdersList.innerHTML = company
+                    ? `<p class="empty">${esc(fallback)}</p>`
+                    : renderCompanySelectionRecovery(fallback);
                 return;
             }
 
@@ -27798,7 +27827,7 @@
             });
             if (!accountName) {
                 if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = "0 saved";
-                ui.masterRecordListContent.innerHTML = `<p class="empty">Choose a company from the building icon first. ${plural} are stored inside the selected company.</p>`;
+                ui.masterRecordListContent.innerHTML = renderCompanySelectionRecovery(`Choose a company first. ${plural} are stored inside the selected company.`);
                 return;
             }
             if (type === "ITEM") {
@@ -27887,7 +27916,7 @@
                 .sort((a, b) => a.name.localeCompare(b.name));
             if (ui.partnerListCount) ui.partnerListCount.textContent = `${num(partners.length)} saved`;
             if (!accountName) {
-                ui.partnerList.innerHTML = `<p class="empty">Choose a company from the building icon first. ${plural} are stored inside the selected company.</p>`;
+                ui.partnerList.innerHTML = renderCompanySelectionRecovery(`Choose a company first. ${plural} are stored inside the selected company.`);
                 return;
             }
             ui.partnerList.innerHTML = renderPartnerRows(partners, type, accountName);
