@@ -26,12 +26,13 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 ### OPS-02 - Database health probe latency
 
 - Priority: `high`
-- Status: `FIXED - NEEDS RETEST`
+- Status: `VERIFIED`
 - Candidate: the health probe consolidates four readiness checks into one read-only SQL statement, reducing the probe from six sequential database round trips to two while preserving the same table and active-user readiness checks. `/api/health` now reports connection and readiness-query timing separately for diagnosis.
 - Isolation and integrity: the query is read-only, uses the existing pool and statement timeout, exposes no customer data, and does not alter tenant, warehouse, inventory, transaction, document, email, billing, integration, job, or permission behavior.
 - Tests: focused performance tests passed 2/2; access-control audit passed 12/12 across 292 routes; deployment gate passed 761/761; production dependency audit reported zero vulnerabilities.
 - Sandbox evidence: exact commit `103bc1e6294ff1f32af552f8f670f909ef2ae5dd` deployed as `fc1ffe46-b67c-479c-ac72-6e069a060e5c`. Fresh-database verification passed all seven schema controls. The designated-company authenticated scope check allowed 321 tasks, excluded 19 denied-warehouse and 11 denied-company tasks, and enforced cross-company HTTP 403. Eleven health samples over 10 minutes passed; median database probe time was 3 ms and maximum was 10 ms, versus the prior production observation of approximately 770-780 ms.
-- Promotion gate: sandbox checks are complete. Production remains pinned to reviewed commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` until the exact commit-pin diff, rollback deployment, and production plan are reviewed. Mark `VERIFIED` only after exact-artifact production deployment and read-only health confirmation.
+- Production: named rollback deployment `cd77a43f-b6b7-4a6f-b92b-1adb92bc1ace` was recorded before exact commit `103bc1e6294ff1f32af552f8f670f909ef2ae5dd` deployed as `c121a3a9-6a31-4e69-8ece-3d7f2ddf008e`. Railway reported `SUCCESS`, one running replica, zero recent deployment failures, and no application warnings. Schema readiness completed in approximately 6.4 seconds. Five read-only live probes were ready and measured 264-266 ms database time, with 0-1 ms connection acquisition and 132-133 ms for the consolidated readiness statement. No live customer transaction or data change was used for verification.
+- Remaining performance opportunity: the two retained database calls each cost approximately one network round trip in production. Profile whether the session timeout can be applied without a separate statement while preserving bounded execution and connection-pool safety.
 
 ### OPS-03 - User-action latency and control map
 

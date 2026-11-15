@@ -57,7 +57,7 @@ export default defineRailway((ctx) => {
     source: github("wms365com-dev/wms365Scanner", {
       branch: "codex/production-release",
       // Production advances only through an explicit reviewed IaC promotion.
-      commitSha: "75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec",
+      commitSha: "103bc1e6294ff1f32af552f8f670f909ef2ae5dd",
     }),
     build: { buildCommand: "npm run check:deploy", buildEnvironment: "V3", builder: "RAILPACK" },
     start: "node server.js",
