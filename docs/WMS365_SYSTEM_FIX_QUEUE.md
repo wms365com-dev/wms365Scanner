@@ -21,6 +21,21 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 - Every fix needs a negative test proving unrelated companies, warehouses, users, and transaction types are unaffected.
 - Deployment requires the normal global gate, test-company workflow verification, rollback readiness, and post-deployment read-only production verification.
 
+## Active Execution Board
+
+This board is the release order. Only one focused repair is promoted at a time; a failed independent retest is reopened and repaired before the next item begins.
+
+| Sequence | Work | State | Exit gate |
+| ---: | --- | --- | --- |
+| 1 | WMS-08 marketplace feature visibility | IN PROGRESS | Fresh database, exact sandbox artifact, authenticated super-admin and restricted-role checks, tenant/warehouse negatives, 10-minute soak, exact production promotion, read-only live verification |
+| 2 | WMS-16 readiness explanation | NEXT | Independent retest; reopen on any failed control |
+| 3 | WMS-17 routing blockers | NEXT | Independent retest; reopen on any failed control |
+| 4 | OPS-05 allocation integrity | NEXT | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
+| 5 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
+| 6 | WMS-21 structured fulfillment | NEXT | Designated-company transaction cycle in sandbox only |
+| 7 | WMS-04 company-selection recovery | NEXT | Authenticated All companies, selected-company, and denied-company checks |
+| 8 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+
 ## Platform Migration Audit
 
 ### OPS-02 - Database health probe latency
@@ -269,6 +284,8 @@ Every batch must cover:
 - Regression coverage: `marketplace-feature-visibility.spec.js` verifies the hidden form, off-state navigation, super-admin-only recovery, absence of a duplicate company selector, and retained fail-closed server guards. `sku-mapping-feature-gate.spec.js` confirms disabled companies do not issue optional mapping reads.
 - Global checks: `npm run audit:access-control` passed; `npm run check:deploy` passed with 438 tests covering roles, tenant and warehouse isolation, inventory, documents, billing, email, integrations, jobs, migrations, and browser validity.
 - Retest required: with Marketplace Connections off in `BISON TRANSPORT TEST COMPANY`, open the integration module as a super administrator and a restricted user. Confirm credentials and Save/Sync controls are absent, navigation reads `(Off)`, only the super administrator sees Feature Access recovery, and direct write requests remain rejected. Enable the feature in the test company and confirm the form reappears, then disable it and confirm it hides again.
+- Independent retest 2026-11-14: **FAILED / REOPENED.** The reviewed production baseline did not contain `marketplace-feature-visibility.spec.js` or the documented unavailable panel. The integration form and credential fields remained visible and were only disabled individually, and navigation did not show the feature-off state. Existing server-side company feature assertions remained present. No production data or integration setting was changed.
+- Repair candidate 2026-11-14: the integration workspace now replaces the setup form and saved-connection list with one unavailable panel when Marketplace Connections is off, marks navigation `Integrations (Off)`, and exposes Feature Access recovery only to super administrators. Focused positive, restricted-role, and fail-closed server tests passed 3/3; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 768/768. Status remains `FIXED - NEEDS RETEST` pending fresh-database verification, exact sandbox deployment, authenticated designated-company role and isolation checks, a clean 10-minute soak, and exact-artifact production promotion.
 
 ### WMS-05
 

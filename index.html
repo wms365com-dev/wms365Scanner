@@ -8581,6 +8581,11 @@
                         <div class="helper">
                             <h3>Marketplace Connections</h3>
                             <p class="meta">Connect each customer's Shopify, Best Buy, Amazon, marketplace, or SFTP order lane and keep all imported orders company-safe.</p>
+                            <div class="helper hidden" id="integrationFeatureUnavailable" role="status">
+                                <h3>Marketplace Connections unavailable</h3>
+                                <p class="meta" id="integrationFeatureUnavailableMessage">Marketplace Connections is not enabled for this company.</p>
+                                <button class="btn ghost hidden" id="integrationFeatureAccessBtn" type="button">Feature Access</button>
+                            </div>
                             <form id="integrationForm" class="form-grid" autocomplete="off">
                                 <input id="integrationId" type="hidden">
                                 <input id="integrationAccount" type="hidden">
@@ -8799,7 +8804,7 @@
                             <div class="status" id="integrationMessage"></div>
                         </div>
 
-                        <div class="helper">
+                        <div class="helper" id="integrationSavedConnections">
                             <div class="list-head">
                                 <div>
                                     <h3>Saved Marketplace Connections</h3>
@@ -12045,6 +12050,10 @@
             integrationActive: document.getElementById("integrationActive"),
             integrationScheduleMeta: document.getElementById("integrationScheduleMeta"),
             integrationProviderNote: document.getElementById("integrationProviderNote"),
+            integrationFeatureUnavailable: document.getElementById("integrationFeatureUnavailable"),
+            integrationFeatureUnavailableMessage: document.getElementById("integrationFeatureUnavailableMessage"),
+            integrationFeatureAccessBtn: document.getElementById("integrationFeatureAccessBtn"),
+            integrationSavedConnections: document.getElementById("integrationSavedConnections"),
             integrationResetBtn: document.getElementById("integrationResetBtn"),
             integrationSyncBtn: document.getElementById("integrationSyncBtn"),
             integrationMessage: document.getElementById("integrationMessage"),
@@ -13032,6 +13041,7 @@
             ui.companySetupNewBtn?.addEventListener("click", resetCompanySetupFlow);
             ui.companySetupPortalBtn?.addEventListener("click", () => openCompanySetupNextStep("portal"));
             ui.companySetupFeaturesBtn?.addEventListener("click", () => openCompanySetupNextStep("features"));
+            ui.integrationFeatureAccessBtn?.addEventListener("click", () => openCompanySetupNextStep("features"));
             ui.companySetupBillingBtn?.addEventListener("click", () => openCompanySetupNextStep("billing"));
             ui.companySetupIntegrationsBtn?.addEventListener("click", () => openCompanySetupNextStep("integrations"));
             ui.portalAccessResetBtn?.addEventListener("click", () => resetPortalAccessForm({ keepCompany: true }));
@@ -21677,6 +21687,7 @@
 
         function renderIntegrationList(errorText = "") {
             const company = getActiveCompany();
+            syncIntegrationFeatureVisibility(company);
             if (!company) {
                 ui.integrationCount.textContent = "Choose a company";
                 ui.integrationList.innerHTML = `<p class="empty">${esc(errorText || "Choose an active company in the header to manage marketplace connections.")}</p>`;
@@ -21752,6 +21763,23 @@
                     </div>
                 `;
             }).join("");
+        }
+
+        function syncIntegrationFeatureVisibility(company = getActiveCompany()) {
+            const featureOff = Boolean(company) && !companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+            const integrationTab = ui.tabs.find((tab) => tab.dataset.section === "integrations");
+            const integrationTabLabel = integrationTab?.querySelector(".tab-label");
+            if (integrationTabLabel) integrationTabLabel.textContent = featureOff ? "Integrations (Off)" : "Integrations";
+
+            ui.integrationFeatureUnavailable?.classList.toggle("hidden", !featureOff);
+            document.getElementById("integrationForm")?.classList.toggle("hidden", featureOff);
+            ui.integrationSavedConnections?.classList.toggle("hidden", featureOff);
+            if (!featureOff) return;
+
+            if (ui.integrationFeatureUnavailableMessage) {
+                ui.integrationFeatureUnavailableMessage.textContent = companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS, company);
+            }
+            ui.integrationFeatureAccessBtn?.classList.toggle("hidden", !currentUserIsSuperAdmin());
         }
 
         function getMasterItemSkuMappingContext() {
