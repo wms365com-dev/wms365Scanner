@@ -2344,6 +2344,8 @@
                                     <option value="CUSTOMER_PICKUP">Customer pickup</option>
                                 </select>
                             </label>
+                            <label class="field"><span>Planned Carrier</span><input id="orderPlannedCarrierName" type="text" placeholder="Optional until carrier is assigned"></label>
+                            <label class="field"><span>Planned Service</span><input id="orderPlannedServiceLevel" type="text" placeholder="Example: Standard LTL"></label>
                             <label class="field span-2"><span>Order Notes</span><input id="orderNotes" type="text" placeholder="Optional shipping or handling notes"></label>
                             <div class="helper span-2" id="orderRushNotice"></div>
                             <div class="helper span-2" id="orderProcessingNotice"></div>
@@ -3030,6 +3032,8 @@
             orderRequestedShipDate: document.getElementById("orderRequestedShipDate"),
             orderType: document.getElementById("orderType"),
             orderShipmentMethod: document.getElementById("orderShipmentMethod"),
+            orderPlannedCarrierName: document.getElementById("orderPlannedCarrierName"),
+            orderPlannedServiceLevel: document.getElementById("orderPlannedServiceLevel"),
             orderRushNotice: document.getElementById("orderRushNotice"),
             orderProcessingNotice: document.getElementById("orderProcessingNotice"),
             orderProcessingChoiceField: document.getElementById("orderProcessingChoiceField"),
@@ -5562,6 +5566,8 @@
                             <div class="detail"><span>Requested Ship</span><strong>${esc(order.requestedShipDate || "Not set")}</strong></div>
                             <div class="detail"><span>Expected Ready</span><strong>${esc(order.expectedReadyLabel || order.expectedReadyDate || "Not calculated")}</strong></div>
                             <div class="detail"><span>Lines / Qty</span><strong>${esc(order.lines.length)} line${order.lines.length === 1 ? "" : "s"} / ${esc(num(orderTotalQuantity(order)))}</strong></div>
+                            <div class="detail"><span>Fulfillment</span><strong>${esc(order.shipmentMethodLabel || order.shipmentMethod || "Not set")}</strong></div>
+                            <div class="detail"><span>Planned Carrier / Service</span><strong>${esc([order.plannedCarrierName, order.plannedServiceLevel].filter(Boolean).join(" / ") || "Not assigned")}</strong></div>
                         </div>
                         ${blockingStockWarnings.length ? `<div class="stock-warning-banner" role="alert">${renderSavedOrderStockWarnings(order, blockingStockWarnings)}</div>` : ""}
                         ${temporaryOversellWarnings.length ? `<div class="stock-warning-banner notice" role="status">${renderSavedOrderStockWarnings(order, temporaryOversellWarnings)}</div>` : ""}
@@ -7380,6 +7386,8 @@
             ui.orderRequestedShipDate.value = order?.requestedShipDate || "";
             if (ui.orderType) ui.orderType.value = normalizePortalOrderTypeValue(order?.orderType || PORTAL_ORDER_TYPES.RETAIL_WHOLESALE);
             if (ui.orderShipmentMethod) ui.orderShipmentMethod.value = normalizePortalShipmentMethodValue(order?.shipmentMethod || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT);
+            if (ui.orderPlannedCarrierName) ui.orderPlannedCarrierName.value = order?.plannedCarrierName || "";
+            if (ui.orderPlannedServiceLevel) ui.orderPlannedServiceLevel.value = order?.plannedServiceLevel || "";
             if (ui.orderProcessingChoice) ui.orderProcessingChoice.value = order?.rushApproved === true ? "RUSH" : "STANDARD";
             ui.orderContactName.value = order?.contactName || "";
             ui.orderContactPhone.value = order?.contactPhone || "";
@@ -8021,7 +8029,8 @@
             const hasLines = requestedBySku.size > 0;
             const savedAddress = findSavedShipToAddressByFields();
             const verification = portalState.shipToAddressVerification;
-            const addressReady = Boolean(savedAddress)
+            const isCustomerPickup = normalizePortalShipmentMethodValue(ui.orderShipmentMethod?.value) === PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP;
+            const addressReady = isCustomerPickup || Boolean(savedAddress)
                 || (["SAVED", "VERIFIED", "OVERRIDDEN"].includes(String(verification?.status || "").toUpperCase())
                     && verification?.addressKey === currentShipToAddressKey());
             ui.orderPanel?.classList.toggle("order-has-lines", hasLines);
@@ -8069,6 +8078,8 @@
                 requestedShipDate: ui.orderRequestedShipDate.value,
                 orderType: normalizePortalOrderTypeValue(ui.orderType?.value || PORTAL_ORDER_TYPES.RETAIL_WHOLESALE),
                 shipmentMethod: normalizePortalShipmentMethodValue(ui.orderShipmentMethod?.value || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT),
+                plannedCarrierName: ui.orderPlannedCarrierName?.value.trim() || "",
+                plannedServiceLevel: ui.orderPlannedServiceLevel?.value.trim() || "",
                 contactName: ui.orderContactName.value.trim(),
                 contactPhone: ui.orderContactPhone.value.trim(),
                 shipToName: ui.orderShipToName.value.trim(),
@@ -9467,6 +9478,8 @@
                 orderTypeLabel: String(order.orderTypeLabel || order.order_type_label || "").trim(),
                 shipmentMethod: normalizePortalShipmentMethodValue(order.shipmentMethod || order.shipment_method || PORTAL_ORDER_SHIPMENT_METHODS.LTL_FREIGHT),
                 shipmentMethodLabel: String(order.shipmentMethodLabel || order.shipment_method_label || "").trim(),
+                plannedCarrierName: String(order.plannedCarrierName || order.planned_carrier_name || "").trim(),
+                plannedServiceLevel: String(order.plannedServiceLevel || order.planned_service_level || "").trim(),
                 rushApproved: order.rushApproved === true || order.rush_approved === true,
                 rushFeeMinimum: Number(order.rushFeeMinimum || order.rush_fee_minimum || 0) || 0,
                 rushApprovedAt: order.rushApprovedAt || order.rush_approved_at || null,

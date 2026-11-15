@@ -7,6 +7,7 @@ const {
     DATABASE_SCHEMA_REQUIRED_COLUMNS,
     DATABASE_SCHEMA_REQUIRED_TABLES,
     DATABASE_SCHEMA_VERSION,
+    applyPendingAdditiveMigrations,
     databaseSchemaContractIsCurrent,
     recordDatabaseSchemaVersion
 } = require("./server");
@@ -74,4 +75,24 @@ test("schema version recording is idempotent and isolated to migration metadata"
     assert.match(pool.calls[0].sql, /create table if not exists wms365_schema_versions/i);
     assert.match(pool.calls[1].sql, /on conflict \(version\) do nothing/i);
     assert.deepEqual(pool.calls[1].params, [DATABASE_SCHEMA_VERSION]);
+});
+
+test("additive fulfillment migration is idempotent and changes schema only", async () => {
+    const pool = fakePool([
+        { rows: [{ ready: true }] },
+        { rows: [] },
+        { rows: [] }
+    ]);
+    assert.equal(await applyPendingAdditiveMigrations(pool), true);
+    assert.equal(pool.calls.length, 3);
+    assert.match(pool.calls[1].sql, /add column if not exists planned_carrier_name/i);
+    assert.match(pool.calls[2].sql, /add column if not exists planned_service_level/i);
+    assert.equal(pool.calls.some((call) => /\b(update|delete|insert)\b/i.test(call.sql)), false);
+});
+
+test("additive fulfillment migration defers fresh databases to the full initializer", async () => {
+    const pool = fakePool([{ rows: [{ ready: false }] }]);
+    assert.equal(await applyPendingAdditiveMigrations(pool), false);
+    assert.equal(pool.calls.length, 1);
+    assert.equal(pool.calls.some((call) => /alter table/i.test(call.sql)), false);
 });

@@ -9581,6 +9581,17 @@
                             <input id="warehouseOrderRequestedShipDate" type="date">
                         </label>
                         <label class="field">
+                            <span>Shipment Method</span>
+                            <select id="warehouseOrderShipmentMethod">
+                                <option value="PARCEL">Parcel</option>
+                                <option value="LTL_FREIGHT" selected>LTL freight</option>
+                                <option value="FTL_FREIGHT">FTL freight</option>
+                                <option value="CUSTOMER_PICKUP">Customer pickup</option>
+                            </select>
+                        </label>
+                        <label class="field"><span>Planned Carrier</span><input id="warehouseOrderPlannedCarrierName" type="text" placeholder="Optional until assigned"></label>
+                        <label class="field"><span>Planned Service</span><input id="warehouseOrderPlannedServiceLevel" type="text" placeholder="Example: Standard LTL"></label>
+                        <label class="field">
                             <span>Contact Name</span>
                             <input id="warehouseOrderContactName" type="text" placeholder="Required">
                         </label>
@@ -12234,6 +12245,9 @@
             warehouseOrderPoNumber: document.getElementById("warehouseOrderPoNumber"),
             warehouseOrderShippingReference: document.getElementById("warehouseOrderShippingReference"),
             warehouseOrderRequestedShipDate: document.getElementById("warehouseOrderRequestedShipDate"),
+            warehouseOrderShipmentMethod: document.getElementById("warehouseOrderShipmentMethod"),
+            warehouseOrderPlannedCarrierName: document.getElementById("warehouseOrderPlannedCarrierName"),
+            warehouseOrderPlannedServiceLevel: document.getElementById("warehouseOrderPlannedServiceLevel"),
             warehouseOrderContactName: document.getElementById("warehouseOrderContactName"),
             warehouseOrderContactPhone: document.getElementById("warehouseOrderContactPhone"),
             warehouseOrderShipToName: document.getElementById("warehouseOrderShipToName"),
@@ -23143,6 +23157,9 @@
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
             ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
+            ui.warehouseOrderShipmentMethod.value = normalizeShipmentMethod(order?.shipmentMethod || "LTL_FREIGHT");
+            ui.warehouseOrderPlannedCarrierName.value = order?.plannedCarrierName || "";
+            ui.warehouseOrderPlannedServiceLevel.value = order?.plannedServiceLevel || "";
             ui.warehouseOrderContactName.value = order?.contactName || "";
             ui.warehouseOrderContactPhone.value = order?.contactPhone || "";
             ui.warehouseOrderShipToName.value = order?.shipToName || order?.contactName || "";
@@ -23220,6 +23237,9 @@
                 poNumber: ui.warehouseOrderPoNumber.value.trim(),
                 shippingReference: ui.warehouseOrderShippingReference.value.trim(),
                 requestedShipDate: ui.warehouseOrderRequestedShipDate.value,
+                shipmentMethod: normalizeShipmentMethod(ui.warehouseOrderShipmentMethod.value || "LTL_FREIGHT"),
+                plannedCarrierName: ui.warehouseOrderPlannedCarrierName.value.trim(),
+                plannedServiceLevel: ui.warehouseOrderPlannedServiceLevel.value.trim(),
                 contactName: ui.warehouseOrderContactName.value.trim(),
                 contactPhone: ui.warehouseOrderContactPhone.value.trim(),
                 shipToName: ui.warehouseOrderShipToName.value.trim(),
@@ -32267,6 +32287,9 @@
                 contactName: String(item.contactName || item.contact_name || "").trim(),
                 contactPhone: String(item.contactPhone || item.contact_phone || "").trim(),
                 requestedShipDate: String(item.requestedShipDate || item.requested_ship_date || "").trim(),
+                shipmentMethod: normalizeShipmentMethod(item.shipmentMethod || item.shipment_method || "LTL_FREIGHT"),
+                plannedCarrierName: String(item.plannedCarrierName || item.planned_carrier_name || "").trim(),
+                plannedServiceLevel: String(item.plannedServiceLevel || item.planned_service_level || "").trim(),
                 orderNotes: String(item.orderNotes || item.order_notes || "").trim(),
                 shipToName: String(item.shipToName || item.ship_to_name || "").trim(),
                 shipToPhone: String(item.shipToPhone || item.ship_to_phone || "").trim(),

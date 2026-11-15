@@ -401,7 +401,7 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
-const DATABASE_SCHEMA_VERSION = "2026-11-15-ops06-v1";
+const DATABASE_SCHEMA_VERSION = "2026-11-15-wms21-v1";
 const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "inventory_lines",
     "inventory_transactions",
@@ -439,6 +439,8 @@ const DATABASE_SCHEMA_REQUIRED_COLUMNS = Object.freeze([
     ["inventory_transactions", "fulfillment_location_id"],
     ["owner_accounts", "feature_flags"],
     ["portal_orders", "shipment_method"],
+    ["portal_orders", "planned_carrier_name"],
+    ["portal_orders", "planned_service_level"],
     ["portal_orders", "picked_pallet_details"],
     ["portal_inbounds", "status"],
     ["portal_ship_to_addresses", "verification_status"],
@@ -8992,6 +8994,15 @@ async function recordDatabaseSchemaVersion(databasePool = pool) {
     );
 }
 
+async function applyPendingAdditiveMigrations(databasePool = pool) {
+    const portalOrdersResult = await databasePool.query("select to_regclass('portal_orders') is not null as ready");
+    if (portalOrdersResult.rows[0]?.ready !== true) return false;
+
+    await databasePool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
+    await databasePool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
+    return true;
+}
+
 function markDatabaseInitializationComplete(message = "PostgreSQL schema ready.") {
     databaseSchemaInitialized = true;
     databaseReady = true;
@@ -10052,6 +10063,8 @@ async function initializeDatabase() {
             ship_to_phone text not null default '',
             confirmed_ship_date date,
             shipment_method text not null default 'LTL_FREIGHT',
+            planned_carrier_name text not null default '',
+            planned_service_level text not null default '',
             shipped_carrier_name text not null default '',
             shipped_tracking_reference text not null default '',
             shipped_confirmation_note text not null default '',
@@ -10103,6 +10116,8 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders add column if not exists order_notes text not null default ''");
     await pool.query("alter table portal_orders add column if not exists confirmed_ship_date date");
     await pool.query("alter table portal_orders add column if not exists shipment_method text not null default 'LTL_FREIGHT'");
+    await pool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
+    await pool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
     await pool.query("alter table portal_orders add column if not exists outbound_freight_cost numeric(12,2) not null default 0");
     await pool.query("alter table portal_orders add column if not exists outbound_labour_hours numeric(12,2) not null default 0");
     await pool.query("alter table portal_orders add column if not exists outbound_special_labour_note text not null default ''");
@@ -12468,7 +12483,10 @@ async function initializeDatabaseWithRetry() {
                 throw lockError;
             }
             initializationLockHeld = true;
-            await initializeDatabase();
+            await applyPendingAdditiveMigrations(initializationLockClient);
+            if (!(await databaseSchemaContractIsCurrent(initializationLockClient))) {
+                await initializeDatabase();
+            }
             await recordDatabaseSchemaVersion();
             markDatabaseInitializationComplete();
         } catch (error) {
@@ -21689,6 +21707,8 @@ async function savePortalOrderDraftForAccount(
                     ship_to_address_override_note = $37,
                     ship_to_address_overridden_at = $38,
                     ship_to_address_overridden_by = $39,
+                    planned_carrier_name = $40,
+                    planned_service_level = $41,
                     updated_at = now()
                 where id = $1
             `,
@@ -21731,7 +21751,9 @@ async function savePortalOrderDraftForAccount(
                 shipToAddressTrust.overrideReason || "",
                 shipToAddressTrust.overrideNote || "",
                 shipToAddressTrust.overriddenAt || null,
-                shipToAddressTrust.overriddenBy || null
+                shipToAddressTrust.overriddenBy || null,
+                order.plannedCarrierName,
+                order.plannedServiceLevel
             ]
         );
         await client.query("delete from portal_order_lines where order_id = $1", [savedOrderId]);
@@ -21750,8 +21772,9 @@ async function savePortalOrderDraftForAccount(
                     ship_to_address_response_id, ship_to_address_formatted, ship_to_address_fingerprint,
                     ship_to_address_verified_at, ship_to_address_override_reason, ship_to_address_override_note,
                     ship_to_address_overridden_at, ship_to_address_overridden_by
+                    , planned_carrier_name, planned_service_level
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $10::boolean then now() else null end, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, nullif($28, '')::date, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $10::boolean then now() else null end, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, nullif($28, '')::date, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)
                 returning id
             `,
             [
@@ -21793,7 +21816,9 @@ async function savePortalOrderDraftForAccount(
                 shipToAddressTrust.overrideReason || "",
                 shipToAddressTrust.overrideNote || "",
                 shipToAddressTrust.overriddenAt || null,
-                shipToAddressTrust.overriddenBy || null
+                shipToAddressTrust.overriddenBy || null,
+                order.plannedCarrierName,
+                order.plannedServiceLevel
             ]
         );
         savedOrderId = insertResult.rows[0].id;
@@ -33411,7 +33436,7 @@ function getPortalOrderBolShipmentEntries(order = {}) {
             externalId: makeWarehouseShipmentCode(order, group.location?.id || index + 1),
             warehouse: group.location || {},
             shipmentMethod: order.shipmentMethod || "LTL_FREIGHT",
-            carrier: order.shippedCarrierName || "",
+            carrier: order.shippedCarrierName || order.plannedCarrierName || "",
             trackingReference: order.shippedTrackingReference || "",
             bolReference: "",
             pallets: { total: groups.length === 1 ? Number(order.outboundPallets?.totalPalletsOut || 0) : 0 },
@@ -33452,7 +33477,7 @@ function getPortalOrderBolShipmentEntries(order = {}) {
             || ""
         );
         const method = normalizePortalShipmentMethod(shipment?.shipmentMethod || shipment?.shipment_method || order.shipmentMethod || "LTL_FREIGHT");
-        const carrier = normalizeFreeText(shipment?.carrier || shipment?.carrier_name || order.shippedCarrierName || (method === "CUSTOMER_PICKUP" ? "Customer Pickup" : ""));
+        const carrier = normalizeFreeText(shipment?.carrier || shipment?.carrier_name || order.shippedCarrierName || order.plannedCarrierName || (method === "CUSTOMER_PICKUP" ? "Customer Pickup" : ""));
         const bolReference = normalizeFreeText(shipment?.bolReference || shipment?.bol_reference)
             || `BOL-${normalizeText(order.orderCode || order.id || "ORDER")}${sourceShipments.length > 1 ? `-${warehouseCode || index + 1}` : ""}`;
         return {
@@ -33462,6 +33487,7 @@ function getPortalOrderBolShipmentEntries(order = {}) {
             lines: Array.isArray(group.lines) ? group.lines : [],
             method,
             carrier,
+            serviceLevel: normalizeFreeText(order.plannedServiceLevel || ""),
             trackingReference: normalizeFreeText(shipment?.trackingReference || shipment?.tracking_reference || order.shippedTrackingReference || ""),
             bolReference,
             totalPallets,
@@ -33480,11 +33506,13 @@ function getPortalOrderBillOfLadingReadiness(order = {}) {
     if (!normalizeText(order.accountName || order.account_name)) commonMissing.push("Customer company");
     if (!normalizeText(order.poNumber || order.po_number || order.shippingReference || order.shipping_reference)) commonMissing.push("PO number or shipping reference");
     if (!normalizeFreeText(order.shipToName || order.ship_to_name)) commonMissing.push("Ship-to company name");
-    if (!normalizeFreeText(order.shipToAddress1 || order.ship_to_address1)) commonMissing.push("Ship-to street address");
-    if (!normalizeFreeText(order.shipToCity || order.ship_to_city)) commonMissing.push("Ship-to city");
-    if (!normalizeFreeText(order.shipToState || order.ship_to_state)) commonMissing.push("Ship-to province/state");
-    if (!normalizeFreeText(order.shipToPostalCode || order.ship_to_postal_code)) commonMissing.push("Ship-to postal/ZIP code");
-    if (!normalizeFreeText(order.shipToCountry || order.ship_to_country)) commonMissing.push("Ship-to country");
+    if (normalizePortalShipmentMethod(order.shipmentMethod || order.shipment_method) !== PORTAL_ORDER_SHIPMENT_METHODS.CUSTOMER_PICKUP) {
+        if (!normalizeFreeText(order.shipToAddress1 || order.ship_to_address1)) commonMissing.push("Ship-to street address");
+        if (!normalizeFreeText(order.shipToCity || order.ship_to_city)) commonMissing.push("Ship-to city");
+        if (!normalizeFreeText(order.shipToState || order.ship_to_state)) commonMissing.push("Ship-to province/state");
+        if (!normalizeFreeText(order.shipToPostalCode || order.ship_to_postal_code)) commonMissing.push("Ship-to postal/ZIP code");
+        if (!normalizeFreeText(order.shipToCountry || order.ship_to_country)) commonMissing.push("Ship-to country");
+    }
 
     const shipments = getPortalOrderBolShipmentEntries(order).map((shipment) => {
         const missing = [...commonMissing];
@@ -42797,6 +42825,8 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         confirmedShipDate: row.confirmed_ship_date ? normalizeDateOnly(row.confirmed_ship_date) : "",
         shipmentMethod: normalizePortalShipmentMethod(row.shipment_method || "LTL_FREIGHT"),
         shipmentMethodLabel: shipmentMethodLabel(row.shipment_method || "LTL_FREIGHT"),
+        plannedCarrierName: row.planned_carrier_name || "",
+        plannedServiceLevel: row.planned_service_level || "",
         shippedCarrierName: row.shipped_carrier_name || "",
         shippedTrackingReference: row.shipped_tracking_reference || "",
         shippedConfirmationNote: row.shipped_confirmation_note || "",
@@ -43411,6 +43441,8 @@ function sanitizePortalOrderInput(order, accountName) {
         requestedShipDate: normalizeDateInput(order?.requestedShipDate || order?.shipDate),
         orderType: normalizePortalOrderType(order?.orderType || order?.order_type || order?.type),
         shipmentMethod: normalizePortalShipmentMethod(order?.shipmentMethod || order?.shipment_method || order?.shippingMethod || order?.shipping_method),
+        plannedCarrierName: normalizeFreeText(order?.plannedCarrierName || order?.planned_carrier_name || ""),
+        plannedServiceLevel: normalizeFreeText(order?.plannedServiceLevel || order?.planned_service_level || ""),
         rushApproved: toBooleanFlag(order?.rushApproved ?? order?.rush_approved ?? order?.rushChargeApproved ?? order?.rush_charge_approved, false),
         rushApprovedBy: normalizeFreeText(order?.rushApprovedBy || order?.rush_approved_by || order?.approvedBy || ""),
         rushExempt: toBooleanFlag(order?.rushExempt ?? order?.rush_exempt ?? order?.standardProcessing ?? order?.standard_processing, false),
@@ -46828,6 +46860,7 @@ module.exports = {
     DATABASE_SCHEMA_REQUIRED_COLUMNS,
     databaseSchemaContractIsCurrent,
     recordDatabaseSchemaVersion,
+    applyPendingAdditiveMigrations,
     getHealteaMonthEndPeriod,
     buildHealteaMonthEndActivity,
     isStateChangingRequestOriginAllowed,
@@ -46958,6 +46991,7 @@ module.exports = {
     convertPortalShipmentWeight,
     getPortalOrderBolShipmentEntries,
     getPortalOrderBillOfLadingReadiness,
+    sanitizePortalOrderInput,
     buildPortalOrderBillOfLadingPdfAttachment,
     buildPortalOrderUcc128LabelPdfAttachment,
     getPortalOrderSplitFulfillmentGroups,
