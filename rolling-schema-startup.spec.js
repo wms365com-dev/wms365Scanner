@@ -19,6 +19,7 @@ function fakePool(responses) {
             calls.push({ sql: String(sql), params });
             const response = responses.shift();
             if (!response) throw new Error("Unexpected schema query.");
+            if (response instanceof Error) throw response;
             return response;
         }
     };
@@ -53,6 +54,18 @@ test("missing schema contract falls through to the serialized migration path", a
         { rows: [{ tables_ready: true, columns_ready: false }] }
     ]);
     assert.equal(await databaseSchemaContractIsCurrent(pool), false);
+});
+
+test("fresh database tolerates a missing schema marker table and falls through to migration", async () => {
+    const missingMarkerTable = new Error('relation "wms365_schema_versions" does not exist');
+    missingMarkerTable.code = "42P01";
+    const pool = fakePool([
+        { rows: [{ ready: true }] },
+        missingMarkerTable,
+        { rows: [{ tables_ready: false, columns_ready: false }] }
+    ]);
+    assert.equal(await databaseSchemaContractIsCurrent(pool), false);
+    assert.equal(pool.calls.some((call) => /information_schema\.columns/i.test(call.sql)), true);
 });
 
 test("schema version recording is idempotent and isolated to migration metadata", async () => {

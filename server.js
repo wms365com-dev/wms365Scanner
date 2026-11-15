@@ -8940,13 +8940,17 @@ async function start() {
 }
 
 async function databaseSchemaContractIsCurrent(databasePool = pool) {
-    const markerTableResult = await databasePool.query("select to_regclass('public.wms365_schema_versions') is not null as ready");
+    const markerTableResult = await databasePool.query("select to_regclass('wms365_schema_versions') is not null as ready");
     if (markerTableResult.rows[0]?.ready === true) {
-        const markerResult = await databasePool.query(
-            "select exists(select 1 from wms365_schema_versions where version = $1) as current",
-            [DATABASE_SCHEMA_VERSION]
-        );
-        if (markerResult.rows[0]?.current === true) return true;
+        try {
+            const markerResult = await databasePool.query(
+                "select exists(select 1 from wms365_schema_versions where version = $1) as current",
+                [DATABASE_SCHEMA_VERSION]
+            );
+            if (markerResult.rows[0]?.current === true) return true;
+        } catch (error) {
+            if (error?.code !== "42P01") throw error;
+        }
     }
 
     const contractResult = await databasePool.query(
@@ -8959,13 +8963,13 @@ async function databaseSchemaContractIsCurrent(databasePool = pool) {
          select
             not exists (
                 select 1 from required_tables
-                where to_regclass('public.' || name) is null
+                where to_regclass(name) is null
             ) as tables_ready,
             not exists (
                 select 1
                 from required_columns required
                 left join information_schema.columns actual
-                  on actual.table_schema = 'public'
+                  on actual.table_schema = current_schema()
                  and actual.table_name = required.table_name
                  and actual.column_name = required.column_name
                 where actual.column_name is null
