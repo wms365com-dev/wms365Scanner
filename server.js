@@ -401,7 +401,7 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
-const DATABASE_SCHEMA_VERSION = "2026-11-15-wms21-v1";
+const DATABASE_SCHEMA_VERSION = "2026-11-15-wms21-v2";
 const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "inventory_lines",
     "inventory_transactions",
