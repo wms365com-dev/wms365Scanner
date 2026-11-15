@@ -17271,6 +17271,28 @@
             return order.expectedReadyLabel || (order.expectedReadyDate ? `Expected ready ${order.expectedReadyDate}` : "Expected ready not calculated");
         }
 
+        function portalOrderShowsProcessingWindow(order = {}, now = new Date()) {
+            return !["DRAFT", "CANCELLED", "ARCHIVED", "SHIPPED"].includes(norm(order.status))
+                && portalOrderIsNotYetReady(order, now);
+        }
+
+        function formatPortalOrderProcessingLabel(order = {}) {
+            if (!portalOrderShowsProcessingWindow(order)) return "";
+            const readyText = formatPortalOrderReadyLabel(order)
+                .replace(/^(earliest ready date|expected processing cycle|expected ready)\s*:\s*/i, "")
+                .trim();
+            return `Processing until ${readyText}`;
+        }
+
+        function portalOrderIsFullyAllocated(order = {}) {
+            if (["DRAFT", "CANCELLED", "ARCHIVED", "SHIPPED"].includes(norm(order.status))) return false;
+            const lines = Array.isArray(order.lines) ? order.lines : [];
+            return lines.length > 0 && lines.every((line) => {
+                const ordered = Number(line.quantity) || 0;
+                return ordered > 0 && (Number(line.allocatedQuantity) || 0) >= ordered;
+            });
+        }
+
         function portalOrderDashboardRank(order = {}, now = new Date()) {
             if (portalOrderIsRush(order)) return 0;
             if (portalOrderIsNotYetReady(order, now)) return 1;
@@ -17328,11 +17350,12 @@
             const dateKey = dashboardDateKey(order.requestedShipDate);
             const dateText = dateKey ? (dateKey < today ? `Past due ${dateKey}` : (dateKey === today ? "Ship today" : `Ship ${dateKey}`)) : "No ship date";
             const rush = portalOrderIsRush(order);
-            const notReady = portalOrderIsNotYetReady(order);
+            const processingLabel = formatPortalOrderProcessingLabel(order);
             const readyText = formatPortalOrderReadyLabel(order);
             const flags = [
                 rush ? `<span class="pill warn">RUSH</span>` : "",
-                notReady ? `<span class="pill info" title="${attr(readyText)}">Not ready</span>` : ""
+                processingLabel ? `<span class="pill info" title="${attr(readyText)}">${esc(processingLabel)}</span>` : "",
+                portalOrderIsFullyAllocated(order) ? `<span class="pill success">Fully allocated</span>` : ""
             ].filter(Boolean).join(" ");
             return `
                 <button class="dashboard-work-row" type="button" data-open-warehouse-order="${attr(order.id)}">
@@ -22697,6 +22720,8 @@
                 const allocatable = isDraft ? Math.min(available, ordered) : (allocated > 0 ? allocated : Math.min(available, ordered));
                 return allocatable < ordered;
             });
+            const processingLabel = formatPortalOrderProcessingLabel(order);
+            const fullyAllocated = portalOrderIsFullyAllocated(order);
             const lineRows = order.lines.map((line) => {
                 const ordered = Number(line.quantity) || 0;
                 const available = Number(line.availableQuantity) || 0;
@@ -22973,7 +22998,8 @@
                 <div class="quick-meta">
                     Ordered ${esc(formatTrackedQuantity(totalOrdered, order.lines[0]?.trackingLevel || "UNIT"))}
                     | Allocatable ${esc(formatTrackedQuantity(totalAvailable, order.lines[0]?.trackingLevel || "UNIT"))}
-                    | ${insufficientLines.length ? `${insufficientLines.length} line${insufficientLines.length === 1 ? "" : "s"} short` : "Ready"}
+                    | ${fullyAllocated ? "Fully allocated" : (insufficientLines.length ? `${insufficientLines.length} line${insufficientLines.length === 1 ? "" : "s"} short` : "Allocation pending")}
+                    ${processingLabel ? ` | ${esc(processingLabel)}` : ""}
                     ${formatPortalOrderTimeline(order) ? ` | ${esc(formatPortalOrderTimeline(order))}` : ""}
                 </div>
                 <table class="erp-document-process-table">
@@ -25579,13 +25605,14 @@
                 const totalOrdered = order.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
                 const emailFailure = isShipmentEmailFailure(order);
                 const rush = portalOrderIsRush(order);
-                const notReady = portalOrderIsNotYetReady(order);
+                const processingLabel = formatPortalOrderProcessingLabel(order);
                 const readyText = formatPortalOrderReadyLabel(order);
                 const canBatchPrintPickTicket = ["RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
                 const statusHtml = [
                     `<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>`,
                     rush ? `<span class="pill warn">RUSH</span>` : "",
-                    notReady ? `<span class="pill info" title="${attr(readyText)}">Not ready</span>` : "",
+                    processingLabel ? `<span class="pill info" title="${attr(readyText)}">${esc(processingLabel)}</span>` : "",
+                    portalOrderIsFullyAllocated(order) ? `<span class="pill success">Fully allocated</span>` : "",
                     emailFailure ? `<span class="pill error" title="${attr(order.shipmentEmailLastError || "Customer shipment email failed.")}">Email failed</span>` : ""
                 ].filter(Boolean).join(" ");
                 return `

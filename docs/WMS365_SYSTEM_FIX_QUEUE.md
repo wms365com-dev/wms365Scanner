@@ -27,9 +27,9 @@ This board is the release order. Only one focused repair is promoted at a time; 
 
 | Sequence | Work | State | Exit gate |
 | ---: | --- | --- | --- |
-| 1 | OPS-06 rolling-release schema lock contention | IN PROGRESS | Profile the startup lock, prove bounded initialization in sandbox, and preserve zero-downtime rollback behavior before another production promotion |
-| 2 | WMS-08 marketplace feature visibility | BLOCKED | Sandbox-proven; repeat exact production promotion only after OPS-06 passes the full release gate |
-| 3 | WMS-16 readiness explanation | NEXT | Independent retest; reopen on any failed control |
+| 1 | OPS-06 rolling-release schema lock contention | VERIFIED | Versioned schema contract skips no-op startup DDL; fresh boot, rolling restart, sandbox soak, and production promotion passed |
+| 2 | WMS-08 marketplace feature visibility | VERIFIED | Exact sandbox-proven artifact promoted with clean startup and read-only production verification |
+| 3 | WMS-16 readiness explanation | FIXED - NEEDS RETEST | Exact candidate must pass fresh database, sandbox role/isolation workflow, soak, and production promotion |
 | 4 | WMS-17 routing blockers | NEXT | Independent retest; reopen on any failed control |
 | 5 | OPS-05 allocation integrity | NEXT | Read-only warehouse/pool/lot/hold/pickability reconciliation; no automatic live allocation |
 | 6 | WMS-02 and WMS-03 task/count consistency | NEXT | One-snapshot scoped count reconciliation and authenticated role checks |
@@ -42,10 +42,14 @@ This board is the release order. Only one focused repair is promoted at a time; 
 ### OPS-06 - Rolling-release schema lock contention
 
 - Priority: `critical`
-- Status: `IN PROGRESS`
+- Status: `VERIFIED`
 - Trigger: production promotion of exact sandbox-proven WMS-08 commit `47443b27579d85b7782e35c7aeb3b2def9771689` reached repeated PostgreSQL `55P03` lock timeouts during `initializeDatabase` while the existing live replica continued serving. Railway eventually marked deployment `46e41b8b-427c-4578-b875-8618590a9e9c` successful, but the warning violates the release policy and blocks accepting the artifact.
 - Recovery: no PostgreSQL restart or customer-data operation was performed. The named last-known-good commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24` was restored as deployment `a09930cb-792c-4779-b532-bb71eaa74be9`; schema readiness completed in approximately six seconds and subsequent health requests returned HTTP 200.
 - Required fix: identify the blocking initialization statement and make no-op rolling starts avoid unnecessary heavyweight DDL locks while retaining serialized, bounded, retry-safe migrations and complete fresh-database creation.
+- Repair: commits `57a6193fcf6ef26b7c81dff92825205ac7c6ddb0` and `2b6f14a7a4a028b28d72a847bf8d5aa517ccf8a7` add a versioned schema contract marker, active-schema-aware contract checks, and a no-DDL startup fast path while retaining the advisory lock and complete migration path for missing schema. A fresh-database regression covers an absent marker table and temporary-schema isolation.
+- Gates: focused startup tests passed 8/8; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 773/773; the real isolated fresh-database boot passed all seven schema controls.
+- Sandbox: exact commit `2b6f14a7a4a028b28d72a847bf8d5aa517ccf8a7` deployed as `48b7b6f0-2706-4d8b-8a7b-87d20c8a2e36`, then exact-artifact rolling deployment `f36a1842-19ba-4c8f-9073-30fd9409768e` logged `PostgreSQL schema already current; skipped startup DDL.` and returned HTTP 200 immediately. Authenticated designated-company scope returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, returned 403 across company scope, and cleaned up its fixtures. Eleven health checks over 10 minutes remained ready with 6-13 ms database probes, no restart, warning, error, or HTTP 5xx.
+- Production: named rollback deployment was `a09930cb-792c-4779-b532-bb71eaa74be9` at commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24`. Exact commit `2b6f14a7a4a028b28d72a847bf8d5aa517ccf8a7` promoted as deployment `78609f26-d300-4549-b1fb-9e931614a1ed`; startup skipped DDL without a lock warning and health returned HTTP 200. Five read-only production probes kept database, schema, desktop, and mobile entry readiness true; steady database probes were 8-9 ms after initial connection warm-up. No production transaction or customer data changed.
 
 ### OPS-02 - Database health probe latency
 
@@ -135,7 +139,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | ---: | --- | --- | --- | --- |
 | 7 | WMS-04 | high | Empty lists and disabled create buttons hide the required company selection | REOPENED |
 | 8 | WMS-05 | high | Conflicting labels obscure active company scope | VERIFIED |
-| 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | FIXED - NEEDS RETEST |
+| 9 | WMS-08 | high | Disabled marketplace feature still exposes Shopify setup and navigation | VERIFIED |
 | 10 | WMS-16 | high | `Not ready` is unexplained and conflicts with the order page | FIXED - NEEDS RETEST |
 | 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | FIXED - NEEDS RETEST |
 | 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | QUEUED |
@@ -284,6 +288,8 @@ Every batch must cover:
 - Regression coverage: `order-processing-readiness.spec.js` verifies semantic labels, terminal-order suppression, server-sourced expected-ready fields, and browser script validity. Existing status-transition and access-control tests remain green.
 - Global checks: `npm run audit:access-control` passed; `npm run check:deploy` passed with 442 tests across roles, tenant and warehouse isolation, inventory, documents, routing, shipment, billing, email, integrations, jobs, migrations, and browser validity.
 - Retest required: in `BISON TRANSPORT TEST COMPANY`, open an active order whose expected-ready time is in the future and confirm the list and order page both show `Processing until` with the same server-calculated date. Confirm an allocated order says `Fully allocated`, and draft, cancelled, archived, and shipped records show no processing-window badge.
+- Independent retest 2026-11-15: **FAILED / REOPENED.** The reviewed production source still rendered the ambiguous `Not ready` pill in dashboard and sales-order list views, did not expose `Fully allocated` as a distinct order-level state, and did not contain the documented `order-processing-readiness.spec.js`. Production remained healthy and no customer data was changed.
+- Repair candidate 2026-11-15: active non-terminal orders now derive `Processing until` from the server-provided expected-ready label in dashboard, list, and opened-order workflow surfaces. `Fully allocated` is calculated separately from actual line allocation and is suppressed with the processing badge for draft, cancelled, archived, and shipped records. Focused positive and negative tests passed 3/3; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 776/776. Status is `FIXED - NEEDS RETEST` pending the remaining release gates.
 
 ### WMS-08
 
@@ -297,6 +303,7 @@ Every batch must cover:
 - Repair candidate 2026-11-14: the integration workspace now replaces the setup form and saved-connection list with one unavailable panel when Marketplace Connections is off, marks navigation `Integrations (Off)`, and exposes Feature Access recovery only to super administrators. Focused positive, restricted-role, and fail-closed server tests passed 3/3; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 768/768. Status remains `FIXED - NEEDS RETEST` pending fresh-database verification, exact sandbox deployment, authenticated designated-company role and isolation checks, a clean 10-minute soak, and exact-artifact production promotion.
 - Sandbox verification 2026-11-14: exact commit `47443b27579d85b7782e35c7aeb3b2def9771689` deployed as `a77104a3-3220-4ba9-9ec1-71c93d25129b` with image `sha256:00688083dad18f019083b266287354cfcd3027f662f035a05624dfc41036f5e7`. Fresh-database verification passed all seven schema controls. Authenticated designated-company scope returned exactly 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, and enforced HTTP 403 across company scope. Eleven health checks over more than ten minutes returned HTTP 200 with 3.9-16.1 ms server durations and no restart, warning, error, or HTTP 5xx after readiness.
 - Production promotion 2026-11-14: **BLOCKED / ROLLED BACK.** The candidate encountered repeated schema-initialization lock timeouts, so it was not accepted as verified even though Railway eventually reported success. Production was restored to named rollback commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24` as deployment `a09930cb-792c-4779-b532-bb71eaa74be9`. WMS-08 remains `FIXED - NEEDS RETEST` until OPS-06 is resolved and the exact candidate completes a clean promotion and read-only live verification.
+- Independent verification 2026-11-15: **VERIFIED.** The WMS-08 repair is included in exact commit `2b6f14a7a4a028b28d72a847bf8d5aa517ccf8a7`. Focused marketplace tests passed 3/3 within the 773-test global gate; access-control audit passed 12/12. Exact sandbox deployment `f36a1842-19ba-4c8f-9073-30fd9409768e` passed the fresh-database gate, authenticated tenant/warehouse isolation workflow, and 10-minute warning-free soak. OPS-06 removed the production startup blocker, and exact production deployment `78609f26-d300-4549-b1fb-9e931614a1ed` completed with immediate health, no schema lock warning, five fully ready read-only probes, and no HTTP 5xx. No production integration setting, credential, job, or customer record was changed.
 
 ### WMS-05
 
