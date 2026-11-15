@@ -18,12 +18,13 @@ test("company-required empty states expose one reusable recovery action", () => 
     assert.match(warehouse, /partnerList\.innerHTML = renderCompanySelectionRecovery/);
 });
 
-test("recovery action focuses the existing official desktop or mobile selector", () => {
+test("recovery action opens the visible official desktop or mobile selector", () => {
     assert.match(warehouse, /const chooseCompanyButton = event\.target\.closest\("\[data-choose-company\]"\)/);
     assert.match(warehouse, /function focusOfficialCompanySelector\(\)/);
-    assert.match(warehouse, /const selector = isMobileView\(\) \? ui\.mobileActiveCompany : ui\.activeCompany/);
-    assert.match(warehouse, /selector\.scrollIntoView\(\{ behavior: "smooth", block: "center" \}\)/);
-    assert.match(warehouse, /window\.setTimeout\(\(\) => selector\.focus\(\), 0\)/);
+    assert.match(warehouse, /ui\.mobileActiveCompany\.scrollIntoView\(\{ behavior: "smooth", block: "center" \}\)/);
+    assert.match(warehouse, /ui\.desktopCompanySwitcher\.open = true/);
+    assert.match(warehouse, /renderCompanySwitcherList\(\)/);
+    assert.match(warehouse, /window\.setTimeout\(\(\) => ui\.companySwitcherSearch\?\.focus\(\), 0\)/);
     assert.match(warehouse, /id="activeCompany"/);
     assert.match(warehouse, /id="mobileActiveCompany"/);
 });

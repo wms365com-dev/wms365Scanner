@@ -14349,10 +14349,17 @@
         }
 
         function focusOfficialCompanySelector() {
-            const selector = isMobileView() ? ui.mobileActiveCompany : ui.activeCompany;
-            if (!selector) return;
-            selector.scrollIntoView({ behavior: "smooth", block: "center" });
-            window.setTimeout(() => selector.focus(), 0);
+            if (isMobileView()) {
+                if (!ui.mobileActiveCompany) return;
+                ui.mobileActiveCompany.scrollIntoView({ behavior: "smooth", block: "center" });
+                window.setTimeout(() => ui.mobileActiveCompany.focus(), 0);
+                return;
+            }
+            if (!ui.desktopCompanySwitcher) return;
+            ui.desktopCompanySwitcher.open = true;
+            syncCompanySwitcherAddAccess();
+            renderCompanySwitcherList();
+            window.setTimeout(() => ui.companySwitcherSearch?.focus(), 0);
         }
 
         function updateCompanyBoundUi() {
