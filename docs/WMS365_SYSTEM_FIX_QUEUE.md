@@ -21,6 +21,21 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 - Every fix needs a negative test proving unrelated companies, warehouses, users, and transaction types are unaffected.
 - Deployment requires the normal global gate, test-company workflow verification, rollback readiness, and post-deployment read-only production verification.
 
+## Platform Migration Audit
+
+### OPS-01 - Railway configuration migration and release flow
+
+- Priority: `critical`
+- Status: `VERIFIED`
+- Completed: 2026-11-14 America/New_York.
+- Code: `.railway/railway.ts` now owns the production and isolated customer-sandbox resource graphs, fails closed for unknown environments, and declares the application build, start, health, and restart controls. Obsolete `railway.json` configuration was removed only after both environments confirmed that no service still consumed it. Variables remain intentionally unmanaged and no secret value is stored in source.
+- Tests: focused Railway/runtime contracts passed 6/6; access-control audit passed 12/12 across 292 routes; deployment gate passed 759/759; production dependency audit reported zero vulnerabilities; fresh-database verification passed all seven schema controls.
+- Sandbox: exact commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` deployed as `6431763c-d324-4f7a-ade8-24cc9123c801`. The designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced cross-company HTTP 403, and cleaned up isolated fixtures. Eleven health samples over 10 minutes passed with zero HTTP 5xx responses.
+- Production: the reviewed plan contained zero additions, zero deletions, and no variable changes. Named rollback deployment `04899d1f-4a84-46ba-a018-4cfaaf84fd13` was recorded before exact commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` deployed as `6ab7427d-1fc0-4133-aff8-d41370db9ddc`. Five consecutive read-only health checks confirmed database, schema, desktop, and mobile readiness; the post-deployment one-hour window had zero HTTP 5xx responses across 625 requests.
+- Drift: both production and customer-sandbox plans report configuration up to date, with no staged Railway changes.
+- Remaining risk: production schema readiness took approximately 151 seconds and health database probes were approximately 770-780 ms. Profile initialization and probe latency before the next schema-affecting release. GitHub default-branch dependency alerts also require a separate reachability review; the deployed branch's production dependency audit is clean.
+- Full evidence: `docs/WMS365_RAILWAY_IAC_MIGRATION_AUDIT.md`.
+
 ## Repair Batches
 
 ### Batch 1: Workflow Stability and Data Correctness

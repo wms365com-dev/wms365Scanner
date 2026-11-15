@@ -36,3 +36,21 @@ The IaC program fails closed for any environment other than `production` or `cus
 ## Rollback
 
 Railway Config-as-Code ownership is already disabled in both environments. The legacy `railway.json` file can therefore be removed without changing platform resources. Source rollback restores the prior repository commit; platform rollback uses the named known-good application deployment recorded for each release. Database services and customer data are never restarted, copied, or modified by this migration.
+
+## Completed Migration Evidence - 2026-11-14
+
+- Source: commits `a2972207df820a3ec7e28e6db1ee9018d17566e1` and `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` on durable branch `codex/production-release`.
+- Tests: focused Railway/runtime contracts passed 6/6; access-control audit passed 12/12 across 292 routes; deployment gate passed 759/759; production dependency audit reported zero vulnerabilities.
+- Sandbox: deployment `6431763c-d324-4f7a-ade8-24cc9123c801` completed successfully from exact commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec`. Fresh-database verification passed all seven schema controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, returned HTTP 403 for cross-company access, and cleaned up its isolated fixtures.
+- Sandbox soak: 11/11 health samples passed from `2026-11-15T01:30:13Z` through `2026-11-15T01:40:15Z`; maximum client-observed response time was 338 ms. Runtime logs contained no application warning or error, and the one-hour Railway window contained zero HTTP 5xx responses.
+- Production preflight: deployment `04899d1f-4a84-46ba-a018-4cfaaf84fd13` was healthy and recorded as the immediate rollback artifact. The IaC plan contained three non-destructive service-setting updates, zero additions, zero deletions, and no managed variable changes.
+- Production: deployment `6ab7427d-1fc0-4133-aff8-d41370db9ddc` completed successfully from exact commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec`. Five consecutive read-only health checks returned HTTP 200 with database, schema, desktop, and mobile readiness true. The one-hour Railway window contained zero HTTP 5xx responses across 625 requests.
+- Drift: post-deployment plans for `production` and `customer-sandbox` both report configuration up to date. Railway has no staged changes in either environment. Production and sandbox variables remain intentionally unmanaged so no secret value is stored in source.
+- Data safety: no live transaction, customer record, inventory quantity, email, billing record, integration state, or production database service was created, copied, restarted, or modified by this migration.
+
+## Remaining Audit Risks
+
+- Production schema readiness took approximately 151 seconds, versus approximately 2 seconds in the isolated sandbox. It completed without an application error or HTTP 5xx response, but the initialization path and database probe latency should be profiled before the next schema-affecting release.
+- Production health probes currently spend approximately 770-780 ms in the database probe. This is healthy but materially slower than the sandbox and should be tracked as a performance item.
+- GitHub reports dependency alerts on the repository default branch. The deployed release branch's `npm audit --omit=dev --audit-level=high` result is clean; default-branch alerts require a separate source and reachability review before being merged into this release line.
+- Future releases must continue to use a clean committed source, dual-environment zero-destruction plans, isolated sandbox verification, a 10-minute soak, a named production rollback deployment, and read-only production verification.
