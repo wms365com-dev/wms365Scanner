@@ -38653,6 +38653,20 @@ async function upsertLocationMaster(client, code, note = "", { accountName = "",
 async function ensureReceivingStageLocation(client, code = DEFAULT_RECEIVING_STAGE_LOCATION) {
     const normalizedCode = normalizeText(code) || DEFAULT_RECEIVING_STAGE_LOCATION;
     await upsertLocationMaster(client, normalizedCode, "Receiving staging - not pickable until putaway is complete.");
+    const activeAllocations = await client.query(
+        `
+            select count(*)::integer as count
+            from portal_order_allocations a
+            join portal_orders o on o.id = a.order_id
+            left join inventory_lines i on i.id = a.inventory_line_id
+            where o.status = any($2::text[])
+              and (a.location = $1 or i.location = $1)
+        `,
+        [normalizedCode, ACTIVE_PORTAL_ORDER_STATUSES]
+    );
+    if (Number(activeAllocations.rows[0]?.count) > 0) {
+        throw httpError(409, `BIN ${normalizedCode} has active sales-order allocations and cannot be changed to receiving staging. Reallocate or reopen those orders first.`);
+    }
     await client.query(
         `
             update bin_locations

@@ -12,6 +12,9 @@ function createRecordingClient() {
             if (/insert into bin_locations/i.test(String(sql))) {
                 return { rows: [{ account_name: params[2] || "", fulfillment_location_id: params[3] || null }], rowCount: 1 };
             }
+            if (/from portal_order_allocations/i.test(String(sql))) {
+                return { rows: [{ count: 0 }], rowCount: 1 };
+            }
             return { rows: [], rowCount: 0 };
         }
     };
@@ -38,4 +41,22 @@ test("receiving into default receiving stage remains non-pickable", async () => 
     assert.equal(updateCall.params[0], "RECEIVING-STAGE");
     assert.match(updateCall.sql, /location_type = 'RECEIVING_STAGE'/);
     assert.match(updateCall.sql, /is_pickable = false/);
+});
+
+test("receiving stage conversion is blocked while active orders reference the location", async () => {
+    const client = createRecordingClient();
+    const originalQuery = client.query.bind(client);
+    client.query = async (sql, params = []) => {
+        if (/from portal_order_allocations/i.test(String(sql))) {
+            client.calls.push({ sql: String(sql), params });
+            return { rows: [{ count: 1 }], rowCount: 1 };
+        }
+        return originalQuery(sql, params);
+    };
+
+    await assert.rejects(
+        ensureReceivingDestinationLocation(client, "RECEIVING-STAGE"),
+        (error) => error?.statusCode === 409 && /active sales-order allocations/i.test(error.message)
+    );
+    assert.equal(client.calls.some((call) => /set\s+location_type\s*=\s*'RECEIVING_STAGE'/i.test(call.sql)), false);
 });
