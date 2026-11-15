@@ -37,8 +37,9 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 8 | WMS-04 company-selection recovery | VERIFIED | Exact sandbox-proven artifact passed role/isolation checks, soak, and production promotion |
 | 9 | WMS-22 inventory quantity clarity | VERIFIED | Exact display-only candidate passed inventory/isolation checks, sandbox soak, and production promotion |
 | 10 | WMS-11 report scope and quantity basis | VERIFIED | Exact display/export-only candidate passed isolation, sandbox soak, and production verification |
-| 11 | WMS-15 sales-order ship-to visibility | IN PROGRESS | Add permission-scoped list visibility without expanding payload or tenant scope |
-| 12 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+| 11 | WMS-15 sales-order ship-to visibility | VERIFIED | Existing permission-scoped response now renders a compact destination; full release gates passed |
+| 12 | WMS-18 duplicate and replacement continuity | IN PROGRESS | Expose relationships without weakening order scope or changing business records |
+| 13 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
 ## Platform Migration Audit
 
@@ -165,8 +166,8 @@ Acceptance: Open and share a permission-checked order URL; use browser Back/Forw
 
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
-| 17 | WMS-15 | high | Sales Orders list omits ship-to | IN PROGRESS |
-| 18 | WMS-18 | high | Cancelled duplicate and replacement share a PO without a visible relationship | QUEUED |
+| 17 | WMS-15 | high | Sales Orders list omits ship-to | VERIFIED |
+| 18 | WMS-18 | high | Cancelled duplicate and replacement share a PO without a visible relationship | IN PROGRESS |
 | 19 | WMS-19 | medium | Stale `Opening sales order...` banner remains visible | QUEUED |
 | 20 | WMS-20 | high | Released order opens with create/edit language | QUEUED |
 | 21 | WMS-24 | high | Orders open late in a modal and have no durable URL | QUEUED |
@@ -355,6 +356,13 @@ Every batch must cover:
 - Test evidence: focused report, quantity-clarity, company-scope, and access-control tests passed 16/16; the access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 798/798. Regression coverage verifies explicit scope propagation, physical-on-hand labels and export metadata, retained tenant filtering, and the absence of hidden company-selector dependencies.
 - Sandbox evidence: exact deployment `5ba97ae6-1341-449a-943b-cee986be96d6` passed all seven fresh-database controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, and used its rollback cleanup path. The deployed artifact contained all four reviewed report markers. Eleven health samples over 10 minutes returned `ok: true`; deployment logs contained zero warnings, errors, crashes, or restarts, and proxy logs contained zero HTTP 5xx across 295 entries. Server-side health requests completed in 4-14 ms during the final log window.
 - Production promotion: named rollback deployment `ef4d7eac-78e1-48ce-9f8f-e99e41dbd35a`; exact deployment `639a3552-d2b9-4cb2-8bb5-27f20ac30f7d` succeeded. Five read-only production probes confirmed application, database, schema, desktop, and mobile readiness; the deployed artifact contained the reviewed report markers; and runtime/proxy logs contained no warnings, restarts, or HTTP 5xx. Database probe time was 12-270 ms during verification and remains visible to the performance queue. No production customer transaction or data change was used for verification.
+
+### WMS-15
+
+- Independent repair and retest 2026-11-15: **VERIFIED.** Exact commit `ea219c234961368f1aaea0933b3666c66e97110e` adds a compact Ship To column to the warehouse sales-order list using destination fields already present in the permission-scoped order response. Delivery rows show destination name and city/state; customer pickup rows show the assigned warehouse without fabricating a delivery address. No API, query, payload, customer-data, order, allocation, inventory, document, email, billing, integration, or job behavior changed.
+- Test evidence: focused ship-to and access-control tests passed 8/8; the access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 801/801. Negative coverage proves the list reuses the existing scoped endpoint, retains central company and warehouse guards, and introduces no ship-to side request.
+- Sandbox evidence: exact deployment `b7a09f66-5a1b-4bff-af17-5e174e2c7faf` passed all seven fresh-database controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, and used its rollback cleanup path. The exact deployed asset contained all four reviewed UI markers. Eleven health probes over 10 minutes retained application, database, schema, desktop, and mobile readiness with 3-11 ms database probes. Logs contained zero warnings, restarts, or HTTP 5xx across 273 proxy entries.
+- Production promotion: named rollback deployment `639a3552-d2b9-4cb2-8bb5-27f20ac30f7d`; exact deployment `e013dca8-ab05-443b-80ba-5e6a27faf540` succeeded. Five read-only probes kept application, database, schema, desktop, and mobile readiness true; the production artifact contained the reviewed ship-to markers; and runtime/proxy logs contained no warnings, restarts, or HTTP 5xx. Database probes ranged from 9-262 ms and remain visible to the performance queue. No production customer transaction or data mutation was used for verification.
 
 ### WMS-21
 
