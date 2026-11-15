@@ -1447,6 +1447,8 @@ app.get("/api/health", async (_req, res) => {
         databaseSchemaInitialized,
         databaseError: probe.error || databaseErrorMessage || null,
         databaseProbeMs: probe.durationMs,
+        databaseConnectMs: probe.connectMs,
+        databaseReadinessMs: probe.readinessMs,
         entryRoutesReady,
         entryRoutes: { ...WAREHOUSE_ENTRY_ROUTE_HEALTH },
         startedInitializingAt: databaseInitStartedAt,
@@ -12343,6 +12345,7 @@ async function runDatabaseHealthProbe({
     databasePool = pool
 } = {}) {
     const startedAt = Date.now();
+    let connectedAt = null;
     if (!databaseUrl) {
         return {
             ok: false,
@@ -12353,17 +12356,23 @@ async function runDatabaseHealthProbe({
     let client = null;
     try {
         client = await withTimeout(databasePool.connect(), timeoutMs, "Database connection health check timed out.");
+        connectedAt = Date.now();
         await withTimeout(client.query("select set_config('statement_timeout', $1, true)", [`${timeoutMs}ms`]), timeoutMs, "Database health timeout setup failed.");
-        await withTimeout(client.query("select 1"), timeoutMs, "Database ping timed out.");
-        await withTimeout(client.query("select exists(select 1 from app_users where is_active = true) as has_active_app_user"), timeoutMs, "Warehouse login table check timed out.");
-        await withTimeout(client.query("select exists(select 1 from app_sessions limit 1) as app_sessions_ready"), timeoutMs, "Warehouse session table check timed out.");
-        await withTimeout(client.query("select exists(select 1 from mobile_devices limit 1) as mobile_devices_ready"), timeoutMs, "Mobile device table check timed out.");
-        await withTimeout(client.query("select exists(select 1 from portal_vendor_access limit 1) as portal_access_ready"), timeoutMs, "Customer portal login table check timed out.");
+        const readinessStartedAt = Date.now();
+        await withTimeout(client.query(`
+            select
+                exists(select 1 from app_users where is_active = true) as has_active_app_user,
+                exists(select 1 from app_sessions limit 1) as app_sessions_ready,
+                exists(select 1 from mobile_devices limit 1) as mobile_devices_ready,
+                exists(select 1 from portal_vendor_access limit 1) as portal_access_ready
+        `), timeoutMs, "Database readiness checks timed out.");
         if (databaseSchemaInitialized) databaseReady = true;
         databaseErrorMessage = "";
         return {
             ok: true,
             durationMs: Date.now() - startedAt,
+            connectMs: connectedAt - startedAt,
+            readinessMs: Date.now() - readinessStartedAt,
             error: ""
         };
     } catch (error) {
@@ -12371,6 +12380,8 @@ async function runDatabaseHealthProbe({
         return {
             ok: false,
             durationMs: Date.now() - startedAt,
+            connectMs: connectedAt ? connectedAt - startedAt : null,
+            readinessMs: null,
             error: databaseErrorMessage
         };
     } finally {

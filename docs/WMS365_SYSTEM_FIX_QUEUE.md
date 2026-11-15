@@ -23,6 +23,15 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Platform Migration Audit
 
+### OPS-02 - Database health probe latency
+
+- Priority: `high`
+- Status: `FIXED - NEEDS RETEST`
+- Candidate: the health probe consolidates four readiness checks into one read-only SQL statement, reducing the probe from six sequential database round trips to two while preserving the same table and active-user readiness checks. `/api/health` now reports connection and readiness-query timing separately for diagnosis.
+- Isolation and integrity: the query is read-only, uses the existing pool and statement timeout, exposes no customer data, and does not alter tenant, warehouse, inventory, transaction, document, email, billing, integration, job, or permission behavior.
+- Tests: focused performance tests passed 2/2; access-control audit passed 12/12 across 292 routes; deployment gate passed 761/761; production dependency audit reported zero vulnerabilities.
+- Gate: local fresh-database execution correctly stopped because no isolated `DATABASE_URL` was exposed. Run the exact commit inside `customer-sandbox` against `Postgres-XihR`, verify all seven schema controls, compare the new connection/readiness timings, run authenticated scope checks, and complete a 10-minute healthy soak before considering production promotion.
+
 ### OPS-01 - Railway configuration migration and release flow
 
 - Priority: `critical`
