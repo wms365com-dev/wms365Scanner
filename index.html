@@ -25665,6 +25665,19 @@
             if (ui.salesOrderCancelledCount) ui.salesOrderCancelledCount.textContent = num(cancelled);
         }
 
+        function formatSalesOrderListShipTo(order) {
+            if (String(order?.shipmentMethod || "").toUpperCase() === "CUSTOMER_PICKUP") {
+                return {
+                    primary: "Customer pickup",
+                    secondary: order.fulfillmentLocationName || order.fulfillmentLocationCode || "Assigned warehouse"
+                };
+            }
+            return {
+                primary: order?.shipToName || "Ship-to not set",
+                secondary: [order?.shipToCity, order?.shipToState].filter(Boolean).join(", ") || order?.shipToCountry || "Address incomplete"
+            };
+        }
+
         function renderPortalOrdersList(errorText = "") {
             const visibleOrders = getFilteredPortalOrders();
             const shippedOnly = isShippedOrdersSection();
@@ -25697,6 +25710,7 @@
                 const rush = portalOrderIsRush(order);
                 const processingLabel = formatPortalOrderProcessingLabel(order);
                 const readyText = formatPortalOrderReadyLabel(order);
+                const shipTo = formatSalesOrderListShipTo(order);
                 const canBatchPrintPickTicket = ["RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
                 const statusHtml = [
                     `<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>`,
@@ -25711,6 +25725,7 @@
                         <td><button class="erp-list-link" type="button" data-open-warehouse-order="${attr(order.id)}">${esc(order.orderCode)}</button></td>
                         <td>${esc(order.accountName || "")}</td>
                         <td>${esc(order.poNumber || "None")}</td>
+                        <td><strong>${esc(shipTo.primary)}</strong><span class="meta" style="display:block;">${esc(shipTo.secondary)}</span></td>
                         <td>${esc(order.requestedShipDate || "Not set")}</td>
                         <td>${esc(readyText)}</td>
                         <td>${esc(dashboardDateKey(order.shippedAt) || "-")}</td>
@@ -25742,6 +25757,7 @@
                                 <th>No.</th>
                                 <th>Customer</th>
                                 <th>External Document No.</th>
+                                <th>Ship To</th>
                                 <th>Requested Ship Date</th>
                                 <th>Expected Ready</th>
                                 <th>Shipped Date</th>
