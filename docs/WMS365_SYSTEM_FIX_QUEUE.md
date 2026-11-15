@@ -47,11 +47,22 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 ### OPS-04 - Privacy-safe action performance telemetry
 
 - Priority: `critical`
-- Status: `IN PROGRESS`
+- Status: `VERIFIED`
 - Candidate: one structured operational event per non-static response, sharing the same request ID as user-facing errors. Fields are limited to sanitized route pattern, HTTP method/status, role class, duration, response bytes, and outcome. This adds no database query or write to the user request.
 - Privacy and isolation: query strings, record numbers, numeric IDs, UUIDs, long tokens, customer identity, user email, addresses, SKUs, documents, request bodies, response bodies, and credentials are excluded. Role is reduced to a broad class.
-- Tests: focused telemetry tests cover identifier stripping, privacy exclusions, bounded fields, role classification, and error classification. Full access, deployment, sandbox, soak, and production gates remain required.
+- Tests: focused telemetry tests passed 4/4; access-control audit passed 12/12 across 292 routes; deployment gate passed 764/764; fresh-database verification passed all seven schema controls.
+- Sandbox: exact commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24` deployed as `9ee90207-5938-4b86-b97e-a46f1f1490bb`. Authenticated scope verification allowed 321 designated-company tasks, excluded 19 denied-warehouse and 11 denied-company tasks, and enforced HTTP 403 across company scope. Eleven health samples over 10 minutes passed with a 3 ms median and 8 ms maximum database probe. Structured events were verified for successful and denied warehouse requests with sanitized routes and no business-record content.
+- Production: named rollback deployment `c121a3a9-6a31-4e69-8ece-3d7f2ddf008e` was recorded before exact commit `f1e4777b36e9ac2137f8684792467cd7d70f6d24` deployed as `882f3fe0-6858-4cf3-b2c8-4f79b7800ac1`. Railway reported `SUCCESS`, one healthy replica, zero recent application deployment failures, and no application warnings. Five live read-only probes confirmed database and schema readiness with 8-24 ms database probe time. Production structured telemetry was present and contained only approved fields.
 - Next layer: batch client click-to-feedback/render measurements by stable action name so button latency can be separated into browser, network, server, database, and render phases without doubling request volume.
+
+### OPS-05 - Active-order allocation integrity
+
+- Priority: `critical`
+- Status: `REOPENED`
+- Read-only production audit: no orphan allocations, inventory over-allocation, order-line over-allocation, cross-company allocation, SKU mismatch, location mismatch, order-line mismatch, or negative inventory was found.
+- Exceptions: 37 active order lines across 19 orders and four companies are allocated below requested quantity: 30 `RELEASED`, one `PICKED`, and six `STAGED`; 32 have zero allocation and five are partially allocated. Aggregate shortage is 645 units. Thirteen zero-quantity inventory rows exist, but none is referenced by an active allocation.
+- Stock diagnostic: all 37 short lines have enough unallocated stock at company-account level. This is not proof that the stock is eligible in the order warehouse or inventory pool. Do not auto-allocate, move inventory, or broaden warehouse access. Reconcile each line against its order warehouse, fulfillment location, pool policy, lot/expiry controls, holds, and pickable locations before any correction.
+- Safety: audit was aggregate and read-only; no customer identity or order number was exposed and no live quantity, allocation, order, or inventory transaction was changed.
 
 ### OPS-01 - Railway configuration migration and release flow
 
