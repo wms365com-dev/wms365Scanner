@@ -20946,56 +20946,55 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
     if (orderResult.rowCount !== 1) {
         return null;
     }
-    const [linesResult, documentsResult, shipmentLinesResult, printSummariesResult, shipmentIds, shipmentTracking] = await Promise.all([
-        client.query(
-            `
-                select
-                    l.*,
-                    o.account_name,
-                    c.description as item_description,
-                    c.upc as item_upc,
-                    c.tracking_level as item_tracking_level,
-                    c.lot_tracked as item_lot_tracked,
-                    c.expiration_tracked as item_expiration_tracked
-                from portal_order_lines l
-                join portal_orders o on o.id = l.order_id
-                left join item_catalog c
-                  on c.account_name = o.account_name
-                 and c.sku = l.sku
-                where l.order_id = $1
-                  and o.account_name = $2
-                order by l.line_number asc, l.id asc
-            `,
-            [orderId, normalizedAccount]
-        ),
-        client.query(
-            `
-                select *
-                from portal_order_documents
-                where order_id = $1
-                order by created_at asc, id asc
-            `,
-            [orderId]
-        ),
-        getPortalShipmentLinesForOrders(client, [orderId]),
-        getPortalOrderPrintSummariesForOrders(client, [orderId]),
-        client.query(
-            "select id from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id",
-            [orderId]
-        ),
-        getShipmentTrackingForOrder(client, orderId, normalizedAccount)
-    ]);
+    const linesResult = await client.query(
+        `
+            select
+                l.*,
+                o.account_name,
+                c.description as item_description,
+                c.upc as item_upc,
+                c.tracking_level as item_tracking_level,
+                c.lot_tracked as item_lot_tracked,
+                c.expiration_tracked as item_expiration_tracked
+            from portal_order_lines l
+            join portal_orders o on o.id = l.order_id
+            left join item_catalog c
+              on c.account_name = o.account_name
+             and c.sku = l.sku
+            where l.order_id = $1
+              and o.account_name = $2
+            order by l.line_number asc, l.id asc
+        `,
+        [orderId, normalizedAccount]
+    );
+    const documentsResult = await client.query(
+        `
+            select *
+            from portal_order_documents
+            where order_id = $1
+            order by created_at asc, id asc
+        `,
+        [orderId]
+    );
+    const shipmentLinesResult = await getPortalShipmentLinesForOrders(client, [orderId]);
+    const printSummariesResult = await getPortalOrderPrintSummariesForOrders(client, [orderId]);
+    const shipmentIds = await client.query(
+        "select id from warehouse_shipments where order_id = $1 order by fulfillment_location_id, id",
+        [orderId]
+    );
+    const shipmentTracking = await getShipmentTrackingForOrder(client, orderId, normalizedAccount);
     await attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows);
-    const [allocationSummaries, locationSummaries] = await Promise.all([
-        buildPortalOrderAllocationSummaries(client, linesResult.rows),
-        buildPortalOrderLocationSummaries(client, linesResult.rows)
-    ]);
+    const allocationSummaries = await buildPortalOrderAllocationSummaries(client, linesResult.rows);
+    const locationSummaries = await buildPortalOrderLocationSummaries(client, linesResult.rows);
 
     const order = mapPortalOrders(orderResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, locationSummaries, allocationSummaries, shipmentLinesResult.rows, printSummariesResult.rows)[0] || null;
     if (!order) return null;
-    order.warehouseShipments = (await Promise.all(shipmentIds.rows.map((row) => getWarehouseShipmentDetail(client, row.id, normalizedAccount))))
-        .filter(Boolean)
-        .map(mapPartnerApiShipment);
+    const warehouseShipments = [];
+    for (const row of shipmentIds.rows) {
+        const detail = await getWarehouseShipmentDetail(client, row.id, normalizedAccount);
+        if (detail) warehouseShipments.push(mapPartnerApiShipment(detail));
+    }
+    order.warehouseShipments = warehouseShipments;
     order.shipmentTracking = shipmentTracking;
     return order;
 }

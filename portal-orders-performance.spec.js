@@ -28,7 +28,7 @@ test("sales-order queue exposes server timing without changing its JSON contract
     assert.match(section, /res\.json\(\{ orders: visibleOrders \}\)/);
 });
 
-test("sales-order detail overlaps independent reads without weakening tenant scope", () => {
+test("sales-order detail removes one round trip without overlapping a transactional client", () => {
     const start = source.indexOf("async function getPortalOrderById(");
     const end = source.indexOf("const ADDRESS_COUNTRY_CODES", start);
     assert.ok(start >= 0 && end > start);
@@ -38,13 +38,13 @@ test("sales-order detail overlaps independent reads without weakening tenant sco
     assert.match(section, /where l\.order_id = \$1\s+and o\.account_name = \$2/);
     assert.match(section, /exists \(\s*select 1\s*from company_fulfillment_locations source_cfl/);
     assert.doesNotMatch(section, /attachPortalInventoryPoolFlagsToOrders/);
-    assert.match(section, /Promise\.all\(\[\s*client\.query\(/);
+    assert.doesNotMatch(section, /Promise\.all/);
     assert.match(section, /getPortalShipmentLinesForOrders\(client, \[orderId\]\)/);
     assert.match(section, /getPortalOrderPrintSummariesForOrders\(client, \[orderId\]\)/);
     assert.match(section, /getShipmentTrackingForOrder\(client, orderId, normalizedAccount\)/);
 });
 
-test("sales-order detail keeps policy-dependent allocation reads after line policy enrichment", () => {
+test("sales-order detail keeps policy-dependent reads ordered after line policy enrichment", () => {
     const start = source.indexOf("async function getPortalOrderById(");
     const end = source.indexOf("const ADDRESS_COUNTRY_CODES", start);
     const section = source.slice(start, end);
@@ -55,9 +55,7 @@ test("sales-order detail keeps policy-dependent allocation reads after line poli
     assert.ok(policyIndex >= 0);
     assert.ok(allocationIndex > policyIndex);
     assert.ok(locationIndex > policyIndex);
-    assert.match(
-        section.slice(policyIndex),
-        /Promise\.all\(\[\s*buildPortalOrderAllocationSummaries[\s\S]*buildPortalOrderLocationSummaries/
-    );
+    assert.match(section.slice(policyIndex), /await buildPortalOrderAllocationSummaries/);
+    assert.match(section.slice(allocationIndex), /await buildPortalOrderLocationSummaries/);
     assert.match(section, /scopePortalOrderToFulfillmentLocationIds|warehouseShipments/);
 });
