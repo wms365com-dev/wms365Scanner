@@ -9528,10 +9528,10 @@
                         <div>
                             <div class="erp-document-kicker">Document Page</div>
                             <div class="erp-document-title-row">
-                                <h2 id="warehouseOrderTitle">Warehouse Sales Order Entry</h2>
+                                <h2 id="warehouseOrderTitle">New Sales Order</h2>
                                 <span class="erp-status-chip" id="warehouseOrderStatusChip">Draft</span>
                             </div>
-                            <p class="lead">Create draft sales orders internally for the active company, then release them into the warehouse workflow when they are ready.</p>
+                            <p class="lead" id="warehouseOrderLead">Create a draft for the active company, then release it when the order is ready for warehouse processing.</p>
                         </div>
                         <div class="erp-document-actions">
                             <button class="btn ghost erp-document-back" id="closeWarehouseOrderEntryBtn" type="button">Back to Sales Orders</button>
@@ -12237,6 +12237,7 @@
             portalInboundsMeta: document.getElementById("portalInboundsMeta"),
             portalInboundsList: document.getElementById("portalInboundsList"),
             warehouseOrderTitle: document.getElementById("warehouseOrderTitle"),
+            warehouseOrderLead: document.getElementById("warehouseOrderLead"),
             warehouseOrderStatusChip: document.getElementById("warehouseOrderStatusChip"),
             warehouseOrderEntryCard: document.getElementById("warehouseOrderEntryCard"),
             warehouseOrderId: document.getElementById("warehouseOrderId"),
@@ -22703,7 +22704,9 @@
             const canPrintOrderDocuments = !!currentOrder?.id && !["DRAFT", "CANCELLED", "ARCHIVED"].includes(orderStatus);
             ui.warehouseOrderCompanyMeta.textContent = hasCompany
                 ? (featureEnabled
-                    ? `Creating sales orders for ${company}. Only inventory currently available to this company can be selected.`
+                    ? lockedOrder
+                        ? `Viewing ${formatPortalOrderStatus(orderStatus)} sales order for ${company}. Draft fields are read-only; use the available processing actions to continue.`
+                        : `${currentOrder?.id ? "Editing a draft sales order" : "Creating a new sales order"} for ${company}. Only inventory currently available to this company can be selected.`
                     : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company)} Existing orders remain visible, but new order entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse sales order.";
             [
@@ -22713,12 +22716,14 @@
                 ui.salesOrderCommandAddLineBtn
             ].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled || lockedOrder;
+                button.hidden = lockedOrder;
             });
             [
                 ui.releaseWarehouseOrderBtn,
                 ui.salesOrderCommandReleaseBtn
             ].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled || !canReleaseOrder;
+                button.hidden = lockedOrder;
             });
             [
                 ui.salesOrderCommandPickTicketBtn,
@@ -23119,15 +23124,34 @@
             if (match) applyWarehouseShipToAddress(match);
         }
 
+        function getWarehouseSalesOrderDocumentCopy(order = null) {
+            if (!order?.id) {
+                return {
+                    title: "New Sales Order",
+                    lead: "Create a draft for the active company, then release it when the order is ready for warehouse processing."
+                };
+            }
+            if (order.status === "DRAFT") {
+                return {
+                    title: `Draft Sales Order ${order.orderCode}`,
+                    lead: "Review and edit this draft. Release it when the order is ready for warehouse processing."
+                };
+            }
+            return {
+                title: `Sales Order ${order.orderCode}`,
+                lead: `${formatPortalOrderStatus(order.status)} order details are read-only. Use the processing actions below to continue the warehouse workflow.`
+            };
+        }
+
         function resetWarehouseSalesOrderForm(order = null) {
             editingWarehouseOrderId = order?.id ? String(order.id) : "";
             if (order?.accountName && order.accountName !== getActiveCompany()) {
                 setActiveCompany(order.accountName, { force: true, rerender: false });
             }
             if (ui.warehouseOrderId) ui.warehouseOrderId.value = editingWarehouseOrderId;
-            if (ui.warehouseOrderTitle) {
-                ui.warehouseOrderTitle.textContent = order ? `Edit ${order.orderCode}` : "Warehouse Sales Order Entry";
-            }
+            const documentCopy = getWarehouseSalesOrderDocumentCopy(order);
+            if (ui.warehouseOrderTitle) ui.warehouseOrderTitle.textContent = documentCopy.title;
+            if (ui.warehouseOrderLead) ui.warehouseOrderLead.textContent = documentCopy.lead;
             if (ui.warehouseOrderStatusChip) {
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
             }
