@@ -37,7 +37,7 @@ test("every lifecycle status has an executable human-readable formatter", () => 
     const norm = (value) => String(value || "").trim().toUpperCase();
     const formatPortalOrderStatus = new Function("norm", `return function(status) {${match[1]}}`)(norm);
     assert.deepEqual(
-        ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].map(formatPortalOrderStatus),
-        ["Draft", "Released", "Picking", "Picked", "Staged", "Shipped", "Cancelled"]
+        ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED", "ARCHIVED"].map(formatPortalOrderStatus),
+        ["Draft", "Released", "Picking", "Picked", "Staged", "Shipped", "Cancelled", "Archived"]
     );
 });
