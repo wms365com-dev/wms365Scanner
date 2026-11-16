@@ -20,7 +20,7 @@ test("sales orders use validated, history-aware durable URLs", () => {
 test("opening a listed order paints the scoped summary before fetching current detail", () => {
     assert.match(warehouse, /const summary = getPortalOrderById\(orderId\);[\s\S]*?if \(summary\) \{[\s\S]*?showSalesOrderDocument\(summary/);
     assert.match(warehouse, /requestJson\(`\/api\/admin\/portal-orders\/\$\{encodeURIComponent\(key\)\}`\)/);
-    assert.match(warehouse, /if \(getSalesOrderIdFromUrl\(\) !== normalizedOrderId\) return null/);
+    assert.match(warehouse, /if \(getSalesOrderIdFromUrl\(\) !== normalizedOrderId\) \{[\s\S]*?return null/);
     assert.doesNotMatch(warehouse, /localStorage[^\n]*(?:portalOrder|salesOrder)/i);
 });
 

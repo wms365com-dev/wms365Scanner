@@ -40,8 +40,9 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 11 | WMS-15 sales-order ship-to visibility | VERIFIED | Existing permission-scoped response now renders a compact destination; full release gates passed |
 | 12 | WMS-18 duplicate and replacement continuity | VERIFIED | Exact scoped relationship candidate passed sandbox, production promotion, and read-only verification |
 | 13 | WMS-20 released-order language | VERIFIED | Exact display-only candidate passed global gates, sandbox role/isolation verification, soak, and production promotion |
-| 14 | WMS-24 durable order navigation | IN PROGRESS | Replace late modal-only opening with direct, history-aware order URLs without weakening scope checks |
-| 15 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+| 14 | WMS-24 durable order navigation | VERIFIED | Exact candidate passed URL/history regressions, global gates, sandbox isolation and soak, and production promotion |
+| 15 | WMS-19 stale opening feedback | IN PROGRESS | Clear only the matching transient open message after success or superseded navigation |
+| 16 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
 ## Platform Migration Audit
 
@@ -170,9 +171,9 @@ Acceptance: Open and share a permission-checked order URL; use browser Back/Forw
 | ---: | --- | --- | --- | --- |
 | 17 | WMS-15 | high | Sales Orders list omits ship-to | VERIFIED |
 | 18 | WMS-18 | high | Cancelled duplicate and replacement share a PO without a visible relationship | VERIFIED |
-| 19 | WMS-19 | medium | Stale `Opening sales order...` banner remains visible | QUEUED |
+| 19 | WMS-19 | medium | Stale `Opening sales order...` banner remains visible | IN PROGRESS |
 | 20 | WMS-20 | high | Released order opens with create/edit language | VERIFIED |
-| 21 | WMS-24 | high | Orders open late in a modal and have no durable URL | IN PROGRESS |
+| 21 | WMS-24 | high | Orders open late in a modal and have no durable URL | VERIFIED |
 
 ### Batch 4: Navigation, Empty States, and Operator Efficiency
 
@@ -379,6 +380,13 @@ Every batch must cover:
 - Test evidence: focused lifecycle, duplicate continuity, order-readiness, access-control, and warehouse-isolation tests passed 19/19; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 807/807.
 - Sandbox evidence: exact deployment `2b7c4300-8ebe-4b8f-9d4e-1e1d8405e282` passed all seven fresh-database controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, measured the sales-order queue at 36.7 ms median and 47.8 ms maximum, and completed its rollback cleanup. The deployed asset contained the reviewed lifecycle and command-visibility markers. Eleven read-only health requests over 10 minutes returned HTTP 200 with database, schema, desktop, and mobile readiness; Railway proxy durations were 4-33 ms, and logs contained no warnings, restarts, or HTTP 5xx.
 - Production promotion: named rollback deployment `eec431c9-2aa7-40c7-9dd1-eeefcbb56d71`; exact commit-pin deployment `1435bc76-4b81-4e16-aa60-a8dc63ea0272` succeeded. Read-only verification confirmed database and schema readiness, desktop and mobile entry routes, and a 273 ms database probe; the production artifact contains the reviewed lifecycle markers. Across 202 runtime and 207 proxy log entries there were no warnings, restarts, or HTTP 5xx. No production customer transaction or data mutation was used for verification.
+
+### WMS-24
+
+- Independent repair and retest 2026-11-15: **VERIFIED.** Exact commit `d3d3ef3b0e3b93b79dc6f643512bacf339dc5081` adds validated `salesOrderId` routes, direct-link loading, browser Back/Forward reconciliation, and stale-response cancellation. A permission-scoped list summary paints the document immediately while the existing guarded detail endpoint loads current data. Leaving the sales-order workspace clears the record route, and no order, address, inventory, document, or other business data is persisted in browser storage.
+- Test evidence: focused durable-navigation, lifecycle, portal-navigation, barcode, access-control, and warehouse-isolation tests passed 25/25; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 810/810.
+- Sandbox evidence: exact deployment `829ebe78-fefa-4e25-a22d-ae74b95ecf7a` passed all seven fresh-database controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced cross-company HTTP 403, measured the sales-order queue at 60 ms median and 76 ms maximum, and completed rollback cleanup. Eleven health samples over 10 minutes stayed fully ready with 3-17 ms database probes; Railway proxy health durations were 5-42 ms, and runtime/proxy logs contained no warnings, restarts, or HTTP 5xx.
+- Production promotion: named rollback deployment `1435bc76-4b81-4e16-aa60-a8dc63ea0272`; exact commit-pin deployment `f681d018-b466-4ef7-a2aa-4b256fe87a08` succeeded. Five read-only production probes retained application, database, schema, desktop, and mobile readiness with 11-17 ms database probes. The production artifact contains the durable-route marker, and runtime/proxy logs contained no warnings, restarts, or HTTP 5xx. No production customer transaction or data mutation was used for verification.
 
 ### WMS-21
 

@@ -25920,6 +25920,7 @@
             if (!normalizedOrderId) return null;
             const summary = getPortalOrderById(orderId);
             const orderLabel = summary?.orderCode || orderId;
+            const openingMessage = `Opening sales order ${orderLabel}...`;
             if (syncHistory) syncSalesOrderRoute(normalizedOrderId);
             if (summary) {
                 showSalesOrderDocument(summary, { scroll });
@@ -25928,9 +25929,13 @@
             const open = async () => {
                 const order = await requestPortalOrderDetail(orderId);
                 if (!order) throw new Error("That sales order could not be loaded.");
-                if (getSalesOrderIdFromUrl() !== normalizedOrderId) return null;
+                if (getSalesOrderIdFromUrl() !== normalizedOrderId) {
+                    clearMessageIfCurrent(messageElement, openingMessage);
+                    return null;
+                }
                 showSalesOrderDocument(order, { scroll });
                 showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode || orderLabel}.`, "info");
+                clearMessageIfCurrent(messageElement, openingMessage);
                 return order;
             };
             if (button) {
@@ -25939,14 +25944,14 @@
                         button,
                         busyLabel: "Opening...",
                         messageElement,
-                        progressMessage: `Opening sales order ${orderLabel}...`
+                        progressMessage: openingMessage
                     }, open);
                 } catch (error) {
                     showMessage(messageElement || ui.portalOrdersMessage, error.message, "error");
                     return null;
                 }
             }
-            if (messageElement) showMessage(messageElement, `Opening sales order ${orderLabel}...`, "info");
+            if (messageElement) showMessage(messageElement, openingMessage, "info");
             try {
                 return await open();
             } catch (error) {
@@ -32944,6 +32949,15 @@
             const isDocumentError = tone === "error" && (options.viewport || element.closest?.(".erp-document-card"));
             if (isDocumentError) showWarehouseViewportAlert(text, element);
             else if (tone !== "error" && element.closest?.(".erp-document-card")) dismissWarehouseViewportAlert();
+        }
+
+        function clearMessageIfCurrent(element, expectedText) {
+            if (!element || element.textContent !== expectedText) return false;
+            element.textContent = "";
+            element.className = "status";
+            element.removeAttribute("role");
+            element.removeAttribute("aria-live");
+            return true;
         }
 
         function fail(element, text, focusEl) {
