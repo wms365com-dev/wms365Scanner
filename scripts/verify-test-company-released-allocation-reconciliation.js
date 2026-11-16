@@ -22,6 +22,7 @@ async function main() {
         const { id: designatedCompanyId, name: accountName } = await requireDesignatedTestCompany(client);
         const suffix = Date.now().toString(36).toUpperCase();
         const warehouseCode = `AR${suffix.slice(-6)}`;
+        const unrelatedWarehouseCode = `AX${suffix.slice(-6)}`;
         const storageCode = `${warehouseCode}-A01`;
         const receivingCode = `${warehouseCode}-REC`;
         const sku = `ALLOC-${suffix}`;
@@ -38,11 +39,21 @@ async function main() {
             returning id
         `, [warehouseCode]);
         const warehouseId = warehouse.rows[0].id;
+        const unrelatedWarehouse = await client.query(`
+            insert into fulfillment_locations (
+                code, name, partner_name, location_type, address1, city, state, postal_code, country
+            ) values ($1, 'Unrelated Allocation Test', 'WMS365 Test', 'OWN_WAREHOUSE',
+                      '2 Test Drive', 'Toronto', 'ON', 'M5V 2T6', 'Canada')
+            returning id
+        `, [unrelatedWarehouseCode]);
+        const unrelatedWarehouseId = unrelatedWarehouse.rows[0].id;
         await client.query(`
             insert into company_fulfillment_locations (
                 account_name, fulfillment_location_id, is_primary, allow_inbound, allow_outbound, allow_storage
-            ) values ($1, $2, true, true, true, true)
-        `, [accountName, warehouseId]);
+            ) values
+                ($1, $2, true, true, true, true),
+                ($1, $3, false, true, true, true)
+        `, [accountName, warehouseId, unrelatedWarehouseId]);
         await client.query(`
             insert into bin_locations (code, account_name, fulfillment_location_id, note, location_type, is_pickable)
             values
@@ -102,6 +113,31 @@ async function main() {
             activityActor: actor.email
         });
         order = await releasePortalOrderForAccount(client, accountName, order.id, { activityActor: actor.email });
+        const unrelatedOrder = await savePortalOrderDraftForAccount(client, accountName, {
+            poNumber: `UNRELATED-${suffix}`,
+            shippingReference: `UNRELATED-${suffix}`,
+            contactName: "Test Receiver",
+            contactPhone: "905-555-0100",
+            requestedShipDate,
+            orderType: "RETAIL_WHOLESALE",
+            shipmentMethod: "PARCEL",
+            fulfillmentLocationId: unrelatedWarehouseId,
+            shipToName: "WMS365 Test Receiver",
+            shipToAddress1: "200 Test Street",
+            shipToCity: "Toronto",
+            shipToState: "ON",
+            shipToPostalCode: "M5V 2T6",
+            shipToCountry: "Canada",
+            lines: [{ sku, quantity: 20 }]
+        }, null, {
+            enforceInventoryAvailability: false,
+            activityTitlePrefix: "unrelated allocation verification",
+            activityActor: actor.email
+        });
+        await client.query(
+            "update portal_orders set status = 'RELEASED', updated_at = now() where id = $1",
+            [unrelatedOrder.id]
+        );
         const allocation = await client.query(
             "select id from portal_order_allocations where order_id = $1 and inventory_line_id = $2",
             [order.id, storage.id]
@@ -134,12 +170,20 @@ async function main() {
         if (Number(finalAllocation.rows[0]?.rows) !== 1 || Number(finalAllocation.rows[0]?.quantity) !== 5) {
             throw new Error("Reconciliation did not restore the exact pickable reservation.");
         }
+        const unrelatedAllocations = await client.query(
+            "select count(*)::integer as rows from portal_order_allocations where order_id = $1",
+            [unrelatedOrder.id]
+        );
+        if (Number(unrelatedAllocations.rows[0]?.rows) !== 0) {
+            throw new Error("Reconciliation changed allocations in the unrelated warehouse.");
+        }
         console.log(JSON.stringify({
             verified: true,
             designatedCompanyId: String(designatedCompanyId),
             targetOrders: 1,
             shortageCorrected: 2,
             nonPickableAllocationsCorrected: 1,
+            unrelatedWarehouseDemandIgnored: 20,
             inventoryQuantityChanged: false,
             orderFactsChanged: false,
             rolledBack: true
