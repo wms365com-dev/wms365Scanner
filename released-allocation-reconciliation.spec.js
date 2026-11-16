@@ -19,6 +19,8 @@ test("only untouched released orders are eligible for automatic reconciliation",
     assert.match(script, /where o\.status = 'RELEASED'/);
     assert.match(script, /not exists \(select 1 from pick_confirmations p where p\.order_id = o\.id\)/);
     assert.match(script, /wt\.task_type = 'PICK'[\s\S]*?wt\.status in \('IN_PROGRESS', 'DONE', 'BLOCKED'\)/);
+    assert.match(script, /line_stats\.short_line_count > 0/);
+    assert.match(script, /allocation_stats\.non_pickable_allocation_count = 0/);
     assert.match(script, /select id from portal_orders where id = any\(\$1::bigint\[\]\) order by id for update/);
     assert.doesNotMatch(script, /status\s*=\s*'(?:PICKED|STAGED|SHIPPED)'/);
 });

@@ -113,6 +113,28 @@ async function main() {
             activityActor: actor.email
         });
         order = await releasePortalOrderForAccount(client, accountName, order.id, { activityActor: actor.email });
+        let blockedOrder = await savePortalOrderDraftForAccount(client, accountName, {
+            poNumber: `BLOCKED-${suffix}`,
+            shippingReference: `BLOCKED-${suffix}`,
+            contactName: "Test Receiver",
+            contactPhone: "905-555-0100",
+            requestedShipDate,
+            orderType: "RETAIL_WHOLESALE",
+            shipmentMethod: "PARCEL",
+            fulfillmentLocationId: warehouseId,
+            shipToName: "WMS365 Test Receiver",
+            shipToAddress1: "100 Test Street",
+            shipToCity: "Mississauga",
+            shipToState: "ON",
+            shipToPostalCode: "L5T 1V6",
+            shipToCountry: "Canada",
+            lines: [{ sku, quantity: 3 }]
+        }, null, {
+            enforceInventoryAvailability: true,
+            activityTitlePrefix: "blocked allocation verification",
+            activityActor: actor.email
+        });
+        blockedOrder = await releasePortalOrderForAccount(client, accountName, blockedOrder.id, { activityActor: actor.email });
         const unrelatedOrder = await savePortalOrderDraftForAccount(client, accountName, {
             poNumber: `UNRELATED-${suffix}`,
             shippingReference: `UNRELATED-${suffix}`,
@@ -145,14 +167,27 @@ async function main() {
         if (allocation.rowCount !== 1) throw new Error("Fixture did not create the expected pickable allocation.");
         await client.query(`
             update portal_order_allocations
-            set inventory_line_id = $2, location = $3, allocated_quantity = 3, updated_at = now()
+            set allocated_quantity = 3, updated_at = now()
             where id = $1
-        `, [allocation.rows[0].id, receiving.id, receivingCode]);
+        `, [allocation.rows[0].id]);
+        const blockedAllocation = await client.query(
+            "select id from portal_order_allocations where order_id = $1 and inventory_line_id = $2",
+            [blockedOrder.id, storage.id]
+        );
+        if (blockedAllocation.rowCount !== 1) throw new Error("Fixture did not create the expected blocked allocation.");
+        await client.query(`
+            update portal_order_allocations
+            set inventory_line_id = $2, location = $3, updated_at = now()
+            where id = $1
+        `, [blockedAllocation.rows[0].id, receiving.id, receivingCode]);
 
         const plan = await loadPlan(client);
         const target = plan.rows.find((row) => row.id === String(order.id));
-        if (!target || target.shortage !== 2 || target.nonPickableAllocationCount !== 1) {
+        if (!target || target.shortage !== 2 || target.nonPickableAllocationCount !== 0) {
             throw new Error("Fixture did not enter the expected guarded reconciliation plan.");
+        }
+        if (plan.rows.some((row) => row.id === String(blockedOrder.id))) {
+            throw new Error("Non-pickable physical-work order entered the automatic correction plan.");
         }
         const before = await loadIntegritySnapshot(client, [String(order.id)]);
         order = await getPortalOrderById(client, target.id, target.accountName);
@@ -177,12 +212,20 @@ async function main() {
         if (Number(unrelatedAllocations.rows[0]?.rows) !== 0) {
             throw new Error("Reconciliation changed allocations in the unrelated warehouse.");
         }
+        const blockedFinal = await client.query(`
+            select count(*)::integer as rows
+            from portal_order_allocations
+            where order_id = $1 and inventory_line_id = $2 and location = $3
+        `, [blockedOrder.id, receiving.id, receivingCode]);
+        if (Number(blockedFinal.rows[0]?.rows) !== 1) {
+            throw new Error("Automatic correction changed the excluded non-pickable order.");
+        }
         console.log(JSON.stringify({
             verified: true,
             designatedCompanyId: String(designatedCompanyId),
             targetOrders: 1,
             shortageCorrected: 2,
-            nonPickableAllocationsCorrected: 1,
+            nonPickableOrdersExcluded: 1,
             unrelatedWarehouseDemandIgnored: 20,
             inventoryQuantityChanged: false,
             orderFactsChanged: false,

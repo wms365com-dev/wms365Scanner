@@ -70,7 +70,8 @@ async function loadPlan(client) {
                 and wt.task_type = 'PICK'
                 and wt.status in ('IN_PROGRESS', 'DONE', 'BLOCKED')
           )
-          and (line_stats.short_line_count > 0 or allocation_stats.non_pickable_allocation_count > 0)
+          and line_stats.short_line_count > 0
+          and allocation_stats.non_pickable_allocation_count = 0
         order by o.id
     `, [NON_PICKABLE_TYPES]);
     const rows = result.rows.map((row) => ({
