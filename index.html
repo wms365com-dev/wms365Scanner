@@ -13171,10 +13171,10 @@
                 renderPortalOrdersList();
                 await openSalesOrderDetail(exactOrder.id, { messageElement: ui.portalOrdersMessage, scroll: true });
             });
-            ui.openSalesOrderNewBtn?.addEventListener("click", () => showSalesOrderDocument(null, { scroll: true }));
-            ui.closeWarehouseOrderEntryBtn?.addEventListener("click", () => showSalesOrderList({ scroll: true }));
+            ui.openSalesOrderNewBtn?.addEventListener("click", () => openNewSalesOrderDocument({ scroll: true }));
+            ui.closeWarehouseOrderEntryBtn?.addEventListener("click", () => closeSalesOrderDocument({ scroll: true }));
             ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
-            ui.resetWarehouseOrderBtn?.addEventListener("click", () => showSalesOrderDocument(null));
+            ui.resetWarehouseOrderBtn?.addEventListener("click", () => openNewSalesOrderDocument());
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.deleteWarehouseOrderBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
@@ -13197,7 +13197,7 @@
                 ui.warehouseOrderShipToCountry
             ].filter(Boolean).forEach((control) => control.addEventListener("input", updateWarehouseOrderRoutingReadiness));
             ui.generateWarehouseOrderBolBtn?.addEventListener("click", openWarehouseOrderBolModal);
-            ui.salesOrderCommandNewBtn?.addEventListener("click", () => showSalesOrderDocument(null));
+            ui.salesOrderCommandNewBtn?.addEventListener("click", () => openNewSalesOrderDocument());
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.salesOrderCommandDeleteBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
@@ -13495,6 +13495,7 @@
             resetStoreIntegrationForm({ keepCompany: true });
             renderAll();
             setSection(getInitialSectionFromUrl() || (isMobileView() ? "mobile-home" : "home"), { recordHistory: false, syncOnSectionChange: false });
+            applySalesOrderRouteFromUrl().catch((error) => showMessage(ui.portalOrdersMessage, error.message, "error"));
             applyInitialMobileRouteParams();
             focusInitialLinkTarget();
             hydrateMobileDeviceCache().catch(() => {});
@@ -13537,6 +13538,10 @@
                 refreshPortalOrdersList(true, { showLoading: false }).catch(() => {});
             });
             window.addEventListener("offline", updateWarehouseConnectionWarning);
+            window.addEventListener("popstate", () => {
+                applySalesOrderRouteFromUrl({ fromHistory: true })
+                    .catch((error) => showMessage(ui.portalOrdersMessage, error.message, "error"));
+            });
             window.addEventListener("keydown", (event) => {
                 if (event.key === "Escape" && !ui.companySwitcherAddPopout?.classList.contains("hidden")) {
                     closeCompanySwitcherAddPopout();
@@ -13555,7 +13560,7 @@
                     return;
                 }
                 if (event.key === "Escape" && document.body.classList.contains("sales-order-popout-open")) {
-                    showSalesOrderList({ scroll: false });
+                    closeSalesOrderDocument({ scroll: false });
                     return;
                 }
                 if (event.key === "Escape" && document.body.classList.contains("purchase-order-popout-open")) {
@@ -13680,12 +13685,38 @@
                 return normalizeSectionForCurrentDevice("billing-finance");
             }
             const requestedSection = String(params.get("section") || "").trim().toLowerCase();
+            if (!requestedSection && getSalesOrderIdFromUrl()) return "orders";
             if (requestedSection === MOBILE_HOME_SECTION) {
                 return isMobileView() ? MOBILE_HOME_SECTION : "home";
             }
             return Object.prototype.hasOwnProperty.call(DESKTOP_SECTION_META, requestedSection)
                 ? normalizeSectionForCurrentDevice(requestedSection)
                 : "";
+        }
+
+        function getSalesOrderIdFromUrl() {
+            const params = new URLSearchParams(window.location.search || "");
+            const orderId = String(params.get("salesOrderId") || "").trim();
+            return /^[1-9]\d*$/.test(orderId) ? orderId : "";
+        }
+
+        function buildSalesOrderRouteUrl(orderId = "") {
+            const url = new URL(window.location.href);
+            const normalizedOrderId = String(orderId || "").trim();
+            if (normalizedOrderId) {
+                url.searchParams.set("section", activeSection === "shipped" ? "shipped" : "orders");
+                url.searchParams.set("salesOrderId", normalizedOrderId);
+            } else {
+                url.searchParams.delete("salesOrderId");
+            }
+            return url;
+        }
+
+        function syncSalesOrderRoute(orderId = "", { replace = false } = {}) {
+            const normalizedOrderId = String(orderId || "").trim();
+            if (getSalesOrderIdFromUrl() === normalizedOrderId) return;
+            const state = { ...(window.history.state || {}), wmsSalesOrderDetail: Boolean(normalizedOrderId) };
+            window.history[replace ? "replaceState" : "pushState"](state, "", buildSalesOrderRouteUrl(normalizedOrderId));
         }
 
         function applyInitialCompanyFromUrl() {
@@ -14079,6 +14110,9 @@
             hideMobileAutocomplete();
             const previousSection = activeSection;
             section = syncSectionVisibility(section);
+            if (section !== "orders" && section !== "shipped" && getSalesOrderIdFromUrl()) {
+                syncSalesOrderRoute("", { replace: true });
+            }
             if (isMobileView() && recordHistory && previousSection && previousSection !== section && previousSection !== "home") {
                 mobileSectionHistory.push(previousSection);
                 if (mobileSectionHistory.length > 24) mobileSectionHistory.splice(0, mobileSectionHistory.length - 24);
@@ -25876,12 +25910,25 @@
             return request;
         }
 
-        async function openSalesOrderDetail(orderId, { button = null, messageElement = ui.portalOrdersMessage, scroll = true } = {}) {
+        async function openSalesOrderDetail(orderId, {
+            button = null,
+            messageElement = ui.portalOrdersMessage,
+            scroll = true,
+            syncHistory = true
+        } = {}) {
+            const normalizedOrderId = String(orderId || "").trim();
+            if (!normalizedOrderId) return null;
             const summary = getPortalOrderById(orderId);
             const orderLabel = summary?.orderCode || orderId;
+            if (syncHistory) syncSalesOrderRoute(normalizedOrderId);
+            if (summary) {
+                showSalesOrderDocument(summary, { scroll });
+                showMessage(ui.warehouseOrderMessage, `Loading current details for sales order ${orderLabel}...`, "info");
+            }
             const open = async () => {
                 const order = await requestPortalOrderDetail(orderId);
                 if (!order) throw new Error("That sales order could not be loaded.");
+                if (getSalesOrderIdFromUrl() !== normalizedOrderId) return null;
                 showSalesOrderDocument(order, { scroll });
                 showMessage(ui.warehouseOrderMessage, `Opened sales order ${order.orderCode || orderLabel}.`, "info");
                 return order;
@@ -25908,6 +25955,25 @@
             }
         }
 
+        async function applySalesOrderRouteFromUrl({ fromHistory = false } = {}) {
+            const orderId = getSalesOrderIdFromUrl();
+            const requestedSection = getInitialSectionFromUrl();
+            if (requestedSection && requestedSection !== activeSection) {
+                setSection(requestedSection, { recordHistory: false, syncOnSectionChange: false });
+            }
+            if (!orderId) {
+                if (activeSection === "orders" || activeSection === "shipped") {
+                    showSalesOrderList({ scroll: false });
+                }
+                return null;
+            }
+            return openSalesOrderDetail(orderId, {
+                messageElement: ui.portalOrdersMessage,
+                scroll: !fromHistory,
+                syncHistory: false
+            });
+        }
+
         function getPortalInboundRecordById(inboundId) {
             return portalInboundRecords.find((entry) => String(entry.id) === String(inboundId)) || null;
         }
@@ -25918,6 +25984,20 @@
             ui.portalOrdersQueueCard?.classList.remove("hidden");
             if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "portalOrdersQueueCard");
             if (scroll) ui.portalOrdersQueueCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function closeSalesOrderDocument({ scroll = false } = {}) {
+            if (getSalesOrderIdFromUrl() && window.history.state?.wmsSalesOrderDetail) {
+                window.history.back();
+                return;
+            }
+            syncSalesOrderRoute("", { replace: true });
+            showSalesOrderList({ scroll });
+        }
+
+        function openNewSalesOrderDocument({ scroll = false } = {}) {
+            syncSalesOrderRoute("", { replace: true });
+            showSalesOrderDocument(null, { scroll });
         }
 
         function showSalesOrderDocument(order = null, { scroll = false } = {}) {

@@ -39,8 +39,9 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 10 | WMS-11 report scope and quantity basis | VERIFIED | Exact display/export-only candidate passed isolation, sandbox soak, and production verification |
 | 11 | WMS-15 sales-order ship-to visibility | VERIFIED | Existing permission-scoped response now renders a compact destination; full release gates passed |
 | 12 | WMS-18 duplicate and replacement continuity | VERIFIED | Exact scoped relationship candidate passed sandbox, production promotion, and read-only verification |
-| 13 | WMS-20 released-order language | IN PROGRESS | Replace create/edit wording with lifecycle-appropriate read-only processing language |
-| 14 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+| 13 | WMS-20 released-order language | VERIFIED | Exact display-only candidate passed global gates, sandbox role/isolation verification, soak, and production promotion |
+| 14 | WMS-24 durable order navigation | IN PROGRESS | Replace late modal-only opening with direct, history-aware order URLs without weakening scope checks |
+| 15 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
 ## Platform Migration Audit
 
@@ -170,8 +171,8 @@ Acceptance: Open and share a permission-checked order URL; use browser Back/Forw
 | 17 | WMS-15 | high | Sales Orders list omits ship-to | VERIFIED |
 | 18 | WMS-18 | high | Cancelled duplicate and replacement share a PO without a visible relationship | VERIFIED |
 | 19 | WMS-19 | medium | Stale `Opening sales order...` banner remains visible | QUEUED |
-| 20 | WMS-20 | high | Released order opens with create/edit language | IN PROGRESS |
-| 21 | WMS-24 | high | Orders open late in a modal and have no durable URL | QUEUED |
+| 20 | WMS-20 | high | Released order opens with create/edit language | VERIFIED |
+| 21 | WMS-24 | high | Orders open late in a modal and have no durable URL | IN PROGRESS |
 
 ### Batch 4: Navigation, Empty States, and Operator Efficiency
 
@@ -371,6 +372,13 @@ Every batch must cover:
 - Test evidence: focused duplicate/return, access-control, and warehouse-isolation tests passed 13/13; the access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 804/804. The shipped-order server-filter regression was updated to require qualified `o.account_name` and `o.status` filters after the scoped self-join.
 - Sandbox evidence: exact clean source deployed as `982b377f-53d1-49c7-924c-f0b54b5e8e78`, image `sha256:1d02d296522a383c516502581ecebf7d7052a2b53f3623028f8bf793b633eaba`. All seven fresh-database controls passed. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, measured the sales-order queue at 41 ms median and 45.2 ms maximum, and completed its rollback cleanup. The deployed artifact contained the reviewed relationship markers. The service remained fully ready beyond the required soak interval with 3-15 ms database probes in sampled checks; authoritative runtime logs contained only successful health events and the HTTP log contained zero 5xx responses.
 - Production promotion: named rollback deployment `e013dca8-ab05-443b-80ba-5e6a27faf540`; exact commit-pin deployment `eec431c9-2aa7-40c7-9dd1-eeefcbb56d71` succeeded. Five read-only probes confirmed application, database, schema, desktop, and mobile readiness; the deployed files contained the relationship markers; and runtime/proxy logs contained no warnings or HTTP 5xx. Database probes were 253, 935, 270, 255, and 278 ms, so startup/database latency remains explicitly tracked in the performance queue. No production customer transaction or data mutation was used for verification.
+
+### WMS-20
+
+- Independent repair and retest 2026-11-15: **VERIFIED.** Exact commit `7fcfe1dfbb220ec0e6cee860195d75d916c403ac` gives new orders, editable drafts, and released workflow records distinct lifecycle language. Released records no longer open as `Edit` or claim that a new order is being created; draft-only save, line, item-selection, and release commands are hidden while existing pick-ticket, routing, BOL, and warehouse processing actions remain available. The change does not write orders, inventory, allocations, shipments, documents, email, billing, integrations, jobs, or customer data.
+- Test evidence: focused lifecycle, duplicate continuity, order-readiness, access-control, and warehouse-isolation tests passed 19/19; access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 807/807.
+- Sandbox evidence: exact deployment `2b7c4300-8ebe-4b8f-9d4e-1e1d8405e282` passed all seven fresh-database controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, measured the sales-order queue at 36.7 ms median and 47.8 ms maximum, and completed its rollback cleanup. The deployed asset contained the reviewed lifecycle and command-visibility markers. Eleven read-only health requests over 10 minutes returned HTTP 200 with database, schema, desktop, and mobile readiness; Railway proxy durations were 4-33 ms, and logs contained no warnings, restarts, or HTTP 5xx.
+- Production promotion: named rollback deployment `eec431c9-2aa7-40c7-9dd1-eeefcbb56d71`; exact commit-pin deployment `1435bc76-4b81-4e16-aa60-a8dc63ea0272` succeeded. Read-only verification confirmed database and schema readiness, desktop and mobile entry routes, and a 273 ms database probe; the production artifact contains the reviewed lifecycle markers. Across 202 runtime and 207 proxy log entries there were no warnings, restarts, or HTTP 5xx. No production customer transaction or data mutation was used for verification.
 
 ### WMS-21
 
