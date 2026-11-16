@@ -14,7 +14,7 @@ test("successful sales-order opens clear the matching transient list message", (
 });
 
 test("superseded navigation clears its own opening message without reopening stale detail", () => {
-    assert.match(warehouse, /if \(getSalesOrderIdFromUrl\(\) !== normalizedOrderId\) \{[\s\S]*?clearMessageIfCurrent\(messageElement, openingMessage\);[\s\S]*?return null/);
+    assert.match(warehouse, /if \(requestSerial !== salesOrderOpenRequestSerial\) \{[\s\S]*?clearMessageIfCurrent\(messageElement, openingMessage\);[\s\S]*?return null/);
 });
 
 test("message cleanup is conditional and cannot erase a newer error or confirmation", () => {

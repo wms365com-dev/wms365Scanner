@@ -11395,6 +11395,7 @@
         const portalOrdersCompanyCache = new Map();
         const portalOrdersInFlight = new Map();
         const portalOrderDetailsInFlight = new Map();
+        let salesOrderOpenRequestSerial = 0;
         const portalOrderStatusActionsInFlight = new Map();
         let portalOrdersAllCompaniesRequested = false;
         let portalOrdersLoadingTimer = null;
@@ -13715,8 +13716,12 @@
         function syncSalesOrderRoute(orderId = "", { replace = false } = {}) {
             const normalizedOrderId = String(orderId || "").trim();
             if (getSalesOrderIdFromUrl() === normalizedOrderId) return;
-            const state = { ...(window.history.state || {}), wmsSalesOrderDetail: Boolean(normalizedOrderId) };
-            window.history[replace ? "replaceState" : "pushState"](state, "", buildSalesOrderRouteUrl(normalizedOrderId));
+            try {
+                const state = { ...(window.history.state || {}), wmsSalesOrderDetail: Boolean(normalizedOrderId) };
+                window.history[replace ? "replaceState" : "pushState"](state, "", buildSalesOrderRouteUrl(normalizedOrderId));
+            } catch (error) {
+                console.warn("Sales order route could not be updated; continuing with the current page.", error);
+            }
         }
 
         function applyInitialCompanyFromUrl() {
@@ -25921,15 +25926,15 @@
             const summary = getPortalOrderById(orderId);
             const orderLabel = summary?.orderCode || orderId;
             const openingMessage = `Opening sales order ${orderLabel}...`;
+            const requestSerial = ++salesOrderOpenRequestSerial;
             if (syncHistory) syncSalesOrderRoute(normalizedOrderId);
             if (summary) {
-                showSalesOrderDocument(summary, { scroll });
-                showMessage(ui.warehouseOrderMessage, `Loading current details for sales order ${orderLabel}...`, "info");
+                showSalesOrderLoadingDocument(summary, { scroll });
             }
             const open = async () => {
                 const order = await requestPortalOrderDetail(orderId);
                 if (!order) throw new Error("That sales order could not be loaded.");
-                if (getSalesOrderIdFromUrl() !== normalizedOrderId) {
+                if (requestSerial !== salesOrderOpenRequestSerial) {
                     clearMessageIfCurrent(messageElement, openingMessage);
                     return null;
                 }
@@ -25984,6 +25989,7 @@
         }
 
         function showSalesOrderList({ scroll = false } = {}) {
+            salesOrderOpenRequestSerial += 1;
             document.body.classList.remove("sales-order-popout-open");
             ui.warehouseOrderEntryCard?.classList.add("hidden");
             ui.portalOrdersQueueCard?.classList.remove("hidden");
@@ -25991,7 +25997,32 @@
             if (scroll) ui.portalOrdersQueueCard?.scrollIntoView({ behavior: "smooth", block: "start" });
         }
 
+        function showSalesOrderLoadingDocument(summary, { scroll = false } = {}) {
+            const orderLabel = summary?.orderCode || "Sales order";
+            ui.portalOrdersQueueCard?.classList.remove("hidden");
+            ui.warehouseOrderEntryCard?.classList.remove("hidden");
+            ui.warehouseOrderEntryCard?.setAttribute("aria-busy", "true");
+            ui.warehouseOrderForm?.classList.add("hidden");
+            ui.warehouseOrderWorkflowPanel?.classList.add("hidden");
+            if (ui.warehouseOrderWorkflowPanel) ui.warehouseOrderWorkflowPanel.innerHTML = "";
+            if (ui.warehouseOrderTitle) ui.warehouseOrderTitle.textContent = `Sales Order ${orderLabel}`;
+            if (ui.warehouseOrderStatusChip) ui.warehouseOrderStatusChip.textContent = summary?.status || "Loading";
+            if (ui.warehouseOrderLead) ui.warehouseOrderLead.textContent = "Loading current order details...";
+            if (ui.warehouseOrderCompanyMeta) {
+                ui.warehouseOrderCompanyMeta.textContent = summary?.accountName
+                    ? `Loading the current permission-checked record for ${summary.accountName}.`
+                    : "Loading the current permission-checked sales order record.";
+            }
+            if (!isMobileView()) {
+                document.body.classList.remove("purchase-order-popout-open", "item-card-popout-open");
+                document.body.classList.add("sales-order-popout-open");
+            }
+            if (typeof markWorkspaceAnchor === "function") markWorkspaceAnchor(activeSection, "warehouseOrderEntryCard");
+            if (scroll && isMobileView()) ui.warehouseOrderEntryCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
         function closeSalesOrderDocument({ scroll = false } = {}) {
+            salesOrderOpenRequestSerial += 1;
             if (getSalesOrderIdFromUrl() && window.history.state?.wmsSalesOrderDetail) {
                 window.history.back();
                 return;
@@ -26001,6 +26032,7 @@
         }
 
         function openNewSalesOrderDocument({ scroll = false } = {}) {
+            salesOrderOpenRequestSerial += 1;
             syncSalesOrderRoute("", { replace: true });
             showSalesOrderDocument(null, { scroll });
         }
@@ -26008,6 +26040,8 @@
         function showSalesOrderDocument(order = null, { scroll = false } = {}) {
             ui.portalOrdersQueueCard?.classList.remove("hidden");
             ui.warehouseOrderEntryCard?.classList.remove("hidden");
+            ui.warehouseOrderEntryCard?.removeAttribute("aria-busy");
+            ui.warehouseOrderForm?.classList.remove("hidden");
             resetWarehouseSalesOrderForm(order);
             if (!isMobileView()) {
                 document.body.classList.remove("purchase-order-popout-open", "item-card-popout-open");
