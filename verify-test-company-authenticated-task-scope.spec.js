@@ -10,9 +10,18 @@ const {
     median,
     requireSandboxConfiguration
 } = require("./scripts/verify-test-company-authenticated-task-scope");
+const {
+    DETAIL_MAX_BUDGET_MS,
+    DETAIL_MEDIAN_BUDGET_MS,
+    assertAllowedOrder
+} = require("./scripts/verify-test-company-sales-order-detail-performance");
 
 const script = fs.readFileSync(
     path.join(__dirname, "scripts", "verify-test-company-authenticated-task-scope.js"),
+    "utf8"
+);
+const detailScript = fs.readFileSync(
+    path.join(__dirname, "scripts", "verify-test-company-sales-order-detail-performance.js"),
     "utf8"
 );
 
@@ -97,4 +106,55 @@ test("harness exercises the real authenticated endpoint and denied-company respo
     assert.match(script, /DENIED-WH-/);
     assert.match(script, /DENIED-CO-/);
     assert.match(script, /count: ALLOWED_TASK_COUNT/);
+});
+
+test("sales-order detail verifier pins strict latency budgets and exact response scope", () => {
+    assert.equal(DETAIL_MEDIAN_BUDGET_MS, 300);
+    assert.equal(DETAIL_MAX_BUDGET_MS, 750);
+    const fixture = {
+        allowedOrderId: "42",
+        allowedOrderCode: "TEST-ORDER-DETAIL-ALLOW",
+        allowedLocationId: "77",
+        sku: "TEST-DETAIL-SKU"
+    };
+    const response = {
+        status: 200,
+        body: {
+            order: {
+                id: "42",
+                orderCode: fixture.allowedOrderCode,
+                accountName: "CODEX PORTAL SYSTEM TEST",
+                status: "DRAFT",
+                fulfillmentLocationId: "77",
+                lines: [{ sku: fixture.sku, quantity: 7 }],
+                documents: [],
+                warehouseShipments: [],
+                shipmentTracking: []
+            }
+        }
+    };
+    assert.doesNotThrow(() => assertAllowedOrder(response, fixture));
+    assert.throws(
+        () => assertAllowedOrder({ ...response, body: { order: { ...response.body.order, fulfillmentLocationId: "78" } } }, fixture),
+        /warehouse scope/
+    );
+    assert.throws(
+        () => assertAllowedOrder({ ...response, body: { order: { ...response.body.order, accountName: "OTHER" } } }, fixture),
+        /company or status scope/
+    );
+});
+
+test("sales-order detail verifier is sandbox-only, warehouse-negative and cleanup-safe", () => {
+    assert.match(detailScript, /requireSandboxConfiguration\(env\)/);
+    assert.match(detailScript, /requireDesignatedTestCompany\(pool\)/);
+    assert.match(detailScript, /id: "1510", name: "CODEX PORTAL SYSTEM TEST"/);
+    assert.match(detailScript, /status !== 403/);
+    assert.match(detailScript, /warehouse_worker/);
+    assert.match(detailScript, /app_user_fulfillment_location_access/);
+    assert.match(detailScript, /finally \{[\s\S]*await cleanup\(pool, fixture\)/);
+    assert.match(detailScript, /delete from portal_orders/);
+    assert.match(detailScript, /delete from item_catalog/);
+    assert.match(detailScript, /delete from fulfillment_locations/);
+    assert.match(detailScript, /fixture cleanup left sandbox residue/);
+    assert.doesNotMatch(detailScript, /inventory_lines|warehouse_shipments|sendEmail|shopify/i);
 });
