@@ -30,3 +30,14 @@ test("lifecycle language remains display-only and preserves existing workflow ca
     assert.match(warehouse, /renderWarehouseSalesOrderWorkflow\(order\)/);
     assert.doesNotMatch(warehouse, /requestJson\([^\n]*lifecycle-language/);
 });
+
+test("every lifecycle status has an executable human-readable formatter", () => {
+    const match = warehouse.match(/function formatPortalOrderStatus\(status\) \{([\s\S]*?)\n        \}/);
+    assert.ok(match, "sales-order status formatter must be defined");
+    const norm = (value) => String(value || "").trim().toUpperCase();
+    const formatPortalOrderStatus = new Function("norm", `return function(status) {${match[1]}}`)(norm);
+    assert.deepEqual(
+        ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].map(formatPortalOrderStatus),
+        ["Draft", "Released", "Picking", "Picked", "Staged", "Shipped", "Cancelled"]
+    );
+});

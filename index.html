@@ -25871,6 +25871,11 @@
             return "success";
         }
 
+        function formatPortalOrderStatus(status) {
+            const words = norm(status || "DRAFT").toLowerCase().replace(/_/g, " ");
+            return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : "Draft";
+        }
+
         function formatPortalOrderTimeline(order) {
             if (order.cancelledAt) return `Cancelled ${formatDate(order.cancelledAt)}`;
             if (order.shippedAt) return `Shipped ${formatDate(order.shippedAt)}`;
