@@ -119,7 +119,7 @@ async function main() {
             throw new Error("Fixture did not enter the expected guarded reconciliation plan.");
         }
         const before = await loadIntegritySnapshot(client, [String(order.id)]);
-        order = await getPortalOrderById(client, order.id, accountName);
+        order = await getPortalOrderById(client, target.id, target.accountName);
         await allocatePortalOrderInventory(client, order, { allowSplitFulfillment: false });
         await verifyOrder(client, order.id);
         const after = await loadIntegritySnapshot(client, [String(order.id)]);

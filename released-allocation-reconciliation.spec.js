@@ -69,6 +69,7 @@ test("sandbox workflow is pinned to the designated company and always rolls back
     assert.match(verifier, /requireDesignatedTestCompany\(client\)/);
     assert.match(verifier, /begin transaction isolation level serializable/);
     assert.match(verifier, /await verifyOrder\(client, order\.id\)/);
+    assert.match(verifier, /getPortalOrderById\(client, target\.id, target\.accountName\)/);
     assert.match(verifier, /inventoryQuantityChanged: false/);
     assert.match(verifier, /finally \{[\s\S]*?await client\.query\("rollback"\)/);
 });
