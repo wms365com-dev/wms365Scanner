@@ -47186,6 +47186,7 @@ module.exports = {
     filterLocationMasterRowsForAppUser,
     upsertInventoryLine,
     consumePortalOrderInventory,
+    allocatePortalOrderInventory,
     savePortalOrderDraftForAccount,
     duplicateWarehousePortalOrder,
     createReturnInboundFromShippedOrder,
