@@ -22627,6 +22627,19 @@ async function getActiveTemporarySkuOversellPolicies(client, {
     }]));
 }
 
+function resolvePortalAllocationReservationScopeIds({
+    allowSplitFulfillment = false,
+    portalInventoryPoolEnabled = false,
+    portalInventoryPoolSourceIds = [],
+    fulfillmentLocationId = null
+} = {}) {
+    if (allowSplitFulfillment) return [];
+    const candidateIds = portalInventoryPoolEnabled
+        ? portalInventoryPoolSourceIds
+        : [fulfillmentLocationId];
+    return [...new Set(candidateIds.map(toPositiveInt).filter((id) => id > 0))];
+}
+
 async function allocatePortalOrderInventory(client, order, { allowSplitFulfillment = false } = {}) {
     const normalizedAccount = normalizeText(order.accountName);
     const lineIds = order.lines.map((line) => Number(line.id) || 0).filter((value) => value > 0);
@@ -22656,6 +22669,18 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
     const portalInventoryPoolSourceIds = portalInventoryPoolSources
         .map((source) => toPositiveInt(source.fulfillment_location_id))
         .filter((id) => id > 0);
+    const reservationScopeIds = resolvePortalAllocationReservationScopeIds({
+        allowSplitFulfillment,
+        portalInventoryPoolEnabled,
+        portalInventoryPoolSourceIds,
+        fulfillmentLocationId
+    });
+    const reservationScopeSql = reservationScopeIds.length
+        ? `and (
+                o.fulfillment_location_id = any($5::bigint[])
+                or o.fulfillment_location_id is null
+            )`
+        : "";
     const inventoryParams = [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]];
     const warehouseLocationCode = warehouseLocationPrefix ? warehouseLocationPrefix.slice(0, -1) : "";
     const warehouseLocationSql = portalInventoryPoolEnabled && !allowSplitFulfillment
@@ -22726,9 +22751,12 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
                   and o.status = any($2::text[])
                   and o.id <> $3
                   and l.sku = any($4::text[])
+                  ${reservationScopeSql}
                 group by l.sku
             `,
-            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus]
+            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus, ...(
+                reservationScopeIds.length ? [reservationScopeIds] : []
+            )]
         )
         : { rows: [] };
 
@@ -22744,9 +22772,12 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
                   and o.status = any($2::text[])
                   and o.id <> $3
                   and a.sku = any($4::text[])
+                  ${reservationScopeSql}
                 group by a.sku
             `,
-            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus]
+            [normalizedAccount, ACTIVE_PORTAL_ORDER_STATUSES, order.id, skus, ...(
+                reservationScopeIds.length ? [reservationScopeIds] : []
+            )]
         )
         : { rows: [] };
 
@@ -46904,6 +46935,7 @@ module.exports = {
     applyPendingAdditiveMigrations,
     getHealteaMonthEndPeriod,
     buildHealteaMonthEndActivity,
+    resolvePortalAllocationReservationScopeIds,
     isStateChangingRequestOriginAllowed,
     assertShopifyNativeNotificationConfiguration,
     getShopifyInitialNotifyCustomer,
