@@ -25,6 +25,7 @@ async function loadPlan(client) {
     const result = await client.query(`
         select
             o.id,
+            o.account_name,
             o.updated_at,
             o.split_fulfillment_approved,
             line_stats.line_count,
@@ -74,6 +75,7 @@ async function loadPlan(client) {
     `, [NON_PICKABLE_TYPES]);
     const rows = result.rows.map((row) => ({
         id: String(row.id),
+        accountName: String(row.account_name || ""),
         updatedAt: new Date(row.updated_at).toISOString(),
         splitFulfillmentApproved: row.split_fulfillment_approved === true,
         lineCount: Number(row.line_count) || 0,
@@ -84,6 +86,7 @@ async function loadPlan(client) {
     }));
     const fingerprint = rows.map((row) => [
         row.id,
+        row.accountName,
         row.updatedAt,
         row.lineCount,
         row.shortLineCount,
@@ -194,7 +197,7 @@ async function main() {
         const orderIds = plan.rows.map((row) => row.id);
         const before = await loadIntegritySnapshot(client, orderIds);
         for (const target of plan.rows) {
-            const order = await getPortalOrderById(client, target.id);
+            const order = await getPortalOrderById(client, target.id, target.accountName);
             if (!order || order.status !== "RELEASED") throw new Error("A target order is no longer safely released.");
             await allocatePortalOrderInventory(client, order, {
                 allowSplitFulfillment: target.splitFulfillmentApproved

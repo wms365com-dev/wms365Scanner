@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const script = fs.readFileSync(path.join(__dirname, "scripts", "reconcile-released-order-allocations.js"), "utf8");
+const { loadPlan } = require("./scripts/reconcile-released-order-allocations");
 
 test("released allocation correction is dry-run by default and requires an exact plan hash", () => {
     assert.match(script, /begin transaction isolation level repeatable read read only/);
@@ -23,12 +24,34 @@ test("only untouched released orders are eligible for automatic reconciliation",
 });
 
 test("correction uses the normal allocator and verifies inventory and order facts are unchanged", () => {
+    assert.match(script, /o\.account_name/);
+    assert.match(script, /accountName: String\(row\.account_name \|\| ""\)/);
+    assert.match(script, /getPortalOrderById\(client, target\.id, target\.accountName\)/);
     assert.match(script, /allocatePortalOrderInventory\(client, order/);
     assert.match(script, /before\.inventoryHash !== after\.inventoryHash/);
     assert.match(script, /before\.orderHash !== after\.orderHash/);
     assert.match(script, /mismatched_lines/);
     assert.match(script, /non_pickable_allocations/);
     assert.match(script, /if \(remainingPlan\.rows\.length\) throw new Error/);
+});
+
+test("the plan carries account scope internally and binds it into the confirmation hash", async () => {
+    const row = {
+        id: "42",
+        account_name: "TENANT A",
+        updated_at: "2026-11-16T12:00:00.000Z",
+        split_fulfillment_approved: false,
+        line_count: 1,
+        short_line_count: 1,
+        shortage: 2,
+        non_pickable_allocation_count: 0,
+        allocation_quantity: 0
+    };
+    const first = await loadPlan({ query: async () => ({ rows: [row] }) });
+    const second = await loadPlan({ query: async () => ({ rows: [{ ...row, account_name: "TENANT B" }] }) });
+
+    assert.equal(first.rows[0].accountName, "TENANT A");
+    assert.notEqual(first.planHash, second.planHash);
 });
 
 test("server exports the production allocator without introducing a correction endpoint", () => {
