@@ -3977,17 +3977,10 @@
             const canInbounds = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.INBOUND_ENTRY);
             const canBilling = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.BILLING);
             const canAdmin = portalPermissionEnabled(PORTAL_PERMISSION_KEYS.ADMIN);
-            const fulfillmentPayload = (canInventory || canOrders || canInbounds)
-                ? await requestJson("/api/portal/fulfillment-locations").catch(() => ({ locations: [] }))
-                : { locations: [] };
-            portalState.fulfillmentLocations = Array.isArray(fulfillmentPayload?.locations)
-                ? fulfillmentPayload.locations.map(sanitizeFulfillmentLocation).filter(Boolean)
-                : [];
-            renderPortalWarehouseSwitcher();
-            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, shippedOrdersPayload, inboundsPayload, deliveriesPayload, shipToPayload, jobsPayload] = await Promise.all([
-                canInventory && portalState.activeFulfillmentLocationId
-                    ? requestJson(portalWarehouseScopedUrl("/api/portal/inventory"))
-                    : Promise.resolve({ inventory: [] }),
+            const fulfillmentRequest = (canInventory || canOrders || canInbounds)
+                ? requestJson("/api/portal/fulfillment-locations").catch(() => ({ locations: [] }))
+                : Promise.resolve({ locations: [] });
+            const independentRequests = [
                 (canInventory || canOrders || canInbounds) ? requestJson("/api/portal/items") : Promise.resolve({ items: [] }),
                 canOrders ? requestJson("/api/portal/kitting-requests").catch(() => ({ requests: [] })) : Promise.resolve({ requests: [] }),
                 canBilling ? requestJson("/api/portal/invoices").catch(() => ({ invoices: [], summary: {} })) : Promise.resolve({ invoices: [], summary: {} }),
@@ -4007,6 +4000,17 @@
                     ? requestJson("/api/portal/ship-to-addresses")
                     : Promise.resolve({ addresses: [] }),
                 canAdmin ? requestJson("/api/portal/jobs").catch(() => ({ jobs: [] })) : Promise.resolve({ jobs: [] })
+            ];
+            const fulfillmentPayload = await fulfillmentRequest;
+            portalState.fulfillmentLocations = Array.isArray(fulfillmentPayload?.locations)
+                ? fulfillmentPayload.locations.map(sanitizeFulfillmentLocation).filter(Boolean)
+                : [];
+            renderPortalWarehouseSwitcher();
+            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, shippedOrdersPayload, inboundsPayload, deliveriesPayload, shipToPayload, jobsPayload] = await Promise.all([
+                canInventory && portalState.activeFulfillmentLocationId
+                    ? requestJson(portalWarehouseScopedUrl("/api/portal/inventory"))
+                    : Promise.resolve({ inventory: [] }),
+                ...independentRequests
             ]);
 
             portalState.inventory = Array.isArray(inventoryPayload?.inventory) ? inventoryPayload.inventory.map(sanitizeInventoryItem).filter(Boolean) : [];
