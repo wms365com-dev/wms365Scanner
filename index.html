@@ -1731,6 +1731,15 @@
             box-shadow: 0 0 0 2px rgba(245,158,11,0.24);
         }
 
+        .connection-status-label {
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .connection-status-separator {
+            opacity: 0.55;
+        }
+
         .utility-action-link:hover {
             background: #eef4f8;
         }
@@ -6613,8 +6622,10 @@
                 </div>
                 <div class="desktop-utility-actions">
                     <div data-language-control-host></div>
-                    <span class="utility-status-pill" id="appBuildBadge" title="Checking WMS365 connection">
+                    <span class="utility-status-pill" id="appBuildBadge" role="status" aria-live="polite" title="Checking WMS365 connection">
                         <span class="connection-status-dot checking" id="appConnectionDot" aria-label="Checking connection"></span>
+                        <span class="connection-status-label" id="appConnectionLabel">Checking</span>
+                        <span class="connection-status-separator" aria-hidden="true">|</span>
                         <span id="appBuildLabelText">Build loading...</span>
                     </span>
                     <a class="utility-action-link" href="mailto:support@wms365.co">Contact Support</a>
@@ -11744,6 +11755,7 @@
             appBuildBadge: document.getElementById("appBuildBadge"),
             appBuildLabelText: document.getElementById("appBuildLabelText"),
             appConnectionDot: document.getElementById("appConnectionDot"),
+            appConnectionLabel: document.getElementById("appConnectionLabel"),
             appBuildMeta: document.getElementById("appBuildMeta"),
             appBuildMobileLabel: document.getElementById("appBuildMobileLabel"),
             appBuildFooter: document.getElementById("appBuildFooter"),
@@ -13669,9 +13681,9 @@
         function setAppConnectionStatus(status = "checking", detail = "") {
             const normalized = ["connected", "disconnected"].includes(status) ? status : "checking";
             const labels = {
-                connected: "Connected to WMS365",
+                connected: "System online",
                 disconnected: "Connection issue",
-                checking: "Checking connection"
+                checking: "Checking system"
             };
             const message = detail || labels[normalized];
             if (ui.appConnectionDot) {
@@ -13679,6 +13691,10 @@
                 ui.appConnectionDot.classList.add(normalized);
                 ui.appConnectionDot.setAttribute("aria-label", message);
                 ui.appConnectionDot.title = message;
+            }
+            if (ui.appConnectionLabel) {
+                ui.appConnectionLabel.textContent = labels[normalized];
+                ui.appConnectionLabel.title = message;
             }
             if (ui.appBuildBadge) {
                 ui.appBuildBadge.dataset.connectionStatus = normalized;
