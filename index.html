@@ -11402,6 +11402,8 @@
         let portalOrdersLastSyncedAt = "";
         let warehousePrintSetupState = { stations: [], printers: [], jobs: [] };
         let portalInboundRecords = [];
+        let portalInboundsRefreshSerial = 0;
+        const portalInboundsInFlight = new Map();
         let portalKittingRecords = [];
         let shipToAddressRecords = [];
         let shipToAddressesRefreshSerial = 0;
@@ -24804,30 +24806,44 @@
             }
         }
 
+        function requestPortalInboundsForCompany(company) {
+            const key = norm(company) || "__ALL_COMPANIES__";
+            const existing = portalInboundsInFlight.get(key);
+            if (existing) return existing;
+            const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+            const request = requestJson(`/api/admin/portal-inbounds${query}`)
+                .finally(() => {
+                    if (portalInboundsInFlight.get(key) === request) portalInboundsInFlight.delete(key);
+                });
+            portalInboundsInFlight.set(key, request);
+            return request;
+        }
+
+        function isPortalInboundsRefreshCurrent(refreshSerial, companyKey) {
+            return refreshSerial === portalInboundsRefreshSerial
+                && norm(getActiveCompany()) === companyKey;
+        }
+
         async function refreshPortalInboundsList(silent = false) {
+            const company = getActiveCompany();
+            const companyKey = norm(company);
+            const refreshSerial = ++portalInboundsRefreshSerial;
             try {
-                const company = getActiveCompany();
-                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
-                let payload = await requestJson(`/api/admin/portal-inbounds${query}`);
-                let inbounds = Array.isArray(payload?.inbounds)
+                const payload = await requestPortalInboundsForCompany(company);
+                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey)) return portalInboundRecords;
+                const inbounds = Array.isArray(payload?.inbounds)
                     ? payload.inbounds.map(sanitizePortalInboundRecord).filter(Boolean)
                     : [];
-
-                if (!inbounds.length && company) {
-                    const fallbackPayload = await requestJson("/api/admin/portal-inbounds");
-                    const fallbackInbounds = Array.isArray(fallbackPayload?.inbounds)
-                        ? fallbackPayload.inbounds.map(sanitizePortalInboundRecord).filter(Boolean)
-                        : [];
-                    inbounds = fallbackInbounds.filter((inbound) => norm(inbound.accountName) === norm(company));
-                }
-
                 portalInboundRecords = inbounds;
                 await refreshWarehouseTasksList(true).catch(() => {});
+                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey)) return portalInboundRecords;
                 renderPortalInboundsList();
                 renderWarehouseInboundContext();
                 updateDesktopOperationsAlerts();
                 renderWarehouseDashboard();
+                return portalInboundRecords;
             } catch (error) {
+                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey)) return portalInboundRecords;
                 if (!silent) {
                     portalInboundRecords = [];
                     renderPortalInboundsList(error.message);
