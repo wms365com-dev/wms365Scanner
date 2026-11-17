@@ -5,16 +5,29 @@ const assert = require("node:assert/strict");
 
 const source = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
 
-test("sales-order queue loads independent related records concurrently", () => {
+test("sales-order queue loads only list-required related records concurrently", () => {
     const start = source.indexOf("async function getPortalOrderList(");
     const end = source.indexOf("async function getPortalOrderListForAccount", start);
     assert.ok(start >= 0 && end > start);
     const section = source.slice(start, end);
     assert.match(section, /Promise\.all\(\[\s*orderIds\.length/);
-    assert.match(section, /getPortalShipmentLinesForOrders\(client, orderIds\)/);
-    assert.match(section, /getPortalOrderPrintSummariesForOrders\(client, orderIds\)/);
+    assert.match(section, /from portal_order_lines/);
+    assert.match(section, /from portal_order_documents/);
+    assert.doesNotMatch(section, /getPortalShipmentLinesForOrders\(client, orderIds\)/);
+    assert.doesNotMatch(section, /getPortalOrderPrintSummariesForOrders\(client, orderIds\)/);
     assert.match(section, /attachPortalInventoryPoolFlagsToOrders/);
     assert.match(section, /attachActiveTemporaryOversellPoliciesToOrderLines/);
+    assert.match(section, /mapPortalOrders\(ordersResult\.rows, linesResult\.rows, documentsResult\.rows/);
+});
+
+test("sales-order detail retains shipment lines and print history after list compaction", () => {
+    const start = source.indexOf("async function getPortalOrderById(");
+    const end = source.indexOf("const ADDRESS_COUNTRY_CODES", start);
+    assert.ok(start >= 0 && end > start);
+    const section = source.slice(start, end);
+    assert.match(section, /getPortalShipmentLinesForOrders\(client, \[orderId\]\)/);
+    assert.match(section, /getPortalOrderPrintSummariesForOrders\(client, \[orderId\]\)/);
+    assert.match(section, /shipmentLinesResult\.rows, printSummariesResult\.rows/);
 });
 
 test("sales-order queue exposes server timing without changing its JSON contract", () => {

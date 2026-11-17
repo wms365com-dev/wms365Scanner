@@ -20600,7 +20600,7 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
     );
 
     const orderIds = ordersResult.rows.map((row) => row.id);
-    const [linesResult, documentsResult, shipmentLinesResult, printSummariesResult] = await Promise.all([
+    const [linesResult, documentsResult] = await Promise.all([
         orderIds.length
             ? client.query(
             `
@@ -20633,15 +20633,13 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
                 `,
                 [orderIds]
             )
-            : Promise.resolve({ rows: [] }),
-        getPortalShipmentLinesForOrders(client, orderIds),
-        getPortalOrderPrintSummariesForOrders(client, orderIds)
+            : Promise.resolve({ rows: [] })
     ]);
     await Promise.all([
         attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows),
         attachActiveTemporaryOversellPoliciesToOrderLines(client, linesResult.rows)
     ]);
-    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map(), shipmentLinesResult.rows, printSummariesResult.rows);
+    return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map());
 }
 
 async function getPortalOrderListForAccount(accountName, client = pool, { status = "" } = {}) {
