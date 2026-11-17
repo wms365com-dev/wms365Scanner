@@ -6893,11 +6893,10 @@
                         <strong id="desktopCommandContext">Operations Home</strong>
                     </div>
                 </div>
-                <button class="desktop-view-filter has-caret" type="button">All</button>
+                <span class="desktop-view-filter">All</span>
                 <div class="desktop-alerts">
-                    <button class="desktop-ribbon-icon" type="button" title="Share">Link</button>
-                    <button class="desktop-ribbon-icon" type="button" title="Search">Find</button>
-                    <button class="desktop-ribbon-icon" type="button" title="Open in Excel">Excel</button>
+                    <button class="desktop-ribbon-icon" id="desktopCommandShareBtn" type="button" title="Copy current page link">Link</button>
+                    <button class="desktop-ribbon-icon" id="desktopCommandFindBtn" type="button" title="Focus this page's search">Find</button>
                     <span class="desktop-ribbon-divider"></span>
                     <button class="utility-action-link primary" type="button" id="desktopCommandNewBtn" data-jump-section="orders" data-start-new="sales-order">+ New</button>
                     <button class="utility-action-link" type="button" id="desktopCommandDeleteBtn">Delete</button>
@@ -6953,7 +6952,6 @@
                         </div>
                         <div class="workspace-company-row">
                             <select id="activeCompany" class="company-context-input"><option value="">Select company…</option></select>
-                            <button class="btn ghost mini" id="clearActiveCompanyBtnLegacy" type="button" hidden>Clear</button>
                             <button class="btn ghost mini" id="syncNowBtn" type="button">Refresh</button>
                         </div>
                         <div class="workspace-inline-meta">
@@ -7640,14 +7638,6 @@
                         </div>
                     </div>
                     <div class="erp-page-actions desktop-only" aria-label="Purchase order actions">
-                        <div class="erp-action-tabs">
-                            <button class="erp-action-tab active" type="button">Home</button>
-                            <button class="erp-action-tab" type="button">Prepare</button>
-                            <button class="erp-action-tab" type="button">Print/Send</button>
-                            <button class="erp-action-tab" type="button">Order</button>
-                            <button class="erp-action-tab" type="button">Report</button>
-                            <button class="erp-action-tab" type="button">More options</button>
-                        </div>
                         <div class="erp-command-strip">
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="purchaseOrderCommandPostBtn">Post...</button>
@@ -9539,14 +9529,6 @@
                         </div>
                     </div>
                     <div class="erp-page-actions desktop-only" aria-label="Sales order actions">
-                        <div class="erp-action-tabs">
-                            <button class="erp-action-tab active" type="button">Home</button>
-                            <button class="erp-action-tab" type="button">Prepare</button>
-                            <button class="erp-action-tab" type="button">Print/Send</button>
-                            <button class="erp-action-tab" type="button">Order</button>
-                            <button class="erp-action-tab" type="button">Report</button>
-                            <button class="erp-action-tab" type="button">More options</button>
-                        </div>
                         <div class="erp-command-strip">
                             <button class="erp-command-link" type="button" id="salesOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
@@ -11701,6 +11683,8 @@
             companySwitcherList: document.getElementById("companySwitcherList"),
             companySwitcherCloseBtn: document.getElementById("companySwitcherCloseBtn"),
             desktopCommandContext: document.getElementById("desktopCommandContext"),
+            desktopCommandShareBtn: document.getElementById("desktopCommandShareBtn"),
+            desktopCommandFindBtn: document.getElementById("desktopCommandFindBtn"),
             desktopCommandNewBtn: document.getElementById("desktopCommandNewBtn"),
             desktopCommandDeleteBtn: document.getElementById("desktopCommandDeleteBtn"),
             desktopCommandHomeBtn: document.getElementById("desktopCommandHomeBtn"),
@@ -12942,6 +12926,8 @@
                 }
             }));
             ui.desktopAlertShipmentEmailFailuresWrap?.addEventListener("click", openShipmentEmailFailureOrders);
+            ui.desktopCommandShareBtn?.addEventListener("click", copyDesktopCommandLink);
+            ui.desktopCommandFindBtn?.addEventListener("click", focusDesktopCommandSearch);
             ui.desktopCommandRefreshBtn?.addEventListener("click", () => {
                 ui.syncNowBtn?.click();
             });
@@ -15542,6 +15528,46 @@
             return false;
         }
 
+        function getDesktopCommandSearchTarget() {
+            if (activeSection === "orders" || activeSection === "shipped") return ui.portalOrderSearch;
+            if (activeSection === "inventory") return activeMasterRecordListType ? ui.masterRecordSearch : ui.singleSearchInput;
+            if (activeSection === "billing-finance") return document.getElementById("financeSearch");
+            return null;
+        }
+
+        function focusDesktopCommandSearch() {
+            const target = getDesktopCommandSearchTarget();
+            if (!target || target.disabled || target.hidden) return false;
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            window.setTimeout(() => {
+                target.focus({ preventScroll: true });
+                if (typeof target.select === "function") target.select();
+            }, 120);
+            return true;
+        }
+
+        async function copyDesktopCommandLink() {
+            const button = ui.desktopCommandShareBtn;
+            if (!button) return false;
+            const defaultLabel = "Link";
+            try {
+                if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
+                await navigator.clipboard.writeText(window.location.href);
+                button.textContent = "Copied";
+                button.title = "Current page link copied";
+                return true;
+            } catch (_error) {
+                button.textContent = "Unavailable";
+                button.title = "Clipboard access is unavailable in this browser";
+                return false;
+            } finally {
+                window.setTimeout(() => {
+                    button.textContent = defaultLabel;
+                    button.title = "Copy current page link";
+                }, 1600);
+            }
+        }
+
         function updateDesktopCommandActions() {
             const isOrderList = activeSection === "orders" || activeSection === "shipped";
             const isPurchaseList = activeSection === "inbounds";
@@ -15552,6 +15578,8 @@
                 ? `+ New ${masterRecordListLabel(activeMasterRecordListType, false)}`
                 : "+ New";
 
+            setCommandButtonState(ui.desktopCommandShareBtn, { hidden: false, text: "Link" });
+            setCommandButtonState(ui.desktopCommandFindBtn, { hidden: !getDesktopCommandSearchTarget(), text: "Find" });
             setCommandButtonState(ui.desktopCommandNewBtn, {
                 hidden: !(isOrderList || isPurchaseList || isFocusedMasterRecord),
                 text: isPurchaseList ? "+ New Purchase Order" : (isFocusedMasterRecord ? masterNewLabel : "+ New Sales Order"),

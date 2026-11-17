@@ -5442,7 +5442,7 @@
             return `
                 <div class="document-selection-item">
                     <strong>${files.length} document${files.length === 1 ? "" : "s"} selected</strong>
-                    <button class="btn ghost mini" type="button" ${clearAttribute}>Clear</button>
+                    <button class="btn ghost mini" type="button" data-clear-document-selection ${clearAttribute}>Clear</button>
                 </div>
                 ${rows}
             `;
@@ -5466,7 +5466,7 @@
         }
 
         function onDraftOrderDocumentSelectionClick(event) {
-            const clearButton = event.target.closest("[data-clear-draft-documents]");
+            const clearButton = event.target.closest("[data-clear-document-selection][data-clear-draft-documents]");
             if (!clearButton) return;
             portalState.orderDraftDocumentFiles = [];
             if (ui.orderDocumentFiles) ui.orderDocumentFiles.value = "";
@@ -5493,7 +5493,7 @@
         }
 
         function onDraftInboundDocumentSelectionClick(event) {
-            if (!event.target.closest("[data-clear-draft-inbound-documents]")) return;
+            if (!event.target.closest("[data-clear-document-selection][data-clear-draft-inbound-documents]")) return;
             portalState.inboundDraftDocumentFiles = [];
             if (ui.inboundDocumentFiles) ui.inboundDocumentFiles.value = "";
             renderDraftInboundDocumentSelection();
