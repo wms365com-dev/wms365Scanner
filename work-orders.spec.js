@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { isSandboxExternalSideEffectsDisabled } = require("./server");
 
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
 const warehouse = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
@@ -32,6 +33,16 @@ test("work order transitions are sequential and terminal updates are idempotent"
     assert.match(server, /COMPLETED: Object\.freeze\(\[\]\)/);
     assert.match(server, /return \{ \.\.\.unchanged, statusChanged: false \}/);
     assert.match(server, /request\.statusChanged && \(status === "COMPLETED" \|\| status === "CANCELLED"\)/);
+});
+
+test("sandbox external effects guard suppresses both kitting email queues", () => {
+    assert.equal(isSandboxExternalSideEffectsDisabled({ WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED: "true" }), true);
+    assert.equal(isSandboxExternalSideEffectsDisabled({ WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED: "TRUE" }), true);
+    assert.equal(isSandboxExternalSideEffectsDisabled({ WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED: "false" }), false);
+    assert.equal(isSandboxExternalSideEffectsDisabled({}), false);
+    assert.match(server, /function queuePortalKittingRequestEmail[\s\S]*?if \(isSandboxExternalSideEffectsDisabled\(\)\)/);
+    assert.match(server, /function queuePortalKittingRequestStatusEmail[\s\S]*?if \(isSandboxExternalSideEffectsDisabled\(\)\)/);
+    assert.match(server, /SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED/);
 });
 
 test("the Work Orders workspace does not instruct users to run a second inventory conversion", () => {

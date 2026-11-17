@@ -30950,7 +30950,10 @@ async function sendPortalKittingRequestEmail(request) {
 }
 
 function queuePortalKittingRequestEmail(request, { actorLabel = "Company portal" } = {}) {
-    if (!request?.id || !request?.accountName) return;
+    if (!request?.id || !request?.accountName) return { queued: false, skipped: true, reason: "INVALID_REQUEST" };
+    if (isSandboxExternalSideEffectsDisabled()) {
+        return { queued: false, skipped: true, reason: "SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED" };
+    }
     const requestLabel = request.requestCode || String(request.id);
     setTimeout(async () => {
         try {
@@ -30979,6 +30982,7 @@ function queuePortalKittingRequestEmail(request, { actorLabel = "Company portal"
             }
         }
     }, 0);
+    return { queued: true, skipped: false, reason: "" };
 }
 
 async function sendPortalKittingRequestStatusEmail(request) {
@@ -31020,7 +31024,10 @@ async function sendPortalKittingRequestStatusEmail(request) {
 }
 
 function queuePortalKittingRequestStatusEmail(request, { actorLabel = "Warehouse" } = {}) {
-    if (!request?.id || !request?.accountName) return;
+    if (!request?.id || !request?.accountName) return { queued: false, skipped: true, reason: "INVALID_REQUEST" };
+    if (isSandboxExternalSideEffectsDisabled()) {
+        return { queued: false, skipped: true, reason: "SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED" };
+    }
     setTimeout(async () => {
         try {
             const emailResult = await sendPortalKittingRequestStatusEmail(request);
@@ -31034,6 +31041,11 @@ function queuePortalKittingRequestStatusEmail(request, { actorLabel = "Warehouse
             console.error(`Kitting request status email failed for ${request.requestCode || request.id}:`, error);
         }
     }, 0);
+    return { queued: true, skipped: false, reason: "" };
+}
+
+function isSandboxExternalSideEffectsDisabled(env = process.env) {
+    return normalizeText(env?.WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED || "") === "TRUE";
 }
 
 function normalizePickTicketEmailDelayMs(value = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS) {
@@ -47212,6 +47224,7 @@ module.exports = {
     buildPortalOrderProcessingTiming,
     buildPortalKittingProcessingTiming,
     getPortalKittingCompletionCopyRecipients,
+    isSandboxExternalSideEffectsDisabled,
     PORTAL_KITTING_MINIMUM_BUSINESS_DAYS,
     portalOrderRequiresRushApproval,
     validatePortalShipmentLineConfirmations,
