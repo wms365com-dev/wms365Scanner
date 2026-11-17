@@ -481,6 +481,7 @@ const RBAC_PERMISSIONS = Object.freeze({
     MOBILE_WORKER_ACTION: "mobile_worker_action",
     ORDER_STATUS_UPDATE: "order_status_update",
     INBOUND_STATUS_UPDATE: "inbound_status_update",
+    WORK_ORDER_STATUS_UPDATE: "work_order_status_update",
     INTEGRATION_MANAGE: "integration_manage",
     DESTRUCTIVE_IMPORT: "destructive_import",
     ALLOW_AUTOMATION: "allow_automation",
@@ -497,6 +498,7 @@ const ROLE_PERMISSION_MAP = Object.freeze({
         RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
         RBAC_PERMISSIONS.ORDER_STATUS_UPDATE,
         RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE,
+        RBAC_PERMISSIONS.WORK_ORDER_STATUS_UPDATE,
         RBAC_PERMISSIONS.INTEGRATION_MANAGE
     ]),
     [APP_USER_ROLES.WAREHOUSE_ADMIN]: Object.freeze([
@@ -508,18 +510,21 @@ const ROLE_PERMISSION_MAP = Object.freeze({
         RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
         RBAC_PERMISSIONS.ORDER_STATUS_UPDATE,
         RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE,
+        RBAC_PERMISSIONS.WORK_ORDER_STATUS_UPDATE,
         RBAC_PERMISSIONS.INTEGRATION_MANAGE
     ]),
     [APP_USER_ROLES.WAREHOUSE_CUSTOMER_SERVICE]: Object.freeze([
         RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
         RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
         RBAC_PERMISSIONS.ORDER_STATUS_UPDATE,
-        RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE
+        RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE,
+        RBAC_PERMISSIONS.WORK_ORDER_STATUS_UPDATE
     ]),
     [APP_USER_ROLES.WAREHOUSE_WORKER]: Object.freeze([
         RBAC_PERMISSIONS.INVENTORY_COUNT_SUBMIT,
         RBAC_PERMISSIONS.INVENTORY_MOVE,
-        RBAC_PERMISSIONS.MOBILE_WORKER_ACTION
+        RBAC_PERMISSIONS.MOBILE_WORKER_ACTION,
+        RBAC_PERMISSIONS.WORK_ORDER_STATUS_UPDATE
     ]),
     [CUSTOMER_PORTAL_ROLE]: Object.freeze([
         RBAC_PERMISSIONS.CUSTOMER_PORTAL_OWN_ACCOUNT
@@ -5098,7 +5103,9 @@ app.get("/api/admin/kitting-requests", async (req, res, next) => {
     }
 });
 
-app.post("/api/admin/kitting-requests/:id/status", async (req, res, next) => {
+app.post("/api/admin/kitting-requests/:id/status", requirePermission(RBAC_PERMISSIONS.WORK_ORDER_STATUS_UPDATE, {
+    message: "Work order update access is required for that action."
+}), async (req, res, next) => {
     try {
         const requestId = toPositiveInt(req.params.id);
         if (!requestId) {
@@ -5110,7 +5117,7 @@ app.post("/api/admin/kitting-requests/:id/status", async (req, res, next) => {
         }
         const request = await withTransaction((client) => updatePortalKittingRequestStatus(client, requestId, status, req.body || {}, req.appUser));
         res.json({ success: true, request });
-        if (status === "COMPLETED" || status === "CANCELLED") {
+        if (request.statusChanged && (status === "COMPLETED" || status === "CANCELLED")) {
             queuePortalKittingRequestStatusEmail(request, {
                 actorLabel: req.appUser?.full_name || req.appUser?.email || "Warehouse"
             });
@@ -20025,8 +20032,22 @@ async function updatePortalKittingRequestStatus(client, requestId, status, rawIn
     }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     const warehouseNote = normalizeFreeText(rawInput?.warehouseNote || rawInput?.warehouse_note || "");
+    const allowedTransitions = Object.freeze({
+        SUBMITTED: Object.freeze(["IN_PROGRESS", "CANCELLED"]),
+        IN_PROGRESS: Object.freeze(["COMPLETED", "CANCELLED"]),
+        COMPLETED: Object.freeze([]),
+        CANCELLED: Object.freeze([])
+    });
+    if (normalizedStatus === existing.status) {
+        const unchanged = (await getAdminPortalKittingRequests(client, existing.account_name)).find((entry) => entry.id === String(requestId));
+        return { ...unchanged, statusChanged: false };
+    }
     if (["COMPLETED", "CANCELLED"].includes(existing.status) && normalizedStatus !== existing.status) {
         throw httpError(409, `${existing.request_code} is already ${existing.status.toLowerCase()} and cannot be reopened.`);
+    }
+    if (!(allowedTransitions[existing.status] || []).includes(normalizedStatus)) {
+        const displayStatus = existing.status === "SUBMITTED" ? "released" : existing.status.toLowerCase().replace(/_/g, " ");
+        throw httpError(409, `${existing.request_code} is ${displayStatus}. Complete the current work order step before moving it to ${normalizedStatus.toLowerCase().replace(/_/g, " ")}.`);
     }
     let completion = null;
     if (normalizedStatus === "COMPLETED" && existing.status !== "COMPLETED") {
@@ -20055,7 +20076,7 @@ async function updatePortalKittingRequestStatus(client, requestId, status, rawIn
         [existing.account_name, warehouseNote, actor].filter(Boolean).join(" | ")
     );
     const updated = (await getAdminPortalKittingRequests(client, existing.account_name)).find((entry) => entry.id === String(requestId));
-    return updated;
+    return { ...updated, statusChanged: true };
 }
 
 function buildPortalInventoryExportCsv(items) {

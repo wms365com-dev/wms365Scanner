@@ -6884,6 +6884,7 @@
                 <button type="button" data-jump-section="search">Inventory</button>
                 <button type="button" data-jump-section="orders">Sales Orders</button>
                 <button type="button" data-jump-section="inbounds">Purchase Orders</button>
+                <button type="button" data-jump-section="work-orders">Work Orders</button>
                 <button type="button" data-jump-section="reports">Reports & Counts</button>
             </div>
             <div class="desktop-alertbar desktop-only">
@@ -6987,6 +6988,10 @@
             <button class="tab" data-section="inbounds" type="button">
                 <span class="tab-label">Purchase Orders</span>
                 <span class="tab-meta">Create purchase orders and review expected receipts.</span>
+            </button>
+            <button class="tab" data-section="work-orders" type="button">
+                <span class="tab-label">Work Orders</span>
+                <span class="tab-meta">Review released kitting projects and move work through production.</span>
             </button>
             <button class="tab" data-section="search" type="button">
                 <span class="tab-label">Inventory</span>
@@ -8915,20 +8920,6 @@
                 </div>
             </article>
             <div class="action-grid action-workspace-grid">
-                <article class="card desktop-complex workspace-action-card" id="customerKittingRequestsCard">
-                    <div class="card-head">
-                        <div>
-                            <h2>Customer Display Build / Kitting Requests</h2>
-                            <p class="lead">Customer-submitted display build, kit, de-kit, and re-SKU work. Complete the physical work, then use Convert Item to update stock.</p>
-                        </div>
-                        <button class="btn ghost mini" id="refreshKittingRequestsAdminBtn" type="button">Refresh</button>
-                    </div>
-                    <p class="meta">Review customer display build requests first. Mark the request status here, then update stock with Convert Item after the warehouse work is complete.</p>
-                    <div id="customerKittingRequestsList" class="orders-list">
-                        <p class="empty">No customer kitting requests yet.</p>
-                    </div>
-                </article>
-
                 <article class="card mobile-subview active workspace-action-card" id="adjustInventoryCard" data-mobile-subview-group="actions" data-mobile-subview="adjust">
                     <div class="card-head">
                         <div>
@@ -9243,6 +9234,39 @@
             </div>
             <div class="status" id="actionMessage"></div>
             </div>
+        </section>
+
+        <section class="panel" id="workOrdersPanel" data-panel="work-orders">
+            <article class="card workspace-list-card" id="customerKittingRequestsCard">
+                <div class="card-head">
+                    <div>
+                        <h2>Work Orders: All</h2>
+                        <p>Review released kitting projects and move each job through warehouse production.</p>
+                    </div>
+                    <button class="btn ghost" id="refreshKittingRequestsAdminBtn" type="button">Refresh</button>
+                </div>
+                <div class="filter-grid compact">
+                    <label>
+                        Status
+                        <select id="workOrderStatusFilter">
+                            <option value="ALL">All statuses</option>
+                            <option value="SUBMITTED">Released</option>
+                            <option value="IN_PROGRESS">In Progress</option>
+                            <option value="COMPLETED">Completed</option>
+                            <option value="CANCELLED">Cancelled</option>
+                        </select>
+                    </label>
+                    <label>
+                        Search work orders
+                        <input id="workOrderSearch" type="search" placeholder="Work order, company, SKU, sales order, or PO">
+                    </label>
+                </div>
+                <div class="status-summary" id="workOrderStatusSummary" aria-label="Work order status totals"></div>
+                <div id="workOrderMessage" class="status" role="status"></div>
+                <div id="customerKittingRequestsList" class="orders-list">
+                    <p class="empty">Loading work orders...</p>
+                </div>
+            </article>
         </section>
 
         <section class="panel" id="inventoryPanel" data-panel="inventory">
@@ -11423,7 +11447,7 @@
                 { key: "home", label: "Dashboard", sections: ["home"] },
                 { key: "inbound", label: "Inbound", sections: ["inbounds", "scan"] },
                 { key: "inventory", label: "Inventory", sections: ["search", "moves", "actions", "labels"] },
-                { key: "outbound", label: "Outbound", sections: ["orders", "shipped"] },
+                { key: "outbound", label: "Outbound", sections: ["orders", "work-orders", "shipped"] },
                 { key: "setup", label: "Setup", sections: ["inventory", "integrations"] },
                 { key: "reporting", label: "Reporting", sections: ["reports"] },
                 { key: "commercial", label: "Commercial", sections: ["billing", "billing-finance"] },
@@ -11484,6 +11508,12 @@
                     drillPath: "Outbound / Sales Orders",
                     features: ["New Sales Order", "Sales Order Queue", "Pick Tickets", "Packing Slips", "Pick / Stage / Ship"]
                 },
+                "work-orders": {
+                    title: "Work Orders",
+                    meta: "Review released kitting projects and move each job through start, completion, and cancellation with warehouse-safe inventory posting.",
+                    drillPath: "Outbound / Work Orders",
+                    features: ["Work Order Queue", "Component Reservations", "Start Work", "Complete / Post", "Cancel"]
+                },
                 shipped: {
                     title: "Shipped Orders",
                     meta: "Review completed shipments, tracking, carrier details, and shipped paperwork without mixing them into the live warehouse queue.",
@@ -11540,6 +11570,7 @@
             moves: "Inventory Moves",
             labels: "Warehouse Labels",
             orders: "Sales Orders: All",
+            "work-orders": "Work Orders: All",
             shipped: "Shipped Orders: All",
             inventory: "Master Data",
             integrations: "Marketplace Connections",
@@ -11558,6 +11589,7 @@
             "search",
             "actions",
             "inbounds",
+            "work-orders",
             "labels"
         ]);
         const mobileQuery = window.matchMedia("(max-width: 640px)");
@@ -12132,6 +12164,10 @@
             convertPreview: document.getElementById("convertPreview"),
             customerKittingRequestsList: document.getElementById("customerKittingRequestsList"),
             refreshKittingRequestsAdminBtn: document.getElementById("refreshKittingRequestsAdminBtn"),
+            workOrderStatusFilter: document.getElementById("workOrderStatusFilter"),
+            workOrderSearch: document.getElementById("workOrderSearch"),
+            workOrderStatusSummary: document.getElementById("workOrderStatusSummary"),
+            workOrderMessage: document.getElementById("workOrderMessage"),
             moveAccount: document.getElementById("moveAccount"),
             moveFrom: document.getElementById("moveFrom"),
             moveTo: document.getElementById("moveTo"),
@@ -13294,6 +13330,8 @@
             document.getElementById("convertForm").addEventListener("submit", convertInventoryItems);
             ui.refreshKittingRequestsAdminBtn?.addEventListener("click", () => refreshKittingRequestsAdmin(false));
             ui.customerKittingRequestsList?.addEventListener("click", onCustomerKittingRequestsClick);
+            ui.workOrderStatusFilter?.addEventListener("change", renderCustomerKittingRequests);
+            ui.workOrderSearch?.addEventListener("input", renderCustomerKittingRequests);
             document.getElementById("moveForm").addEventListener("submit", moveAllItems);
             ui.inventoryLocationWarehouse?.addEventListener("change", refreshInventoryLocationWarehouseOptions);
             ui.transferImages?.addEventListener("change", () => renderInventoryMoveImagePreview(ui.transferImages, ui.transferImagePreview));
@@ -14067,7 +14105,7 @@
             ["transferInventoryCard", "inventoryLocationCard", "investigationHoldCard", "putAwayInventoryCard", "moveInventoryCard"].forEach((id) => {
                 document.getElementById(id)?.classList.toggle("hidden", adjustmentOnly);
             });
-            ["customerKittingRequestsCard", "adjustInventoryCard", "convertInventoryCard", "inventoryActionsRecentActivityCard"].forEach((id) => {
+            ["adjustInventoryCard", "convertInventoryCard", "inventoryActionsRecentActivityCard"].forEach((id) => {
                 document.getElementById(id)?.classList.toggle("hidden", moveOnly || !canAdjust);
             });
         }
@@ -14154,6 +14192,10 @@
                     scrollCurrentViewTop();
                 }
                 refreshPortalInboundsList(true).catch(() => {});
+            }
+            if (section === "work-orders") {
+                scrollCurrentViewTop();
+                refreshKittingRequestsAdmin(true).catch(() => {});
             }
             if (section === "search") {
                 if (isMobileView()) {
@@ -15530,6 +15572,7 @@
 
         function getDesktopCommandSearchTarget() {
             if (activeSection === "orders" || activeSection === "shipped") return ui.portalOrderSearch;
+            if (activeSection === "work-orders") return ui.workOrderSearch;
             if (activeSection === "inventory") return activeMasterRecordListType ? ui.masterRecordSearch : ui.singleSearchInput;
             if (activeSection === "billing-finance") return document.getElementById("financeSearch");
             return null;
@@ -15571,6 +15614,7 @@
         function updateDesktopCommandActions() {
             const isOrderList = activeSection === "orders" || activeSection === "shipped";
             const isPurchaseList = activeSection === "inbounds";
+            const isWorkOrderList = activeSection === "work-orders";
             const isReceiving = activeSection === "scan";
             const isReportLike = activeSection === "reports" || activeSection === "shipped";
             const isFocusedMasterRecord = activeSection === "inventory" && !!activeMasterRecordListType;
@@ -15599,8 +15643,8 @@
                 jumpSection: isPurchaseList ? "inbounds" : "scan"
             });
             setCommandButtonState(ui.desktopCommandRefreshBtn, { hidden: false, text: "Refresh" });
-            setCommandButtonState(ui.desktopCommandPrintSendBtn, { hidden: !isReportLike && !isOrderList && !isPurchaseList, text: "Print/Send", jumpSection: isPurchaseList ? "inbounds" : "reports" });
-            setCommandButtonState(ui.desktopCommandOrderBtn, { hidden: !isOrderList && !isPurchaseList, text: isPurchaseList ? "Purchase Order" : "Order", jumpSection: isPurchaseList ? "inbounds" : "orders" });
+            setCommandButtonState(ui.desktopCommandPrintSendBtn, { hidden: !isReportLike && !isOrderList && !isPurchaseList && !isWorkOrderList, text: "Print/Send", jumpSection: isPurchaseList ? "inbounds" : (isWorkOrderList ? "work-orders" : "reports") });
+            setCommandButtonState(ui.desktopCommandOrderBtn, { hidden: !isOrderList && !isPurchaseList && !isWorkOrderList, text: isPurchaseList ? "Purchase Order" : (isWorkOrderList ? "Work Order" : "Order"), jumpSection: isPurchaseList ? "inbounds" : (isWorkOrderList ? "work-orders" : "orders") });
             setCommandButtonState(ui.desktopCommandMoreBtn, { hidden: false, text: "More options", jumpSection: "backup" });
         }
 
@@ -24759,20 +24803,54 @@
 
         function renderCustomerKittingRequests() {
             if (!ui.customerKittingRequestsList) return;
-            const requests = getCompanyScopedKittingRequests()
+            const allRequests = getCompanyScopedKittingRequests()
                 .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            const statusFilter = norm(ui.workOrderStatusFilter?.value || "ALL");
+            const search = String(ui.workOrderSearch?.value || "").trim().toLowerCase();
+            const requests = allRequests.filter((request) => {
+                if (statusFilter !== "ALL" && norm(request.status) !== statusFilter) return false;
+                if (!search) return true;
+                const haystack = [
+                    request.requestCode, request.accountName, request.fulfillmentLocationName,
+                    request.fulfillmentLocationCode, request.targetSku, request.targetDescription,
+                    request.sourceSku, request.salesOrderReference, request.purchaseOrderReference,
+                    ...(Array.isArray(request.components) ? request.components.map((component) => component.sku) : [])
+                ].filter(Boolean).join(" ").toLowerCase();
+                return haystack.includes(search);
+            });
+            if (ui.workOrderStatusSummary) {
+                const totals = allRequests.reduce((summary, request) => {
+                    const key = norm(request.status);
+                    summary[key] = (summary[key] || 0) + 1;
+                    return summary;
+                }, {});
+                ui.workOrderStatusSummary.innerHTML = [
+                    ["SUBMITTED", "Released"], ["IN_PROGRESS", "In Progress"],
+                    ["COMPLETED", "Completed"], ["CANCELLED", "Cancelled"]
+                ].map(([status, label]) => `<div><span>${esc(label)}</span><strong>${Number(totals[status] || 0)}</strong></div>`).join("");
+            }
             if (!requests.length) {
-                ui.customerKittingRequestsList.innerHTML = `<p class="empty">No customer kitting requests yet.</p>`;
+                ui.customerKittingRequestsList.innerHTML = `<p class="empty">No work orders match the current filters.</p>`;
                 return;
             }
-            ui.customerKittingRequestsList.innerHTML = requests.map((request) => `
+            ui.customerKittingRequestsList.innerHTML = requests.map((request) => {
+                const status = norm(request.status);
+                const displayStatus = status === "SUBMITTED" ? "RELEASED" : status.replace(/_/g, " ");
+                const actionButtons = status === "SUBMITTED"
+                    ? `<button class="btn primary mini" type="button" data-kitting-status="${attr(request.id)}" data-status="IN_PROGRESS">Start Work</button>
+                       <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="CANCELLED">Cancel</button>`
+                    : status === "IN_PROGRESS"
+                        ? `<button class="btn primary mini" type="button" data-kitting-status="${attr(request.id)}" data-status="COMPLETED">Complete / Post</button>
+                           <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="CANCELLED">Cancel</button>`
+                        : "";
+                return `
                 <article class="order-card">
                     <div class="order-head">
                         <div>
                             <strong>${esc(request.requestCode || request.id)}</strong>
                             <div class="meta">${esc(request.accountName)} | ${esc(request.fulfillmentLocationName || request.fulfillmentLocationCode || "Warehouse not recorded")} | ${esc(formatDate(request.createdAt))}${request.requestedCompletionDate ? ` | Needed ${esc(request.requestedCompletionDate)}` : ""}</div>
                         </div>
-                        <span class="badge ${norm(request.status) === "COMPLETED" ? "success" : ""}">${esc(request.status)}</span>
+                        <span class="badge ${status === "COMPLETED" ? "success" : ""}">${esc(displayStatus)}</span>
                     </div>
                     <div class="order-meta">
                         <div><strong>Build:</strong> ${esc(formatKittingComponentSummary(request))}</div>
@@ -24781,13 +24859,10 @@
                         <div>${esc([request.salesOrderReference ? `Sales ${request.salesOrderReference}` : "", request.purchaseOrderReference ? `PO ${request.purchaseOrderReference}` : ""].filter(Boolean).join(" | ") || "No related order references")}</div>
                         ${request.notes ? `<div>${esc(request.notes)}</div>` : ""}
                     </div>
-                    <div class="button-row">
-                        <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="IN_PROGRESS">In Progress</button>
-                        <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="COMPLETED">Completed</button>
-                        <button class="btn ghost mini" type="button" data-kitting-status="${attr(request.id)}" data-status="CANCELLED">Cancel</button>
-                    </div>
+                    ${actionButtons ? `<div class="button-row">${actionButtons}</div>` : ""}
                 </article>
-            `).join("");
+            `;
+            }).join("");
         }
 
         async function refreshKittingRequestsAdmin(silent = true) {
@@ -24799,10 +24874,10 @@
                     ? payload.requests.map(sanitizePortalKittingRequestRecord).filter(Boolean)
                     : [];
                 renderCustomerKittingRequests();
-                if (!silent) showMessage(ui.actionMessage, "Kitting requests refreshed.", "success");
+                if (!silent) showMessage(ui.workOrderMessage || ui.actionMessage, "Work orders refreshed.", "success");
                 return portalKittingRecords;
             } catch (error) {
-                if (!silent) showMessage(ui.actionMessage, error.message, "error");
+                if (!silent) showMessage(ui.workOrderMessage || ui.actionMessage, error.message, "error");
                 throw error;
             }
         }
@@ -24812,6 +24887,7 @@
             if (!button) return;
             const requestId = button.dataset.kittingStatus;
             const status = button.dataset.status;
+            if (status === "CANCELLED" && !window.confirm("Cancel this work order and release its reserved component stock?")) return;
             const warehouseNote = status === "COMPLETED"
                 ? "Completed by warehouse."
                 : status === "IN_PROGRESS"
@@ -24822,15 +24898,15 @@
                     button,
                     busyLabel: "Saving...",
                     progressMessage: `Updating kitting request to ${status}...`,
-                    onProgress: (message, tone) => showMessage(ui.actionMessage, message, tone)
+                    onProgress: (message, tone) => showMessage(ui.workOrderMessage || ui.actionMessage, message, tone)
                 }, async () => requestJson(`/api/admin/kitting-requests/${encodeURIComponent(requestId)}/status`, {
                     method: "POST",
                     body: JSON.stringify({ status, warehouseNote })
                 }));
                 await refreshKittingRequestsAdmin(true);
-                showMessage(ui.actionMessage, `Kitting request marked ${status}.`, "success");
+                showMessage(ui.workOrderMessage || ui.actionMessage, `Work order marked ${status === "IN_PROGRESS" ? "in progress" : status.toLowerCase()}.`, "success");
             } catch (error) {
-                showMessage(ui.actionMessage, error.message, "error");
+                showMessage(ui.workOrderMessage || ui.actionMessage, error.message, "error");
             }
         }
 

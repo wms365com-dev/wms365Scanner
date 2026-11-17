@@ -42,7 +42,19 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 13 | WMS-20 released-order language | VERIFIED | Missing formatter repaired with executable full-lifecycle coverage; exact candidate passed sandbox isolation, soak, and production verification |
 | 14 | WMS-24 durable order navigation | VERIFIED | Cumulative navigation repair repeated exact-candidate sandbox and production verification after the incident rollback |
 | 15 | WMS-19 stale opening feedback | VERIFIED | Matching transient feedback clears after success or superseded navigation without erasing newer messages |
-| 16 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+| 16 | WMS-25 warehouse Work Orders module | IN PROGRESS | Dedicated queue, warehouse permission, sequential lifecycle, sandbox role/isolation workflow, soak, and production promotion |
+| 17 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
+
+### WMS-25 - Warehouse Work Orders module
+
+- Priority: `critical`
+- Status: `IN PROGRESS`
+- Request: warehouse users need first-class access to customer kitting projects beside Sales Orders and Purchase Orders, including safe start, completion/posting, and cancellation actions.
+- Candidate: `index.html` adds a dedicated responsive Work Orders workspace with navigation, status totals, status filtering, multi-field search, company/warehouse context, component/output details, and state-specific commands. Existing portal-created `SUBMITTED` projects are displayed as `RELEASED` because submission already reserves component inventory. The old Inventory Adjustments copy is retired and no longer tells users to run a second Convert Item transaction.
+- Lifecycle and permissions: `server.js` adds `work_order_status_update` for operational warehouse roles, protects the mutation endpoint with that permission, limits transitions to `SUBMITTED -> IN_PROGRESS -> COMPLETED` with cancellation from active states, keeps completed/cancelled records terminal, and makes identical terminal retries no-ops so they cannot duplicate status email scheduling.
+- Isolation and integrity: existing company and fulfillment-location checks remain mandatory. Starting work changes no inventory; cancellation releases reservations once; completion continues to atomically deduct reserved components and create finished pickable inventory. No customer, inventory, billing, document, integration, or live transaction data is changed by the release itself.
+- Tests: focused Work Orders, kitting reservation/SLA/email, navigation, and control-map tests pass. Access-control audit passes 12/12 across 292 routes. After one unrelated processing-time runner flake passed immediately in isolation, a fresh complete rerun passed the shared deployment gate 845/845 with zero unresolved controls.
+- Required release evidence: exact commit, fresh database, authenticated `CODEX PORTAL SYSTEM TEST` warehouse-role workflow, denied company and warehouse checks, cancellation/terminal idempotency verification, 10-minute healthy sandbox soak, named rollback artifact, exact production deployment, and read-only production verification.
 
 ## Platform Migration Audit
 
