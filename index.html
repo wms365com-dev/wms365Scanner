@@ -19550,7 +19550,7 @@
                             <span class="pallet-label-location">${esc(saved.location || "UNASSIGNED")}</span>
                         </div>
                         <div class="pallet-label-barcode">${barcodeMarkup}</div>
-                        <p class="pallet-label-vendor">${esc(saved.accountName)}</p>
+                        <p class="pallet-label-vendor">Company: ${esc(saved.accountName)}</p>
                         <p class="pallet-label-sku">${esc(saved.sku)}</p>
                         <p class="pallet-label-description">${esc(saved.description || "NO DESCRIPTION")}</p>
                         <div class="pallet-label-footer">
@@ -24586,7 +24586,7 @@
                             <span class="pallet-label-location">${esc(inbound.inboundCode || "")}</span>
                         </div>
                         <div class="pallet-label-barcode">${barcodeMarkup}</div>
-                        <p class="pallet-label-vendor">${esc(inbound.accountName || "")}</p>
+                        <p class="pallet-label-vendor">Company: ${esc(inbound.accountName || "")}</p>
                         <p class="pallet-label-sku">${esc(sku)}</p>
                         <p class="pallet-label-description">${esc(description)}</p>
                         <div class="pallet-label-footer">
