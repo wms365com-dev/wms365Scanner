@@ -168,7 +168,15 @@ Acceptance: Open every module; reconcile dashboard/task/order counts from one sc
 | 3 | WMS-03 | critical | Task counts conflict with open outbound and status counts | VERIFIED |
 | 4 | WMS-21 | critical | Pickup is free text; warehouse, carrier, and fulfilment method are not structured | VERIFIED |
 | 5 | WMS-25 | high | Normal page load produces `/api/app/me` and `/api/state` 401 noise | VERIFIED |
-| 6 | WMS-27 | medium | Green/amber system status dot has no label or explanation | QUEUED |
+| 6 | WMS-27 | medium | Green/amber system status dot has no label or explanation | VERIFIED |
+
+### WMS-27 - Visible system status label
+
+- Status: `VERIFIED` on 2026-11-17.
+- Code: exact commit `65aa94ee9b58f3cfd0ea2c8c526523920727a40e` adds a visible `System online`, `Connection issue`, or `Checking system` label beside the existing connection dot and exposes the combined indicator as a polite live status. The change is display-only and does not alter authentication, tenant or warehouse scope, transactions, inventory, documents, email, billing, integrations, or jobs.
+- Tests: focused status-label regression and negative coverage passed 3/3; access-control passed 12/12 across 292 routes; `npm run check:deploy` passed 849/849; the isolated fresh-database verifier passed all seven schema controls.
+- Sandbox: exact deployment `7b17288e-b70a-450e-92ee-b0bc57b4f253` succeeded in `customer-sandbox`. The authenticated designated-company workflow verified owner account `1510`, returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced cross-company HTTP 403, and cleaned its fixtures. The deployed asset contains the visible status label. Eleven health probes from `2026-11-18T00:22:05Z` through `2026-11-18T00:32:10Z` remained HTTP 200 with application, database, schema, desktop, and mobile readiness; database probes were 2-8 ms. Runtime and proxy logs contained no warning, restart, upstream error, or HTTP 5xx.
+- Production: named rollback deployment `ebb63585-04b2-4a32-b811-1060ead6d53a`; exact sandbox-proven deployment `d52f76a1-599f-463d-9a03-7a6b0b0cb177` succeeded. Five read-only health probes remained HTTP 200 with application, database, schema, desktop, and mobile readiness. The deployed asset contains the status label, and deployment/proxy logs contained no warning, restart, upstream error, or HTTP 5xx. No production customer transaction or data mutation was used for verification.
 
 ### Batch 2: Scope, Permissions, Feature Flags, and Inventory Clarity
 
