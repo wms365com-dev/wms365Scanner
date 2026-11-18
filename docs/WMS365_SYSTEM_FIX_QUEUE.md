@@ -196,7 +196,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | 11 | WMS-17 | high | Routing fields do not clearly state which missing values block routing | VERIFIED |
 | 12 | WMS-22 | high | Available quantity conflicts with the on-hand caption | VERIFIED |
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | VERIFIED |
-| 14 | WMS-10 | medium | Company labels render without a field | QUEUED |
+| 14 | WMS-10 | medium | Company labels render without a field | VERIFIED |
 | 15 | WMS-11 | high | Reports omit scope and quantity basis and can show contradictory company totals | VERIFIED |
 | 16 | WMS-12 | medium | Company name overlaps FactBox content | QUEUED |
 
@@ -368,6 +368,12 @@ Every batch must cover:
 - Independent verification 2026-11-18: **VERIFIED.** Existing client behavior explains that Shopify or SFTP is not enabled when its company feature is off, keeps that reason visible while disabling connection and synchronization controls, and retains direct server-side feature gates for write attempts. Focused positive and negative coverage passed 3/3, the access-control audit passed 12/12 across 292 routes, `npm run check:deploy` passed 852/852, and all seven fresh-database controls passed.
 - Sandbox evidence: exact commit `ab1c523d7e90a466c7e225ebb9654f95449c6282` deployed as `854cc397-b166-41bc-bc57-6ff67f8078e5`. Authenticated designated-company verification returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced cross-company HTTP 403, measured the sales-order queue at 83.1 ms median / 97.5 ms maximum, and completed cleanup. Eleven health probes over 10 minutes returned HTTP 200 with database, schema, desktop, and mobile readiness and 6-11 ms database probes. Startup skipped no-op DDL; runtime and proxy logs contained no restart, connection-pool warning, upstream error, or HTTP 5xx.
 - Production promotion: named rollback deployment `d52f76a1-599f-463d-9a03-7a6b0b0cb177`; exact production deployment `942ad1f1-0e67-4456-8eb4-e5fd2260263e` succeeded in `us-west2`. Five read-only production probes returned HTTP 200 with full database, schema, desktop, and mobile readiness and 7-9 ms database probes. Startup reported the schema already current, and deployment/proxy logs contained no warning, restart, upstream error, or HTTP 5xx. No integration setting, credential, job, transaction, inventory, email, or customer data changed.
+
+### WMS-10
+
+- Independent repair and verification 2026-11-18: **VERIFIED.** Manual and inbound pallet labels now render the company value as the explicit `Company:` field instead of an unlabelled value. This is a display-only change to label markup; it does not change pallet identities, inventory, receipts, orders, documents, email, billing, integrations, jobs, tenant scope, or warehouse scope. Focused positive and negative coverage passed 3/3, the access-control audit passed 12/12 across 292 routes, and `npm run check:deploy` passed 855/855.
+- Sandbox evidence: exact commit `5f5463237b876beac1c87543a8c811a625bac3de` deployed as `1a62cce0-17d2-4fbe-b38e-dec8457b29fa`. All seven fresh-database controls passed. Authenticated designated-company verification returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced cross-company HTTP 403, measured the sales-order queue at 50.1 ms median / 61.4 ms maximum, and completed cleanup. The exact deployed focused test passed 3/3. Eleven health probes over 10 minutes returned HTTP 200 with database, schema, desktop, and mobile readiness and 3-12 ms database probes; runtime and proxy logs contained no warning, restart, connection-pool issue, upstream error, or HTTP 5xx.
+- Production promotion: named rollback deployment `942ad1f1-0e67-4456-8eb4-e5fd2260263e`; exact production deployment `2cc7562c-4f98-4980-90f7-82ffa5d1d8a7` succeeded in `us-west2`. Five read-only production probes returned HTTP 200 with full database, schema, desktop, and mobile readiness and 8-12 ms database probes. Deployment and proxy logs contained no warning, restart, upstream error, or HTTP 5xx. No production customer data or transaction changed.
 
 ### WMS-05
 
