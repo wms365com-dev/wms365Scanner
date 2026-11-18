@@ -44,3 +44,18 @@ test("stale inbound responses cannot overwrite a company switch", () => {
     assert.match(source, /if \(!isPortalInboundsRefreshCurrent\(refreshSerial, companyKey\)\) return portalInboundRecords/);
     assert.match(source, /portalInboundRecords = inbounds/);
 });
+
+test("inbound list exposes private performance timing and result count without changing scope", () => {
+    const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+    const source = server.slice(
+        server.indexOf('app.get("/api/admin/portal-inbounds"'),
+        server.indexOf('app.get("/api/admin/kitting-requests"')
+    );
+    assert.match(source, /process\.hrtime\.bigint\(\)/);
+    assert.match(source, /Server-Timing", `portal-inbounds;dur=\$\{durationMs\.toFixed\(1\)\}`/);
+    assert.match(source, /X-WMS365-Result-Count", String\(visibleInbounds\.length\)/);
+    assert.match(source, /Cache-Control", "no-store"/);
+    assert.match(source, /assertAppUserCompanyAccess\(pool, req\.appUser, requestedAccount\)/);
+    assert.match(source, /allowedCompanies\.includes\(normalizeText\(entry\.accountName\)\)/);
+    assert.doesNotMatch(source, /accountName.*setHeader|requestedAccount.*setHeader/);
+});

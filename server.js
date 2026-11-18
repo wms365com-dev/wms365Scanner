@@ -5061,6 +5061,7 @@ app.get("/api/admin/ship-to-addresses", async (req, res, next) => {
 });
 
 app.get("/api/admin/portal-inbounds", async (req, res, next) => {
+    const startedAt = process.hrtime.bigint();
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
         if (requestedAccount) {
@@ -5070,11 +5071,14 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
             ? await getPortalInboundsForAccount(requestedAccount)
             : await getAdminPortalInbounds();
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
-        res.json({
-            inbounds: isSuperAdminUser(req.appUser)
-                ? inbounds
-                : inbounds.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)))
-        });
+        const visibleInbounds = isSuperAdminUser(req.appUser)
+            ? inbounds
+            : inbounds.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
+        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Server-Timing", `portal-inbounds;dur=${durationMs.toFixed(1)}`);
+        res.setHeader("X-WMS365-Result-Count", String(visibleInbounds.length));
+        res.json({ inbounds: visibleInbounds });
     } catch (error) {
         next(error);
     }
