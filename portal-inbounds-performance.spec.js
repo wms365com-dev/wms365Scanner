@@ -57,5 +57,7 @@ test("inbound list exposes private performance timing and result count without c
     assert.match(source, /Cache-Control", "no-store"/);
     assert.match(source, /assertAppUserCompanyAccess\(pool, req\.appUser, requestedAccount\)/);
     assert.match(source, /allowedCompanies\.includes\(normalizeText\(entry\.accountName\)\)/);
+    assert.match(source, /getAccessibleFulfillmentLocationIdsForAppUser\(pool, req\.appUser\)/);
+    assert.match(source, /allowedLocationIds\.includes\(toPositiveInt\(entry\.fulfillmentLocationId\)\)/);
     assert.doesNotMatch(source, /accountName.*setHeader|requestedAccount.*setHeader/);
 });

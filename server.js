@@ -5071,9 +5071,13 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
             ? await getPortalInboundsForAccount(requestedAccount)
             : await getAdminPortalInbounds();
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
-        const visibleInbounds = isSuperAdminUser(req.appUser)
+        const allowedLocationIds = await getAccessibleFulfillmentLocationIdsForAppUser(pool, req.appUser);
+        const companyScopedInbounds = isSuperAdminUser(req.appUser)
             ? inbounds
             : inbounds.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
+        const visibleInbounds = companyScopedInbounds.filter((entry) => !Array.isArray(allowedLocationIds)
+            || !entry.fulfillmentLocationId
+            || allowedLocationIds.includes(toPositiveInt(entry.fulfillmentLocationId)));
         const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("Server-Timing", `portal-inbounds;dur=${durationMs.toFixed(1)}`);
