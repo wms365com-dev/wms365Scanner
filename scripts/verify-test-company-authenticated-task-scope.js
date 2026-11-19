@@ -93,6 +93,17 @@ async function insertTasks(client, { prefix, accountName, locationId, count }) {
     return result.rows.map((row) => row.id);
 }
 
+async function insertInbound(client, { referenceNumber, accountName, locationId }) {
+    const result = await client.query(
+        `insert into portal_inbounds
+            (account_name, status, reference_number, carrier_name, expected_date, fulfillment_location_id, notes)
+         values ($1, 'DRAFT', $2, 'TEST', current_date + 7, $3, 'TEST authenticated sandbox-only inbound')
+         returning id::text`,
+        [accountName, referenceNumber, locationId]
+    );
+    return result.rows[0].id;
+}
+
 async function fetchJson(origin, path, token, requestId) {
     const startedAt = process.hrtime.bigint();
     const response = await fetch(`${origin}${path}`, {
@@ -140,6 +151,7 @@ async function cleanup(pool, fixture) {
         );
         await client.query("delete from warehouse_tasks where task_code like $1", [`${fixture.prefix}%`]);
         await client.query("set local session_replication_role = origin");
+        await client.query("delete from portal_inbounds where reference_number like $1", [`${fixture.prefix}%`]);
         if (fixture.locationIds.length) {
             await client.query("delete from company_fulfillment_locations where fulfillment_location_id=any($1::bigint[])", [fixture.locationIds]);
             await client.query("delete from fulfillment_locations where id=any($1::bigint[])", [fixture.locationIds]);
@@ -152,7 +164,8 @@ async function cleanup(pool, fixture) {
                 (select count(*) from warehouse_tasks where task_code like $1)::integer as tasks,
                 (select count(*) from app_users where id=$2)::integer as users,
                 (select count(*) from fulfillment_locations where id=any($3::bigint[]))::integer as locations,
-                (select count(*) from owner_accounts where name=$4)::integer as companies`,
+                (select count(*) from owner_accounts where name=$4)::integer as companies,
+                (select count(*) from portal_inbounds where reference_number like $1)::integer as inbounds`,
             [`${fixture.prefix}%`, fixture.userId || 0, fixture.locationIds, fixture.deniedCompany || ""]
         );
         if (Object.values(residue.rows[0] || {}).some((value) => Number(value) !== 0)) {
@@ -188,6 +201,7 @@ async function cleanupStaleScopeFixtures(pool) {
         );
         await client.query("delete from warehouse_tasks where task_code like 'TEST-AUTH-TASK-SCOPE-%'");
         await client.query("set local session_replication_role = origin");
+        await client.query("delete from portal_inbounds where reference_number like 'TEST-AUTH-TASK-SCOPE-%'");
         const staleLocations = await client.query(
             "select id from fulfillment_locations where code like 'TEST-AUTH-ALLOW-%' or code like 'TEST-AUTH-DENY-%'"
         );
@@ -229,6 +243,9 @@ async function main(env = process.env) {
         let allowedIds;
         let deniedWarehouseIds;
         let deniedCompanyIds;
+        let allowedInboundId;
+        let deniedWarehouseInboundId;
+        let deniedCompanyInboundId;
         let sessionToken;
         try {
             await client.query("begin");
@@ -290,6 +307,18 @@ async function main(env = process.env) {
                 prefix: `${fixture.prefix}DENIED-CO-`, accountName: fixture.deniedCompany,
                 locationId: deniedLocationId, count: DENIED_COMPANY_TASK_COUNT
             });
+            allowedInboundId = await insertInbound(client, {
+                referenceNumber: `${fixture.prefix}ALLOW-INBOUND`, accountName: TEST_COMPANY.name,
+                locationId: allowedLocationId
+            });
+            deniedWarehouseInboundId = await insertInbound(client, {
+                referenceNumber: `${fixture.prefix}DENIED-WH-INBOUND`, accountName: TEST_COMPANY.name,
+                locationId: deniedLocationId
+            });
+            deniedCompanyInboundId = await insertInbound(client, {
+                referenceNumber: `${fixture.prefix}DENIED-CO-INBOUND`, accountName: fixture.deniedCompany,
+                locationId: deniedLocationId
+            });
             await client.query("commit");
         } catch (error) {
             await client.query("rollback").catch(() => {});
@@ -319,6 +348,39 @@ async function main(env = process.env) {
         );
         if (deniedResponse.status !== 403) {
             throw new Error(`Denied-company authenticated task request returned HTTP ${deniedResponse.status}, expected 403.`);
+        }
+
+        const inboundResponse = await fetchJson(
+            config.origin,
+            `/api/admin/portal-inbounds?accountName=${encodeURIComponent(TEST_COMPANY.name)}`,
+            sessionToken,
+            `${fixture.requestId}-INBOUNDS`
+        );
+        if (inboundResponse.status !== 200 || !Array.isArray(inboundResponse.body?.inbounds)) {
+            throw new Error(`Authenticated inbound-list request returned HTTP ${inboundResponse.status}.`);
+        }
+        if (!/^portal-inbounds;dur=\d+(?:\.\d+)?$/.test(inboundResponse.serverTiming)) {
+            throw new Error("Authenticated inbound-list response did not expose valid server timing.");
+        }
+        if (Number(inboundResponse.resultCount) !== inboundResponse.body.inbounds.length) {
+            throw new Error("Authenticated inbound-list result-count header did not match its scoped response.");
+        }
+        const inboundIds = new Set(inboundResponse.body.inbounds.map((inbound) => String(inbound.id)));
+        if (!inboundIds.has(String(allowedInboundId))) {
+            throw new Error("Authenticated inbound list omitted its allowed-warehouse fixture.");
+        }
+        if (inboundIds.has(String(deniedWarehouseInboundId)) || inboundIds.has(String(deniedCompanyInboundId))) {
+            throw new Error("Authenticated inbound list leaked a denied warehouse or company fixture.");
+        }
+
+        const deniedInboundResponse = await fetchJson(
+            config.origin,
+            `/api/admin/portal-inbounds?accountName=${encodeURIComponent(fixture.deniedCompany)}`,
+            sessionToken,
+            `${fixture.requestId}-INBOUNDS-DENIED`
+        );
+        if (deniedInboundResponse.status !== 403) {
+            throw new Error(`Denied-company authenticated inbound request returned HTTP ${deniedInboundResponse.status}, expected 403.`);
         }
 
         const queueMeasurements = [];
@@ -353,6 +415,11 @@ async function main(env = process.env) {
             deniedWarehouseTaskCount: deniedWarehouseIds.length,
             deniedCompanyTaskCount: deniedCompanyIds.length,
             deniedCompanyStatus: deniedResponse.status,
+            inboundAllowed: true,
+            inboundDeniedWarehouseExcluded: true,
+            inboundDeniedCompanyStatus: deniedInboundResponse.status,
+            inboundServerTiming: inboundResponse.serverTiming,
+            inboundResultCount: inboundResponse.body.inbounds.length,
             salesOrderQueueMedianMs: Number(queueMedianMs.toFixed(1)),
             salesOrderQueueMaxMs: Number(queueMaxMs.toFixed(1)),
             cleanupPending: true

@@ -61,3 +61,17 @@ test("inbound list exposes private performance timing and result count without c
     assert.match(source, /allowedLocationIds\.includes\(toPositiveInt\(entry\.fulfillmentLocationId\)\)/);
     assert.doesNotMatch(source, /accountName.*setHeader|requestedAccount.*setHeader/);
 });
+
+test("sandbox verifier exercises the authenticated inbound endpoint and both isolation boundaries", () => {
+    const source = fs.readFileSync(
+        path.join(__dirname, "scripts", "verify-test-company-authenticated-task-scope.js"),
+        "utf8"
+    );
+    assert.match(source, /\/api\/admin\/portal-inbounds\?accountName=/);
+    assert.match(source, /allowedInboundId/);
+    assert.match(source, /deniedWarehouseInboundId/);
+    assert.match(source, /deniedCompanyInboundId/);
+    assert.match(source, /inboundResponse\.serverTiming/);
+    assert.match(source, /inboundResponse\.resultCount/);
+    assert.match(source, /delete from portal_inbounds where reference_number like/);
+});
