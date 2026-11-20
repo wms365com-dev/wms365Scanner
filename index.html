@@ -24099,37 +24099,40 @@
                 resetWarehouseSalesOrderForm();
                 return showMessage(ui.warehouseOrderMessage, "Unsaved draft cleared.", "success");
             }
-            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
-            if (!currentOrder?.id) {
-                return showMessage(ui.warehouseOrderMessage, "Open a saved sales order before cancelling.", "error");
-            }
-            if (!["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(currentOrder.status)) {
+            const orderId = String(editingWarehouseOrderId);
+            const currentOrder = getPortalOrderById(orderId);
+            if (currentOrder?.status && !["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(currentOrder.status)) {
                 return showMessage(ui.warehouseOrderMessage, `Only draft, released, picked, or staged orders can be cancelled. This order is ${currentOrder.status}.`, "error");
             }
-            const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
+            const orderLabel = currentOrder?.orderCode || orderId;
             if (!window.confirm(`Cancel order ${orderLabel}? The order number stays in WMS365 history, active warehouse work is closed, and the number will not be reused.`)) {
                 return null;
             }
             const actionButton = resolveActionButton(context, ui.deleteWarehouseOrderBtn);
+            const actionId = makeId(`cancel-order-${orderId}`);
             try {
                 return await runActionWithFeedback({
                     button: actionButton,
                     busyLabel: "Cancelling...",
                     messageElement: ui.warehouseOrderMessage,
-                    progressMessage: `Cancelling order ${orderLabel}...`
+                    lockKey: `cancel-order-${orderId}`,
+                    progressMessage: `Cancelling order ${orderLabel} without revalidating inventory...`
                 }, async () => {
-                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/status`, {
+                    const response = await requestJson(`/api/admin/portal-orders/${orderId}/status`, {
                         method: "POST",
+                        headers: { "Idempotency-Key": actionId },
                         body: JSON.stringify({
                             status: "CANCELLED",
+                            idempotencyKey: actionId,
+                            idempotency_key: actionId,
                             note: "Cancelled from WMS365 warehouse order screen."
                         })
                     });
-                    await refreshPortalOrdersList(true);
                     applyPortalOrderUpdate(response?.order, "", ui.warehouseOrderMessage);
                     showSalesOrderList({ scroll: false });
                     resetWarehouseSalesOrderForm();
                     showMessage(ui.portalOrdersMessage, `Order ${response?.order?.orderCode || orderLabel} cancelled. The number remains in history and active warehouse work was closed.`, "success");
+                    queuePortalOrderRefresh();
                     return response;
                 });
             } catch (error) {
