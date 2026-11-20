@@ -2578,6 +2578,27 @@
             .line-fields {
                 grid-template-columns: 1fr;
             }
+
+            .erp-document-card .form-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .erp-document-card .field,
+            .erp-document-card .field.span-2 {
+                grid-column: auto;
+                grid-template-columns: minmax(0, 1fr);
+                gap: 0.25rem;
+            }
+
+            .erp-document-card .field span {
+                white-space: normal;
+            }
+
+            .erp-document-card input[type="date"] {
+                width: 100%;
+                min-width: 0;
+                max-width: 100%;
+            }
         }
 
         .fold {
@@ -6330,6 +6351,21 @@
         }
         body.device-mobile .form-grid { grid-template-columns: 1fr; }
         body.device-mobile .span-2 { grid-column: auto; }
+        body.device-mobile .erp-document-card .form-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        body.device-mobile .erp-document-card .field,
+        body.device-mobile .erp-document-card .field.span-2 {
+            grid-column: auto;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.25rem;
+        }
+        body.device-mobile .erp-document-card .field span { white-space: normal; }
+        body.device-mobile .erp-document-card input[type="date"] {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+        }
         body.device-mobile .button-row,
         body.device-mobile .inline-actions { flex-direction: column; align-items: stretch; }
         body.device-mobile .btn,
@@ -13662,7 +13698,7 @@
                     closeWarehouseDocumentPreview();
                     return;
                 }
-                if (event.key === "Escape" && document.body.classList.contains("sales-order-popout-open")) {
+                if (event.key === "Escape" && isWarehouseSalesOrderDocumentOpen()) {
                     closeSalesOrderDocument({ scroll: false });
                     return;
                 }
@@ -14210,13 +14246,23 @@
         }
 
         function goBackMobileSection(fallback = MOBILE_HOME_SECTION) {
+            if (isWarehouseSalesOrderDocumentOpen()) {
+                if (!confirmDiscardWarehouseSalesOrderChanges()) return false;
+                warehouseSalesOrderFormBaseline = "";
+            }
             const target = popMobileHistorySection() || fallback;
             setSection(target, { recordHistory: false });
+            return true;
         }
 
         function goBackDesktopSection(fallback = "home") {
+            if (isWarehouseSalesOrderDocumentOpen()) {
+                if (!confirmDiscardWarehouseSalesOrderChanges()) return false;
+                warehouseSalesOrderFormBaseline = "";
+            }
             const target = popDesktopHistorySection() || fallback;
             setSection(target, { recordHistory: false });
+            return true;
         }
 
         function setSection(section, options = {}) {
@@ -23602,8 +23648,15 @@
             return JSON.stringify(collectWarehouseSalesOrderPayload());
         }
 
+        function isWarehouseSalesOrderDocumentOpen() {
+            return !!ui.warehouseOrderEntryCard
+                && !!ui.warehouseOrderEntryCard.closest(".panel")?.classList.contains("active")
+                && !ui.warehouseOrderEntryCard.classList.contains("hidden")
+                && !ui.warehouseOrderForm?.classList.contains("hidden");
+        }
+
         function hasUnsavedWarehouseSalesOrderChanges() {
-            return document.body.classList.contains("sales-order-popout-open")
+            return isWarehouseSalesOrderDocumentOpen()
                 && warehouseSalesOrderFormBaseline !== ""
                 && serializeWarehouseSalesOrderForm() !== warehouseSalesOrderFormBaseline;
         }
@@ -26440,8 +26493,9 @@
             if (!confirmDiscardWarehouseSalesOrderChanges()) return false;
             salesOrderOpenRequestSerial += 1;
             if (getSalesOrderIdFromUrl() && window.history.state?.wmsSalesOrderDetail) {
+                warehouseSalesOrderFormBaseline = "";
                 window.history.back();
-                return;
+                return true;
             }
             syncSalesOrderRoute("", { replace: true });
             showSalesOrderList({ scroll });
