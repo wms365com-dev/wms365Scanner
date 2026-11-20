@@ -26,14 +26,18 @@ test("password reset loads the signed-in user and has a working click action", (
     assert.match(desktop, /requestJson\("\/api\/app\/recovery\/password"/);
 });
 
-test("logout cannot be blocked by confirmation or a stalled session request", () => {
-    const start = desktop.indexOf("async function logoutCurrentWarehouseUser");
+test("logout uses a server-completed form navigation instead of a cancellable fetch", () => {
+    const start = desktop.indexOf("function logoutCurrentWarehouseUser");
     const end = desktop.indexOf("function init", start);
     const logoutFunction = start >= 0 && end > start ? desktop.slice(start, end) : "";
     assert.doesNotMatch(logoutFunction, /window\.confirm/);
-    assert.match(logoutFunction, /Promise\.race/);
-    assert.match(logoutFunction, /window\.location\.replace\("\/login\.html\?next=%2Fdesktop"\)/);
+    assert.doesNotMatch(logoutFunction, /requestJson|fetch|Promise\.race/);
+    assert.match(logoutFunction, /form\.method = "POST"/);
+    assert.match(logoutFunction, /form\.action = "\/api\/app\/logout\?redirect=desktop"/);
+    assert.match(logoutFunction, /document\.body\.appendChild\(form\)/);
+    assert.match(logoutFunction, /form\.submit\(\)/);
     assert.match(desktop, /accountLogoutBtn\?\.addEventListener\("click", logoutCurrentWarehouseUser\)/);
+    assert.match(server, /req\.query\?\.redirect[\s\S]*?res\.redirect\(303, "\/login\.html\?next=%2Fdesktop"\)/);
 });
 
 test("profile schema stores names and phone without exposing access controls", () => {

@@ -1494,6 +1494,9 @@ app.post("/api/app/logout", async (req, res, next) => {
             await deleteAppSessionByToken(sessionToken);
         }
         clearAppSessionCookie(res, req);
+        if (String(req.query?.redirect || "").toLowerCase() === "desktop") {
+            return res.redirect(303, "/login.html?next=%2Fdesktop");
+        }
         res.json({ success: true });
     } catch (error) {
         next(error);

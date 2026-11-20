@@ -12847,23 +12847,19 @@
             }
         }
 
-        async function logoutCurrentWarehouseUser(event = null) {
+        function logoutCurrentWarehouseUser(event = null) {
             event?.preventDefault?.();
             if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
             if (ui.accountLogoutBtn) {
                 ui.accountLogoutBtn.disabled = true;
                 ui.accountLogoutBtn.textContent = "Logging out...";
             }
-            try {
-                await Promise.race([
-                    requestJson("/api/app/logout", { method: "POST" }),
-                    new Promise((resolve) => window.setTimeout(resolve, 1500))
-                ]);
-            } catch {
-                // Continue to sign-in even when the server session has already expired.
-            } finally {
-                window.location.replace("/login.html?next=%2Fdesktop");
-            }
+            const form = document.createElement("form");
+            form.method = "POST";
+            form.action = "/api/app/logout?redirect=desktop";
+            form.hidden = true;
+            document.body.appendChild(form);
+            form.submit();
         }
 
         function init() {
