@@ -319,7 +319,7 @@
             top: 38px;
             right: 0;
             bottom: 0;
-            z-index: 120;
+            z-index: 1300;
             display: grid;
             grid-template-rows: auto auto auto minmax(0, 1fr) auto;
             gap: 0.75rem;
@@ -2084,6 +2084,22 @@
         .workspace-context-bar,
         .workspace-company-row {
             display: none !important;
+        }
+
+        .session-scope-strip {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            min-width: 0;
+            color: #ffffff;
+            font-size: 0.74rem;
+            white-space: nowrap;
+        }
+
+        .session-scope-strip span {
+            max-width: 15rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .workspace-inline-meta {
@@ -6621,6 +6637,11 @@
                     </div>
                 </div>
                 <div class="desktop-utility-actions">
+                    <div class="session-scope-strip" id="sessionScopeStrip" role="status" aria-live="polite">
+                        <span id="sessionScopeCompany">Company: All companies</span>
+                        <span id="sessionScopeWarehouses">Warehouse: All authorized</span>
+                        <span id="sessionScopeRole">Role: Signed in user</span>
+                    </div>
                     <div data-language-control-host></div>
                     <span class="utility-status-pill" id="appBuildBadge" role="status" aria-live="polite" title="Checking WMS365 connection">
                         <span class="connection-status-dot checking" id="appConnectionDot" aria-label="Checking connection"></span>
@@ -6905,7 +6926,7 @@
                         <strong id="desktopCommandContext">Operations Home</strong>
                     </div>
                 </div>
-                <span class="desktop-view-filter">All</span>
+                <span class="desktop-view-filter" id="desktopViewFilter">All companies</span>
                 <div class="desktop-alerts">
                     <button class="desktop-ribbon-icon" id="desktopCommandShareBtn" type="button" title="Copy current page link">Link</button>
                     <button class="desktop-ribbon-icon" id="desktopCommandFindBtn" type="button" title="Focus this page's search">Find</button>
@@ -9598,6 +9619,11 @@
                             <input id="warehouseOrderRequestedShipDate" type="date">
                         </label>
                         <label class="field">
+                            <span>Ship From Warehouse</span>
+                            <select id="warehouseOrderFulfillmentLocation" required aria-describedby="warehouseOrderFulfillmentLocationHelp"></select>
+                            <small class="meta" id="warehouseOrderFulfillmentLocationHelp">Choose an outbound warehouse assigned to the active company.</small>
+                        </label>
+                        <label class="field">
                             <span>Shipment Method</span>
                             <select id="warehouseOrderShipmentMethod">
                                 <option value="PARCEL">Parcel</option>
@@ -11431,6 +11457,7 @@
         let emailQueueLoaded = false;
         let emailQueueLoading = false;
         let editingWarehouseOrderId = "";
+        let warehouseSalesOrderFormBaseline = "";
         let currentOrderRoutingDraft = null;
         let currentOrderBolOrderId = "";
         let productRecommendationRecords = [];
@@ -11651,6 +11678,10 @@
             workspaceSectionMeta: document.getElementById("workspaceSectionMeta"),
             workspaceDrillPath: document.getElementById("workspaceDrillPath"),
             workspaceCompanyChip: document.getElementById("workspaceCompanyChip"),
+            sessionScopeCompany: document.getElementById("sessionScopeCompany"),
+            sessionScopeWarehouses: document.getElementById("sessionScopeWarehouses"),
+            sessionScopeRole: document.getElementById("sessionScopeRole"),
+            desktopViewFilter: document.getElementById("desktopViewFilter"),
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
             desktopUtilityCompany: document.getElementById("desktopUtilityCompany"),
             desktopModuleCompany: document.getElementById("desktopModuleCompany"),
@@ -12280,6 +12311,7 @@
             warehouseOrderPoNumber: document.getElementById("warehouseOrderPoNumber"),
             warehouseOrderShippingReference: document.getElementById("warehouseOrderShippingReference"),
             warehouseOrderRequestedShipDate: document.getElementById("warehouseOrderRequestedShipDate"),
+            warehouseOrderFulfillmentLocation: document.getElementById("warehouseOrderFulfillmentLocation"),
             warehouseOrderShipmentMethod: document.getElementById("warehouseOrderShipmentMethod"),
             warehouseOrderPlannedCarrierName: document.getElementById("warehouseOrderPlannedCarrierName"),
             warehouseOrderPlannedServiceLevel: document.getElementById("warehouseOrderPlannedServiceLevel"),
@@ -13981,6 +14013,11 @@
             if (anchorId === "portalOrdersQueueCard") showSalesOrderList();
             if (anchorId === "warehouseInboundEntryCard") showPurchaseOrderDocument(null);
             if (anchorId === "warehouseInboundQueueCard") showPurchaseOrderList();
+            if (anchorId === "masterOwnerProfileCard") {
+                const company = getActiveCompany();
+                const owner = (state.masters.ownerRecords || []).find((entry) => norm(entry.name) === norm(company));
+                if (owner) loadCompanySetupIntoProfile(owner);
+            }
             markWorkspaceAnchor(activeSection, anchorId);
             window.setTimeout(() => {
                 target.scrollIntoView({ behavior, block: "start" });
@@ -14390,6 +14427,10 @@
         function updateActiveCompanyUi() {
             const company = getActiveCompany();
             const companyDisplay = formatCompanySelectorLabel(company);
+            const appUser = state.session?.appUser;
+            const warehouses = (appUser?.assignedFulfillmentLocations || [])
+                .map((location) => location.name || location.code)
+                .filter(Boolean);
             if (ui.activeCompanyDisplay) {
                 ui.activeCompanyDisplay.textContent = companyDisplay || "All companies";
             }
@@ -14399,6 +14440,13 @@
                     ? `Company locked to ${company}.${warehouseSummary ? ` Warehouses: ${warehouseSummary}.` : ""}`
                     : "Choose a company to lock receiving, inventory, outbound, billing, and reports.";
             }
+            if (ui.sessionScopeCompany) ui.sessionScopeCompany.textContent = `Company: ${companyDisplay || "All companies"}`;
+            if (ui.sessionScopeWarehouses) {
+                ui.sessionScopeWarehouses.textContent = `Warehouse: ${warehouses.length ? warehouses.join(", ") : "All authorized"}`;
+                ui.sessionScopeWarehouses.title = ui.sessionScopeWarehouses.textContent;
+            }
+            if (ui.sessionScopeRole) ui.sessionScopeRole.textContent = `Role: ${warehouseUserRoleLabel(appUser?.role || "WAREHOUSE_WORKER")}`;
+            if (ui.desktopViewFilter) ui.desktopViewFilter.textContent = companyDisplay || "All companies";
             if (ui.clearActiveCompanyBtn) {
                 ui.clearActiveCompanyBtn.disabled = !company;
             }
@@ -23336,6 +23384,7 @@
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
             ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
+            refreshWarehouseOrderFulfillmentSelector(order?.fulfillmentLocationId || "");
             ui.warehouseOrderShipmentMethod.value = normalizeShipmentMethod(order?.shipmentMethod || "LTL_FREIGHT");
             ui.warehouseOrderPlannedCarrierName.value = order?.plannedCarrierName || "";
             ui.warehouseOrderPlannedServiceLevel.value = order?.plannedServiceLevel || "";
@@ -23387,6 +23436,7 @@
             dismissWarehouseViewportAlert();
             renderWarehouseSalesOrderContext();
             renderWarehouseSalesOrderWorkflow(order);
+            warehouseSalesOrderFormBaseline = serializeWarehouseSalesOrderForm();
         }
 
         function onWarehouseOrderLinesClick(event) {
@@ -23413,6 +23463,7 @@
 
             return {
                 accountName: getWarehouseSalesOrderCompany(),
+                fulfillmentLocationId: ui.warehouseOrderFulfillmentLocation.value,
                 poNumber: ui.warehouseOrderPoNumber.value.trim(),
                 shippingReference: ui.warehouseOrderShippingReference.value.trim(),
                 requestedShipDate: ui.warehouseOrderRequestedShipDate.value,
@@ -23438,6 +23489,22 @@
             };
         }
 
+        function serializeWarehouseSalesOrderForm() {
+            if (!ui.warehouseOrderForm) return "";
+            return JSON.stringify(collectWarehouseSalesOrderPayload());
+        }
+
+        function hasUnsavedWarehouseSalesOrderChanges() {
+            return document.body.classList.contains("sales-order-popout-open")
+                && warehouseSalesOrderFormBaseline !== ""
+                && serializeWarehouseSalesOrderForm() !== warehouseSalesOrderFormBaseline;
+        }
+
+        function confirmDiscardWarehouseSalesOrderChanges() {
+            if (!hasUnsavedWarehouseSalesOrderChanges()) return true;
+            return window.confirm("Discard the unsaved changes to this sales order?");
+        }
+
         async function saveWarehouseSalesOrderDraft(context = null) {
             const options = context && !(context?.currentTarget instanceof HTMLElement) && !(context instanceof HTMLElement) ? context : {};
             const company = getWarehouseSalesOrderCompany();
@@ -23457,6 +23524,17 @@
                     progressMessage: options.progressMessage || `Saving sales order draft for ${company}...`
                 }, async () => {
                     const payload = collectWarehouseSalesOrderPayload();
+                    if (!payload.fulfillmentLocationId) {
+                        fail(ui.warehouseOrderMessage, "Choose the ship-from warehouse for this transaction.", ui.warehouseOrderFulfillmentLocation);
+                        return null;
+                    }
+                    const allowedWarehouseIds = new Set(getCompanyOutboundFulfillmentAssignments(payload.accountName)
+                        .map((assignment) => String(assignment.fulfillmentLocationId || ""))
+                        .filter(Boolean));
+                    if (!allowedWarehouseIds.has(String(payload.fulfillmentLocationId))) {
+                        fail(ui.warehouseOrderMessage, "The selected ship-from warehouse is not assigned to the active company for outbound orders.", ui.warehouseOrderFulfillmentLocation);
+                        return null;
+                    }
                     const response = await requestJson(editingWarehouseOrderId ? `/api/admin/portal-orders/${editingWarehouseOrderId}` : "/api/admin/portal-orders", {
                         method: editingWarehouseOrderId ? "PUT" : "POST",
                         body: JSON.stringify(payload)
@@ -26163,6 +26241,7 @@
         }
 
         function closeSalesOrderDocument({ scroll = false } = {}) {
+            if (!confirmDiscardWarehouseSalesOrderChanges()) return false;
             salesOrderOpenRequestSerial += 1;
             if (getSalesOrderIdFromUrl() && window.history.state?.wmsSalesOrderDetail) {
                 window.history.back();
@@ -26170,12 +26249,16 @@
             }
             syncSalesOrderRoute("", { replace: true });
             showSalesOrderList({ scroll });
+            warehouseSalesOrderFormBaseline = "";
+            return true;
         }
 
         function openNewSalesOrderDocument({ scroll = false } = {}) {
+            if (!confirmDiscardWarehouseSalesOrderChanges()) return false;
             salesOrderOpenRequestSerial += 1;
             syncSalesOrderRoute("", { replace: true });
             showSalesOrderDocument(null, { scroll });
+            return true;
         }
 
         function showSalesOrderDocument(order = null, { scroll = false } = {}) {
@@ -33306,6 +33389,38 @@
             return (state.masters.companyFulfillmentLocations || [])
                 .filter((entry) => norm(entry.accountName) === normalizedCompany)
                 .sort((a, b) => Number(b.isPrimary === true) - Number(a.isPrimary === true) || (a.locationCode || "").localeCompare(b.locationCode || ""));
+        }
+
+        function getCompanyOutboundFulfillmentAssignments(accountName = getActiveCompany()) {
+            return getCompanyFulfillmentAssignments(accountName).filter((assignment) => {
+                if (assignment.allowOutbound === false || !assignment.fulfillmentLocationId) return false;
+                const location = getFulfillmentLocationByCode(assignment.locationCode);
+                return !location || location.isActive !== false;
+            });
+        }
+
+        function refreshWarehouseOrderFulfillmentSelector(selectedId = "") {
+            if (!ui.warehouseOrderFulfillmentLocation) return;
+            const company = getWarehouseSalesOrderCompany();
+            const assignments = getCompanyOutboundFulfillmentAssignments(company);
+            const requestedId = String(selectedId || "");
+            const selectedAssignment = assignments.find((assignment) => String(assignment.fulfillmentLocationId) === requestedId)
+                || assignments.find((assignment) => assignment.isPrimary)
+                || (assignments.length === 1 ? assignments[0] : null);
+            ui.warehouseOrderFulfillmentLocation.innerHTML = [
+                `<option value="">${assignments.length ? "Choose ship-from warehouse" : "No outbound warehouse assigned"}</option>`,
+                ...assignments.map((assignment) => {
+                    const location = getFulfillmentLocationByCode(assignment.locationCode) || {};
+                    const label = [
+                        assignment.locationCode || location.code,
+                        assignment.locationName || location.name,
+                        assignment.isPrimary ? "Primary" : ""
+                    ].filter(Boolean).join(" - ");
+                    return `<option value="${attr(assignment.fulfillmentLocationId)}">${esc(label)}</option>`;
+                })
+            ].join("");
+            ui.warehouseOrderFulfillmentLocation.value = selectedAssignment ? String(selectedAssignment.fulfillmentLocationId) : "";
+            ui.warehouseOrderFulfillmentLocation.disabled = assignments.length === 0;
         }
 
         function normalizeProvinceCode(value = "") {

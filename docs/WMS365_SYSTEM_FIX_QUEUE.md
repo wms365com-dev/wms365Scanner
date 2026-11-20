@@ -45,6 +45,16 @@ This board is the release order. Only one focused repair is promoted at a time; 
 | 16 | WMS-25 warehouse Work Orders module | VERIFIED | Dedicated queue, warehouse permission, sequential lifecycle, sandbox role/isolation workflow, soak, and production promotion passed |
 | 17 | Remaining `QUEUED` items | PENDING | Priority order within each repair batch, with the same release gates |
 
+### WMS-28 - Sales-order ship-from and QA usability repair
+
+- Priority: `critical`
+- Status: `FIXED - NEEDS RETEST`
+- Trigger: the 2026-11-19 partial QA report and Revon order-entry incident showed that a multi-warehouse sales order could not be saved because the server required a ship-from warehouse while the warehouse form exposed no selector.
+- Candidate: warehouse sales orders now expose a required company-scoped outbound warehouse selector, preserve an existing order's warehouse, and default only to an explicit primary assignment or a sole eligible assignment. Save rejects a missing, stale, inactive, non-outbound, or cross-company warehouse ID before the request. Escape, Back, and New protect unsaved sales-order changes. The company profile shortcut hydrates the active company, drawer layering keeps close controls above sticky navigation, the command scope follows company selection, and authenticated company/authorized-warehouse/role context is visible. Access-path copy now tells warehouse staff and customer users which sign-in applies to them.
+- Isolation and integrity: warehouse options come only from the active company's outbound assignments; no global warehouse fallback was added. Server-side tenant and warehouse authorization remains authoritative. The change does not create, release, allocate, ship, bill, email, or otherwise mutate a customer transaction.
+- Test evidence: focused sales-order, navigation, duplicate/return, warehouse-isolation, and QA regressions passed 27/27. Access-control audit passed 12/12 across 292 routes. `npm run check:deploy` passed 866/866. The feature-competitiveness audit completed in feature-metadata-only privacy mode.
+- Current blocker: local `npm run check:fresh-database` stopped with `DATABASE_URL is required`. The exact committed candidate must run that gate inside isolated `Postgres-XihR`, then deploy to `wms365-sandbox` for authenticated designated-company role/warehouse checks, responsive browser verification, and a warning-free 10-minute soak. Production remains unchanged.
+
 ### WMS-25 - Warehouse Work Orders module
 
 - Priority: `critical`
