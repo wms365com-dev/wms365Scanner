@@ -23425,16 +23425,17 @@
             ui.warehouseOrderShipmentMethod.value = normalizeShipmentMethod(order?.shipmentMethod || "LTL_FREIGHT");
             ui.warehouseOrderPlannedCarrierName.value = order?.plannedCarrierName || "";
             ui.warehouseOrderPlannedServiceLevel.value = order?.plannedServiceLevel || "";
-            ui.warehouseOrderContactName.value = order?.contactName || "";
-            ui.warehouseOrderContactPhone.value = order?.contactPhone || "";
-            ui.warehouseOrderShipToName.value = order?.shipToName || order?.contactName || "";
-            ui.warehouseOrderShipToPhone.value = order?.shipToPhone || "";
-            ui.warehouseOrderShipToAddress1.value = order?.shipToAddress1 || "";
-            ui.warehouseOrderShipToAddress2.value = order?.shipToAddress2 || "";
-            ui.warehouseOrderShipToCity.value = order?.shipToCity || "";
-            ui.warehouseOrderShipToState.value = order?.shipToState || "";
-            ui.warehouseOrderShipToPostalCode.value = order?.shipToPostalCode || "";
-            ui.warehouseOrderShipToCountry.value = order?.shipToCountry || "USA";
+            const shipTo = getPortalOrderShipToFields(order);
+            ui.warehouseOrderContactName.value = shipTo.contactName;
+            ui.warehouseOrderContactPhone.value = shipTo.contactPhone;
+            ui.warehouseOrderShipToName.value = shipTo.name;
+            ui.warehouseOrderShipToPhone.value = shipTo.phone;
+            ui.warehouseOrderShipToAddress1.value = shipTo.address1;
+            ui.warehouseOrderShipToAddress2.value = shipTo.address2;
+            ui.warehouseOrderShipToCity.value = shipTo.city;
+            ui.warehouseOrderShipToState.value = shipTo.state;
+            ui.warehouseOrderShipToPostalCode.value = shipTo.postalCode;
+            ui.warehouseOrderShipToCountry.value = shipTo.country || "USA";
             ui.warehouseOrderNotes.value = order?.orderNotes || "";
             ui.warehouseOrderRoutingEmail.value = order?.routingEmail || "";
             const palletTrackedLines = (order?.lines || []).filter((line) => Number(line?.quantity) > 0);
@@ -26062,6 +26063,21 @@
             return "";
         }
 
+        function getPortalOrderShipToFields(order = {}) {
+            return {
+                contactName: order.contactName || "",
+                contactPhone: order.contactPhone || "",
+                name: order.shipToName || order.contactName || "",
+                phone: order.shipToPhone || order.contactPhone || "",
+                address1: order.shipToAddress1 || "",
+                address2: order.shipToAddress2 || "",
+                city: order.shipToCity || "",
+                state: order.shipToState || "",
+                postalCode: order.shipToPostalCode || "",
+                country: order.shipToCountry || ""
+            };
+        }
+
         function formatSalesOrderListShipTo(order) {
             if (String(order?.shipmentMethod || "").toUpperCase() === "CUSTOMER_PICKUP") {
                 return {
@@ -26069,9 +26085,10 @@
                     secondary: order.fulfillmentLocationName || order.fulfillmentLocationCode || "Assigned warehouse"
                 };
             }
+            const shipTo = getPortalOrderShipToFields(order);
             return {
-                primary: order?.shipToName || "Ship-to not set",
-                secondary: [order?.shipToCity, order?.shipToState].filter(Boolean).join(", ") || order?.shipToCountry || "Address incomplete"
+                primary: shipTo.name || "Ship-to not set",
+                secondary: [shipTo.city, shipTo.state].filter(Boolean).join(", ") || shipTo.country || "Address incomplete"
             };
         }
 
@@ -26519,13 +26536,14 @@
         }
 
         function formatPortalOrderShipTo(order) {
+            const shipTo = getPortalOrderShipToFields(order);
             return [
-                order.shipToName || order.contactName || "",
-                order.shipToPhone ? `Phone: ${order.shipToPhone}` : (order.contactPhone ? `Phone: ${order.contactPhone}` : ""),
-                order.shipToAddress1,
-                order.shipToAddress2,
-                [order.shipToCity, order.shipToState, order.shipToPostalCode].filter(Boolean).join(", "),
-                order.shipToCountry || ""
+                shipTo.name,
+                shipTo.phone ? `Phone: ${shipTo.phone}` : "",
+                shipTo.address1,
+                shipTo.address2,
+                [shipTo.city, shipTo.state, shipTo.postalCode].filter(Boolean).join(", "),
+                shipTo.country
             ]
                 .filter(Boolean)
                 .join("<br>");
@@ -32838,6 +32856,24 @@
             };
         }
 
+        function sanitizePortalOrderDestination(item = {}) {
+            return {
+                contactName: String(item.contactName || item.contact_name || "").trim(),
+                contactPhone: String(item.contactPhone || item.contact_phone || "").trim(),
+                shipToName: String(item.shipToName || item.ship_to_name || "").trim(),
+                shipToPhone: String(item.shipToPhone || item.ship_to_phone || "").trim(),
+                shipToAddress1: String(item.shipToAddress1 || item.ship_to_address1 || "").trim(),
+                shipToAddress2: String(item.shipToAddress2 || item.ship_to_address2 || "").trim(),
+                shipToCity: String(item.shipToCity || item.ship_to_city || "").trim(),
+                shipToState: String(item.shipToState || item.ship_to_state || "").trim(),
+                shipToPostalCode: String(item.shipToPostalCode || item.ship_to_postal_code || "").trim(),
+                shipToCountry: String(item.shipToCountry || item.ship_to_country || "").trim(),
+                fulfillmentLocationId: String(item.fulfillmentLocationId || item.fulfillment_location_id || "").trim(),
+                fulfillmentLocationCode: String(item.fulfillmentLocationCode || item.fulfillment_location_code || "").trim(),
+                fulfillmentLocationName: String(item.fulfillmentLocationName || item.fulfillment_location_name || "").trim()
+            };
+        }
+
         function sanitizePortalOrderRecord(item) {
             const accountName = norm(item?.accountName || item?.account_name || item?.owner || item?.vendor || item?.customer);
             if (!item?.id || !accountName) return null;
@@ -32848,21 +32884,12 @@
                 status: norm(item.status || "DRAFT"),
                 poNumber: String(item.poNumber || item.po_number || "").trim(),
                 shippingReference: String(item.shippingReference || item.shipping_reference || "").trim(),
-                contactName: String(item.contactName || item.contact_name || "").trim(),
-                contactPhone: String(item.contactPhone || item.contact_phone || "").trim(),
+                ...sanitizePortalOrderDestination(item),
                 requestedShipDate: String(item.requestedShipDate || item.requested_ship_date || "").trim(),
                 shipmentMethod: normalizeShipmentMethod(item.shipmentMethod || item.shipment_method || "LTL_FREIGHT"),
                 plannedCarrierName: String(item.plannedCarrierName || item.planned_carrier_name || "").trim(),
                 plannedServiceLevel: String(item.plannedServiceLevel || item.planned_service_level || "").trim(),
                 orderNotes: String(item.orderNotes || item.order_notes || "").trim(),
-                shipToName: String(item.shipToName || item.ship_to_name || "").trim(),
-                shipToPhone: String(item.shipToPhone || item.ship_to_phone || "").trim(),
-                shipToAddress1: String(item.shipToAddress1 || item.ship_to_address1 || "").trim(),
-                shipToAddress2: String(item.shipToAddress2 || item.ship_to_address2 || "").trim(),
-                shipToCity: String(item.shipToCity || item.ship_to_city || "").trim(),
-                shipToState: String(item.shipToState || item.ship_to_state || "").trim(),
-                shipToPostalCode: String(item.shipToPostalCode || item.ship_to_postal_code || "").trim(),
-                shipToCountry: String(item.shipToCountry || item.ship_to_country || "").trim(),
                 confirmedShipDate: String(item.confirmedShipDate || item.confirmed_ship_date || "").trim(),
                 shippedCarrierName: String(item.shippedCarrierName || item.shipped_carrier_name || "").trim(),
                 shippedTrackingReference: String(item.shippedTrackingReference || item.shipped_tracking_reference || "").trim(),

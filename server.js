@@ -20622,10 +20622,14 @@ async function getPortalOrderList({ accountName = "", status = "", limit = 100, 
             with scoped_orders as (
                 select
                     o.*,
+                    fl.code as fulfillment_location_code,
+                    fl.name as fulfillment_location_name,
                     source_order.order_code as duplicated_from_order_code,
                     replacement_order.id as duplicated_to_order_id,
                     replacement_order.order_code as duplicated_to_order_code
                 from portal_orders o
+                left join fulfillment_locations fl
+                  on fl.id = o.fulfillment_location_id
                 left join portal_orders source_order
                   on source_order.id = o.duplicated_from_order_id
                  and source_order.account_name = o.account_name
