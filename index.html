@@ -5104,11 +5104,14 @@
 
             .home-task::after {
                 content: attr(data-open-label);
-                color: #75879a;
+                color: #12324a;
+                background: #e7f0f7;
+                border: 1px solid #aebfce;
+                border-radius: 4px;
+                padding: 0.28rem 0.46rem;
                 font-size: 0.72rem;
                 font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
+                letter-spacing: 0;
             }
 
             .home-task strong {
@@ -6659,11 +6662,14 @@
         }
         .home-task::after {
             content:attr(data-open-label);
-            color:#75879a;
+	            color:#12324a;
+	            background:#e7f0f7;
+	            border:1px solid #aebfce;
+	            border-radius:4px;
+	            padding:4px 7px;
             font-size:11px;
             font-weight:700;
-            letter-spacing:.08em;
-            text-transform:uppercase;
+	            letter-spacing:0;
         }
         .home-task strong { font-size:15px; color:#12324a; }
         .home-task span { font-size:12px; color:#6b7280; line-height:1.3; }
@@ -6893,84 +6899,65 @@
                 </div>
                 <div class="module-menu-list">
                     <details class="module-menu">
-                        <summary>Finance</summary>
+                        <summary>Home</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item primary" type="button" data-jump-section="billing">Billing Ledger</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing">Customer Fees</button>
-                            <button class="module-menu-item" type="button" data-jump-section="reports">Billing Reports</button>
+                            <button class="module-menu-item primary" type="button" data-jump-section="home">Warehouse Dashboard</button>
                         </div>
                     </details>
                     <details class="module-menu">
-                        <summary>Cash Management</summary>
+                        <summary>Inbound</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item primary" type="button" data-jump-section="billing">Invoice Review</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing">Manual Charges</button>
-                            <button class="module-menu-item" type="button" data-jump-section="reports">Month-End Export</button>
-                        </div>
-                    </details>
-                    <details class="module-menu">
-                        <summary>Sales</summary>
-                        <div class="module-menu-panel">
-                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="CUSTOMER">Customers</button>
-                            <button class="module-menu-item primary" type="button" data-jump-section="orders">Sales Orders</button>
-                            <button class="module-menu-item" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
-                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipped Orders</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing">Billing Ledger</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
-                        </div>
-                    </details>
-                    <details class="module-menu">
-                        <summary>Purchasing</summary>
-                        <div class="module-menu-panel">
-                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="VENDOR">Vendors</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="inbounds">Purchase Orders</button>
-                            <button class="module-menu-item" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
                             <button class="module-menu-item" type="button" data-jump-section="scan">Receiving</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inbounds" data-start-new="purchase-order">New Purchase Order</button>
                         </div>
                     </details>
                     <details class="module-menu">
                         <summary>Inventory</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="ITEM">Items</button>
                             <button class="module-menu-item primary" type="button" data-jump-section="search">Inventory Lookup</button>
                             <button class="module-menu-item" type="button" data-jump-section="actions">Adjust & Move</button>
                             <button class="module-menu-item" type="button" data-jump-section="labels">Labels</button>
-                            <div class="module-menu-separator"></div>
-                            <button class="module-menu-item" type="button" data-jump-section="inventory">Master Data</button>
                         </div>
                     </details>
                     <details class="module-menu">
-                        <summary>Shopify</summary>
+                        <summary>Outbound</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item primary" type="button" data-jump-section="integrations">Store Integrations</button>
-                            <button class="module-menu-item" type="button" data-jump-section="integrations">Sync Schedules</button>
-                            <button class="module-menu-item" type="button" data-jump-section="orders">Imported Orders</button>
-                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipment Confirmations</button>
+                            <button class="module-menu-item primary" type="button" data-jump-section="orders">Sales Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="work-orders">Work Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipped Orders</button>
+                            <button class="module-menu-item" type="button" data-jump-section="orders" data-start-new="sales-order">New Sales Order</button>
                         </div>
                     </details>
                     <details class="module-menu">
-                        <summary>Reports & Counts</summary>
+                        <summary>Setup</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item primary" type="button" data-jump-section="reports">Inventory Count Review</button>
+                            <button class="module-menu-item primary" type="button" data-jump-section="inventory">Master Data</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="CUSTOMER">Customers</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="VENDOR">Vendors</button>
+                            <button class="module-menu-item" type="button" data-jump-section="inventory" data-workspace-anchor="masterRecordListCard" data-master-list="ITEM">Items</button>
+                            <button class="module-menu-item" type="button" data-jump-section="integrations">Marketplace Connections</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>Reporting</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="reports">Reports & Counts</button>
+                            <button class="module-menu-item" type="button" data-jump-section="reports">Inventory Count Review</button>
                             <button class="module-menu-item" type="button" data-jump-section="reports">Inventory Export</button>
-                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
-                            <button class="module-menu-item" type="button" data-jump-section="shipped">Shipment History</button>
                         </div>
                     </details>
                     <details class="module-menu">
-                        <summary>Menu</summary>
+                        <summary>Commercial</summary>
                         <div class="module-menu-panel">
-                            <button class="module-menu-item primary" type="button" data-jump-section="home">Operations Home</button>
-                            <button class="module-menu-item" type="button" data-jump-section="scan">Receive Stock</button>
-                            <button class="module-menu-item" type="button" data-jump-section="orders">Pick / Stage / Ship</button>
-                            <button class="module-menu-item" type="button" data-jump-section="search">Inventory Lookup</button>
-                            <button class="module-menu-item" type="button" data-jump-section="actions">Adjust & Move</button>
-                            <div class="module-menu-separator"></div>
-                            <button class="module-menu-item" type="button" data-jump-section="inventory">Master Data</button>
-                            <button class="module-menu-item" type="button" data-jump-section="integrations">Integrations</button>
-                            <button class="module-menu-item" type="button" data-jump-section="backup">Admin & System</button>
+                            <button class="module-menu-item primary" type="button" data-jump-section="billing">Billing</button>
+                            <button class="module-menu-item" type="button" data-jump-section="billing-finance">Billing & Accounting</button>
+                        </div>
+                    </details>
+                    <details class="module-menu">
+                        <summary>System</summary>
+                        <div class="module-menu-panel">
+                            <button class="module-menu-item primary" type="button" data-jump-section="backup">Admin & System</button>
                         </div>
                     </details>
                 </div>
@@ -7436,6 +7423,7 @@
                     </div>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="orders" data-open-label="Work"><strong>Sales Orders</strong><span>Work live orders through pick, stage, and ship.</span></button>
+                        <button class="home-task" type="button" data-jump-section="work-orders" data-open-label="Open"><strong>Work Orders</strong><span>Release, produce, complete, or cancel warehouse kitting work.</span></button>
                         <button class="home-task" type="button" data-jump-section="shipped" data-open-label="Review"><strong>Shipped Orders</strong><span>Review shipment history, tracking, and documents.</span></button>
                     </div>
                 </article>
@@ -7459,7 +7447,7 @@
                     </div>
                     <div class="home-actions">
                         <button class="home-task" type="button" data-jump-section="inventory" data-open-label="Maintain"><strong>Master Data</strong><span>Maintain companies, BINs, items, portal access, and worksheet tools.</span></button>
-                        <button class="home-task" type="button" data-jump-section="integrations" data-open-label="Connect"><strong>Integrations</strong><span>Manage Shopify, SFTP, and sync schedules.</span></button>
+                        <button class="home-task" type="button" data-jump-section="integrations" data-open-label="Connect"><strong>Marketplace Connections</strong><span>Manage Shopify, SFTP, and sync schedules.</span></button>
                     </div>
                 </article>
                 <article class="home-card">
@@ -9606,7 +9594,7 @@
                 <article class="card full-span workspace-control-card">
                     <div class="card-head">
                         <div>
-                            <h2>Storefront & Marketplace Connections</h2>
+                            <h2>Marketplace Connections</h2>
                             <p class="lead">Connect Shopify, Best Buy, Amazon, SFTP, and other customer order channels, then sync orders, purchase orders, confirmations, and inventory into the right company workspace.</p>
                         </div>
                     </div>
@@ -11554,7 +11542,7 @@
         // - C:\WMS365Scanner\docs\CHANGE_IMPACT_CHECKLIST.md
         const WAREHOUSE_WORKSPACE_TOC = Object.freeze({
             groups: [
-                { key: "home", label: "Dashboard", sections: ["home"] },
+                { key: "home", label: "Home", sections: ["home"] },
                 { key: "inbound", label: "Inbound", sections: ["inbounds", "scan"] },
                 { key: "inventory", label: "Inventory", sections: ["search", "moves", "actions", "labels"] },
                 { key: "outbound", label: "Outbound", sections: ["orders", "work-orders", "shipped"] },
@@ -22229,7 +22217,7 @@
             const featureOff = Boolean(company) && !companyHasFeature(company, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
             const integrationTab = ui.tabs.find((tab) => tab.dataset.section === "integrations");
             const integrationTabLabel = integrationTab?.querySelector(".tab-label");
-            if (integrationTabLabel) integrationTabLabel.textContent = featureOff ? "Integrations (Off)" : "Integrations";
+            if (integrationTabLabel) integrationTabLabel.textContent = featureOff ? "Marketplace Connections (Off)" : "Marketplace Connections";
 
             ui.integrationFeatureUnavailable?.classList.toggle("hidden", !featureOff);
             document.getElementById("integrationForm")?.classList.toggle("hidden", featureOff);

@@ -31,7 +31,7 @@ Latest desktop layout audit:
 | Surface | Screen | What belongs here | Current status | Action |
 | --- | --- | --- | --- | --- |
 | Warehouse desktop | Top black bar | Build, support, company switcher, global find, notifications, settings/help | Good | Keep company switching only here. |
-| Warehouse desktop | Module menu bar | Finance, Cash Management, Sales, Purchasing, Inventory, Shopify/Marketplace, All Reports, Menu | Good | Keep as main desktop entry method. |
+| Warehouse desktop | Module menu bar | Home, Inbound, Inventory, Outbound, Setup, Reporting, Commercial, System | Good | Keep aligned with the Warehouse Directory and workspace table of contents. |
 | Warehouse desktop | Command bar | Current page actions such as New, Delete, Refresh, Print/Send, Release, Post | Needs cleanup | Make actions page-aware so invalid commands are hidden or disabled outside the right list/document. |
 | Warehouse desktop | FactBox | Page info, sync, counts, related actions | Good | Keep context-only, not data entry. |
 | Home | Warehouse Dashboard | Day planning, open inbound/outbound counts, SLA aging, assigned worker/warehouse columns, planning notes, drill-in popouts | Good | Keep dashboard as planning and launch page. |
@@ -44,7 +44,7 @@ Latest desktop layout audit:
 | Outbound | Quote & Ship | Package type, ship from/to, package details, rates, labels, cost capture | Planned | Add as its own Outbound section when built. |
 | Outbound | Shipped Orders | Shipped list, tracking, carrier, documents, customer-visible detail | Good | Keep separate from active Sales Orders. |
 | Setup | Master Data | Company setup, customers, vendors, items, BINs, portal users, welcome/access emails, warehouses/3PL, assignments, inventory worksheet | Improving | Customers, Vendors, and Items now open focused list views. Items now drill into a Dynamics-style item card with related inventory and store SKU mapping. |
-| Setup | Marketplace Connections | Shopify, SFTP, Best Buy, Amazon, Woo, schedules, import/export lanes | Good but naming inconsistent | Rename visible labels to Marketplace Connections or Storefront & Marketplace Connections consistently. |
+| Setup | Marketplace Connections | Shopify, SFTP, Best Buy, Amazon, Woo, schedules, import/export lanes | Good | Use Marketplace Connections consistently in navigation, Directory, and page titles. |
 | Reporting | Reports & Counts | Inventory exports, item/location reports, counts, utilization | Good | Keep read/export reporting here. |
 | Commercial | Billing | Billing dashboard, warehouse progress rollups, company billing profile, fees, manual charges, storage billing, billable activity review, invoice batches, Zoho sync | Good but needs invoice batching | Keep invoices company-owned while super admins can roll up progress billing by warehouse/3PL location and assigned accounts. |
 | System | Admin & System | Feature access, warehouse users, email flow test, system email test, email delivery log, feedback queue, backup/import/export, build/version | Good but order can improve | Put daily admin/support checks before backup tools. |
@@ -66,7 +66,6 @@ Latest desktop layout audit:
 | P1 | Tighten Master Data into a setup list: Companies, Customers, Vendors, Items, BINs, Portal Users, Warehouses/3PL, Assignments, Inventory Worksheet. | The current Inventory Index includes Adjust/Move, Integrations, Reports, and Admin shortcuts, which makes Master Data feel like a feature dump. |
 | P1 | Compress Sales Orders and Purchase Orders list headers so the grid appears above the fold. | The current lists work, but large filter/snapshot sections slow down the ERP-style workflow. |
 | P1 | Make the command bar contextual to the active page and selected record. | Page-level hiding is in place; next step is enabling/disabling actions based on the selected row or open document status. |
-| P1 | Rename Integrations consistently to Marketplace Connections or Storefront & Marketplace Connections. | Users keep asking where Shopify is. The title should match the store/marketplace task. |
 | P2 | Move Admin & System daily tools to the top: Email Flow Check, System Email Test, Feature Access, Warehouse Users, Feedback Queue, then Backup/Import/Export. | Super users need support checks before backup tools. |
 | P2 | Add Quote & Ship as a real Outbound section when the shipment quoting workflow is built. | Shipping should not be hidden inside Sales Orders once rate shopping and label creation exist. |
 | P2 | Make Home drill-in popouts available when All Companies is selected. | Super users need top-level activity without listing everything inline. |
@@ -101,6 +100,5 @@ Latest desktop layout audit:
 Recommended next build pass:
 - Continue cleaning `inventoryPanel` so Master Data reads like a tight setup list instead of an all-purpose index.
 - Keep `searchPanel` focused on inventory lookup and results only.
-- Rename Integrations in menus and headers to `Marketplace Connections`.
 - Reorder Admin & System so email flow, users, and feature access are easier to find.
 - Add a planned `Quote & Ship` shell under Outbound only when we are ready to build the shipping rate workflow.

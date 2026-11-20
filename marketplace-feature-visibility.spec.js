@@ -12,7 +12,7 @@ test("disabled marketplace feature hides connection controls behind one unavaila
     assert.match(warehouse, /id="integrationFeatureUnavailable"[^>]*class="helper hidden"|class="helper hidden" id="integrationFeatureUnavailable"/);
     assert.match(warehouse, /document\.getElementById\("integrationForm"\)\?\.classList\.toggle\("hidden", featureOff\)/);
     assert.match(warehouse, /integrationSavedConnections\?\.classList\.toggle\("hidden", featureOff\)/);
-    assert.match(warehouse, /integrationTabLabel\.textContent = featureOff \? "Integrations \(Off\)" : "Integrations"/);
+    assert.match(warehouse, /integrationTabLabel\.textContent = featureOff \? "Marketplace Connections \(Off\)" : "Marketplace Connections"/);
 });
 
 test("only super administrators receive the Feature Access recovery action", () => {
