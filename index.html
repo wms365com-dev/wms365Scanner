@@ -31644,6 +31644,7 @@
             state.meta.lastChangedAt = typeof payload?.meta?.lastChangedAt === "string" ? payload.meta.lastChangedAt : null;
             state.meta.serverSyncedAt = typeof payload?.meta?.serverSyncedAt === "string" ? payload.meta.serverSyncedAt : new Date().toISOString();
             state.meta.localCacheAt = new Date().toISOString();
+            updateActiveCompanyUi();
             saveState({ includeCache: true });
             if (isMobileView() && window.WMS365Mobile?.cacheData) {
                 window.WMS365Mobile.cacheData(MOBILE_DEVICE_STATE_CACHE_KEY, buildLocalCachePayload({ compact: true })).catch(() => {});
@@ -33493,8 +33494,11 @@
                 ui.mobileActiveWarehouse.innerHTML = ui.activeWarehouse.innerHTML;
                 ui.mobileActiveWarehouse.value = ui.activeWarehouse.value;
             }
-            state.preferences.activeWarehouseCode = ui.activeWarehouse.value;
-            ui.activeWarehouse.disabled = !getActiveCompany() || assignments.length === 0;
+            if (appSessionStateLoaded) {
+                state.preferences.activeWarehouseCode = ui.activeWarehouse.value;
+            }
+            ui.activeWarehouse.disabled = !appSessionStateLoaded || !getActiveCompany() || assignments.length === 0;
+            if (ui.mobileActiveWarehouse) ui.mobileActiveWarehouse.disabled = ui.activeWarehouse.disabled;
             return selectedAssignment || null;
         }
 
