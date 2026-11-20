@@ -164,7 +164,7 @@ This board is the release order. Only one focused repair is promoted at a time; 
 - Tests: focused Railway/runtime contracts passed 6/6; access-control audit passed 12/12 across 292 routes; deployment gate passed 759/759; production dependency audit reported zero vulnerabilities; fresh-database verification passed all seven schema controls.
 - Sandbox: exact commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` deployed as `6431763c-d324-4f7a-ade8-24cc9123c801`. The designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced cross-company HTTP 403, and cleaned up isolated fixtures. Eleven health samples over 10 minutes passed with zero HTTP 5xx responses.
 - Production: the reviewed plan contained zero additions, zero deletions, and no variable changes. Named rollback deployment `04899d1f-4a84-46ba-a018-4cfaaf84fd13` was recorded before exact commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec` deployed as `6ab7427d-1fc0-4133-aff8-d41370db9ddc`. Five consecutive read-only health checks confirmed database, schema, desktop, and mobile readiness; the post-deployment one-hour window had zero HTTP 5xx responses across 625 requests.
-- Drift: both production and customer-sandbox plans report configuration up to date, with no staged Railway changes.
+- Drift: customer-sandbox remains up to date. A read-only plan on 2026-11-20 found one unapplied production build-command normalization (`npm run check:deploy` to the warning-free environment form), with zero additions and zero deletions and variables unmanaged. This drift is documented and blocks the next application promotion until it is separately reviewed and applied without coupling it to a feature release.
 - Promotion guard: production is pinned to reviewed commit `75fd7152e53ea47ef11d9cf79ba0d5bf0db039ec`; only sandbox follows the release branch. A branch push can no longer advance production without an explicit reviewed commit-pin promotion.
 - Remaining risk: production schema readiness took approximately 151 seconds and health database probes were approximately 770-780 ms. Profile initialization and probe latency before the next schema-affecting release. GitHub default-branch dependency alerts also require a separate reachability review; the deployed branch's production dependency audit is clean.
 - Full evidence: `docs/WMS365_RAILWAY_IAC_MIGRATION_AUDIT.md`.
@@ -249,11 +249,20 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 | ---: | --- | --- | --- | --- |
 | 22 | WMS-06 | watch | New Vendor controls disagree about whether creation is enabled | QUEUED |
 | 23 | WMS-07 | medium | Quick-link highlight points to the wrong page | FIXED - PRODUCTION BLOCKED |
-| 24 | WMS-13 | medium | Empty states lack next actions and Items wording is misleading | QUEUED |
+| 24 | WMS-13 | medium | Empty states lack next actions and Items wording is misleading | FIXED - PRODUCTION BLOCKED |
 | 25 | WMS-14 | medium | Navigation, Warehouse Directory, and documentation use different names | QUEUED |
 | 26 | WMS-23 | medium | Full SKU dropdowns make every order line noisy and slow | QUEUED |
 | 27 | WMS-26 | watch | Sign-in adds an unexplained Access Center choice before warehouse login | QUEUED |
 | 28 | WMS-28 | medium | Search by Location looks disabled | QUEUED |
+
+### WMS-13 - Actionable empty states and item master wording
+
+- Priority: `medium`
+- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Code: exact candidate `7ee52cfff4570b5466cf5b228b5824d0134500f1` explains empty Sales Orders, Purchase Orders, and Items states and offers a context-valid next action. Filtered lists offer a clear-filter action, the shipped view links back to open sales orders, and company-scoped empty lists offer their normal New action. Item counts now use `item/items`, and Items are identified as product master data rather than generically as saved records. An empty unchanged sales-order refresh clears its stale success banner.
+- Authorization and isolation: actions render only inside the existing active-company branch and call the existing company- and warehouse-scoped workflows. Server mutation routes retain portal session, feature, tenant, warehouse, and role enforcement; no new endpoint or authorization path was added. The focused positive/negative suite passed 5/5, access control passed 12/12 across 292 routes, and `npm run check:deploy` passed 925/925.
+- Sandbox: the clean exact candidate deployed only to `customer-sandbox` as `5713dd77-091d-4829-8f7e-0a6d7f22b31b`; prior deployment `53b0118b-b62c-4ab7-b065-b9bd03347ab3` is the named sandbox rollback. The deployed application contains the new empty-state actions and item-master copy. Fresh-database verification passed all seven schema controls. The authenticated pinned test-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced denied-company HTTP 403, passed inbound company/warehouse isolation, and measured the sales-order queue at 19 ms median and 42.9 ms maximum. Twelve health samples from `2026-11-20T22:17:10Z` through `2026-11-20T22:27:29Z` remained fully ready with 2-7 ms database probes. Deployment and HTTP logs showed no runtime warning, restart, upstream error, or HTTP 5xx.
+- Production blocker: production remains unchanged. The production Railway plan contains one unapplied build-command normalization while sandbox is current, so the environments are not configuration-identical. In addition, the current release process can rebuild a commit independently but does not expose an immutable cross-environment image promotion path. Both conditions block exact-artifact production promotion under the staging policy. The last known production rollback remains application deployment `2cc7562c-4f98-4980-90f7-82ffa5d1d8a7` at commit `5f5463237b876beac1c87543a8c811a625bac3de`.
 
 ### WMS-07 - Quick-link active state
 
