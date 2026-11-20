@@ -102,6 +102,24 @@ test("requested ship and delivery dates remain editable", () => {
     }
 });
 
+test("a new sales order can reset before any saved order exists", () => {
+    const getPortalOrderShipToFields = Function(
+        `"use strict"; ${extractFunction("getPortalOrderShipToFields")}; return getPortalOrderShipToFields;`
+    )();
+    assert.deepEqual(getPortalOrderShipToFields(null), {
+        contactName: "",
+        contactPhone: "",
+        name: "",
+        phone: "",
+        address1: "",
+        address2: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: ""
+    });
+});
+
 test("narrow and device-mobile document layouts keep date controls in one reachable column", () => {
     const narrowStart = source.indexOf("@media (max-width: 859px)");
     const narrowEnd = source.indexOf(".fold {", narrowStart);

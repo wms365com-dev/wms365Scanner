@@ -26187,6 +26187,7 @@
         }
 
         function getPortalOrderShipToFields(order = {}) {
+            order = order || {};
             return {
                 contactName: order.contactName || "",
                 contactPhone: order.contactPhone || "",
