@@ -13,7 +13,8 @@ const {
 const {
     DETAIL_MAX_BUDGET_MS,
     DETAIL_MEDIAN_BUDGET_MS,
-    assertAllowedOrder
+    assertAllowedOrder,
+    assertListDetailDestinationParity
 } = require("./scripts/verify-test-company-sales-order-detail-performance");
 
 const script = fs.readFileSync(
@@ -124,7 +125,7 @@ test("sales-order detail verifier pins strict latency budgets and exact response
                 id: "42",
                 orderCode: fixture.allowedOrderCode,
                 accountName: "CODEX PORTAL SYSTEM TEST",
-                status: "DRAFT",
+                status: "RELEASED",
                 fulfillmentLocationId: "77",
                 lines: [{ sku: fixture.sku, quantity: 7 }],
                 documents: [],
@@ -142,6 +143,31 @@ test("sales-order detail verifier pins strict latency budgets and exact response
         () => assertAllowedOrder({ ...response, body: { order: { ...response.body.order, accountName: "OTHER" } } }, fixture),
         /company or status scope/
     );
+    const destination = {
+        contactName: "Receiving Desk",
+        contactPhone: "555-0101",
+        contactEmail: "receiving@invalid.example",
+        shipToName: "Test Receiver",
+        shipToAddress1: "1510 Test Street",
+        shipToAddress2: "Dock 6",
+        shipToCity: "Mississauga",
+        shipToState: "ON",
+        shipToPostalCode: "L5T 1V6",
+        shipToCountry: "Canada",
+        fulfillmentLocationId: "77",
+        fulfillmentLocationCode: "TEST-WH",
+        fulfillmentLocationName: "Test Warehouse"
+    };
+    assert.doesNotThrow(() => assertListDetailDestinationParity(
+        { status: 200, body: { orders: [{ id: "42", ...destination }] } },
+        { status: 200, body: { order: { id: "42", ...destination } } },
+        fixture
+    ));
+    assert.throws(() => assertListDetailDestinationParity(
+        { status: 200, body: { orders: [{ id: "42", ...destination, shipToCity: "Toronto" }] } },
+        { status: 200, body: { order: { id: "42", ...destination } } },
+        fixture
+    ), /destination mismatch for shipToCity/);
 });
 
 test("sales-order detail verifier is sandbox-only, warehouse-negative and cleanup-safe", () => {
@@ -149,6 +175,7 @@ test("sales-order detail verifier is sandbox-only, warehouse-negative and cleanu
     assert.match(detailScript, /requireDesignatedTestCompany\(pool\)/);
     assert.match(detailScript, /id: "1510", name: "CODEX PORTAL SYSTEM TEST"/);
     assert.match(detailScript, /status !== 403/);
+    assert.match(detailScript, /releasedListDetailDestinationParity: true/);
     assert.match(detailScript, /warehouse_worker/);
     assert.match(detailScript, /app_user_fulfillment_location_access/);
     assert.match(detailScript, /finally \{[\s\S]*await cleanup\(pool, fixture\)/);

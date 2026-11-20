@@ -34,6 +34,25 @@ async function fetchOrder(origin, orderId, token, requestId) {
     };
 }
 
+async function fetchOrderList(origin, token, requestId) {
+    const response = await fetch(
+        `${origin}/api/admin/portal-orders?accountName=${encodeURIComponent(TEST_COMPANY.name)}&status=RELEASED`,
+        {
+            method: "GET",
+            redirect: "error",
+            headers: {
+                accept: "application/json",
+                cookie: `wms365_app_session=${encodeURIComponent(token)}`,
+                "x-request-id": requestId
+            }
+        }
+    );
+    const text = await response.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+    return { status: response.status, body };
+}
+
 async function cleanup(pool, fixture) {
     const client = await pool.connect();
     try {
@@ -123,7 +142,7 @@ function assertAllowedOrder(response, fixture) {
     if (!order || String(order.id) !== fixture.allowedOrderId || order.orderCode !== fixture.allowedOrderCode) {
         throw new Error("Allowed sales-order detail response did not contain the exact fixture order.");
     }
-    if (order.accountName !== TEST_COMPANY.name || order.status !== "DRAFT") {
+    if (order.accountName !== TEST_COMPANY.name || order.status !== "RELEASED") {
         throw new Error("Allowed sales-order detail response changed company or status scope.");
     }
     if (String(order.fulfillmentLocationId) !== fixture.allowedLocationId) {
@@ -136,6 +155,25 @@ function assertAllowedOrder(response, fixture) {
     if (!Array.isArray(order.documents) || !Array.isArray(order.warehouseShipments)
         || !Array.isArray(order.shipmentTracking)) {
         throw new Error("Allowed sales-order detail response omitted required detail collections.");
+    }
+}
+
+function assertListDetailDestinationParity(listResponse, detailResponse, fixture) {
+    if (listResponse.status !== 200 || !Array.isArray(listResponse.body?.orders)) {
+        throw new Error(`Released sales-order list request returned HTTP ${listResponse.status}.`);
+    }
+    const listed = listResponse.body.orders.find((order) => String(order.id) === fixture.allowedOrderId);
+    const detailed = detailResponse.body?.order;
+    if (!listed || !detailed) throw new Error("Released sales-order list/detail fixture was not returned by both scoped endpoints.");
+    const fields = [
+        "contactName", "contactPhone", "contactEmail", "shipToName", "shipToAddress1", "shipToAddress2",
+        "shipToCity", "shipToState", "shipToPostalCode", "shipToCountry", "fulfillmentLocationId",
+        "fulfillmentLocationCode", "fulfillmentLocationName"
+    ];
+    for (const field of fields) {
+        if (String(listed[field] || "") !== String(detailed[field] || "")) {
+            throw new Error(`Released sales-order list/detail destination mismatch for ${field}.`);
+        }
     }
 }
 
@@ -201,7 +239,7 @@ async function main(env = process.env) {
             const orders = await client.query(
                 `insert into portal_orders
                     (order_code,account_name,status,po_number,order_notes,ship_to_name,fulfillment_location_id)
-                 values ($1,$3,'DRAFT',$4,$5,'Sandbox Test Destination',$6),
+                 values ($1,$3,'RELEASED',$4,$5,'Sandbox Test Destination',$6),
                         ($2,$3,'DRAFT',$4,$5,'Sandbox Test Destination',$7)
                  returning id::text,order_code`,
                 [
@@ -219,6 +257,15 @@ async function main(env = process.env) {
                 `insert into portal_order_lines (order_id,line_number,sku,requested_quantity)
                  values ($1,1,$3,7),($2,1,$3,11)`,
                 [fixture.allowedOrderId, fixture.deniedOrderId, fixture.sku]
+            );
+            await client.query(
+                `update portal_orders
+                    set contact_name='Sandbox Receiving Desk', contact_phone='555-0101',
+                        contact_email='sandbox-receiving@invalid.example', ship_to_address1='1510 Test Street',
+                        ship_to_address2='Dock 6', ship_to_city='Mississauga', ship_to_state='ON',
+                        ship_to_postal_code='L5T 1V6', ship_to_country='Canada'
+                  where id=$1`,
+                [fixture.allowedOrderId]
             );
             const user = await client.query(
                 `insert into app_users (email,password_hash,full_name,role,is_active)
@@ -267,6 +314,17 @@ async function main(env = process.env) {
         if (denied.status !== 403) {
             throw new Error(`Denied-warehouse sales-order detail request returned HTTP ${denied.status}, expected 403.`);
         }
+        const listResponse = await fetchOrderList(
+            config.origin,
+            sessionToken,
+            `${fixture.requestPrefix}-LIST`
+        );
+        assertListDetailDestinationParity(listResponse, await fetchOrder(
+            config.origin,
+            fixture.allowedOrderId,
+            sessionToken,
+            `${fixture.requestPrefix}-PARITY`
+        ), fixture);
 
         const detailMedianMs = median(measurements);
         const detailMaxMs = Math.max(...measurements);
@@ -282,6 +340,7 @@ async function main(env = process.env) {
             designatedCompanyId: TEST_COMPANY.id,
             allowedWarehouseStatus: 200,
             deniedWarehouseStatus: denied.status,
+            releasedListDetailDestinationParity: true,
             samples: measurements.length,
             salesOrderDetailMedianMs: Number(detailMedianMs.toFixed(1)),
             salesOrderDetailMaxMs: Number(detailMaxMs.toFixed(1)),
@@ -317,5 +376,6 @@ module.exports = {
     DETAIL_MAX_BUDGET_MS,
     DETAIL_MEDIAN_BUDGET_MS,
     assertAllowedOrder,
+    assertListDetailDestinationParity,
     main
 };
