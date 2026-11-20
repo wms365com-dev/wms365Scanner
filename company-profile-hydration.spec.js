@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 
 const warehouse = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+const verifier = fs.readFileSync(path.join(__dirname, "scripts", "verify-test-company-profile-edit.js"), "utf8");
 
 function extractFunction(source, name) {
     const marker = `function ${name}(`;
@@ -88,4 +89,16 @@ test("server locks the exact company and rejects stale or blank profile edits", 
     assert.match(guard, /expectedTimestamp !== currentTimestamp/);
     assert.match(guard, /getDestructiveOwnerProfileBlankFields\(existing, rawInput\)/);
     assert.match(guard, /This company profile changed after it was loaded/);
+});
+
+test("sandbox verifier is pinned, authorization-negative, and cleanup-safe", () => {
+    assert.match(verifier, /requireSandboxConfiguration\(env\)/);
+    assert.match(verifier, /id: "1510", name: "CODEX PORTAL SYSTEM TEST"/);
+    assert.match(verifier, /requireDesignatedTestCompany\(pool\)/);
+    assert.match(verifier, /if \(denied\.status !== 403\)/);
+    assert.match(verifier, /if \(stale\.status !== 409\)/);
+    assert.match(verifier, /if \(blank\.status !== 409\)/);
+    assert.match(verifier, /update owner_accounts set note=\$2,updated_at=\$3/);
+    assert.match(verifier, /delete from app_sessions/);
+    assert.match(verifier, /Company-profile verifier cleanup left sandbox residue/);
 });
