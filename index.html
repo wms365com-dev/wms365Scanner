@@ -7821,7 +7821,7 @@
                         </div>
                     </div>
                     <div id="portalInboundsList">
-                        <p class="empty">No purchase orders loaded yet.</p>
+                        <p class="empty">No purchase orders exist for this company yet.</p>
                     </div>
                 </article>
             </div>
@@ -8958,12 +8958,12 @@
                                     <p class="meta">Open the SKU to drill into the item card, or use the action button to load it into scanning.</p>
                                 </div>
                                 <div class="erp-list-actions">
-                                    <span class="meta" id="masterItemCount">0 saved</span>
+                                    <span class="meta" id="masterItemCount">0 items</span>
                                     <button class="btn ghost mini" id="openMasterItemNewBtn" type="button">+ New Item</button>
                                 </div>
                             </div>
                             <div id="masterItemList" class="stack-list">
-                                <p class="empty">No items saved yet. Add your common SKUs here to speed up repeat work.</p>
+                                <p class="empty">No items exist for this company yet. Items are product master data used by receiving and orders.</p>
                             </div>
                         </div>
                     </div>
@@ -9854,7 +9854,7 @@
                         </div>
                     </div>
                     <div id="portalOrdersList">
-                        <p class="empty">No sales orders loaded yet.</p>
+                        <p class="empty">No sales orders exist for this company yet.</p>
                     </div>
                 </article>
             </div>
@@ -25745,10 +25745,11 @@
 
             if (!visibleInbounds.length) {
                 const fallback = errorText || (company
-                    ? "No purchase orders are loaded for the active company."
+                    ? "No purchase orders exist for this company yet."
                     : "Choose a company to review warehouse and portal purchase orders.");
                 ui.portalInboundsList.innerHTML = company
-                    ? `<p class="empty">${esc(fallback)}</p>`
+                    ? `<p class="empty">${esc(fallback)}</p>
+                        <div class="button-row"><button class="btn" type="button" data-empty-inbound-action="new">New Purchase Order</button></div>`
                     : renderCompanySelectionRecovery(fallback);
                 return;
             }
@@ -25806,6 +25807,11 @@
         }
 
         async function onPortalInboundsListClick(event) {
+            const emptyAction = event.target.closest("[data-empty-inbound-action]");
+            if (emptyAction) {
+                showPurchaseOrderDocument(null, { scroll: true });
+                return;
+            }
             if (await handleWarehouseDocumentPreviewClick(event, ui.warehouseInboundMessage || ui.portalOrdersMessage)) {
                 return;
             }
@@ -26039,7 +26045,13 @@
                 window.clearTimeout(portalOrdersLoadingTimer);
                 portalOrdersLoadingTimer = null;
             }
-            if (!message) return;
+            if (!message) {
+                ui.portalOrdersMessage.textContent = "";
+                ui.portalOrdersMessage.className = "status";
+                ui.portalOrdersMessage.removeAttribute("role");
+                ui.portalOrdersMessage.removeAttribute("aria-live");
+                return;
+            }
             const apply = () => showMessage(ui.portalOrdersMessage, message, tone);
             if (delay) {
                 portalOrdersLoadingTimer = window.setTimeout(apply, 300);
@@ -26151,7 +26163,9 @@
                 renderPortalOrdersWorkspace();
                 updatePortalOrdersSyncMeta();
                 if (showLoading) {
-                    setPortalOrdersLoadingMessage(`Updated ${company || "all company"} sales orders at ${formatPreciseDate(portalOrdersLastSyncedAt)}.`, "success");
+                    setPortalOrdersLoadingMessage(orders.length
+                        ? `Updated ${company || "all company"} sales orders at ${formatPreciseDate(portalOrdersLastSyncedAt)}.`
+                        : "", "success");
                 }
                 return portalOrderRecords;
             } catch (error) {
@@ -26287,15 +26301,27 @@
 
             if (!visibleOrders.length) {
                 const company = getActiveCompany();
+                const hasScopedOrders = portalOrderRecords.some((order) => !company || norm(order.accountName) === norm(company));
                 const fallback = errorText || (company
-                    ? (shippedOnly
-                        ? "No shipped orders match the current company and search filters."
-                        : "No sales orders match the current company and order filters.")
+                    ? (hasScopedOrders
+                        ? (shippedOnly
+                            ? "No shipped orders match the current search filters."
+                            : "No sales orders match the current order filters.")
+                        : (shippedOnly
+                            ? "This company has no shipped orders yet."
+                            : "No sales orders exist for this company yet."))
                     : (shippedOnly
                         ? "Choose a company to review shipped orders."
                         : "Choose a company to review released sales orders."));
                 ui.portalOrdersList.innerHTML = company
-                    ? `<p class="empty">${esc(fallback)}</p>`
+                    ? `<p class="empty">${esc(fallback)}</p>
+                        <div class="button-row">
+                            ${hasScopedOrders
+                                ? `<button class="btn ghost" type="button" data-empty-order-action="clear-filters">Clear Filters</button>`
+                                : (shippedOnly
+                                    ? `<button class="btn ghost" type="button" data-empty-order-action="view-open">View Sales Orders</button>`
+                                    : `<button class="btn" type="button" data-empty-order-action="new">New Sales Order</button>`)}
+                        </div>`
                     : renderCompanySelectionRecovery(fallback);
                 return;
             }
@@ -27440,6 +27466,20 @@
 
         async function onPortalOrdersListClick(event) {
             const actionMessageElement = getPortalOrderActionMessageElement(event.target);
+            const emptyAction = event.target.closest("[data-empty-order-action]");
+            if (emptyAction) {
+                const action = emptyAction.dataset.emptyOrderAction || "";
+                if (action === "new") {
+                    openNewSalesOrderDocument({ scroll: true });
+                } else if (action === "view-open") {
+                    setSection("orders");
+                } else {
+                    if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = getPortalOrderDefaultStatusFilter();
+                    if (ui.portalOrderSearch) ui.portalOrderSearch.value = "";
+                    renderPortalOrdersList();
+                }
+                return;
+            }
             if (await handleShipmentDeliveryAction(event, actionMessageElement)) return;
             if (await handleWarehouseDocumentPreviewClick(event, actionMessageElement)) {
                 return;
@@ -28535,7 +28575,7 @@
                 if (button) button.disabled = !accountName;
             });
             if (!accountName) {
-                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = "0 saved";
+                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = type === "ITEM" ? "0 items" : "0 saved";
                 ui.masterRecordListContent.innerHTML = renderCompanySelectionRecovery(`Choose a company first. ${plural} are stored inside the selected company.`);
                 return;
             }
@@ -28546,7 +28586,7 @@
                     .filter((item) => recordMatchesFocusedSearch(item, ["sku", "upc", "description", "trackingLevel"], query))
                     .sort((a, b) => a.sku.localeCompare(b.sku));
                 const visibleItems = itemMatches.slice(0, MASTER_ITEM_FOCUSED_LIMIT);
-                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = `${num(itemMatches.length)} saved`;
+                if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = `${num(itemMatches.length)} item${itemMatches.length === 1 ? "" : "s"}`;
                 ui.masterRecordListContent.innerHTML = renderMasterItemRows(visibleItems, itemMatches.length, query);
                 return;
             }
@@ -28560,6 +28600,16 @@
         }
 
         function onFocusedMasterRecordListClick(event) {
+            const emptyAction = event.target.closest("[data-empty-item-action]");
+            if (emptyAction) {
+                if (emptyAction.dataset.emptyItemAction === "clear") {
+                    if (ui.masterRecordSearch) ui.masterRecordSearch.value = "";
+                    renderFocusedMasterRecordList();
+                } else {
+                    showMasterItemCard(null, { scroll: true });
+                }
+                return;
+            }
             const useItemButton = event.target.closest("[data-use-item]");
             if (useItemButton) {
                 fillScanFromMasterItem(useItemButton.dataset.useItem || "");
@@ -28850,8 +28900,8 @@
                 ? `${num(locationMatches.length)} shown / ${num(state.masters.locations.length)} saved`
                 : `${num(state.masters.locations.length)} saved`;
             ui.masterItemCount.textContent = query
-                ? `${num(itemMatches.length)} shown / ${num(state.masters.items.length)} saved`
-                : `${num(state.masters.items.length)} saved`;
+                ? `${num(itemMatches.length)} shown / ${num(state.masters.items.length)} item${state.masters.items.length === 1 ? "" : "s"}`
+                : `${num(state.masters.items.length)} item${state.masters.items.length === 1 ? "" : "s"}`;
 
             ui.masterOwnerList.innerHTML = renderMasterOwnerRows(visibleOwners, ownerMatches.length, query);
             if (ui.fulfillmentLocationList) ui.fulfillmentLocationList.innerHTML = renderFulfillmentLocationRows(visibleFulfillmentLocations, fulfillmentMatches.length, query);
@@ -29035,7 +29085,8 @@
 
         function renderMasterItemRows(items, totalMatches, query) {
             if (!items.length) {
-                return `<p class="empty">${query ? `No saved items matched "${esc(query)}".` : "No items saved yet. Add common SKUs here to speed up repeat work."}</p>`;
+                return `<p class="empty">${query ? `No items matched "${esc(query)}".` : "No items exist for this company yet. Items are product master data used by receiving and orders."}</p>
+                    <div class="button-row"><button class="btn${query ? " ghost" : ""}" type="button" data-empty-item-action="${query ? "clear" : "new"}">${query ? "Clear Search" : "New Item"}</button></div>`;
             }
 
             const rows = items.map((item) => {
@@ -29367,6 +29418,16 @@
         }
 
         function onMasterItemListClick(event) {
+            const emptyAction = event.target.closest("[data-empty-item-action]");
+            if (emptyAction) {
+                if (emptyAction.dataset.emptyItemAction === "clear") {
+                    if (ui.masterFilter) ui.masterFilter.value = "";
+                    renderMasters();
+                } else {
+                    showMasterItemCard(null, { scroll: true });
+                }
+                return;
+            }
             const button = event.target.closest("[data-use-item]");
             if (button) {
                 fillScanFromMasterItem(button.dataset.useItem);
