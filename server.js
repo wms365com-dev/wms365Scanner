@@ -2954,6 +2954,9 @@ app.post("/api/master-owner", async (req, res, next) => {
         }
 
         await withTransaction(async (client) => {
+            if (req.body?.profileEdit === true) {
+                await assertCompanyProfileEditReady(client, req.body);
+            }
             await upsertOwnerMaster(client, entry);
             await ensureCompanyDefaultFulfillmentAssignment(client, entry.name);
             await insertActivity(
@@ -42039,6 +42042,64 @@ function sanitizeOwnerMasterInput(item) {
         createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
     };
+}
+
+const OWNER_PROFILE_EDIT_FIELDS = Object.freeze([
+    ["legalName", "legal_name", "Legal Name"],
+    ["accountCode", "account_code", "Account Code"],
+    ["contactName", "contact_name", "Main Contact"],
+    ["contactTitle", "contact_title", "Contact Title"],
+    ["email", "email", "Main Email"],
+    ["phone", "phone", "Phone"],
+    ["mobile", "mobile", "Mobile"],
+    ["website", "website", "Website"],
+    ["billingEmail", "billing_email", "Billing Email"],
+    ["apEmail", "ap_email", "AP Email"],
+    ["portalLoginEmail", "portal_login_email", "Portal Login Email"],
+    ["address1", "address1", "Address 1"],
+    ["address2", "address2", "Address 2"],
+    ["city", "city", "City"],
+    ["state", "state", "Province / State"],
+    ["postalCode", "postal_code", "Postal / ZIP"],
+    ["country", "country", "Country"],
+    ["note", "note", "Note"]
+]);
+
+function getDestructiveOwnerProfileBlankFields(existingRow, rawInput) {
+    if (!existingRow || !rawInput || typeof rawInput !== "object") return [];
+    return OWNER_PROFILE_EDIT_FIELDS
+        .filter(([inputKey, rowKey]) => (
+            Object.prototype.hasOwnProperty.call(rawInput, inputKey)
+            && normalizeFreeText(existingRow[rowKey])
+            && !normalizeFreeText(rawInput[inputKey])
+        ))
+        .map(([, , label]) => label);
+}
+
+async function assertCompanyProfileEditReady(client, rawInput) {
+    const name = normalizeText(rawInput?.name);
+    const expectedUpdatedAt = String(rawInput?.expectedUpdatedAt || "").trim();
+    if (!name || !expectedUpdatedAt) {
+        throw httpError(409, "Load the saved company profile before editing or saving it.");
+    }
+    const result = await client.query("select * from owner_accounts where name=$1 limit 1 for update", [name]);
+    if (result.rowCount !== 1) {
+        throw httpError(404, "That saved company profile could not be found.");
+    }
+    const existing = result.rows[0];
+    const expectedTimestamp = Date.parse(expectedUpdatedAt);
+    const currentTimestamp = new Date(existing.updated_at).getTime();
+    if (!Number.isFinite(expectedTimestamp) || expectedTimestamp !== currentTimestamp) {
+        throw httpError(409, "This company profile changed after it was loaded. Reload it before saving.");
+    }
+    const blankFields = getDestructiveOwnerProfileBlankFields(existing, rawInput);
+    if (blankFields.length) {
+        throw httpError(
+            409,
+            `Saving was stopped because these saved fields are blank: ${blankFields.join(", ")}. Reload the profile before making changes.`
+        );
+    }
+    return existing;
 }
 
 function normalizeFulfillmentLocationType(value) {

@@ -11429,6 +11429,8 @@
         let labelToolState = loadLabelToolState();
         let activeSection = "home";
         let appSessionStateLoaded = false;
+        let loadedCompanyProfileSnapshot = null;
+        let companyProfileHydrationSequence = 0;
         const mobileSectionHistory = [];
         const desktopSectionHistory = [];
         let searchMode = "sku";
@@ -12868,6 +12870,7 @@
 
         function init() {
             applyDeviceExperienceMode();
+            setCompanyProfileFormDisabled(true);
             mountMasterDataWorkspace();
             mountIntegrationsWorkspace();
             syncDesktopNavigationToc();
@@ -14043,9 +14046,7 @@
             if (anchorId === "warehouseInboundEntryCard") showPurchaseOrderDocument(null);
             if (anchorId === "warehouseInboundQueueCard") showPurchaseOrderList();
             if (anchorId === "masterOwnerProfileCard") {
-                const company = getActiveCompany();
-                const owner = (state.masters.ownerRecords || []).find((entry) => norm(entry.name) === norm(company));
-                if (owner) loadCompanySetupIntoProfile(owner);
+                hydrateActiveCompanyProfileForEdit().catch(() => {});
             }
             markWorkspaceAnchor(activeSection, anchorId);
             window.setTimeout(() => {
@@ -20210,6 +20211,8 @@
         function resetCompanySetupFlow() {
             ui.companySetupForm?.reset();
             document.getElementById("masterOwnerForm")?.reset();
+            loadedCompanyProfileSnapshot = null;
+            setCompanyProfileFormDisabled(true);
             if (ui.masterOwnerActive) ui.masterOwnerActive.value = "true";
             if (ui.companySetupPreset) ui.companySetupPreset.value = "STANDARD";
             if (ui.companySetupPricingPlan) ui.companySetupPricingPlan.value = "LAUNCH_WAREHOUSE";
@@ -20236,6 +20239,59 @@
             }
             if (ui.companySetupPricingPlan) ui.companySetupPricingPlan.value = company.wmsPricingPlanKey || "LAUNCH_WAREHOUSE";
             if (ui.companySetupAccessMode) ui.companySetupAccessMode.value = company.wmsAccessMode || "AUTO";
+        }
+
+        function setCompanyProfileFormDisabled(disabled) {
+            const form = document.getElementById("masterOwnerForm");
+            if (!form) return;
+            [...form.elements].forEach((element) => {
+                element.disabled = disabled === true;
+            });
+            form.setAttribute("aria-busy", disabled === true ? "true" : "false");
+        }
+
+        async function hydrateActiveCompanyProfileForEdit() {
+            const company = getActiveCompany();
+            const sequence = ++companyProfileHydrationSequence;
+            loadedCompanyProfileSnapshot = null;
+            setCompanyProfileFormDisabled(true);
+            if (!company) {
+                showMessage(ui.catalogMessage, "Choose a company before opening Company Profile.", "error");
+                ui.activeCompany?.focus();
+                return null;
+            }
+            showMessage(ui.catalogMessage, `Loading the saved company profile for ${company}...`, "info");
+            try {
+                await syncServerState(true);
+                if (sequence !== companyProfileHydrationSequence || norm(getActiveCompany()) !== norm(company)) return null;
+                const owner = getCompanyRecord(company);
+                if (!owner) throw new Error(`The saved company profile for ${company} could not be loaded. Nothing can be edited or saved.`);
+                loadCompanySetupIntoProfile(owner);
+                showMessage(ui.catalogMessage, `Loaded the current saved profile for ${company}.`, "info");
+                setCompanyProfileFormDisabled(false);
+                return owner;
+            } catch (error) {
+                if (sequence === companyProfileHydrationSequence) {
+                    setCompanyProfileFormDisabled(true);
+                    showMessage(ui.catalogMessage, error.message, "error");
+                }
+                throw error;
+            }
+        }
+
+        function getDestructiveCompanyProfileBlankFields(entry, savedProfile) {
+            if (!entry || !savedProfile) return [];
+            const fields = [
+                ["legalName", "Legal Name"], ["accountCode", "Account Code"], ["contactName", "Main Contact"],
+                ["contactTitle", "Contact Title"], ["email", "Main Email"], ["phone", "Phone"], ["mobile", "Mobile"],
+                ["website", "Website"], ["billingEmail", "Billing Email"], ["apEmail", "AP Email"],
+                ["portalLoginEmail", "Portal Login Email"], ["address1", "Address 1"], ["address2", "Address 2"],
+                ["city", "City"], ["state", "Province / State"], ["postalCode", "Postal / ZIP"],
+                ["country", "Country"], ["note", "Note"]
+            ];
+            return fields
+                .filter(([key]) => String(savedProfile[key] || "").trim() && !String(entry[key] || "").trim())
+                .map(([, label]) => label);
         }
 
         async function saveCompanySetup(event) {
@@ -20391,6 +20447,18 @@
                 wmsSubscriptionNote: ui.masterOwnerSubscriptionNote?.value
             });
             if (!entry?.name) return fail(ui.catalogMessage, "Enter a company name to save.", ui.masterOwnerName);
+            const savedProfile = loadedCompanyProfileSnapshot;
+            if (!savedProfile || norm(savedProfile.name) !== norm(entry.name)) {
+                return fail(ui.catalogMessage, "Load the saved company profile before editing or saving it.", ui.masterOwnerName);
+            }
+            const destructiveBlankFields = getDestructiveCompanyProfileBlankFields(entry, savedProfile);
+            if (destructiveBlankFields.length) {
+                return fail(
+                    ui.catalogMessage,
+                    `Saving was stopped because these saved fields are blank: ${destructiveBlankFields.join(", ")}. Reload the profile before making changes.`,
+                    ui.masterOwnerName
+                );
+            }
             const fulfillmentLocationCode = norm(ui.masterOwnerFulfillmentLocation?.value || getDefaultFulfillmentLocationCode());
             const submitButton = resolveActionButton(event);
 
@@ -20403,7 +20471,11 @@
                 }, async () => {
                     await requestJson("/api/master-owner", {
                         method: "POST",
-                        body: JSON.stringify(entry)
+                        body: JSON.stringify({
+                            ...entry,
+                            profileEdit: true,
+                            expectedUpdatedAt: savedProfile.updatedAt
+                        })
                     });
                     if (fulfillmentLocationCode) {
                         await requestJson("/api/company-fulfillment-location", {
@@ -20416,19 +20488,15 @@
                         });
                     }
                     await syncServerState(true);
+                    const refreshedOwner = getCompanyRecord(entry.name);
+                    if (!refreshedOwner) throw new Error("The saved company profile could not be reloaded after saving.");
                     setActiveCompany(entry.name, { force: true, rerender: false });
                     ui.scanAccount.value = entry.name;
                     ui.masterItemAccount.value = entry.name;
                     ui.portalAccessAccount.value = entry.name;
                     if (entry.portalLoginEmail) ui.portalAccessEmail.value = entry.portalLoginEmail;
                     showMessage(ui.catalogMessage, `Saved company ${entry.name}${entry.portalLoginEmail ? ` with linked portal email ${entry.portalLoginEmail}` : ""}.`, "success");
-                    document.getElementById("masterOwnerForm").reset();
-                    ui.masterOwnerActive.value = "true";
-                    if (ui.masterOwnerPricingPlan) ui.masterOwnerPricingPlan.value = "UNASSIGNED";
-                    if (ui.masterOwnerAccessMode) ui.masterOwnerAccessMode.value = "AUTO";
-                    if (ui.masterOwnerSubscriptionStatus) ui.masterOwnerSubscriptionStatus.value = "PENDING";
-                    if (ui.masterOwnerSubscriptionNote) ui.masterOwnerSubscriptionNote.value = "";
-                    renderOwnerPaywallMeta("");
+                    loadCompanySetupIntoProfile(refreshedOwner);
                     ui.masterOwnerName.focus();
                 });
             } catch (error) {
@@ -20439,6 +20507,8 @@
         function loadOwnerProfile(owner) {
             const entry = sanitizeMasterOwner(owner);
             if (!entry) return;
+            loadedCompanyProfileSnapshot = { ...entry };
+            setCompanyProfileFormDisabled(false);
             setActiveCompany(entry.name, { force: true, rerender: false });
             ui.masterOwnerName.value = entry.name;
             ui.masterOwnerLegalName.value = entry.legalName || "";

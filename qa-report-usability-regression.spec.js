@@ -26,7 +26,9 @@ test("company and account drawers render above sticky navigation", () => {
 
 test("company profile shortcut hydrates the active company", () => {
   assert.match(index, /anchorId === "masterOwnerProfileCard"/);
-  assert.match(index, /if \(owner\) loadCompanySetupIntoProfile\(owner\)/);
+  assert.match(index, /hydrateActiveCompanyProfileForEdit\(\)\.catch/);
+  assert.match(index, /await syncServerState\(true\)/);
+  assert.match(index, /loadCompanySetupIntoProfile\(owner\)/);
 });
 
 test("access choices explain which role should use each sign in", () => {
