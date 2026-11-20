@@ -23665,11 +23665,9 @@
             if (!editingWarehouseOrderId) {
                 return showMessage(ui.warehouseOrderMessage, "Open a sales order before duplicating it.", "error");
             }
-            const currentOrder = getPortalOrderById(editingWarehouseOrderId);
-            if (!currentOrder?.id) {
-                return showMessage(ui.warehouseOrderMessage, "Open a saved sales order before duplicating it.", "error");
-            }
-            const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
+            const sourceOrderId = String(editingWarehouseOrderId);
+            const currentOrder = getPortalOrderById(sourceOrderId);
+            const orderLabel = currentOrder?.orderCode || warehouseSalesOrderLoadedCode || sourceOrderId;
             const duplicateLabel = `${orderLabel}-R`;
             if (!window.confirm(`Create ${duplicateLabel} as a new draft using the customer, address, and item quantities from ${orderLabel}? Shipment and allocation history will not be copied.`)) {
                 return null;
@@ -23682,12 +23680,13 @@
                     messageElement: ui.warehouseOrderMessage,
                     progressMessage: `Creating draft ${duplicateLabel}...`
                 }, async () => {
-                    const response = await requestJson(`/api/admin/portal-orders/${editingWarehouseOrderId}/duplicate`, {
+                    const response = await requestJson(`/api/admin/portal-orders/${sourceOrderId}/duplicate`, {
                         method: "POST"
                     });
-                    await refreshPortalOrdersList(true);
-                    const duplicatedOrder = getPortalOrderById(response?.order?.id) || sanitizePortalOrderRecord(response?.order);
-                    if (duplicatedOrder) showSalesOrderDocument(duplicatedOrder, { scroll: true });
+                    const duplicatedOrder = sanitizePortalOrderRecord(response?.order);
+                    if (!duplicatedOrder?.id) throw new Error("The duplicate was created but its saved draft could not be opened. Refresh Sales Orders and open the related draft.");
+                    applyPortalOrderUpdate(duplicatedOrder);
+                    showSalesOrderDocument(duplicatedOrder, { scroll: true });
                     showMessage(
                         ui.warehouseOrderMessage,
                         response?.alreadyExists
@@ -23695,6 +23694,7 @@
                             : `Created draft ${response?.order?.orderCode || duplicateLabel}. Review it before release.`,
                         response?.alreadyExists ? "info" : "success"
                     );
+                    queuePortalOrderRefresh();
                     return response;
                 });
             } catch (error) {

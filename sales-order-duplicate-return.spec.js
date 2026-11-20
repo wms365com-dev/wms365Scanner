@@ -49,3 +49,25 @@ test("return and duplicate actions are retry safe", () => {
     assert.match(server, /where return_from_order_id = \$1 limit 1/);
     assert.match(server, /alreadyExists: true/g);
 });
+
+test("duplicate uses the stable opened id without depending on compact list cache", () => {
+    const start = desktop.indexOf("async function duplicateWarehouseSalesOrder");
+    const end = desktop.indexOf("async function createWarehouseSalesOrderReturnInbound", start);
+    const body = desktop.slice(start, end);
+    assert.match(body, /const sourceOrderId = String\(editingWarehouseOrderId\)/);
+    assert.match(body, /const currentOrder = getPortalOrderById\(sourceOrderId\)/);
+    assert.doesNotMatch(body, /if \(!currentOrder\?\.id\)/);
+    assert.match(body, /\/api\/admin\/portal-orders\/\$\{sourceOrderId\}\/duplicate/);
+});
+
+test("duplicate opens the server result before a background list refresh", () => {
+    const start = desktop.indexOf("async function duplicateWarehouseSalesOrder");
+    const end = desktop.indexOf("async function createWarehouseSalesOrderReturnInbound", start);
+    const body = desktop.slice(start, end);
+    const applyIndex = body.indexOf("applyPortalOrderUpdate(duplicatedOrder)");
+    const openIndex = body.indexOf("showSalesOrderDocument(duplicatedOrder");
+    const refreshIndex = body.indexOf("queuePortalOrderRefresh()");
+    assert.ok(applyIndex >= 0 && openIndex > applyIndex && refreshIndex > openIndex);
+    assert.doesNotMatch(body, /await refreshPortalOrdersList/);
+    assert.match(body, /saved draft could not be opened/);
+});
