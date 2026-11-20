@@ -9757,7 +9757,7 @@
                         <div class="quick-meta span-2 hidden" id="warehouseOrderRoutingAppointment"></div>
                         <div class="status-banner info span-2" id="warehouseOrderRoutingReadiness" role="status" aria-live="polite"></div>
                     </form>
-                    <div class="erp-lines-part">
+                    <div class="erp-lines-part" id="warehouseOrderLinesPart">
                         <div class="line-head" style="margin-bottom: 0.8rem;">
                             <div>
                                 <h3>Lines</h3>
@@ -9771,6 +9771,7 @@
                             <span>Quantity</span>
                             <span>Action</span>
                         </div>
+                        <datalist id="warehouseSalesOrderSkuChoices"></datalist>
                         <div id="warehouseOrderLines" class="line-items"></div>
                     </div>
                     <div class="erp-document-process hidden" id="warehouseOrderWorkflowPanel"></div>
@@ -12397,6 +12398,8 @@
             warehouseOrderRoutingWeightUom: document.getElementById("warehouseOrderRoutingWeightUom"),
             warehouseOrderRoutingAppointment: document.getElementById("warehouseOrderRoutingAppointment"),
             warehouseOrderRoutingReadiness: document.getElementById("warehouseOrderRoutingReadiness"),
+            warehouseOrderLinesPart: document.getElementById("warehouseOrderLinesPart"),
+            warehouseSalesOrderSkuChoices: document.getElementById("warehouseSalesOrderSkuChoices"),
             warehouseOrderLines: document.getElementById("warehouseOrderLines"),
             warehouseOrderWorkflowPanel: document.getElementById("warehouseOrderWorkflowPanel"),
             openSalesOrderNewBtn: document.getElementById("openSalesOrderNewBtn"),
@@ -13372,6 +13375,7 @@
             ui.warehouseOrderShipToName?.addEventListener("change", maybeApplyWarehouseShipToAddressSelection);
             ui.warehouseOrderShipToName?.addEventListener("blur", maybeApplyWarehouseShipToAddressSelection);
             ui.warehouseOrderLines?.addEventListener("click", onWarehouseOrderLinesClick);
+            ui.warehouseOrderLines?.addEventListener("input", onWarehouseOrderLinesInput);
             ui.warehouseOrderLines?.addEventListener("change", onWarehouseOrderLinesChange);
             ui.warehouseOrderWorkflowPanel?.addEventListener("click", onPortalOrdersListClick);
             ui.openPurchaseOrderNewBtn?.addEventListener("click", () => showPurchaseOrderDocument(null, { scroll: true }));
@@ -23011,18 +23015,33 @@
                 .sort((a, b) => a.sku.localeCompare(b.sku) || a.upc.localeCompare(b.upc));
         }
 
-        function buildWarehouseSalesOrderSkuOptions(selectedSku = "") {
-            const normalizedSelected = norm(selectedSku);
-            const items = getWarehouseSalesOrderInventoryChoices(getWarehouseSalesOrderCompany(), editingWarehouseOrderId);
-            const options = [`<option value="">Choose a SKU</option>`];
-            items
-                .filter((item) => item.availableQuantity > 0 || item.sku === normalizedSelected)
-                .forEach((item) => {
-                    options.push(
-                        `<option value="${attr(item.sku)}" ${item.sku === normalizedSelected ? "selected" : ""}>${esc(item.sku)} - ${esc(item.description || "No description")} - ${esc(formatTrackedQuantity(item.availableQuantity, item.trackingLevel))} available</option>`
-                    );
-                });
-            return options.join("");
+        function getWarehouseSalesOrderSelectableItems(selectedSkus = []) {
+            const selected = new Set(selectedSkus.map((sku) => norm(sku)).filter(Boolean));
+            return getWarehouseSalesOrderInventoryChoices(getWarehouseSalesOrderCompany(), editingWarehouseOrderId)
+                .filter((item) => item.availableQuantity > 0 || selected.has(item.sku));
+        }
+
+        function renderWarehouseSalesOrderSkuChoices() {
+            if (!ui.warehouseSalesOrderSkuChoices) return;
+            const selectedSkus = [...(ui.warehouseOrderLines?.querySelectorAll("[data-warehouse-line-sku]") || [])]
+                .map((input) => input.value);
+            ui.warehouseSalesOrderSkuChoices.innerHTML = getWarehouseSalesOrderSelectableItems(selectedSkus)
+                .map((item) => {
+                    const details = [item.upc ? `UPC ${item.upc}` : "", item.description || "No description", `${formatTrackedQuantity(item.availableQuantity, item.trackingLevel)} available`]
+                        .filter(Boolean)
+                        .join(" | ");
+                    return `<option value="${attr(item.sku)}" label="${attr(details)}"></option>`;
+                })
+                .join("");
+        }
+
+        function resolveWarehouseSalesOrderItem(value = "") {
+            const candidate = norm(value);
+            if (!candidate) return null;
+            const matches = getWarehouseSalesOrderSelectableItems(
+                [...(ui.warehouseOrderLines?.querySelectorAll("[data-warehouse-line-sku]") || [])].map((input) => input.value)
+            ).filter((item) => item.sku === candidate || item.upc === candidate || norm(item.description) === candidate);
+            return matches.length === 1 ? matches[0] : null;
         }
 
         function updateWarehouseSalesOrderLineMeta(card) {
@@ -23039,15 +23058,16 @@
                 : "Choose a SKU from the active company's available inventory.";
         }
 
-        function addWarehouseOrderLine(line = { sku: "", quantity: 1 }) {
+        function addWarehouseOrderLine(line = { sku: "", quantity: 1 }, { refreshChoices = true } = {}) {
             if (!ui.warehouseOrderLines) return;
             const row = document.createElement("div");
             row.className = "line-card";
+            const metaId = makeId("warehouse-order-line-meta");
             row.innerHTML = `
                 <div class="line-fields">
                     <label class="field">
                         <span>SKU</span>
-                        <select data-warehouse-line-sku>${buildWarehouseSalesOrderSkuOptions(line.sku)}</select>
+                        <input data-warehouse-line-sku list="warehouseSalesOrderSkuChoices" value="${attr(line.sku || "")}" placeholder="Scan or search SKU, UPC, or description" autocomplete="off" aria-describedby="${attr(metaId)}">
                     </label>
                     <label class="field">
                         <span>Qty</span>
@@ -23055,9 +23075,10 @@
                     </label>
                     <button class="btn ghost" type="button" data-remove-warehouse-line>Remove</button>
                 </div>
-                <div class="line-note" data-warehouse-line-meta></div>
+                <div class="line-note" id="${attr(metaId)}" data-warehouse-line-meta></div>
             `;
             ui.warehouseOrderLines.appendChild(row);
+            if (refreshChoices) renderWarehouseSalesOrderSkuChoices();
             updateWarehouseSalesOrderLineMeta(row);
         }
 
@@ -23100,19 +23121,11 @@
             ].filter(Boolean).forEach((button) => {
                 button.disabled = !canPrintOrderDocuments;
             });
+            ui.warehouseOrderLinesPart?.classList.toggle("hidden", lockedOrder);
             if (ui.warehouseOrderLines) {
+                renderWarehouseSalesOrderSkuChoices();
                 [...ui.warehouseOrderLines.querySelectorAll(".line-card")].forEach((card) => {
-                    const select = card.querySelector("[data-warehouse-line-sku]");
-                    if (select) {
-                        const currentValue = select.value;
-                        select.innerHTML = buildWarehouseSalesOrderSkuOptions(currentValue);
-                        if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
-                            select.value = currentValue;
-                        } else {
-                            select.value = "";
-                        }
-                    }
-                    card.querySelectorAll("select, input, button").forEach((control) => {
+                    card.querySelectorAll("input, button").forEach((control) => {
                         control.disabled = lockedOrder;
                     });
                     updateWarehouseSalesOrderLineMeta(card);
@@ -23630,7 +23643,8 @@
             }
             ui.warehouseOrderLines.innerHTML = "";
             const lines = order?.lines?.length ? order.lines : [{ sku: "", quantity: 1 }];
-            lines.forEach((line) => addWarehouseOrderLine(line));
+            lines.forEach((line) => addWarehouseOrderLine(line, { refreshChoices: false }));
+            renderWarehouseSalesOrderSkuChoices();
             if (ui.warehouseOrderMessage) {
                 ui.warehouseOrderMessage.textContent = "";
                 ui.warehouseOrderMessage.className = "status";
@@ -23652,8 +23666,18 @@
             }
         }
 
+        function onWarehouseOrderLinesInput(event) {
+            if (!event.target.matches("[data-warehouse-line-sku]")) return;
+            const card = event.target.closest(".line-card");
+            if (card) updateWarehouseSalesOrderLineMeta(card);
+        }
+
         function onWarehouseOrderLinesChange(event) {
             const card = event.target.closest(".line-card");
+            if (event.target.matches("[data-warehouse-line-sku]")) {
+                const item = resolveWarehouseSalesOrderItem(event.target.value);
+                if (item) event.target.value = item.sku;
+            }
             if (card) updateWarehouseSalesOrderLineMeta(card);
         }
 
