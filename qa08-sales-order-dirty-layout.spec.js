@@ -71,6 +71,11 @@ test("visible mobile sales-order documents participate in dirty-state protection
     assert.equal(withInactivePanel, false);
 });
 
+test("sales-order serialization is bound to the rendered form", () => {
+    assert.match(source, /warehouseOrderForm:\s*document\.getElementById\("warehouseOrderForm"\)/);
+    assert.match(extractFunction("serializeWarehouseSalesOrderForm"), /if \(!ui\.warehouseOrderForm\) return ""/);
+});
+
 test("Escape, close, and new actions guard unsaved sales-order changes first", () => {
     const keydownStart = source.indexOf('window.addEventListener("keydown"');
     const keydownEnd = source.indexOf("mobileQuery.addEventListener", keydownStart);
