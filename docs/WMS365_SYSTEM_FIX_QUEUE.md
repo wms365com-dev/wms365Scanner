@@ -215,7 +215,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | VERIFIED |
 | 14 | WMS-10 | medium | Company labels render without a field | VERIFIED |
 | 15 | WMS-11 | high | Reports omit scope and quantity basis and can show contradictory company totals | VERIFIED |
-| 16 | WMS-12 | medium | Company name overlaps FactBox content | QUEUED |
+| 16 | WMS-12 | medium | Company name overlaps FactBox content | FIXED - PRODUCTION BLOCKED |
 
 ### Batch 3: Sales Order List, Record Continuity, and Deep Links
 
@@ -431,6 +431,31 @@ Every batch must cover:
 - Test evidence: focused report, quantity-clarity, company-scope, and access-control tests passed 16/16; the access-control audit passed 12/12 across 292 routes; `npm run check:deploy` passed 798/798. Regression coverage verifies explicit scope propagation, physical-on-hand labels and export metadata, retained tenant filtering, and the absence of hidden company-selector dependencies.
 - Sandbox evidence: exact deployment `5ba97ae6-1341-449a-943b-cee986be96d6` passed all seven fresh-database controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, and used its rollback cleanup path. The deployed artifact contained all four reviewed report markers. Eleven health samples over 10 minutes returned `ok: true`; deployment logs contained zero warnings, errors, crashes, or restarts, and proxy logs contained zero HTTP 5xx across 295 entries. Server-side health requests completed in 4-14 ms during the final log window.
 - Production promotion: named rollback deployment `ef4d7eac-78e1-48ce-9f8f-e99e41dbd35a`; exact deployment `639a3552-d2b9-4cb2-8bb5-27f20ac30f7d` succeeded. Five read-only production probes confirmed application, database, schema, desktop, and mobile readiness; the deployed artifact contained the reviewed report markers; and runtime/proxy logs contained no warnings, restarts, or HTTP 5xx. Database probe time was 12-270 ms during verification and remains visible to the performance queue. No production customer transaction or data change was used for verification.
+
+### WMS-12
+
+- Repair candidate 2026-11-19: exact commit `73ed7642a21202788bfed2c5e1d3fe5ffabaaa8b` bounds both FactBox grid columns, wraps long values inside the value column, and retains the complete value in a tooltip. The shared renderer covers Inventory Lookup, Reports & Counts, and Marketplace Connections without changing tenant scope, warehouse scope, permissions, routes, queries, transactions, documents, email, billing, integrations, or jobs.
+- Test evidence: focused static coverage passed 3/3 and headless Chromium visual coverage passed 3/3 with a deliberately longer company name and no overlap or horizontal overflow. The access-control audit passed 12/12 across 292 routes, and `npm run check:deploy` passed 872/872.
+- Sandbox evidence: the exact commit deployed first as `18008a2d-b52e-415b-86f1-ed970f755a53`. Fresh-database verification passed all seven schema controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 for the denied company, preserved inbound company and warehouse isolation, measured the sales-order queue at 17.9 ms median / 40.1 ms maximum, and completed rollback cleanup. Eleven health samples from `2026-11-20T03:20:02Z` through `2026-11-20T03:30:05Z` returned HTTP 200 with application, database, schema, desktop, and mobile readiness; database probes were 2-17 ms and Railway proxy durations were 4-26 ms with no HTTP 5xx.
+- Production blocker: Railway marked the first sandbox deployment successful but its BuildKit stream reported four cache-object errors (`blob ... not found`). A fresh upload of the same clean commit deployed as `e70a0fd3-13b5-4f93-9b75-da3964016312` and reproduced the Railway cache corruption across 36 BuildKit vertices. Runtime remained healthy, but the release policy treats unexplained build errors as blocking. Railway documentation search returned no supported customer-side cache-clear procedure. Production remains on deployment `f40a61fc-bd34-4849-bc24-a87558b2d63c` at commit `d045174a4ff1c247659fad43d9b0c78d68d1c145`; named rollback remains `2cc7562c-4f98-4980-90f7-82ffa5d1d8a7` at `5f5463237b876beac1c87543a8c811a625bac3de`. No production customer data or transaction was changed.
+
+### 2026-11-19 QA Intake
+
+- Protected production records: do not mutate `ORD-002471`, `ORD-002198`, or `ORD-002467` through `ORD-002470` during verification. All transactional acceptance tests must use the pinned designated company in `customer-sandbox` and roll back.
+- `QA-01` critical: draft cancellation must bypass inventory-availability validation, surface any genuine error, and retain the cancelled order number. Reproduce and verify only with a sandbox fixture; never cancel the listed REVON records as a test.
+- `QA-02` critical: active warehouse must persist across reload and apply on the first valid selection without company re-selection or toggling.
+- `QA-03` high: Duplicate Order must create one reviewable draft or return a visible error; verify idempotency, company scope, and warehouse scope.
+- `QA-04` high: independently retest logout on the current baseline. Commit `d045174a` contains the repair and regression coverage, so reopen only if the current build still fails.
+- `QA-05` high: decide and implement a draft-only delete or archive workflow with confirmation, authorization, audit history, and no inventory side effects.
+- `QA-06` high: reopen WMS-15 for the reported released-order ship-to mismatch; compare list mapping with the permission-scoped detail response without using a new customer-data request.
+- `QA-07` high: company profile must hydrate before editing and must reject destructive blank overwrites of previously saved values.
+- `QA-08` medium: Escape and close actions must protect unsaved sales-order changes; requested-date controls must remain editable and reachable at narrow widths.
+- `QA-09` medium: Settings and company-list close controls must remain clickable above overlays.
+- `QA-10` medium: sub-header scope must reflect the active company and warehouse.
+- `QA-11` medium: header must show the authenticated role using existing session scope only.
+- `QA-12` medium: dashboard task and order counts need explicit relationships and a direct blocked-task drill-in.
+- `QA-13` medium: Access Center choices need audience labels and a Warehouse Home entry point consistent with the guide.
+- `QA-14` medium: dashboard create actions need clearer live-production intent; hands-on training must use the pinned isolated test company, not a production tenant.
 
 ### WMS-15
 
