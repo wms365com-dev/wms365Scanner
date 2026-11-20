@@ -6,11 +6,11 @@ const assert = require("node:assert/strict");
 const index = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const access = fs.readFileSync(path.join(__dirname, "access.html"), "utf8");
 
-test("authenticated scope shows company, authorized warehouses, and role", () => {
+test("authenticated scope shows company, active authorized warehouse, and role", () => {
   assert.match(index, /id="sessionScopeCompany"/);
-  assert.match(index, /id="sessionScopeWarehouses"/);
+  assert.match(index, /id="activeWarehouse"/);
   assert.match(index, /id="sessionScopeRole"/);
-  assert.match(index, /appUser\?\.assignedFulfillmentLocations/);
+  assert.match(index, /getAuthorizedCompanyWarehouseAssignments/);
   assert.match(index, /warehouseUserRoleLabel\(appUser\?\.role/);
 });
 

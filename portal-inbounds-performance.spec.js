@@ -12,18 +12,19 @@ function section(startText, endText) {
     return html.slice(start, end);
 }
 
-test("inbound list uses one company-scoped request without a broad empty-result fallback", () => {
+test("inbound list uses one company-and-warehouse-scoped request without a broad fallback", () => {
     const source = section(
         "function requestPortalInboundsForCompany(company)",
         "const androidDocumentScanCallbacks"
     );
-    assert.match(source, /accountName=\$\{encodeURIComponent\(company\)\}/);
+    assert.match(source, /params\.set\("accountName", company\)/);
+    assert.match(source, /params\.set\("fulfillmentLocationId", locationId\)/);
     assert.match(source, /requestPortalInboundsForCompany\(company\)/);
     assert.doesNotMatch(source, /fallbackPayload|fallbackInbounds/);
     assert.doesNotMatch(source, /requestJson\("\/api\/admin\/portal-inbounds"\)/);
 });
 
-test("overlapping inbound refreshes share one request per company scope", () => {
+test("overlapping inbound refreshes share one request per company and warehouse scope", () => {
     const source = section(
         "function requestPortalInboundsForCompany(company)",
         "function isPortalInboundsRefreshCurrent"
@@ -32,16 +33,18 @@ test("overlapping inbound refreshes share one request per company scope", () => 
     assert.match(source, /if \(existing\) return existing/);
     assert.match(source, /portalInboundsInFlight\.set\(key, request\)/);
     assert.match(source, /portalInboundsInFlight\.delete\(key\)/);
+    assert.match(source, /ALL_WAREHOUSES/);
 });
 
-test("stale inbound responses cannot overwrite a company switch", () => {
+test("stale inbound responses cannot overwrite a company or warehouse switch", () => {
     const source = section(
         "function isPortalInboundsRefreshCurrent",
         "const androidDocumentScanCallbacks"
     );
     assert.match(source, /refreshSerial === portalInboundsRefreshSerial/);
     assert.match(source, /norm\(getActiveCompany\(\)\) === companyKey/);
-    assert.match(source, /if \(!isPortalInboundsRefreshCurrent\(refreshSerial, companyKey\)\) return portalInboundRecords/);
+    assert.match(source, /getActiveWarehouseAssignment\(\)\?\.fulfillmentLocationId/);
+    assert.match(source, /if \(!isPortalInboundsRefreshCurrent\(refreshSerial, companyKey, locationId\)\) return portalInboundRecords/);
     assert.match(source, /portalInboundRecords = inbounds/);
 });
 

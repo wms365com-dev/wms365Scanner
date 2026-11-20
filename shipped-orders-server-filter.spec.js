@@ -21,13 +21,14 @@ if (!desktop.includes('if (isShippedOrdersSection()) return "SHIPPED";')
 if (!desktop.includes('if (status) params.set("status", status);')) {
     throw new Error("Desktop order requests omit the server-side status query.");
 }
-if (!desktop.includes('`${norm(company) || "__ALL_COMPANIES__"}::${norm(status) || "ALL"}`')) {
-    throw new Error("Order cache keys do not isolate server-side status result sets.");
+if (!desktop.includes('`${norm(company) || "__ALL_COMPANIES__"}::${locationId || "ALL_WAREHOUSES"}::${norm(status) || "ALL"}`')) {
+    throw new Error("Order cache keys do not isolate warehouse and status result sets.");
 }
 if (!desktop.includes('refreshPortalOrdersList(false, { showLoading: true })')) {
     throw new Error("Changing or clearing the Sales Orders status filter does not refresh records from the server.");
 }
-if (!desktop.includes('&& getPortalOrdersRequestStatus() === statusKey;')) {
+if (!desktop.includes('&& getPortalOrdersRequestStatus() === statusKey')
+    || !desktop.includes('String(getActiveWarehouseAssignment()?.fulfillmentLocationId || "") === String(locationId || "")')) {
     throw new Error("Rapid Sales Orders filter changes can still apply stale server responses.");
 }
 if (!server.includes('orders: await getPortalOrdersForAccount(session.access.accountName, pool, { status: requestedStatus })')) {

@@ -2102,6 +2102,16 @@
             text-overflow: ellipsis;
         }
 
+        .session-warehouse-select {
+            max-width: 13rem;
+            border: 1px solid rgba(255,255,255,0.45);
+            border-radius: 4px;
+            padding: 0.25rem 1.5rem 0.25rem 0.45rem;
+            background: #ffffff;
+            color: #17324a;
+            font: inherit;
+        }
+
         .workspace-inline-meta {
             display: flex;
             flex-wrap: wrap;
@@ -6639,7 +6649,7 @@
                 <div class="desktop-utility-actions">
                     <div class="session-scope-strip" id="sessionScopeStrip" role="status" aria-live="polite">
                         <span id="sessionScopeCompany">Company: All companies</span>
-                        <span id="sessionScopeWarehouses">Warehouse: All authorized</span>
+                        <label for="activeWarehouse"><span class="sr-only">Active warehouse</span><select class="session-warehouse-select" id="activeWarehouse" aria-label="Active warehouse"><option value="">Choose warehouse</option></select></label>
                         <span id="sessionScopeRole">Role: Signed in user</span>
                     </div>
                     <div data-language-control-host></div>
@@ -7129,6 +7139,10 @@
                         <label class="field" id="mobileCompanySelectWrap">
                             <span>Company</span>
                             <select id="mobileActiveCompany"><option value="">Choose company</option></select>
+                        </label>
+                        <label class="field hidden" id="mobileWarehouseSelectWrap">
+                            <span>Warehouse</span>
+                            <select id="mobileActiveWarehouse"><option value="">Choose warehouse</option></select>
                         </label>
                         <button class="btn" id="mobileLockCompanyBtn" type="button">Continue</button>
                         <div class="meta" id="mobileCompanyMeta">Choose the company once, then stay locked in while you work.</div>
@@ -9619,11 +9633,6 @@
                             <input id="warehouseOrderRequestedShipDate" type="date">
                         </label>
                         <label class="field">
-                            <span>Ship From Warehouse</span>
-                            <select id="warehouseOrderFulfillmentLocation" required aria-describedby="warehouseOrderFulfillmentLocationHelp"></select>
-                            <small class="meta" id="warehouseOrderFulfillmentLocationHelp">Choose an outbound warehouse assigned to the active company.</small>
-                        </label>
-                        <label class="field">
                             <span>Shipment Method</span>
                             <select id="warehouseOrderShipmentMethod">
                                 <option value="PARCEL">Parcel</option>
@@ -11457,11 +11466,13 @@
         let emailQueueLoaded = false;
         let emailQueueLoading = false;
         let editingWarehouseOrderId = "";
+        let warehouseSalesOrderFulfillmentLocationId = "";
         let warehouseSalesOrderFormBaseline = "";
         let currentOrderRoutingDraft = null;
         let currentOrderBolOrderId = "";
         let productRecommendationRecords = [];
         let editingWarehouseInboundId = "";
+        let warehouseInboundFulfillmentLocationId = "";
         let warehouseDocumentPreviewObjectUrl = "";
         let inventoryWorksheetDraftCompany = "";
         let inventoryWorksheetDraftRows = null;
@@ -11658,6 +11669,8 @@
             mobileSectionBackButtons: [...document.querySelectorAll("[data-mobile-section-back]")],
             mobileSubviewButtons: [...document.querySelectorAll("[data-mobile-subview-target]")],
             mobileActiveCompany: document.getElementById("mobileActiveCompany"),
+            mobileActiveWarehouse: document.getElementById("mobileActiveWarehouse"),
+            mobileWarehouseSelectWrap: document.getElementById("mobileWarehouseSelectWrap"),
             mobileCompanyMeta: document.getElementById("mobileCompanyMeta"),
             mobileCompanyLocked: document.getElementById("mobileCompanyLocked"),
             mobileCompanyLockedLabel: document.getElementById("mobileCompanyLockedLabel"),
@@ -11679,7 +11692,7 @@
             workspaceDrillPath: document.getElementById("workspaceDrillPath"),
             workspaceCompanyChip: document.getElementById("workspaceCompanyChip"),
             sessionScopeCompany: document.getElementById("sessionScopeCompany"),
-            sessionScopeWarehouses: document.getElementById("sessionScopeWarehouses"),
+            activeWarehouse: document.getElementById("activeWarehouse"),
             sessionScopeRole: document.getElementById("sessionScopeRole"),
             desktopViewFilter: document.getElementById("desktopViewFilter"),
             workspaceSyncChip: document.getElementById("workspaceSyncChip"),
@@ -12311,7 +12324,6 @@
             warehouseOrderPoNumber: document.getElementById("warehouseOrderPoNumber"),
             warehouseOrderShippingReference: document.getElementById("warehouseOrderShippingReference"),
             warehouseOrderRequestedShipDate: document.getElementById("warehouseOrderRequestedShipDate"),
-            warehouseOrderFulfillmentLocation: document.getElementById("warehouseOrderFulfillmentLocation"),
             warehouseOrderShipmentMethod: document.getElementById("warehouseOrderShipmentMethod"),
             warehouseOrderPlannedCarrierName: document.getElementById("warehouseOrderPlannedCarrierName"),
             warehouseOrderPlannedServiceLevel: document.getElementById("warehouseOrderPlannedServiceLevel"),
@@ -12908,6 +12920,7 @@
                 }
             });
             ["change", "blur"].forEach((eventName) => ui.activeCompany?.addEventListener(eventName, () => setActiveCompany(ui.activeCompany.value, { force: true })));
+            ui.activeWarehouse?.addEventListener("change", () => setActiveWarehouse(ui.activeWarehouse.value));
             ui.activeCompany?.addEventListener("keydown", (event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();
@@ -13036,6 +13049,7 @@
             ui.mobileActiveCompany?.addEventListener("change", () => {
                 updateMobileCompanyContextUi();
             });
+            ui.mobileActiveWarehouse?.addEventListener("change", () => setActiveWarehouse(ui.mobileActiveWarehouse.value));
             ui.mobileLockCompanyBtn?.addEventListener("click", lockMobileCompanyContext);
             ui.mobileSwitchCompanyBtn?.addEventListener("click", () => {
                 clearActiveCompany();
@@ -14428,9 +14442,7 @@
             const company = getActiveCompany();
             const companyDisplay = formatCompanySelectorLabel(company);
             const appUser = state.session?.appUser;
-            const warehouses = (appUser?.assignedFulfillmentLocations || [])
-                .map((location) => location.name || location.code)
-                .filter(Boolean);
+            refreshActiveWarehouseSelector();
             if (ui.activeCompanyDisplay) {
                 ui.activeCompanyDisplay.textContent = companyDisplay || "All companies";
             }
@@ -14441,10 +14453,6 @@
                     : "Choose a company to lock receiving, inventory, outbound, billing, and reports.";
             }
             if (ui.sessionScopeCompany) ui.sessionScopeCompany.textContent = `Company: ${companyDisplay || "All companies"}`;
-            if (ui.sessionScopeWarehouses) {
-                ui.sessionScopeWarehouses.textContent = `Warehouse: ${warehouses.length ? warehouses.join(", ") : "All authorized"}`;
-                ui.sessionScopeWarehouses.title = ui.sessionScopeWarehouses.textContent;
-            }
             if (ui.sessionScopeRole) ui.sessionScopeRole.textContent = `Role: ${warehouseUserRoleLabel(appUser?.role || "WAREHOUSE_WORKER")}`;
             if (ui.desktopViewFilter) ui.desktopViewFilter.textContent = companyDisplay || "All companies";
             if (ui.clearActiveCompanyBtn) {
@@ -15453,6 +15461,7 @@
         function setActiveCompany(value, { force = false, persist = true, rerender = true } = {}) {
             const normalized = normalizeCompanyContextValue(value);
             const previous = getActiveCompany();
+            if (normalized !== previous) state.preferences.activeWarehouseCode = "";
             state.preferences.activeCompany = normalized;
             state.preferences.lastAccount = normalized || "";
             if (window.WMS365Mobile?.setCompanyContext) {
@@ -15489,6 +15498,7 @@
 
         function updateMobileCompanyContextUi() {
             const company = getActiveCompany();
+            const activeWarehouse = getActiveWarehouseAssignment();
             const draftCompany = normalizeCompanyContextValue(ui.mobileActiveCompany?.value || "");
             const companyDisplay = formatCompanySelectorLabel(company);
             const mobileTaskButtons = [
@@ -15503,15 +15513,18 @@
                 ui.mobileLockCompanyBtn.disabled = !draftCompany;
             }
             mobileTaskButtons.forEach((button) => {
-                button.disabled = !company;
-                button.title = company ? "" : "Choose a company first.";
+                button.disabled = !company || !activeWarehouse;
+                button.title = !company ? "Choose a company first." : (!activeWarehouse ? "Choose a warehouse first." : "");
             });
             if (!company) ui.mobilePendingPanel?.classList.add("hidden");
             if (ui.mobileCompanyLockedLabel) ui.mobileCompanyLockedLabel.textContent = companyDisplay || "Choose company";
+            if (ui.mobileWarehouseSelectWrap) ui.mobileWarehouseSelectWrap.classList.toggle("hidden", !company);
             if (ui.mobileCompanyMeta) {
                 const warehouseSummary = formatCompanyWarehouseSummary(company);
                 ui.mobileCompanyMeta.textContent = company
-                    ? `This device is locked to the selected company.${warehouseSummary ? ` Warehouses: ${warehouseSummary}.` : ""} Use Back to switch before starting another company's work.`
+                    ? (activeWarehouse
+                        ? `Working in ${activeWarehouse.locationName || activeWarehouse.locationCode}. Use Back to switch company before starting other work.`
+                        : `Choose the warehouse for this shift.${warehouseSummary ? ` Available: ${warehouseSummary}.` : ""}`)
                     : "Choose the company once, then stay locked in while you work.";
             }
         }
@@ -23384,7 +23397,7 @@
             ui.warehouseOrderPoNumber.value = order?.poNumber || "";
             ui.warehouseOrderShippingReference.value = order?.shippingReference || "";
             ui.warehouseOrderRequestedShipDate.value = order?.requestedShipDate || "";
-            refreshWarehouseOrderFulfillmentSelector(order?.fulfillmentLocationId || "");
+            warehouseSalesOrderFulfillmentLocationId = order?.fulfillmentLocationId || getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
             ui.warehouseOrderShipmentMethod.value = normalizeShipmentMethod(order?.shipmentMethod || "LTL_FREIGHT");
             ui.warehouseOrderPlannedCarrierName.value = order?.plannedCarrierName || "";
             ui.warehouseOrderPlannedServiceLevel.value = order?.plannedServiceLevel || "";
@@ -23463,7 +23476,7 @@
 
             return {
                 accountName: getWarehouseSalesOrderCompany(),
-                fulfillmentLocationId: ui.warehouseOrderFulfillmentLocation.value,
+                fulfillmentLocationId: warehouseSalesOrderFulfillmentLocationId || getActiveWarehouseAssignment()?.fulfillmentLocationId || "",
                 poNumber: ui.warehouseOrderPoNumber.value.trim(),
                 shippingReference: ui.warehouseOrderShippingReference.value.trim(),
                 requestedShipDate: ui.warehouseOrderRequestedShipDate.value,
@@ -23525,14 +23538,14 @@
                 }, async () => {
                     const payload = collectWarehouseSalesOrderPayload();
                     if (!payload.fulfillmentLocationId) {
-                        fail(ui.warehouseOrderMessage, "Choose the ship-from warehouse for this transaction.", ui.warehouseOrderFulfillmentLocation);
+                        fail(ui.warehouseOrderMessage, "Choose the active warehouse in the header before creating this transaction.", ui.activeWarehouse);
                         return null;
                     }
                     const allowedWarehouseIds = new Set(getCompanyOutboundFulfillmentAssignments(payload.accountName)
                         .map((assignment) => String(assignment.fulfillmentLocationId || ""))
                         .filter(Boolean));
                     if (!allowedWarehouseIds.has(String(payload.fulfillmentLocationId))) {
-                        fail(ui.warehouseOrderMessage, "The selected ship-from warehouse is not assigned to the active company for outbound orders.", ui.warehouseOrderFulfillmentLocation);
+                        fail(ui.warehouseOrderMessage, "The active warehouse is not assigned to this company for outbound orders.", ui.activeWarehouse);
                         return null;
                     }
                     const response = await requestJson(editingWarehouseOrderId ? `/api/admin/portal-orders/${editingWarehouseOrderId}` : "/api/admin/portal-orders", {
@@ -24738,6 +24751,7 @@
             if (ui.purchaseOrderCommandPostBtn) {
                 ui.purchaseOrderCommandPostBtn.textContent = inbound ? "Save" : "Post...";
             }
+            warehouseInboundFulfillmentLocationId = inbound?.fulfillmentLocationId || getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
             ui.warehouseInboundReferenceNumber.value = inbound?.referenceNumber || "";
             ui.warehouseInboundCarrierName.value = inbound?.carrierName || "";
             ui.warehouseInboundExpectedDate.value = inbound?.expectedDate || "";
@@ -24779,6 +24793,7 @@
 
             return {
                 accountName: getWarehouseInboundCompany(),
+                fulfillmentLocationId: warehouseInboundFulfillmentLocationId || getActiveWarehouseAssignment()?.fulfillmentLocationId || "",
                 referenceNumber: ui.warehouseInboundReferenceNumber.value.trim(),
                 carrierName: ui.warehouseInboundCarrierName.value.trim(),
                 expectedDate: ui.warehouseInboundExpectedDate.value,
@@ -24792,6 +24807,16 @@
         function validateWarehouseInboundPayload(payload) {
             if (!payload?.accountName) {
                 return fail(ui.warehouseInboundMessage, "Choose an active company before creating a purchase order.", ui.activeCompany);
+            }
+            if (!payload.fulfillmentLocationId) {
+                return fail(ui.warehouseInboundMessage, "Choose the active warehouse in the header before creating this purchase order.", ui.activeWarehouse);
+            }
+            const inboundWarehouseIds = new Set(getCompanyFulfillmentAssignments(payload.accountName)
+                .filter((assignment) => assignment.allowInbound !== false)
+                .map((assignment) => String(assignment.fulfillmentLocationId || ""))
+                .filter(Boolean));
+            if (!inboundWarehouseIds.has(String(payload.fulfillmentLocationId))) {
+                return fail(ui.warehouseInboundMessage, "The active warehouse is not assigned to this company for inbound orders.", ui.activeWarehouse);
             }
             if (!companyHasFeature(payload.accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES)) {
                 return fail(ui.warehouseInboundMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, payload.accountName), ui.activeCompany);
@@ -24868,6 +24893,8 @@
                 const company = getActiveCompany();
                 const params = new URLSearchParams({ activeOnly: "true" });
                 if (company) params.set("accountName", company);
+                const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
+                if (locationId) params.set("fulfillmentLocationId", locationId);
                 const payload = await requestJson(`/api/admin/warehouse-tasks?${params.toString()}`);
                 state.warehouseTasks = Array.isArray(payload?.tasks)
                     ? payload.tasks.map(sanitizeWarehouseTask).filter(Boolean)
@@ -24962,7 +24989,11 @@
         async function refreshKittingRequestsAdmin(silent = true) {
             try {
                 const company = getActiveCompany();
-                const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+                const params = new URLSearchParams();
+                if (company) params.set("accountName", company);
+                const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
+                if (locationId) params.set("fulfillmentLocationId", locationId);
+                const query = params.size ? `?${params.toString()}` : "";
                 const payload = await requestJson(`/api/admin/kitting-requests${query}`);
                 portalKittingRecords = Array.isArray(payload?.requests)
                     ? payload.requests.map(sanitizePortalKittingRequestRecord).filter(Boolean)
@@ -25005,10 +25036,14 @@
         }
 
         function requestPortalInboundsForCompany(company) {
-            const key = norm(company) || "__ALL_COMPANIES__";
+            const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
+            const key = `${norm(company) || "__ALL_COMPANIES__"}::${locationId || "ALL_WAREHOUSES"}`;
             const existing = portalInboundsInFlight.get(key);
             if (existing) return existing;
-            const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+            const params = new URLSearchParams();
+            if (company) params.set("accountName", company);
+            if (locationId) params.set("fulfillmentLocationId", locationId);
+            const query = params.size ? `?${params.toString()}` : "";
             const request = requestJson(`/api/admin/portal-inbounds${query}`)
                 .finally(() => {
                     if (portalInboundsInFlight.get(key) === request) portalInboundsInFlight.delete(key);
@@ -25017,31 +25052,33 @@
             return request;
         }
 
-        function isPortalInboundsRefreshCurrent(refreshSerial, companyKey) {
+        function isPortalInboundsRefreshCurrent(refreshSerial, companyKey, locationId) {
             return refreshSerial === portalInboundsRefreshSerial
-                && norm(getActiveCompany()) === companyKey;
+                && norm(getActiveCompany()) === companyKey
+                && String(getActiveWarehouseAssignment()?.fulfillmentLocationId || "") === String(locationId || "");
         }
 
         async function refreshPortalInboundsList(silent = false) {
             const company = getActiveCompany();
             const companyKey = norm(company);
+            const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
             const refreshSerial = ++portalInboundsRefreshSerial;
             try {
                 const payload = await requestPortalInboundsForCompany(company);
-                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey)) return portalInboundRecords;
+                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey, locationId)) return portalInboundRecords;
                 const inbounds = Array.isArray(payload?.inbounds)
                     ? payload.inbounds.map(sanitizePortalInboundRecord).filter(Boolean)
                     : [];
                 portalInboundRecords = inbounds;
                 await refreshWarehouseTasksList(true).catch(() => {});
-                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey)) return portalInboundRecords;
+                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey, locationId)) return portalInboundRecords;
                 renderPortalInboundsList();
                 renderWarehouseInboundContext();
                 updateDesktopOperationsAlerts();
                 renderWarehouseDashboard();
                 return portalInboundRecords;
             } catch (error) {
-                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey)) return portalInboundRecords;
+                if (!isPortalInboundsRefreshCurrent(refreshSerial, companyKey, locationId)) return portalInboundRecords;
                 if (!silent) {
                     portalInboundRecords = [];
                     renderPortalInboundsList(error.message);
@@ -25735,7 +25772,8 @@
         }
 
         function getPortalOrdersRequestKey(company, status = getPortalOrdersRequestStatus()) {
-            return `${norm(company) || "__ALL_COMPANIES__"}::${norm(status) || "ALL"}`;
+            const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
+            return `${norm(company) || "__ALL_COMPANIES__"}::${locationId || "ALL_WAREHOUSES"}::${norm(status) || "ALL"}`;
         }
 
         function renderPortalOrdersWorkspace() {
@@ -25760,10 +25798,11 @@
             }
         }
 
-        function isPortalOrdersRefreshCurrent(refreshSerial, companyKey, statusKey) {
+        function isPortalOrdersRefreshCurrent(refreshSerial, companyKey, statusKey, locationId) {
             return refreshSerial === portalOrdersRefreshSerial
                 && norm(getActiveCompany()) === companyKey
-                && getPortalOrdersRequestStatus() === statusKey;
+                && getPortalOrdersRequestStatus() === statusKey
+                && String(getActiveWarehouseAssignment()?.fulfillmentLocationId || "") === String(locationId || "");
         }
 
         function requestPortalOrdersForCompany(company, status = getPortalOrdersRequestStatus()) {
@@ -25773,6 +25812,8 @@
             const params = new URLSearchParams();
             if (company) params.set("accountName", company);
             if (status) params.set("status", status);
+            const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
+            if (locationId) params.set("fulfillmentLocationId", locationId);
             const query = params.size ? `?${params.toString()}` : "";
             const request = requestJson(`/api/admin/portal-orders${query}`)
                 .finally(() => {
@@ -25789,6 +25830,7 @@
         async function refreshShipToAddresses(silent = true) {
             const company = getActiveCompany();
             const companyKey = norm(company);
+            const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
             const refreshSerial = ++shipToAddressesRefreshSerial;
             if (!company) {
                 shipToAddressRecords = [];
@@ -25841,7 +25883,7 @@
                     setPortalOrdersLoadingMessage(`Loading ${company || "all company"} sales orders...`, "info", { delay: true });
                 }
                 const payload = await requestPortalOrdersForCompany(company, requestStatus);
-                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey, requestStatus)) return portalOrderRecords;
+                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey, requestStatus, locationId)) return portalOrderRecords;
                 let orders = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
@@ -25862,7 +25904,7 @@
                 }
                 return portalOrderRecords;
             } catch (error) {
-                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey, requestStatus)) return portalOrderRecords;
+                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey, requestStatus, locationId)) return portalOrderRecords;
                 if (renderedCachedOrders) return portalOrderRecords;
                 if (showLoading) {
                     setPortalOrdersLoadingMessage(`Could not refresh sales orders: ${error.message}`, "error");
@@ -31841,7 +31883,7 @@
                 billing: { feeCatalog: [], ownerRates: [], events: [] },
                 admin: { appUsers: [], mobileDevices: [] },
                 session: { appUser: null },
-                preferences: { lastLocation: "", lastAccount: "", activeCompany: "", desktopMobilePreview: false },
+                preferences: { lastLocation: "", lastAccount: "", activeCompany: "", activeWarehouseCode: "", desktopMobilePreview: false },
                 meta: { version: 8, lastChangedAt: null, serverSyncedAt: null, localCacheAt: null }
             };
         }
@@ -31908,6 +31950,7 @@
                     activeCompany: typeof raw.preferences?.activeCompany === "string"
                         ? norm(raw.preferences.activeCompany)
                         : (typeof raw.preferences?.lastAccount === "string" ? norm(raw.preferences.lastAccount) : ""),
+                    activeWarehouseCode: typeof raw.preferences?.activeWarehouseCode === "string" ? norm(raw.preferences.activeWarehouseCode) : "",
                     desktopMobilePreview: raw.preferences?.desktopMobilePreview === true
                 },
                 meta: {
@@ -33399,28 +33442,62 @@
             });
         }
 
-        function refreshWarehouseOrderFulfillmentSelector(selectedId = "") {
-            if (!ui.warehouseOrderFulfillmentLocation) return;
-            const company = getWarehouseSalesOrderCompany();
-            const assignments = getCompanyOutboundFulfillmentAssignments(company);
-            const requestedId = String(selectedId || "");
-            const selectedAssignment = assignments.find((assignment) => String(assignment.fulfillmentLocationId) === requestedId)
+        function getCompanyWorkspaceFulfillmentAssignments(accountName = getActiveCompany()) {
+            return getCompanyFulfillmentAssignments(accountName).filter((assignment) => {
+                if (!assignment.fulfillmentLocationId || (assignment.allowInbound === false && assignment.allowOutbound === false)) return false;
+                const location = getFulfillmentLocationByCode(assignment.locationCode);
+                return !location || location.isActive !== false;
+            });
+        }
+
+        function getAuthorizedCompanyWarehouseAssignments(accountName = getActiveCompany()) {
+            const assignedCodes = new Set((state.session?.appUser?.assignedFulfillmentLocations || []).map((location) => norm(location.code)).filter(Boolean));
+            return getCompanyWorkspaceFulfillmentAssignments(accountName)
+                .filter((assignment) => !assignedCodes.size || assignedCodes.has(norm(assignment.locationCode)));
+        }
+
+        function refreshActiveWarehouseSelector() {
+            if (!ui.activeWarehouse) return null;
+            const assignments = getAuthorizedCompanyWarehouseAssignments();
+            const requestedCode = norm(state.preferences.activeWarehouseCode || ui.activeWarehouse.value);
+            const selectedAssignment = assignments.find((assignment) => norm(assignment.locationCode) === requestedCode)
                 || assignments.find((assignment) => assignment.isPrimary)
                 || (assignments.length === 1 ? assignments[0] : null);
-            ui.warehouseOrderFulfillmentLocation.innerHTML = [
-                `<option value="">${assignments.length ? "Choose ship-from warehouse" : "No outbound warehouse assigned"}</option>`,
+            ui.activeWarehouse.innerHTML = [
+                `<option value="">${assignments.length ? "Choose warehouse" : "No outbound warehouse"}</option>`,
                 ...assignments.map((assignment) => {
                     const location = getFulfillmentLocationByCode(assignment.locationCode) || {};
-                    const label = [
-                        assignment.locationCode || location.code,
-                        assignment.locationName || location.name,
-                        assignment.isPrimary ? "Primary" : ""
-                    ].filter(Boolean).join(" - ");
-                    return `<option value="${attr(assignment.fulfillmentLocationId)}">${esc(label)}</option>`;
+                    const label = [assignment.locationCode || location.code, assignment.locationName || location.name, assignment.isPrimary ? "Primary" : ""].filter(Boolean).join(" - ");
+                    return `<option value="${attr(assignment.locationCode)}">${esc(label)}</option>`;
                 })
             ].join("");
-            ui.warehouseOrderFulfillmentLocation.value = selectedAssignment ? String(selectedAssignment.fulfillmentLocationId) : "";
-            ui.warehouseOrderFulfillmentLocation.disabled = assignments.length === 0;
+            ui.activeWarehouse.value = selectedAssignment?.locationCode || "";
+            if (ui.mobileActiveWarehouse) {
+                ui.mobileActiveWarehouse.innerHTML = ui.activeWarehouse.innerHTML;
+                ui.mobileActiveWarehouse.value = ui.activeWarehouse.value;
+            }
+            state.preferences.activeWarehouseCode = ui.activeWarehouse.value;
+            ui.activeWarehouse.disabled = !getActiveCompany() || assignments.length === 0;
+            return selectedAssignment || null;
+        }
+
+        function getActiveWarehouseAssignment() {
+            const activeCode = norm(ui.activeWarehouse?.value || state.preferences.activeWarehouseCode);
+            return getAuthorizedCompanyWarehouseAssignments().find((assignment) => norm(assignment.locationCode) === activeCode) || null;
+        }
+
+        function setActiveWarehouse(value, { persist = true, rerender = true } = {}) {
+            const requestedCode = norm(value);
+            const assignment = getAuthorizedCompanyWarehouseAssignments().find((entry) => norm(entry.locationCode) === requestedCode) || null;
+            state.preferences.activeWarehouseCode = assignment?.locationCode || "";
+            refreshActiveWarehouseSelector();
+            updateActiveCompanyUi();
+            if (persist) saveState();
+            if (rerender) refreshCompanyScopedUi();
+            refreshPortalOrdersList(true, { allowAllCompanies: false, showLoading: activeSection === "orders" || activeSection === "shipped" }).catch(() => {});
+            refreshPortalInboundsList(true).catch(() => {});
+            refreshKittingRequestsAdmin(true).catch(() => {});
+            refreshWarehouseTasksList(true).catch(() => {});
         }
 
         function normalizeProvinceCode(value = "") {

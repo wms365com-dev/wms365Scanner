@@ -4992,12 +4992,16 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
         const requestedStatusInput = normalizeText(req.query?.status || "");
+        const requestedLocationId = toPositiveInt(req.query?.fulfillmentLocationId || req.query?.fulfillment_location_id);
         const requestedStatus = normalizePortalOrderStatus(requestedStatusInput);
         if (requestedStatusInput && !requestedStatus) {
             throw httpError(400, "Choose a valid sales order status.");
         }
         if (requestedAccount) {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
+        if (requestedLocationId) {
+            await assertAppUserFulfillmentLocationAccess(pool, req.appUser, requestedLocationId);
         }
         const orders = requestedAccount
             ? await getPortalOrderListForAccount(requestedAccount, pool, { status: requestedStatus })
@@ -5009,12 +5013,15 @@ app.get("/api/admin/portal-orders", async (req, res, next) => {
             res.setHeader("X-WMS365-Result-Count", String(visibleOrders.length));
             res.json({ orders: visibleOrders });
         };
+        const locationScopedOrders = requestedLocationId
+            ? orders.filter((entry) => toPositiveInt(entry.fulfillmentLocationId) === requestedLocationId)
+            : orders;
         if (isSuperAdminUser(req.appUser)) {
-            sendOrders(orders);
+            sendOrders(locationScopedOrders);
             return;
         }
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
-        const companyScopedOrders = orders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
+        const companyScopedOrders = locationScopedOrders.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
         sendOrders(await filterPortalOrdersForAppUserWarehouses(pool, companyScopedOrders, req.appUser));
     } catch (error) {
         next(error);
@@ -5064,8 +5071,12 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
     const startedAt = process.hrtime.bigint();
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const requestedLocationId = toPositiveInt(req.query?.fulfillmentLocationId || req.query?.fulfillment_location_id);
         if (requestedAccount) {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
+        }
+        if (requestedLocationId) {
+            await assertAppUserFulfillmentLocationAccess(pool, req.appUser, requestedLocationId);
         }
         const inbounds = requestedAccount
             ? await getPortalInboundsForAccount(requestedAccount)
@@ -5075,9 +5086,10 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
         const companyScopedInbounds = isSuperAdminUser(req.appUser)
             ? inbounds
             : inbounds.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName)));
-        const visibleInbounds = companyScopedInbounds.filter((entry) => !Array.isArray(allowedLocationIds)
+        const visibleInbounds = companyScopedInbounds.filter((entry) => (!requestedLocationId
+            || toPositiveInt(entry.fulfillmentLocationId) === requestedLocationId) && (!Array.isArray(allowedLocationIds)
             || !entry.fulfillmentLocationId
-            || allowedLocationIds.includes(toPositiveInt(entry.fulfillmentLocationId)));
+            || allowedLocationIds.includes(toPositiveInt(entry.fulfillmentLocationId))));
         const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("Server-Timing", `portal-inbounds;dur=${durationMs.toFixed(1)}`);
@@ -5091,9 +5103,11 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
 app.get("/api/admin/kitting-requests", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const requestedLocationId = toPositiveInt(req.query?.fulfillmentLocationId || req.query?.fulfillment_location_id);
         if (requestedAccount) {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
         }
+        if (requestedLocationId) await assertAppUserFulfillmentLocationAccess(pool, req.appUser, requestedLocationId);
         const requests = await getAdminPortalKittingRequests(pool, requestedAccount);
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
         const allowedLocationIds = await getAccessibleFulfillmentLocationIdsForAppUser(pool, req.appUser);
@@ -5102,9 +5116,10 @@ app.get("/api/admin/kitting-requests", async (req, res, next) => {
             requests: (isSuperAdminUser(req.appUser)
                 ? requests
                 : requests.filter((entry) => allowedCompanies.includes(normalizeText(entry.accountName))))
-                .filter((entry) => !Array.isArray(allowedLocationIds)
+                .filter((entry) => (!requestedLocationId || toPositiveInt(entry.fulfillmentLocationId) === requestedLocationId)
+                    && (!Array.isArray(allowedLocationIds)
                     || !entry.fulfillmentLocationId
-                    || allowedLocationIds.includes(toPositiveInt(entry.fulfillmentLocationId)))
+                    || allowedLocationIds.includes(toPositiveInt(entry.fulfillmentLocationId))))
         });
     } catch (error) {
         next(error);
@@ -5138,14 +5153,17 @@ app.post("/api/admin/kitting-requests/:id/status", requirePermission(RBAC_PERMIS
 app.get("/api/admin/warehouse-tasks", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const requestedLocationId = toPositiveInt(req.query?.fulfillmentLocationId || req.query?.fulfillment_location_id);
         if (requestedAccount) {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
         }
+        if (requestedLocationId) await assertAppUserFulfillmentLocationAccess(pool, req.appUser, requestedLocationId);
         const tasks = await withTransaction(async (client) => {
             // Source document mutations sync warehouse tasks. Read endpoints must stay
             // side-effect free so dashboard refreshes cannot block company switching.
             const result = await getWarehouseTaskRowsForAppUser(client, req.appUser, {
                 accountName: requestedAccount,
+                fulfillmentLocationId: requestedLocationId,
                 status: req.query?.status,
                 type: req.query?.type,
                 activeOnly: normalizeText(req.query?.activeOnly || req.query?.active_only || "true") !== "FALSE",
@@ -35551,6 +35569,11 @@ async function savePortalInboundPalletLabels(client, accessRow, inboundId, rawPa
 async function saveWarehousePortalInbound(client, accountName, rawInbound, appUser = null) {
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
     await upsertOwnerMaster(client, accountName);
+    const fulfillmentLocation = await resolvePortalFulfillmentLocation(client, accountName, rawInbound, {
+        direction: "INBOUND",
+        requiredLabel: "receiving warehouse"
+    });
+    await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocation.fulfillmentLocationId);
     return savePortalInboundForAccount(client, accountName, rawInbound, {
         portalAccessId: null,
         activityTitlePrefix: "warehouse purchase order",
@@ -35570,6 +35593,7 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
     if (normalizeText(currentInbound.accountName) !== normalizedAccount) {
         throw httpError(400, "Purchase order company cannot be changed.");
     }
+    await assertAppUserFulfillmentLocationAccess(client, appUser, currentInbound.fulfillmentLocationId);
     if (currentInbound.status !== "DRAFT") {
         throw httpError(400, "Only draft purchase orders can be edited. Return this purchase order to draft first.");
     }
@@ -37701,6 +37725,7 @@ async function syncWarehouseTasksFromOperationalRecords(client = pool) {
 
 async function getWarehouseTaskRowsForAppUser(client, appUser, {
     accountName = "",
+    fulfillmentLocationId = 0,
     status = "",
     type = "",
     activeOnly = true,
@@ -37712,6 +37737,11 @@ async function getWarehouseTaskRowsForAppUser(client, appUser, {
     if (normalizedAccount) {
         params.push(normalizedAccount);
         clauses.push(`wt.account_name = $${params.length}`);
+    }
+    const requestedFulfillmentLocationId = toPositiveInt(fulfillmentLocationId);
+    if (requestedFulfillmentLocationId) {
+        params.push(requestedFulfillmentLocationId);
+        clauses.push(`wt.fulfillment_location_id = $${params.length}`);
     }
     if (appUser && !isSuperAdminUser(appUser)) {
         const accessibleCompanies = await getAccessibleCompanyNamesForAppUser(client, appUser);
