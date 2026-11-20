@@ -261,7 +261,7 @@ async function main(env = process.env) {
             await client.query(
                 `update portal_orders
                     set contact_name='Sandbox Receiving Desk', contact_phone='555-0101',
-                        contact_email='sandbox-receiving@invalid.example', ship_to_address1='1510 Test Street',
+                        ship_to_address1='1510 Test Street',
                         ship_to_address2='Dock 6', ship_to_city='Mississauga', ship_to_state='ON',
                         ship_to_postal_code='L5T 1V6', ship_to_country='Canada'
                   where id=$1`,
