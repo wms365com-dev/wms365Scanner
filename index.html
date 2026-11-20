@@ -14536,7 +14536,7 @@
             }
             if (ui.sessionScopeCompany) ui.sessionScopeCompany.textContent = `Company: ${companyDisplay || "All companies"}`;
             if (ui.sessionScopeRole) ui.sessionScopeRole.textContent = `Role: ${warehouseUserRoleLabel(appUser?.role || "WAREHOUSE_WORKER")}`;
-            if (ui.desktopViewFilter) ui.desktopViewFilter.textContent = companyDisplay || "All companies";
+            if (ui.desktopViewFilter) ui.desktopViewFilter.textContent = formatActiveWorkspaceScopeLabel();
             if (ui.clearActiveCompanyBtn) {
                 ui.clearActiveCompanyBtn.disabled = !company;
             }
@@ -33791,6 +33791,20 @@
             if (!company) return "";
             const provinceCodes = getCompanyFulfillmentProvinceCodes(company);
             return provinceCodes.length ? `${company} (${provinceCodes.join(" + ")})` : company;
+        }
+
+        function formatActiveWorkspaceScopeLabel() {
+            const companyDisplay = formatCompanySelectorLabel(getActiveCompany()) || "All companies";
+            const assignment = getActiveWarehouseAssignment();
+            if (!assignment) {
+                return `${companyDisplay} | ${getActiveCompany() ? "No warehouse selected" : "All warehouses"}`;
+            }
+            const location = getFulfillmentLocationByCode(assignment.locationCode) || {};
+            const warehouseDisplay = [
+                assignment.locationCode || location.code,
+                assignment.locationName || location.name
+            ].filter(Boolean).join(" - ") || "No warehouse selected";
+            return `${companyDisplay} | ${warehouseDisplay}`;
         }
 
         function formatCompanyWarehouseSummary(accountName = getActiveCompany()) {

@@ -14,9 +14,9 @@ test("authenticated scope shows company, active authorized warehouse, and role",
   assert.match(index, /warehouseUserRoleLabel\(appUser\?\.role/);
 });
 
-test("company scope updates the dashboard command filter", () => {
+test("company and warehouse scope update the dashboard command filter", () => {
   assert.match(index, /id="desktopViewFilter">All companies/);
-  assert.match(index, /ui\.desktopViewFilter\.textContent = companyDisplay \|\| "All companies"/);
+  assert.match(index, /ui\.desktopViewFilter\.textContent = formatActiveWorkspaceScopeLabel\(\)/);
 });
 
 test("company and account drawers render above sticky navigation", () => {
