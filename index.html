@@ -356,6 +356,9 @@
         }
 
         .company-switcher-close {
+            position: relative;
+            z-index: 2;
+            flex: 0 0 28px;
             width: 28px;
             height: 28px;
             border: 0;
@@ -363,6 +366,7 @@
             color: #5a6d7f;
             font-size: 0.9rem;
             cursor: pointer;
+            pointer-events: auto;
         }
 
         .company-switcher-search input {
@@ -1601,6 +1605,10 @@
             body.item-card-popout-open,
             body.partner-card-popout-open {
                 overflow: hidden;
+            }
+
+            body.utility-menu-open .hero {
+                z-index: 3500;
             }
 
             body.sales-order-popout-open .panel.active,
@@ -12905,6 +12913,11 @@
             form.submit();
         }
 
+        function syncUtilityMenuOverlayState() {
+            const utilityMenuOpen = Boolean(ui.desktopCompanySwitcher?.open || ui.accountSettingsMenu?.open);
+            document.body.classList.toggle("utility-menu-open", utilityMenuOpen);
+        }
+
         function init() {
             applyDeviceExperienceMode();
             setCompanyProfileFormDisabled(true);
@@ -12928,6 +12941,7 @@
             ui.refreshSiteTrafficBtn?.addEventListener("click", refreshSiteTraffic);
             ui.accountSettingsCloseBtn?.addEventListener("click", () => {
                 if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
+                syncUtilityMenuOverlayState();
             });
             ui.warehouseViewportAlertClose?.addEventListener("click", dismissWarehouseViewportAlert);
             ui.warehouseViewportAlertReview?.addEventListener("click", reviewWarehouseViewportAlertTarget);
@@ -12935,9 +12949,11 @@
                 if (event.key === "Escape") dismissWarehouseViewportAlert();
             });
             ui.accountSettingsMenu?.addEventListener("toggle", () => {
-                if (!ui.accountSettingsMenu.open) return;
-                if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
-                refreshCurrentAppUser().catch((error) => showMessage(ui.accountSettingsMessage, error.message || "Profile could not be loaded.", "error"));
+                if (ui.accountSettingsMenu.open) {
+                    if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
+                    refreshCurrentAppUser().catch((error) => showMessage(ui.accountSettingsMessage, error.message || "Profile could not be loaded.", "error"));
+                }
+                syncUtilityMenuOverlayState();
             });
             ui.accountProfileBtn?.addEventListener("click", showAccountProfileForm);
             ui.accountProfileCancelBtn?.addEventListener("click", hideAccountProfileForm);
@@ -12994,13 +13010,16 @@
             ui.companySwitcherList?.addEventListener("click", onCompanySwitcherListClick);
             ui.companySwitcherCloseBtn?.addEventListener("click", () => {
                 if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
+                syncUtilityMenuOverlayState();
             });
             ui.desktopCompanySwitcher?.addEventListener("toggle", () => {
-                if (!ui.desktopCompanySwitcher.open) return;
-                if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
-                syncCompanySwitcherAddAccess();
-                renderCompanySwitcherList();
-                window.setTimeout(() => ui.companySwitcherSearch?.focus(), 0);
+                if (ui.desktopCompanySwitcher.open) {
+                    if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
+                    syncCompanySwitcherAddAccess();
+                    renderCompanySwitcherList();
+                    window.setTimeout(() => ui.companySwitcherSearch?.focus(), 0);
+                }
+                syncUtilityMenuOverlayState();
             });
             [
                 ui.scanAccount,
