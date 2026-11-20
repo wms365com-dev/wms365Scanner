@@ -15,21 +15,21 @@ function functionBody(source, name, nextName) {
 }
 
 test("opened drafts cancel by stable id without depending on the compact order cache", () => {
-    const cancel = functionBody(desktop, "deleteWarehouseSalesOrder", "getWarehouseInboundCompany");
+    const cancel = functionBody(desktop, "deleteWarehouseSalesOrder", "archiveWarehouseSalesOrderDraft");
     assert.match(cancel, /const orderId = String\(editingWarehouseOrderId\)/);
     assert.doesNotMatch(cancel, /if \(!currentOrder\?\.id\)/);
     assert.match(cancel, /requestJson\(`\/api\/admin\/portal-orders\/\$\{orderId\}\/status`/);
 });
 
 test("draft cancellation never saves the draft or revalidates its inventory", () => {
-    const cancel = functionBody(desktop, "deleteWarehouseSalesOrder", "getWarehouseInboundCompany");
+    const cancel = functionBody(desktop, "deleteWarehouseSalesOrder", "archiveWarehouseSalesOrderDraft");
     assert.doesNotMatch(cancel, /saveWarehouseSalesOrderDraft|collectWarehouseSalesOrderPayload|available|allocate/i);
     assert.match(cancel, /status: "CANCELLED"/);
     assert.match(cancel, /"Idempotency-Key": actionId/);
 });
 
 test("successful cancellation updates the opened record before background list refresh", () => {
-    const cancel = functionBody(desktop, "deleteWarehouseSalesOrder", "getWarehouseInboundCompany");
+    const cancel = functionBody(desktop, "deleteWarehouseSalesOrder", "archiveWarehouseSalesOrderDraft");
     const applied = cancel.indexOf("applyPortalOrderUpdate(response?.order");
     const refresh = cancel.indexOf("queuePortalOrderRefresh()");
     assert.ok(applied >= 0 && refresh > applied);

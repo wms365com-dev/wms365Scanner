@@ -9606,6 +9606,7 @@
                         <div class="erp-command-strip">
                             <button class="erp-command-link" type="button" id="salesOrderCommandNewBtn">+ New</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandSaveBtn">Save Draft</button>
+                            <button class="erp-command-link" type="button" id="salesOrderCommandArchiveBtn" hidden>Archive Draft</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandDeleteBtn" hidden>Cancel Order</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReleaseBtn">Release</button>
                             <button class="erp-command-link" type="button" id="salesOrderCommandReopenBtn" hidden>Reopen to Draft</button>
@@ -9735,6 +9736,7 @@
                     <div class="status" id="warehouseOrderMessage" aria-live="polite"></div>
                     <div class="button-row" style="margin-top: 1rem;">
                         <button class="btn secondary" id="saveWarehouseOrderDraftBtn" type="button">Save Draft</button>
+                        <button class="btn ghost" id="archiveWarehouseOrderBtn" type="button" hidden>Archive Draft</button>
                         <button class="btn ghost" id="deleteWarehouseOrderBtn" type="button" hidden>Cancel Order</button>
                         <button class="btn" id="releaseWarehouseOrderBtn" type="button">Release Order</button>
                         <button class="btn ghost" id="reopenWarehouseOrderBtn" type="button" hidden>Reopen to Draft</button>
@@ -12357,6 +12359,7 @@
             addWarehouseOrderLineBtn: document.getElementById("addWarehouseOrderLineBtn"),
             resetWarehouseOrderBtn: document.getElementById("resetWarehouseOrderBtn"),
             saveWarehouseOrderDraftBtn: document.getElementById("saveWarehouseOrderDraftBtn"),
+            archiveWarehouseOrderBtn: document.getElementById("archiveWarehouseOrderBtn"),
             deleteWarehouseOrderBtn: document.getElementById("deleteWarehouseOrderBtn"),
             releaseWarehouseOrderBtn: document.getElementById("releaseWarehouseOrderBtn"),
             reopenWarehouseOrderBtn: document.getElementById("reopenWarehouseOrderBtn"),
@@ -12366,6 +12369,7 @@
             generateWarehouseOrderBolBtn: document.getElementById("generateWarehouseOrderBolBtn"),
             salesOrderCommandNewBtn: document.getElementById("salesOrderCommandNewBtn"),
             salesOrderCommandSaveBtn: document.getElementById("salesOrderCommandSaveBtn"),
+            salesOrderCommandArchiveBtn: document.getElementById("salesOrderCommandArchiveBtn"),
             salesOrderCommandDeleteBtn: document.getElementById("salesOrderCommandDeleteBtn"),
             salesOrderCommandReleaseBtn: document.getElementById("salesOrderCommandReleaseBtn"),
             salesOrderCommandReopenBtn: document.getElementById("salesOrderCommandReopenBtn"),
@@ -13268,6 +13272,7 @@
             ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
             ui.resetWarehouseOrderBtn?.addEventListener("click", () => openNewSalesOrderDocument());
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
+            ui.archiveWarehouseOrderBtn?.addEventListener("click", archiveWarehouseSalesOrderDraft);
             ui.deleteWarehouseOrderBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.releaseWarehouseOrderBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.reopenWarehouseOrderBtn?.addEventListener("click", reopenWarehouseSalesOrder);
@@ -13291,6 +13296,7 @@
             ui.generateWarehouseOrderBolBtn?.addEventListener("click", openWarehouseOrderBolModal);
             ui.salesOrderCommandNewBtn?.addEventListener("click", () => openNewSalesOrderDocument());
             ui.salesOrderCommandSaveBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
+            ui.salesOrderCommandArchiveBtn?.addEventListener("click", archiveWarehouseSalesOrderDraft);
             ui.salesOrderCommandDeleteBtn?.addEventListener("click", deleteWarehouseSalesOrder);
             ui.salesOrderCommandReleaseBtn?.addEventListener("click", releaseWarehouseSalesOrder);
             ui.salesOrderCommandReopenBtn?.addEventListener("click", reopenWarehouseSalesOrder);
@@ -23355,7 +23361,16 @@
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
             }
             const canCancelOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(order.status);
+            const canArchiveDraft = !!order?.id && order.status === "DRAFT";
             const canReopenReleased = !!order?.id && order.status === "RELEASED";
+            [ui.archiveWarehouseOrderBtn, ui.salesOrderCommandArchiveBtn].filter(Boolean).forEach((button) => {
+                button.hidden = !canArchiveDraft;
+                button.disabled = !canArchiveDraft;
+                button.textContent = "Archive Draft";
+                button.title = canArchiveDraft
+                    ? "Remove this draft from active work while preserving its number and audit history."
+                    : "Only draft orders can be archived.";
+            });
             [ui.deleteWarehouseOrderBtn, ui.salesOrderCommandDeleteBtn].filter(Boolean).forEach((button) => {
                 button.hidden = !canCancelOrder;
                 button.disabled = !canCancelOrder;
@@ -24128,6 +24143,45 @@
                     showSalesOrderList({ scroll: false });
                     resetWarehouseSalesOrderForm();
                     showMessage(ui.portalOrdersMessage, `Order ${response?.order?.orderCode || orderLabel} cancelled. The number remains in history and active warehouse work was closed.`, "success");
+                    queuePortalOrderRefresh();
+                    return response;
+                });
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message, "error");
+                return null;
+            }
+        }
+
+        async function archiveWarehouseSalesOrderDraft(context = null) {
+            if (!editingWarehouseOrderId) {
+                return showMessage(ui.warehouseOrderMessage, "Save the draft before archiving it.", "error");
+            }
+            const orderId = String(editingWarehouseOrderId);
+            const currentOrder = getPortalOrderById(orderId);
+            if (currentOrder?.status && currentOrder.status !== "DRAFT") {
+                return showMessage(ui.warehouseOrderMessage, `Only draft orders can be archived. This order is ${currentOrder.status}.`, "error");
+            }
+            const orderLabel = currentOrder?.orderCode || orderId;
+            if (!window.confirm(`Archive draft order ${orderLabel}? It will be removed from active work, while its order number, lines, and audit history remain available.`)) {
+                return null;
+            }
+            const actionButton = resolveActionButton(context, ui.archiveWarehouseOrderBtn);
+            try {
+                return await runActionWithFeedback({
+                    button: actionButton,
+                    busyLabel: "Archiving...",
+                    messageElement: ui.warehouseOrderMessage,
+                    lockKey: `archive-order-${orderId}`,
+                    progressMessage: `Archiving draft ${orderLabel}...`
+                }, async () => {
+                    const response = await requestJson(`/api/admin/portal-orders/${orderId}/archive`, { method: "POST" });
+                    if (!response?.order || String(response.order.id) !== orderId || response.order.status !== "ARCHIVED") {
+                        throw new Error("The server did not confirm that the draft was archived.");
+                    }
+                    applyPortalOrderUpdate(response.order, "", ui.warehouseOrderMessage);
+                    showSalesOrderList({ scroll: false });
+                    resetWarehouseSalesOrderForm();
+                    showMessage(ui.portalOrdersMessage, `Archived draft ${response.order.orderCode || orderLabel}. Its number and audit history were preserved.`, "success");
                     queuePortalOrderRefresh();
                     return response;
                 });
