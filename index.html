@@ -714,15 +714,19 @@
 
         .factbox-line {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-columns: minmax(0, 5rem) minmax(0, 1fr);
             gap: 0.5rem;
+            align-items: start;
             color: #5d6f7d;
             font-size: 0.76rem;
         }
 
         .factbox-line strong {
+            min-width: 0;
             color: #12324a;
             font-weight: 600;
+            overflow-wrap: anywhere;
+            text-align: right;
         }
 
         .factbox-action {
@@ -17371,7 +17375,7 @@
             return lines.map((line) => `
                 <div class="factbox-line">
                     <span>${esc(line.label)}</span>
-                    <strong>${esc(line.value)}</strong>
+                    <strong title="${attr(line.value)}">${esc(line.value)}</strong>
                 </div>
             `).join("");
         }
