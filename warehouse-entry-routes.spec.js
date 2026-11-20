@@ -26,7 +26,9 @@ test("production health waits for the schema and both warehouse entry routes", (
 test("Railway runs the route contract before accepting a build", () => {
     const railway = fs.readFileSync(path.join(__dirname, ".railway", "railway.ts"), "utf8");
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
-    assert.equal((railway.match(/buildCommand: "npm run check:deploy"/g) || []).length, 2);
+    const warningFreeBuildCommand = "env -u NPM_CONFIG_PRODUCTION -u npm_config_production npm run check:deploy";
+    assert.equal(railway.split(warningFreeBuildCommand).length - 1, 2);
+    assert.doesNotMatch(railway, /buildCommand: "npm run check:deploy"/);
     assert.equal((railway.match(/healthcheck: "\/api\/health"/g) || []).length, 2);
     assert.equal((railway.match(/start: "node server\.js"/g) || []).length, 2);
     assert.match(railway, /ctx\.isEnvironment\("customer-sandbox"\)/);
