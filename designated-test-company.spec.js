@@ -54,6 +54,7 @@ const guardedScripts = [
     "scripts/verify-test-company-inventory-move-flow.js",
     "scripts/verify-test-company-shopify-shared-pool.js",
     "scripts/verify-test-company-pallet-pick-reallocation.js",
+    "scripts/verify-test-company-draft-cancellation.js",
     "scripts/verify-test-company-routing-readiness.js",
     "scripts/audit-platform-release-data.js",
     "verify-portal-inventory-database.js"
