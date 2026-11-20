@@ -65,6 +65,9 @@ test("sandbox archive verifier is pinned, isolated, negative-scoped, and cleanup
     assert.match(verifier, /requireSandboxConfiguration\(env\)/);
     assert.match(verifier, /requireDesignatedTestCompany\(pool\)/);
     assert.match(verifier, /designatedCompanyId: TEST_COMPANY\.id/);
+    assert.match(verifier, /originalFeatureFlags/);
+    assert.match(verifier, /ORDER_ENTRY: true/);
+    assert.match(verifier, /feature_flags=\$2::jsonb/);
     assert.match(verifier, /denied\.status !== 403/);
     assert.match(verifier, /released\.status !== 400/);
     assert.match(verifier, /Draft archive fixture cleanup left sandbox residue/);

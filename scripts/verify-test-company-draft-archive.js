@@ -51,6 +51,12 @@ async function cleanup(pool, fixture) {
             await client.query("delete from company_fulfillment_locations where fulfillment_location_id=any($1::bigint[])", [fixture.locationIds]);
             await client.query("delete from fulfillment_locations where id=any($1::bigint[])", [fixture.locationIds]);
         }
+        if (fixture.originalFeatureFlags !== null) {
+            await client.query(
+                "update owner_accounts set feature_flags=$2::jsonb where id=$1",
+                [TEST_COMPANY.id, JSON.stringify(fixture.originalFeatureFlags)]
+            );
+        }
         const residue = await client.query(
             `select
                 (select count(*) from portal_orders where order_code like $1)::integer as orders,
@@ -85,7 +91,8 @@ async function main(env = process.env) {
         orderIds: [],
         allowedOrderId: "",
         deniedOrderId: "",
-        releasedOrderId: ""
+        releasedOrderId: "",
+        originalFeatureFlags: null
     };
     let primaryError = null;
     try {
@@ -98,10 +105,15 @@ async function main(env = process.env) {
         try {
             await client.query("begin");
             const identity = await client.query(
-                "select id::text from owner_accounts where id=$1 and name=$2 and is_active=true for share",
+                "select id::text,feature_flags from owner_accounts where id=$1 and name=$2 and is_active=true for update",
                 [TEST_COMPANY.id, TEST_COMPANY.name]
             );
             if (identity.rowCount !== 1) throw new Error("Designated test company became unavailable before fixture creation.");
+            fixture.originalFeatureFlags = identity.rows[0].feature_flags || {};
+            await client.query(
+                "update owner_accounts set feature_flags=$2::jsonb where id=$1",
+                [TEST_COMPANY.id, JSON.stringify({ ...fixture.originalFeatureFlags, ORDER_ENTRY: true })]
+            );
             const locations = await client.query(
                 `insert into fulfillment_locations (code,name,partner_name,location_type,note,is_active)
                  values ($1,$2,'TEST','OWN_WAREHOUSE',$5,true),($3,$4,'TEST','OWN_WAREHOUSE',$5,true)
