@@ -14523,7 +14523,6 @@
         function updateActiveCompanyUi() {
             const company = getActiveCompany();
             const companyDisplay = formatCompanySelectorLabel(company);
-            const appUser = state.session?.appUser;
             refreshActiveWarehouseSelector();
             if (ui.activeCompanyDisplay) {
                 ui.activeCompanyDisplay.textContent = companyDisplay || "All companies";
@@ -14535,7 +14534,7 @@
                     : "Choose a company to lock receiving, inventory, outbound, billing, and reports.";
             }
             if (ui.sessionScopeCompany) ui.sessionScopeCompany.textContent = `Company: ${companyDisplay || "All companies"}`;
-            if (ui.sessionScopeRole) ui.sessionScopeRole.textContent = `Role: ${warehouseUserRoleLabel(appUser?.role || "WAREHOUSE_WORKER")}`;
+            if (ui.sessionScopeRole) ui.sessionScopeRole.textContent = `Role: ${formatAuthenticatedSessionRole()}`;
             if (ui.desktopViewFilter) ui.desktopViewFilter.textContent = formatActiveWorkspaceScopeLabel();
             if (ui.clearActiveCompanyBtn) {
                 ui.clearActiveCompanyBtn.disabled = !company;
@@ -14704,6 +14703,11 @@
             if (normalized === "WAREHOUSE_ADMIN") return "Warehouse Admin";
             if (normalized === "WAREHOUSE_CUSTOMER_SERVICE") return "Warehouse Customer Service";
             return "Warehouse Worker";
+        }
+
+        function formatAuthenticatedSessionRole() {
+            const authenticatedRole = norm(state.session?.appUser?.role || getCurrentAppUser()?.role || "");
+            return authenticatedRole ? warehouseUserRoleLabel(authenticatedRole) : "Signed in user";
         }
 
         function syncWarehouseUserAssignedDraftFromUi() {

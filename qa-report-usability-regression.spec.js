@@ -11,7 +11,7 @@ test("authenticated scope shows company, active authorized warehouse, and role",
   assert.match(index, /id="activeWarehouse"/);
   assert.match(index, /id="sessionScopeRole"/);
   assert.match(index, /getAuthorizedCompanyWarehouseAssignments/);
-  assert.match(index, /warehouseUserRoleLabel\(appUser\?\.role/);
+  assert.match(index, /ui\.sessionScopeRole\.textContent = `Role: \$\{formatAuthenticatedSessionRole\(\)\}`/);
 });
 
 test("company and warehouse scope update the dashboard command filter", () => {
