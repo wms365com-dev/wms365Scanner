@@ -1804,6 +1804,14 @@
             text-underline-offset: 0.18rem;
         }
 
+        .desktop-embeddingbar button[aria-current="page"] {
+            color: #003f4a;
+            font-weight: 700;
+            text-decoration: underline;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 0.22rem;
+        }
+
         .module-company {
             display: inline-flex;
             align-items: center;
@@ -14287,6 +14295,21 @@
             return true;
         }
 
+        function syncDesktopQuickLinkState(section = activeSection) {
+            const normalizedSection = String(section || "").trim().toLowerCase();
+            const focusedMasterType = normalizedSection === "inventory"
+                ? String(activeMasterRecordListType || "").trim().toUpperCase()
+                : "";
+            document.querySelectorAll(".desktop-embeddingbar [data-jump-section]").forEach((button) => {
+                const buttonSection = String(button.dataset.jumpSection || "").trim().toLowerCase();
+                const buttonMasterType = String(button.dataset.masterList || "").trim().toUpperCase();
+                const isCurrent = buttonSection === normalizedSection
+                    && (normalizedSection !== "inventory" || (!!focusedMasterType && buttonMasterType === focusedMasterType));
+                if (isCurrent) button.setAttribute("aria-current", "page");
+                else button.removeAttribute("aria-current");
+            });
+        }
+
         function setSection(section, options = {}) {
             const { recordHistory = true, focusAnchorId = "", syncOnSectionChange = true } = options;
             hideMobileAutocomplete();
@@ -14319,6 +14342,7 @@
                 clearFocusedMasterRecordList();
             }
             ui.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === section));
+            syncDesktopQuickLinkState(section);
             syncScanSectionUi();
             syncInventoryActionScreen(section);
             syncPortalOrdersSectionUi(section);
