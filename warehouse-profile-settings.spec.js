@@ -26,6 +26,16 @@ test("password reset loads the signed-in user and has a working click action", (
     assert.match(desktop, /requestJson\("\/api\/app\/recovery\/password"/);
 });
 
+test("logout cannot be blocked by confirmation or a stalled session request", () => {
+    const start = desktop.indexOf("async function logoutCurrentWarehouseUser");
+    const end = desktop.indexOf("function init", start);
+    const logoutFunction = start >= 0 && end > start ? desktop.slice(start, end) : "";
+    assert.doesNotMatch(logoutFunction, /window\.confirm/);
+    assert.match(logoutFunction, /Promise\.race/);
+    assert.match(logoutFunction, /window\.location\.replace\("\/login\.html\?next=%2Fdesktop"\)/);
+    assert.match(desktop, /accountLogoutBtn\?\.addEventListener\("click", logoutCurrentWarehouseUser\)/);
+});
+
 test("profile schema stores names and phone without exposing access controls", () => {
     assert.match(server, /add column if not exists first_name/);
     assert.match(server, /add column if not exists last_name/);

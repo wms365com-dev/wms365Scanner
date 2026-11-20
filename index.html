@@ -12843,14 +12843,23 @@
             }
         }
 
-        async function logoutCurrentWarehouseUser() {
-            if (!window.confirm("Log out of WMS365 on this device?")) return;
+        async function logoutCurrentWarehouseUser(event = null) {
+            event?.preventDefault?.();
+            if (ui.accountSettingsMenu) ui.accountSettingsMenu.open = false;
+            if (ui.accountLogoutBtn) {
+                ui.accountLogoutBtn.disabled = true;
+                ui.accountLogoutBtn.textContent = "Logging out...";
+            }
             try {
-                await requestJson("/api/app/logout", { method: "POST" });
+                await Promise.race([
+                    requestJson("/api/app/logout", { method: "POST" }),
+                    new Promise((resolve) => window.setTimeout(resolve, 1500))
+                ]);
             } catch {
                 // Continue to sign-in even when the server session has already expired.
+            } finally {
+                window.location.replace("/login.html?next=%2Fdesktop");
             }
-            window.location.assign("/login.html?next=%2Fdesktop");
         }
 
         function init() {
@@ -25857,6 +25866,7 @@
         async function refreshPortalOrdersList(silent = false, { allowAllCompanies = portalOrdersAllCompaniesRequested, showLoading = !silent } = {}) {
             const company = getActiveCompany();
             const companyKey = norm(company);
+            const locationId = getActiveWarehouseAssignment()?.fulfillmentLocationId || "";
             const requestStatus = getPortalOrdersRequestStatus();
             const cacheKey = getPortalOrdersRequestKey(company, requestStatus);
             const refreshSerial = ++portalOrdersRefreshSerial;

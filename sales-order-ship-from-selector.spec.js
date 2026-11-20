@@ -30,6 +30,13 @@ test("warehouse selection scopes order and inbound requests, cache keys, and sta
     assert.match(desktop, /isPortalInboundsRefreshCurrent[\s\S]*?getActiveWarehouseAssignment/);
 });
 
+test("sales-order refresh snapshots the active warehouse before stale-response checks", () => {
+    const start = desktop.indexOf("async function refreshPortalOrdersList");
+    const refreshFunction = start >= 0 ? desktop.slice(start, start + 7000) : "";
+    assert.match(refreshFunction, /const locationId = getActiveWarehouseAssignment\(\)\?\.fulfillmentLocationId \|\| ""/);
+    assert.match(refreshFunction, /isPortalOrdersRefreshCurrent\(refreshSerial, companyKey, requestStatus, locationId\)/);
+});
+
 test("server authorizes and filters explicit warehouse scopes", () => {
     assert.match(server, /app\.get\("\/api\/admin\/portal-orders"[\s\S]*?requestedLocationId[\s\S]*?assertAppUserFulfillmentLocationAccess[\s\S]*?locationScopedOrders/);
     assert.match(server, /app\.get\("\/api\/admin\/portal-inbounds"[\s\S]*?requestedLocationId[\s\S]*?assertAppUserFulfillmentLocationAccess[\s\S]*?visibleInbounds/);
