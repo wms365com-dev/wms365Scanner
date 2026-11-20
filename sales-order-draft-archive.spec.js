@@ -71,5 +71,6 @@ test("sandbox archive verifier is pinned, isolated, negative-scoped, and cleanup
     assert.match(verifier, /denied\.status !== 403/);
     assert.match(verifier, /released\.status !== 400/);
     assert.match(verifier, /Draft archive fixture cleanup left sandbox residue/);
+    assert.doesNotMatch(verifier, /delete from inventory_transactions/);
     assert.doesNotMatch(verifier, /sendEmail|Shopify|carrier|billing/);
 });

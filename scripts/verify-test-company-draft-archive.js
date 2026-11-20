@@ -36,13 +36,14 @@ async function cleanup(pool, fixture) {
             await client.query("delete from app_users where id=$1", [fixture.userId]);
         }
         if (fixture.orderIds.length) {
-            await client.query("delete from warehouse_task_history where task_id in (select id from warehouse_tasks where source_type='PORTAL_ORDER' and source_id=any($1::text[]))", [fixture.orderIds]);
-            await client.query("delete from warehouse_tasks where source_type='PORTAL_ORDER' and source_id=any($1::text[])", [fixture.orderIds]);
+            await client.query("delete from warehouse_task_history where task_id in (select id from warehouse_tasks where source_type='PORTAL_ORDER' and source_id=any($1::bigint[]))", [fixture.orderIds]);
+            await client.query("delete from warehouse_tasks where source_type='PORTAL_ORDER' and source_id=any($1::bigint[])", [fixture.orderIds]);
             await client.query("delete from portal_order_allocations where order_id=any($1::bigint[])", [fixture.orderIds]);
+            await client.query("delete from warehouse_shipment_lines where shipment_id in(select id from warehouse_shipments where order_id=any($1::bigint[]))", [fixture.orderIds]);
+            await client.query("delete from warehouse_shipments where order_id=any($1::bigint[])", [fixture.orderIds]);
             await client.query("delete from portal_order_lines where order_id=any($1::bigint[])", [fixture.orderIds]);
             await client.query("delete from portal_orders where id=any($1::bigint[])", [fixture.orderIds]);
         }
-        await client.query("delete from inventory_transactions where account_name=$1 and sku=$2", [TEST_COMPANY.name, fixture.sku]);
         await client.query("delete from inventory_lines where account_name=$1 and sku=$2", [TEST_COMPANY.name, fixture.sku]);
         await client.query("delete from bin_locations where account_name=$1 and code=$2", [TEST_COMPANY.name, fixture.binCode]);
         await client.query("delete from item_catalog where account_name=$1 and sku=$2", [TEST_COMPANY.name, fixture.sku]);
