@@ -7275,12 +7275,12 @@
 
                 <div class="dashboard-metrics" aria-label="Warehouse workload">
                     <button class="dashboard-metric" type="button" data-jump-section="inbounds">
-                        <span>Open Inbounds</span>
+                        <span>Open Purchase Orders</span>
                         <strong id="dashboardOpenInbounds">0</strong>
                         <small id="dashboardDueInbounds">0 due today</small>
                     </button>
                     <button class="dashboard-metric" type="button" data-jump-section="orders">
-                        <span>Open Outbounds</span>
+                        <span>Open Sales Orders</span>
                         <strong id="dashboardOpenOutbounds">0</strong>
                         <small id="dashboardPickLines">0 lines to work</small>
                     </button>
@@ -7290,7 +7290,7 @@
                         <small>staged orders</small>
                     </button>
                     <button class="dashboard-metric" type="button" data-dashboard-popout="tasks">
-                        <span>Open Tasks</span>
+                        <span>Active Workflow Tasks</span>
                         <strong id="dashboardOpenTasks">0</strong>
                         <small id="dashboardTaskMetric">warehouse queue</small>
                     </button>
@@ -7319,10 +7319,11 @@
                     <div class="dashboard-panel-head">
                         <div>
                             <h3>Warehouse Task Queue</h3>
-                            <p>System-generated work from purchase orders and sales orders. Drill into the source document to complete the workflow.</p>
+                            <p>Each purchase or sales order can create several workflow tasks, so task and order counts will not always match. Drill into a task to open its source document.</p>
                         </div>
                         <div class="dashboard-panel-actions">
                             <span id="dashboardTaskMeta">0 active</span>
+                            <button class="dashboard-drill-btn hidden" id="dashboardBlockedTasksBtn" type="button" data-dashboard-popout="blocked-tasks">0 Blocked</button>
                             <button class="dashboard-drill-btn" type="button" data-dashboard-popout="tasks">View Queue</button>
                         </div>
                     </div>
@@ -11905,6 +11906,7 @@
             dashboardCompanyAgingMeta: document.getElementById("dashboardCompanyAgingMeta"),
             dashboardCompanyAging: document.getElementById("dashboardCompanyAging"),
             dashboardTaskMeta: document.getElementById("dashboardTaskMeta"),
+            dashboardBlockedTasksBtn: document.getElementById("dashboardBlockedTasksBtn"),
             dashboardInboundMeta: document.getElementById("dashboardInboundMeta"),
             dashboardOutboundMeta: document.getElementById("dashboardOutboundMeta"),
             dashboardPlanningMeta: document.getElementById("dashboardPlanningMeta"),
@@ -17410,6 +17412,10 @@
                 );
         }
 
+        function getDashboardBlockedTasks() {
+            return getDashboardActiveTasks().filter((task) => norm(task.status) === "BLOCKED");
+        }
+
         function updateDesktopOperationsAlerts() {
             const orders = getCompanyScopedPortalOrders();
             const inbounds = getCompanyScopedPortalInbounds();
@@ -17816,23 +17822,24 @@
         }
 
         function openDashboardListPopout(type = "outbound") {
-            const normalizedType = type === "tasks" ? "tasks" : (type === "inbound" ? "inbound" : "outbound");
+            const normalizedType = type === "blocked-tasks" ? "blocked-tasks" : (type === "tasks" ? "tasks" : (type === "inbound" ? "inbound" : "outbound"));
             const today = todayInputValue();
-            const rows = normalizedType === "tasks" ? getDashboardActiveTasks() : (normalizedType === "inbound" ? getDashboardOpenInbounds() : getDashboardOpenOrders());
-            const title = normalizedType === "tasks" ? "Open Warehouse Tasks" : (normalizedType === "inbound" ? "Open Purchase Orders" : "Open Sales Orders");
-            const rowLabel = normalizedType === "tasks" ? "warehouse task" : (normalizedType === "inbound" ? "purchase order" : "sales order");
+            const isTaskList = normalizedType === "tasks" || normalizedType === "blocked-tasks";
+            const rows = normalizedType === "blocked-tasks" ? getDashboardBlockedTasks() : (normalizedType === "tasks" ? getDashboardActiveTasks() : (normalizedType === "inbound" ? getDashboardOpenInbounds() : getDashboardOpenOrders()));
+            const title = normalizedType === "blocked-tasks" ? "Blocked Warehouse Tasks" : (normalizedType === "tasks" ? "Open Warehouse Tasks" : (normalizedType === "inbound" ? "Open Purchase Orders" : "Open Sales Orders"));
+            const rowLabel = normalizedType === "blocked-tasks" ? "blocked warehouse task" : (normalizedType === "tasks" ? "warehouse task" : (normalizedType === "inbound" ? "purchase order" : "sales order"));
             const meta = getActiveCompany()
                 ? `${getActiveCompany()} | ${num(rows.length)} open ${rowLabel}${rows.length === 1 ? "" : "s"}`
                 : `All assigned companies | ${num(rows.length)} open ${rowLabel}${rows.length === 1 ? "" : "s"}`;
             if (ui.dashboardPopoutTitle) ui.dashboardPopoutTitle.textContent = title;
-            if (ui.dashboardPopoutMeta) ui.dashboardPopoutMeta.textContent = `${meta}. Select a row to open the document page.`;
+            if (ui.dashboardPopoutMeta) ui.dashboardPopoutMeta.textContent = `${meta}. ${isTaskList ? "Tasks are workflow steps and may outnumber their source orders. " : ""}Select a row to open the document page.`;
             if (ui.dashboardPopoutList) {
                 ui.dashboardPopoutList.innerHTML = rows.length
-                    ? rows.map((entry) => normalizedType === "tasks"
+                    ? rows.map((entry) => isTaskList
                         ? dashboardTaskRowMarkup(entry, today)
                         : (normalizedType === "inbound" ? dashboardInboundRowMarkup(entry, today) : dashboardOutboundRowMarkup(entry, today))
                     ).join("")
-                    : `<p class="empty">No open ${rowLabel}${normalizedType === "tasks" ? "s" : "s"} are loaded.</p>`;
+                    : `<p class="empty">No open ${rowLabel}s are loaded.</p>`;
             }
             ui.dashboardListPopout?.classList.remove("hidden");
         }
@@ -18099,7 +18106,7 @@
             const notReadyOrders = openOrders.filter((order) => portalOrderIsNotYetReady(order));
             const failedShipmentEmails = getShipmentEmailFailureOrders();
             const rushTasks = activeTasks.filter((task) => ["RUSH", "HIGH"].includes(norm(task.priority)));
-            const blockedTasks = activeTasks.filter((task) => norm(task.status) === "BLOCKED");
+            const blockedTasks = getDashboardBlockedTasks();
             const overdueTasks = activeTasks.filter((task) => warehouseTaskSlaInfo(task).status === "OVERDUE");
             const dueSoonTasks = activeTasks.filter((task) => warehouseTaskSlaInfo(task).status === "DUE_SOON");
             const dueTodayInbounds = openInbounds.filter((inbound) => dashboardDateKey(inbound.expectedDate) === today);
@@ -18122,6 +18129,7 @@
                 company ? `Active company: ${company}` : "All assigned companies",
                 `${num(openInbounds.length)} open inbound${openInbounds.length === 1 ? "" : "s"}`,
                 `${num(openOrders.length)} open outbound${openOrders.length === 1 ? "" : "s"}`,
+                `${num(activeTasks.length)} workflow task${activeTasks.length === 1 ? "" : "s"}`,
                 `Last view refresh: ${formatDate(new Date())}`
             ].join(" | ");
 
@@ -18144,7 +18152,7 @@
                     dueSoonTasks.length ? `${num(dueSoonTasks.length)} due soon` : "",
                     rushTasks.length ? `${num(rushTasks.length)} priority` : "",
                     blockedTasks.length ? `${num(blockedTasks.length)} blocked` : ""
-                ].filter(Boolean).join(" | ") || "warehouse queue";
+                ].filter(Boolean).join(" | ") || "workflow steps from open orders";
             }
             if (ui.dashboardCustomerCount) ui.dashboardCustomerCount.textContent = num(dashboardCompanies.size);
             renderCompanyOpenOrderAging(companyAging);
@@ -18155,6 +18163,10 @@
                     rushTasks.length ? `${num(rushTasks.length)} priority` : "",
                     blockedTasks.length ? `${num(blockedTasks.length)} blocked` : ""
                 ].filter(Boolean).join(" | ");
+            }
+            if (ui.dashboardBlockedTasksBtn) {
+                ui.dashboardBlockedTasksBtn.textContent = `${num(blockedTasks.length)} Blocked`;
+                ui.dashboardBlockedTasksBtn.classList.toggle("hidden", blockedTasks.length === 0);
             }
             if (ui.dashboardInboundMeta) {
                 ui.dashboardInboundMeta.textContent = `${num(openInbounds.length)} open | ${formatTrackedSummary(inboundTotals)}`;
