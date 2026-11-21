@@ -253,7 +253,16 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 | 25 | WMS-14 | medium | Navigation, Warehouse Directory, and documentation use different names | FIXED - PRODUCTION BLOCKED |
 | 26 | WMS-23 | medium | Full SKU dropdowns make every order line noisy and slow | FIXED - PRODUCTION BLOCKED |
 | 27 | WMS-26 | watch | Sign-in adds an unexplained Access Center choice before warehouse login | FIXED - PRODUCTION BLOCKED |
-| 28 | WMS-28 | medium | Search by Location looks disabled | QUEUED |
+| 28 | WMS-28 | medium | Search by Location looks disabled | FIXED - PRODUCTION BLOCKED |
+
+### WMS-28 - Inventory search mode clarity
+
+- Priority: `medium`
+- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-21.
+- Code: exact candidate `a3c2d9f4c83e149d5186ca5ae9357aaeb5ae0bb6` gives both Inventory Lookup modes normal-text WCAG AA contrast, a clear selected state, explicit keyboard focus, visually distinct disabled styling, and synchronized `tab` / `aria-selected` semantics. The location search still uses the existing company-scoped inventory source and does not add a browser-side warehouse inference to inventory rows that do not carry warehouse identity.
+- Tests and isolation: focused mode, contrast, interaction, and company-scope coverage passed 3/3. Access control passed all 12 checks across 292 routes. `npm run check:deploy` passed 937/937 with no failures or skips. The isolated fresh-database verifier passed all seven schema controls. The authenticated pinned test-company verifier returned 321 allowed tasks, excluded 19 wrong-warehouse and 11 wrong-company tasks, enforced HTTP 403 for denied-company scope, preserved inbound company/warehouse isolation, and measured the sales-order queue at 41.4 ms median / 66.1 ms maximum. No production customer transaction or live-company data was used.
+- Sandbox evidence: exact commit `a3c2d9f4c83e149d5186ca5ae9357aaeb5ae0bb6` deployed only to `customer-sandbox` as `d3e4ddcb-c556-47d1-b985-7a407dd7146e`; prior healthy deployment `71bb3c80-1225-4b71-9bab-61c72daf86ec` is the named rollback. The deployed focused suite passed 3/3. After more than ten minutes, Railway reported one running replica, zero warnings, zero recent failures, and no pending work. The post-soak health probe returned HTTP 200 with `ok=true` and a 3 ms database probe. Runtime and proxy evidence contained no warning, error, restart, upstream error, or HTTP 5xx.
+- Production gate: production remains unchanged. Promotion is blocked by the existing cross-environment release configuration mismatch and build warning already recorded for this release line; policy requires a warning-free, immutable sandbox-to-production artifact path before promotion.
 
 ### WMS-06 - Consistent company-scoped create actions
 
