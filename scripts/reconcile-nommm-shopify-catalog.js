@@ -1,6 +1,7 @@
 "use strict";
 
 const { Client } = require("pg");
+const crypto = require("node:crypto");
 const { decryptStoreIntegrationRow } = require("../server");
 
 const ACCOUNT = "NOMMM CANADA INC.";
@@ -10,6 +11,7 @@ const GIFT_SKU = "NOMMM-FOUNDER-GIFT-3PK";
 const GIFT_COMPONENTS = ["NN95034", "NN95035", "NN95033"];
 const APPLY = process.argv.includes("--apply");
 const GIFT_ONLY = process.argv.includes("--gift-only");
+const ASSIGN_BLANK_SKUS = process.argv.includes("--assign-blank-skus");
 
 function normalize(value) {
     return String(value == null ? "" : value).trim();
@@ -33,6 +35,37 @@ async function shopifyJson(url, token) {
         body: await response.json(),
         next: nextLink(response.headers.get("link"))
     };
+}
+
+async function updateShopifyVariantSku(store, token, variantId, sku) {
+    const response = await fetch(`https://${store}/admin/api/2026-01/variants/${variantId}.json`, {
+        method: "PUT",
+        headers: {
+            "X-Shopify-Access-Token": token,
+            Accept: "application/json",
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ variant: { id: variantId, sku } })
+    });
+    if (!response.ok) throw new Error(`Shopify SKU update failed with HTTP ${response.status}.`);
+    const body = await response.json();
+    if (normalize(body?.variant?.id) !== variantId || normalize(body?.variant?.sku) !== sku) {
+        throw new Error("Shopify did not return the reviewed variant SKU assignment.");
+    }
+}
+
+function assignedSku(variantId) {
+    if (!/^\d+$/.test(variantId)) throw new Error("A blank-SKU Shopify variant has an invalid identity.");
+    return `NOMMM-SHOPIFY-${variantId}`;
+}
+
+function assignmentPlanHash(store, assignments) {
+    return crypto.createHash("sha256").update(JSON.stringify({
+        account: ACCOUNT,
+        integrationId: INTEGRATION_ID,
+        store,
+        assignments: assignments.map(({ variantId, sku }) => ({ variantId, sku }))
+    })).digest("hex").slice(0, 24);
 }
 
 async function fetchCatalog(store, token) {
@@ -87,6 +120,35 @@ async function main() {
         const { store, token } = await loadScope(client);
         const products = await fetchCatalog(store, token);
         const variants = flattenVariants(products);
+        const blankVariants = variants.filter((variant) => !variant.sku);
+        const assignments = blankVariants.map((variant) => ({
+            variantId: variant.variantId,
+            productTitle: variant.productTitle,
+            variantTitle: variant.variantTitle,
+            sku: assignedSku(variant.variantId)
+        }));
+        const planHash = assignmentPlanHash(store, assignments);
+        if (ASSIGN_BLANK_SKUS) {
+            const existingShopifySkus = new Set(variants.map((variant) => variant.sku).filter(Boolean));
+            const duplicateAssignment = assignments.find(({ sku }) => existingShopifySkus.has(sku));
+            if (duplicateAssignment) throw new Error(`Generated SKU already exists in Shopify: ${duplicateAssignment.sku}`);
+            if (new Set(assignments.map(({ sku }) => sku)).size !== assignments.length) {
+                throw new Error("Generated blank-SKU assignments are not unique.");
+            }
+            if (APPLY && assignments.length) {
+                const confirmedHash = normalize(process.env.NOMMM_CATALOG_PLAN_HASH);
+                if (confirmedHash !== planHash) {
+                    throw new Error(`Refusing Shopify writes without NOMMM_CATALOG_PLAN_HASH=${planHash}.`);
+                }
+                for (const assignment of assignments) {
+                    await updateShopifyVariantSku(store, token, assignment.variantId, assignment.sku);
+                }
+            }
+            for (const assignment of assignments) {
+                const variant = variants.find((row) => row.variantId === assignment.variantId);
+                variant.sku = assignment.sku;
+            }
+        }
         const blankSkuCount = variants.filter((variant) => !variant.sku).length;
         const bySku = new Map();
         for (const variant of variants) {
@@ -175,6 +237,12 @@ async function main() {
             mappingConflicts: conflicts.length,
             blankSkuVariants: blankSkuCount,
             duplicateSkus: duplicateSkus.length,
+            blankSkuAssignment: {
+                enabled: ASSIGN_BLANK_SKUS,
+                proposedCount: assignments.length,
+                planHash,
+                assignments
+            },
             founderGift: { productId: GIFT_PRODUCT_ID, sku: GIFT_SKU, componentCount: GIFT_COMPONENTS.length, eachesPerComponent: 2 }
         };
         if (APPLY) await client.query("commit");
