@@ -401,7 +401,7 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
-const DATABASE_SCHEMA_VERSION = "2026-11-15-wms21-v2";
+const DATABASE_SCHEMA_VERSION = "2026-11-21-wms22-shopify-kits";
 const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "inventory_lines",
     "inventory_transactions",
@@ -430,6 +430,7 @@ const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "portal_ship_to_addresses",
     "store_integrations",
     "store_sku_mappings",
+    "item_kit_components",
     "store_order_imports",
     "store_sync_exports",
     "billing_finance_document_sequences"
@@ -9044,6 +9045,23 @@ async function applyPendingAdditiveMigrations(databasePool = pool) {
     await databasePool.query("alter table company_fulfillment_locations add column if not exists portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null");
     await databasePool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
     await databasePool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
+    await databasePool.query(`
+        create table if not exists item_kit_components (
+            id bigserial primary key,
+            account_name text not null,
+            parent_sku text not null,
+            component_sku text not null,
+            quantity_per_parent integer not null,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, parent_sku, component_sku),
+            constraint item_kit_components_quantity_check check (quantity_per_parent > 0),
+            constraint item_kit_components_not_recursive_check check (parent_sku <> component_sku)
+        )
+    `);
+    await databasePool.query("create index if not exists idx_item_kit_components_parent on item_kit_components (account_name, parent_sku)");
+    await databasePool.query("create index if not exists idx_item_kit_components_component on item_kit_components (account_name, component_sku)");
     return true;
 }
 

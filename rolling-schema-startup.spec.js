@@ -77,21 +77,27 @@ test("schema version recording is idempotent and isolated to migration metadata"
     assert.deepEqual(pool.calls[1].params, [DATABASE_SCHEMA_VERSION]);
 });
 
-test("additive fulfillment migration is idempotent and changes schema only", async () => {
+test("additive fulfillment and Shopify kit migration is idempotent and changes schema only", async () => {
     const pool = fakePool([
         { rows: [{ ready: true }] },
         { rows: [{ ready: true }] },
         { rows: [] },
         { rows: [] },
         { rows: [] },
+        { rows: [] },
+        { rows: [] },
+        { rows: [] },
         { rows: [] }
     ]);
     assert.equal(await applyPendingAdditiveMigrations(pool), true);
-    assert.equal(pool.calls.length, 6);
+    assert.equal(pool.calls.length, 9);
     assert.match(pool.calls[2].sql, /add column if not exists customer_portal_visible/i);
     assert.match(pool.calls[3].sql, /add column if not exists portal_inventory_rollup_location_id/i);
     assert.match(pool.calls[4].sql, /add column if not exists planned_carrier_name/i);
     assert.match(pool.calls[5].sql, /add column if not exists planned_service_level/i);
+    assert.match(pool.calls[6].sql, /create table if not exists item_kit_components/i);
+    assert.match(pool.calls[7].sql, /idx_item_kit_components_parent/i);
+    assert.match(pool.calls[8].sql, /idx_item_kit_components_component/i);
     assert.equal(pool.calls.some((call) => /^\s*(update|delete|insert)\b/i.test(call.sql)), false);
 });
 
