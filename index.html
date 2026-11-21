@@ -3252,22 +3252,42 @@
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 0.35rem;
             padding: 0.3rem;
-            border-radius: 999px;
+            border-radius: 8px;
             border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--panel-2);
         }
 
         .segmented button {
             min-height: 42px;
             padding: 0.75rem 0.95rem;
-            border-radius: 999px;
-            background: transparent;
-            color: #c8ddef;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            background: #ffffff;
+            color: var(--brand-2);
+            font-weight: 700;
+        }
+
+        .segmented button:hover:not(:disabled) {
+            border-color: var(--brand);
+            background: #f2f7fa;
+        }
+
+        .segmented button:focus-visible {
+            outline: 3px solid #8ac9f4;
+            outline-offset: 2px;
         }
 
         .segmented button.active {
-            background: rgba(89, 183, 255, 0.16);
-            color: var(--text);
+            border-color: var(--brand-2);
+            background: var(--brand-2);
+            color: #ffffff;
+        }
+
+        .segmented button:disabled {
+            border-color: var(--line);
+            background: #eef1f3;
+            color: #73808a;
+            cursor: not-allowed;
         }
 
         .table-wrap {
@@ -7862,8 +7882,8 @@
                                 <input id="searchAccount" hidden list="ownerList" type="text" placeholder="Filter by company">
                             </label>
                             <div class="span-2 segmented" role="tablist" aria-label="Search type">
-                                <button type="button" id="searchBySkuBtn" class="active" data-search-mode="sku">Search by SKU / UPC</button>
-                                <button type="button" id="searchByLocationBtn" data-search-mode="location">Search by Location</button>
+                                <button type="button" id="searchBySkuBtn" class="active" role="tab" aria-selected="true" data-search-mode="sku">Search by SKU / UPC</button>
+                                <button type="button" id="searchByLocationBtn" role="tab" aria-selected="false" data-search-mode="location">Search by Location</button>
                             </div>
                             <label class="field span-2">
                                 <span id="singleSearchLabel">SKU or UPC</span>
@@ -15959,6 +15979,8 @@
             searchMode = mode;
             ui.searchBySkuBtn.classList.toggle("active", mode === "sku");
             ui.searchByLocationBtn.classList.toggle("active", mode === "location");
+            ui.searchBySkuBtn.setAttribute("aria-selected", String(mode === "sku"));
+            ui.searchByLocationBtn.setAttribute("aria-selected", String(mode === "location"));
             ui.singleSearchLabel.textContent = mode === "sku" ? "SKU or UPC" : "Location";
             ui.singleSearchInput.placeholder = mode === "sku" ? "Scan SKU or UPC" : "Scan or enter location";
             ui.singleSearchInput.dataset.desktopList = mode === "sku" ? "skuList" : "locationList";
