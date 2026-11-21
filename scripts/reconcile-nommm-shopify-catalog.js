@@ -9,6 +9,7 @@ const GIFT_PRODUCT_ID = "8578951446720";
 const GIFT_SKU = "NOMMM-FOUNDER-GIFT-3PK";
 const GIFT_COMPONENTS = ["NN95034", "NN95035", "NN95033"];
 const APPLY = process.argv.includes("--apply");
+const GIFT_ONLY = process.argv.includes("--gift-only");
 
 function normalize(value) {
     return String(value == null ? "" : value).trim();
@@ -94,7 +95,7 @@ async function main() {
             bySku.get(variant.sku).push(variant);
         }
         const duplicateSkus = [...bySku].filter(([, rows]) => rows.length > 1).map(([sku]) => sku).sort();
-        if (blankSkuCount || duplicateSkus.length) {
+        if (!GIFT_ONLY && (blankSkuCount || duplicateSkus.length)) {
             throw new Error(`Shopify catalog is unsafe to reconcile: ${blankSkuCount} blank SKU variant(s), ${duplicateSkus.length} duplicate SKU(s).`);
         }
 
@@ -103,7 +104,7 @@ async function main() {
             throw new Error(`Shopify product ${GIFT_PRODUCT_ID} must have exactly one variant with SKU ${GIFT_SKU}.`);
         }
 
-        const skuList = [...bySku.keys()].sort();
+        const skuList = GIFT_ONLY ? [GIFT_SKU] : [...bySku.keys()].sort();
         const existingItems = await client.query(
             `select sku from item_catalog where account_name=$1 and sku=any($2::text[])`,
             [ACCOUNT, skuList]
@@ -163,6 +164,7 @@ async function main() {
 
         const summary = {
             mode: APPLY ? "apply" : "read-only",
+            scope: GIFT_ONLY ? "founder-gift-only" : "all-active-variants",
             company: ACCOUNT,
             integrationId: INTEGRATION_ID,
             store,
