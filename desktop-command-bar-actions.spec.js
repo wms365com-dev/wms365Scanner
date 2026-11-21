@@ -17,6 +17,16 @@ test("desktop command bar exposes only controls with real action hooks", () => {
     assert.match(indexHtml, /function getDesktopCommandSearchTarget\(\)/);
 });
 
+test("company-scoped create actions share one blocked and enabled state", () => {
+    assert.match(indexHtml, /function applyCompanyRequiredCreateState\(button, accountName, entityLabel\)/);
+    assert.match(indexHtml, /button\.disabled = !hasCompany/);
+    assert.match(indexHtml, /Choose an active company before creating \$\{entityLabel\}/);
+    assert.match(indexHtml, /disabled: newActionNeedsCompany && !accountName/);
+    assert.match(indexHtml, /applyCompanyRequiredCreateState\(ui\.masterRecordNewVendorBtn, accountName, "a vendor"\)/);
+    assert.match(indexHtml, /applyCompanyRequiredCreateState\(ui\.openVendorNewBtn, accountName, "a vendor"\)/);
+    assert.doesNotMatch(indexHtml, /openVendorNewBtn\.disabled = !accountName/);
+});
+
 test("decorative and legacy controls are no longer rendered as buttons", () => {
     assert.doesNotMatch(indexHtml, /<button class="desktop-view-filter/);
     assert.doesNotMatch(indexHtml, /id="clearActiveCompanyBtnLegacy"/);

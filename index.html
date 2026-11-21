@@ -15723,15 +15723,23 @@
             return DESKTOP_LIST_CAPTIONS[section] || getSectionTitle(section);
         }
 
-        function setCommandButtonState(button, { hidden = false, disabled = false, text = "", jumpSection = "", startNew = "" } = {}) {
+        function setCommandButtonState(button, { hidden = false, disabled = false, text = "", title = "", jumpSection = "", startNew = "" } = {}) {
             if (!button) return;
             button.hidden = hidden;
             button.disabled = disabled;
             if (text) button.textContent = text;
+            button.title = title;
             if (jumpSection) button.dataset.jumpSection = jumpSection;
             else if (button.dataset.jumpSection && hidden) delete button.dataset.jumpSection;
             if (startNew) button.dataset.startNew = startNew;
             else delete button.dataset.startNew;
+        }
+
+        function applyCompanyRequiredCreateState(button, accountName, entityLabel) {
+            if (!button) return;
+            const hasCompany = Boolean(String(accountName || "").trim());
+            button.disabled = !hasCompany;
+            button.title = hasCompany ? "" : `Choose an active company before creating ${entityLabel}.`;
         }
 
         function handleDesktopNewCommand() {
@@ -15802,12 +15810,23 @@
             const masterNewLabel = activeMasterRecordListType
                 ? `+ New ${masterRecordListLabel(activeMasterRecordListType, false)}`
                 : "+ New";
+            const accountName = getActiveCompany();
+            const newEntityLabel = isPurchaseList
+                ? "a purchase order"
+                : (isFocusedMasterRecord
+                    ? `a ${masterRecordListLabel(activeMasterRecordListType, false).toLowerCase()}`
+                    : "a sales order");
+            const newActionNeedsCompany = isOrderList || isPurchaseList || isFocusedMasterRecord;
 
             setCommandButtonState(ui.desktopCommandShareBtn, { hidden: false, text: "Link" });
             setCommandButtonState(ui.desktopCommandFindBtn, { hidden: !getDesktopCommandSearchTarget(), text: "Find" });
             setCommandButtonState(ui.desktopCommandNewBtn, {
                 hidden: !(isOrderList || isPurchaseList || isFocusedMasterRecord),
+                disabled: newActionNeedsCompany && !accountName,
                 text: isPurchaseList ? "+ New Purchase Order" : (isFocusedMasterRecord ? masterNewLabel : "+ New Sales Order"),
+                title: newActionNeedsCompany && !accountName
+                    ? `Choose an active company before creating ${newEntityLabel}.`
+                    : "",
                 jumpSection: isPurchaseList ? "inbounds" : (isFocusedMasterRecord ? "inventory" : "orders"),
                 startNew: isPurchaseList ? "purchase-order" : (isFocusedMasterRecord ? "" : "sales-order")
             });
@@ -28583,9 +28602,9 @@
             if (ui.masterRecordNewCustomerBtn) ui.masterRecordNewCustomerBtn.classList.toggle("hidden", type !== "CUSTOMER");
             if (ui.masterRecordNewVendorBtn) ui.masterRecordNewVendorBtn.classList.toggle("hidden", type !== "VENDOR");
             if (ui.masterRecordNewItemBtn) ui.masterRecordNewItemBtn.classList.toggle("hidden", type !== "ITEM");
-            [ui.masterRecordNewCustomerBtn, ui.masterRecordNewVendorBtn, ui.masterRecordNewItemBtn].forEach((button) => {
-                if (button) button.disabled = !accountName;
-            });
+            applyCompanyRequiredCreateState(ui.masterRecordNewCustomerBtn, accountName, "a customer");
+            applyCompanyRequiredCreateState(ui.masterRecordNewVendorBtn, accountName, "a vendor");
+            applyCompanyRequiredCreateState(ui.masterRecordNewItemBtn, accountName, "an item");
             if (!accountName) {
                 if (ui.masterRecordListCount) ui.masterRecordListCount.textContent = type === "ITEM" ? "0 items" : "0 saved";
                 ui.masterRecordListContent.innerHTML = renderCompanySelectionRecovery(`Choose a company first. ${plural} are stored inside the selected company.`);
@@ -28680,8 +28699,8 @@
                     ? `${plural} saved under ${accountName}. Open a row to drill into the ${label.toLowerCase()} card.`
                     : `Choose an active company before maintaining ${plural.toLowerCase()}.`;
             }
-            if (ui.openCustomerNewBtn) ui.openCustomerNewBtn.disabled = !accountName;
-            if (ui.openVendorNewBtn) ui.openVendorNewBtn.disabled = !accountName;
+            applyCompanyRequiredCreateState(ui.openCustomerNewBtn, accountName, "a customer");
+            applyCompanyRequiredCreateState(ui.openVendorNewBtn, accountName, "a vendor");
             const partners = (state.masters.partners || [])
                 .filter((entry) => entry.accountName === accountName && entry.partnerType === type)
                 .sort((a, b) => a.name.localeCompare(b.name));
