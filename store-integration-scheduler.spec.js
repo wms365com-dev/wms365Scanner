@@ -13,6 +13,7 @@ const {
     normalizeStoreOrderCountry,
     getShopifyOrderShipCountryDecision,
     applyStoreSkuMappingsToPortalOrderPayload,
+    getItemKitComponentLookup,
     exportShopifyInventoryLevels,
     createIntegrationCredentialRequestToken,
     hashIntegrationCredentialRequestToken,
@@ -152,6 +153,46 @@ test("store SKU mappings convert Shopify pack quantities into WMS base units", (
         externalQuantity: 2,
         localQuantityMultiplier: 6
     }]);
+});
+
+test("store kit mappings expand each Shopify gift into tenant-scoped component eaches", () => {
+    const mapped = applyStoreSkuMappingsToPortalOrderPayload({
+        lines: [{ sku: "NOMMM-FOUNDER-GIFT-3PK", quantity: 3 }]
+    }, new Map([
+        ["NOMMM-FOUNDER-GIFT-3PK", { localSku: "NOMMM-FOUNDER-GIFT-3PK", localQuantityMultiplier: 1 }]
+    ]), new Map([
+        ["NOMMM-FOUNDER-GIFT-3PK", [
+            { componentSku: "NN95034", quantityPerParent: 2 },
+            { componentSku: "NN95035", quantityPerParent: 2 },
+            { componentSku: "NN95033", quantityPerParent: 2 }
+        ]]
+    ]));
+
+    assert.deepEqual(mapped.lines.map(({ sku, quantity, kitParentSku, kitQuantityPerParent }) => ({
+        sku, quantity, kitParentSku, kitQuantityPerParent
+    })), [
+        { sku: "NN95034", quantity: 6, kitParentSku: "NOMMM-FOUNDER-GIFT-3PK", kitQuantityPerParent: 2 },
+        { sku: "NN95035", quantity: 6, kitParentSku: "NOMMM-FOUNDER-GIFT-3PK", kitQuantityPerParent: 2 },
+        { sku: "NN95033", quantity: 6, kitParentSku: "NOMMM-FOUNDER-GIFT-3PK", kitQuantityPerParent: 2 }
+    ]);
+});
+
+test("kit component lookup is account scoped and rejects recursive or invalid rows", async () => {
+    const calls = [];
+    const lookup = await getItemKitComponentLookup({
+        async query(sql, params) {
+            calls.push({ sql: String(sql), params });
+            return { rows: [
+                { parent_sku: "KIT-1", component_sku: "SKU-A", quantity_per_parent: 2 },
+                { parent_sku: "KIT-1", component_sku: "KIT-1", quantity_per_parent: 1 },
+                { parent_sku: "KIT-1", component_sku: "SKU-B", quantity_per_parent: 0 }
+            ] };
+        }
+    }, "COMPANY A", ["KIT-1", "KIT-1", ""]);
+
+    assert.deepEqual(lookup.get("KIT-1"), [{ componentSku: "SKU-A", quantityPerParent: 2 }]);
+    assert.deepEqual(calls[0].params, ["COMPANY A", ["KIT-1"]]);
+    assert.match(calls[0].sql, /where account_name = \$1 and parent_sku = any\(\$2::text\[\]\)/);
 });
 
 test("store integration sync claims allow only one worker to own an integration", async () => {
@@ -537,6 +578,7 @@ test("Shopify pack variants share one WMS inventory pool using mapping multiplie
                     rowCount: variants.length
                 };
             }
+            if (text.includes("from item_kit_components")) return { rows: [], rowCount: 0 };
             if (text.includes("from store_sync_exports")) return { rows: [], rowCount: 0 };
             if (text.includes("insert into store_sync_exports")) return { rows: [], rowCount: 1 };
             throw new Error(`Unexpected query: ${text.slice(0, 80)}`);
@@ -556,6 +598,94 @@ test("Shopify pack variants share one WMS inventory pool using mapping multiplie
         assert.equal(summary.exportedCount, 7);
         assert.equal(summary.failedCount, 0);
         assert.deepEqual(inventoryUpdates.map((entry) => entry.available), [2304, 384, 192, 128, 38, 19, 3]);
+    } finally {
+        global.fetch = originalFetch;
+    }
+});
+
+test("Shopify kit inventory is bounded by the scarcest component without parent stock", async () => {
+    const inventoryUpdates = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+        if (String(url).includes("/variants.json")) {
+            return new Response(JSON.stringify({
+                variants: [{
+                    id: 8578951446720,
+                    sku: "NOMMM-FOUNDER-GIFT-3PK",
+                    inventory_item_id: 991,
+                    inventory_management: "shopify",
+                    inventory_policy: "deny"
+                }]
+            }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (String(url).includes("/inventory_levels/set.json")) {
+            inventoryUpdates.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ inventory_level: inventoryUpdates.at(-1) }), {
+                status: 200,
+                headers: { "content-type": "application/json" }
+            });
+        }
+        return new Response(JSON.stringify({ errors: "unexpected request" }), { status: 500, headers: { "content-type": "application/json" } });
+    };
+
+    const componentAvailability = new Map([
+        ["NN95034", 10],
+        ["NN95035", 8],
+        ["NN95033", 12]
+    ]);
+    const client = {
+        async query(sql) {
+            const text = String(sql);
+            if (text.includes("with known_skus")) {
+                return {
+                    rows: [...componentAvailability].map(([sku, available]) => ({
+                        sku,
+                        on_hand_quantity: available,
+                        available_quantity: available
+                    })),
+                    rowCount: componentAvailability.size
+                };
+            }
+            if (text.includes("from store_sku_mappings")) {
+                return {
+                    rows: [{
+                        external_sku: "NOMMM-FOUNDER-GIFT-3PK",
+                        local_sku: "NOMMM-FOUNDER-GIFT-3PK",
+                        local_quantity_multiplier: 1
+                    }],
+                    rowCount: 1
+                };
+            }
+            if (text.includes("from item_kit_components")) {
+                return {
+                    rows: [...componentAvailability.keys()].map((componentSku) => ({
+                        parent_sku: "NOMMM-FOUNDER-GIFT-3PK",
+                        component_sku: componentSku,
+                        quantity_per_parent: 2
+                    })),
+                    rowCount: componentAvailability.size
+                };
+            }
+            if (text.includes("from store_sync_exports")) return { rows: [], rowCount: 0 };
+            if (text.includes("insert into store_sync_exports")) return { rows: [], rowCount: 1 };
+            throw new Error(`Unexpected query: ${text.slice(0, 80)}`);
+        }
+    };
+
+    try {
+        const summary = await exportShopifyInventoryLevels(client, {
+            id: 45,
+            account_name: "TEST COMPANY",
+            provider: "SHOPIFY",
+            store_identifier: "test-store.myshopify.com",
+            access_token: "shpat_test",
+            settings: { syncInventory: true, shopifyLocationId: "333" }
+        });
+
+        assert.equal(summary.exportedCount, 1);
+        assert.equal(summary.failedCount, 0);
+        assert.equal(inventoryUpdates.length, 1);
+        assert.equal(inventoryUpdates[0].available, 4);
     } finally {
         global.fetch = originalFetch;
     }

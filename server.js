@@ -11484,6 +11484,23 @@ async function initializeDatabase() {
     await pool.query("create unique index if not exists idx_store_sku_mappings_integration_external on store_sku_mappings (integration_id, external_sku)");
     await pool.query("create index if not exists idx_store_sku_mappings_account_local on store_sku_mappings (account_name, local_sku)");
     await pool.query(`
+        create table if not exists item_kit_components (
+            id bigserial primary key,
+            account_name text not null,
+            parent_sku text not null,
+            component_sku text not null,
+            quantity_per_parent integer not null,
+            note text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            unique (account_name, parent_sku, component_sku),
+            constraint item_kit_components_quantity_check check (quantity_per_parent > 0),
+            constraint item_kit_components_not_recursive_check check (parent_sku <> component_sku)
+        );
+    `);
+    await pool.query("create index if not exists idx_item_kit_components_parent on item_kit_components (account_name, parent_sku)");
+    await pool.query("create index if not exists idx_item_kit_components_component on item_kit_components (account_name, component_sku)");
+    await pool.query(`
         create table if not exists store_order_imports (
             id bigserial primary key,
             integration_id bigint not null references store_integrations(id) on delete cascade,
@@ -16290,33 +16307,79 @@ async function getStoreSkuMappingLookup(client, integrationId) {
     ]));
 }
 
-function applyStoreSkuMappingsToPortalOrderPayload(payload, skuMappingLookup) {
+async function getItemKitComponentLookup(client, accountName, parentSkus = []) {
+    const normalizedAccountName = normalizeText(accountName);
+    const normalizedParentSkus = [...new Set((Array.isArray(parentSkus) ? parentSkus : [])
+        .map((sku) => normalizeText(sku))
+        .filter(Boolean))];
+    if (!normalizedAccountName || !normalizedParentSkus.length) return new Map();
+    const result = await client.query(
+        `select parent_sku, component_sku, quantity_per_parent
+           from item_kit_components
+          where account_name = $1 and parent_sku = any($2::text[])
+          order by parent_sku, id`,
+        [normalizedAccountName, normalizedParentSkus]
+    );
+    const lookup = new Map();
+    for (const row of result.rows) {
+        const parentSku = normalizeText(row.parent_sku);
+        const componentSku = normalizeText(row.component_sku);
+        const quantityPerParent = toPositiveInt(row.quantity_per_parent);
+        if (!parentSku || !componentSku || !quantityPerParent || parentSku === componentSku) continue;
+        if (!lookup.has(parentSku)) lookup.set(parentSku, []);
+        lookup.get(parentSku).push({ componentSku, quantityPerParent });
+    }
+    return lookup;
+}
+
+function applyStoreSkuMappingsToPortalOrderPayload(payload, skuMappingLookup, itemKitComponentLookup = new Map()) {
     if (!payload || !skuMappingLookup || typeof skuMappingLookup.get !== "function" || !Array.isArray(payload.lines)) {
         return payload;
     }
     return {
         ...payload,
-        lines: payload.lines.map((line) => {
+        lines: payload.lines.flatMap((line) => {
             const externalSku = normalizeText(line?.sku || "");
             const mapping = skuMappingLookup.get(externalSku);
-            if (!mapping) return line;
-            const localSku = typeof mapping === "string" ? normalizeText(mapping) : normalizeText(mapping.localSku);
+            const localSku = mapping
+                ? (typeof mapping === "string" ? normalizeText(mapping) : normalizeText(mapping.localSku))
+                : externalSku;
             const localQuantityMultiplier = typeof mapping === "string"
                 ? 1
-                : (toPositiveInt(mapping.localQuantityMultiplier) || 1);
+                : (toPositiveInt(mapping?.localQuantityMultiplier) || 1);
             const sourceQuantity = toPositiveInt(line?.quantity);
             const mappedQuantity = sourceQuantity * localQuantityMultiplier;
-            if (!localSku || !sourceQuantity || !Number.isSafeInteger(mappedQuantity)) {
+            if (!mapping && !itemKitComponentLookup?.has?.(localSku)) return line;
+            if (!localSku || !sourceQuantity || !Number.isSafeInteger(mappedQuantity) || mappedQuantity <= 0) {
                 throw httpError(400, `Store SKU ${externalSku || "(blank)"} has an invalid WMS quantity conversion.`);
             }
-            return {
+            const components = itemKitComponentLookup?.get?.(localSku) || [];
+            if (components.length) {
+                return components.map((component) => {
+                    const componentQuantity = mappedQuantity * toPositiveInt(component.quantityPerParent);
+                    if (!component.componentSku || !Number.isSafeInteger(componentQuantity) || componentQuantity <= 0) {
+                        throw httpError(400, `Store SKU ${externalSku || "(blank)"} has an invalid kit component quantity.`);
+                    }
+                    return {
+                        ...line,
+                        sku: component.componentSku,
+                        quantity: componentQuantity,
+                        externalSku,
+                        externalQuantity: sourceQuantity,
+                        localQuantityMultiplier,
+                        kitParentSku: localSku,
+                        kitQuantityPerParent: component.quantityPerParent
+                    };
+                });
+            }
+            return [{
                 ...line,
                 sku: localSku,
                 quantity: mappedQuantity,
                 externalSku,
                 externalQuantity: sourceQuantity,
                 localQuantityMultiplier
-            };
+            }];
         })
     };
 }
@@ -16693,6 +16756,11 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
     let failedCount = 0;
     const detailMessages = [];
     const skuMappingLookup = await getStoreSkuMappingLookup(client, integrationRow.id);
+    const itemKitComponentLookup = await getItemKitComponentLookup(
+        client,
+        integrationRow.account_name,
+        [...skuMappingLookup.values()].map((mapping) => mapping?.localSku).filter(Boolean)
+    );
 
     for (const order of orders) {
         const externalOrderId = String(order?.id || "").trim();
@@ -16730,7 +16798,8 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
             if (normalizedProvider === SHOPIFY_SYNC_PROVIDER) {
                 const payload = applyStoreSkuMappingsToPortalOrderPayload(
                     mapShopifyOrderToPortalDraft(integrationRow.account_name, order, integrationRow),
-                    skuMappingLookup
+                    skuMappingLookup,
+                    itemKitComponentLookup
                 );
                 importedOrder = await savePortalOrderDraftForAccount(
                     client,
@@ -17411,19 +17480,32 @@ async function exportShopifyInventoryLevels(client, integrationRow, options = {}
 
     const availabilityBySku = await buildShopifyInventoryAvailabilityLookup(client, integrationAccountName);
     const externalToLocalSku = await getStoreSkuMappingLookup(client, integrationRow.id);
+    const itemKitComponentLookup = await getItemKitComponentLookup(
+        client,
+        integrationAccountName,
+        [...externalToLocalSku.values()].map((mapping) => mapping?.localSku).filter(Boolean)
+    );
     const disconnectIfNecessary = settings.inventoryDisconnectIfNecessary === true;
 
     for (const variant of variantResult.variants) {
         const mapping = externalToLocalSku.get(variant.sku);
         const localSku = mapping?.localSku || variant.sku;
         const localQuantityMultiplier = toPositiveInt(mapping?.localQuantityMultiplier) || 1;
+        const kitComponents = itemKitComponentLookup.get(localSku) || [];
+        const componentAvailability = kitComponents.map((component) => ({
+            sku: component.componentSku,
+            quantityPerParent: component.quantityPerParent,
+            availableQuantity: Math.max(Number(availabilityBySku.get(component.componentSku)?.availableQuantity) || 0, 0)
+        }));
         const availability = availabilityBySku.get(localSku);
-        if (!availability) {
+        if ((!kitComponents.length && !availability) || (kitComponents.length && componentAvailability.length !== kitComponents.length)) {
             summary.skippedCount += 1;
             continue;
         }
 
-        const localAvailable = Math.max(Number(availability.availableQuantity) || 0, 0);
+        const localAvailable = kitComponents.length
+            ? Math.min(...componentAvailability.map((component) => Math.floor(component.availableQuantity / component.quantityPerParent)))
+            : Math.max(Number(availability.availableQuantity) || 0, 0);
         const available = Math.floor(localAvailable / localQuantityMultiplier);
         const payload = {
             location_id: locationId,
@@ -17453,6 +17535,7 @@ async function exportShopifyInventoryLevels(client, integrationRow, options = {}
             storeSku: variant.sku,
             localQuantityMultiplier,
             localAvailable,
+            componentAvailability,
             inventoryItemId: payload.inventory_item_id,
             locationId,
             available
@@ -18377,6 +18460,11 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
     let failedCount = 0;
     const detailMessages = [];
     const skuMappingLookup = await getStoreSkuMappingLookup(client, integrationRow.id);
+    const itemKitComponentLookup = await getItemKitComponentLookup(
+        client,
+        integrationRow.account_name,
+        [...skuMappingLookup.values()].map((mapping) => mapping?.localSku).filter(Boolean)
+    );
 
     for (const entry of mappedOrders) {
         if (!entry.externalOrderId) {
@@ -18390,7 +18478,7 @@ async function importSftpOrdersForIntegration(client, integrationRow, mappedOrde
         }
 
         try {
-            const mappedPayload = applyStoreSkuMappingsToPortalOrderPayload(entry.payload, skuMappingLookup);
+            const mappedPayload = applyStoreSkuMappingsToPortalOrderPayload(entry.payload, skuMappingLookup, itemKitComponentLookup);
             let importedOrder = await savePortalOrderDraftForAccount(
                 client,
                 integrationRow.account_name,
@@ -47178,6 +47266,7 @@ module.exports = {
     buildShopifyOAuthAuthorizeUrl,
     mapShopifyOrderToPortalDraft,
     applyStoreSkuMappingsToPortalOrderPayload,
+    getItemKitComponentLookup,
     buildShopifyInventoryAvailabilityLookup,
     normalizeShopifyTrackingCompany,
     buildShopifyFulfillmentTrackingInfo,
