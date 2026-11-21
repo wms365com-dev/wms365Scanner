@@ -29,6 +29,14 @@ Sandbox must never reference production data or external live side effects.
 11. Promote the same commit or immutable build to production by explicitly updating the production source commit pin. Production must never follow the sandbox release branch without a commit pin. Do not rebuild from another worktree.
 12. Verify production health and database readiness read-only. Perform a live transaction only when it is an explicitly requested real business transaction.
 
+## Verification Transport Failures
+
+- A Railway CLI or SSH transport failure that occurs before the requested command starts is unavailable evidence, not an application test result or readiness failure.
+- Retry the same read-only or sandbox-only command up to three times with the same candidate, environment, service, and agent session. Do not redeploy or restart merely to recover transport.
+- Promotion remains blocked until every required command completes successfully. A later successful run may satisfy the gate only when Railway confirms the candidate stayed on the same deployment with no restart, warning, readiness loss, or source change between attempts.
+- A command that starts and exits nonzero, times out inside the application, leaves uncertain fixture cleanup, or produces a readiness/schema/pool/worker warning is a real failed gate and remains a promotion blocker.
+- Record transport attempts separately from application test outcomes so infrastructure observation failures cannot be mistaken for WMS365 regressions.
+
 ## Production Stop Conditions
 
 Do not promote when any of the following is true:
@@ -41,6 +49,7 @@ Do not promote when any of the following is true:
 - Startup or schema initialization approaches the platform readiness timeout.
 - Database pool exhaustion, worker contention, duplicate side effects, or external integration writes occur.
 - Rollback cannot be performed using a named known-good deployment.
+- Production promotion is attempted through `railway up`, a local-directory upload, an unpinned branch follower, or any source other than the exact sandbox-proven commit pin.
 
 ## Emergency Recovery
 

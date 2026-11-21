@@ -1,8 +1,8 @@
 param(
-    [ValidateSet("status", "deploy", "logs", "health", "version")]
+    [ValidateSet("status", "deploy", "logs", "health", "version", "release-check")]
     [string] $Action = "status",
 
-    [string] $Message = "Deploy WMS365 update",
+    [string] $CandidateCommit = "",
 
     [int] $Lines = 120
 )
@@ -38,16 +38,30 @@ switch ($Action) {
         break
     }
     "deploy" {
-        Invoke-RailwayJson @(
-            "up",
-            "--detach",
-            "--project", $ProjectId,
-            "--environment", $EnvironmentId,
-            "--service", $ServiceId,
-            "-m", $Message
-        )
-        & curl.exe -fsS "$AppUrl/api/health"
-        & curl.exe -fsS "$AppUrl/api/version"
+        throw "Direct production uploads are disabled. Prove an exact commit in customer-sandbox, then promote that SHA by explicitly pinning the production service source through Railway MCP."
+    }
+    "release-check" {
+        if ($CandidateCommit -notmatch '^[0-9a-fA-F]{40}$') {
+            throw "release-check requires -CandidateCommit with the exact 40-character sandbox-proven Git SHA."
+        }
+        $dirty = & git status --porcelain
+        if ($LASTEXITCODE -ne 0) { throw "Unable to inspect the Git worktree." }
+        if ($dirty) { throw "The release worktree is dirty. Commit or remove every change before promotion." }
+        & git cat-file -e "$CandidateCommit^{commit}"
+        if ($LASTEXITCODE -ne 0) { throw "Candidate commit $CandidateCommit is not present in this repository." }
+        & git fetch --quiet origin codex/production-release
+        if ($LASTEXITCODE -ne 0) { throw "Unable to refresh the protected release branch from origin." }
+        & git merge-base --is-ancestor $CandidateCommit origin/codex/production-release
+        if ($LASTEXITCODE -ne 0) { throw "Candidate commit $CandidateCommit is not on origin/codex/production-release." }
+        [pscustomobject]@{
+            candidateCommit = $CandidateCommit.ToLowerInvariant()
+            worktreeClean = $true
+            directUploadDisabled = $true
+            promotionMethod = "Railway MCP explicit production source commit pin"
+            projectId = $ProjectId
+            environmentId = $EnvironmentId
+            serviceId = $ServiceId
+        } | ConvertTo-Json -Depth 4
         break
     }
     "logs" {

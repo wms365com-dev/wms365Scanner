@@ -13,15 +13,17 @@ Production Railway service:
 Use the helper script from the repo root:
 
 ```powershell
-.\scripts\wms365-railway.ps1 status
-.\scripts\wms365-railway.ps1 version
-.\scripts\wms365-railway.ps1 health
-.\scripts\wms365-railway.ps1 logs -Lines 200
-.\scripts\wms365-railway.ps1 deploy -Message "Deploy WMS365 update"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway.ps1 status
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway.ps1 version
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway.ps1 health
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway.ps1 logs -Lines 200
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway.ps1 release-check -CandidateCommit <sandbox-proven-40-character-sha>
 ```
 
-The script always passes the pinned production project, environment, and service IDs to Railway so it does not depend on selecting the correct project in the dashboard.
-For `status`, Railway CLI uses the local linked project context; this checkout has been linked to WMS365 Live production.
+The script always passes the pinned production project, environment, and service IDs to Railway so it does not depend on selecting the correct project in the dashboard. Its legacy `deploy` action now fails closed: production must never be uploaded from a local directory with `railway up`.
+
+After `release-check` succeeds and all sandbox evidence is complete, promote through Railway MCP by staging the production service source with the exact candidate SHA, reviewing that single staged source change, and accepting the deploy. Re-read the production deployment metadata and require the same commit SHA before health verification. Do not point production at a following branch.
+For `status`, Railway CLI uses the local linked project context; this checkout has been linked to WMS365 Live.
 
 Codex/Railway setup on this machine:
 
@@ -38,5 +40,5 @@ railway login
 Then verify:
 
 ```powershell
-.\scripts\wms365-railway.ps1 status
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway.ps1 status
 ```
