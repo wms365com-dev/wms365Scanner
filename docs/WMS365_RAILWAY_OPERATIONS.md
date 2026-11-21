@@ -22,7 +22,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\wms365-railway
 
 The script always passes the pinned production project, environment, and service IDs to Railway so it does not depend on selecting the correct project in the dashboard. Its legacy `deploy` action now fails closed: production must never be uploaded from a local directory with `railway up`.
 
-After `release-check` succeeds and all sandbox evidence is complete, promote through Railway MCP by staging the production service source with the exact candidate SHA, reviewing that single staged source change, and accepting the deploy. Re-read the production deployment metadata and require the same commit SHA before health verification. Do not point production at a following branch.
+After `release-check` succeeds and all sandbox evidence is complete, create the reported immutable release branch with its head exactly at the candidate SHA (for example, `git push origin <sha>:refs/heads/codex/release-<short-sha>`). Verify the remote branch head, then stage that branch and exact SHA as the production service source through Railway MCP. Railway has previously acknowledged a staged `commitSha` while resolving a mutable branch's newer head, so a commit pin on a moving branch is not sufficient evidence. Accept the deploy only after reviewing that single staged source change. Re-read production deployment metadata and require both the immutable branch and the same commit SHA before health verification.
 For `status`, Railway CLI uses the local linked project context; this checkout has been linked to WMS365 Live.
 
 Codex/Railway setup on this machine:

@@ -38,7 +38,7 @@ switch ($Action) {
         break
     }
     "deploy" {
-        throw "Direct production uploads are disabled. Prove an exact commit in customer-sandbox, then promote that SHA by explicitly pinning the production service source through Railway MCP."
+        throw "Direct production uploads are disabled. Prove an exact commit in customer-sandbox, publish an immutable release branch whose head is that SHA, then promote only that branch through Railway MCP."
     }
     "release-check" {
         if ($CandidateCommit -notmatch '^[0-9a-fA-F]{40}$') {
@@ -53,11 +53,14 @@ switch ($Action) {
         if ($LASTEXITCODE -ne 0) { throw "Unable to refresh the protected release branch from origin." }
         & git merge-base --is-ancestor $CandidateCommit origin/codex/production-release
         if ($LASTEXITCODE -ne 0) { throw "Candidate commit $CandidateCommit is not on origin/codex/production-release." }
+        $normalizedCommit = $CandidateCommit.ToLowerInvariant()
+        $releaseBranch = "codex/release-$($normalizedCommit.Substring(0, 8))"
         [pscustomobject]@{
-            candidateCommit = $CandidateCommit.ToLowerInvariant()
+            candidateCommit = $normalizedCommit
+            immutableReleaseBranch = $releaseBranch
             worktreeClean = $true
             directUploadDisabled = $true
-            promotionMethod = "Railway MCP explicit production source commit pin"
+            promotionMethod = "Railway MCP immutable release branch with exact verified head"
             projectId = $ProjectId
             environmentId = $EnvironmentId
             serviceId = $ServiceId
