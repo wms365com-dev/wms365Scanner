@@ -14,6 +14,7 @@ const {
     getShopifyOrderShipCountryDecision,
     applyStoreSkuMappingsToPortalOrderPayload,
     getItemKitComponentLookup,
+    buildPortalOrderPickTicketLines,
     exportShopifyInventoryLevels,
     createIntegrationCredentialRequestToken,
     hashIntegrationCredentialRequestToken,
@@ -175,6 +176,51 @@ test("store kit mappings expand each Shopify gift into tenant-scoped component e
         { sku: "NN95035", quantity: 6, kitParentSku: "NOMMM-FOUNDER-GIFT-3PK", kitQuantityPerParent: 2 },
         { sku: "NN95033", quantity: 6, kitParentSku: "NOMMM-FOUNDER-GIFT-3PK", kitQuantityPerParent: 2 }
     ]);
+});
+
+test("NomNom variety pack pick ticket lists physical component SKUs and quantities", () => {
+    const parentSku = "NOMMM-SHOPIFY-50654262165696";
+    const mapped = applyStoreSkuMappingsToPortalOrderPayload({
+        lines: [{ sku: parentSku, quantity: 1 }]
+    }, new Map([
+        [parentSku, { localSku: parentSku, localQuantityMultiplier: 1 }]
+    ]), new Map([
+        [parentSku, [
+            { componentSku: "NN95034", quantityPerParent: 2 },
+            { componentSku: "NN95035", quantityPerParent: 2 },
+            { componentSku: "NN95033", quantityPerParent: 1 },
+            { componentSku: "NN79306", quantityPerParent: 1 },
+            { componentSku: "NN10657", quantityPerParent: 1 },
+            { componentSku: "NN18389", quantityPerParent: 1 }
+        ]]
+    ]));
+    const lines = mapped.lines.map((line, index) => ({
+        ...line,
+        lineNumber: index + 1,
+        trackingLevel: "UNIT",
+        pickLocations: [{ location: `TEST-A0${index + 1}`, quantity: line.quantity, trackingLevel: "UNIT" }]
+    }));
+    const ticket = buildPortalOrderPickTicketLines({
+        orderCode: "TEST-NOMMM-VARIETY",
+        accountName: "CODEX PORTAL SYSTEM TEST",
+        status: "RELEASED",
+        poNumber: "TEST-PO",
+        shippingReference: "TEST-REF",
+        requestedShipDate: "2026-11-21",
+        shipToName: "Test Receiver",
+        shipToAddress1: "1 Test Road",
+        shipToCity: "Toronto",
+        shipToState: "ON",
+        shipToPostalCode: "M1M 1M1",
+        shipToCountry: "CA",
+        lines
+    }).join("\n");
+
+    for (const [sku, quantity] of [["NN95034", 2], ["NN95035", 2], ["NN95033", 1],
+        ["NN79306", 1], ["NN10657", 1], ["NN18389", 1]]) {
+        assert.match(ticket, new RegExp(`${sku}\\s+${quantity} unit${quantity === 1 ? "" : "s"}`, "i"));
+    }
+    assert.doesNotMatch(ticket, new RegExp(parentSku));
 });
 
 test("kit component lookup is account scoped and rejects recursive or invalid rows", async () => {

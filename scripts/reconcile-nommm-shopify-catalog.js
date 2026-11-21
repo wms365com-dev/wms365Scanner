@@ -9,9 +9,27 @@ const INTEGRATION_ID = 6;
 const GIFT_PRODUCT_ID = "8578951446720";
 const GIFT_SKU = "NOMMM-FOUNDER-GIFT-3PK";
 const GIFT_COMPONENTS = ["NN95034", "NN95035", "NN95033"];
+const KIT_RECIPES = Object.freeze({
+    "1000": { NN95034: 1, NN95033: 1, NN95035: 1 },
+    "NOMMM-SHOPIFY-50654262132928": { NN10657: 8 },
+    "NOMMM-SHOPIFY-50654262231232": { NN18389: 8 },
+    "NOMMM-SHOPIFY-50654262198464": { NN79306: 8 },
+    "NOMMM-SHOPIFY-50654262296768": { NN95033: 8 },
+    "NOMMM-SHOPIFY-50654262329536": { NN95035: 8 },
+    "NOMMM-SHOPIFY-50654262264000": { NN95034: 8 },
+    "NOMMM-SHOPIFY-50654262165696": {
+        NN95034: 2,
+        NN95035: 2,
+        NN95033: 1,
+        NN79306: 1,
+        NN10657: 1,
+        NN18389: 1
+    }
+});
 const APPLY = process.argv.includes("--apply");
 const GIFT_ONLY = process.argv.includes("--gift-only");
 const ASSIGN_BLANK_SKUS = process.argv.includes("--assign-blank-skus");
+const CONFIGURE_KITS = process.argv.includes("--configure-kits");
 
 function normalize(value) {
     return String(value == null ? "" : value).trim();
@@ -65,6 +83,15 @@ function assignmentPlanHash(store, assignments) {
         integrationId: INTEGRATION_ID,
         store,
         assignments: assignments.map(({ variantId, sku }) => ({ variantId, sku }))
+    })).digest("hex").slice(0, 24);
+}
+
+function kitPlanHash(store) {
+    return crypto.createHash("sha256").update(JSON.stringify({
+        account: ACCOUNT,
+        integrationId: INTEGRATION_ID,
+        store,
+        recipes: KIT_RECIPES
     })).digest("hex").slice(0, 24);
 }
 
@@ -183,12 +210,16 @@ async function main() {
         });
         if (conflicts.length) throw new Error(`Existing Shopify SKU mapping conflict(s): ${conflicts.join(", ")}`);
 
+        const requiredComponentSkus = [...new Set([
+            ...GIFT_COMPONENTS,
+            ...Object.values(KIT_RECIPES).flatMap((recipe) => Object.keys(recipe))
+        ])];
         const components = await client.query(
             `select sku,tracking_level,unit_uom,blocked from item_catalog where account_name=$1 and sku=any($2::text[])`,
-            [ACCOUNT, GIFT_COMPONENTS]
+            [ACCOUNT, requiredComponentSkus]
         );
         const componentBySku = new Map(components.rows.map((row) => [normalize(row.sku), row]));
-        const invalidComponents = GIFT_COMPONENTS.filter((sku) => {
+        const invalidComponents = requiredComponentSkus.filter((sku) => {
             const item = componentBySku.get(sku);
             return !item || item.blocked === true || normalize(item.tracking_level) !== "UNIT" || !["", "EACH", "EA"].includes(normalize(item.unit_uom).toUpperCase());
         });
@@ -196,6 +227,10 @@ async function main() {
 
         const missingItems = skuList.filter((sku) => !existingItemSkus.has(sku));
         const missingMappings = skuList.filter((sku) => !mappingByExternal.has(sku));
+        const reviewedKitPlanHash = kitPlanHash(store);
+        if (APPLY && CONFIGURE_KITS && normalize(process.env.NOMMM_KIT_PLAN_HASH) !== reviewedKitPlanHash) {
+            throw new Error(`Refusing kit writes without NOMMM_KIT_PLAN_HASH=${reviewedKitPlanHash}.`);
+        }
         if (APPLY) {
             for (const sku of missingItems) {
                 const variant = bySku.get(sku)[0];
@@ -222,6 +257,28 @@ async function main() {
                     [ACCOUNT, GIFT_SKU, componentSku, `Shopify product ${GIFT_PRODUCT_ID}; approved founding gift entitlement`]
                 );
             }
+            if (CONFIGURE_KITS) {
+                for (const [parentSku, recipe] of Object.entries(KIT_RECIPES)) {
+                    await client.query(
+                        `update item_catalog
+                            set item_type='NON_INVENTORY',tracking_level='UNIT',unit_uom='EACH',blocked=false
+                          where account_name=$1 and sku=$2`,
+                        [ACCOUNT, parentSku]
+                    );
+                    await client.query(
+                        `delete from item_kit_components where account_name=$1 and parent_sku=$2`,
+                        [ACCOUNT, parentSku]
+                    );
+                    for (const [componentSku, quantity] of Object.entries(recipe)) {
+                        await client.query(
+                            `insert into item_kit_components
+                                (account_name,parent_sku,component_sku,quantity_per_parent,note)
+                             values ($1,$2,$3,$4,$5)`,
+                            [ACCOUNT, parentSku, componentSku, quantity, "Verified from active NomNom Shopify product description"]
+                        );
+                    }
+                }
+            }
         }
 
         const summary = {
@@ -242,6 +299,12 @@ async function main() {
                 proposedCount: assignments.length,
                 planHash,
                 assignments
+            },
+            kitConfiguration: {
+                enabled: CONFIGURE_KITS,
+                planHash: reviewedKitPlanHash,
+                staticKitCount: Object.keys(KIT_RECIPES).length,
+                dynamicBuildYourEightExcluded: true
             },
             founderGift: { productId: GIFT_PRODUCT_ID, sku: GIFT_SKU, componentCount: GIFT_COMPONENTS.length, eachesPerComponent: 2 }
         };
