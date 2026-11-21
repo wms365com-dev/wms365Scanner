@@ -27043,13 +27043,38 @@
             return response?.job || null;
         }
 
-        async function printPortalOrderDocument(order, type, messageElement = ui.portalOrdersMessage) {
+        function reservePortalOrderPrintWindow(messageElement = ui.portalOrdersMessage) {
+            const printWindow = window.open("", "_blank", "width=900,height=700");
+            if (!printWindow) {
+                showMessage(messageElement, "Allow pop-ups to print documents.", "error");
+                return null;
+            }
+            try {
+                printWindow.document.open();
+                printWindow.document.write("<!doctype html><html><head><title>Preparing WMS365 document</title></head><body style=\"font-family:Arial,sans-serif;padding:24px\"><p>Preparing the warehouse document...</p></body></html>");
+                printWindow.document.close();
+            } catch (_error) {
+                // The reserved window is still valid even if its placeholder cannot be written.
+            }
+            return printWindow;
+        }
+
+        function closeReservedPrintWindow(printWindow) {
+            try {
+                if (printWindow && !printWindow.closed) printWindow.close();
+            } catch (_error) {
+                // Cross-window cleanup must not hide the primary workflow result.
+            }
+        }
+
+        async function printPortalOrderDocument(order, type, messageElement = ui.portalOrdersMessage, reservedPrintWindow = null) {
             const printCount = getPortalOrderPrintCount(order, type);
             const summary = getPortalOrderPrintSummaryEntry(order, type);
             const label = portalOrderPrintDocumentLabel(type);
             if (printCount > 0) {
                 const confirmed = window.confirm(`${order.orderCode || "This order"} ${label} has already been printed ${printCount} time${printCount === 1 ? "" : "s"}${formatPrintHistoryForConfirm(summary)}. Do you want to reprint?`);
                 if (!confirmed) {
+                    closeReservedPrintWindow(reservedPrintWindow);
                     showMessage(messageElement, `Reprint cancelled for ${order.orderCode || "order"} ${label}.`, "info");
                     return;
                 }
@@ -27067,9 +27092,8 @@
                 return;
             }
             const html = type === "pick" ? buildPickTicketHtml(order) : buildPackingSlipHtml(order);
-            const printWindow = window.open("", "_blank", "width=900,height=700");
+            const printWindow = reservedPrintWindow || reservePortalOrderPrintWindow(messageElement);
             if (!printWindow) {
-                showMessage(messageElement, "Allow pop-ups to print documents.", "error");
                 return;
             }
             try {
@@ -27424,14 +27448,17 @@
                 showMessage(ui.warehouseOrderMessage, "Release an active sales order before printing warehouse documents.", "error");
                 return;
             }
+            const printWindow = reservePortalOrderPrintWindow(ui.warehouseOrderMessage);
+            if (!printWindow) return;
             try {
                 const currentOrder = await requestPortalOrderDetail(order.id);
                 if (!currentOrder) throw new Error("Unable to load the current sales order for printing.");
                 if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(currentOrder.status)) {
                     throw new Error("Release an active sales order before printing warehouse documents.");
                 }
-                await printPortalOrderDocument(currentOrder, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
+                await printPortalOrderDocument(currentOrder, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage, printWindow);
             } catch (error) {
+                closeReservedPrintWindow(printWindow);
                 showMessage(ui.warehouseOrderMessage, error.message || "Unable to load the current sales order for printing.", "error");
             } finally {
                 event?.currentTarget?.blur?.();
@@ -27575,6 +27602,8 @@
 
             const pickTicketButton = event.target.closest("[data-print-pick-ticket]");
             if (pickTicketButton) {
+                const printWindow = reservePortalOrderPrintWindow(actionMessageElement);
+                if (!printWindow) return;
                 try {
                     await runActionWithFeedback({
                         button: pickTicketButton,
@@ -27583,9 +27612,11 @@
                         progressMessage: "Loading full order details for the pick ticket..."
                     }, async () => {
                         const order = await requestPortalOrderDetail(pickTicketButton.dataset.printPickTicket || "");
-                        if (order) await printPortalOrderDocument(order, "pick", actionMessageElement);
+                        if (!order) throw new Error("Unable to load the current sales order for printing.");
+                        await printPortalOrderDocument(order, "pick", actionMessageElement, printWindow);
                     });
                 } catch (error) {
+                    closeReservedPrintWindow(printWindow);
                     showMessage(actionMessageElement, error.message, "error");
                 }
                 return;
@@ -27593,6 +27624,8 @@
 
             const packingSlipButton = event.target.closest("[data-print-packing-slip]");
             if (packingSlipButton) {
+                const printWindow = reservePortalOrderPrintWindow(actionMessageElement);
+                if (!printWindow) return;
                 try {
                     await runActionWithFeedback({
                         button: packingSlipButton,
@@ -27601,9 +27634,11 @@
                         progressMessage: "Loading full order details for the packing slip..."
                     }, async () => {
                         const order = await requestPortalOrderDetail(packingSlipButton.dataset.printPackingSlip || "");
-                        if (order) await printPortalOrderDocument(order, "packing", actionMessageElement);
+                        if (!order) throw new Error("Unable to load the current sales order for printing.");
+                        await printPortalOrderDocument(order, "packing", actionMessageElement, printWindow);
                     });
                 } catch (error) {
+                    closeReservedPrintWindow(printWindow);
                     showMessage(actionMessageElement, error.message, "error");
                 }
                 return;

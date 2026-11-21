@@ -124,11 +124,14 @@ test("the order-editor print action passes fresh order details to the pick-ticke
         .split("function getSelectedBatchPickTicketOrderIds(")[0];
     const calls = [];
     const current = { id: "1075", status: "RELEASED", lines: [{ sku: "S164", upc: "19421905946343.0" }] };
+    const reservedWindow = { closed: false };
     const print = vm.runInNewContext(`(${source})`, {
         editingWarehouseOrderId: "1075",
         getPortalOrderById: () => ({ id: "1075", status: "RELEASED", lines: [] }),
+        reservePortalOrderPrintWindow: () => reservedWindow,
+        closeReservedPrintWindow: () => { throw new Error("Unexpected reserved-window cleanup"); },
         requestPortalOrderDetail: async (id) => { calls.push(["fetch", id]); return current; },
-        printPortalOrderDocument: async (order, type) => { calls.push(["print", order, type]); },
+        printPortalOrderDocument: async (order, type, _message, printWindow) => { calls.push(["print", order, type, printWindow]); },
         showMessage: () => { throw new Error("Unexpected print error"); },
         ui: { warehouseOrderMessage: {} }
     });
@@ -138,4 +141,5 @@ test("the order-editor print action passes fresh order details to the pick-ticke
     assert.equal(calls[1][0], "print");
     assert.equal(calls[1][1], current);
     assert.equal(calls[1][2], "pick");
+    assert.equal(calls[1][3], reservedWindow);
 });
