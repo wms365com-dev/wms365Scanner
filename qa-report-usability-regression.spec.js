@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 
 const index = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const access = fs.readFileSync(path.join(__dirname, "access.html"), "utf8");
+const login = fs.readFileSync(path.join(__dirname, "login.html"), "utf8");
 
 test("authenticated scope shows company, active authorized warehouse, and role", () => {
   assert.match(index, /id="sessionScopeCompany"/);
@@ -32,7 +33,9 @@ test("company profile shortcut hydrates the active company", () => {
 });
 
 test("access choices explain which role should use each sign in", () => {
-  assert.match(access, /Warehouse Staff Sign In/);
+  assert.match(access, /Warehouse Home \(Staff Sign In\)/);
   assert.match(access, /Customer Portal Sign In/);
   assert.match(access, /receive, pick, stage, ship/);
+  assert.match(login, /href="\/access">Choose another sign-in<\/a>/);
+  assert.doesNotMatch(login, /href="\/access">Access Center<\/a>/);
 });
