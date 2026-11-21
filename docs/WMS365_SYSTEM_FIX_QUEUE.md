@@ -247,13 +247,22 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
-| 22 | WMS-06 | watch | New Vendor controls disagree about whether creation is enabled | QUEUED |
+| 22 | WMS-06 | watch | New Vendor controls disagree about whether creation is enabled | FIXED - PRODUCTION BLOCKED |
 | 23 | WMS-07 | medium | Quick-link highlight points to the wrong page | FIXED - PRODUCTION BLOCKED |
 | 24 | WMS-13 | medium | Empty states lack next actions and Items wording is misleading | FIXED - PRODUCTION BLOCKED |
 | 25 | WMS-14 | medium | Navigation, Warehouse Directory, and documentation use different names | FIXED - PRODUCTION BLOCKED |
 | 26 | WMS-23 | medium | Full SKU dropdowns make every order line noisy and slow | FIXED - PRODUCTION BLOCKED |
 | 27 | WMS-26 | watch | Sign-in adds an unexplained Access Center choice before warehouse login | QUEUED |
 | 28 | WMS-28 | medium | Search by Location looks disabled | QUEUED |
+
+### WMS-06 - Consistent company-scoped create actions
+
+- Priority: `watch`
+- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Code: exact candidate `d909b7093a2c44ad3ba6132201c40ddcf2038715` gives the desktop command-bar New action and the Customer, Vendor, and Item list actions one shared company-required state. With no active company, the visible actions are disabled and explain that a company must be selected; with an active company, the existing create flow is enabled. The change adds no second company selector and does not alter sales-order, purchase-order, partner, item, inventory, document, email, billing, integration, or job behavior.
+- Tests and isolation: focused command-bar and partner API coverage passed, including the positive enabled state and negative no-company state. The access-control audit passed all 12 checks across 292 routes. Railway's exact-candidate build passed 931 tests with zero failures and three skips. The authenticated pinned test-company verifier returned 321 allowed tasks, excluded 19 wrong-warehouse and 11 wrong-company tasks, enforced HTTP 403 for both denied-company checks, preserved inbound company/warehouse isolation, and measured the sales-order queue at 19.9 ms median and 63.8 ms maximum. No live company or production customer data was used.
+- Sandbox: exact commit deployed only to `customer-sandbox` as `2f75e078-da72-4306-a381-c7903e30b260`, image digest `sha256:c32fa60f84a4f3fb038255429fc5e8351ffd3f48e07dcfde6a22c7f057e2eed7`; prior proven sandbox deployment `dd0fdc9c-50be-4c14-a231-3fda0a93c80b` is the named rollback. Health returned HTTP 200 with application, database, schema, desktop, and mobile readiness and a 4 ms database probe. The isolated temporary-schema fresh-database boot passed all seven controls. The deployment remained `SUCCESS` with one running replica for more than 10 minutes, with no runtime warning/error, restart, recent failure, upstream error, or HTTP 5xx.
+- Production blocker: production remains healthy and unchanged. The successful Railpack build logged two recovered cache-copy errors for a missing cached `node_modules` blob before retrying successfully. Under the release policy, that unexplained build event blocks promotion. The existing environment configuration mismatch and lack of an immutable cross-environment image promotion path also remain unresolved. No production deployment or customer-data mutation was attempted.
 
 ### WMS-13 - Actionable empty states and item master wording
 
