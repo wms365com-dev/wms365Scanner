@@ -1167,6 +1167,35 @@
             text-transform: uppercase;
         }
 
+        .erp-list-sort {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            letter-spacing: inherit;
+            text-transform: inherit;
+        }
+
+        .erp-list-sort::after {
+            content: "↕";
+            color: #6b7f90;
+            font-size: 0.75rem;
+        }
+
+        th[aria-sort="ascending"] .erp-list-sort::after {
+            content: "↑";
+            color: #006d77;
+        }
+
+        th[aria-sort="descending"] .erp-list-sort::after {
+            content: "↓";
+            color: #006d77;
+        }
+
         .erp-list-table tbody tr {
             cursor: pointer;
         }
@@ -11506,6 +11535,8 @@
         let integrationRecords = [];
         let skuMappingRecords = [];
         let portalOrderRecords = [];
+        let shippedOrdersSortKey = "shippedAt";
+        let shippedOrdersSortDirection = "desc";
         let shipmentEmailAlertRecords = [];
         let shipmentEmailAlertsLoaded = false;
         let shipmentEmailAlertLoading = false;
@@ -26277,6 +26308,36 @@
             });
         }
 
+        function getShippedOrderSortValue(order, sortKey) {
+            if (sortKey === "orderCode") return order.orderCode || "";
+            if (sortKey === "accountName") return order.accountName || "";
+            if (sortKey === "poNumber") return order.poNumber || "";
+            if (sortKey === "shipTo") return formatSalesOrderListShipTo(order).primary || "";
+            if (sortKey === "requestedShipDate") return order.requestedShipDate || "";
+            if (sortKey === "status") return order.status || "";
+            return order.shippedAt || "";
+        }
+
+        function sortPortalOrdersForView(orders, shippedOnly, sortKey = shippedOrdersSortKey, direction = shippedOrdersSortDirection) {
+            if (!shippedOnly) return orders;
+            const multiplier = direction === "asc" ? 1 : -1;
+            return orders.map((order, index) => ({ order, index })).sort((left, right) => {
+                const leftValue = String(getShippedOrderSortValue(left.order, sortKey));
+                const rightValue = String(getShippedOrderSortValue(right.order, sortKey));
+                const compared = leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" });
+                if (compared) return compared * multiplier;
+                const orderCodeCompared = String(left.order.orderCode || "").localeCompare(String(right.order.orderCode || ""), undefined, { numeric: true, sensitivity: "base" });
+                return orderCodeCompared || left.index - right.index;
+            }).map((entry) => entry.order);
+        }
+
+        function renderShippedOrderSortHeader(label, sortKey) {
+            const active = shippedOrdersSortKey === sortKey;
+            const ariaSort = active ? (shippedOrdersSortDirection === "asc" ? "ascending" : "descending") : "none";
+            const nextDirection = active && shippedOrdersSortDirection === "asc" ? "descending" : "ascending";
+            return `<th aria-sort="${ariaSort}"><button class="erp-list-sort" type="button" data-sort-shipped-orders="${attr(sortKey)}" aria-label="Sort shipped orders by ${attr(label)}, ${nextDirection}">${esc(label)}</button></th>`;
+        }
+
         function renderPortalOrderSummary(orders) {
             const drafts = orders.filter((order) => order.status === "DRAFT").length;
             const released = orders.filter((order) => order.status === "RELEASED").length;
@@ -26333,8 +26394,8 @@
         }
 
         function renderPortalOrdersList(errorText = "") {
-            const visibleOrders = getFilteredPortalOrders();
             const shippedOnly = isShippedOrdersSection();
+            const visibleOrders = sortPortalOrdersForView(getFilteredPortalOrders(), shippedOnly);
             if (ui.portalOrdersMeta) {
                 ui.portalOrdersMeta.textContent = `${num(visibleOrders.length)} ${shippedOnly ? "shipped " : ""}order${visibleOrders.length === 1 ? "" : "s"}`;
             }
@@ -26420,16 +26481,16 @@
                         <thead>
                             <tr>
                                 <th><input type="checkbox" data-select-all-pick-tickets aria-label="Select all visible orders for batch pick ticket printing"></th>
-                                <th>No.</th>
-                                <th>Customer</th>
-                                <th>External Document No.</th>
-                                <th>Ship To</th>
-                                <th>Requested Ship Date</th>
+                                ${shippedOnly ? renderShippedOrderSortHeader("No.", "orderCode") : "<th>No.</th>"}
+                                ${shippedOnly ? renderShippedOrderSortHeader("Customer", "accountName") : "<th>Customer</th>"}
+                                ${shippedOnly ? renderShippedOrderSortHeader("External Document No.", "poNumber") : "<th>External Document No.</th>"}
+                                ${shippedOnly ? renderShippedOrderSortHeader("Ship To", "shipTo") : "<th>Ship To</th>"}
+                                ${shippedOnly ? renderShippedOrderSortHeader("Requested Ship Date", "requestedShipDate") : "<th>Requested Ship Date</th>"}
                                 <th>Expected Ready</th>
-                                <th>Shipped Date</th>
+                                ${shippedOnly ? renderShippedOrderSortHeader("Shipped Date", "shippedAt") : "<th>Shipped Date</th>"}
                                 <th>Lines</th>
                                 <th>Ordered Qty</th>
-                                <th>Status</th>
+                                ${shippedOnly ? renderShippedOrderSortHeader("Status", "status") : "<th>Status</th>"}
                                 <th>Docs</th>
                                 <th>Complete?</th>
                             </tr>
@@ -27535,6 +27596,21 @@
 
         async function onPortalOrdersListClick(event) {
             const actionMessageElement = getPortalOrderActionMessageElement(event.target);
+            const shippedSortButton = event.target.closest("[data-sort-shipped-orders]");
+            if (shippedSortButton && isShippedOrdersSection()) {
+                event.stopPropagation();
+                const sortKey = shippedSortButton.dataset.sortShippedOrders || "shippedAt";
+                if (shippedOrdersSortKey === sortKey) {
+                    shippedOrdersSortDirection = shippedOrdersSortDirection === "asc" ? "desc" : "asc";
+                } else {
+                    shippedOrdersSortKey = sortKey;
+                    shippedOrdersSortDirection = ["shippedAt", "requestedShipDate"].includes(sortKey) ? "desc" : "asc";
+                }
+                renderPortalOrdersList();
+                const directionLabel = shippedOrdersSortDirection === "asc" ? "ascending" : "descending";
+                showMessage(actionMessageElement, `Shipped orders sorted ${directionLabel}.`, "success");
+                return;
+            }
             const emptyAction = event.target.closest("[data-empty-order-action]");
             if (emptyAction) {
                 const action = emptyAction.dataset.emptyOrderAction || "";
