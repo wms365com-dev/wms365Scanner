@@ -7010,9 +7010,6 @@
                     <button class="utility-action-link has-caret" type="button" id="desktopCommandReleaseBtn" data-jump-section="orders">Release</button>
                     <button class="utility-action-link" type="button" id="desktopCommandPostBtn" data-jump-section="scan">Post...</button>
                     <button class="utility-action-link" type="button" id="desktopCommandRefreshBtn">Refresh</button>
-                    <button class="utility-action-link has-caret" type="button" id="desktopCommandPrintSendBtn" data-jump-section="reports">Print/Send</button>
-                    <button class="utility-action-link has-caret" type="button" id="desktopCommandOrderBtn" data-jump-section="orders">Order</button>
-                    <button class="utility-action-link" type="button" id="desktopCommandMoreBtn" data-jump-section="backup">More options</button>
                     <span class="desktop-ribbon-divider"></span>
                     <span class="desktop-alert-pill">Released <strong id="desktopAlertReleased">0</strong></span>
                     <span class="desktop-alert-pill">Picked <strong id="desktopAlertPicked">0</strong></span>
@@ -11848,9 +11845,6 @@
             desktopCommandReleaseBtn: document.getElementById("desktopCommandReleaseBtn"),
             desktopCommandPostBtn: document.getElementById("desktopCommandPostBtn"),
             desktopCommandRefreshBtn: document.getElementById("desktopCommandRefreshBtn"),
-            desktopCommandPrintSendBtn: document.getElementById("desktopCommandPrintSendBtn"),
-            desktopCommandOrderBtn: document.getElementById("desktopCommandOrderBtn"),
-            desktopCommandMoreBtn: document.getElementById("desktopCommandMoreBtn"),
             desktopAlertReleased: document.getElementById("desktopAlertReleased"),
             desktopAlertPicked: document.getElementById("desktopAlertPicked"),
             desktopAlertStaged: document.getElementById("desktopAlertStaged"),
@@ -15823,9 +15817,7 @@
         function updateDesktopCommandActions() {
             const isOrderList = activeSection === "orders" || activeSection === "shipped";
             const isPurchaseList = activeSection === "inbounds";
-            const isWorkOrderList = activeSection === "work-orders";
             const isReceiving = activeSection === "scan";
-            const isReportLike = activeSection === "reports" || activeSection === "shipped";
             const isFocusedMasterRecord = activeSection === "inventory" && !!activeMasterRecordListType;
             const masterNewLabel = activeMasterRecordListType
                 ? `+ New ${masterRecordListLabel(activeMasterRecordListType, false)}`
@@ -15863,9 +15855,6 @@
                 jumpSection: isPurchaseList ? "inbounds" : "scan"
             });
             setCommandButtonState(ui.desktopCommandRefreshBtn, { hidden: false, text: "Refresh" });
-            setCommandButtonState(ui.desktopCommandPrintSendBtn, { hidden: !isReportLike && !isOrderList && !isPurchaseList && !isWorkOrderList, text: "Print/Send", jumpSection: isPurchaseList ? "inbounds" : (isWorkOrderList ? "work-orders" : "reports") });
-            setCommandButtonState(ui.desktopCommandOrderBtn, { hidden: !isOrderList && !isPurchaseList && !isWorkOrderList, text: isPurchaseList ? "Purchase Order" : (isWorkOrderList ? "Work Order" : "Order"), jumpSection: isPurchaseList ? "inbounds" : (isWorkOrderList ? "work-orders" : "orders") });
-            setCommandButtonState(ui.desktopCommandMoreBtn, { hidden: false, text: "More options", jumpSection: "backup" });
         }
 
         function updateWorkspaceCommandBar() {

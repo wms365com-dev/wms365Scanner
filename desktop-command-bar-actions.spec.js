@@ -15,6 +15,13 @@ test("desktop command bar exposes only controls with real action hooks", () => {
     assert.match(indexHtml, /id="desktopCommandFindBtn"/);
     assert.match(indexHtml, /desktopCommandFindBtn\?\.addEventListener\("click", focusDesktopCommandSearch\)/);
     assert.match(indexHtml, /function getDesktopCommandSearchTarget\(\)/);
+    assert.doesNotMatch(indexHtml, /id="desktopCommandPrintSendBtn"/);
+    assert.doesNotMatch(indexHtml, /id="desktopCommandOrderBtn"/);
+    assert.doesNotMatch(indexHtml, /id="desktopCommandMoreBtn"/);
+    assert.doesNotMatch(indexHtml, /text: "More options", jumpSection: "backup"/);
+    assert.match(indexHtml, /data-print-selected-pick-tickets/);
+    assert.match(indexHtml, /id="salesOrderCommandPickTicketBtn"/);
+    assert.match(indexHtml, /data-print-receiving-document=/);
 });
 
 test("company-scoped create actions share one blocked and enabled state", () => {
