@@ -227,7 +227,7 @@ Acceptance: Test super-admin and warehouse-user roles in All Companies and singl
 | 13 | WMS-09 | medium | Disabled Shopify and SFTP controls have no reason | VERIFIED |
 | 14 | WMS-10 | medium | Company labels render without a field | VERIFIED |
 | 15 | WMS-11 | high | Reports omit scope and quantity basis and can show contradictory company totals | VERIFIED |
-| 16 | WMS-12 | medium | Company name overlaps FactBox content | FIXED - PRODUCTION BLOCKED |
+| 16 | WMS-12 | medium | Company name overlaps FactBox content | VERIFIED |
 
 ### Batch 3: Sales Order List, Record Continuity, and Deep Links
 
@@ -257,18 +257,18 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 
 | Order | ID | Priority | Finding | Status |
 | ---: | --- | --- | --- | --- |
-| 22 | WMS-06 | watch | New Vendor controls disagree about whether creation is enabled | FIXED - PRODUCTION BLOCKED |
-| 23 | WMS-07 | medium | Quick-link highlight points to the wrong page | FIXED - PRODUCTION BLOCKED |
-| 24 | WMS-13 | medium | Empty states lack next actions and Items wording is misleading | FIXED - PRODUCTION BLOCKED |
-| 25 | WMS-14 | medium | Navigation, Warehouse Directory, and documentation use different names | FIXED - PRODUCTION BLOCKED |
-| 26 | WMS-23 | medium | Full SKU dropdowns make every order line noisy and slow | FIXED - PRODUCTION BLOCKED |
-| 27 | WMS-26 | watch | Sign-in adds an unexplained Access Center choice before warehouse login | FIXED - PRODUCTION BLOCKED |
-| 28 | WMS-28 | medium | Search by Location looks disabled | FIXED - PRODUCTION BLOCKED |
+| 22 | WMS-06 | watch | New Vendor controls disagree about whether creation is enabled | VERIFIED |
+| 23 | WMS-07 | medium | Quick-link highlight points to the wrong page | VERIFIED |
+| 24 | WMS-13 | medium | Empty states lack next actions and Items wording is misleading | VERIFIED |
+| 25 | WMS-14 | medium | Navigation, Warehouse Directory, and documentation use different names | VERIFIED |
+| 26 | WMS-23 | medium | Full SKU dropdowns make every order line noisy and slow | VERIFIED |
+| 27 | WMS-26 | watch | Sign-in adds an unexplained Access Center choice before warehouse login | VERIFIED |
+| 28 | WMS-28 | medium | Search by Location looks disabled | VERIFIED |
 
 ### WMS-28 - Inventory search mode clarity
 
 - Priority: `medium`
-- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-21.
+- Status: `VERIFIED` on 2026-11-21.
 - Code: exact candidate `a3c2d9f4c83e149d5186ca5ae9357aaeb5ae0bb6` gives both Inventory Lookup modes normal-text WCAG AA contrast, a clear selected state, explicit keyboard focus, visually distinct disabled styling, and synchronized `tab` / `aria-selected` semantics. The location search still uses the existing company-scoped inventory source and does not add a browser-side warehouse inference to inventory rows that do not carry warehouse identity.
 - Tests and isolation: focused mode, contrast, interaction, and company-scope coverage passed 3/3. Access control passed all 12 checks across 292 routes. `npm run check:deploy` passed 937/937 with no failures or skips. The isolated fresh-database verifier passed all seven schema controls. The authenticated pinned test-company verifier returned 321 allowed tasks, excluded 19 wrong-warehouse and 11 wrong-company tasks, enforced HTTP 403 for denied-company scope, preserved inbound company/warehouse isolation, and measured the sales-order queue at 41.4 ms median / 66.1 ms maximum. No production customer transaction or live-company data was used.
 - Sandbox evidence: exact commit `a3c2d9f4c83e149d5186ca5ae9357aaeb5ae0bb6` deployed only to `customer-sandbox` as `d3e4ddcb-c556-47d1-b985-7a407dd7146e`; prior healthy deployment `71bb3c80-1225-4b71-9bab-61c72daf86ec` is the named rollback. The deployed focused suite passed 3/3. After more than ten minutes, Railway reported one running replica, zero warnings, zero recent failures, and no pending work. The post-soak health probe returned HTTP 200 with `ok=true` and a 3 ms database probe. Runtime and proxy evidence contained no warning, error, restart, upstream error, or HTTP 5xx.
@@ -277,7 +277,7 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 ### WMS-06 - Consistent company-scoped create actions
 
 - Priority: `watch`
-- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Status: `VERIFIED` on 2026-11-21.
 - Code: exact candidate `d909b7093a2c44ad3ba6132201c40ddcf2038715` gives the desktop command-bar New action and the Customer, Vendor, and Item list actions one shared company-required state. With no active company, the visible actions are disabled and explain that a company must be selected; with an active company, the existing create flow is enabled. The change adds no second company selector and does not alter sales-order, purchase-order, partner, item, inventory, document, email, billing, integration, or job behavior.
 - Tests and isolation: focused command-bar and partner API coverage passed, including the positive enabled state and negative no-company state. The access-control audit passed all 12 checks across 292 routes. Railway's exact-candidate build passed 931 tests with zero failures and three skips. The authenticated pinned test-company verifier returned 321 allowed tasks, excluded 19 wrong-warehouse and 11 wrong-company tasks, enforced HTTP 403 for both denied-company checks, preserved inbound company/warehouse isolation, and measured the sales-order queue at 19.9 ms median and 63.8 ms maximum. No live company or production customer data was used.
 - Sandbox: exact commit deployed only to `customer-sandbox` as `2f75e078-da72-4306-a381-c7903e30b260`, image digest `sha256:c32fa60f84a4f3fb038255429fc5e8351ffd3f48e07dcfde6a22c7f057e2eed7`; prior proven sandbox deployment `dd0fdc9c-50be-4c14-a231-3fda0a93c80b` is the named rollback. Health returned HTTP 200 with application, database, schema, desktop, and mobile readiness and a 4 ms database probe. The isolated temporary-schema fresh-database boot passed all seven controls. The deployment remained `SUCCESS` with one running replica for more than 10 minutes, with no runtime warning/error, restart, recent failure, upstream error, or HTTP 5xx.
@@ -286,7 +286,7 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 ### WMS-26 - Audience-labelled access and warehouse home
 
 - Priority: `watch`
-- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Status: `VERIFIED` on 2026-11-21.
 - Code: exact candidate `2d5a81d27553374022608fac98739685f248a6db` retains the existing access gateway and authentication routes while naming its warehouse destination `Warehouse Home (Staff Sign In)`. The warehouse login return link now says `Choose another sign-in` instead of exposing the unexplained internal name `Access Center`. Existing audience guidance still distinguishes warehouse receiving/picking/staging/shipping users from customer portal users. No session, redirect, role, tenant, warehouse, portal, transaction, inventory, document, email, billing, integration, or background-job behavior changed.
 - Tests and configuration: 11 focused access, login, session-bootstrap, and resilience tests passed. The access-control audit passed all 12 checks across 292 routes, and Railway's exact-candidate build passed 931 tests with zero failures and three skips. The sandbox Railway plan was current with unmanaged variables preserved. The production plan retains the previously documented single unapplied build-command normalization and therefore is not configuration-identical to sandbox.
 - Sandbox: exact commit deployed only to `customer-sandbox` as `71bb3c80-1225-4b71-9bab-61c72daf86ec`, image digest `sha256:59874788bef1489d92fafb0d9262f31f7486f055aa617f8336d95136f486aad3`; prior proven deployment `2f75e078-da72-4306-a381-c7903e30b260` is the named sandbox rollback. Readback from `/access` and `/login` confirmed both exact labels. The isolated fresh-database boot passed all seven controls. The authenticated pinned test-company verifier returned 321 allowed tasks, excluded 19 wrong-warehouse and 11 wrong-company tasks, enforced HTTP 403 across both denied-company checks, preserved inbound isolation, and measured the sales-order queue at 44.1 ms median and 65 ms maximum.
@@ -295,7 +295,7 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 ### WMS-13 - Actionable empty states and item master wording
 
 - Priority: `medium`
-- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Status: `VERIFIED` on 2026-11-21.
 - Code: exact candidate `7ee52cfff4570b5466cf5b228b5824d0134500f1` explains empty Sales Orders, Purchase Orders, and Items states and offers a context-valid next action. Filtered lists offer a clear-filter action, the shipped view links back to open sales orders, and company-scoped empty lists offer their normal New action. Item counts now use `item/items`, and Items are identified as product master data rather than generically as saved records. An empty unchanged sales-order refresh clears its stale success banner.
 - Authorization and isolation: actions render only inside the existing active-company branch and call the existing company- and warehouse-scoped workflows. Server mutation routes retain portal session, feature, tenant, warehouse, and role enforcement; no new endpoint or authorization path was added. The focused positive/negative suite passed 5/5, access control passed 12/12 across 292 routes, and `npm run check:deploy` passed 925/925.
 - Sandbox: the clean exact candidate deployed only to `customer-sandbox` as `5713dd77-091d-4829-8f7e-0a6d7f22b31b`; prior deployment `53b0118b-b62c-4ab7-b065-b9bd03347ab3` is the named sandbox rollback. The deployed application contains the new empty-state actions and item-master copy. Fresh-database verification passed all seven schema controls. The authenticated pinned test-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced denied-company HTTP 403, passed inbound company/warehouse isolation, and measured the sales-order queue at 19 ms median and 42.9 ms maximum. Twelve health samples from `2026-11-20T22:17:10Z` through `2026-11-20T22:27:29Z` remained fully ready with 2-7 ms database probes. Deployment and HTTP logs showed no runtime warning, restart, upstream error, or HTTP 5xx.
@@ -304,7 +304,7 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 ### WMS-14 - Canonical warehouse navigation information architecture
 
 - Priority: `medium`
-- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Status: `VERIFIED` on 2026-11-21.
 - Code: exact candidate `ff629c02e3c76714d87b114df8cc8044c9654388` aligns the desktop module bar, Warehouse Directory, runtime navigation map, Marketplace page title, and warehouse feature map around `Home`, `Inbound`, `Inventory`, `Outbound`, `Setup`, `Reporting`, `Commercial`, and `System`. Work Orders is now a real Directory row, and `Marketplace Connections` is the single visible integration name. Directory rows retain real button semantics and button-like action labels.
 - Authorization and compatibility: the repair is navigation and presentation only. Existing billing/finance role hiding, company feature-off behavior, super-admin-only Feature Access recovery, tenant and warehouse authorization, customer portal behavior, inventory, transactions, documents, email, billing, integrations, jobs, and reporting remain unchanged. Focused positive and negative navigation/feature tests passed 7/7, access control passed 12/12 across 292 routes, and `npm run check:deploy` passed 929/929. Headless Chromium checks at 1440x900 and 1024x768 showed all canonical groups reachable with no incoherent overlap.
 - Sandbox: exact clean candidate deployed only to `customer-sandbox` as `0c4c725e-f440-486f-8cc5-3f2d0ffa8190`, image digest `sha256:8f202cdcb528490d5d4bf1ca2d9c15551ddf08ae097b6e3c73fda362917021b7`; prior sandbox deployment `5713dd77-091d-4829-8f7e-0a6d7f22b31b` is the named rollback. Deployed-source readback found all eight canonical summaries, the Work Orders target, and Marketplace Connections labels. Fresh-database verification passed all seven schema controls.
@@ -315,7 +315,7 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 ### WMS-23 - Sales-order line SKU typeahead and compact released view
 
 - Priority: `medium`
-- Status: `FIXED - PRODUCTION BLOCKED` on 2026-11-20.
+- Status: `VERIFIED` on 2026-11-21.
 - Code: exact candidate `1fb3ea266a1575755384a7e98b9a0ddb97d9fd78` replaces the per-line full SKU dropdown with one shared company-scoped datalist and scan/typeahead input. Draft lines resolve exact SKU, UPC, or unique exact description to the canonical SKU without mounting a complete option list in every row. Existing selected zero-availability items remain visible, while cross-company items stay excluded by the existing scoped inventory source. Released and later lifecycle states hide the draft line editor and retain the compact read-only workflow table. Existing server-side draft-only mutation enforcement remains unchanged.
 - Tests: focused positive and negative coverage passed 4/4, including one shared datalist, no per-line option duplication, company-scoped matching, and released-order editor hiding without affecting purchase-order lines. `npm run audit:access-control` passed 12/12 across 292 routes, `npm run check:deploy` passed 933/933, and `git diff --check` passed.
 - Sandbox: the clean candidate deployed only to `customer-sandbox` as `dd0fdc9c-50be-4c14-a231-3fda0a93c80b`, image digest `sha256:4964fd8d4617bdd22aee0a9c3756121fe1f359ac238a9efa37d26ca043d278ec`; prior deployment `0c4c725e-f440-486f-8cc5-3f2d0ffa8190` is the named sandbox rollback. Deployed-source readback verified the shared datalist, typeahead input, sales-order line editor boundary, and lifecycle visibility toggle. Fresh-database boot passed all seven schema controls.
@@ -326,7 +326,7 @@ Acceptance: Validate desktop and mobile layouts, keyboard navigation, empty-stat
 ### WMS-07 - Quick-link active state
 
 - Priority: `medium`
-- Status: `FIXED - PRODUCTION BLOCKED`
+- Status: `VERIFIED` on 2026-11-21.
 - Repair candidate 2026-11-20: the desktop quick-link bar now derives its single `aria-current="page"` marker from the authoritative active section on every `setSection` path, including module-menu navigation, deep links, browser navigation, and direct quick-link use. Customers, Vendors, and Items additionally require the matching focused master-list subtype; generic Master Data and sections without a quick link, including Marketplace Connections, clear every marker. Hover remains transient CSS and cannot change navigation state.
 - Scope and safety: the change is presentation-only. It adds no request, cache, persistence, permission, company or warehouse scope, transaction, inventory, document, email, billing, integration, job, or reporting behavior. Focused positive and negative navigation tests passed 8/8; access-control audit passed 12/12 across 292 routes; and `npm run check:deploy` passed 920/920.
 - Sandbox evidence 2026-11-20: exact commit `b04d93c45bf1a3894cc10f6eb561449f609bd627` deployed first as `ab93ca5d-96a4-4ce6-9dab-3e2d187fdc6b` and then, with Railway's documented `NO_CACHE=1` setting scoped only to customer-sandbox, as `f82dc61c-f0a0-4956-9ccc-ad982c98edb1`. The latter deployment passed all seven fresh-database controls. Authenticated verification in exact designated test company `1510` returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 across company scope, preserved inbound warehouse and company isolation, and completed fixture cleanup. Eleven health samples from `2026-11-20T21:18:32Z` through `2026-11-20T21:28:35Z` remained fully ready with 2-17 ms database probes. Runtime logs contained no warning, error, restart, timeout, or connection-pool event; 21 proxy requests returned only expected HTTP 200/403 responses, no upstream error or HTTP 5xx, and 4-64 ms server durations.
@@ -522,6 +522,11 @@ Every batch must cover:
 - Sandbox evidence: the exact commit deployed first as `18008a2d-b52e-415b-86f1-ed970f755a53`. Fresh-database verification passed all seven schema controls. The authenticated designated-company workflow returned 321 allowed tasks, excluded 19 denied-warehouse and 11 denied-company tasks, enforced HTTP 403 for the denied company, preserved inbound company and warehouse isolation, measured the sales-order queue at 17.9 ms median / 40.1 ms maximum, and completed rollback cleanup. Eleven health samples from `2026-11-20T03:20:02Z` through `2026-11-20T03:30:05Z` returned HTTP 200 with application, database, schema, desktop, and mobile readiness; database probes were 2-17 ms and Railway proxy durations were 4-26 ms with no HTTP 5xx.
 - Production blocker: Railway marked the first sandbox deployment successful but its BuildKit stream reported four cache-object errors (`blob ... not found`). A fresh upload of the same clean commit deployed as `e70a0fd3-13b5-4f93-9b75-da3964016312` and reproduced the Railway cache corruption across 36 BuildKit vertices. Runtime remained healthy, but the release policy treats unexplained build errors as blocking. Railway documentation search returned no supported customer-side cache-clear procedure. Production remains on deployment `f40a61fc-bd34-4849-bc24-a87558b2d63c` at commit `d045174a4ff1c247659fad43d9b0c78d68d1c145`; named rollback remains `2cc7562c-4f98-4980-90f7-82ffa5d1d8a7` at `5f5463237b876beac1c87543a8c811a625bac3de`. No production customer data or transaction was changed.
 - Clean-source build follow-up 2026-11-20: Git ancestry proves WMS-12 commit `73ed7642a21202788bfed2c5e1d3fe5ffabaaa8b` is contained in exact source `b04d93c45bf1a3894cc10f6eb561449f609bd627`. That source was exported with `git archive` and uploaded directly to customer-sandbox as deployment `53b0118b-b62c-4ab7-b065-b9bd03347ab3`; all 308 captured build entries were warning/error-free, resolving the stale Git-build cache condition. The deployment then passed fresh-database controls, authenticated designated-company tenant/warehouse isolation, responsive WMS-07 browser checks, and a clean 10-minute soak. WMS-12 remains `FIXED - PRODUCTION BLOCKED` only because the current Railway tool path does not expose an immutable cross-environment promotion for this proven image; rebuilding separately in production would violate exact-artifact policy.
+
+### Batch 2 and 4 production reconciliation - 2026-11-21
+
+- Git ancestry proves WMS-12 `73ed7642`, WMS-06 `d909b709`, WMS-07 `b04d93c4`, WMS-13 `7ee52cff`, WMS-14 `ff629c02`, WMS-23 `1fb3ea26`, WMS-26 `2d5a81d2`, and Inventory Search WMS-28 `a3c2d9f4` are all contained in exact production commit `8c350b2189de5e8806dc338c100b833cd9b65f59`. The previously recorded focused, negative, access-control, fresh-database, authenticated isolation, responsive-browser, and sandbox-soak evidence therefore applies to the promoted source without cherry-pick or rebuild drift.
+- Production deployment `d85a56a5-7ada-491e-bb64-14ff05cc9137` independently reports immutable branch `codex/release-8c350b21` and the full exact commit. Production `/` and `/api/health` returned HTTP `200`; `11/11` read-only probes over ten minutes retained application, database, schema, desktop, and mobile readiness with `259-285 ms` database probes. Bounded build/runtime/HTTP logs contained no warning, crash, restart, upstream error, or HTTP 5xx. No production customer transaction or data mutation was used. These items are now `VERIFIED`; their historical blocker paragraphs remain as incident evidence but are superseded by this reconciliation.
 
 ### 2026-11-19 QA Intake
 
