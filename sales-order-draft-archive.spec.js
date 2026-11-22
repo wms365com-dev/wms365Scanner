@@ -28,7 +28,9 @@ test("draft archive confirms intent and opens the stable order id without saving
     const handler = functionBody(desktop, "archiveWarehouseSalesOrderDraft", "function getWarehouseInboundCompany");
     assert.match(handler, /const orderId = String\(editingWarehouseOrderId\)/);
     assert.match(handler, /currentOrder\.status !== "DRAFT"/);
-    assert.match(handler, /window\.confirm\(`Archive draft order/);
+    assert.match(handler, /await confirmWarehouseAction/);
+    assert.match(handler, /confirmLabel: "Archive Draft"/);
+    assert.doesNotMatch(handler, /window\.confirm/);
     assert.match(handler, /requestJson\(`\/api\/admin\/portal-orders\/\$\{orderId\}\/archive`, \{ method: "POST" \}\)/);
     assert.match(handler, /response\.order\.status !== "ARCHIVED"/);
     assert.doesNotMatch(handler, /saveWarehouseSalesOrderDraft|status:\s*"CANCELLED"/);

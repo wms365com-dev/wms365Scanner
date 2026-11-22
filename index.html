@@ -23796,6 +23796,53 @@
             return window.confirm("Discard the unsaved changes to this sales order?");
         }
 
+        function confirmWarehouseAction({ title, message, confirmLabel = "Continue", danger = false } = {}) {
+            const existing = document.getElementById("warehouseActionConfirmModal");
+            existing?.remove();
+            const modal = document.createElement("div");
+            modal.id = "warehouseActionConfirmModal";
+            modal.className = "feedback-modal";
+            modal.setAttribute("aria-hidden", "false");
+            modal.innerHTML = `
+                <div class="feedback-modal-backdrop" data-action-confirm-cancel></div>
+                <div class="feedback-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="warehouseActionConfirmTitle" aria-describedby="warehouseActionConfirmMessage">
+                    <div class="card-head">
+                        <div><h2 id="warehouseActionConfirmTitle">${esc(title || "Confirm action")}</h2></div>
+                    </div>
+                    <p class="meta" id="warehouseActionConfirmMessage" style="white-space: pre-line">${esc(message || "Continue with this action?")}</p>
+                    <div class="button-row">
+                        <button class="btn${danger ? " danger" : ""}" type="button" data-action-confirm-accept>${esc(confirmLabel)}</button>
+                        <button class="btn ghost" type="button" data-action-confirm-cancel>Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            const confirmButton = modal.querySelector("[data-action-confirm-accept]");
+            const cancelButton = modal.querySelector("button[data-action-confirm-cancel]");
+            const previousFocus = document.activeElement;
+            return new Promise((resolve) => {
+                let settled = false;
+                const finish = (confirmed) => {
+                    if (settled) return;
+                    settled = true;
+                    document.removeEventListener("keydown", onKeyDown, true);
+                    modal.remove();
+                    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+                    resolve(confirmed);
+                };
+                const onKeyDown = (event) => {
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        finish(false);
+                    }
+                };
+                modal.querySelectorAll("[data-action-confirm-cancel]").forEach((button) => button.addEventListener("click", () => finish(false)));
+                confirmButton?.addEventListener("click", () => finish(true));
+                document.addEventListener("keydown", onKeyDown, true);
+                confirmButton?.focus();
+            });
+        }
+
         async function saveWarehouseSalesOrderDraft(context = null) {
             const options = context && !(context?.currentTarget instanceof HTMLElement) && !(context instanceof HTMLElement) ? context : {};
             const company = getWarehouseSalesOrderCompany();
@@ -23934,7 +23981,11 @@
             const currentOrder = getPortalOrderById(sourceOrderId);
             const orderLabel = currentOrder?.orderCode || warehouseSalesOrderLoadedCode || sourceOrderId;
             const duplicateLabel = `${orderLabel}-R`;
-            if (!window.confirm(`Create ${duplicateLabel} as a new draft using the customer, address, and item quantities from ${orderLabel}? Shipment and allocation history will not be copied.`)) {
+            if (!await confirmWarehouseAction({
+                title: `Duplicate ${orderLabel}`,
+                message: `Create ${duplicateLabel} as a new draft using the customer, address, and item quantities from ${orderLabel}?\n\nShipment and allocation history will not be copied.`,
+                confirmLabel: "Create Draft"
+            })) {
                 return null;
             }
             const actionButton = resolveActionButton(context, ui.salesOrderCommandDuplicateBtn);
@@ -24370,7 +24421,12 @@
                 return showMessage(ui.warehouseOrderMessage, `Only draft, released, picked, or staged orders can be cancelled. This order is ${currentOrder.status}.`, "error");
             }
             const orderLabel = currentOrder?.orderCode || orderId;
-            if (!window.confirm(`Cancel order ${orderLabel}? The order number stays in WMS365 history, active warehouse work is closed, and the number will not be reused.`)) {
+            if (!await confirmWarehouseAction({
+                title: `Cancel ${orderLabel}`,
+                message: "The order number stays in WMS365 history, active warehouse work is closed, and the number will not be reused.",
+                confirmLabel: "Cancel Order",
+                danger: true
+            })) {
                 return null;
             }
             const actionButton = resolveActionButton(context, ui.deleteWarehouseOrderBtn);
@@ -24416,7 +24472,11 @@
                 return showMessage(ui.warehouseOrderMessage, `Only draft orders can be archived. This order is ${currentOrder.status}.`, "error");
             }
             const orderLabel = currentOrder?.orderCode || orderId;
-            if (!window.confirm(`Archive draft order ${orderLabel}? It will be removed from active work, while its order number, lines, and audit history remain available.`)) {
+            if (!await confirmWarehouseAction({
+                title: `Archive ${orderLabel}`,
+                message: "This draft will be removed from active work while its order number, lines, and audit history remain available.",
+                confirmLabel: "Archive Draft"
+            })) {
                 return null;
             }
             const actionButton = resolveActionButton(context, ui.archiveWarehouseOrderBtn);
@@ -27309,9 +27369,11 @@
             const quantitySummary = quantityLines.length
                 ? `\n\nSystem Qty Shipped:\n${quantityLines.join("\n")}`
                 : "";
-            return window.confirm(
-                `Final shipping check for ${orderLabel}:\n\nBefore marking shipped, confirm the checked packing slip quantity matches the Qty Shipped shown in WMS365 for every SKU.\n\nAlso confirm the shipment type, carrier/tracking, and required documents are correct.${quantitySummary}\n\nClick OK only if everything matches.`
-            );
+            return confirmWarehouseAction({
+                title: `Final shipping check - ${orderLabel}`,
+                message: `Confirm the checked packing slip quantity matches the Qty Shipped shown in WMS365 for every SKU.\n\nAlso confirm the shipment type, carrier/tracking, and required documents are correct.${quantitySummary}`,
+                confirmLabel: "Confirm and Mark Shipped"
+            });
         }
 
         function updatePortalShipmentMethodPanel(select) {
@@ -27978,7 +28040,7 @@
                                     `Move the shorted quantity to Investigation Hold now?\n\n${holdLines.join("\n")}\n\nOK keeps that stock out of available inventory while the warehouse investigates. Cancel leaves the remaining stock available.`
                                 );
                             }
-                            packingSlipQuantityConfirmed = confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
+                            packingSlipQuantityConfirmed = await confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
                             if (!packingSlipQuantityConfirmed) {
                                 showMessage(actionMessageElement, "Shipment was not marked shipped. Confirm the checked packing slip quantity matches the system shipped quantity before trying again.", "info");
                                 return;
