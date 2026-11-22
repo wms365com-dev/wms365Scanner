@@ -14436,6 +14436,9 @@
             }
             if (section === "inventory") {
                 renderMasterLibrary();
+                if (!focusAnchorId) {
+                    hydrateActiveCompanyProfileForEdit().catch(() => {});
+                }
             }
             updateMobileSearchResultsVisibility();
             updateWorkspaceCommandBar();

@@ -40,11 +40,18 @@ const getDestructiveOwnerProfileBlankFields = Function(
 test("company profile navigation hydrates before enabling edits", () => {
     const hydrate = extractFunction(warehouse, "hydrateActiveCompanyProfileForEdit");
     assert.match(warehouse, /if \(anchorId === "masterOwnerProfileCard"\) \{\s*hydrateActiveCompanyProfileForEdit\(\)\.catch/);
+    assert.match(warehouse, /if \(section === "inventory"\) \{\s*renderMasterLibrary\(\);\s*if \(!focusAnchorId\) \{\s*hydrateActiveCompanyProfileForEdit\(\)\.catch/);
     assert.match(hydrate, /setCompanyProfileFormDisabled\(true\)/);
     assert.ok(hydrate.indexOf("await syncServerState(true)") < hydrate.indexOf("const owner = getCompanyRecord(company)"));
     assert.ok(hydrate.indexOf("loadCompanySetupIntoProfile(owner)") < hydrate.indexOf("setCompanyProfileFormDisabled(false)"));
     assert.match(hydrate, /Nothing can be edited or saved/);
     assert.match(warehouse, /function init\(\) \{\s*applyDeviceExperienceMode\(\);\s*setCompanyProfileFormDisabled\(true\)/);
+});
+
+test("focused master-data shortcuts do not trigger an unrelated profile refresh", () => {
+    const setSection = extractFunction(warehouse, "setSection");
+    assert.match(setSection, /if \(!focusAnchorId\) \{\s*hydrateActiveCompanyProfileForEdit\(\)\.catch/);
+    assert.doesNotMatch(setSection, /renderMasterLibrary\(\);\s*hydrateActiveCompanyProfileForEdit\(\)/);
 });
 
 test("company profile save is bound to the hydrated record and version", () => {

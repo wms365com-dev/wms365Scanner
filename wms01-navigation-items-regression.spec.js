@@ -14,7 +14,7 @@ test("warehouse navigation scripts remain valid JavaScript", () => {
 
 test("WMS-01 defers the master library while another module is active", () => {
     assert.match(source, /if \(activeSection === "inventory"\) renderMasterLibrary\(\);/);
-    assert.match(source, /if \(section === "inventory"\) \{\s*renderMasterLibrary\(\);\s*\}/);
+    assert.match(source, /if \(section === "inventory"\) \{\s*renderMasterLibrary\(\);\s*if \(!focusAnchorId\) \{\s*hydrateActiveCompanyProfileForEdit\(\)\.catch/);
     assert.doesNotMatch(source, /renderDatalists\(\);\s*renderMasterLibrary\(\);/);
 });
 

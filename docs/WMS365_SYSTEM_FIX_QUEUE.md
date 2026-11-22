@@ -48,6 +48,15 @@ This board is the release order. Only one focused repair is promoted at a time; 
 
 ## November 20 Full QA Report Rebaseline
 
+### November 22 Company Profile automatic hydration repair
+
+- Priority: `critical`.
+- Status: `FIXED - NEEDS RETEST`.
+- Trigger: the builder notes correctly distinguished saved-field hydration from genuinely empty master data. The protected hydration and save path already passed authorization, stale-version, blank-overwrite, persistence, and cleanup checks, but plain `Master Data` navigation still left Company Profile disabled and blank until the separate Company Profile tile was clicked.
+- Repair: opening plain Master Data now invokes the same authoritative active-company hydration path before enabling profile edits. Focused customer, vendor, item, BIN, and other master-data shortcuts retain their existing anchors and do not trigger an unrelated profile refresh. The server-side super-admin, exact-company lock, version, and destructive-blank guards are unchanged.
+- Local evidence: focused profile and adjacent usability coverage passed `11/11`; access-control coverage passed `12/12` across `292` routes; and `npm run check:deploy` passed `963/963`. The existing isolated designated-company verifier also passed hydration, unauthorized `403`, stale `409`, blank-overwrite `409`, valid edit `200`, and cleanup. No live company profile or customer data was changed.
+- Remaining gates: exact sandbox deployment, isolated fresh-database verification, deployed focused tests, authenticated designated-company profile and tenant/warehouse checks, browser verification of plain Master Data entry, warning-free ten-minute soak, named rollback artifact, exact immutable production promotion, and read-only production verification.
+
 ### November 22 shipment pallet prefill repair
 
 - Priority: `critical`.
