@@ -20,7 +20,7 @@ test("sales order stores routing contact, shipment weight, and route history", (
 
 test("blank optional routing delivery dates are stored as null", () => {
     assert.match(server, /routing_requested_delivery_date = nullif\(\$28, ''\)::date/);
-    assert.match(server, /\$26, \$27, nullif\(\$28, ''\)::date(?:, \$29|\))/);
+    assert.match(server, /\$26, \$27, nullif\(\$28, ''\)::date, \$42, \$29/);
 });
 
 test("routing library is specific to company, ship-from, and ship-to", () => {

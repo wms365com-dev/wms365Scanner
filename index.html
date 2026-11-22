@@ -23772,6 +23772,9 @@
                 routingRequestedDeliveryDate: ui.warehouseOrderRoutingDeliveryDate.value,
                 routingTotalWeight: Number(ui.warehouseOrderRoutingWeight.value || 0) || null,
                 routingWeightUom: ui.warehouseOrderRoutingWeightUom.value || "LB",
+                outboundPallets: {
+                    totalPalletsOut: Number.parseInt(ui.warehouseOrderRoutingPallets.value || "0", 10) || 0
+                },
                 lines
             };
         }

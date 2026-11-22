@@ -21911,6 +21911,7 @@ async function savePortalOrderDraftForAccount(
                     routing_total_weight = $26,
                     routing_weight_uom = $27,
                     routing_requested_delivery_date = nullif($28, '')::date,
+                    outbound_total_pallets = $42,
                     ship_to_address_status = $29,
                     ship_to_address_provider = $30,
                     ship_to_address_place_id = $31,
@@ -21968,7 +21969,8 @@ async function savePortalOrderDraftForAccount(
                 shipToAddressTrust.overriddenAt || null,
                 shipToAddressTrust.overriddenBy || null,
                 order.plannedCarrierName,
-                order.plannedServiceLevel
+                order.plannedServiceLevel,
+                order.outboundPallets.totalPalletsOut
             ]
         );
         await client.query("delete from portal_order_lines where order_id = $1", [savedOrderId]);
@@ -21983,13 +21985,14 @@ async function savePortalOrderDraftForAccount(
                     ship_to_city, ship_to_state, ship_to_postal_code, ship_to_country, ship_to_phone,
                     fulfillment_location_id, rush_exempt, rush_exempt_note
                     , routing_email, routing_total_weight, routing_weight_uom, routing_requested_delivery_date,
+                    outbound_total_pallets,
                     ship_to_address_status, ship_to_address_provider, ship_to_address_place_id,
                     ship_to_address_response_id, ship_to_address_formatted, ship_to_address_fingerprint,
                     ship_to_address_verified_at, ship_to_address_override_reason, ship_to_address_override_note,
                     ship_to_address_overridden_at, ship_to_address_overridden_by
                     , planned_carrier_name, planned_service_level
                 )
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $10::boolean then now() else null end, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, nullif($28, '')::date, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $10::boolean then now() else null end, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, nullif($28, '')::date, $42, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)
                 returning id
             `,
             [
@@ -22033,7 +22036,8 @@ async function savePortalOrderDraftForAccount(
                 shipToAddressTrust.overriddenAt || null,
                 shipToAddressTrust.overriddenBy || null,
                 order.plannedCarrierName,
-                order.plannedServiceLevel
+                order.plannedServiceLevel,
+                order.outboundPallets.totalPalletsOut
             ]
         );
         savedOrderId = insertResult.rows[0].id;
@@ -43796,6 +43800,10 @@ function sanitizePortalOrderInput(order, accountName) {
             return Number.isFinite(value) && value > 0 ? Number(value.toFixed(3)) : null;
         })(),
         routingWeightUom: normalizeText(order?.routingWeightUom || order?.routing_weight_uom || order?.weightUom || "LB").toUpperCase() === "KG" ? "KG" : "LB",
+        outboundPallets: sanitizePortalOutboundPalletInput(
+            order?.outboundPallets || order?.outbound_pallets || order,
+            order?.shipmentMethod || order?.shipment_method || order?.shippingMethod || order?.shipping_method
+        ),
         lines: groupPortalOrderLines(Array.isArray(order?.lines) ? order.lines : [])
     };
 }
