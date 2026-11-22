@@ -23305,7 +23305,7 @@
                         ? `${verifiedPackageCount} parcel package${verifiedPackageCount === 1 ? "" : "s"} verified for billing.`
                         : "Package verification has not started yet."));
             const usesPalletTracking = shipmentMethodUsesPalletTracking(shipmentMethod);
-            const outboundPallets = order.outboundPallets || {};
+            const outboundPallets = resolveShipmentPalletDefaults(order.outboundPallets);
             const requiresPickedPalletDetails = norm(order.accountName).includes("ALCONA TRADING");
             const savedPickedPallets = Array.isArray(order.pickedPalletDetails) ? order.pickedPalletDetails : [];
             const pickedPalletRows = (savedPickedPallets.length ? savedPickedPallets : [{ location: "", weight: "", weightUom: "LB" }]).map((pallet, index) => `
@@ -27340,6 +27340,22 @@
 
         function shipmentMethodUsesPalletTracking(value) {
             return normalizeShipmentMethod(value) !== "PARCEL";
+        }
+
+        function resolveShipmentPalletDefaults(value = {}) {
+            const outboundPallets = {
+                totalPalletsOut: Number(value?.totalPalletsOut) || 0,
+                existingPalletsOut: Number(value?.existingPalletsOut) || 0,
+                newPalletsUsed: Number(value?.newPalletsUsed) || 0,
+                mixedPalletsBuilt: Number(value?.mixedPalletsBuilt) || 0,
+                palletNote: String(value?.palletNote || "")
+            };
+            if (outboundPallets.totalPalletsOut > 0
+                && outboundPallets.existingPalletsOut === 0
+                && outboundPallets.newPalletsUsed === 0) {
+                outboundPallets.existingPalletsOut = outboundPallets.totalPalletsOut;
+            }
+            return outboundPallets;
         }
 
         function shipmentCloseoutHelpText(value) {

@@ -48,6 +48,15 @@ This board is the release order. Only one focused repair is promoted at a time; 
 
 ## November 20 Full QA Report Rebaseline
 
+### November 22 shipment pallet prefill repair
+
+- Priority: `critical`.
+- Status: `FIXED - NEEDS RETEST`.
+- Trigger: the builder notes reported that a staged freight order with a saved total pallet count still opened shipment closeout with `Existing Pallets = 0`, causing the client and server to reject the otherwise valid closeout because existing plus new pallets did not equal the staged total.
+- Repair: the shipping form now resolves a staged total as existing pallets only when neither existing nor new pallet usage has been recorded. Explicit existing, new, mixed, and note values remain unchanged, parcel behavior is unchanged, and the server retains its authoritative whole-number, positive-total, sum, and mixed-pallet validation.
+- Local evidence: focused shipment, confirmation, structured-fulfillment, BOL, and negative-default coverage passed `19/19`; access-control coverage passed `12/12` across `292` routes; and `npm run check:deploy` passed `962/962`. No production order, inventory, shipment, document, email, billing, integration, or customer data was changed.
+- Remaining gates: access-control audit, complete deployment gate, isolated fresh-database verification, exact sandbox deployment, authenticated designated-company shipment workflow with tenant/warehouse denial, warning-free ten-minute soak, named rollback artifact, exact immutable production promotion, and read-only production verification.
+
 ### November 21 appended browser retest - confirmation workflow reopened
 
 - Source: `C:\Users\T470\Desktop\full-report-2026-11-20 (1).md`, SHA-256 `AC83A953DB64C1CF1F4CA7127C8498104887F787C3A29CB137D871BE26263B11`. The appended retest is materially different from the original report and is treated as defect evidence, not executable instructions.
