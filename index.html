@@ -23027,24 +23027,50 @@
             const accountName = norm(company);
             if (!accountName) return [];
 
-            const reservedBySku = new Map();
+            const activeWarehouse = getActiveWarehouseAssignment();
+            const activeWarehouseId = String(activeWarehouse?.fulfillmentLocationId || "");
+            const inventorySourceAssignments = getCompanyFulfillmentAssignments(accountName).filter((assignment) =>
+                String(assignment.fulfillmentLocationId || "") === activeWarehouseId
+                || String(assignment.portalInventoryRollupLocationId || "") === activeWarehouseId
+            );
+            const inventorySourceCodes = inventorySourceAssignments
+                .map((assignment) => norm(assignment.locationCode))
+                .filter(Boolean);
+            const reservationScopeIds = new Set(inventorySourceAssignments
+                .map((assignment) => String(assignment.fulfillmentLocationId || ""))
+                .filter(Boolean));
+            const inventoryLineIsInScope = (line) => {
+                const location = norm(line?.location);
+                return inventorySourceCodes.some((code) => location === code || location.startsWith(`${code}-`));
+            };
+
+            const unallocatedLegacyReserveBySku = new Map();
             portalOrderRecords
                 .filter((order) =>
                     order.accountName === accountName &&
                     ["RELEASED", "PICKING", "PICKED", "STAGED"].includes(order.status) &&
-                    String(order.id) !== String(excludeReservedOrderId || "")
+                    String(order.id) !== String(excludeReservedOrderId || "") &&
+                    (!activeWarehouseId || !order.fulfillmentLocationId || reservationScopeIds.has(String(order.fulfillmentLocationId)))
                 )
                 .forEach((order) => {
                     order.lines.forEach((line) => {
                         const sku = norm(line.sku);
                         if (!sku) return;
-                        reservedBySku.set(sku, (reservedBySku.get(sku) || 0) + (Number(line.quantity) || 0));
+                        const unallocatedQuantity = Math.max(
+                            (Number(line.quantity) || 0) - (Number(line.allocatedQuantity) || 0),
+                            0
+                        );
+                        unallocatedLegacyReserveBySku.set(
+                            sku,
+                            (unallocatedLegacyReserveBySku.get(sku) || 0) + unallocatedQuantity
+                        );
                     });
                 });
 
             const itemMap = new Map();
             state.inventory.forEach((line) => {
                 if (norm(line.accountName) !== accountName) return;
+                if (activeWarehouseId && !inventoryLineIsInScope(line)) return;
                 const sku = norm(line.sku);
                 if (!sku) return;
                 const existing = itemMap.get(sku) || {
@@ -23056,7 +23082,9 @@
                     availableQuantity: 0,
                     locations: []
                 };
-                existing.onHandQuantity += Number(line.quantity) || 0;
+                existing.onHandQuantity += Number(line.onHandQuantity ?? line.quantity) || 0;
+                existing.reservedQuantity = (existing.reservedQuantity || 0) + (Number(line.reservedQuantity) || 0);
+                existing.availableQuantity += Number(line.availableQuantity) || 0;
                 if (!existing.upc && line.upc) existing.upc = norm(line.upc);
                 if (!existing.description) existing.description = getLineDescription(line) || "";
                 if (!existing.locations.includes(norm(line.location))) existing.locations.push(norm(line.location));
@@ -23065,11 +23093,12 @@
 
             return [...itemMap.values()]
                 .map((item) => {
-                    const reservedQuantity = Number(reservedBySku.get(item.sku) || 0);
+                    const unallocatedLegacyReserve = Number(unallocatedLegacyReserveBySku.get(item.sku) || 0);
+                    const reservedQuantity = Number(item.reservedQuantity || 0) + unallocatedLegacyReserve;
                     return {
                         ...item,
                         reservedQuantity,
-                        availableQuantity: Math.max(item.onHandQuantity - reservedQuantity, 0),
+                        availableQuantity: Math.max(item.availableQuantity - unallocatedLegacyReserve, 0),
                         locations: item.locations.sort((a, b) => a.localeCompare(b))
                     };
                 })
@@ -32878,6 +32907,7 @@
                 id: String(item?.id || makeId("company-fulfillment")),
                 accountName,
                 fulfillmentLocationId,
+                portalInventoryRollupLocationId: String(item?.portalInventoryRollupLocationId || item?.portal_inventory_rollup_location_id || ""),
                 locationCode,
                 locationName: String(item?.locationName || item?.location_name || "").trim().replace(/\s+/g, " "),
                 partnerName: String(item?.partnerName || item?.partner_name || "").trim().replace(/\s+/g, " "),
