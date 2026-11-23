@@ -26,5 +26,11 @@ scripts/cleanup-exim-outbound-guide-session.js
 scripts/create-exim-outbound-order-guide.js
 scripts/prepare-exim-outbound-guide-session.js
 scripts/send-exim-inventory-updated-email.js
+!scripts/verify-test-company-shopify-shared-pool.js
+!scripts/audit-ranchers-carrier-deliveries-readonly.js
+!scripts/prepare-ranchers-clickship-rows.js
+!scripts/reconcile-ranchers-shopify-tracking.js
+!scripts/reconcile-ranchers-shopify-orders.js
+!scripts/audit-ranchers-shopify-delivery-reconciliation-readonly.js
 CODEX_TASKS.md
 debug.log
