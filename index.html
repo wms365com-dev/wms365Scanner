@@ -10,22 +10,50 @@
     <title>WMS365 Warehouse Management System</title>
     <style>
         :root {
-            --bg: #f3f5f6;
-            --bg-accent: #e9edef;
-            --panel: #ffffff;
-            --panel-2: #f7f9fa;
-            --line: #d5dde4;
-            --text: #20303a;
-            --muted: #657582;
-            --brand: #5c7b92;
-            --brand-2: #3f5f76;
-            --brand-soft: #edf3f6;
-            --ok: #5f8169;
-            --warn: #b08b47;
-            --bad: #b66363;
-            --radius: 12px;
-            --radius-sm: 8px;
-            --shadow: 0 1px 6px rgba(32, 48, 58, 0.04);
+            --font-family-base: "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            --color-neutral-background-1: #ffffff;
+            --color-neutral-background-2: #f7f9fa;
+            --color-neutral-background-3: #f3f5f6;
+            --color-neutral-background-4: #e9edef;
+            --color-neutral-stroke-1: #d5dde4;
+            --color-neutral-foreground-1: #20303a;
+            --color-neutral-foreground-2: #657582;
+            --color-brand-background: #5c7b92;
+            --color-brand-background-hover: #3f5f76;
+            --color-brand-background-subtle: #edf3f6;
+            --color-status-success: #5f8169;
+            --color-status-warning: #b08b47;
+            --color-status-danger: #b66363;
+            --color-focus-stroke: rgba(92, 123, 146, 0.55);
+            --color-focus-ring: rgba(92, 123, 146, 0.14);
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 0.75rem;
+            --spacing-lg: 1rem;
+            --spacing-xl: 1.5rem;
+            --border-radius-small: 4px;
+            --border-radius-medium: 8px;
+            --border-radius-large: 12px;
+            --shadow-2: 0 1px 6px rgba(32, 48, 58, 0.04);
+            --shadow-8: 0 8px 24px rgba(32, 48, 58, 0.12);
+
+            /* Compatibility aliases keep the existing application surfaces stable. */
+            --bg: var(--color-neutral-background-3);
+            --bg-accent: var(--color-neutral-background-4);
+            --panel: var(--color-neutral-background-1);
+            --panel-2: var(--color-neutral-background-2);
+            --line: var(--color-neutral-stroke-1);
+            --text: var(--color-neutral-foreground-1);
+            --muted: var(--color-neutral-foreground-2);
+            --brand: var(--color-brand-background);
+            --brand-2: var(--color-brand-background-hover);
+            --brand-soft: var(--color-brand-background-subtle);
+            --ok: var(--color-status-success);
+            --warn: var(--color-status-warning);
+            --bad: var(--color-status-danger);
+            --radius: var(--border-radius-large);
+            --radius-sm: var(--border-radius-medium);
+            --shadow: var(--shadow-2);
         }
 
         * { box-sizing: border-box; }
@@ -34,7 +62,7 @@
             margin: 0;
             min-height: 100vh;
             color: var(--text);
-            font-family: "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            font-family: var(--font-family-base);
             background: var(--bg);
         }
 
@@ -53,8 +81,8 @@
 
         input:focus, select:focus, textarea:focus {
             outline: none;
-            border-color: rgba(92, 123, 146, 0.55);
-            box-shadow: 0 0 0 2px rgba(92, 123, 146, 0.14);
+            border-color: var(--color-focus-stroke);
+            box-shadow: 0 0 0 2px var(--color-focus-ring);
         }
 
         input::placeholder, textarea::placeholder { color: #8aa0b4; }
@@ -62,7 +90,7 @@
         .app {
             width: min(1400px, calc(100vw - 1rem));
             margin: 0 auto;
-            padding: 0.75rem 0 2rem;
+            padding: var(--spacing-md) 0 2rem;
         }
 
         .hero, .card {
@@ -84,7 +112,7 @@
 
         .hero-grid, .section-grid, .search-grid, .inventory-grid, .action-grid, .backup-grid {
             display: grid;
-            gap: 1rem;
+            gap: var(--spacing-lg);
         }
 
         .eyebrow {
