@@ -12927,7 +12927,12 @@
                 showMessage(ui.accountSettingsMessage, "Your signed-in email could not be found. Log out and sign in again before resetting your password.", "error");
                 return;
             }
-            if (!window.confirm(`Send a temporary password to ${email}? You will be signed out on every device and must use the emailed password to sign in again.`)) return;
+            if (!await confirmWarehouseAction({
+                title: "Reset your password?",
+                message: `Send a temporary password to ${email}? You will be signed out on every device and must use the emailed password to sign in again.`,
+                confirmLabel: "Send temporary password",
+                danger: true
+            })) return;
             try {
                 await runActionWithFeedback({
                     button: ui.accountResetPasswordBtn,
@@ -12939,8 +12944,12 @@
                         method: "POST",
                         body: JSON.stringify({ email })
                     });
-                    window.alert(response?.message || "A temporary password has been emailed. Sign in again using that password.");
-                    window.location.assign("/login.html?next=%2Fdesktop");
+                    showMessage(
+                        ui.accountSettingsMessage,
+                        response?.message || "A temporary password has been emailed. Sign in again using that password.",
+                        "success"
+                    );
+                    window.setTimeout(() => window.location.assign("/login.html?next=%2Fdesktop"), 1200);
                 });
             } catch (error) {
                 showMessage(ui.accountSettingsMessage, error.message || "The password reset email could not be sent.", "error");
