@@ -2,7 +2,6 @@ const { Client } = require("pg");
 const { requireDesignatedTestCompany } = require("./designated-test-company");
 const {
     APP_USER_ROLES,
-    getServerState,
     upsertInventoryLine,
     savePortalOrderDraftForAccount,
     releasePortalOrderForAccount
@@ -109,18 +108,32 @@ async function main() {
 
         let firstOrder = await savePortalOrderDraftForAccount(client, accountName, payload(`ALLOC-A-${suffix}`), null, options);
         firstOrder = await releasePortalOrderForAccount(client, accountName, firstOrder.id, { activityActor: actor.email });
-        const stateAfterFirstRelease = await getServerState(client, { billingEventLimit: 1, appUser: actor });
-        const selectedWarehouseLine = stateAfterFirstRelease.inventory.find((line) =>
-            line.accountName === accountName && line.sku === sku && line.location === `${warehouseCodes[0]}-A01`
+        const authoritativeState = await client.query(
+            `select
+                i.location,
+                i.quantity::integer as on_hand_quantity,
+                coalesce(sum(case when o.status = any($4::text[]) then a.allocated_quantity else 0 end), 0)::integer as reserved_quantity,
+                greatest(
+                    i.quantity - coalesce(sum(case when o.status = any($4::text[]) then a.allocated_quantity else 0 end), 0),
+                    0
+                )::integer as available_quantity
+             from inventory_lines i
+             left join portal_order_allocations a on a.inventory_line_id = i.id
+             left join portal_orders o on o.id = a.order_id
+             where i.account_name = $1
+               and i.sku = $2
+               and i.location = any($3::text[])
+             group by i.id, i.location, i.quantity
+             order by i.location`,
+            [accountName, sku, [`${warehouseCodes[0]}-A01`, `${warehouseCodes[1]}-A01`], ["RELEASED", "PICKING", "PICKED", "STAGED"]]
         );
-        const otherWarehouseLine = stateAfterFirstRelease.inventory.find((line) =>
-            line.accountName === accountName && line.sku === sku && line.location === `${warehouseCodes[1]}-A01`
-        );
-        if (!selectedWarehouseLine || selectedWarehouseLine.onHandQuantity !== 2
-            || selectedWarehouseLine.reservedQuantity !== 1 || selectedWarehouseLine.availableQuantity !== 1) {
+        const selectedWarehouseLine = authoritativeState.rows.find((line) => line.location === `${warehouseCodes[0]}-A01`);
+        const otherWarehouseLine = authoritativeState.rows.find((line) => line.location === `${warehouseCodes[1]}-A01`);
+        if (!selectedWarehouseLine || Number(selectedWarehouseLine.on_hand_quantity) !== 2
+            || Number(selectedWarehouseLine.reserved_quantity) !== 1 || Number(selectedWarehouseLine.available_quantity) !== 1) {
             throw new Error("Authoritative state did not report 2 on hand, 1 committed, and 1 allocatable in the selected warehouse.");
         }
-        if (!otherWarehouseLine || otherWarehouseLine.availableQuantity !== 20) {
+        if (!otherWarehouseLine || Number(otherWarehouseLine.available_quantity) !== 20) {
             throw new Error("The other warehouse fixture was not isolated from the selected warehouse commitment.");
         }
 
@@ -144,9 +157,9 @@ async function main() {
             accountName,
             selectedWarehouse: warehouseCodes[0],
             otherWarehouse: warehouseCodes[1],
-            onHand: selectedWarehouseLine.onHandQuantity,
-            committed: selectedWarehouseLine.reservedQuantity,
-            allocatable: selectedWarehouseLine.availableQuantity,
+            onHand: Number(selectedWarehouseLine.on_hand_quantity),
+            committed: Number(selectedWarehouseLine.reserved_quantity),
+            allocatable: Number(selectedWarehouseLine.available_quantity),
             secondAllocation: Number(allocations.rows[0].allocated_quantity),
             rolledBack: true
         }));

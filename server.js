@@ -47487,7 +47487,6 @@ module.exports = {
     assertAppUserInventoryMoveAccess,
     filterInventoryRowsForFulfillmentLocationIds,
     filterLocationMasterRowsForAppUser,
-    getServerState,
     upsertInventoryLine,
     consumePortalOrderInventory,
     allocatePortalOrderInventory,

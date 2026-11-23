@@ -115,8 +115,8 @@ test("sandbox verifier is designated-company pinned, warehouse-negative, and rol
     assert.match(verifier, /requireDesignatedTestCompany\(client\)/);
     assert.match(verifier, /quantity: 2/);
     assert.match(verifier, /quantity: 20/);
-    assert.match(verifier, /selectedWarehouseLine\.reservedQuantity !== 1/);
-    assert.match(verifier, /otherWarehouseLine\.availableQuantity !== 20/);
+    assert.match(verifier, /selectedWarehouseLine\.reserved_quantity\) !== 1/);
+    assert.match(verifier, /otherWarehouseLine\.available_quantity\) !== 20/);
     assert.match(verifier, /allocations\.rows\[0\]\.location !== `\$\{warehouseCodes\[0\]\}-A01`/);
     assert.match(verifier, /await client\.query\("rollback"\)/);
     assert.doesNotMatch(verifier, /client\.query\(["']commit|sendSystemEmail|NODE_ENV[^\n]*production/i);
