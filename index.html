@@ -820,13 +820,9 @@
         .erp-status-chip {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             min-height: 1.55rem;
-            padding: 0.2rem 0.55rem;
-            border: 1px solid #c8d2dc;
-            background: #eef8f9;
-            color: #006d7f;
             font-size: 0.72rem;
-            font-weight: 700;
             letter-spacing: 0.03em;
             text-transform: uppercase;
         }
@@ -4014,12 +4010,16 @@
             background: rgba(220, 38, 38, 0.08);
         }
 
-        .pill {
+        .pill,
+        .erp-status-chip {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             padding: 0.28rem 0.65rem;
             border-radius: 999px;
+            border: 1px solid var(--color-neutral-stroke-1);
+            background: var(--color-neutral-background-2);
+            color: var(--color-neutral-foreground-2);
             font-size: 0.8rem;
             font-weight: 700;
             line-height: 1.2;
@@ -4027,28 +4027,40 @@
         }
 
         .pill.warning,
-        .pill.warn {
+        .pill.warn,
+        .erp-status-chip.warning,
+        .erp-status-chip.warn {
             background: rgba(217, 119, 6, 0.14);
             color: #92400e;
             border: 1px solid rgba(217, 119, 6, 0.18);
         }
 
-        .pill.success {
+        .pill.success,
+        .erp-status-chip.success {
             background: rgba(22, 163, 74, 0.14);
             color: #166534;
             border: 1px solid rgba(22, 163, 74, 0.18);
         }
 
-        .pill.info {
+        .pill.info,
+        .erp-status-chip.info {
             background: rgba(8, 145, 178, 0.12);
             color: #0e7490;
             border: 1px solid rgba(8, 145, 178, 0.18);
         }
 
-        .pill.error {
+        .pill.error,
+        .erp-status-chip.error {
             background: rgba(220, 38, 38, 0.12);
             color: #991b1b;
             border: 1px solid rgba(220, 38, 38, 0.18);
+        }
+
+        .pill.neutral,
+        .erp-status-chip.neutral {
+            background: var(--color-neutral-background-2);
+            color: var(--color-neutral-foreground-2);
+            border-color: var(--color-neutral-stroke-1);
         }
 
         .portal-order-line-table-wrap tr.insufficient-line td {
@@ -23712,6 +23724,7 @@
             if (ui.warehouseOrderLead) ui.warehouseOrderLead.textContent = documentCopy.lead;
             if (ui.warehouseOrderStatusChip) {
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
+                applyStatusPillTone(ui.warehouseOrderStatusChip, portalOrderStatusTone(order?.status || "DRAFT"));
             }
             const canCancelOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(order.status);
             const canArchiveDraft = !!order?.id && order.status === "DRAFT";
@@ -25265,6 +25278,7 @@
             }
             if (ui.warehouseInboundStatusChip) {
                 ui.warehouseInboundStatusChip.textContent = inbound?.status || "Open";
+                applyStatusPillTone(ui.warehouseInboundStatusChip, inboundStatusPillClass(inbound?.status || "DRAFT"));
             }
             if (ui.submitWarehouseInboundBtn) {
                 ui.submitWarehouseInboundBtn.textContent = inbound ? "Save Purchase Order" : "Create Purchase Order";
@@ -26717,9 +26731,18 @@
         }
 
         function portalOrderStatusTone(status) {
-            if (status === "CANCELLED") return "error";
-            if (status === "DRAFT") return "warn";
-            return "success";
+            const normalized = norm(status);
+            if (normalized === "CANCELLED") return "error";
+            if (normalized === "DRAFT") return "warn";
+            if (normalized === "SHIPPED") return "success";
+            if (normalized === "ARCHIVED") return "neutral";
+            return "info";
+        }
+
+        function applyStatusPillTone(element, tone = "neutral") {
+            if (!element) return;
+            element.classList.remove("neutral", "info", "success", "warn", "warning", "error");
+            element.classList.add(["neutral", "info", "success", "warn", "warning", "error"].includes(tone) ? tone : "neutral");
         }
 
         function formatPortalOrderStatus(status) {
@@ -26862,7 +26885,11 @@
             ui.warehouseOrderWorkflowPanel?.classList.add("hidden");
             if (ui.warehouseOrderWorkflowPanel) ui.warehouseOrderWorkflowPanel.innerHTML = "";
             if (ui.warehouseOrderTitle) ui.warehouseOrderTitle.textContent = `Sales Order ${orderLabel}`;
-            if (ui.warehouseOrderStatusChip) ui.warehouseOrderStatusChip.textContent = summary?.status || "Loading";
+            if (ui.warehouseOrderStatusChip) {
+                const status = summary?.status || "Loading";
+                ui.warehouseOrderStatusChip.textContent = status;
+                applyStatusPillTone(ui.warehouseOrderStatusChip, summary?.status ? portalOrderStatusTone(summary.status) : "neutral");
+            }
             if (ui.warehouseOrderLead) ui.warehouseOrderLead.textContent = "Loading current order details...";
             if (ui.warehouseOrderCompanyMeta) {
                 ui.warehouseOrderCompanyMeta.textContent = summary?.accountName
