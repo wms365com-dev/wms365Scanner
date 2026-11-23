@@ -16815,7 +16815,7 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
             let importedOrder = null;
             if (normalizedProvider === SHOPIFY_SYNC_PROVIDER) {
                 const payload = applyStoreSkuMappingsToPortalOrderPayload(
-                    mapShopifyOrderToPortalDraft(integrationRow.account_name, order, integrationRow),
+                    mapShopifyOrderToPortalDraft(integrationRow.account_name, order, integrationRow, skuMappingLookup),
                     skuMappingLookup,
                     itemKitComponentLookup
                 );
@@ -17941,7 +17941,25 @@ async function createShopifyFulfillmentForImportedOrder(integrationRow, order, e
     };
 }
 
-function mapShopifyOrderToPortalDraft(accountName, order, integrationRow) {
+function resolveShopifyLineExternalSku(line, skuMappingLookup = new Map()) {
+    const sku = normalizeText(line?.sku || "");
+    if (sku) return sku;
+    const variantId = normalizeText(line?.variant_id || line?.variantId || "");
+    if (!variantId || !skuMappingLookup || typeof skuMappingLookup.has !== "function") return "";
+    for (const candidate of [variantId, `SHOPIFY-${variantId}`]) {
+        if (skuMappingLookup.has(candidate)) return candidate;
+    }
+    const suffix = `-${variantId}`;
+    const suffixMatches = [...skuMappingLookup.keys()]
+        .map((value) => normalizeText(value))
+        .filter((value) => value.endsWith(suffix));
+    if (suffixMatches.length > 1) {
+        throw httpError(400, `Shopify variant ${variantId} matches multiple configured WMS SKU mappings.`);
+    }
+    return suffixMatches[0] || "";
+}
+
+function mapShopifyOrderToPortalDraft(accountName, order, integrationRow, skuMappingLookup = new Map()) {
     const shipping = order?.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : null;
     const billing = order?.billing_address && typeof order.billing_address === "object" ? order.billing_address : null;
     const customer = order?.customer && typeof order.customer === "object" ? order.customer : null;
@@ -17957,7 +17975,7 @@ function mapShopifyOrderToPortalDraft(accountName, order, integrationRow) {
     const contactPhone = normalizeFreeText(address?.phone || order?.phone || customer?.phone || order?.email || "NO PHONE");
     const lines = (Array.isArray(order?.line_items) ? order.line_items : [])
         .map((line) => ({
-            sku: normalizeText(line?.sku || ""),
+            sku: resolveShopifyLineExternalSku(line, skuMappingLookup),
             quantity: toPositiveInt(line?.fulfillable_quantity ?? line?.current_quantity ?? line?.quantity)
         }))
         .filter((line) => line.sku && line.quantity);
@@ -47292,6 +47310,7 @@ module.exports = {
     verifyShopifyOAuthState,
     buildShopifyOAuthAuthorizeUrl,
     mapShopifyOrderToPortalDraft,
+    resolveShopifyLineExternalSku,
     applyStoreSkuMappingsToPortalOrderPayload,
     getItemKitComponentLookup,
     buildShopifyInventoryAvailabilityLookup,

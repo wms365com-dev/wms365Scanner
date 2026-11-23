@@ -6,7 +6,9 @@ const {
   SHOPIFY_APP_SCOPES,
   renderIntegrationCredentialRequestPage,
   testSubmittedShopifyCredential,
-  normalizeSecureShopifyConfiguration
+  normalizeSecureShopifyConfiguration,
+  mapShopifyOrderToPortalDraft,
+  resolveShopifyLineExternalSku
 } = require("./server");
 
 const request = {
@@ -79,4 +81,36 @@ test("reviewed self-service settings are normalized for persistence", () => {
   assert.equal(result.settings.syncShipmentConfirmations, true);
   assert.equal(result.settings.shopifyLocationId, "12345");
   assert.deepEqual(result.settings.allowedShipCountries, ["CA", "US"]);
+});
+
+test("blank Shopify SKU resolves through the integration's unique variant mapping", () => {
+  const mappings = new Map([["CATALOG-SHOPIFY-50654262132928", { localSku: "BUNDLE-3PK" }]]);
+  assert.equal(resolveShopifyLineExternalSku({ sku: "", variant_id: 50654262132928 }, mappings), "CATALOG-SHOPIFY-50654262132928");
+  const payload = mapShopifyOrderToPortalDraft("TEST COMPANY", {
+    id: 1114,
+    name: "#1114",
+    line_items: [{ sku: "", variant_id: 50654262132928, quantity: 1 }],
+    shipping_address: {
+      name: "Test Recipient",
+      phone: "555-0100",
+      address1: "1 Test Street",
+      city: "Toronto",
+      province_code: "ON",
+      zip: "M1M1M1",
+      country_code: "CA"
+    }
+  }, { store_identifier: "test.myshopify.com" }, mappings);
+  assert.deepEqual(payload.lines, [{ sku: "CATALOG-SHOPIFY-50654262132928", quantity: 1 }]);
+});
+
+test("blank Shopify SKU fails closed when variant mapping is missing or ambiguous", () => {
+  assert.equal(resolveShopifyLineExternalSku({ sku: "", variant_id: 123 }, new Map()), "");
+  const ambiguous = new Map([
+    ["ONE-SHOPIFY-123", { localSku: "ONE" }],
+    ["TWO-SHOPIFY-123", { localSku: "TWO" }]
+  ]);
+  assert.throws(
+    () => resolveShopifyLineExternalSku({ sku: "", variant_id: 123 }, ambiguous),
+    /matches multiple configured WMS SKU mappings/
+  );
 });
