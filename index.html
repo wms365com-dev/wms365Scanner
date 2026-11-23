@@ -13386,7 +13386,7 @@
             });
             ui.openSalesOrderNewBtn?.addEventListener("click", () => openNewSalesOrderDocument({ scroll: true }));
             ui.closeWarehouseOrderEntryBtn?.addEventListener("click", () => closeSalesOrderDocument({ scroll: true }));
-            ui.addWarehouseOrderLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
+            ui.addWarehouseOrderLineBtn?.addEventListener("click", selectWarehouseSalesOrderItem);
             ui.resetWarehouseOrderBtn?.addEventListener("click", () => openNewSalesOrderDocument());
             ui.saveWarehouseOrderDraftBtn?.addEventListener("click", saveWarehouseSalesOrderDraft);
             ui.archiveWarehouseOrderBtn?.addEventListener("click", archiveWarehouseSalesOrderDraft);
@@ -13427,7 +13427,7 @@
             ui.saveAndGenerateOrderBolBtn?.addEventListener("click", saveAndGenerateWarehouseOrderBol);
             ui.salesOrderCommandPickTicketBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("pick", event));
             ui.salesOrderCommandPackingSlipBtn?.addEventListener("click", (event) => printCurrentWarehouseSalesOrderDocument("packing", event));
-            ui.salesOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseOrderLine());
+            ui.salesOrderCommandAddLineBtn?.addEventListener("click", selectWarehouseSalesOrderItem);
             ui.warehouseOrderShipToName?.addEventListener("input", maybeApplyWarehouseShipToAddressSelection);
             ui.warehouseOrderShipToName?.addEventListener("change", maybeApplyWarehouseShipToAddressSelection);
             ui.warehouseOrderShipToName?.addEventListener("blur", maybeApplyWarehouseShipToAddressSelection);
@@ -13437,7 +13437,7 @@
             ui.warehouseOrderWorkflowPanel?.addEventListener("click", onPortalOrdersListClick);
             ui.openPurchaseOrderNewBtn?.addEventListener("click", () => showPurchaseOrderDocument(null, { scroll: true }));
             ui.closeWarehouseInboundEntryBtn?.addEventListener("click", () => showPurchaseOrderList({ scroll: true }));
-            ui.addWarehouseInboundLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
+            ui.addWarehouseInboundLineBtn?.addEventListener("click", selectWarehouseInboundItem);
             ui.resetWarehouseInboundBtn?.addEventListener("click", () => showPurchaseOrderDocument(null));
             ui.submitWarehouseInboundBtn?.addEventListener("click", submitWarehouseInbound);
             ui.cancelWarehouseInboundBtn?.addEventListener("click", cancelCurrentWarehouseInbound);
@@ -13446,7 +13446,7 @@
             ui.purchaseOrderCommandArriveBtn?.addEventListener("click", arriveCurrentWarehouseInbound);
             ui.purchaseOrderCommandReceiveBtn?.addEventListener("click", receiveCurrentWarehouseInbound);
             ui.purchaseOrderCommandCancelBtn?.addEventListener("click", cancelCurrentWarehouseInbound);
-            ui.purchaseOrderCommandAddLineBtn?.addEventListener("click", () => addWarehouseInboundLine());
+            ui.purchaseOrderCommandAddLineBtn?.addEventListener("click", selectWarehouseInboundItem);
             ui.warehouseInboundLines?.addEventListener("click", onWarehouseInboundLinesClick);
             ui.warehouseInboundLines?.addEventListener("change", onWarehouseInboundLinesChange);
             ui.warehouseInboundWorkflowPanel?.addEventListener("click", onPortalInboundsListClick);
@@ -23209,6 +23209,28 @@
             updateWarehouseSalesOrderLineMeta(row);
         }
 
+        function selectWarehouseSalesOrderItem() {
+            const company = getWarehouseSalesOrderCompany();
+            if (!company) {
+                showMessage(ui.warehouseOrderMessage, "Choose an active company before selecting sales order items.", "error");
+                ui.desktopCompanySwitcherSummary?.focus();
+                return;
+            }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.ORDER_ENTRY)) {
+                showMessage(ui.warehouseOrderMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company), "error");
+                return;
+            }
+            if (!getWarehouseSalesOrderSelectableItems().length) {
+                showMessage(ui.warehouseOrderMessage, `No pickable inventory is available for ${company} at the active warehouse.`, "error");
+                return;
+            }
+            addWarehouseOrderLine();
+            const input = ui.warehouseOrderLines?.lastElementChild?.querySelector("[data-warehouse-line-sku]");
+            input?.scrollIntoView({ block: "center", behavior: "smooth" });
+            input?.focus();
+            showMessage(ui.warehouseOrderMessage, "Item line added. Search by SKU, UPC, or description.", "success");
+        }
+
         function renderWarehouseSalesOrderContext() {
             if (!ui.warehouseOrderCompanyMeta) return;
             const company = getWarehouseSalesOrderCompany();
@@ -23226,13 +23248,12 @@
                         : `${currentOrder?.id ? "Editing a draft sales order" : "Creating a new sales order"} for ${company}. Only inventory currently available to this company can be selected.`
                     : `${companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.ORDER_ENTRY, company)} Existing orders remain visible, but new order entry is locked.`)
                 : "Choose an active company in the header before entering a warehouse sales order.";
-            [
-                ui.addWarehouseOrderLineBtn,
-                ui.saveWarehouseOrderDraftBtn,
-                ui.salesOrderCommandSaveBtn,
-                ui.salesOrderCommandAddLineBtn
-            ].filter(Boolean).forEach((button) => {
+            [ui.saveWarehouseOrderDraftBtn, ui.salesOrderCommandSaveBtn].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled || lockedOrder;
+                button.hidden = lockedOrder;
+            });
+            [ui.addWarehouseOrderLineBtn, ui.salesOrderCommandAddLineBtn].filter(Boolean).forEach((button) => {
+                button.disabled = !featureEnabled || lockedOrder;
                 button.hidden = lockedOrder;
             });
             [
@@ -24638,6 +24659,28 @@
             updateWarehouseInboundLineMeta(row);
         }
 
+        function selectWarehouseInboundItem() {
+            const company = getWarehouseInboundCompany();
+            if (!company) {
+                showMessage(ui.warehouseInboundMessage, "Choose an active company before selecting purchase order items.", "error");
+                ui.desktopCompanySwitcherSummary?.focus();
+                return;
+            }
+            if (!companyHasFeature(company, COMPANY_FEATURE_KEYS.INBOUND_NOTICES)) {
+                showMessage(ui.warehouseInboundMessage, companyFeatureDisabledMessage(COMPANY_FEATURE_KEYS.INBOUND_NOTICES, company), "error");
+                return;
+            }
+            if (!getWarehouseInboundCatalogItemCount(company)) {
+                showMessage(ui.warehouseInboundMessage, `No saved item masters were found for ${company}. Add company items in Master Data first.`, "error");
+                return;
+            }
+            addWarehouseInboundLine();
+            const select = ui.warehouseInboundLines?.lastElementChild?.querySelector("[data-warehouse-inbound-line-sku]");
+            select?.scrollIntoView({ block: "center", behavior: "smooth" });
+            select?.focus();
+            showMessage(ui.warehouseInboundMessage, "Item line added. Choose a saved company item.", "success");
+        }
+
         function renderWarehouseInboundContext() {
             if (!ui.warehouseInboundCompanyMeta) return;
             const company = getWarehouseInboundCompany();
@@ -24661,13 +24704,11 @@
                         : `No saved item masters were found for ${company} yet. Add company items in Master Data before creating a purchase order.`)
                     : "Only item masters saved for the active company can be selected.";
             }
-            [
-                ui.addWarehouseInboundLineBtn,
-                ui.submitWarehouseInboundBtn,
-                ui.purchaseOrderCommandPostBtn,
-                ui.purchaseOrderCommandAddLineBtn
-            ].filter(Boolean).forEach((button) => {
+            [ui.submitWarehouseInboundBtn, ui.purchaseOrderCommandPostBtn].filter(Boolean).forEach((button) => {
                 button.disabled = !hasCompany || !featureEnabled || !hasItemCatalog || lockedInbound;
+            });
+            [ui.addWarehouseInboundLineBtn, ui.purchaseOrderCommandAddLineBtn].filter(Boolean).forEach((button) => {
+                button.disabled = !featureEnabled || lockedInbound;
             });
             if (ui.purchaseOrderCommandArriveBtn) {
                 ui.purchaseOrderCommandArriveBtn.disabled = !editingWarehouseInboundId || inboundStatus !== "SUBMITTED";
