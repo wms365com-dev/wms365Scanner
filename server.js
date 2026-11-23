@@ -2,9 +2,22 @@ const crypto = require("crypto");
 const express = require("express");
 const fs = require("fs");
 const nodemailer = require("nodemailer");
+const {
+    parseReleaseAutoPrintAccounts,
+    isReleaseAutoPrintEnabled,
+    enqueueReleaseAutoPrint,
+    getReleaseAutoPrintRetrySeconds
+} = require("./release-auto-print");
+const { MAX_PORTAL_DOCUMENT_BYTES, MAX_PORTAL_DOCUMENT_REQUEST_BYTES, exceedsPortalDocumentLimit, isPortalDocumentJsonRequest } = require("./portal-document-upload-limits");
+const { getPortalShipmentEmailAddressing } = require("./shipment-email-addressing");
 const path = require("path");
 const zlib = require("zlib");
 const { Pool } = require("pg");
+const shopifyTrackingSync = require("./shopify-tracking-sync");
+const { buildPartialFulfillmentLines } = require("./shopify-partial-fulfillment");
+const shopifyTrackingCorrection = require("./shopify-tracking-correction");
+const shopifyDeliveryNotifications = require("./shopify-delivery-notification-service");
+const { verifyProof: verifyConnectorProof, consumeProof: consumeConnectorProof, securityError: connectorSecurityError, CREDENTIAL_LIFETIME_DAYS } = require("./print-agent/connector-security");
 const {
     afterShipCarrierSlug,
     calculateNextTrackingPoll,
@@ -152,10 +165,21 @@ const APP_BUILD_FILES = [
     "index.html",
     "portal.html",
     "login.html",
+    "warehouse-actions.html",
+    "mobile-login.html",
+    "mobile-receive.html",
     "mobile-pick.html",
+    "mobile-ship-pdf.html",
     "mobile-count.html",
     "print-agent/package.json",
     "print-agent/wms365-print-agent.js",
+    "print-agent/wms365-print-agent-core.js",
+    "print-agent/connector-dashboard.js",
+    "print-agent/connector-updater.js",
+    "print-agent/connector-security.js",
+    "print-agent/prepare-update.ps1",
+    "print-agent/apply-update.ps1",
+    "print-agent/install-windows.ps1",
     "print-agent/README.md"
 ];
 const APP_BUILD_INFO = createAppBuildInfo(ROOT_DIR, APP_BUILD_FILES);
@@ -245,6 +269,10 @@ const SENDGRID_API_URL = readEnv("SENDGRID_API_URL", "https://api.sendgrid.com")
 const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES = Math.max(0, Number.parseInt(readEnv("PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES", "0") || "0", 10) || 0);
 const PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MS = PORTAL_ORDER_PICK_TICKET_EMAIL_DELAY_MINUTES * 60 * 1000;
 const PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
+const PORTAL_ORDER_RELEASE_AUTO_PRINT_ACCOUNTS = parseReleaseAutoPrintAccounts(
+    readEnv("PORTAL_ORDER_RELEASE_AUTO_PRINT_ACCOUNTS", "")
+);
+const PORTAL_ORDER_RELEASE_AUTO_PRINT_MAX_ATTEMPTS = 10;
 const PORTAL_ORDER_SHIPMENT_EMAIL_SCHEDULER_INTERVAL_MS = 60 * 1000;
 const PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS = Math.max(60 * 1000, Number.parseInt(readEnv("PORTAL_ORDER_SHIPMENT_EMAIL_RETRY_DELAY_MS", "300000") || "300000", 10) || 300000);
 const PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS = Math.max(1, Number.parseInt(readEnv("PORTAL_ORDER_SHIPMENT_EMAIL_MAX_ATTEMPTS", "8") || "8", 10) || 8);
@@ -275,7 +303,7 @@ const AFTERSHIP_TRACKING_API_KEY = readEnv("AFTERSHIP_TRACKING_API_KEY", "");
 const AFTERSHIP_TRACKING_WEBHOOK_SECRET = readEnv("AFTERSHIP_TRACKING_WEBHOOK_SECRET", "");
 const STORE_INTEGRATION_SCHEDULE_TIME_ZONE = readEnv("STORE_INTEGRATION_SCHEDULE_TIME_ZONE", ADMIN_ACTIVITY_DIGEST_TIME_ZONE) || ADMIN_ACTIVITY_DIGEST_TIME_ZONE;
 const CUSTOMER_DAILY_ACCOUNT_UPDATE_EMAIL_TYPE = "CUSTOMER_DAILY_ACCOUNT_UPDATE";
-const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKED", "STAGED"];
+const ACTIVE_PORTAL_ORDER_STATUSES = ["RELEASED", "PICKING", "PICKED", "STAGED"];
 const DEFAULT_RECEIVING_STAGE_LOCATION = "RECEIVING-STAGE";
 const WAREHOUSE_RECEIVING_STAGE_SUFFIX = "REC";
 const WAREHOUSE_INVESTIGATION_HOLD_SUFFIX = "INV";
@@ -320,7 +348,9 @@ const WAREHOUSE_PRINTER_ROLES = Object.freeze({
     PACKING_SLIP: "PACKING_SLIP",
     SHIPPING_LABEL: "SHIPPING_LABEL",
     PALLET_LABEL: "PALLET_LABEL",
-    LOCATION_LABEL: "LOCATION_LABEL"
+    LOCATION_LABEL: "LOCATION_LABEL",
+    BILL_OF_LADING: "BILL_OF_LADING",
+    RECEIVING_DOCUMENT: "RECEIVING_DOCUMENT"
 });
 const REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES = Object.freeze([
     PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL,
@@ -344,7 +374,7 @@ const PORTAL_BUSINESS_TIME_ZONE = "America/New_York";
 const PORTAL_BUSINESS_START_HOUR = 8;
 const PORTAL_BUSINESS_END_HOUR = 16;
 const PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR = 9;
-const PORTAL_B2B_MINIMUM_BUSINESS_DAYS = 2;
+const PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS = 4;
 const PORTAL_KITTING_MINIMUM_BUSINESS_DAYS = 4;
 const PORTAL_KITTING_COMPLETION_BCC_BY_ACCOUNT = Object.freeze({
     HEALTEA: Object.freeze(["landry@drinkhealtea.com"])
@@ -372,7 +402,7 @@ const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readE
 const STORE_INTEGRATION_PROVIDERS = ["SHOPIFY", "SFTP", "BUSINESS_CENTRAL", "WOOCOMMERCE", "BIGCOMMERCE", "AMAZON", "BEST_BUY", "ETSY", "CUSTOM_API"];
 const STORE_INTEGRATION_IMPORT_STATUSES = ["DRAFT", "RELEASED"];
 const STORE_INTEGRATION_SYNC_STATUSES = ["IDLE", "SUCCESS", "WARNING", "ERROR"];
-const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
+const STORE_INTEGRATION_SYNC_SCHEDULES = ["MANUAL", "EVERY_5_MINUTES", "EVERY_15_MINUTES", "EVERY_30_MINUTES", "HOURLY", "WEEKDAYS_5X_0600_1600", "DAILY_3X_0730_1430", "DAILY_0900", "DAILY_1200", "DAILY_1500", "DAILY_1800"];
 const SHOPIFY_SYNC_PROVIDER = "SHOPIFY";
 const SFTP_SYNC_PROVIDER = "SFTP";
 const BUSINESS_CENTRAL_SYNC_PROVIDER = "BUSINESS_CENTRAL";
@@ -664,6 +694,18 @@ const STORE_INTEGRATION_DAILY_SCHEDULE_TIMES = Object.freeze({
     DAILY_1500: { hour: 15, minute: 0 },
     DAILY_1800: { hour: 18, minute: 0 }
 });
+const STORE_INTEGRATION_WEEKDAY_5X_TIMES = Object.freeze([
+    Object.freeze({ hour: 6, minute: 0 }),
+    Object.freeze({ hour: 8, minute: 30 }),
+    Object.freeze({ hour: 11, minute: 0 }),
+    Object.freeze({ hour: 13, minute: 30 }),
+    Object.freeze({ hour: 16, minute: 0 })
+]);
+const STORE_INTEGRATION_DAILY_3X_TIMES = Object.freeze([
+    Object.freeze({ hour: 7, minute: 30 }),
+    Object.freeze({ hour: 11, minute: 30 }),
+    Object.freeze({ hour: 14, minute: 30 })
+]);
 
 const BILLING_FEE_SEED = [
     { code: "STANDARD_PALLET_STORAGE", category: "Storage", name: "Standard pallet storage (48 x 40 x standard height)", unitLabel: "per pallet per month", defaultRate: 0 },
@@ -791,6 +833,7 @@ let lastSiteTrafficCleanupAt = 0;
 let portalOrderPickTicketEmailSchedulerStarted = false;
 let portalOrderPickTicketEmailSchedulerRunning = false;
 let portalOrderPickTicketEmailSchedulerTimer = null;
+let portalOrderReleaseAutoPrintRunning = false;
 let portalOrderShipmentEmailSchedulerStarted = false;
 let portalOrderShipmentEmailSchedulerRunning = false;
 let portalOrderShipmentEmailSchedulerTimer = null;
@@ -1145,20 +1188,41 @@ function applySecurityHeaders(req, res, next) {
     next();
 }
 
+function isStateChangingRequestOriginAllowed({
+    origin = "",
+    requestHost = "",
+    pathName = "",
+    publicAppUrl = APP_BASE_URL,
+    publicSiteUrl = PUBLIC_SITE_URL,
+    publicApiAllowedOrigins = PUBLIC_API_ALLOWED_ORIGINS
+} = {}) {
+    const requestOrigin = normalizeOriginUrl(origin);
+    if (!String(origin || "").trim()) return true;
+    if (!requestOrigin) return false;
+    const originHost = new URL(requestOrigin).host;
+    const trustedHosts = [requestHost, publicAppUrl, publicSiteUrl]
+        .map((value) => normalizeHostName(value))
+        .filter(Boolean);
+    if (trustedHosts.includes(normalizeHostName(originHost))) return true;
+    const allowedOrigins = publicApiAllowedOrigins instanceof Set
+        ? publicApiAllowedOrigins
+        : new Set(Array.from(publicApiAllowedOrigins || []));
+    return PUBLIC_API_CORS_PATHS.has(String(pathName || "").split("?")[0])
+        && allowedOrigins.has(requestOrigin);
+}
+
 function requireSameOriginForStateChanges(req, _res, next) {
     if (!IS_PRODUCTION || !["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
     const origin = String(req.get("origin") || "").trim();
-    if (!origin) return next();
-    try {
-        const originHost = new URL(origin).host;
-        const requestHost = String(req.get("host") || "").trim();
-        const publicAppHost = APP_BASE_URL ? new URL(APP_BASE_URL).host : "";
-        const publicSiteHost = PUBLIC_SITE_URL ? new URL(PUBLIC_SITE_URL).host : "";
-        if ([requestHost, publicAppHost, publicSiteHost].filter(Boolean).includes(originHost)) return next();
-    } catch (_error) {
-        return next(httpError(403, "Invalid request origin."));
-    }
-    return next(httpError(403, "Cross-site state-changing requests are not allowed."));
+    if (isStateChangingRequestOriginAllowed({
+        origin,
+        requestHost: String(req.get("host") || "").trim(),
+        pathName: req.path || req.url || ""
+    })) return next();
+    const message = normalizeOriginUrl(origin)
+        ? "Cross-site state-changing requests are not allowed."
+        : "Invalid request origin.";
+    return next(httpError(403, message));
 }
 
 function loginRateLimit(req, _res, next) {
@@ -1211,11 +1275,15 @@ const jsonBodyParser = express.json({
         }
     }
 });
+const portalDocumentBodyParser = express.json({ limit: MAX_PORTAL_DOCUMENT_REQUEST_BYTES });
+const connectorBodyParser = express.json({ limit: "64kb", verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } });
 app.use((req, res, next) => {
     const pathName = req.path || req.url || "";
+    if (pathName.startsWith("/api/print-agent/") || pathName === "/api/app/print-connector/enroll") return connectorBodyParser(req, res, next);
     if (pathName === "/api/site/stripe-webhook") {
         return next();
     }
+    if (isPortalDocumentJsonRequest(req.method, pathName)) return portalDocumentBodyParser(req, res, next);
     return jsonBodyParser(req, res, next);
 });
 app.use(express.urlencoded({ extended: false, limit: "64kb" }));
@@ -1522,10 +1590,120 @@ async function getHealteaApiOrderByCode(client, orderCode) {
 
 function normalizeHealteaOrderStatusFilter(value = "") {
     const normalized = normalizeText(value || "");
-    if (!normalized || normalized === "OPEN") return ["DRAFT", "RELEASED", "PICKED", "STAGED"];
-    if (normalized === "ALL") return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"];
-    const allowed = new Set(["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"]);
-    return allowed.has(normalized) ? [normalized] : ["DRAFT", "RELEASED", "PICKED", "STAGED"];
+    if (!normalized || normalized === "OPEN") return ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"];
+    if (normalized === "ALL") return ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED"];
+    const allowed = new Set(["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED"]);
+    return allowed.has(normalized) ? [normalized] : ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"];
+}
+
+function getHealteaMonthEndPeriod(value) {
+    const rawMonth = String(value || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(rawMonth)) throw httpError(400, "Month must use YYYY-MM format.");
+    const month = normalizeBillingMonth(rawMonth);
+    const [year, monthNumber] = month.split("-").map((part) => Number.parseInt(part, 10));
+    if (!year || monthNumber < 1 || monthNumber > 12) throw httpError(400, "Month must use YYYY-MM format.");
+    const next = new Date(Date.UTC(year, monthNumber, 1));
+    return {
+        month,
+        startDate: `${month}-01`,
+        endDateExclusive: `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-01`,
+        timeZone: "America/Toronto"
+    };
+}
+
+function mapHealteaMonthEndRow(row = {}) {
+    return Object.fromEntries(Object.entries(row).map(([key, value]) => [
+        key.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
+        value instanceof Date ? value.toISOString() : value
+    ]));
+}
+
+async function buildHealteaMonthEndActivity(client, monthInput) {
+    const period = getHealteaMonthEndPeriod(monthInput);
+    const params = [HEALTEA_API_ACCOUNT_NAME, period.startDate, period.endDateExclusive];
+    const company = await client.query("select id, name, is_active from owner_accounts where name = $1", [HEALTEA_API_ACCOUNT_NAME]);
+    if (company.rowCount !== 1 || company.rows[0].name !== HEALTEA_API_ACCOUNT_NAME || company.rows[0].is_active !== true) {
+        throw httpError(503, "HEALTEA company scope is unavailable.");
+    }
+    const outbound = await client.query(`
+        select o.order_code, o.status, o.po_number, o.order_type, o.shipment_method,
+               coalesce(o.confirmed_ship_date, (o.shipped_at at time zone 'America/Toronto')::date) as ship_date,
+               o.shipped_carrier_name, o.outbound_total_pallets,
+               l.line_number, l.sku, l.requested_quantity,
+               coalesce(sl.shipped_quantity, 0) as shipped_quantity
+          from portal_orders o
+          join portal_order_lines l on l.order_id = o.id
+          left join portal_order_shipment_lines sl on sl.order_id = o.id and sl.order_line_id = l.id
+         where o.account_name = $1
+           and coalesce(o.confirmed_ship_date, (o.shipped_at at time zone 'America/Toronto')::date) >= $2::date
+           and coalesce(o.confirmed_ship_date, (o.shipped_at at time zone 'America/Toronto')::date) < $3::date
+           and o.status = 'SHIPPED'
+         order by ship_date, o.order_code, l.line_number
+    `, params);
+    const inbound = await client.query(`
+        select i.inbound_code, i.status, i.reference_number, i.carrier_name,
+               (i.received_at at time zone 'America/Toronto')::date as received_date,
+               l.line_number, l.sku, l.expected_quantity,
+               coalesce(l.received_quantity, 0) as received_quantity,
+               l.received_location, l.lot_number, l.expiration_date
+          from portal_inbounds i
+          join portal_inbound_lines l on l.inbound_id = i.id
+         where i.account_name = $1
+           and (i.received_at at time zone 'America/Toronto')::date >= $2::date
+           and (i.received_at at time zone 'America/Toronto')::date < $3::date
+           and i.status <> 'CANCELLED'
+         order by received_date, i.inbound_code, l.line_number
+    `, params);
+    const inventory = await client.query(`
+        select (t.server_timestamp at time zone 'America/Toronto') as activity_time,
+               t.transaction_type, t.source_type, t.source_id, t.location,
+               t.sku, t.lot_number, t.expiration_date, t.quantity_delta,
+               t.quantity_before, t.quantity_after
+          from inventory_transactions t
+         where t.account_name = $1
+           and (t.server_timestamp at time zone 'America/Toronto')::date >= $2::date
+           and (t.server_timestamp at time zone 'America/Toronto')::date < $3::date
+         order by t.server_timestamp, t.id
+    `, params);
+    const billing = await client.query(`
+        select service_date, fee_category, fee_code, fee_name, unit_label,
+               quantity, rate, amount, currency_code, status,
+               source_type, source_ref, reference, note
+          from billing_events
+         where account_name = $1
+           and service_date >= $2::date and service_date < $3::date
+           and lower(status) not in ('void', 'voided')
+         order by service_date, id
+    `, params);
+    const outboundRows = outbound.rows.map(mapHealteaMonthEndRow);
+    const inboundRows = inbound.rows.map(mapHealteaMonthEndRow);
+    const inventoryRows = inventory.rows.map(mapHealteaMonthEndRow);
+    const billingRows = billing.rows.map(mapHealteaMonthEndRow);
+    const unique = (rows, key) => new Set(rows.map((row) => row[key]).filter(Boolean)).size;
+    const sum = (rows, key) => rows.reduce((total, row) => total + (Number(row[key]) || 0), 0);
+    return {
+        accountName: HEALTEA_API_ACCOUNT_NAME,
+        period,
+        generatedAt: new Date().toISOString(),
+        summary: {
+            shippedOrders: unique(outboundRows, "orderCode"),
+            shippedLineQuantity: sum(outboundRows, "shippedQuantity"),
+            receivedInbounds: unique(inboundRows, "inboundCode"),
+            receivedLineQuantity: sum(inboundRows, "receivedQuantity"),
+            inventoryTransactions: inventoryRows.length,
+            netInventoryQuantityChange: sum(inventoryRows, "quantityDelta"),
+            billingRows: billingRows.length,
+            billingAmountByCurrency: Object.fromEntries(Object.entries(billingRows.reduce((totals, row) => {
+                const currency = normalizeText(row.currencyCode || "USD") || "USD";
+                totals[currency] = (totals[currency] || 0) + (Number(row.amount) || 0);
+                return totals;
+            }, {})).map(([currency, amount]) => [currency, roundBillingNumber(amount, 2)]))
+        },
+        outbound: outboundRows,
+        inbound: inboundRows,
+        inventoryActivity: inventoryRows,
+        billing: billingRows
+    };
 }
 
 function buildHealteaApiShippedLines(order, inputLines = []) {
@@ -1603,6 +1781,17 @@ healteaApiRouter.get("/health", (_req, res) => {
         databaseReady,
         timestamp: new Date().toISOString()
     });
+});
+
+healteaApiRouter.get("/month-end/activity", async (req, res, next) => {
+    try {
+        const report = await buildHealteaMonthEndActivity(pool, req.query?.month);
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Content-Disposition", `attachment; filename="healtea-month-end-${report.period.month}.json"`);
+        res.json({ success: true, report });
+    } catch (error) {
+        next(error);
+    }
 });
 
 healteaApiRouter.get("/orders", async (req, res, next) => {
@@ -1767,10 +1956,42 @@ app.get("/secure/integration-credential", async (req, res) => {
     }
 });
 
+app.post("/secure/integration-credential/test", async (req, res) => {
+    try {
+        assertDatabaseAvailable();
+        const token = String(req.body?.token || req.query?.token || "").trim();
+        const shopDomain = normalizeShopifyShopDomain(req.body?.shopDomain || req.body?.shop || "");
+        if (!shopDomain) {
+            throw httpError(400, "Enter the permanent Shopify domain, such as store-name.myshopify.com.");
+        }
+        const credential = normalizeSubmittedIntegrationCredential(req.body?.credential || req.body?.accessToken || req.body?.access_token || "");
+        if (!credential || credential.length < 20) {
+            throw httpError(400, "Enter the Shopify Admin API access token before testing.");
+        }
+        if (credential.length > 12000) {
+            throw httpError(400, "The submitted credential is longer than expected. Please verify the Shopify token and try again.");
+        }
+        const request = await getIntegrationCredentialRequestByToken(pool, token);
+        const result = await testSubmittedShopifyCredential(request, credential, { shopDomain });
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).json({ success: true, ...result });
+    } catch (error) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(error.statusCode || 400).json({
+            success: false,
+            error: error.message || "The Shopify connection test failed."
+        });
+    }
+});
+
 app.post("/secure/integration-credential", async (req, res) => {
     try {
         assertDatabaseAvailable();
         const token = String(req.body?.token || req.query?.token || "").trim();
+        const shopDomain = normalizeShopifyShopDomain(req.body?.shopDomain || req.body?.shop || "");
+        if (!shopDomain) {
+            throw httpError(400, "Enter the permanent Shopify domain, such as store-name.myshopify.com.");
+        }
         const credential = normalizeSubmittedIntegrationCredential(req.body?.credential || req.body?.accessToken || req.body?.access_token || "");
         if (!credential || credential.length < 20) {
             throw httpError(400, "Enter the Shopify Admin API access token before submitting.");
@@ -1779,7 +2000,10 @@ app.post("/secure/integration-credential", async (req, res) => {
             throw httpError(400, "The submitted credential is longer than expected. Please verify the Shopify token and try again.");
         }
 
-        const result = await withTransaction(async (client) => submitIntegrationCredentialRequest(client, token, credential));
+        const request = await getIntegrationCredentialRequestByToken(pool, token);
+        const verification = await testSubmittedShopifyCredential(request, credential, { shopDomain });
+        const configuration = normalizeSecureShopifyConfiguration(req.body || {}, request, verification);
+        const result = await withTransaction(async (client) => submitIntegrationCredentialRequest(client, token, credential, { shopDomain, configuration }));
         res.setHeader("Cache-Control", "no-store");
         res.status(200).send(renderIntegrationCredentialRequestPage({
             mode: "success",
@@ -2385,7 +2609,8 @@ app.post("/api/print-agent/heartbeat", async (req, res, next) => {
     try {
         const station = await requireWarehousePrintAgent(req);
         const result = await updateWarehousePrintStationHeartbeat(pool, station, req.body || {}, req);
-        res.json({ success: true, station: result.station, serverTime: new Date().toISOString() });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ success: true, station: result.station, credentialExpiresAt: station.credential_expires_at || null, serverTime: new Date().toISOString() });
     } catch (error) {
         next(error);
     }
@@ -4647,12 +4872,17 @@ app.get("/api/admin/portal-access", async (req, res, next) => {
 app.get("/api/admin/portal-orders", async (req, res, next) => {
     try {
         const requestedAccount = normalizeText(req.query?.accountName || req.query?.account_name || "");
+        const requestedStatusInput = normalizeText(req.query?.status || "");
+        const requestedStatus = normalizePortalOrderStatus(requestedStatusInput);
+        if (requestedStatusInput && !requestedStatus) {
+            throw httpError(400, "Choose a valid sales order status.");
+        }
         if (requestedAccount) {
             await assertAppUserCompanyAccess(pool, req.appUser, requestedAccount);
         }
         const orders = requestedAccount
-            ? await getPortalOrderListForAccount(requestedAccount)
-            : await getAdminPortalOrderList();
+            ? await getPortalOrderListForAccount(requestedAccount, pool, { status: requestedStatus })
+            : await getAdminPortalOrderList(pool, { status: requestedStatus });
         res.setHeader("Cache-Control", "no-store");
         if (isSuperAdminUser(req.appUser)) {
             res.json({ orders });
@@ -4971,6 +5201,38 @@ app.post("/api/admin/warehouse-shipments/:id/tracking-events", async (req, res, 
     }
 });
 
+app.post("/api/admin/integrations/:id/delivery-notification-review", requireWarehouseAdmin(), async (req, res, next) => {
+    try {
+        const integrationId = toPositiveInt(req.params.id);
+        if (!integrationId) throw httpError(400, "A valid integration id is required.");
+        const integration = await getStoreIntegrationRowById(pool, integrationId);
+        if (!integration) throw httpError(404, "That integration could not be found.");
+        await assertAppUserCompanyAccess(pool, req.appUser, integration.account_name);
+        await assertCompanyFeatureEnabled(pool, integration.account_name, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+        await assertCompanyFeatureEnabled(pool, integration.account_name, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+        const settings = await shopifyDeliveryNotifications.recordShopifyNotificationConfiguration({
+            db: pool,
+            integrationId,
+            accountName: integration.account_name,
+            event: normalizeText(req.body?.event || ""),
+            state: normalizeText(req.body?.state || ""),
+            reviewedBy: req.appUser?.email || req.appUser?.full_name || "Warehouse admin",
+            evidenceRef: normalizeFreeText(req.body?.evidenceRef || "")
+        });
+        res.json({
+            success: true,
+            settings,
+            capabilities: shopifyDeliveryNotifications.getDeliveryNotificationCapabilities({
+                id: "WMS365_SYSTEM_EMAIL",
+                emailConfigured: hasSystemEmailConfig(),
+                sendEMAIL: sendSystemEmail
+            })
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get("/api/admin/warehouse-tasks/:id/history", async (req, res, next) => {
     try {
         const taskId = toPositiveInt(req.params.id);
@@ -5138,7 +5400,7 @@ app.get("/api/admin/portal-orders/batch-pick-tickets.pdf", async (req, res, next
                 if (!order) {
                     throw httpError(404, `Order ${orderId} could not be found.`);
                 }
-                if (!["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status)) {
+                if (!["RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(order.status)) {
                     throw httpError(400, `${order.orderCode || `Order ${orderId}`} is ${order.status} and cannot have a pick ticket printed.`);
                 }
                 await recordPortalOrderPrintEvent(client, orderId, PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET, req.appUser);
@@ -5236,8 +5498,17 @@ app.post("/api/admin/portal-orders/:id/documents", async (req, res, next) => {
         }
         const order = await withTransaction(async (client) => {
             const accountName = await getPortalOrderAccountNameById(client, orderId);
-            await assertAppUserCompanyAccess(client, req.appUser, accountName);
+            const { fulfillmentLocationIds } = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+                accountName,
+                orderId,
+                resourceType: "PORTAL_ORDER_DOCUMENT",
+                resourceId: orderId
+            });
             await assertCompanyFeatureEnabled(client, accountName, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+            const currentOrder = await getPortalOrderById(client, orderId, accountName, "/api/admin/portal-order-documents");
+            if (!currentOrder || !scopePortalOrderToFulfillmentLocationIds(currentOrder, fulfillmentLocationIds || [])) {
+                throw httpError(404, "That sales order could not be found.");
+            }
             const actor = req.appUser?.full_name || req.appUser?.email || "Warehouse";
             return savePortalOrderDocumentsForAccount(client, accountName, orderId, req.body || {}, {
                 downloadPathPrefix: "/api/admin/portal-order-documents",
@@ -6573,9 +6844,14 @@ app.get("/api/portal/orders", async (req, res, next) => {
     try {
         const session = await requirePortalSession(req);
         assertCompanyFeatureEnabledForOwnerRow(session.accessRow, COMPANY_FEATURE_KEYS.ORDER_ENTRY);
+        const requestedStatusInput = normalizeText(req.query?.status || "");
+        const requestedStatus = normalizePortalOrderStatus(requestedStatusInput);
+        if (requestedStatusInput && !requestedStatus) {
+            throw httpError(400, "Choose a valid sales order status.");
+        }
         res.setHeader("Cache-Control", "no-store");
         res.json({
-            orders: await getPortalOrdersForAccount(session.access.accountName)
+            orders: await getPortalOrdersForAccount(session.access.accountName, pool, { status: requestedStatus })
         });
     } catch (error) {
         if (error.statusCode === 401) {
@@ -7398,6 +7674,50 @@ app.get("/mobile-pick", async (req, res) => {
         clearAppSessionCookie(res, req);
         res.redirect(buildWarehouseLoginRedirect(req, "/mobile-pick"));
     }
+});
+
+async function sendAuthenticatedWarehouseModule(req, res, fileName, returnPath) {
+    try {
+        await requireAppSession(req);
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.sendFile(path.join(ROOT_DIR, fileName));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(buildWarehouseLoginRedirect(req, returnPath));
+    }
+}
+
+app.get(["/warehouse-actions", "/warehouse-actions.html"], (req, res) => {
+    void sendAuthenticatedWarehouseModule(req, res, "warehouse-actions.html", "/warehouse-actions");
+});
+
+app.get(["/mobile/warehouse", "/mobile/warehouse/"], async (req, res) => {
+    try {
+        await requireAppSession(req);
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+        res.sendFile(path.join(ROOT_DIR, "warehouse-actions.html"));
+    } catch (_error) {
+        clearAppSessionCookie(res, req);
+        res.redirect(`/mobile/login?next=${encodeURIComponent("/mobile/warehouse")}`);
+    }
+});
+
+app.get(["/mobile/login", "/mobile/login/"], (req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet, noai, noimageai");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    res.sendFile(path.join(ROOT_DIR, "mobile-login.html"));
+});
+
+app.get(["/mobile-receive", "/mobile-receive.html"], (req, res) => {
+    void sendAuthenticatedWarehouseModule(req, res, "mobile-receive.html", "/mobile-receive");
+});
+
+app.get(["/mobile/ship-pdf", "/mobile/ship-pdf/", "/mobile-ship-pdf", "/mobile-ship-pdf.html"], (req, res) => {
+    void sendAuthenticatedWarehouseModule(req, res, "mobile-ship-pdf.html", "/mobile/ship-pdf");
 });
 
 app.get("/mobile-pick.html", async (req, res) => {
@@ -9526,11 +9846,12 @@ async function initializeDatabase() {
             archived_at timestamptz,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
-            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))
+            constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKING', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))
         );
     `);
     await pool.query("alter table portal_orders alter column order_code drop not null");
     await pool.query("alter table portal_orders alter column order_code drop default");
+    await pool.query("alter table portal_orders add column if not exists picking_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists picked_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists staged_at timestamptz");
     await pool.query("alter table portal_orders add column if not exists shipped_at timestamptz");
@@ -9607,7 +9928,7 @@ async function initializeDatabase() {
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_ship_to_address_status_check");
     await pool.query("alter table portal_orders add constraint portal_orders_ship_to_address_status_check check (ship_to_address_status in ('SAVED','VERIFIED','OVERRIDDEN','PENDING','INTERNAL'))");
     await pool.query("alter table portal_orders drop constraint if exists portal_orders_status_check");
-    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))");
+    await pool.query("alter table portal_orders add constraint portal_orders_status_check check (status in ('DRAFT', 'RELEASED', 'PICKING', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED'))");
     await pool.query("create index if not exists idx_portal_orders_pick_ticket_email_due on portal_orders (pick_ticket_email_status, pick_ticket_email_scheduled_at)");
     await pool.query("create index if not exists idx_portal_orders_shipment_email_due on portal_orders (shipment_email_status, shipment_email_scheduled_at)");
     await pool.query("create unique index if not exists idx_portal_orders_duplicate_source on portal_orders (duplicated_from_order_id) where duplicated_from_order_id is not null");
@@ -10066,7 +10387,7 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("alter table warehouse_shipments drop constraint if exists warehouse_shipments_status_check");
-    await pool.query("alter table warehouse_shipments add constraint warehouse_shipments_status_check check (status in ('RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED'))");
+    await pool.query("alter table warehouse_shipments add constraint warehouse_shipments_status_check check (status in ('RELEASED', 'PICKING', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED'))");
     await pool.query(`
         create table if not exists warehouse_shipment_lines (
             id bigserial primary key,
@@ -10506,6 +10827,22 @@ async function initializeDatabase() {
     `);
     await pool.query("create index if not exists idx_warehouse_print_job_events_job on warehouse_print_job_events (job_id, created_at desc)");
     await pool.query(`
+        create table if not exists portal_order_release_auto_prints (
+            order_id bigint primary key references portal_orders(id) on delete cascade,
+            account_name text not null,
+            status text not null default 'PENDING',
+            print_job_id bigint references warehouse_print_jobs(id) on delete set null,
+            attempts integer not null default 0,
+            next_attempt_at timestamptz not null default now(),
+            last_error text not null default '',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint portal_order_release_auto_prints_status_check
+                check (status in ('PENDING', 'PROCESSING', 'QUEUED', 'FAILED', 'SKIPPED'))
+        );
+    `);
+    await pool.query("create index if not exists idx_portal_order_release_auto_prints_due on portal_order_release_auto_prints (status, next_attempt_at, order_id)");
+    await pool.query(`
         create table if not exists portal_inbound_documents (
             id bigserial primary key,
             inbound_id bigint not null references portal_inbounds(id) on delete cascade,
@@ -10797,7 +11134,7 @@ async function initializeDatabase() {
             constraint store_integrations_provider_check check (provider in ('SHOPIFY', 'SFTP', 'BUSINESS_CENTRAL', 'WOOCOMMERCE', 'BIGCOMMERCE', 'AMAZON', 'BEST_BUY', 'ETSY', 'CUSTOM_API')),
             constraint store_integrations_import_status_check check (import_status in ('DRAFT', 'RELEASED')),
             constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'RUNNING', 'SUCCESS', 'WARNING', 'ERROR')),
-            constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))
+            constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'WEEKDAYS_5X_0600_1600', 'DAILY_3X_0730_1430', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))
         );
     `);
     await pool.query("alter table store_integrations add column if not exists integration_name text not null default ''");
@@ -10823,7 +11160,7 @@ async function initializeDatabase() {
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_status_check");
     await pool.query("alter table store_integrations add constraint store_integrations_sync_status_check check (last_sync_status in ('IDLE', 'RUNNING', 'SUCCESS', 'WARNING', 'ERROR'))");
     await pool.query("alter table store_integrations drop constraint if exists store_integrations_sync_schedule_check");
-    await pool.query("alter table store_integrations add constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))");
+    await pool.query("alter table store_integrations add constraint store_integrations_sync_schedule_check check (sync_schedule in ('MANUAL', 'EVERY_5_MINUTES', 'EVERY_15_MINUTES', 'EVERY_30_MINUTES', 'HOURLY', 'WEEKDAYS_5X_0600_1600', 'DAILY_3X_0730_1430', 'DAILY_0900', 'DAILY_1200', 'DAILY_1500', 'DAILY_1800'))");
     await pool.query("update store_integrations set next_scheduled_sync_at = null where is_active = false or sync_schedule = 'MANUAL'");
     await pool.query("update store_integrations set next_scheduled_sync_at = now() where is_active = true and sync_schedule <> 'MANUAL' and next_scheduled_sync_at is null");
     await pool.query("create index if not exists idx_store_integrations_sync_claim on store_integrations (sync_claimed_at) where sync_claimed_at is not null");
@@ -12057,7 +12394,7 @@ async function getServerState(client = pool, { billingEventLimit = 1000, appUser
                 left join (
                     select
                         a.inventory_line_id,
-                        coalesce(sum(case when o.status = 'RELEASED' then a.allocated_quantity else 0 end), 0)::integer as released_quantity,
+                        coalesce(sum(case when o.status in ('RELEASED', 'PICKING') then a.allocated_quantity else 0 end), 0)::integer as released_quantity,
                         coalesce(sum(case when o.status = 'PICKED' then a.allocated_quantity else 0 end), 0)::integer as picked_quantity,
                         coalesce(sum(case when o.status = 'STAGED' then a.allocated_quantity else 0 end), 0)::integer as staged_quantity,
                         coalesce(sum(a.allocated_quantity), 0)::integer as active_quantity
@@ -14300,6 +14637,7 @@ async function assertAssignedMobileTaskForWorker(client, req, {
 
 function taskTypesForPortalOrderStatus(status) {
     const normalized = normalizeText(status);
+    if (normalized === "PICKING") return ["PICK"];
     if (normalized === "PICKED") return ["PICK"];
     if (normalized === "STAGED") return ["PACK"];
     if (normalized === "SHIPPED") return ["SHIP"];
@@ -14847,6 +15185,7 @@ async function getIntegrationCredentialRequestByToken(client, token, { lock = fa
                 i.integration_name,
                 i.store_identifier,
                 i.settings,
+                i.import_status,
                 i.is_active,
                 i.sync_schedule
             from integration_credential_requests r
@@ -14878,6 +15217,7 @@ async function getIntegrationCredentialRequestByToken(client, token, { lock = fa
         integrationName: row.integration_name || "",
         storeIdentifier: row.store_identifier || "",
         settings: sanitizeStoreIntegrationSettingsInput(row.provider, row.settings || {}),
+        importStatus: normalizeText(row.import_status || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT",
         isActive: row.is_active === true,
         syncSchedule: normalizeStoreIntegrationSyncSchedule(row.sync_schedule || "MANUAL"),
         expiresAt: expiresAt.toISOString(),
@@ -14899,27 +15239,151 @@ function normalizeSubmittedIntegrationCredential(value) {
     return text;
 }
 
-async function submitIntegrationCredentialRequest(client, token, credential) {
+async function testSubmittedShopifyCredential(request, credential, { shopDomain: submittedShopDomain = "", fetchImpl = fetch } = {}) {
+    if (request?.provider !== SHOPIFY_SYNC_PROVIDER) {
+        throw httpError(400, "This secure link is not configured for a Shopify credential.");
+    }
+    const configuredShopDomain = normalizeShopifyShopDomain(request.storeIdentifier);
+    const shopDomain = normalizeShopifyShopDomain(submittedShopDomain || configuredShopDomain);
+    if (!shopDomain) {
+        throw httpError(400, "Enter the permanent Shopify domain, such as store-name.myshopify.com.");
+    }
+    if (configuredShopDomain && shopDomain !== configuredShopDomain) {
+        throw httpError(400, `This secure link is locked to ${configuredShopDomain}.`);
+    }
+    const accessToken = normalizeSubmittedIntegrationCredential(credential);
+    const response = await fetchImpl(buildShopifyAdminApiUrl(shopDomain, "/graphql.json"), {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": accessToken
+        },
+        body: JSON.stringify({
+            query: `query Wms365CredentialTest {
+                shop { name myshopifyDomain }
+                currentAppInstallation { accessScopes { handle } }
+                locations(first: 50) { nodes { id legacyResourceId name isActive } }
+            }`
+        }),
+        signal: AbortSignal.timeout(30000)
+    });
+    const text = await response.text();
+    let payload = {};
+    try {
+        payload = text ? JSON.parse(text) : {};
+    } catch (_error) {
+        payload = {};
+    }
+    if (!response.ok || payload?.errors?.length) {
+        const details = payload?.errors?.length
+            ? payload.errors.map((entry) => entry?.message || String(entry)).join("; ")
+            : extractShopifyErrorDetails(payload, text, response.statusText || "Shopify rejected the connection test.");
+        const status = response.status === 401 || response.status === 403 ? 401 : 502;
+        throw httpError(status, `Shopify connection test failed: ${details}`);
+    }
+    const shop = payload?.data?.shop || {};
+    const returnedDomain = normalizeShopifyShopDomain(shop.myshopifyDomain || "");
+    if (!returnedDomain || returnedDomain !== shopDomain) {
+        throw httpError(400, `The token belongs to ${returnedDomain || "a different Shopify store"}, not ${shopDomain}.`);
+    }
+    const grantedScopes = [...new Set((payload?.data?.currentAppInstallation?.accessScopes || [])
+        .map((entry) => String(entry?.handle || "").trim())
+        .filter(Boolean))].sort();
+    const requiredScopes = [...new Set(String(SHOPIFY_APP_SCOPES || "")
+        .split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean))];
+    const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
+    if (missingScopes.length) {
+        throw httpError(400, `The Shopify token is valid for ${shopDomain}, but it is missing required permissions: ${missingScopes.join(", ")}.`);
+    }
+    const locations = (payload?.data?.locations?.nodes || []).map((location) => ({
+        id: String(location?.legacyResourceId || String(location?.id || "").split("/").pop() || "").trim(),
+        name: normalizeFreeText(location?.name || ""),
+        active: location?.isActive !== false
+    })).filter((location) => location.id && location.active);
+    return {
+        shopDomain,
+        shopName: normalizeFreeText(shop.name || ""),
+        verifiedPermissions: requiredScopes,
+        locations
+    };
+}
+
+function normalizeSecureShopifyConfiguration(input = {}, request = {}, verification = {}) {
+    const enabled = (value) => value === "on" || value === true || value === "true";
+    const syncOrders = enabled(input.syncOrders);
+    const syncInventory = enabled(input.syncInventory);
+    const syncShipmentConfirmations = enabled(input.syncShipmentConfirmations);
+    if (!syncOrders && !syncInventory && !syncShipmentConfirmations) {
+        throw httpError(400, "Select at least one Shopify sync service.");
+    }
+    const locationId = normalizeText(input.shopifyLocationId || "");
+    const verifiedLocation = (verification.locations || []).find((location) => location.id === locationId);
+    if (syncInventory && !verifiedLocation) {
+        throw httpError(400, "Select a verified Shopify location before enabling stock sync.");
+    }
+    if (locationId && !verifiedLocation) {
+        throw httpError(400, "The selected Shopify location was not returned by the connection test.");
+    }
+    const countryMode = normalizeText(input.allowedShipCountries || "CA");
+    const allowedShipCountries = countryMode === "ALL" ? [] : normalizeStoreOrderAllowedCountries(countryMode.split(","));
+    const syncSchedule = normalizeStoreIntegrationSyncSchedule(input.syncSchedule || request.syncSchedule || "MANUAL");
+    const importStatus = normalizeText(input.importStatus || request.importStatus || "DRAFT") === "RELEASED" ? "RELEASED" : "DRAFT";
+    return {
+        syncSchedule,
+        importStatus,
+        settings: sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, {
+            ...(request.settings || {}),
+            shopifyLocationId: locationId,
+            primaryLocationName: verifiedLocation?.name || "",
+            allowedShipCountries,
+            syncOrders,
+            syncInventory,
+            syncShipmentConfirmations,
+            notifyCustomerOnFulfillment: enabled(input.notifyCustomerOnFulfillment)
+        })
+    };
+}
+
+async function submitIntegrationCredentialRequest(client, token, credential, { shopDomain: submittedShopDomain = "", configuration = null } = {}) {
     const request = await getIntegrationCredentialRequestByToken(client, token, { lock: true });
     if (request.provider !== SHOPIFY_SYNC_PROVIDER) {
         throw httpError(400, "This secure link is not configured for a Shopify credential.");
     }
+    const configuredShopDomain = normalizeShopifyShopDomain(request.storeIdentifier);
+    const shopDomain = normalizeShopifyShopDomain(submittedShopDomain || configuredShopDomain);
+    if (!shopDomain) {
+        throw httpError(400, "Enter the permanent Shopify domain, such as store-name.myshopify.com.");
+    }
+    if (configuredShopDomain && shopDomain !== configuredShopDomain) {
+        throw httpError(400, `This secure link is locked to ${configuredShopDomain}.`);
+    }
+    if (!configuration) {
+        throw httpError(400, "Complete and test the Shopify sync configuration before submitting.");
+    }
     const encryptedCredential = encryptSecret(normalizeSubmittedIntegrationCredential(credential));
-    const nextScheduledSyncAt = computeNextStoreIntegrationSyncAt(request.syncSchedule, { lastSyncedAt: null });
+    const nextScheduledSyncAt = computeNextStoreIntegrationSyncAt(configuration.syncSchedule, { lastSyncedAt: null });
     const integrationResult = await client.query(
         `
             update store_integrations
-            set access_token = $2,
+            set store_identifier = $2,
+                access_token = $3,
                 access_token_expires_at = null,
                 is_active = true,
-                next_scheduled_sync_at = $3,
+                next_scheduled_sync_at = $4,
+                settings = $5::jsonb,
+                sync_schedule = $6,
+                import_status = $7,
                 last_sync_status = 'IDLE',
                 last_sync_message = 'Credential submitted securely. Waiting for next sync.',
                 updated_at = now()
             where id = $1
             returning *
         `,
-        [request.integrationId, encryptedCredential, nextScheduledSyncAt]
+        [request.integrationId, shopDomain, encryptedCredential, nextScheduledSyncAt,
+            JSON.stringify(configuration.settings), configuration.syncSchedule, configuration.importStatus]
     );
     if (integrationResult.rowCount !== 1) {
         throw httpError(404, "The linked integration could not be found.");
@@ -14949,17 +15413,139 @@ function renderIntegrationCredentialRequestPage({ request = null, integration = 
     const storeIdentifier = request?.storeIdentifier || integration?.storeIdentifier || "";
     const expiresAt = request?.expiresAt ? new Date(request.expiresAt).toLocaleString("en-US", { timeZone: STORE_INTEGRATION_SCHEDULE_TIME_ZONE }) : "";
     const settings = request?.settings || integration?.settings || {};
+    const configuredShopDomain = normalizeShopifyShopDomain(storeIdentifier);
+    const allowedCountries = Array.isArray(settings.allowedShipCountries) ? settings.allowedShipCountries : [];
+    const countryMode = !allowedCountries.length ? "ALL" : allowedCountries.join(",");
     const companyScopeNotice = accountName
         ? `This secure link is unique to ${accountName}. It can only update this company's ${providerLabel} connection in WMS365 and must not be forwarded or reused for another company.`
         : "This secure link is unique to one WMS365 company connection and must not be forwarded or reused for another company.";
     const formHtml = request && !isSuccess && !errorMessage ? `
-        <form method="post" action="/secure/integration-credential" autocomplete="off">
+        <form id="credential-form" method="post" action="/secure/integration-credential" autocomplete="off">
             <input type="hidden" name="token" value="${escapeHtml(token)}">
+            <label for="shop-domain">Permanent Shopify domain</label>
+            <input id="shop-domain" name="shopDomain" type="text" required autocomplete="off" spellcheck="false" inputmode="url" value="${escapeHtml(configuredShopDomain)}" placeholder="store-name.myshopify.com" ${configuredShopDomain ? "readonly" : ""}>
+            <p class="hint">Use the permanent <strong>.myshopify.com</strong> domain shown in Shopify Settings, not the public customer-facing website address.</p>
             <label for="credential">Shopify Admin API access token</label>
             <textarea id="credential" name="credential" rows="5" required autocomplete="off" spellcheck="false" placeholder="Paste the Shopify Admin API access token here"></textarea>
-            <p class="hint">The token is encrypted immediately and this link can only be used once. Do not email the token.</p>
-            <button type="submit">Submit Securely</button>
+            <p class="hint">First test the token against the store and required permissions. The token is encrypted when submitted and this link can only be used once. Do not email the token.</p>
+            <fieldset id="sync-configuration">
+              <legend>Choose what WMS365 should synchronize</legend>
+              <label class="check-row"><input name="syncOrders" type="checkbox" ${settings.syncOrders !== false ? "checked" : ""}><span><strong>Order sync</strong><small>Import eligible Shopify orders into WMS365.</small></span></label>
+              <label class="check-row"><input name="syncInventory" type="checkbox" ${settings.syncInventory === true ? "checked" : ""}><span><strong>Stock sync</strong><small>Send WMS365 available inventory to the selected Shopify location.</small></span></label>
+              <label class="check-row"><input name="syncShipmentConfirmations" type="checkbox" ${settings.syncShipmentConfirmations !== false ? "checked" : ""}><span><strong>Shipment and tracking sync</strong><small>Update Shopify fulfillments when WMS365 ships an order.</small></span></label>
+              <label class="check-row"><input name="notifyCustomerOnFulfillment" type="checkbox" ${settings.notifyCustomerOnFulfillment !== false ? "checked" : ""}><span><strong>Shopify buyer notification</strong><small>Allow Shopify to send its standard shipping notification after fulfillment.</small></span></label>
+              <div class="field-grid">
+                <label><span>Shopify fulfillment location</span><select id="shopify-location" name="shopifyLocationId"><option value="${escapeHtml(settings.shopifyLocationId || "")}">${escapeHtml(settings.primaryLocationName || "Test the connection to load locations")}</option></select></label>
+                <label><span>Automatic sync schedule</span><select name="syncSchedule">
+                  <option value="MANUAL" ${request.syncSchedule === "MANUAL" ? "selected" : ""}>Manual only</option>
+                  <option value="EVERY_15_MINUTES" ${request.syncSchedule === "EVERY_15_MINUTES" ? "selected" : ""}>Every 15 minutes</option>
+                  <option value="EVERY_30_MINUTES" ${request.syncSchedule === "EVERY_30_MINUTES" ? "selected" : ""}>Every 30 minutes</option>
+                  <option value="HOURLY" ${request.syncSchedule === "HOURLY" ? "selected" : ""}>Hourly</option>
+                  <option value="DAILY_0900" ${request.syncSchedule === "DAILY_0900" ? "selected" : ""}>Daily at 9:00 AM ET</option>
+                  <option value="DAILY_1200" ${request.syncSchedule === "DAILY_1200" ? "selected" : ""}>Daily at 12:00 PM ET</option>
+                  <option value="DAILY_1500" ${request.syncSchedule === "DAILY_1500" ? "selected" : ""}>Daily at 3:00 PM ET</option>
+                  <option value="DAILY_1800" ${request.syncSchedule === "DAILY_1800" ? "selected" : ""}>Daily at 6:00 PM ET</option>
+                </select></label>
+                <label><span>Import new orders as</span><select name="importStatus"><option value="DRAFT" ${request.importStatus !== "RELEASED" ? "selected" : ""}>Draft for review</option><option value="RELEASED" ${request.importStatus === "RELEASED" ? "selected" : ""}>Released to warehouse</option></select></label>
+                <label><span>Import orders shipping to</span><select name="allowedShipCountries">
+                  <option value="CA" ${countryMode === "CA" ? "selected" : ""}>Canada only</option>
+                  <option value="US" ${countryMode === "US" ? "selected" : ""}>United States only</option>
+                  <option value="CA,US" ${countryMode === "CA,US" || countryMode === "US,CA" ? "selected" : ""}>Canada and United States</option>
+                  <option value="ALL" ${countryMode === "ALL" ? "selected" : ""}>All destinations</option>
+                </select></label>
+              </div>
+              <div id="configuration-summary" class="notice scope">Test the connection to load the store's active Shopify locations.</div>
+            </fieldset>
+            <div class="actions"><button id="test-button" type="button">Test connection</button><button id="submit-button" type="submit" disabled>Submit securely</button></div>
+            <div id="test-result" role="status" aria-live="polite"></div>
         </form>
+        <script>
+          (() => {
+            const form = document.getElementById('credential-form');
+            const shopDomain = document.getElementById('shop-domain');
+            const credential = document.getElementById('credential');
+            const testButton = document.getElementById('test-button');
+            const submitButton = document.getElementById('submit-button');
+            const result = document.getElementById('test-result');
+            const locationSelect = document.getElementById('shopify-location');
+            const configurationSummary = document.getElementById('configuration-summary');
+            let testedFingerprint = '';
+            let verifiedLocations = [];
+            const configurationError = () => {
+              const services = ['syncOrders','syncInventory','syncShipmentConfirmations'].filter((name) => form.elements[name].checked);
+              if (!services.length) return 'Select at least one sync service.';
+              if (form.elements.syncInventory.checked && !locationSelect.value) return 'Select the Shopify location used for stock sync.';
+              return '';
+            };
+            const updateReadyState = () => {
+              const error = configurationError();
+              submitButton.disabled = !testedFingerprint || Boolean(error);
+              configurationSummary.className = 'notice ' + (error ? 'error' : 'scope');
+              configurationSummary.textContent = error || 'Configuration ready. Review the selections, then submit securely.';
+            };
+            const invalidateTest = () => {
+              testedFingerprint = '';
+              submitButton.disabled = true;
+              result.className = '';
+              result.textContent = '';
+            };
+            shopDomain.addEventListener('input', invalidateTest);
+            credential.addEventListener('input', invalidateTest);
+            testButton.addEventListener('click', async () => {
+              const domain = shopDomain.value.trim().toLowerCase().replace(/^https?:\\/\\//, '').replace(/\\/.*$/, '');
+              const value = credential.value.trim();
+              if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/i.test(domain)) {
+                result.className = 'notice error';
+                result.textContent = 'Enter the permanent Shopify domain in the form store-name.myshopify.com.';
+                return;
+              }
+              if (!value) {
+                result.className = 'notice error';
+                result.textContent = 'Paste the Shopify Admin API access token before testing.';
+                return;
+              }
+              testButton.disabled = true;
+              submitButton.disabled = true;
+              result.className = 'notice scope';
+              result.textContent = 'Testing the store identity and required permissions...';
+              try {
+                const response = await fetch('/secure/integration-credential/test', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ token: form.elements.token.value, shopDomain: domain, credential: value })
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.success) throw new Error(payload.error || 'The Shopify connection test failed.');
+                shopDomain.value = payload.shopDomain;
+                testedFingerprint = payload.shopDomain + '\n' + value;
+                verifiedLocations = Array.isArray(payload.locations) ? payload.locations : [];
+                const previousLocation = locationSelect.value;
+                locationSelect.innerHTML = '<option value="">Select a Shopify location</option>' + verifiedLocations.map((location) => '<option value="' + location.id + '">' + location.name + '</option>').join('');
+                if (verifiedLocations.some((location) => location.id === previousLocation)) locationSelect.value = previousLocation;
+                result.className = 'notice success';
+                result.textContent = 'Connection verified for ' + payload.shopDomain + '. Required permissions are available and store locations were loaded.';
+                updateReadyState();
+              } catch (error) {
+                testedFingerprint = '';
+                result.className = 'notice error';
+                result.textContent = error.message;
+              } finally {
+                testButton.disabled = false;
+              }
+            });
+            form.querySelectorAll('#sync-configuration input, #sync-configuration select').forEach((control) => control.addEventListener('change', updateReadyState));
+            form.addEventListener('submit', (event) => {
+              const domain = shopDomain.value.trim().toLowerCase();
+              const configError = configurationError();
+              if (!testedFingerprint || testedFingerprint !== domain + '\n' + credential.value.trim() || configError) {
+                event.preventDefault();
+                submitButton.disabled = true;
+                result.className = 'notice error';
+                result.textContent = configError || 'Test the current token successfully before submitting.';
+              }
+            });
+          })();
+        </script>
     ` : "";
     const detailRows = [
         ["Company", accountName],
@@ -14986,8 +15572,9 @@ function renderIntegrationCredentialRequestPage({ request = null, integration = 
     h1{font-size:28px;margin:0 0 10px}p{margin:0 0 14px}.hint,.meta{color:var(--muted);font-size:14px}
     table{border-collapse:collapse;width:100%;margin:18px 0}td{border-top:1px solid var(--line);padding:10px 0;vertical-align:top}td:first-child{width:170px;font-weight:700;color:#31475b}
     label{display:block;font-weight:700;margin:18px 0 8px}
-    textarea{width:100%;box-sizing:border-box;border:1px solid #b8c8d8;border-radius:6px;padding:12px;font:14px Consolas,monospace;resize:vertical}
-    button{margin-top:14px;background:var(--brand);color:#fff;border:0;border-radius:6px;padding:13px 18px;font-size:16px;font-weight:700;cursor:pointer}
+    input,textarea,select{width:100%;box-sizing:border-box;border:1px solid #b8c8d8;border-radius:6px;padding:12px;font:14px Arial,sans-serif}textarea{font-family:Consolas,monospace;resize:vertical}input[readonly]{background:#eef3f6;color:#4c6072}
+    fieldset{border:1px solid var(--line);border-radius:6px;margin:22px 0 0;padding:16px}legend{font-weight:800;padding:0 6px}.check-row{display:flex;align-items:flex-start;gap:10px;margin:10px 0}.check-row input{width:18px;height:18px;margin:3px 0 0}.check-row span{display:block}.check-row small{display:block;color:var(--muted);font-weight:400}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}.field-grid label{margin:0}.field-grid label span{display:block;margin-bottom:6px}@media(max-width:620px){.field-grid{grid-template-columns:1fr}}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}button{background:var(--brand);color:#fff;border:0;border-radius:6px;padding:13px 18px;font-size:16px;font-weight:700;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.5}
     .notice{border-radius:6px;padding:14px 16px;margin:16px 0}.success{background:#ecfdf5;color:var(--good);border:1px solid #bbf7d0}.error{background:#fef2f2;color:var(--bad);border:1px solid #fecaca}.scope{background:#eff6ff;color:#173b63;border:1px solid #bfdbfe}
     footer{margin-top:18px;color:var(--muted);font-size:13px}
   </style>
@@ -15855,6 +16442,12 @@ async function importStoreOrdersForIntegration(client, integrationRow, orders, a
                 throw httpError(409, `${orderLabel} was already imported by another sync.`);
             }
 
+            await client.query(`insert into shopify_tracking_order_contacts
+                (integration_id,order_id,account_name,external_order_id,recipient_email,shopify_order_number)
+                values ($1,$2,$3,$4,$5,$6) on conflict (integration_id,order_id) do update
+                set recipient_email=excluded.recipient_email,shopify_order_number=excluded.shopify_order_number,updated_at=now()`,
+                [integrationRow.id, importedOrder.id, integrationRow.account_name, externalOrderId,
+                    normalizeEmail(order.email || order.contact_email || ""), normalizeFreeText(order.name || "")]);
             let finalOrder = importedOrder;
             if ((integrationRow.import_status || "DRAFT") === "RELEASED") {
                 try {
@@ -16230,7 +16823,7 @@ function extractShopifyErrorDetails(payload, text, fallback = "Shopify request f
     return text || fallback;
 }
 
-async function shopifyAdminRequestForIntegration(integrationRow, resourcePath, { method = "GET", body = null } = {}) {
+async function shopifyAdminRequestForIntegration(integrationRow, resourcePath, { method = "GET", body = null, retryAuthorization = true } = {}) {
     let forceRefresh = false;
     let activeIntegrationRow = integrationRow;
 
@@ -16274,6 +16867,7 @@ async function shopifyAdminRequestForIntegration(integrationRow, resourcePath, {
         }
 
         if ((response.status === 401 || response.status === 403)
+            && retryAuthorization
             && integrationHasShopifyClientCredentials(activeIntegrationRow)
             && !forceRefresh) {
             forceRefresh = true;
@@ -16588,18 +17182,86 @@ function normalizeShopifyTrackingCompany(value) {
 }
 
 function buildShopifyFulfillmentTrackingInfo(order = {}) {
-    const trackingNumber = normalizeFreeText(order.shippedTrackingReference || "");
+    const rawTrackingNumber = String(order.shippedTrackingReference || "");
+    const trackingNumber = normalizeFreeText(rawTrackingNumber);
     const trackingCompany = normalizeShopifyTrackingCompany(order.shippedCarrierName || "");
-    const trackingReferences = splitShipmentTrackingReferences(trackingNumber);
+    const trackingReferences = [...new Set(splitShipmentTrackingReferences(rawTrackingNumber)
+        .map(normalizeExtractedTrackingNumber)
+        .filter(Boolean))];
+    const shipmentTrackers = Array.isArray(order.shipmentTracking) ? order.shipmentTracking : [];
+    const trackerByReference = new Map(shipmentTrackers
+        .map((tracker) => [normalizeExtractedTrackingNumber(tracker?.trackingNumber || tracker?.tracking_number), tracker])
+        .filter(([reference]) => Boolean(reference)));
+    if (!trackingNumber && !trackingCompany) return null;
+
+    if (trackingReferences.length > 1) {
+        const trackingEntries = trackingReferences.map((reference) => {
+            const tracker = trackerByReference.get(reference) || null;
+            const carrierName = normalizeFreeText(tracker?.carrierName || tracker?.carrier_name || "");
+            const carrierHint = carrierName || (!shipmentTrackers.length ? order.shippedCarrierName || trackingCompany : "");
+            return {
+                number: reference,
+                company: normalizeShopifyTrackingCompany(carrierName || carrierHint),
+                url: buildCarrierTrackingUrl(carrierHint, reference)
+                    || normalizeFreeText(tracker?.trackingUrl || tracker?.tracking_url || "")
+            };
+        });
+        const companies = [...new Set(trackingEntries.map((entry) => entry.company).filter(Boolean))];
+        const urls = trackingEntries.map((entry) => entry.url);
+        return {
+            numbers: trackingReferences,
+            ...(urls.every(Boolean) ? { urls } : {}),
+            ...(companies.length === 1 ? { company: companies[0] } : {})
+        };
+    }
+
     const trackingUrl = trackingReferences.length === 1
         ? buildCarrierTrackingUrl(order.shippedCarrierName || trackingCompany, trackingReferences[0])
         : "";
-    if (!trackingNumber && !trackingCompany) return null;
     return {
-        ...(trackingNumber ? { number: trackingNumber } : {}),
+        ...(trackingReferences[0] ? { number: trackingReferences[0] } : {}),
         ...(trackingCompany ? { company: trackingCompany } : {}),
         ...(trackingUrl ? { url: trackingUrl } : {})
     };
+}
+
+function assertShopifyNativeNotificationConfiguration(integrationRow, notifications = {}, carrierFulfillmentEventsEnabled = false) {
+    if (!carrierFulfillmentEventsEnabled) return;
+    const integrationId = String(integrationRow?.id || "");
+    const accountName = normalizeText(integrationRow?.account_name || integrationRow?.accountName || "");
+    const invalidEvents = ["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"].filter((event) => {
+        const review = notifications?.shopifyNativeEvents?.[event];
+        const reviewedAt = Date.parse(review?.reviewedAt || "");
+        return review?.state !== "DISABLED"
+            || normalizeText(review?.companyId || "") !== accountName
+            || String(review?.storeId || "") !== integrationId
+            || !Number.isFinite(reviewedAt)
+            || reviewedAt > Date.now()
+            || !normalizeFreeText(review?.reviewedBy || "")
+            || !normalizeFreeText(review?.evidenceRef || "");
+    });
+    if (invalidEvents.length) {
+        throw httpError(409, `${invalidEvents.join(", ")} require a current Shopify native DISABLED review before carrier fulfillment events can be enabled.`);
+    }
+}
+
+async function getShopifyInitialNotifyCustomer(integrationRow, options = {}) {
+    const integration = integrationRow;
+    const trackingSettings = sanitizeStoreIntegrationSettingsInput(SHOPIFY_SYNC_PROVIDER, integration?.settings || {});
+    const carrierFulfillmentEventsEnabled = trackingSettings.carrierFulfillmentEventsEnabled === true;
+    if (!carrierFulfillmentEventsEnabled) return trackingSettings.notifyCustomerOnFulfillment !== false;
+    const getNotificationSettings = options.getNotificationSettings
+        || ((scope) => shopifyDeliveryNotifications.getDeliveryNotificationSettings({ db: pool, ...scope }));
+    const notifications = await getNotificationSettings({
+        integrationId: integration.id,
+        accountName: integration.account_name
+    });
+    assertShopifyNativeNotificationConfiguration(integration, notifications, trackingSettings.carrierFulfillmentEventsEnabled);
+    return trackingSettings.notifyCustomerOnFulfillment !== false
+        && notifications?.enabled === true
+        && ["SHOPIFY", "BOTH"].includes(notifications?.mode)
+        && Array.isArray(notifications?.events)
+        && notifications.events.includes("SHIPPED");
 }
 
 function isShopifyFulfillmentOrderFulfillable(fulfillmentOrder) {
@@ -16627,10 +17289,10 @@ async function fetchShopifyFulfillmentOrdersForIntegration(integrationRow, exter
     };
 }
 
-function buildShopifyFulfillmentRequestBody(order, fulfillmentOrders, { notifyCustomer = true } = {}) {
+function buildShopifyFulfillmentRequestBody(order, fulfillmentOrders, { notifyCustomer = true, lineItemsByFulfillmentOrder = null } = {}) {
     const trackingInfo = buildShopifyFulfillmentTrackingInfo(order);
     const fulfillment = {
-        line_items_by_fulfillment_order: fulfillmentOrders.map((fulfillmentOrder) => ({
+        line_items_by_fulfillment_order: lineItemsByFulfillmentOrder || fulfillmentOrders.map((fulfillmentOrder) => ({
             fulfillment_order_id: fulfillmentOrder.id
         })),
         notify_customer: notifyCustomer === true,
@@ -16655,7 +17317,9 @@ function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
         shippedAt: order?.shippedAt || "",
         shippedCarrierName: order?.shippedCarrierName || "",
         shippedTrackingReference: order?.shippedTrackingReference || "",
-        shippedTrackingUrl: buildShopifyFulfillmentTrackingInfo(order)?.url || "",
+        shippedTrackingUrl: buildShopifyFulfillmentTrackingInfo(order)?.url
+            || buildShopifyFulfillmentTrackingInfo(order)?.urls?.[0]
+            || "",
         lines: Array.isArray(order?.lines)
             ? order.lines.map((line) => ({
                 sku: line.sku || "",
@@ -16665,6 +17329,26 @@ function buildShopifyFulfillmentExportPayload(order, externalOrderId) {
             }))
             : []
     };
+}
+
+async function buildPartialShopifyFulfillmentRequestLines(integrationRow, order, externalOrderId, fulfillmentOrders) {
+    const result = await shopifyAdminRequestForIntegration(
+        integrationRow,
+        `/orders/${encodeURIComponent(String(externalOrderId))}.json?fields=id,line_items`
+    );
+    const shopifyOrder = result.payload?.order;
+    if (String(shopifyOrder?.id || "") !== String(externalOrderId) || !Array.isArray(shopifyOrder?.line_items)) {
+        throw httpError(409, "Shopify did not return the matching order lines for partial fulfillment.");
+    }
+    const mappings = await pool.query(
+        "select external_sku,local_sku,local_quantity_multiplier from store_sku_mappings where integration_id=$1 and account_name=$2",
+        [integrationRow.id, order.accountName]
+    );
+    try {
+        return buildPartialFulfillmentLines(order, fulfillmentOrders, shopifyOrder.line_items, mappings.rows);
+    } catch (error) {
+        throw httpError(409, error.message);
+    }
 }
 
 async function fetchShopifyOrderFulfillmentsForIntegration(integrationRow, externalOrderId) {
@@ -16707,11 +17391,14 @@ function selectShopifyFulfillmentForTrackingUpdate(fulfillments = [], trackingNu
 
 async function updateShopifyFulfillmentTrackingForImportedOrder(integrationRow, order, externalOrderId, { notifyCustomer = false } = {}) {
     const trackingInfo = buildShopifyFulfillmentTrackingInfo(order);
-    if (!trackingInfo?.number) {
+    const trackingReferences = Array.isArray(trackingInfo?.numbers)
+        ? trackingInfo.numbers
+        : [trackingInfo?.number].filter(Boolean);
+    if (!trackingReferences.length) {
         return { updated: false, reason: "WMS365 does not have a tracking number to send." };
     }
     const fulfillmentResult = await fetchShopifyOrderFulfillmentsForIntegration(integrationRow, externalOrderId);
-    const fulfillment = selectShopifyFulfillmentForTrackingUpdate(fulfillmentResult.fulfillments, trackingInfo.number);
+    const fulfillment = selectShopifyFulfillmentForTrackingUpdate(fulfillmentResult.fulfillments, trackingReferences[0]);
     if (!fulfillment?.id) {
         return {
             updated: false,
@@ -16720,6 +17407,46 @@ async function updateShopifyFulfillmentTrackingForImportedOrder(integrationRow, 
                 : "Shopify did not return an existing fulfillment to update."
         };
     }
+    if (trackingReferences.length > 1) {
+        const fulfillmentId = normalizeFreeText(fulfillment.admin_graphql_api_id || "")
+            || `gid://shopify/Fulfillment/${fulfillment.id}`;
+        const result = await shopifyAdminRequestForIntegration(
+            fulfillmentResult.integrationRow,
+            "/graphql.json",
+            {
+                method: "POST",
+                body: {
+                    query: `mutation FulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInput!, $notifyCustomer: Boolean) {
+                        fulfillmentTrackingInfoUpdate(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput, notifyCustomer: $notifyCustomer) {
+                            fulfillment { id status trackingInfo { company number url } }
+                            userErrors { field message }
+                        }
+                    }`,
+                    variables: {
+                        fulfillmentId,
+                        trackingInfoInput: trackingInfo,
+                        notifyCustomer: notifyCustomer === true
+                    }
+                }
+            }
+        );
+        const graphqlErrors = Array.isArray(result.payload?.errors) ? result.payload.errors : [];
+        const mutation = result.payload?.data?.fulfillmentTrackingInfoUpdate || null;
+        const userErrors = Array.isArray(mutation?.userErrors) ? mutation.userErrors : [];
+        if (graphqlErrors.length || userErrors.length || !mutation?.fulfillment) {
+            const details = [...graphqlErrors, ...userErrors]
+                .map((entry) => normalizeFreeText(entry?.message || entry))
+                .filter(Boolean)
+                .join("; ");
+            throw httpError(400, details || "Shopify did not accept the multi-package tracking update.");
+        }
+        return {
+            updated: true,
+            shopDomain: result.shopDomain || fulfillmentResult.shopDomain || "",
+            fulfillment: mutation.fulfillment
+        };
+    }
+
     const result = await shopifyAdminRequestForIntegration(
         fulfillmentResult.integrationRow,
         `/fulfillments/${encodeURIComponent(String(fulfillment.id))}/update_tracking.json`,
@@ -16740,10 +17467,13 @@ async function updateShopifyFulfillmentTrackingForImportedOrder(integrationRow, 
     };
 }
 
-async function createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId) {
+async function createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId, options = {}) {
     const fulfillmentOrderResult = await fetchShopifyFulfillmentOrdersForIntegration(integrationRow, externalOrderId);
     const fulfillableOrders = fulfillmentOrderResult.fulfillmentOrders.filter(isShopifyFulfillmentOrderFulfillable);
     if (!fulfillableOrders.length) {
+        if (options.partialShipment === true) {
+            return { skipped: true, reason: "Shopify has no open fulfillment lines for this partial shipment; review the existing fulfillment before retrying." };
+        }
         const trackingUpdate = await updateShopifyFulfillmentTrackingForImportedOrder(
             fulfillmentOrderResult.integrationRow,
             order,
@@ -16767,8 +17497,11 @@ async function createShopifyFulfillmentForImportedOrder(integrationRow, order, e
         };
     }
 
-    const notifyCustomer = fulfillmentOrderResult.integrationRow?.settings?.notifyCustomerOnFulfillment !== false;
-    const fulfillmentPayload = buildShopifyFulfillmentRequestBody(order, fulfillableOrders, { notifyCustomer });
+    const notifyCustomer = await getShopifyInitialNotifyCustomer(fulfillmentOrderResult.integrationRow, options);
+    const lineItemsByFulfillmentOrder = options.partialShipment === true
+        ? await buildPartialShopifyFulfillmentRequestLines(integrationRow, order, externalOrderId, fulfillableOrders)
+        : null;
+    const fulfillmentPayload = buildShopifyFulfillmentRequestBody(order, fulfillableOrders, { notifyCustomer, lineItemsByFulfillmentOrder });
     const fulfillmentResult = await shopifyAdminRequestForIntegration(
         fulfillmentOrderResult.integrationRow,
         "/fulfillments.json",
@@ -16780,6 +17513,7 @@ async function createShopifyFulfillmentForImportedOrder(integrationRow, order, e
 
     return {
         skipped: false,
+        notifyCustomerRequested: notifyCustomer,
         shopDomain: fulfillmentResult.shopDomain || fulfillmentOrderResult.shopDomain || "",
         fulfillment: fulfillmentResult.payload?.fulfillment || null,
         fulfillmentOrderCount: fulfillableOrders.length
@@ -18261,6 +18995,88 @@ async function requirePortalSession(req, client = pool) {
     };
 }
 
+async function getPortalInventoryPoolSources(client, accountName, portalFulfillmentLocationId) {
+    const normalizedAccount = normalizeText(accountName);
+    const targetId = toPositiveInt(portalFulfillmentLocationId);
+    if (!normalizedAccount || !targetId) return [];
+    const result = await client.query(
+        `
+            select
+                cfl.fulfillment_location_id,
+                fl.code,
+                fl.name,
+                cfl.fulfillment_location_id <> $2::bigint as requires_internal_transfer
+            from company_fulfillment_locations cfl
+            join fulfillment_locations fl
+              on fl.id = cfl.fulfillment_location_id
+             and fl.is_active = true
+            where cfl.account_name = $1
+              and cfl.allow_storage = true
+              and (
+                    cfl.fulfillment_location_id = $2
+                    or cfl.portal_inventory_rollup_location_id = $2
+              )
+            order by
+                case when cfl.fulfillment_location_id = $2 then 0 else 1 end,
+                fl.code asc
+        `,
+        [normalizedAccount, targetId]
+    );
+    return result.rows;
+}
+
+function aggregatePortalInventoryWarehouseAvailability(rows = []) {
+    const grouped = new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+        const sku = normalizeText(row?.sku || "");
+        const portalFulfillmentLocationId = String(
+            row?.portal_fulfillment_location_id
+            || row?.portalFulfillmentLocationId
+            || row?.fulfillment_location_id
+            || row?.fulfillmentLocationId
+            || ""
+        );
+        if (!sku || !portalFulfillmentLocationId) continue;
+        const key = `${sku}::${portalFulfillmentLocationId}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, {
+                sku,
+                fulfillmentLocationId: portalFulfillmentLocationId,
+                locationCode: row.portal_location_code || row.portalLocationCode || row.location_code || row.locationCode || "",
+                locationName: row.portal_location_name || row.portalLocationName || row.location_name || row.locationName || "",
+                onHandQuantity: 0,
+                reservedQuantity: 0,
+                availableQuantity: 0,
+                locationCount: 0,
+                locations: [],
+                pooledInventory: false,
+                internalTransferAvailableQuantity: 0
+            });
+        }
+        const entry = grouped.get(key);
+        const onHandQuantity = Math.max(Number(row.on_hand_quantity ?? row.onHandQuantity) || 0, 0);
+        const reservedQuantity = Math.max(Number(row.reserved_quantity ?? row.reservedQuantity) || 0, 0);
+        const sourceId = String(row.fulfillment_location_id || row.fulfillmentLocationId || "");
+        const isTransferSource = sourceId && sourceId !== portalFulfillmentLocationId;
+        entry.onHandQuantity += onHandQuantity;
+        entry.reservedQuantity += reservedQuantity;
+        entry.locationCount += Math.max(Number(row.location_count ?? row.locationCount) || 0, 0);
+        entry.pooledInventory = entry.pooledInventory || isTransferSource;
+        if (isTransferSource) {
+            entry.internalTransferAvailableQuantity += onHandQuantity;
+        } else {
+            const directLocations = Array.isArray(row.locations) ? row.locations.filter(Boolean) : [];
+            entry.locations.push(...directLocations);
+        }
+    }
+    return [...grouped.values()].map((entry) => ({
+        ...entry,
+        availableQuantity: Math.max(entry.onHandQuantity - entry.reservedQuantity, 0),
+        internalTransferAvailableQuantity: Math.max(entry.internalTransferAvailableQuantity, 0),
+        locations: [...new Set(entry.locations)]
+    })).filter((entry) => entry.availableQuantity > 0);
+}
+
 async function getPortalInventorySummary(accountName, client = pool, { fulfillmentLocationId = null } = {}) {
     const normalizedAccount = normalizeText(accountName);
     const requestedFulfillmentLocationId = toPositiveInt(fulfillmentLocationId);
@@ -18410,8 +19226,10 @@ async function getPortalInventorySummary(accountName, client = pool, { fulfillme
                       and (k.fulfillment_location_id is not null or scope.assigned_warehouse_count = 1)
                     group by 1, a.sku
                 )
-                select cfl.fulfillment_location_id, fl.code as location_code,
-                    fl.name as location_name, i.sku,
+                select cfl.fulfillment_location_id,
+                    coalesce(cfl.portal_inventory_rollup_location_id, cfl.fulfillment_location_id) as portal_fulfillment_location_id,
+                    fl.code as location_code, fl.name as location_name,
+                    portal_fl.code as portal_location_code, portal_fl.name as portal_location_name, i.sku,
                     coalesce(sum(case when coalesce(bl.is_pickable, true) = true
                         and coalesce(bl.location_type, 'STORAGE') <> all($2::text[])
                         then i.quantity else 0 end), 0)::integer as on_hand_quantity,
@@ -18429,6 +19247,13 @@ async function getPortalInventorySummary(accountName, client = pool, { fulfillme
                     ), null) as locations
                 from company_fulfillment_locations cfl
                 join fulfillment_locations fl on fl.id = cfl.fulfillment_location_id and fl.is_active = true
+                join fulfillment_locations portal_fl
+                  on portal_fl.id = coalesce(cfl.portal_inventory_rollup_location_id, cfl.fulfillment_location_id)
+                 and portal_fl.is_active = true
+                join company_fulfillment_locations portal_cfl
+                  on portal_cfl.account_name = cfl.account_name
+                 and portal_cfl.fulfillment_location_id = portal_fl.id
+                 and portal_cfl.customer_portal_visible = true
                 join assigned_scope scope on scope.account_name = cfl.account_name
                 join inventory_lines i on i.account_name = cfl.account_name
                     and (
@@ -18456,27 +19281,32 @@ async function getPortalInventorySummary(accountName, client = pool, { fulfillme
                   on kr.fulfillment_location_id = cfl.fulfillment_location_id
                  and kr.sku = i.sku
                 where cfl.account_name = $1
-                group by cfl.fulfillment_location_id, fl.code, fl.name, i.sku, r.reserved_quantity, kr.reserved_quantity
-                order by fl.name asc, i.sku asc
+                  and cfl.allow_storage = true
+                group by cfl.fulfillment_location_id,
+                    coalesce(cfl.portal_inventory_rollup_location_id, cfl.fulfillment_location_id),
+                    fl.code, fl.name, portal_fl.code, portal_fl.name, i.sku,
+                    r.reserved_quantity, kr.reserved_quantity
+                order by portal_fl.name asc, i.sku asc, fl.name asc
             `,
             [normalizedAccount, [...NON_PICKABLE_LOCATION_TYPES], ACTIVE_PORTAL_ORDER_STATUSES]
         )
     ]);
     const availabilityBySku = new Map();
-    warehouseResult.rows.forEach((row) => {
+    aggregatePortalInventoryWarehouseAvailability(warehouseResult.rows).forEach((row) => {
         const sku = normalizeText(row.sku);
         if (!availabilityBySku.has(sku)) availabilityBySku.set(sku, []);
-        const availableQuantity = Math.max(Number(row.pickable_quantity) || 0, 0);
+        const availableQuantity = Math.max(Number(row.availableQuantity) || 0, 0);
         if (availableQuantity <= 0) return;
         availabilityBySku.get(sku).push({
-            fulfillmentLocationId: String(row.fulfillment_location_id),
-            locationCode: row.location_code || "",
-            locationName: row.location_name || row.location_code || "",
-            onHandQuantity: Math.max(Number(row.on_hand_quantity) || 0, 0),
-            reservedQuantity: Math.max(Number(row.reserved_quantity) || 0, 0),
+            fulfillmentLocationId: String(row.fulfillmentLocationId),
+            locationCode: row.locationCode || "",
+            locationName: row.locationName || row.locationCode || "",
+            onHandQuantity: Math.max(Number(row.onHandQuantity) || 0, 0),
+            reservedQuantity: Math.max(Number(row.reservedQuantity) || 0, 0),
             availableQuantity,
-            locationCount: Math.max(Number(row.location_count) || 0, 0),
-            locations: Array.isArray(row.locations) ? row.locations.filter(Boolean) : []
+            locationCount: Math.max(Number(row.locationCount) || 0, 0),
+            locations: Array.isArray(row.locations) ? row.locations.filter(Boolean) : [],
+            pooledInventory: row.pooledInventory === true
         });
     });
     return result.rows.map((row) => {
@@ -19365,20 +20195,29 @@ async function getPortalOrderPrintSummariesForOrders(client, orderIds = []) {
     );
 }
 
-async function getPortalOrdersForAccount(accountName, client = pool) {
+async function getPortalOrdersForAccount(accountName, client = pool, { status = "" } = {}) {
     const normalizedAccount = normalizeText(accountName);
+    const normalizedStatus = normalizePortalOrderStatus(status);
+    const params = [normalizedAccount];
+    const filters = ["account_name = $1", "status <> 'ARCHIVED'"];
+    if (normalizedStatus) {
+        params.push(normalizedStatus);
+        filters.push(`status = $${params.length}`);
+    }
+    params.push(normalizedStatus ? 200 : 100);
+    const limitPlaceholder = `$${params.length}`;
     const ordersResult = await client.query(
         `
             select *
             from portal_orders
-            where account_name = $1
-              and status <> 'ARCHIVED'
+            where ${filters.join(" and ")}
             order by created_at desc, id desc
-            limit 100
+            limit ${limitPlaceholder}
         `,
-        [normalizedAccount]
+        params
     );
 
+    await attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows);
     const orderIds = ordersResult.rows.map((row) => row.id);
     const linesResult = orderIds.length
         ? await client.query(
@@ -19420,13 +20259,18 @@ async function getPortalOrdersForAccount(accountName, client = pool) {
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/portal/order-documents", new Map(), allocationSummaries, shipmentLinesResult.rows, printSummariesResult.rows);
 }
 
-async function getPortalOrderList({ accountName = "", limit = 100, client = pool, downloadPathPrefix = "/api/admin/portal-order-documents" } = {}) {
+async function getPortalOrderList({ accountName = "", status = "", limit = 100, client = pool, downloadPathPrefix = "/api/admin/portal-order-documents" } = {}) {
     const normalizedAccount = normalizeText(accountName);
+    const normalizedStatus = normalizePortalOrderStatus(status);
     const params = [];
     const filters = ["status <> 'ARCHIVED'"];
     if (normalizedAccount) {
         params.push(normalizedAccount);
         filters.push(`account_name = $${params.length}`);
+    }
+    if (normalizedStatus) {
+        params.push(normalizedStatus);
+        filters.push(`status = $${params.length}`);
     }
     params.push(Math.max(1, Math.min(Number(limit) || 100, 200)));
     const limitPlaceholder = `$${params.length}`;
@@ -19441,6 +20285,7 @@ async function getPortalOrderList({ accountName = "", limit = 100, client = pool
         params
     );
 
+    await attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows);
     const orderIds = ordersResult.rows.map((row) => row.id);
     const linesResult = orderIds.length
         ? await client.query(
@@ -19481,11 +20326,12 @@ async function getPortalOrderList({ accountName = "", limit = 100, client = pool
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, downloadPathPrefix, new Map(), new Map(), shipmentLinesResult.rows, printSummariesResult.rows);
 }
 
-async function getPortalOrderListForAccount(accountName, client = pool) {
+async function getPortalOrderListForAccount(accountName, client = pool, { status = "" } = {}) {
     return getPortalOrderList({
         accountName,
+        status,
         client,
-        limit: 100,
+        limit: status ? 200 : 100,
         downloadPathPrefix: "/api/admin/portal-order-documents"
     });
 }
@@ -19523,6 +20369,7 @@ async function getPortalShipmentEmailFailureOrders({ accountName = "", appUser =
         params
     );
 
+    await attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows);
     const orderIds = ordersResult.rows.map((row) => row.id);
     const linesResult = orderIds.length
         ? await client.query(
@@ -19586,6 +20433,7 @@ async function getAdminPortalOrders(client = pool) {
             limit 150
         `
     );
+    await attachPortalInventoryPoolFlagsToOrders(client, ordersResult.rows);
     const orderIds = ordersResult.rows.map((row) => row.id);
     const linesResult = orderIds.length
         ? await client.query(
@@ -19625,10 +20473,11 @@ async function getAdminPortalOrders(client = pool) {
     return mapPortalOrders(ordersResult.rows, linesResult.rows, documentsResult.rows, "/api/admin/portal-order-documents", new Map(), allocationSummaries);
 }
 
-async function getAdminPortalOrderList(client = pool) {
+async function getAdminPortalOrderList(client = pool, { status = "" } = {}) {
     return getPortalOrderList({
+        status,
         client,
-        limit: 150,
+        limit: status ? 200 : 150,
         downloadPathPrefix: "/api/admin/portal-order-documents"
     });
 }
@@ -19638,7 +20487,7 @@ function filterMobilePickOrdersForAppUser(orders, appUser, {
     assignedOrderIds = [],
     accountName = ""
 } = {}) {
-    const pickableStatuses = new Set(["RELEASED", "PICKED", "STAGED"]);
+    const pickableStatuses = new Set(["RELEASED", "PICKING", "PICKED", "STAGED"]);
     const requestedAccount = normalizeText(accountName);
     const allowedCompanies = new Set((accessibleCompanies || []).map(normalizeText).filter(Boolean));
     const assignedIds = new Set((assignedOrderIds || []).map((value) => String(value)).filter(Boolean));
@@ -19694,6 +20543,36 @@ async function getMobilePickOrdersForAppUser(client, appUser, { accountName = ""
     return filterPortalOrdersForAppUserWarehouses(client, roleScopedOrders, appUser);
 }
 
+async function attachPortalInventoryPoolFlagsToOrders(client, orderRows = []) {
+    const ids = [...new Set((orderRows || []).map((row) => toPositiveInt(row?.id)).filter((id) => id > 0))];
+    if (!ids.length) return orderRows;
+    const result = await client.query(
+        `
+            select
+                o.id,
+                exists (
+                    select 1
+                    from company_fulfillment_locations source_cfl
+                    join fulfillment_locations source_fl
+                      on source_fl.id = source_cfl.fulfillment_location_id
+                     and source_fl.is_active = true
+                    where source_cfl.account_name = o.account_name
+                      and source_cfl.allow_storage = true
+                      and source_cfl.portal_inventory_rollup_location_id = o.fulfillment_location_id
+                      and source_cfl.fulfillment_location_id <> o.fulfillment_location_id
+                ) as portal_inventory_pool_enabled
+            from portal_orders o
+            where o.id = any($1::bigint[])
+        `,
+        [ids]
+    );
+    const flags = new Map(result.rows.map((row) => [String(row.id), row.portal_inventory_pool_enabled === true]));
+    for (const row of orderRows) {
+        row.portal_inventory_pool_enabled = flags.get(String(row.id)) === true;
+    }
+    return orderRows;
+}
+
 async function getPortalOrderById(client, orderId, accountName, downloadPathPrefix = "/api/admin/portal-order-documents") {
     const normalizedAccount = normalizeText(accountName);
     const orderResult = await client.query(
@@ -19729,6 +20608,7 @@ async function getPortalOrderById(client, orderId, accountName, downloadPathPref
     if (orderResult.rowCount !== 1) {
         return null;
     }
+    await attachPortalInventoryPoolFlagsToOrders(client, orderResult.rows);
 
     const linesResult = await client.query(
         `
@@ -20439,7 +21319,7 @@ async function savePortalOrderDraftForAccount(
         const readyText = processingTiming.expectedReadyLabel ? ` ${processingTiming.expectedReadyLabel}.` : "";
         throw httpError(
             400,
-            `This ${portalRushApprovalReason(order)} is before the earliest ready date.${readyText} Standard processing requires a minimum of 48 hours / 2 business days, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays. Select RUSH processing or continue with Standard processing before submitting. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
+            `This ${portalRushApprovalReason(order)} is before the earliest ready date.${readyText} Standard processing requires a minimum of ${PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS} business days, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays. Select RUSH processing or continue with Standard processing before submitting. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
         );
     }
     const rushApproved = needsProcessingChoice && order.rushApproved === true;
@@ -21422,9 +22302,27 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
         excludeOrderId: order.id
     });
     const warehouseLocationPrefix = await getWarehouseLocationFilterPrefix(client, normalizedAccount, fulfillmentLocation, { direction: "OUTBOUND" });
+    const portalInventoryPoolSources = fulfillmentLocationId
+        ? await getPortalInventoryPoolSources(client, normalizedAccount, fulfillmentLocationId)
+        : [];
+    const portalInventoryPoolEnabled = portalInventoryPoolSources.some((source) => source.requires_internal_transfer === true);
+    const portalInventoryPoolSourceIds = portalInventoryPoolSources
+        .map((source) => toPositiveInt(source.fulfillment_location_id))
+        .filter((id) => id > 0);
     const inventoryParams = [normalizedAccount, skus, [...NON_PICKABLE_LOCATION_TYPES]];
     const warehouseLocationCode = warehouseLocationPrefix ? warehouseLocationPrefix.slice(0, -1) : "";
-    const warehouseLocationSql = warehouseLocationPrefix && !allowSplitFulfillment
+    const warehouseLocationSql = portalInventoryPoolEnabled && !allowSplitFulfillment
+        ? `and exists (
+                select 1
+                from fulfillment_locations allocation_fl
+                where allocation_fl.id = any($${inventoryParams.length + 1}::bigint[])
+                  and allocation_fl.is_active = true
+                  and (
+                    upper(i.location) = upper(allocation_fl.code)
+                    or upper(i.location) like upper(allocation_fl.code) || '-%'
+                  )
+            )`
+        : warehouseLocationPrefix && !allowSplitFulfillment
         ? `and (upper(i.location) = upper($${inventoryParams.length + 1}) or upper(i.location) like upper($${inventoryParams.length + 2}))`
         : allowSplitFulfillment
             ? `and exists (
@@ -21440,7 +22338,11 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
                   )
             )`
             : "";
-    if (warehouseLocationPrefix && !allowSplitFulfillment) inventoryParams.push(warehouseLocationCode, `${warehouseLocationPrefix}%`);
+    if (portalInventoryPoolEnabled && !allowSplitFulfillment) {
+        inventoryParams.push(portalInventoryPoolSourceIds);
+    } else if (warehouseLocationPrefix && !allowSplitFulfillment) {
+        inventoryParams.push(warehouseLocationCode, `${warehouseLocationPrefix}%`);
+    }
     const inventoryResult = skus.length
         ? await client.query(
             `
@@ -21562,10 +22464,10 @@ async function allocatePortalOrderInventory(client, order, { allowSplitFulfillme
                 return location === warehouseLocationCode || location.startsWith(warehouseLocationPrefix);
             })
             : [];
-        const rowsAtOtherWarehouses = allowSplitFulfillment
+        const rowsAtOtherWarehouses = allowSplitFulfillment || portalInventoryPoolEnabled
             ? allRows.filter((row) => !rowsAtSelectedWarehouse.includes(row))
             : [];
-        const candidateRows = allowSplitFulfillment
+        const candidateRows = allowSplitFulfillment || portalInventoryPoolEnabled
             ? [
                 ...sortInventoryRowsForAllocation(rowsAtSelectedWarehouse, line),
                 ...sortInventoryRowsForAllocation(rowsAtOtherWarehouses, line)
@@ -21733,7 +22635,7 @@ async function releasePortalOrderForAccount(
             const readyText = processingTiming.expectedReadyLabel ? ` ${processingTiming.expectedReadyLabel}.` : "";
             throw httpError(
                 400,
-                `This ${portalRushApprovalReason(order)} is before the earliest ready date.${readyText} Standard processing requires a minimum of 48 hours / 2 business days, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays. Select RUSH processing or continue with Standard processing before releasing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
+                `This ${portalRushApprovalReason(order)} is before the earliest ready date.${readyText} Standard processing requires a minimum of ${PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS} business days, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays. Select RUSH processing or continue with Standard processing before releasing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`
             );
         } else if (!order.rushExempt) {
             await client.query(
@@ -21867,7 +22769,7 @@ async function duplicateWarehousePortalOrder(client, orderId, appUser = null) {
         return { order: await getPortalOrderById(client, existing.rows[0].id, locked.rows[0].account_name), alreadyExists: true };
     }
     const source = await getPortalOrderById(client, normalizedOrderId, locked.rows[0].account_name);
-    if (!source || !["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(source.status)) {
+    if (!source || !["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(source.status)) {
         throw httpError(400, "Only an open or shipped sales order can be duplicated.");
     }
     const actor = appUser?.full_name || appUser?.email || "Warehouse";
@@ -22437,6 +23339,59 @@ function assertOutboundEmailSenderAllowed(mailOptions = {}, context = "System em
     }
 }
 
+const CUSTOMER_FACING_EMAIL_SOURCE_TYPES = new Set([
+    "DELIVERY_APPOINTMENT_CUSTOMER",
+    "INVOICE",
+    "PORTAL_ACCESS",
+    "PORTAL_INBOUND",
+    "PORTAL_INBOUND_OVERDUE",
+    "PORTAL_INBOUND_PRE_ARRIVAL",
+    "PORTAL_KITTING_REQUEST",
+    "PORTAL_KITTING_STATUS",
+    "PORTAL_ORDER_CONFIRMATION",
+    "PORTAL_PASSWORD_RESET_LINK",
+    "PORTAL_USERNAME_RECOVERY",
+    "SHIPMENT_CONFIRMATION",
+    "SHOPIFY_DELIVERY",
+    "SPLIT_FULFILLMENT_NOTICE"
+]);
+
+function isCustomerFacingEmail(mailOptions = {}) {
+    const context = sanitizeEmailLogMetadata(mailOptions.emailContext || mailOptions.context || {});
+    const metadata = sanitizeEmailLogMetadata(mailOptions.metadata || {});
+    if (context.customerFacing === true || metadata.customerFacing === true) return true;
+    const audience = normalizeText(context.audience || metadata.audience || context.recipientClass || metadata.recipientClass || "");
+    if (["CUSTOMER", "CUSTOMER_FACING", "CUSTOMER_BCC_ONLY"].includes(audience)) return true;
+    const sourceType = normalizeText(context.sourceType || metadata.sourceType || mailOptions.sourceType || "");
+    return CUSTOMER_FACING_EMAIL_SOURCE_TYPES.has(sourceType);
+}
+
+function applyCustomerFacingEmailPrivacy(mailOptions = {}) {
+    if (!isCustomerFacingEmail(mailOptions)) return { ...mailOptions };
+    const systemAddress = normalizeEmail(WMS365_SYSTEM_EMAIL_ADDRESS);
+    const privateRecipients = [...new Set([
+        ...asEmailRecipientArray(mailOptions.to),
+        ...asEmailRecipientArray(mailOptions.cc),
+        ...asEmailRecipientArray(mailOptions.bcc)
+    ])].filter((email) => email !== systemAddress);
+    const context = sanitizeEmailLogMetadata(mailOptions.emailContext || mailOptions.context || {});
+    const metadata = sanitizeEmailLogMetadata(mailOptions.metadata || {});
+    return {
+        ...mailOptions,
+        to: systemAddress,
+        cc: "",
+        bcc: privateRecipients.join(", "),
+        emailContext: {
+            ...context,
+            audience: "CUSTOMER_BCC_ONLY"
+        },
+        metadata: {
+            ...metadata,
+            addressingPolicy: "CUSTOMER_BCC_ONLY"
+        }
+    };
+}
+
 function normalizeSystemEmailMailOptions(mailOptions = {}) {
     const forbiddenOptionNames = ["raw", "envelope", "list", "headers", "alternatives", "icalEvent", "amp", "watchHtml"];
     const forbiddenOption = forbiddenOptionNames.find((name) => Object.prototype.hasOwnProperty.call(mailOptions, name));
@@ -22444,6 +23399,7 @@ function normalizeSystemEmailMailOptions(mailOptions = {}) {
         throw httpError(400, `Unsupported system email option: ${forbiddenOption}.`);
     }
 
+    mailOptions = applyCustomerFacingEmailPrivacy(mailOptions);
     const replyToRecipients = asEmailRecipientArray(mailOptions.replyTo || mailOptions.reply_to || SMTP_REPLY_TO);
     const normalizeRecipients = (value, label, { required = false } = {}) => {
         const hasValue = Array.isArray(value) ? value.some(Boolean) : !!String(value || "").trim();
@@ -26232,7 +27188,7 @@ async function getPortalOrderReleaseFulfillmentLocations(client = pool, accountN
     return fulfillmentLocations.rows;
 }
 
-async function getPortalFulfillmentLocationsForAccount(client = pool, accountName = "", { direction = "" } = {}) {
+async function getPortalFulfillmentLocationsForAccount(client = pool, accountName = "", { direction = "", customerPortalOnly = true } = {}) {
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedAccount) return [];
     const normalizedDirection = normalizeText(direction);
@@ -26240,6 +27196,7 @@ async function getPortalFulfillmentLocationsForAccount(client = pool, accountNam
         "cfl.account_name = $1",
         "fl.is_active = true"
     ];
+    if (customerPortalOnly !== false) clauses.push("cfl.customer_portal_visible = true");
     if (normalizedDirection === "INBOUND") clauses.push("cfl.allow_inbound = true");
     if (normalizedDirection === "OUTBOUND") clauses.push("cfl.allow_outbound = true");
     const result = await client.query(
@@ -26641,6 +27598,9 @@ function buildOrderDefaultFulfillmentLocation(order = {}) {
 }
 
 function buildPickLocationFulfillmentLocation(order = {}, pickLocation = {}) {
+    if (order.portalInventoryPoolEnabled === true || order.portal_inventory_pool_enabled === true) {
+        return buildOrderDefaultFulfillmentLocation(order);
+    }
     const matchedLocation = {
         id: pickLocation.fulfillmentLocationId || pickLocation.fulfillment_location_id || "",
         code: pickLocation.fulfillmentLocationCode || pickLocation.fulfillment_location_code || "",
@@ -26815,7 +27775,7 @@ async function syncWarehouseShipmentsForOrder(client, order = {}, { status = "" 
         order.shipmentMethod || order.shipment_method || "LTL_FREIGHT"
     );
     const normalizedStatus = normalizeText(status || order.status || "RELEASED");
-    const shipmentStatus = ["RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(normalizedStatus)
+    const shipmentStatus = ["RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(normalizedStatus)
         ? normalizedStatus
         : "RELEASED";
     const activeShipmentIds = [];
@@ -27092,7 +28052,9 @@ const TRACKING_CARRIER_LINKS = [
     {
         key: "GLS",
         aliases: ["GLS", "GLS CANADA", "GLS US", "DICOM", "DICOM EXPRESS"],
-        buildUrl: (tracking) => `https://gls-group.com/GROUP/en/parcel-tracking?match=${tracking}`
+        buildUrl: (tracking, carrierName) => carrierAliasMatches(normalizeCarrierLookupText(carrierName), "GLS US")
+            ? `https://gls-group.com/GROUP/en/parcel-tracking?match=${tracking}`
+            : `https://ship.gls-canada.com/tracking/${tracking}`
     },
     {
         key: "DAY_ROSS",
@@ -27137,7 +28099,7 @@ const TRACKING_CARRIER_LINKS = [
     {
         key: "ICS_COURIER",
         aliases: ["ICS", "ICS COURIER"],
-        buildUrl: () => "https://www.icscourier.ca/online-services/parcel-tracking.aspx"
+        buildUrl: (tracking) => `https://www.icscourier.ca/online-services/parcel-tracking.aspx?trackNums=${tracking}`
     },
     {
         key: "DRAGONFLY",
@@ -27193,7 +28155,10 @@ function normalizeCarrierLookupText(value) {
 function carrierAliasMatches(normalizedCarrier, alias) {
     const normalizedAlias = normalizeCarrierLookupText(alias);
     return Boolean(normalizedAlias && normalizedCarrier && (
-        normalizedCarrier === normalizedAlias || normalizedCarrier.includes(normalizedAlias)
+        normalizedCarrier === normalizedAlias
+        || normalizedCarrier.startsWith(`${normalizedAlias}_`)
+        || normalizedCarrier.endsWith(`_${normalizedAlias}`)
+        || normalizedCarrier.includes(`_${normalizedAlias}_`)
     ));
 }
 
@@ -27218,7 +28183,7 @@ function buildCarrierTrackingUrl(carrierName = "", trackingNumber = "") {
     if (!tracking) return "";
     const carrier = inferCarrierForTrackingNumber(carrierName, tracking);
     const encodedTracking = encodeURIComponent(tracking);
-    return getCarrierTrackingConfig(carrier)?.buildUrl(encodedTracking) || "";
+    return getCarrierTrackingConfig(carrier)?.buildUrl(encodedTracking, carrierName) || "";
 }
 
 function mapShipmentTrackingEventRow(row = {}) {
@@ -27250,7 +28215,7 @@ function mapShipmentTrackerRow(row = {}, events = []) {
         carrierKey: row.carrier_key || "UNKNOWN",
         carrierName: row.carrier_name || "",
         trackingNumber: row.tracking_number || "",
-        trackingUrl: row.tracking_url || buildCarrierTrackingUrl(row.carrier_name, row.tracking_number),
+        trackingUrl: buildCarrierTrackingUrl(row.carrier_name, row.tracking_number) || row.tracking_url || "",
         status: normalizeTrackingStatus(row.status),
         statusLabel: trackingStatusLabel(row.status),
         statusDetail: row.status_detail || "",
@@ -27297,7 +28262,14 @@ async function getShipmentTrackingForOrder(client, orderId, accountName, { fulfi
         if (!eventsByTracker.has(key)) eventsByTracker.set(key, []);
         eventsByTracker.get(key).push(event);
     }
-    return trackersResult.rows.map((row) => mapShipmentTrackerRow(row, eventsByTracker.get(String(row.id)) || []));
+    const tracking = [];
+    for (const row of trackersResult.rows) {
+        const mapped = mapShipmentTrackerRow(row, eventsByTracker.get(String(row.id)) || []);
+        mapped.shopifyTracking = await shopifyTrackingSync.trackerSyncState(client, row.id);
+        for (const binding of mapped.shopifyTracking) binding.lastCarrierCheckAt = mapped.lastCheckedAt;
+        tracking.push(mapped);
+    }
+    return tracking;
 }
 
 async function appendShipmentTrackingEvent(client, trackerId, rawEvent = {}) {
@@ -27307,19 +28279,21 @@ async function appendShipmentTrackingEvent(client, trackerId, rawEvent = {}) {
         `insert into shipment_tracking_events (
             tracker_id, event_key, provider_event_id, status, raw_status_code,
             description, location, event_at, source, safe_metadata
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'{}'::jsonb)
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
          on conflict (tracker_id, event_key) do nothing
          returning *`,
         [trackerId, event.eventKey, event.providerEventId, event.status, event.rawStatusCode,
-            event.description, event.location, eventAt, event.source]
+            event.description, event.location, eventAt, event.source,
+            JSON.stringify({ carrier_scan: shopifyTrackingSync.CARRIER_SCAN_SOURCES.includes(event.source) && Boolean(event.eventAt) })]
     );
     return inserted.rows[0] || null;
 }
 
-async function applyShipmentTrackingUpdate(client, trackerId, update = {}, { checkedAt = new Date() } = {}) {
+async function applyShipmentTrackingUpdate(client, trackerId, update = {}, { checkedAt = new Date(), expectedClaim = null } = {}) {
     const currentResult = await client.query("select * from shipment_trackers where id = $1 for update", [trackerId]);
     if (currentResult.rowCount !== 1) return null;
     const current = currentResult.rows[0];
+    if (expectedClaim && current.claimed_by !== expectedClaim) return null;
     for (const event of Array.isArray(update.events) ? update.events : []) {
         await appendShipmentTrackingEvent(client, current.id, event);
     }
@@ -27328,9 +28302,19 @@ async function applyShipmentTrackingUpdate(client, trackerId, update = {}, { che
         [current.id]
     );
     const latest = latestResult.rows[0] || null;
-    const status = normalizeTrackingStatus(update.status || latest?.status || current.status);
+    const bindings = await shopifyTrackingSync.bindingForTracker(client, current.id);
+    const enrolled = bindings.find((binding) => binding.enrolled_at);
+    let status = normalizeTrackingStatus(update.status || latest?.status || current.status);
+    const deliveryScan = await client.query(`select * from shipment_tracking_events where tracker_id=$1
+        and status='DELIVERED' and source in ('AFTERSHIP','CANPAR_BROWSER','ICS_COURIER_BROWSER','GLS_BROWSER') and safe_metadata->>'carrier_scan'='true'
+        and event_at<=$2 order by event_at desc,id desc limit 1`, [current.id, checkedAt]);
+    if (enrolled && status === "DELIVERED" && !deliveryScan.rows.length) {
+        status = normalizeTrackingStatus(latest?.status === "DELIVERED" ? "UNKNOWN" : latest?.status || "UNKNOWN");
+    }
     const attempts = Number(current.attempts) || 0;
-    const nextPollAt = calculateNextTrackingPoll({ status, attempts, now: checkedAt });
+    const nextPollAt = enrolled
+        ? shopifyTrackingSync.enrolledPollAt(enrolled, status, checkedAt, 0, current.manual_closed_at)
+        : calculateNextTrackingPoll({ status, attempts, now: checkedAt });
     const updated = await client.query(
         `update shipment_trackers set
             provider_tracker_id = coalesce(nullif($2,''), provider_tracker_id),
@@ -27352,10 +28336,12 @@ async function applyShipmentTrackingUpdate(client, trackerId, update = {}, { che
         [current.id, update.providerTrackerId || "", update.carrierSlug || "", status,
             normalizeFreeText(update.statusDetail || latest?.description || current.status_detail || "").slice(0, 600),
             update.estimatedDelivery || current.estimated_delivery_at || null,
-            update.deliveredAt || (status === "DELIVERED" ? latest?.event_at || checkedAt : null),
+            enrolled ? (status === "DELIVERED" ? deliveryScan.rows[0]?.event_at || null : null)
+                : update.deliveredAt || (status === "DELIVERED" ? latest?.event_at || checkedAt : null),
             latest?.event_at || current.last_event_at || null, checkedAt, nextPollAt,
-            !isTerminalTrackingStatus(status)]
+            enrolled ? Boolean(nextPollAt) : !isTerminalTrackingStatus(status)]
     );
+    await shopifyTrackingSync.queueTrackerEvents(client, current.id);
     return updated.rows[0] || null;
 }
 
@@ -27447,7 +28433,16 @@ async function claimShipmentTrackers(client, { limit = 20, workerId = "" } = {})
     const result = await client.query(
         `with due as (
             select id from shipment_trackers
-            where is_active=true and carrier_slug<>'' and attempts < $1
+            where is_active=true and carrier_slug<>'' and (attempts < $1 or exists (
+                select 1 from shopify_tracking_packages p join shopify_tracking_fulfillments f on f.id=p.fulfillment_binding_id
+                where p.tracker_id=shipment_trackers.id and f.enrolled_at is not null and f.expires_at>now()))
+              and (not exists (select 1 from shopify_tracking_packages p join shopify_tracking_fulfillments f on f.id=p.fulfillment_binding_id
+                    where p.tracker_id=shipment_trackers.id and f.enrolled_at is not null)
+                or exists (select 1 from shopify_tracking_packages p join shopify_tracking_fulfillments f on f.id=p.fulfillment_binding_id
+                    join store_integrations i on i.id=f.integration_id and i.account_name=f.account_name and i.store_identifier=f.store_identifier
+                    where p.tracker_id=shipment_trackers.id and f.enrolled_at is not null and f.expires_at>now()
+                      and i.is_active and i.settings->>'carrierFulfillmentEventsEnabled'='true'))
+              and manual_closed_at is null
               and coalesce(next_poll_at, now()) <= now()
               and (claimed_at is null or claimed_at < now() - interval '15 minutes')
             order by coalesce(next_poll_at, created_at), id
@@ -27468,14 +28463,17 @@ async function runCarrierTrackingWorker({ fetchImpl = fetch } = {}) {
     for (const tracker of trackers) {
         try {
             const update = await fetchAfterShipTrackingStatus(tracker, { fetchImpl });
-            await withTransaction((client) => applyShipmentTrackingUpdate(client, tracker.id, update));
+            await withTransaction((client) => applyShipmentTrackingUpdate(client, tracker.id, update, { expectedClaim: workerId }));
         } catch (error) {
-            const nextPollAt = calculateNextTrackingPoll({ status: tracker.status, attempts: tracker.attempts, now: new Date() });
+            const bindings = await shopifyTrackingSync.bindingForTracker(pool, tracker.id);
+            const enrolled = bindings.find((binding) => binding.enrolled_at);
+            const nextPollAt = enrolled ? shopifyTrackingSync.enrolledPollAt(enrolled, tracker.status, new Date(), tracker.attempts, tracker.manual_closed_at)
+                : calculateNextTrackingPoll({ status: tracker.status, attempts: tracker.attempts, now: new Date() });
             await pool.query(
                 `update shipment_trackers set claimed_at=null, claimed_by='', last_checked_at=now(),
-                 next_poll_at=$2, last_error=$3, is_active=$4, updated_at=now() where id=$1`,
+                 next_poll_at=$2, last_error=$3, is_active=$4, updated_at=now() where id=$1 and claimed_by=$5`,
                 [tracker.id, nextPollAt, normalizeFreeText(error?.message || "Carrier tracking check failed.").slice(0, 600),
-                    Number(tracker.attempts) < CARRIER_TRACKING_MAX_ATTEMPTS]
+                    enrolled ? Boolean(nextPollAt) : Number(tracker.attempts) < CARRIER_TRACKING_MAX_ATTEMPTS, workerId]
             );
         }
     }
@@ -27490,6 +28488,406 @@ function ensureCarrierTrackingWorkerStarted() {
     tick();
     const timer = setInterval(tick, CARRIER_TRACKING_INTERVAL_MS);
     if (typeof timer.unref === "function") timer.unref();
+}
+
+let shopifyTrackingWorkerStarted = false;
+let shopifyTrackingWorkerRunning = false;
+async function runShopifyTrackingWorker() {
+    if (!databaseReady || shopifyTrackingWorkerRunning) return { processed: 0 };
+    shopifyTrackingWorkerRunning = true;
+    let processed = 0;
+    try {
+        for (let index = 0; index < 20; index += 1) {
+            const result = await withTransaction((client) => shopifyTrackingSync.processOne(client, {
+                request: shopifyAdminRequestForIntegration,
+                decrypt: decryptStoreIntegrationRow,
+                assertFeatures: async (db, accountName) => {
+                    await assertCompanyFeatureEnabled(db, accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+                    await assertCompanyFeatureEnabled(db, accountName, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+                }
+            }));
+            if (!result) break;
+            processed += 1;
+        }
+        await runShopifyDeliveryNotificationHandoff();
+        await shopifyDeliveryNotifications.runDeliveryNotificationWorker({ db: pool, provider: getShopifyDeliveryEmailProvider(),
+            resolveRecipient: getCurrentShopifyDeliveryRecipient, validateEvent: validateShopifyDeliveryNotificationEvent });
+        return { processed };
+    } finally { shopifyTrackingWorkerRunning = false; }
+}
+
+function getShopifyDeliveryEmailProvider() {
+    return { id: `wms365-${getConfiguredEmailProvider() || "smtp"}-delivery-v1`, supportsIdempotency: false,
+        emailConfigured: hasSystemEmailConfig(), smsConfigured: false,
+        async sendEMAIL(message) {
+            const result = await sendSystemEmail({ to: message.to, subject: message.subject, text: message.text, html: message.html,
+                deliveryKey: `shopify-delivery:${message.idempotencyKey}`,
+                emailContext: { accountName: message.scope.companyId, sourceType: "SHOPIFY_DELIVERY", sourceRef: message.scope.shipmentId } });
+            return result?.messageId ? { state: "SENT", messageId: result.messageId } : { state: "UNKNOWN" };
+        }
+    };
+}
+
+async function getCurrentShopifyDeliveryRecipient({ integrationId, accountName, warehouseId, orderId, recipient }) {
+    const result = await pool.query(`select c.recipient_email from shopify_tracking_order_contacts c
+        join store_integrations i on i.id=c.integration_id and i.account_name=c.account_name and i.is_active
+        join store_order_imports imp on imp.integration_id=c.integration_id and imp.portal_order_id=c.order_id and imp.external_order_id=c.external_order_id
+        join portal_orders o on o.id=c.order_id and o.account_name=c.account_name
+        where c.integration_id=$1 and c.account_name=$2 and c.order_id=$3 and exists
+          (select 1 from shipment_trackers t where t.order_id=c.order_id and t.account_name=c.account_name and t.fulfillment_location_id=$4)`,
+        [integrationId, accountName, orderId, warehouseId]);
+    const email = result.rows[0]?.recipient_email;
+    return email && email === recipient ? { email, smsConsent: false } : {};
+}
+
+async function validateShopifyDeliveryNotificationEvent({ client, row }) {
+    const provenance = row.provenance || {};
+    const shipped = provenance.sourceType === "SHOPIFY_FULFILLMENT" && row.event_type === "SHIPPED";
+    if (!shipped && (provenance.sourceType !== "CARRIER_SCAN" || !/^\d+$/.test(String(provenance.sourceRef || "")))) return false;
+    const selected = await client.query(`select f.*,i.settings as integration_settings from shopify_tracking_fulfillments f
+        join store_integrations i on i.id=f.integration_id and i.account_name=f.account_name
+            and i.store_identifier=f.store_identifier and i.provider='SHOPIFY' and i.is_active
+        where f.integration_id=$1 and f.account_name=$2 and f.order_id::text=$3
+          and (($4::boolean and f.fulfillment_gid=$5) or (not $4::boolean and exists
+            (select 1 from shopify_tracking_outbox ob where ob.id::text=$5 and ob.fulfillment_binding_id=f.id)))
+        for share of f`, [row.integration_id, row.account_name, String(row.order_id), shipped, String(provenance.sourceRef)]);
+    const binding = selected.rows[0];
+    if (!binding?.enrolled_at || !shopifyTrackingSync.deliverySettings({ settings: binding.integration_settings }).carrierFulfillmentEventsEnabled ||
+        !Number.isFinite(new Date(binding.expires_at).getTime()) || new Date(binding.expires_at) <= new Date()) return false;
+    const packages = await client.query(`select p.*,t.carrier_name,t.tracking_number as current_tracking_number,t.manual_closed_at,
+        s.status as shipment_status,e.status as delivery_status,e.source as delivery_source,e.event_at as delivery_event_at,
+        e.safe_metadata as delivery_safe_metadata,
+        exists (select 1 from shopify_tracking_corrections c where c.fulfillment_binding_id=p.fulfillment_binding_id
+            and c.tracker_id=p.tracker_id and c.action='INVALIDATE_DELIVERY' and c.created_at>=e.created_at) as delivery_invalidated
+        from shopify_tracking_packages p
+        join shipment_trackers t on t.id=p.tracker_id and t.account_name=p.account_name and t.order_id=p.order_id
+            and t.fulfillment_location_id=p.fulfillment_location_id and t.warehouse_shipment_id=p.warehouse_shipment_id
+        join warehouse_shipments s on s.id=p.warehouse_shipment_id and s.account_name=p.account_name
+            and s.order_id=p.order_id and s.fulfillment_location_id=p.fulfillment_location_id
+        left join shipment_tracking_events e on e.id=p.delivery_event_id and e.tracker_id=p.tracker_id
+        where p.fulfillment_binding_id=$1 and p.account_name=$2 and p.order_id::text=$3`,
+        [binding.id, row.account_name, String(row.order_id)]);
+    const target = packages.rows.find((p) => String(p.fulfillment_location_id) === String(row.warehouse_id) &&
+        String(p.warehouse_shipment_id) === String(row.shipment_id) && p.tracking_number === row.payload?.shipment?.trackingNumber &&
+        p.current_tracking_number === p.tracking_number);
+    if (!target || target.manual_closed_at || target.shipment_status !== "SHIPPED") return false;
+    if (shipped) return provenance.shopifyEvidenceRef === binding.fulfillment_gid;
+    const source = await client.query(`select ob.*,e.status as carrier_status,e.source,e.safe_metadata,
+        e.event_at as carrier_event_at,e.tracker_id,
+        exists (select 1 from shopify_tracking_corrections c where c.fulfillment_binding_id=ob.fulfillment_binding_id
+            and c.tracker_id=e.tracker_id and c.action='INVALIDATE_DELIVERY' and c.created_at>=e.created_at) as invalidated
+        from shopify_tracking_outbox ob join shipment_tracking_events e on e.id=ob.source_event_id
+        where ob.id::text=$1 and ob.fulfillment_binding_id=$2 and ob.state='SENT' and ob.discarded_at is null`,
+        [String(provenance.sourceRef), binding.id]);
+    const scan = source.rows[0];
+    if (!scan || String(scan.tracker_id) !== String(target.tracker_id) ||
+        scan.remote_event_gid !== provenance.shopifyEvidenceRef ||
+        new Date(scan.event_at).getTime() !== new Date(row.payload?.event?.eventAt).getTime() ||
+        scan.carrier_status !== row.event_type || shopifyTrackingSync.mapCarrierEvent({ status: scan.carrier_status,
+            source: scan.source, safe_metadata: scan.safe_metadata, event_at: scan.carrier_event_at }) !== scan.status) return false;
+    if (scan.status !== "DELIVERED") return true;
+    return !scan.invalidated && shopifyTrackingSync.allPackagesDelivered(binding.expected_tracking_numbers, packages.rows) &&
+        packages.rows.every((p) => !p.manual_closed_at && !p.delivery_invalidated && p.current_tracking_number === p.tracking_number &&
+            p.shipment_status === "SHIPPED" && shopifyTrackingSync.mapCarrierEvent({ status: p.delivery_status,
+                source: p.delivery_source, event_at: p.delivery_event_at, safe_metadata: p.delivery_safe_metadata }) === "DELIVERED");
+}
+
+async function runShopifyDeliveryNotificationHandoff() {
+    const events = await pool.query(`select ob.id as outbox_id,ob.status as shopify_status,ob.event_at,ob.remote_event_gid,
+        f.id as binding_id,f.integration_id,f.account_name,f.enrolled_at,f.order_id,f.external_order_id,
+        t.id as tracker_id,t.warehouse_shipment_id,t.fulfillment_location_id,t.tracking_number,t.carrier_name,t.tracking_url,t.estimated_delivery_at,
+        e.status,e.description,e.location,c.recipient_email,c.shopify_order_number
+        from shopify_tracking_outbox ob join shopify_tracking_fulfillments f on f.id=ob.fulfillment_binding_id
+        join shipment_tracking_events e on e.id=ob.source_event_id
+        join shopify_tracking_packages p on p.fulfillment_binding_id=f.id and p.tracker_id=e.tracker_id
+        join shipment_trackers t on t.id=p.tracker_id and t.account_name=f.account_name and t.order_id=f.order_id
+          and t.fulfillment_location_id=p.fulfillment_location_id and t.warehouse_shipment_id=p.warehouse_shipment_id
+        join store_integrations i on i.id=f.integration_id and i.account_name=f.account_name and i.store_identifier=f.store_identifier and i.is_active
+        join shopify_delivery_notification_settings ns on ns.integration_id=i.id and ns.enabled
+        join shopify_tracking_order_contacts c on c.integration_id=f.integration_id and c.order_id=f.order_id and c.account_name=f.account_name and c.external_order_id=f.external_order_id
+        join store_order_imports imp on imp.integration_id=f.integration_id and imp.portal_order_id=f.order_id and imp.external_order_id=f.external_order_id
+        join portal_orders o on o.id=f.order_id and o.account_name=f.account_name
+        where ob.state='SENT' and ob.discarded_at is null and ob.notifications_enqueued_at is null and ob.event_at>=f.enrolled_at
+          and (ob.status<>'DELIVERED' or (
+            not exists (select 1 from shopify_tracking_corrections correction where correction.fulfillment_binding_id=f.id
+                and correction.tracker_id=e.tracker_id and correction.action='INVALIDATE_DELIVERY' and correction.created_at>=e.created_at)
+            and (select count(*) from shopify_tracking_packages delivered where delivered.fulfillment_binding_id=f.id
+                and delivered.confirmed_delivered_at is not null and delivered.delivery_event_id is not null
+                and delivered.tracking_number in (select jsonb_array_elements_text(f.expected_tracking_numbers)))=jsonb_array_length(f.expected_tracking_numbers)
+            and not exists (select 1 from shopify_tracking_packages delivered
+                join shipment_tracking_events delivery on delivery.id=delivered.delivery_event_id
+                join shopify_tracking_corrections correction on correction.fulfillment_binding_id=delivered.fulfillment_binding_id
+                    and correction.tracker_id=delivered.tracker_id and correction.action='INVALIDATE_DELIVERY'
+                    and correction.created_at>=delivery.created_at where delivered.fulfillment_binding_id=f.id)))
+          and c.recipient_email<>'' order by ob.event_at,ob.id limit 20`);
+    for (const row of events.rows) {
+        await enqueueShopifyDeliveryForCarrierRow(row, "UNKNOWN");
+        await pool.query("update shopify_tracking_outbox set notifications_enqueued_at=now() where id=$1 and state='SENT'", [row.outbox_id]);
+    }
+}
+
+async function enqueueShopifyDeliveryForCarrierRow(row, shopifySendState, { enqueue = shopifyDeliveryNotifications.enqueueDeliveryNotifications } = {}) {
+    return enqueue({ db: pool,
+        integrationId: row.integration_id, accountName: row.account_name, shopifySendState,
+        shipment: { id: String(row.warehouse_shipment_id), companyId: row.account_name, storeId: String(row.integration_id),
+            warehouseId: String(row.fulfillment_location_id), orderId: String(row.order_id),
+            orderNumber: row.shopify_order_number || row.external_order_id,
+            carrier: row.carrier_name, trackingNumber: row.tracking_number,
+            trackingUrl: buildCarrierTrackingUrl(row.carrier_name, row.tracking_number) || row.tracking_url },
+        event: { status: row.status, eventAt: row.event_at, description: row.description, location: row.location,
+            estimatedDelivery: row.estimated_delivery_at },
+        recipient: { email: row.recipient_email, smsConsent: false },
+        provenance: { sourceType: "CARRIER_SCAN", sourceRef: String(row.outbox_id || row.tracker_id), shopifyEvidenceRef: row.remote_event_gid || "" }
+    });
+}
+
+function deliveryNotificationDbForClient(client) {
+    return {
+        async connect() {
+            const savepoint = `delivery_${crypto.randomUUID().replace(/-/g, "")}`;
+            return {
+                async query(sql, params = []) {
+                    const statement = String(sql || "").trim().toUpperCase();
+                    if (statement === "BEGIN") return client.query(`savepoint ${savepoint}`);
+                    if (statement === "COMMIT") return client.query(`release savepoint ${savepoint}`);
+                    if (statement === "ROLLBACK") return client.query(`rollback to savepoint ${savepoint}`);
+                    return client.query(sql, params);
+                },
+                release() {}
+            };
+        }
+    };
+}
+
+function canRetryShopifyDeliveryNotification(row = {}) {
+    return row.status === "FAILED"
+        && ["PROVIDER_CONFIRMED_NOT_SENT", "PROVIDER_CHANNEL_UNAVAILABLE"].includes(row.outcome_code)
+        && !row.sent_at
+        && !row.provider_message_id
+        && !row.claim_token;
+}
+
+function mapShopifyDeliveryNotificationLog(row = {}) {
+    const hasWmsAttempt = Boolean(row.provider_id || row.provider_message_id || row.claim_token || Number(row.attempts) > 0);
+    const origin = hasWmsAttempt ? "WMS365" : "SHOPIFY";
+    return {
+        id: String(row.id || ""),
+        status: row.event_type || "",
+        channel: row.channel || "",
+        result: row.status || "",
+        origin,
+        provider: hasWmsAttempt ? (row.provider_id || "WMS365") : "SHOPIFY",
+        outcomeCode: row.outcome_code || "",
+        shopifySendState: row.shopify_send_state || "UNKNOWN",
+        sentAt: row.sent_at ? new Date(row.sent_at).toISOString() : null,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : null
+    };
+}
+
+async function getScopedTrackerNotificationRows(client, tracker, { notificationId = null, lock = false } = {}) {
+    const params = [tracker.id, tracker.account_name, tracker.fulfillment_location_id,
+        tracker.order_id, tracker.warehouse_shipment_id, tracker.tracking_number];
+    let idSql = "";
+    if (notificationId) {
+        params.push(notificationId);
+        idSql = `and n.id=$${params.length}`;
+    }
+    const result = await client.query(`select n.* from shopify_delivery_notification_outbox n
+        join store_integrations i on i.id=n.integration_id and i.account_name=n.account_name and i.provider='SHOPIFY'
+        join shopify_tracking_fulfillments f on f.integration_id=i.id and f.account_name=i.account_name
+            and f.store_identifier=i.store_identifier and f.order_id=n.order_id::bigint
+        join shopify_tracking_packages p on p.fulfillment_binding_id=f.id and p.tracker_id=$1
+            and p.account_name=n.account_name and p.order_id=n.order_id::bigint
+            and p.fulfillment_location_id=n.warehouse_id::bigint and p.warehouse_shipment_id=n.shipment_id::bigint
+        where n.account_name=$2 and n.warehouse_id=$3::text and n.order_id=$4::text and n.shipment_id=$5::text
+          and n.payload->'shipment'->>'trackingNumber'=$6 ${idSql}
+        order by n.created_at desc,n.id desc ${lock ? "for update of n" : ""}`, params);
+    return result.rows;
+}
+
+async function enqueueShopifyShippedNotifications(client, bindingId, { enqueue = shopifyDeliveryNotifications.enqueueDeliveryNotifications } = {}) {
+    const bindingResult = await client.query("select * from shopify_tracking_fulfillments where id=$1 for update", [bindingId]);
+    const binding = bindingResult.rows[0];
+    if (!binding || binding.shipped_notifications_enqueued_at) return { skipped: true };
+    const packages = await client.query(`select t.*,p.package_id,c.recipient_email,c.shopify_order_number from shopify_tracking_packages p
+        join shipment_trackers t on t.id=p.tracker_id and t.account_name=p.account_name and t.order_id=p.order_id
+            and t.fulfillment_location_id=p.fulfillment_location_id and t.warehouse_shipment_id=p.warehouse_shipment_id
+        join warehouse_shipments s on s.id=t.warehouse_shipment_id and s.account_name=t.account_name
+            and s.order_id=t.order_id and s.fulfillment_location_id=t.fulfillment_location_id and s.status='SHIPPED'
+        join portal_orders o on o.id=t.order_id and o.account_name=t.account_name
+        join store_integrations i on i.id=$2 and i.account_name=t.account_name and i.store_identifier=$5 and i.is_active and i.provider='SHOPIFY'
+        join store_order_imports imp on imp.integration_id=i.id and imp.portal_order_id=o.id and imp.external_order_id=$4
+        join shopify_tracking_order_contacts c on c.integration_id=i.id and c.order_id=o.id
+            and c.account_name=t.account_name and c.external_order_id=imp.external_order_id
+        where p.fulfillment_binding_id=$1 and t.account_name=$3 and c.recipient_email<>''
+            and t.tracking_number in (select jsonb_array_elements_text($6::jsonb)) order by t.id`,
+        [binding.id, binding.integration_id, binding.account_name, binding.external_order_id, binding.store_identifier,
+            JSON.stringify(binding.expected_tracking_numbers)]);
+    for (const row of packages.rows) {
+        await enqueue({ db: deliveryNotificationDbForClient(client), integrationId: binding.integration_id,
+            accountName: binding.account_name, shopifySendState: binding.shopify_notification_state === "REQUESTED" ? "REQUESTED" : "UNKNOWN",
+            shipment: { id: String(row.warehouse_shipment_id), companyId: binding.account_name, storeId: String(binding.integration_id),
+                warehouseId: String(row.fulfillment_location_id), orderId: String(binding.order_id),
+                orderNumber: row.shopify_order_number || binding.external_order_id,
+                carrier: row.carrier_name, trackingNumber: row.tracking_number,
+                trackingUrl: buildCarrierTrackingUrl(row.carrier_name, row.tracking_number) || row.tracking_url },
+            event: { status: "SHIPPED", eventAt: binding.tracking_started_at, description: "Shopify fulfillment created with WMS365 shipment tracking." },
+            recipient: { email: row.recipient_email, smsConsent: false },
+            provenance: { sourceType: "SHOPIFY_FULFILLMENT", sourceRef: binding.fulfillment_gid, shopifyEvidenceRef: binding.fulfillment_gid }
+        });
+    }
+    await client.query("update shopify_tracking_fulfillments set shipped_notifications_enqueued_at=now() where id=$1", [binding.id]);
+    return { skipped: false, packageCount: packages.rows.length };
+}
+
+async function requireScopedShipmentTracker(client, req) {
+    const trackerId = toPositiveInt(req.params?.id);
+    if (!trackerId) throw httpError(400, "A valid shipment tracker id is required.");
+    const result = await client.query(`select t.*,s.shipment_code,o.order_code
+        from shipment_trackers t
+        join warehouse_shipments s on s.id=t.warehouse_shipment_id and s.account_name=t.account_name
+            and s.order_id=t.order_id and s.fulfillment_location_id=t.fulfillment_location_id
+        join portal_orders o on o.id=t.order_id and o.account_name=t.account_name
+        where t.id=$1`, [trackerId]);
+    const tracker = result.rows[0];
+    if (!tracker) throw httpError(404, "That shipment tracker could not be found.");
+    const access = await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+        accountName: tracker.account_name, fulfillmentLocationId: tracker.fulfillment_location_id,
+        orderId: tracker.order_id,
+        resourceType: "SHIPMENT_TRACKER",
+        resourceId: tracker.id
+    });
+    if (!isSuperAdminUser(req.appUser)
+        && !access.fulfillmentLocationIds.includes(Number(tracker.fulfillment_location_id))) {
+        throw httpError(404, "That shipment tracker could not be found.");
+    }
+    return tracker;
+}
+
+async function requireScopedTrackerRefresh(req, _res, next) {
+    try {
+        req.scopedShipmentTracker = await loadScopedShipmentTrackerForRequest(req);
+        next();
+    } catch (error) {
+        next(error);
+    }
+}
+
+app.get("/api/admin/shipment-trackers/:id/notifications", requireScopedTrackerRefresh, async (req, res, next) => {
+    try {
+        const rows = await withTransaction(async (client) => {
+            const tracker = await requireScopedShipmentTracker(client, req);
+            return getScopedTrackerNotificationRows(client, tracker);
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ success: true, notifications: rows.map(mapShopifyDeliveryNotificationLog) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/shipment-trackers/:id/notifications/:notificationId/resend", requireWarehouseAdmin(), requireScopedTrackerRefresh, async (req, res, next) => {
+    try {
+        const notificationId = toPositiveInt(req.params.notificationId);
+        if (!notificationId) throw httpError(400, "A valid notification id is required.");
+        const notification = await withTransaction(async (client) => {
+            const tracker = await requireScopedShipmentTracker(client, req);
+            const rows = await getScopedTrackerNotificationRows(client, tracker, { notificationId, lock: true });
+            const row = rows[0];
+            if (!row) throw httpError(404, "That notification could not be found.");
+            if (!canRetryShopifyDeliveryNotification(row)) {
+                throw httpError(409, "This notification cannot be safely retried because delivery was not proven unsent.");
+            }
+            const emailReceipt = await client.query("select status from email_delivery_log where delivery_key=$1 limit 1", [row.dedup_key]);
+            if (emailReceipt.rows.some((entry) => entry.status === "SENT")) {
+                throw httpError(409, "This notification already has a confirmed delivery receipt.");
+            }
+            const updated = await client.query(`update shopify_delivery_notification_outbox
+                set status='PENDING',outcome_code='',claim_token=null,lease_expires_at=null,updated_at=now()
+                where id=$1 and status='FAILED' and outcome_code in ('PROVIDER_CONFIRMED_NOT_SENT','PROVIDER_CHANNEL_UNAVAILABLE')
+                returning *`, [row.id]);
+            if (!updated.rows[0]) throw httpError(409, "The notification changed before it could be retried.");
+            return updated.rows[0];
+        });
+        res.json({ success: true, notification: mapShopifyDeliveryNotificationLog(notification) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/shipment-trackers/:id/refresh", requireScopedTrackerRefresh, async (req, res, next) => {
+    try {
+        const tracker = await withTransaction(async (client) => {
+            const current = await requireScopedShipmentTracker(client, req);
+            if (!current.manual_closed_at) {
+                await client.query("update shipment_trackers set next_poll_at=now(),updated_at=now() where id=$1 and is_active=true", [current.id]);
+            }
+            return current;
+        });
+        res.json({ success: true, tracker: mapShipmentTrackerRow(tracker) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/shipment-trackers/:id/shopify-resend", requireWarehouseAdmin(), requireScopedTrackerRefresh, async (req, res, next) => {
+    try {
+        const state = await withTransaction(async (client) => {
+            const tracker = await requireScopedShipmentTracker(client, req);
+            return shopifyTrackingSync.resendTracker(client, tracker.id);
+        });
+        res.json({ success: true, shopifyTracking: state });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/api/admin/shipment-trackers/:id/correct", requireWarehouseAdmin(), requireScopedTrackerRefresh, async (req, res, next) => {
+    const client = await pool.connect();
+    try {
+        const current = await requireScopedShipmentTracker(client, req);
+        await assertAppUserCustomerWarehouseAccess(client, req.appUser, {
+            accountName: current.account_name,
+            orderId: current.order_id,
+            resourceType: "SHIPMENT_TRACKER_CORRECTION",
+            resourceId: current.id
+        });
+        const result = await shopifyTrackingCorrection.correction(client, current, req.body || {}, {
+            actor: req.appUser?.email || req.appUser?.full_name || "Warehouse admin",
+            decrypt: decryptStoreIntegrationRow,
+            request: (integration, pathName, options = {}) => shopifyAdminRequestForIntegration(
+                integration, pathName, { ...options, retryAuthorization: false }
+            ),
+            assertFeatures: async (db, accountName) => {
+                await assertCompanyFeatureEnabled(db, accountName, COMPANY_FEATURE_KEYS.STORE_INTEGRATIONS);
+                await assertCompanyFeatureEnabled(db, accountName, COMPANY_FEATURE_KEYS.SHOPIFY_INTEGRATION);
+            },
+            trackingRuntimeAvailable: Boolean(AFTERSHIP_TRACKING_API_KEY),
+            retryAuthorization: false
+        });
+        res.json({ success: true, result });
+    } catch (error) {
+        next(error);
+    } finally { client.release(); }
+});
+
+async function loadScopedShipmentTrackerForRequest(req) {
+    const tracker = await withTransaction((client) => requireScopedShipmentTracker(client, req));
+    return tracker;
+}
+
+async function scopedTrackerResponse(client, req) {
+    const tracker = await requireScopedShipmentTracker(client, req);
+    return mapShipmentTrackerRow(tracker);
+}
+
+function ensureShopifyTrackingWorkerStarted() {
+    if (shopifyTrackingWorkerStarted || !IS_PRODUCTION) return;
+    shopifyTrackingWorkerStarted = true;
+    const tick = () => void runShopifyTrackingWorker().catch((error) => console.error("Shopify carrier event worker failed:", error.message));
+    tick();
+    const timer = setInterval(tick, 60000);
+    timer.unref?.();
 }
 
 async function processAfterShipTrackingWebhook(payload = {}, rawBody = Buffer.from("")) {
@@ -28332,7 +29730,7 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
         const locations = Array.isArray(line?.pickLocations) ? line.pickLocations : [];
         return !locations.some((entry) => normalizeText(entry?.location || ""));
     });
-    if (["RELEASED", "PICKED", "STAGED"].includes(status) && missingLocationLines.length) {
+    if ((["RELEASED", "PICKED", "STAGED"].includes(status) || status === "PICKING") && missingLocationLines.length) {
         const skus = missingLocationLines.map((line) => normalizeText(line.sku)).filter(Boolean).join(", ");
         throw httpError(409, `Pick ticket blocked for ${order.orderCode || "this order"}: assign pick locations for ${skus || "every order line"} before printing.`);
     }
@@ -28357,14 +29755,21 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
         ...wrapPdfText(buildPortalOrderEditReadyDateWarning(), 88),
         "",
         `Customer Contact: ${[order.contactName, order.contactPhone].filter(Boolean).join(" | ") || "-"}`,
+        "",
         "Ship To:"
     ];
 
-    formatPortalOrderShipToAddress(order)
+    const shipToLines = formatPortalOrderShipToAddress(order)
         .split("|")
         .map((line) => line.trim())
-        .filter(Boolean)
-        .forEach((line) => lines.push(`  ${line}`));
+        .filter(Boolean);
+    if (!shipToLines.length) {
+        lines.push("  -");
+    } else {
+        shipToLines.forEach((line) => {
+            wrapPdfText(line, 84).forEach((addressLine) => lines.push(`  ${addressLine}`));
+        });
+    }
 
     if (order.orderNotes) {
         lines.push("", "Order Notes:");
@@ -28395,9 +29800,7 @@ function buildPortalOrderPickTicketLines(order, { fulfillmentGroup = null, group
         lines.push(`${linePrefix}${locationLines[0] || ""}`);
         locationLines.slice(1).forEach((locationLine) => lines.push(`${"".padEnd(41)}${locationLine}`));
         const detailText = [line.description, line.upc ? `UPC ${line.upc}` : ""].filter(Boolean).join(" | ");
-        if (detailText) {
-            wrapPdfText(detailText, 88).forEach((detailLine) => lines.push(`    ${detailLine}`));
-        }
+        wrapPdfText(detailText, 88).forEach((detailLine) => lines.push(`    ${detailLine}`));
     });
 
     lines.push(
@@ -29463,7 +30866,9 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
                     claim.pick_ticket_email_requested_by || ""
                 ].filter(Boolean).join(" | ")
             );
+            await enqueuePortalOrderReleaseAutoPrint(client, order);
         });
+        await processPortalOrderReleaseAutoPrint(order.id);
         return {
             sent: true,
             orderCode: order.orderCode,
@@ -29502,6 +30907,103 @@ async function processScheduledPortalOrderReleaseEmail(orderId) {
     }
 }
 
+function isPortalOrderReleaseAutoPrintEnabled(accountName = "") {
+    return isReleaseAutoPrintEnabled(PORTAL_ORDER_RELEASE_AUTO_PRINT_ACCOUNTS, accountName);
+}
+
+async function enqueuePortalOrderReleaseAutoPrint(client, order) {
+    return enqueueReleaseAutoPrint(client, order, PORTAL_ORDER_RELEASE_AUTO_PRINT_ACCOUNTS);
+}
+
+function getPortalOrderReleaseAutoPrintRetrySeconds(attempts) {
+    return getReleaseAutoPrintRetrySeconds(attempts);
+}
+
+async function processPortalOrderReleaseAutoPrint(orderId) {
+    const normalizedOrderId = toPositiveInt(orderId);
+    if (!normalizedOrderId) return { queued: false, reason: "invalid-order" };
+    let claim = null;
+    try {
+        const claimResult = await pool.query(
+            `
+                update portal_order_release_auto_prints
+                set status = 'PROCESSING', attempts = attempts + 1, last_error = '', updated_at = now()
+                where order_id = $1
+                  and attempts < $2
+                  and (
+                    (status in ('PENDING', 'FAILED') and next_attempt_at <= now())
+                    or (status = 'PROCESSING' and updated_at < now() - interval '15 minutes')
+                  )
+                returning *
+            `,
+            [normalizedOrderId, PORTAL_ORDER_RELEASE_AUTO_PRINT_MAX_ATTEMPTS]
+        );
+        if (claimResult.rowCount !== 1) return { queued: false, reason: "not-due" };
+        claim = claimResult.rows[0];
+
+        return await withTransaction(async (client) => {
+            const order = await getPortalOrderById(client, normalizedOrderId, claim.account_name, "/api/admin/portal-order-documents");
+            if (!order || order.status !== "RELEASED" || !isPortalOrderReleaseAutoPrintEnabled(order.accountName)) {
+                await client.query(
+                    "update portal_order_release_auto_prints set status = 'SKIPPED', last_error = $2, updated_at = now() where order_id = $1",
+                    [normalizedOrderId, "Order is no longer an eligible released order."]
+                );
+                return { queued: false, reason: "ineligible" };
+            }
+            const printResult = await createPortalOrderWarehousePrintJob(client, normalizedOrderId, {
+                documentType: PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PICK_TICKET
+            }, null);
+            const jobId = toPositiveInt(printResult?.job?.id);
+            if (!jobId) throw httpError(500, "The warehouse pick-ticket print job was not created.");
+            await client.query(
+                `update portal_order_release_auto_prints
+                 set status = 'QUEUED', print_job_id = $2, last_error = '', updated_at = now()
+                 where order_id = $1`,
+                [normalizedOrderId, jobId]
+            );
+            await insertActivity(client, "printer", `Auto-queued release pick ticket for ${order.orderCode}`, [
+                order.accountName,
+                printResult.printer?.printerName || "Warehouse printer",
+                "Triggered after warehouse release email was sent",
+                "Uploaded attachments excluded"
+            ].join(" | "));
+            return { queued: true, jobId, orderCode: order.orderCode };
+        });
+    } catch (error) {
+        const attempts = Number(claim?.attempts) || 1;
+        const retrySeconds = getPortalOrderReleaseAutoPrintRetrySeconds(attempts);
+        await pool.query(
+            `update portal_order_release_auto_prints
+             set status = 'FAILED', last_error = $2,
+                 next_attempt_at = now() + ($3::integer * interval '1 second'), updated_at = now()
+             where order_id = $1 and status = 'PROCESSING'`,
+            [normalizedOrderId, truncateStoreSyncMessage(error.message || "Unknown auto-print error"), retrySeconds]
+        ).catch(() => {});
+        console.error(`Release pick-ticket auto-print failed for portal order ${normalizedOrderId}:`, error);
+        return { queued: false, reason: "error", error: error.message || "Unknown auto-print error" };
+    }
+}
+
+async function runDuePortalOrderReleaseAutoPrints() {
+    if (!databaseReady || portalOrderReleaseAutoPrintRunning) return;
+    portalOrderReleaseAutoPrintRunning = true;
+    try {
+        const due = await pool.query(
+            `select order_id from portal_order_release_auto_prints
+             where attempts < $1 and (
+                 (status in ('PENDING', 'FAILED') and next_attempt_at <= now())
+                 or (status = 'PROCESSING' and updated_at < now() - interval '15 minutes')
+             ) order by next_attempt_at asc, order_id asc limit 20`,
+            [PORTAL_ORDER_RELEASE_AUTO_PRINT_MAX_ATTEMPTS]
+        );
+        for (const row of due.rows) await processPortalOrderReleaseAutoPrint(row.order_id);
+    } catch (error) {
+        console.error("Portal order release auto-print scheduler failed:", error.message || error);
+    } finally {
+        portalOrderReleaseAutoPrintRunning = false;
+    }
+}
+
 function ensurePortalOrderPickTicketEmailSchedulerStarted() {
     if (portalOrderPickTicketEmailSchedulerStarted) {
         return;
@@ -29509,11 +31011,13 @@ function ensurePortalOrderPickTicketEmailSchedulerStarted() {
     portalOrderPickTicketEmailSchedulerStarted = true;
     portalOrderPickTicketEmailSchedulerTimer = setInterval(() => {
         void runDuePortalOrderPickTicketEmails();
+        void runDuePortalOrderReleaseAutoPrints();
     }, PORTAL_ORDER_PICK_TICKET_EMAIL_SCHEDULER_INTERVAL_MS);
     if (typeof portalOrderPickTicketEmailSchedulerTimer?.unref === "function") {
         portalOrderPickTicketEmailSchedulerTimer.unref();
     }
     void runDuePortalOrderPickTicketEmails();
+    void runDuePortalOrderReleaseAutoPrints();
 }
 
 async function runDuePortalOrderPickTicketEmails() {
@@ -29573,7 +31077,7 @@ async function sendPortalShipmentConfirmationEmail(client, order, confirmation, 
 
     await sendSystemEmail({
         from: SMTP_FROM,
-        to: recipients.join(", "),
+        ...getPortalShipmentEmailAddressing(order, recipients, WMS365_SYSTEM_EMAIL_ADDRESS),
         replyTo: SMTP_REPLY_TO || undefined,
         subject: `${isUpdate ? "Shipment Confirmation Updated" : "Shipment Confirmed"} - ${order.orderCode}`,
         text: buildPortalShipmentEmailText(order, emailConfirmation, { isUpdate }),
@@ -29827,6 +31331,18 @@ async function getStoreOrderIntegrationRowsForPortalOrder(client, orderId, accou
     const normalizedAccount = normalizeText(accountName);
     if (!normalizedOrderId || !normalizedAccount) return [];
 
+    const partialSchema = await client.query("select to_regclass('public.store_order_fulfillment_legs') is not null as ready");
+    const legJoin = partialSchema.rows[0]?.ready
+        ? `left join store_order_fulfillment_legs legs
+              on legs.source_portal_order_id = imports.portal_order_id
+             and legs.integration_id = imports.integration_id
+             and legs.external_order_id = imports.external_order_id
+             and legs.portal_order_id = $1`
+        : "";
+    const orderFilter = partialSchema.rows[0]?.ready
+        ? "(imports.portal_order_id = $1 or legs.portal_order_id = $1)"
+        : "imports.portal_order_id = $1";
+
     const result = await client.query(
         `
             select
@@ -29835,7 +31351,8 @@ async function getStoreOrderIntegrationRowsForPortalOrder(client, orderId, accou
             from store_order_imports imports
             join store_integrations integrations
               on integrations.id = imports.integration_id
-            where imports.portal_order_id = $1
+            ${legJoin}
+            where ${orderFilter}
               and integrations.account_name = $2
             order by integrations.id asc
         `,
@@ -29959,7 +31476,15 @@ async function sendShopifyShipmentConfirmationForImport(client, integrationRow, 
         return { skipped: true, reason: "Shopify fulfillment already sent for this shipment detail." };
     }
 
-    const result = await createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId);
+    const partialSchema = await client.query("select to_regclass('public.store_order_fulfillment_legs') is not null as ready");
+    const split = partialSchema.rows[0]?.ready ? await client.query(`select exists (
+        select 1 from store_order_fulfillment_legs
+        where (portal_order_id=$1 or source_portal_order_id=$1)
+          and integration_id=$2 and external_order_id=$3
+    ) as is_split`, [order.id, integrationRow.id, String(externalOrderId)]) : { rows: [{ is_split: false }] };
+    const result = await createShopifyFulfillmentForImportedOrder(integrationRow, order, externalOrderId, {
+        partialShipment: split.rows[0]?.is_split === true
+    });
     if (result.skipped) {
         await insertActivity(
             client,
@@ -29977,6 +31502,22 @@ async function sendShopifyShipmentConfirmationForImport(client, integrationRow, 
     const shopDomain = result.shopDomain || normalizeStoreIdentifierForProvider(SHOPIFY_SYNC_PROVIDER, integrationRow.store_identifier);
     const fulfillmentId = result.fulfillment?.id ? String(result.fulfillment.id) : "";
     const remotePath = `shopify://${shopDomain}/orders/${externalOrderId}/fulfillments/${fulfillmentId || "created"}`;
+    const trackingInfo = buildShopifyFulfillmentTrackingInfo(order);
+    let shopInfo = { id: integrationRow.settings?.shopifyShopId || "", name: integrationRow.settings?.shopifyShopName || "" };
+    if (!/^gid:\/\/shopify\/Shop\/\d+$/.test(shopInfo.id)) {
+        try {
+            const shop = await shopifyAdminRequestForIntegration(integrationRow, "/graphql.json", {
+                method: "POST", body: { query: "query TrackingShopIdentity { shop { id name } }" }
+            });
+            shopInfo = shop.payload?.data?.shop || { id: "", name: "" };
+        } catch (_error) { shopInfo = { id: "", name: "" }; }
+    }
+    shopInfo.notificationRequested = result.notifyCustomerRequested === true;
+    await withTransaction(async (db) => {
+        const binding = await shopifyTrackingSync.bindFulfillment(db, integrationRow, order, externalOrderId,
+            result.fulfillment, trackingInfo?.numbers || [trackingInfo?.number].filter(Boolean), shopInfo);
+        if (binding && result.updated !== true) await enqueueShopifyShippedNotifications(db, binding.id);
+    });
     await recordStoreSyncExport(client, integrationRow.id, SHOPIFY_FULFILLMENT_EXPORT_ENTITY_TYPE, entityRef, contentHash, remotePath);
     await insertActivity(
         client,
@@ -30061,7 +31602,13 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     });
     if (transitionToShipped) {
         assertPortalShipmentCloseoutReviewConfirmed(confirmation);
-        assertPortalShipmentProofRequirements(confirmation, { shipmentMethod, shippedCarrierName, shippedTrackingReference });
+        assertPortalShipmentProofRequirements(confirmation, {
+            shipmentMethod,
+            shippedCarrierName,
+            shippedTrackingReference,
+            appUser,
+            existingDocuments: order.documents || []
+        });
         assertPortalOutboundPalletCounts(outboundPallets, { shipmentMethod });
     }
     const shippingConfirmationUnchanged = !confirmation.documents.length
@@ -30654,7 +32201,7 @@ function buildPortalOrderProcessingTiming(order = {}, { location = null, now = n
         && shipmentMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL;
     const timing = isOnlineParcel
         ? calculatePortalOnlineProcessingTiming(submittedAt, calendar)
-        : addPortalBusinessDays(submittedAt, PORTAL_B2B_MINIMUM_BUSINESS_DAYS, calendar);
+        : addPortalBusinessDays(submittedAt, PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS, calendar);
     const expectedReadyAt = timing.date;
     const expectedReadyDate = timing.dateKey;
     const requestedBeforeReady = Boolean(requestedShipDate && !isOnlineParcel && compareDateKeys(requestedShipDate, expectedReadyDate) < 0);
@@ -30669,7 +32216,7 @@ function buildPortalOrderProcessingTiming(order = {}, { location = null, now = n
         : `Earliest ready date: ${formatPortalReadyDateTime(expectedReadyAt)}`;
     const summary = isOnlineParcel
         ? `${expectedReadyLabel}. Online parcel orders released before 9:00 AM Eastern are eligible to ship in the same-day parcel cycle; after 9:00 AM Eastern, the warehouse will do its best to ship same day, otherwise the order is pooled into the next business-day parcel cycle.${holidayNote}`
-        : `${expectedReadyLabel}. Non-online, truck, LTL/FTL, and customer pickup orders require a minimum of 48 hours / 2 business days to process, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays.${holidayNote}`;
+        : `${expectedReadyLabel}. Standard non-parcel orders require a minimum of ${PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS} business days to process, Monday-Friday ${PORTAL_BUSINESS_START_HOUR}:00 AM-${PORTAL_BUSINESS_END_HOUR - 12}:00 PM Eastern, excluding weekends and holidays.${holidayNote}`;
     return {
         policyLabel,
         isOnlineParcel,
@@ -30763,7 +32310,7 @@ function portalRushApprovalReason(order = {}) {
     return reasons.join(" and ") || "rush-sensitive order";
 }
 
-function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = "LTL_FREIGHT", shippedCarrierName = "", shippedTrackingReference = "" } = {}) {
+function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = "LTL_FREIGHT", shippedCarrierName = "", shippedTrackingReference = "", appUser = null, existingDocuments = [] } = {}) {
     const normalizedMethod = normalizePortalShipmentMethod(shipmentMethod);
     if (normalizedMethod === PORTAL_ORDER_SHIPMENT_METHODS.PARCEL && !normalizeFreeText(shippedTrackingReference)) {
         throw httpError(400, "Enter the parcel tracking number before marking the order shipped.");
@@ -30771,9 +32318,21 @@ function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = 
     if (!shipmentMethodRequiresFreightProof(normalizedMethod)) {
         return;
     }
-    const uploadedCategories = new Set((confirmation.documents || []).map((document) => document.documentCategory));
+    const uploadedCategories = new Set(
+        [...(existingDocuments || []), ...(confirmation.documents || [])]
+            .map((document) => normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category || ""))
+    );
     const missingCategories = REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES.filter((category) => !uploadedCategories.has(category));
     if (missingCategories.length) {
+        if (confirmation.missingShipmentProofOverride === true) {
+            if (normalizeAppUserRole(appUser?.role) !== APP_USER_ROLES.SUPER_ADMIN) {
+                throw httpError(403, "Only a super admin can approve missing shipment proof.");
+            }
+            if (!confirmation.missingShipmentProofOverrideReason) {
+                throw httpError(400, "Enter the owner-approved reason for missing shipment proof.");
+            }
+            return;
+        }
         const labels = missingCategories.map((category) => shipmentDocumentCategoryLabel(category)).join(", ");
         throw httpError(400, `Upload the required shipment proof before marking shipped: ${labels}.`);
     }
@@ -30826,18 +32385,25 @@ function hashWarehousePrintStationToken(token) {
 
 function getWarehousePrintAgentToken(req) {
     const authorization = String(req.headers.authorization || "").trim();
-    if (/^bearer\s+/i.test(authorization)) {
-        return authorization.replace(/^bearer\s+/i, "").trim();
+    if (/^(bearer|dpop)\s+/i.test(authorization)) {
+        return authorization.replace(/^(bearer|dpop)\s+/i, "").trim().slice(0, 200);
     }
-    return String(req.headers["x-wms365-print-token"] || req.body?.stationToken || req.query?.stationToken || "").trim();
+    return "";
+}
+
+function connectorProofUrl(req) {
+    const origin = readEnv("PRINT_CONNECTOR_AUTH_ORIGIN", "https://app.wms365.co");
+    const parsed = new URL(origin);
+    if (parsed.origin !== "https://app.wms365.co" && !["localhost", "127.0.0.1"].includes(parsed.hostname)) throw new Error("Invalid print connector authentication origin configuration.");
+    return `${parsed.origin}${String(req.originalUrl || req.path || "").split("?")[0]}`;
 }
 
 async function requireWarehousePrintAgent(req, client = pool) {
     const token = getWarehousePrintAgentToken(req);
-    if (!token) throw httpError(401, "Print station token is required.");
+    if (!token) throw connectorSecurityError("A registered print connection is required.");
     const result = await client.query(
         `
-            select s.*, fl.code as fulfillment_location_code, fl.name as fulfillment_location_name
+            select s.*, fl.code as fulfillment_location_code, fl.name as fulfillment_location_name, fl.is_active as warehouse_is_active
             from warehouse_print_stations s
             left join fulfillment_locations fl on fl.id = s.fulfillment_location_id
             where s.token_hash = $1
@@ -30846,8 +32412,79 @@ async function requireWarehousePrintAgent(req, client = pool) {
         `,
         [hashWarehousePrintStationToken(token)]
     );
-    if (result.rowCount !== 1) throw httpError(401, "Print station token was not accepted.");
-    return result.rows[0];
+    if (result.rowCount !== 1) throw connectorSecurityError("The print connection was not accepted.");
+    const station = result.rows[0];
+    if (station.warehouse_is_active === false) throw connectorSecurityError("This warehouse is no longer active.");
+    if (!station.fulfillment_location_id) throw httpError(403, "Access restricted. Assign this print station to a warehouse before connecting.");
+    if (station.app_user_id) {
+        const user = await getAppUserById(client, station.app_user_id);
+        if (!user?.is_active) throw connectorSecurityError("This print connection is no longer authorized.");
+        const attachedUser = await attachAppUserCompanyAssignments(client, user);
+        if (!userHasPermission(attachedUser, RBAC_PERMISSIONS.MOBILE_WORKER_ACTION)) throw httpError(403, "Access restricted. Warehouse printing is no longer permitted for this account.");
+        if (!station.fulfillment_location_id) throw httpError(403, "Access restricted. This print connection has no warehouse assignment.");
+        await assertAppUserFulfillmentLocationAccess(client, attachedUser, station.fulfillment_location_id);
+        station.accessibleCompanies = isSuperAdminUser(attachedUser) ? null : await getAccessibleCompanyNamesForAppUser(client, attachedUser);
+    }
+    try {
+        if (station.device_key_thumbprint) {
+            if (!station.app_user_id) throw connectorSecurityError("This computer is not bound to a warehouse user.");
+            if (!/^DPoP\s+/i.test(String(req.headers.authorization || "")) || !station.installation_id || !station.credential_expires_at || !Number.isFinite(Date.parse(station.credential_expires_at)) || Date.parse(station.credential_expires_at) <= Date.now()) throw connectorSecurityError("This secure print connection has expired or needs to be registered again.");
+            const proof = await verifyConnectorProof(req, { url: connectorProofUrl(req), token, installationId: String(station.installation_id), keyThumbprint: station.device_key_thumbprint });
+            await consumeConnectorProof(client, proof);
+        } else if (!readBooleanEnv("PRINT_CONNECTOR_ALLOW_LEGACY_TOKENS", false)) {
+            throw connectorSecurityError("Upgrade this connector and register the computer again.");
+        }
+    } catch (error) {
+        error.accessRestriction = { resourceType: "PRINT_CONNECTOR", resourceId: String(station.id) };
+        throw error;
+    }
+    return station;
+}
+
+async function enrollWarehousePrintConnector(client, appUser, input = {}, req = {}) {
+    if (!appUser?.id || appUser.is_active === false) throw httpError(401, "Sign in with an active warehouse account.");
+    if (!userHasPermission(appUser, RBAC_PERMISSIONS.MOBILE_WORKER_ACTION)) throw httpError(403, "Access restricted. A warehouse account is required for direct printing.");
+    const locationId = toPositiveInt(input.fulfillmentLocationId);
+    if (!locationId) throw httpError(400, "Choose a warehouse for this computer.");
+    await assertAppUserFulfillmentLocationAccess(client, appUser, locationId);
+    const location = await client.query("select id, code, name from fulfillment_locations where id = $1 and is_active = true", [locationId]);
+    if (location.rowCount !== 1) throw httpError(400, "This warehouse is not active.");
+    const installationId = String(input.installationId || "");
+    if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(installationId)) throw httpError(400, "This computer needs a valid installation ID.");
+    const proof = await verifyConnectorProof(req, { url: connectorProofUrl(req), installationId });
+    await consumeConnectorProof(client, proof);
+    const stationCode = `CONNECT-${appUser.id}-${locationId}-${installationId}`;
+    const result = await saveWarehousePrintStation(client, {
+        stationCode, stationName: normalizeFreeText(input.hostName).slice(0, 180) || "WMS365 Computer",
+        fulfillmentLocationId: locationId, rotateToken: true
+    }, appUser);
+    const expiresAt = new Date(Date.now() + CREDENTIAL_LIFETIME_DAYS * 86400000).toISOString();
+    await client.query("update warehouse_print_stations set app_user_id = $2, device_key_thumbprint = $3, installation_id = $4, credential_expires_at = $5 where id = $1", [result.station.id, appUser.id, proof.thumbprint, installationId, expiresAt]);
+    result.tokenType = "DPoP";
+    result.credentialExpiresAt = expiresAt;
+    result.station.fulfillmentLocationName = location.rows[0].name || "";
+    result.station.fulfillmentLocationCode = location.rows[0].code || "";
+    return result;
+}
+
+async function syncConnectorPrinterMappings(client, station, payload) {
+    if (!station.app_user_id || !payload.printerMappings) return;
+    const installed = new Set(sanitizeLocalPrinterSnapshot(payload.localPrinters).map((printer) => printer.name));
+    const roles = ["PICK_TICKET", "PACKING_SLIP", "BILL_OF_LADING", "RECEIVING_DOCUMENT", "SHIPPING_LABEL", "PALLET_LABEL", "LOCATION_LABEL", "UCC128_LABELS"];
+    for (const role of roles) {
+        const label = ["SHIPPING_LABEL", "PALLET_LABEL", "LOCATION_LABEL", "UCC128_LABELS"].includes(role);
+        const printerName = normalizeFreeText(payload.printerMappings[role] || (label ? payload.labelPrinterName : payload.documentPrinterName)).slice(0, 180);
+        const code = `${station.station_code}-${role}`;
+        if (!printerName) {
+            await client.query("update warehouse_printers set is_active = false where station_id = $1 and printer_code = $2", [station.id, code]);
+            continue;
+        }
+        if (!installed.has(printerName)) throw httpError(400, `The ${role.toLowerCase().replace(/_/g, " ")} printer is not installed on this computer.`);
+        await client.query(`insert into warehouse_printers (fulfillment_location_id, station_id, printer_code, printer_name, printer_type, printer_role, media_size, is_active)
+            values ($1,$2,$3,$4,$5,$6,$7,true) on conflict (printer_code) do update set printer_name = excluded.printer_name, is_active = true, updated_at = now()
+            where warehouse_printers.station_id = excluded.station_id and warehouse_printers.fulfillment_location_id = excluded.fulfillment_location_id`,
+        [station.fulfillment_location_id, station.id, code, printerName, label ? "LABEL" : "DOCUMENT", normalizeWarehousePrinterRole(role), label ? "4x6" : "LETTER"]);
+    }
 }
 
 function sanitizeLocalPrinterSnapshot(printers = []) {
@@ -30862,6 +32499,7 @@ function sanitizeLocalPrinterSnapshot(printers = []) {
 }
 
 async function updateWarehousePrintStationHeartbeat(client, station, payload = {}, req = null) {
+    await syncConnectorPrinterMappings(client, station, payload);
     const localPrinters = sanitizeLocalPrinterSnapshot(payload.localPrinters || payload.printers || []);
     const agentVersion = normalizeFreeText(payload.agentVersion || payload.version || "").slice(0, 80);
     const hostName = normalizeFreeText(payload.hostName || payload.hostname || req?.headers["x-wms365-hostname"] || "").slice(0, 180);
@@ -30879,7 +32517,7 @@ async function updateWarehousePrintStationHeartbeat(client, station, payload = {
         `,
         [station.id, agentVersion, hostName, JSON.stringify(localPrinters)]
     );
-    return { station: mapWarehousePrintStationRow(result.rows[0]) };
+    return { station: mapWarehousePrintStationRow({ ...station, ...result.rows[0] }) };
 }
 
 async function getAccessibleFulfillmentLocationIdsForAppUser(client, user) {
@@ -30973,6 +32611,26 @@ function buildPortalKittingProcessingTiming(request = {}, { location = null, now
 function classifyParcelTrackingReference(trackingReference, carrierName = "") {
     const references = splitShipmentTrackingReferences(trackingReference);
     const carrier = normalizeFreeText(carrierName).toLowerCase();
+    const carrierCode = normalizeTrackingCarrier(carrierName);
+    const freightCarrier = /(?:^|_)(?:FREIGHT|LTL|TRUCKLOAD|CARGO)(?:_|$)/.test(normalizeCarrierLookupText(carrierName));
+    const parcelCarrierLabels = {
+        UPS: "UPS",
+        PUROLATOR: "Purolator",
+        CANPAR: "Canpar",
+        FEDEX: "FedEx",
+        CANADA_POST: "Canada Post",
+        DHL: "DHL",
+        USPS: "USPS",
+        LOOMIS: "Loomis Express",
+        GLS: "GLS Canada",
+        ICS_COURIER: "ICS Courier",
+        DRAGONFLY: "Dragonfly",
+        UNIUNI: "UniUni"
+    };
+    if (references.length && !freightCarrier && parcelCarrierLabels[carrierCode]) {
+        const reference = String(references[0] || "").trim().replace(/\s+/g, "").toUpperCase();
+        return { isParcel: true, carrier: parcelCarrierLabels[carrierCode], reference };
+    }
     for (const reference of references) {
         const compact = String(reference || "").trim().replace(/\s+/g, "").toUpperCase();
         if (/^1Z[0-9A-Z]{16}$/.test(compact)) return { isParcel: true, carrier: "UPS", reference: compact };
@@ -31084,6 +32742,9 @@ async function saveWarehousePrintStation(client, input = {}, appUser = null) {
     const rotateToken = input.rotateToken === true || input.rotate_token === true;
     const token = createWarehousePrintStationToken();
     const existing = await client.query("select * from warehouse_print_stations where station_code = $1 limit 1", [stationCode]);
+    if (existing.rowCount && existing.rows[0].fulfillment_location_id) {
+        await assertAppUserFulfillmentLocationAccess(client, appUser, existing.rows[0].fulfillment_location_id);
+    }
     const tokenHash = existing.rowCount && !rotateToken && existing.rows[0].token_hash
         ? existing.rows[0].token_hash
         : hashWarehousePrintStationToken(token);
@@ -31127,6 +32788,7 @@ async function saveWarehousePrinter(client, input = {}, appUser = null) {
     }
     const fulfillmentLocationId = await resolveFulfillmentLocationIdForPrintInput(client, input) || toPositiveInt(station?.fulfillment_location_id);
     if (!fulfillmentLocationId) throw httpError(400, "Choose a warehouse for this printer.");
+    if (station && toPositiveInt(station.fulfillment_location_id) !== fulfillmentLocationId) throw httpError(400, "The printer and print station must belong to the same warehouse.");
     await assertAppUserFulfillmentLocationAccess(client, appUser, fulfillmentLocationId);
     const printerName = normalizeFreeText(input.printerName || input.printer_name || input.name);
     if (!printerName) throw httpError(400, "Printer name is required.");
@@ -31197,11 +32859,15 @@ async function resolvePortalOrderPrintFulfillmentLocationId(client, order) {
     return defaultResult.rowCount === 1 ? toPositiveInt(defaultResult.rows[0].id) : 0;
 }
 
-async function resolveWarehousePrinterForJob(client, { fulfillmentLocationId, printerId = 0, documentType = "" } = {}) {
+async function resolveWarehousePrinterForJob(client, { fulfillmentLocationId, printerId = 0, documentType = "", appUser = null } = {}) {
     const normalizedPrinterId = toPositiveInt(printerId);
     const role = normalizeWarehousePrinterRole(documentType);
+    const labelJob = role === WAREHOUSE_PRINTER_ROLES.SHIPPING_LABEL
+        || role === WAREHOUSE_PRINTER_ROLES.PALLET_LABEL
+        || role === WAREHOUSE_PRINTER_ROLES.LOCATION_LABEL;
     const params = [];
-    const where = ["p.is_active = true"];
+    const where = ["p.is_active = true", "s.is_active = true",
+        labelJob ? "p.printer_type = 'LABEL'" : "p.printer_type = 'DOCUMENT'"];
     if (normalizedPrinterId) {
         params.push(normalizedPrinterId);
         where.push(`p.id = $${params.length}`);
@@ -31210,6 +32876,8 @@ async function resolveWarehousePrinterForJob(client, { fulfillmentLocationId, pr
         where.push(`p.fulfillment_location_id = $${params.length}`);
     }
     const roleParam = params.length + 1;
+    if (labelJob) where.push(`p.printer_role = $${roleParam}`);
+    else where.push(`p.printer_role in ($${roleParam}, 'GENERAL')`);
     const result = await client.query(
         `
             select p.*, s.station_code, s.station_name, s.status as station_status,
@@ -31219,12 +32887,13 @@ async function resolveWarehousePrinterForJob(client, { fulfillmentLocationId, pr
             left join fulfillment_locations fl on fl.id = p.fulfillment_location_id
             where ${where.join(" and ")}
             order by
-                case when p.printer_role = $${roleParam} then 0 when p.printer_role = 'GENERAL' then 1 else 2 end,
+                case when s.app_user_id = $${roleParam + 1} then 0 else 1 end,
+                case when p.printer_role = $${roleParam} then 0 else 1 end,
                 p.is_default desc,
                 p.id asc
             limit 1
         `,
-        params.concat(role)
+        params.concat(role, toPositiveInt(appUser?.id))
     );
     if (result.rowCount !== 1) throw httpError(400, "No active warehouse printer is configured for this document and warehouse.");
     const printer = result.rows[0];
@@ -31434,11 +33103,17 @@ function convertPortalShipmentWeight(value, fromUom = "LB", toUom = "LB") {
     return from === "LB" ? weight * 0.45359237 : weight / 0.45359237;
 }
 
+function getPortalOrderBolWeightUom(order = {}) {
+    if (normalizeText(order.accountName || order.account_name) === "ALCONA TRADING LTD") return "KG";
+    return normalizeText(order.routingWeightUom || order.routing_weight_uom || "LB") === "KG" ? "KG" : "LB";
+}
+
 function getPortalOrderBolShipmentEntries(order = {}) {
     const groups = getPortalOrderSplitFulfillmentGroups(order);
     const storedShipments = Array.isArray(order.warehouseShipments) ? order.warehouseShipments : [];
     const pickedPalletDetails = Array.isArray(order.pickedPalletDetails) ? order.pickedPalletDetails : [];
-    const orderWeightUom = normalizeText(order.routingWeightUom || "LB") === "KG" ? "KG" : "LB";
+    const recordedOrderWeightUom = normalizeText(order.routingWeightUom || order.routing_weight_uom || "LB") === "KG" ? "KG" : "LB";
+    const orderWeightUom = getPortalOrderBolWeightUom(order);
     const pickedWeight = pickedPalletDetails.reduce((sum, pallet) => (
         sum + convertPortalShipmentWeight(pallet?.weight, pallet?.weightUom || "LB", orderWeightUom)
     ), 0);
@@ -31453,7 +33128,9 @@ function getPortalOrderBolShipmentEntries(order = {}) {
             trackingReference: order.shippedTrackingReference || "",
             bolReference: "",
             pallets: { total: groups.length === 1 ? Number(order.outboundPallets?.totalPalletsOut || 0) : 0 },
-            totalWeight: groups.length === 1 ? (Number(order.routingTotalWeight) || pickedWeight || null) : null,
+            totalWeight: groups.length === 1
+                ? (convertPortalShipmentWeight(order.routingTotalWeight, recordedOrderWeightUom, orderWeightUom) || pickedWeight || null)
+                : null,
             weightUom: orderWeightUom,
             deliveryDate: order.routingAppointment?.appointmentDate || order.routingRequestedDeliveryDate || order.requestedShipDate || ""
         }));
@@ -31466,12 +33143,16 @@ function getPortalOrderBolShipmentEntries(order = {}) {
             || (warehouseCode && normalizeText(candidate.location?.code || "") === warehouseCode)
         )) || groups[index] || { location: shipment?.warehouse || {}, lines: order.lines || [] };
         const isOnlyShipment = sourceShipments.length === 1;
-        const shipmentWeightUom = normalizeText(shipment?.weightUom || shipment?.weight_uom || orderWeightUom) === "KG" ? "KG" : "LB";
+        const recordedShipmentWeightUom = normalizeText(shipment?.weightUom || shipment?.weight_uom || recordedOrderWeightUom) === "KG" ? "KG" : "LB";
+        const shipmentWeightUom = getPortalOrderBolWeightUom(order);
         const totalPallets = Number(shipment?.pallets?.total ?? shipment?.total_pallets)
             || (isOnlyShipment ? Number(order.outboundPallets?.totalPalletsOut || 0) : 0)
             || (isOnlyShipment ? pickedPalletDetails.length : 0);
-        const totalWeight = Number(shipment?.totalWeight ?? shipment?.total_weight)
-            || (isOnlyShipment ? convertPortalShipmentWeight(order.routingTotalWeight, orderWeightUom, shipmentWeightUom) : 0)
+        const totalWeight = convertPortalShipmentWeight(
+            shipment?.totalWeight ?? shipment?.total_weight,
+            recordedShipmentWeightUom,
+            shipmentWeightUom
+        ) || (isOnlyShipment ? convertPortalShipmentWeight(order.routingTotalWeight, recordedOrderWeightUom, shipmentWeightUom) : 0)
             || (isOnlyShipment ? pickedPalletDetails.reduce((sum, pallet) => (
                 sum + convertPortalShipmentWeight(pallet?.weight, pallet?.weightUom || "LB", shipmentWeightUom)
             ), 0) : 0);
@@ -31627,9 +33308,9 @@ function buildPortalOrderBillOfLadingPage(order, shipment, rows, { pageNumber = 
     ops.push(pdfText("Carrier", 360, 586, 7, "F2"), pdfText(shipment.carrier.slice(0, 28), 418, 586, 7.5));
     ops.push(pdfText("Type", 360, 570, 7, "F2"), pdfText(shipmentMethodLabel(shipment.method), 418, 570, 7.5));
     ops.push(pdfText("Delivery", 360, 554, 7, "F2"), pdfText(bolDateLabel(shipment.deliveryDate), 418, 554, 7.5));
-    const appointmentWindow = appointment.status === "CONFIRMED"
+    const appointmentWindow = normalizeText(appointment.displayWindow) || (appointment.status === "CONFIRMED"
         ? [appointment.windowStart, appointment.windowEnd].filter(Boolean).join(" - ")
-        : "Not confirmed";
+        : "Not confirmed");
     ops.push(pdfText("Window", 360, 538, 7, "F2"), pdfText(appointmentWindow.slice(0, 24), 418, 538, 7.5));
     ops.push(pdfText("PRO/Ref", 360, 522, 7, "F2"), pdfText((shipment.trackingReference || "-").slice(0, 28), 418, 522, 7.5));
 
@@ -31656,27 +33337,30 @@ function buildPortalOrderBillOfLadingPage(order, shipment, rows, { pageNumber = 
     ops.push(pdfText(`${shipment.totalPallets} PALLET${shipment.totalPallets === 1 ? "" : "S"}`, 350, 232, 8, "F2"));
     ops.push(pdfText(bolWeightLabel(shipment.totalWeight, shipment.weightUom), 495, 232, 8, "F2"));
 
-    pdfBolSectionBar(ops, margin, 204, contentWidth, "SPECIAL INSTRUCTIONS");
+    pdfBolSectionBar(ops, margin, 204, contentWidth, "FREIGHT CHARGE TERMS - SELECT ONE BEFORE TENDER");
+    ops.push(pdfText("[  ] PREPAID     [  ] COLLECT     [  ] THIRD PARTY", margin + 6, 189, 8, "F2"));
+    ops.push(pdfText("Third-party freight charges bill to: __________________________________________________________", margin + 6, 174, 7));
+
+    pdfBolSectionBar(ops, margin, 146, contentWidth, "SPECIAL INSTRUCTIONS");
     const notes = [
         order.orderNotes,
         appointment.status === "CONFIRMED" && appointment.responderName ? `Appointment confirmed by ${appointment.responderName}.` : "",
         "Inspect freight for visible damage before unloading. Record driver arrival and departure time."
     ].filter(Boolean).join(" ");
-    wrapPdfText(notes, 104).slice(0, 3).forEach((line, index) => ops.push(pdfText(line, margin + 6, 188 - (index * 11), 7)));
+    wrapPdfText(notes, 104).slice(0, 3).forEach((line, index) => ops.push(pdfText(line, margin + 6, 132 - (index * 11), 7)));
 
-    pdfBolSectionBar(ops, margin, 144, contentWidth, "CERTIFICATION AND SIGNATURES");
-    ops.push(pdfStrokeRect(margin, 60, contentWidth / 2, 78), pdfStrokeRect(margin + contentWidth / 2, 60, contentWidth / 2, 78));
-    ops.push(pdfText("SHIPPER CERTIFICATION", margin + 6, 124, 7, "F2"));
-    ops.push(pdfText("Print name: ______________________________", margin + 6, 102, 7));
-    ops.push(pdfText("Signature: _______________________________", margin + 6, 82, 7));
-    ops.push(pdfText("Date: ______________  Time: _____________", margin + 6, 65, 7));
-    ops.push(pdfText("CARRIER ACKNOWLEDGEMENT", margin + contentWidth / 2 + 6, 124, 7, "F2"));
-    ops.push(pdfText("Driver name: _____________________________", margin + contentWidth / 2 + 6, 102, 7));
-    ops.push(pdfText("Signature: _______________________________", margin + contentWidth / 2 + 6, 82, 7));
-    ops.push(pdfText("Date: ______________  Time: _____________", margin + contentWidth / 2 + 6, 65, 7));
-    ops.push("0 g", pdfRect(margin, 36, contentWidth, 18), "1 g", pdfText("PRINT NAME, SIGN, DATE AND RECORD TIME", 190, 41, 9, "F2"), "0 g");
-    ops.push(pdfText("WMS365 | wms365.co", margin, 20, 7, "F2"));
-    ops.push(pdfText(`${shipment.shipmentExternalId || order.orderCode || ""} | Generated ${new Date().toISOString()}`, 300, 20, 6));
+    pdfBolSectionBar(ops, margin, 86, contentWidth, "PICKUP CERTIFICATION AND DELIVERY RECEIPT");
+    const signatureWidth = contentWidth / 3;
+    [0, 1, 2].forEach((index) => ops.push(pdfStrokeRect(margin + (index * signatureWidth), 26, signatureWidth, 54)));
+    ["SHIPPER", "CARRIER / DRIVER", "RECEIVER / PROOF OF DELIVERY"].forEach((label, index) => {
+        const x = margin + (index * signatureWidth) + 5;
+        ops.push(pdfText(label, x, 70, 6.8, "F2"));
+        ops.push(pdfText("Name: ________________________", x, 57, 6.5));
+        ops.push(pdfText("Signature: _____________________", x, 44, 6.5));
+        ops.push(pdfText("Date: __________  Time: ________", x, 31, 6.5));
+    });
+    ops.push(pdfText("WMS365 | wms365.co", margin, 12, 7, "F2"));
+    ops.push(pdfText(`${shipment.shipmentExternalId || order.orderCode || ""} | Generated ${new Date().toISOString()}`, 300, 12, 6));
     return ops;
 }
 
@@ -31829,6 +33513,23 @@ async function insertWarehousePrintJobEvent(client, jobId, eventType, actor = ""
     );
 }
 
+async function findPendingWarehouseDocumentPrint(client, { order, documentType, fulfillmentLocationId, printer, attachment, actor }) {
+    const lockKey = `PRINT:PORTAL_ORDER:${order.id}:${fulfillmentLocationId}:${printer.id}:${documentType}`;
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+    const result = await client.query(`select * from warehouse_print_jobs
+        where source_type = 'PORTAL_ORDER' and source_id = $1 and account_name = $2
+        and fulfillment_location_id = $3 and printer_id = $4 and document_type = $5
+        and status in ('QUEUED', 'CLAIMED') order by id desc limit 1 for update`,
+    [String(order.id), order.accountName, fulfillmentLocationId, printer.id, documentType]);
+    if (!result.rows.length) return null;
+    const pending = result.rows[0];
+    if (pending.payload_base64 === attachment.content.toString("base64")) return pending;
+    if (pending.status === "CLAIMED") throw httpError(409, "An earlier version of this document is printing. Wait for it to finish before sending an updated copy.");
+    await client.query("update warehouse_print_jobs set status = 'CANCELLED', updated_at = now() where id = $1", [pending.id]);
+    await insertWarehousePrintJobEvent(client, pending.id, "SUPERSEDED", actor, "An updated document replaced this queued copy before printer submission.");
+    return null;
+}
+
 async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, appUser = null) {
     const documentType = normalizePortalOrderPrintDocumentType(input.documentType || input.document_type || input.type);
     if (!documentType) throw httpError(400, "Choose a printable document type.");
@@ -31848,12 +33549,15 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
         const printer = await resolveWarehousePrinterForJob(client, {
             fulfillmentLocationId,
             printerId,
-            documentType
+            documentType,
+            appUser
         });
         const documentTitle = [
             `${portalOrderPrintDocumentLabel(documentType)} ${order.orderCode}`,
             titleSuffix
         ].filter(Boolean).join(" - ");
+        const pending = await findPendingWarehouseDocumentPrint(client, { order, documentType, fulfillmentLocationId, printer, attachment, actor });
+        if (pending) return { job: mapWarehousePrintJobRow({ ...pending, printer_name: printer.printer_name }), printer: mapWarehousePrinterRow(printer), alreadyQueued: true };
         const result = await client.query(
             `
                 insert into warehouse_print_jobs (
@@ -31935,7 +33639,9 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
     const fulfillmentLocationId = await resolvePortalOrderPrintFulfillmentLocationId(client, order);
     const attachment = documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.UCC128_LABELS
         ? buildPortalOrderUcc128LabelPdfAttachment(order, input)
-        : (documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
+        : (documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.BILL_OF_LADING
+            ? buildPortalOrderBillOfLadingPdfAttachment(order)
+            : documentType === PORTAL_ORDER_PRINT_DOCUMENT_TYPES.PACKING_SLIP
             ? buildPortalOrderPackingSlipPdfAttachment(order)
             : buildPortalOrderPickTicketPdfAttachment(order));
     return await createPrintJob({
@@ -31947,7 +33653,7 @@ async function createPortalOrderWarehousePrintJob(client, orderId, input = {}, a
 
 async function claimNextWarehousePrintJob(client, station, input = {}) {
     await recoverStaleWarehousePrintJobs(client, station);
-    const limit = Math.max(1, Math.min(toPositiveInt(input.limit) || 1, 5));
+    const limit = 1;
     const result = await client.query(
         `
             with next_jobs as (
@@ -31956,6 +33662,8 @@ async function claimNextWarehousePrintJob(client, station, input = {}) {
                 where station_id = $1
                   and status = 'QUEUED'
                   and attempts < max_attempts
+                  and ($3::bigint is null or fulfillment_location_id = $3)
+                  and ($4::text[] is null or account_name = any($4::text[]))
                 order by requested_at asc, id asc
                 limit $2
                 for update skip locked
@@ -31969,7 +33677,7 @@ async function claimNextWarehousePrintJob(client, station, input = {}) {
             where j.id = next_jobs.id
             returning j.*
         `,
-        [station.id, limit]
+        [station.id, limit, station.fulfillment_location_id || null, station.accessibleCompanies === undefined ? null : station.accessibleCompanies]
     );
     if (!result.rows.length) return null;
     const job = result.rows[0];
@@ -31992,8 +33700,8 @@ async function claimNextWarehousePrintJob(client, station, input = {}) {
 function warehousePrintAgentSupportsDurableReceipts(version) {
     const match = String(version || "").trim().match(/^(\d+)\.(\d+)\.(\d+)/);
     if (!match) return false;
-    const [major] = match.slice(1).map(Number);
-    return major >= 1;
+    const [major, minor] = match.slice(1).map(Number);
+    return major > 1 || (major === 1 && minor >= 2);
 }
 
 async function recoverStaleWarehousePrintJobs(client, station, leaseSeconds = 15 * 60) {
@@ -32033,8 +33741,8 @@ async function completeWarehousePrintJob(client, station, jobId, input = {}) {
     const success = input.success === true || normalizeText(input.status) === "PRINTED";
     const errorMessage = normalizeFreeText(input.error || input.errorMessage || input.message || "").slice(0, 1000);
     const jobResult = await client.query(
-        "select * from warehouse_print_jobs where id = $1 and station_id = $2 limit 1 for update",
-        [jobId, station.id]
+        "select * from warehouse_print_jobs where id = $1 and station_id = $2 and ($3::bigint is null or fulfillment_location_id = $3) and ($4::text[] is null or account_name = any($4::text[])) limit 1 for update",
+        [jobId, station.id, station.fulfillment_location_id || null, station.accessibleCompanies === undefined ? null : station.accessibleCompanies]
     );
     if (jobResult.rowCount !== 1) throw httpError(404, "That print job could not be found for this station.");
     const job = jobResult.rows[0];
@@ -32076,7 +33784,7 @@ async function completeWarehousePrintJob(client, station, jobId, input = {}) {
         return { job: mapWarehousePrintJobRow(updated.rows[0]) };
     }
 
-    const retry = (Number(job.attempts) || 0) < (Number(job.max_attempts) || 1);
+    const retry = input.retry !== false && (Number(job.attempts) || 0) < (Number(job.max_attempts) || 1);
     const updated = await client.query(
         `
             update warehouse_print_jobs
@@ -33880,7 +35588,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     }
 
     if (nextStatus === "CANCELLED") {
-        const cancellableStatuses = ["DRAFT", "RELEASED", "PICKED", "STAGED"];
+        const cancellableStatuses = ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"];
         if (!cancellableStatuses.includes(currentOrder.status)) {
             throw httpError(400, `Orders in ${currentOrder.status} cannot be cancelled.`);
         }
@@ -33928,7 +35636,8 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
     }
 
     const allowedTransitions = {
-        RELEASED: "PICKED",
+        RELEASED: "PICKING",
+        PICKING: "PICKED",
         PICKED: "STAGED",
         STAGED: "SHIPPED"
     };
@@ -33946,7 +35655,7 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
         return shippedOrder;
     }
 
-    const timestampColumn = nextStatus === "PICKED" ? "picked_at" : "staged_at";
+    const timestampColumn = nextStatus === "PICKING" ? "picking_at" : nextStatus === "PICKED" ? "picked_at" : "staged_at";
     let pickedPalletDetails = Array.isArray(currentOrder.pickedPalletDetails) ? currentOrder.pickedPalletDetails : [];
     if (nextStatus === "PICKED" && normalizeText(currentOrder.accountName).toUpperCase().includes("ALCONA TRADING")) {
         const rawPallets = Array.isArray(details?.pickedPalletDetails) ? details.pickedPalletDetails : [];
@@ -34286,8 +35995,8 @@ async function savePickConfirmation(client, input = {}, appUser = null, req = nu
         taskTypes: ["PICK"],
         permission: RBAC_PERMISSIONS.MOBILE_WORKER_ACTION
     });
-    if (normalizeText(orderRow.status) !== "RELEASED") {
-        throw mobileValidationError(409, "This order is no longer in released picking status. Refresh before continuing.", "stale_order_status");
+    if (normalizeText(orderRow.status) !== "PICKING") {
+        throw mobileValidationError(409, "Start picking this order before recording pick confirmations.", "stale_order_status");
     }
 
     const lineResult = await client.query(
@@ -34580,8 +36289,8 @@ async function approvePortalOrderShortPick(client, orderId, rawInput = {}, appUs
         throw httpError(404, "That portal order could not be found.");
     }
     const orderRow = orderResult.rows[0];
-    if (normalizePortalOrderStatus(orderRow.status) !== "RELEASED") {
-        throw httpError(400, `Short-pick approval is only available while the order is released. This order is ${normalizePortalOrderStatus(orderRow.status)}.`);
+    if (!["RELEASED", "PICKING"].includes(normalizePortalOrderStatus(orderRow.status))) {
+        throw httpError(400, `Short-pick approval is only available before the order is marked picked. This order is ${normalizePortalOrderStatus(orderRow.status)}.`);
     }
 
     const taskResult = await client.query(
@@ -34993,6 +36702,46 @@ function getOrderTaskFacts(order) {
     };
 }
 
+function buildPortalOrderInternalTransferSummary(order = {}) {
+    if (order.portalInventoryPoolEnabled !== true && order.portal_inventory_pool_enabled !== true) {
+        return { required: false, totalQuantity: 0, sourceFulfillmentLocationIds: [], lines: [] };
+    }
+    const targetId = String(order.fulfillmentLocationId || order.fulfillment_location_id || "");
+    const bySourceAndSku = new Map();
+    for (const line of Array.isArray(order.lines) ? order.lines : []) {
+        for (const pick of Array.isArray(line.pickLocations) ? line.pickLocations : []) {
+            const sourceId = String(pick.fulfillmentLocationId || pick.fulfillment_location_id || "");
+            const quantity = Math.max(Number(pick.quantity) || 0, 0);
+            if (!sourceId || !targetId || sourceId === targetId || quantity <= 0) continue;
+            const sku = normalizeText(line.sku || pick.sku || "");
+            const key = `${sourceId}::${sku}`;
+            if (!bySourceAndSku.has(key)) {
+                bySourceAndSku.set(key, {
+                    sourceFulfillmentLocationId: sourceId,
+                    sourceFulfillmentLocationCode: pick.fulfillmentLocationCode || pick.fulfillment_location_code || "",
+                    sourceFulfillmentLocationName: pick.fulfillmentLocationName || pick.fulfillment_location_name || "",
+                    sku,
+                    quantity: 0,
+                    sourceLocations: []
+                });
+            }
+            const transferLine = bySourceAndSku.get(key);
+            transferLine.quantity += quantity;
+            if (pick.location) transferLine.sourceLocations.push(pick.location);
+        }
+    }
+    const lines = [...bySourceAndSku.values()].map((line) => ({
+        ...line,
+        sourceLocations: [...new Set(line.sourceLocations)]
+    }));
+    return {
+        required: lines.length > 0,
+        totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+        sourceFulfillmentLocationIds: [...new Set(lines.map((line) => line.sourceFulfillmentLocationId))],
+        lines
+    };
+}
+
 function getInboundTaskFacts(inbound) {
     const lines = Array.isArray(inbound?.lines) ? inbound.lines : [];
     return {
@@ -35174,17 +36923,21 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
     const actor = appUser?.full_name || appUser?.email || "System";
     const sourceType = "PORTAL_ORDER";
     const allTaskTypes = ["PICK", "PACK", "SHIP"];
+    const internalTransfer = buildPortalOrderInternalTransferSummary(order);
     if (facts.status === "DRAFT" || facts.status === "CANCELLED" || facts.status === "ARCHIVED") {
         await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "CANCELLED", actor);
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["REPLENISHMENT"], "CANCELLED", actor);
         return;
     }
     if (facts.status === "SHIPPED") {
         await closeWarehouseTasksForSource(client, sourceType, facts.id, allTaskTypes, "DONE", actor);
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["REPLENISHMENT"], "DONE", actor);
         return;
     }
 
     const taskByStatus = {
         RELEASED: "PICK",
+        PICKING: "PICK",
         PICKED: "PACK",
         STAGED: "SHIP"
     };
@@ -35198,6 +36951,38 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
         : ((await getPortalOrderReleaseFulfillmentLocations(client, facts.accountName))[0] || null);
     await closeWarehouseTasksForSource(client, sourceType, facts.id, completedBefore, "DONE", actor);
     await closeWarehouseTasksForSource(client, sourceType, facts.id, cancelledAfter, "CANCELLED", actor);
+    if (facts.status === "RELEASED" && internalTransfer.required) {
+        const sourceIds = internalTransfer.sourceFulfillmentLocationIds.map(toPositiveInt).filter((id) => id > 0);
+        await upsertWarehouseTask(client, {
+            taskType: "REPLENISHMENT",
+            sourceType,
+            sourceId: facts.id,
+            sourceCode: facts.code,
+            accountName: facts.accountName,
+            fulfillmentLocationId: facts.fulfillmentLocationId,
+            status: "OPEN",
+            priority: classifyWarehouseTaskPriorityFromDate(facts.requestedShipDate),
+            dueAt: warehouseTaskDueAtFromDate(facts.requestedShipDate),
+            title: `Transfer stock for ${facts.code}`,
+            details: [
+                `Move to ${order.fulfillmentLocationName || order.fulfillmentLocationCode || "the order warehouse"} before picking`,
+                ...internalTransfer.lines.map((line) => {
+                    const source = line.sourceFulfillmentLocationName || line.sourceFulfillmentLocationCode || "source warehouse";
+                    const bins = line.sourceLocations.length ? ` from ${line.sourceLocations.join(", ")}` : "";
+                    return `${line.sku}: ${line.quantity}${bins} (${source})`;
+                })
+            ].join(" | "),
+            metadata: {
+                orderStatus: facts.status,
+                transferRequired: true,
+                destinationFulfillmentLocationId: facts.fulfillmentLocationId,
+                sourceFulfillmentLocationIds: sourceIds,
+                lines: internalTransfer.lines
+            }
+        });
+    } else {
+        await closeWarehouseTasksForSource(client, sourceType, facts.id, ["REPLENISHMENT"], "DONE", actor);
+    }
     await upsertWarehouseTask(client, {
         taskType: activeTaskType,
         sourceType,
@@ -35205,7 +36990,7 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
         sourceCode: facts.code,
         accountName: facts.accountName,
         fulfillmentLocationId: fulfillmentLocation?.fulfillment_location_id || 0,
-        status: "OPEN",
+        status: facts.status === "PICKING" ? "IN_PROGRESS" : "OPEN",
         priority: classifyWarehouseTaskPriorityFromDate(facts.requestedShipDate),
         dueAt: warehouseTaskDueAtFromDate(facts.requestedShipDate),
         title: `${warehouseTaskTypeLabel(activeTaskType)} ${facts.code}`,
@@ -35214,13 +36999,16 @@ async function syncWarehouseTasksForOrder(client, order, appUser = null) {
             facts.poNumber ? `PO ${facts.poNumber}` : "",
             facts.shippingReference ? `Ref ${facts.shippingReference}` : "",
             `${formatCount(facts.lineCount, "line")}`,
-            facts.totalQuantity ? `${facts.totalQuantity} units/cases` : ""
+            facts.totalQuantity ? `${facts.totalQuantity} units/cases` : "",
+            internalTransfer.required ? "Internal warehouse transfer required before picking" : ""
         ].filter(Boolean).join(" | "),
         metadata: {
             orderStatus: facts.status,
             requestedShipDate: facts.requestedShipDate,
             lineCount: facts.lineCount,
-            totalQuantity: facts.totalQuantity
+            totalQuantity: facts.totalQuantity,
+            internalTransferRequired: internalTransfer.required,
+            internalTransferQuantity: internalTransfer.totalQuantity
         }
     });
 }
@@ -35351,7 +37139,7 @@ async function syncWarehouseTasksFromOperationalRecords(client = pool) {
                 from portal_order_lines
                 group by order_id
             ) l on l.order_id = o.id
-            where o.status in ('RELEASED', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED')
+            where o.status in ('RELEASED', 'PICKING', 'PICKED', 'STAGED', 'SHIPPED', 'CANCELLED', 'ARCHIVED')
                or exists (
                     select 1
                     from warehouse_tasks wt
@@ -37895,7 +39683,7 @@ async function getInventoryLineCommitment(client, inventoryLineId) {
         `
             with sales as (
                 select
-                    coalesce(sum(case when o.status = 'RELEASED' then a.allocated_quantity else 0 end), 0)::integer released_quantity,
+                    coalesce(sum(case when o.status in ('RELEASED', 'PICKING') then a.allocated_quantity else 0 end), 0)::integer released_quantity,
                     coalesce(sum(case when o.status = 'PICKED' then a.allocated_quantity else 0 end), 0)::integer picked_quantity,
                     coalesce(sum(case when o.status = 'STAGED' then a.allocated_quantity else 0 end), 0)::integer staged_quantity,
                     coalesce(sum(a.allocated_quantity), 0)::integer sales_quantity
@@ -37991,6 +39779,9 @@ function sanitizeInventoryMoveImages(images = []) {
         const document = sanitizePortalOrderDocumentInput(image);
         if (!document || !INVENTORY_MOVE_IMAGE_TYPES.has(document.fileType)) {
             throw httpError(400, "QC and damage evidence must be a JPEG, PNG, or WebP image.");
+        }
+        if (document.fileSize > 4 * 1024 * 1024) {
+            throw httpError(400, "QC and damage images must be under 4 MB.");
         }
         return document;
     });
@@ -38576,7 +40367,7 @@ async function updateWarehouseShipmentDetail(client, shipmentId, input = {}, { a
     const current = await getWarehouseShipmentDetail(client, shipmentId, accountName);
     if (!current) throw httpError(404, "That warehouse shipment could not be found.");
     const status = normalizeText(input.status || current.status);
-    if (!["RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(status)) {
+    if (!["RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED"].includes(status)) {
         throw httpError(400, "Shipment status must be released, picked, staged, shipped, or cancelled.");
     }
     const inputLines = Array.isArray(input.lines) ? input.lines : [];
@@ -39803,6 +41594,9 @@ function sanitizeStoreIntegrationSettingsInput(provider, settings = {}, rawInput
         );
         return {
             shopifyLocationId: locationId,
+            ...(source.carrierFulfillmentEventsEnabled !== undefined ? { carrierFulfillmentEventsEnabled: source.carrierFulfillmentEventsEnabled === true } : {}),
+            ...(source.trackingPollMinutes !== undefined ? { trackingPollMinutes: shopifyTrackingSync.deliverySettings({ settings: source }).trackingPollMinutes } : {}),
+            ...(source.trackingWindowDays !== undefined ? { trackingWindowDays: shopifyTrackingSync.deliverySettings({ settings: source }).trackingWindowDays } : {}),
             primaryLocationName: normalizeFreeText(source.primaryLocationName || source.primary_location_name || rawInput?.primaryLocationName || rawInput?.primary_location_name || ""),
             allowedShipCountries,
             syncOrders: toBooleanFlag(source.syncOrders ?? source.sync_orders ?? rawInput?.syncOrders ?? rawInput?.sync_orders, true),
@@ -40153,7 +41947,7 @@ function mapCompanyFulfillmentLocationRow(row) {
     const createdAt = row.created_at ? new Date(row.created_at).toISOString() : null;
     const updatedAt = row.updated_at ? new Date(row.updated_at).toISOString() : createdAt;
     return {
-        id: String(row.id),
+        id: String(row.id ?? row.assignment_id ?? ""),
         accountName: row.account_name,
         fulfillmentLocationId: String(row.fulfillment_location_id),
         locationCode: row.location_code || row.code || "",
@@ -40574,6 +42368,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         splitFulfillmentApproved: row.split_fulfillment_approved === true,
         splitFulfillmentApprovedAt: row.split_fulfillment_approved_at ? new Date(row.split_fulfillment_approved_at).toISOString() : null,
         splitFulfillmentApprovedBy: row.split_fulfillment_approved_by || "",
+        portalInventoryPoolEnabled: row.portal_inventory_pool_enabled === true,
         rushApprovalRequired: portalOrderRequiresRushApproval({
             orderType: row.order_type,
             shipmentMethod: row.shipment_method,
@@ -40653,6 +42448,7 @@ function mapPortalOrderRow(row, lines = [], documents = [], downloadPathPrefix =
         shipmentEmailSentAt: row.shipment_email_sent_at ? new Date(row.shipment_email_sent_at).toISOString() : null,
         shipmentEmailLastError: row.shipment_email_last_error || "",
         shipmentEmailAttempts: Number(row.shipment_email_attempts || 0),
+        pickingAt: row.picking_at ? new Date(row.picking_at).toISOString() : null,
         pickedAt: row.picked_at ? new Date(row.picked_at).toISOString() : null,
         stagedAt: row.staged_at ? new Date(row.staged_at).toISOString() : null,
         shippedAt: row.shipped_at ? new Date(row.shipped_at).toISOString() : null,
@@ -41289,7 +43085,14 @@ function sanitizePortalShippingConfirmationInput(payload) {
         outboundLabourHours: Math.max(0, roundBillingNumber(payload?.outboundLabourHours ?? payload?.labourHours ?? payload?.laborHours ?? 0, 2)),
         outboundSpecialLabourNote: normalizeFreeText(payload?.outboundSpecialLabourNote || payload?.specialLabourNote || payload?.laborNote || ""),
         packingSlipQuantityConfirmed,
-        moveShortageToInvestigation
+        moveShortageToInvestigation,
+        missingShipmentProofOverride: toBooleanFlag(
+            payload?.missingShipmentProofOverride ?? payload?.missing_shipment_proof_override,
+            false
+        ),
+        missingShipmentProofOverrideReason: normalizeFreeText(
+            payload?.missingShipmentProofOverrideReason || payload?.missing_shipment_proof_override_reason || ""
+        )
     };
 }
 
@@ -41347,6 +43150,9 @@ function sanitizePortalOrderDocumentInput(document) {
     if (!base64) {
         throw httpError(400, `${fileName} did not contain file data.`);
     }
+    if (base64.length > Math.ceil(MAX_PORTAL_DOCUMENT_BYTES / 3) * 4) {
+        throw httpError(400, `${fileName} is too large. Keep each document up to 10 MB.`);
+    }
 
     let buffer;
     try {
@@ -41358,8 +43164,8 @@ function sanitizePortalOrderDocumentInput(document) {
     if (!buffer.length) {
         throw httpError(400, `${fileName} did not contain file data.`);
     }
-    if (buffer.length > 4 * 1024 * 1024) {
-        throw httpError(400, `${fileName} is too large. Keep each document under 4 MB.`);
+    if (exceedsPortalDocumentLimit(buffer.length)) {
+        throw httpError(400, `${fileName} is too large. Keep each document up to 10 MB.`);
     }
     assertSafeUploadContent(fileName, fileType, buffer);
 
@@ -41447,7 +43253,7 @@ function normalizeUploadFileName(value) {
 
 function normalizePortalOrderStatus(value) {
     const normalized = normalizeText(value);
-    return ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED", "CANCELLED", "ARCHIVED"].includes(normalized) ? normalized : "";
+    return ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED", "CANCELLED", "ARCHIVED"].includes(normalized) ? normalized : "";
 }
 
 function normalizePortalInboundStatus(value) {
@@ -43490,6 +45296,10 @@ function describeStoreIntegrationSyncSchedule(schedule) {
             return "Every 30 Minutes";
         case "HOURLY":
             return "Hourly";
+        case "WEEKDAYS_5X_0600_1600":
+            return "Weekdays 5x (6:00 AM-4:00 PM ET)";
+        case "DAILY_3X_0730_1430":
+            return "Daily 3x (7:30 AM, 11:30 AM, 2:30 PM ET)";
         case "DAILY_0900":
             return "Daily at 9:00 AM";
         case "DAILY_1200":
@@ -43563,6 +45373,32 @@ function computeNextStoreIntegrationSyncAt(schedule, { lastSyncedAt = null, now 
             }
         }
         return currentTime.toISOString();
+    }
+
+    if (normalizedSchedule === "WEEKDAYS_5X_0600_1600") {
+        const currentParts = getTimeZoneDateParts(currentTime, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
+        for (let daysAhead = 0; daysAhead < 8; daysAhead += 1) {
+            const dateParts = addDaysToCalendarDate(currentParts.year, currentParts.month, currentParts.day, daysAhead);
+            const weekday = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day)).getUTCDay();
+            if (weekday === 0 || weekday === 6) continue;
+            for (const slot of STORE_INTEGRATION_WEEKDAY_5X_TIMES) {
+                const candidate = dateFromTimeZoneParts({ ...dateParts, ...slot, second: 0 }, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
+                if (candidate > currentTime) return candidate.toISOString();
+            }
+        }
+        return null;
+    }
+
+    if (normalizedSchedule === "DAILY_3X_0730_1430") {
+        const currentParts = getTimeZoneDateParts(currentTime, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
+        for (let daysAhead = 0; daysAhead < 2; daysAhead += 1) {
+            const dateParts = addDaysToCalendarDate(currentParts.year, currentParts.month, currentParts.day, daysAhead);
+            for (const slot of STORE_INTEGRATION_DAILY_3X_TIMES) {
+                const candidate = dateFromTimeZoneParts({ ...dateParts, ...slot, second: 0 }, STORE_INTEGRATION_SCHEDULE_TIME_ZONE);
+                if (candidate > currentTime) return candidate.toISOString();
+            }
+        }
+        return null;
     }
 
     const dailyTime = STORE_INTEGRATION_DAILY_SCHEDULE_TIMES[normalizedSchedule];
@@ -44375,7 +46211,8 @@ function shouldServeWms365MaintenancePage(req) {
     const pathName = getRequestPathName(req);
     return [
         "/login", "/login.html", "/portal", "/portal.html", "/app", "/desktop",
-        "/mobile", "/mobile-pick", "/mobile-pick.html", "/mobile-count", "/mobile-count.html"
+        "/mobile", "/mobile/warehouse", "/mobile/login", "/warehouse-actions", "/warehouse-actions.html", "/mobile-receive", "/mobile-receive.html",
+        "/mobile-pick", "/mobile-pick.html", "/mobile/ship-pdf", "/mobile-ship-pdf", "/mobile-ship-pdf.html", "/mobile-count", "/mobile-count.html"
     ].includes(pathName);
 }
 
@@ -44597,6 +46434,24 @@ function delay(ms) {
 }
 
 module.exports = {
+    getHealteaMonthEndPeriod,
+    buildHealteaMonthEndActivity,
+    isStateChangingRequestOriginAllowed,
+    assertShopifyNativeNotificationConfiguration,
+    getShopifyInitialNotifyCustomer,
+    createShopifyFulfillmentForImportedOrder,
+    validateShopifyDeliveryNotificationEvent,
+    enqueueShopifyDeliveryForCarrierRow,
+    enqueueShopifyShippedNotifications,
+    canRetryShopifyDeliveryNotification,
+    mapShopifyDeliveryNotificationLog,
+    getScopedTrackerNotificationRows,
+    findPendingWarehouseDocumentPrint,
+    completeWarehousePrintJob,
+    enrollWarehousePrintConnector,
+    requireWarehousePrintAgent,
+    syncConnectorPrinterMappings,
+    claimNextWarehousePrintJob,
     app,
     runDatabaseHealthProbe,
     sanitizeItemMasterInput,
@@ -44686,12 +46541,16 @@ module.exports = {
     buildIntegrationCredentialRequestUrl,
     renderIntegrationCredentialRequestPage,
     normalizeSubmittedIntegrationCredential,
+    testSubmittedShopifyCredential,
+    normalizeSecureShopifyConfiguration,
+    SHOPIFY_APP_SCOPES,
     ensureReceivingDestinationLocation,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     PORTAL_ORDER_PRINT_DOCUMENT_TYPES,
     WAREHOUSE_PRINT_JOB_STATUSES,
     WAREHOUSE_PRINTER_ROLES,
     normalizeWarehousePrinterRole,
+    resolveWarehousePrinterForJob,
     normalizeWarehousePrintJobStatus,
     warehousePrintAgentSupportsDurableReceipts,
     hashWarehousePrintStationToken,
@@ -44728,6 +46587,9 @@ module.exports = {
     extractPortalShippingLabelDetailsFromDocuments,
     buildPortalShipmentEmailText,
     buildPortalShipmentEmailHtml,
+    isCustomerFacingEmail,
+    applyCustomerFacingEmailPrivacy,
+    normalizeSystemEmailMailOptions,
     classifyParcelTrackingReference,
     getShipmentMethodTrackingConflict,
     assertShipmentMethodMatchesTrackingReference,
@@ -44746,6 +46608,8 @@ module.exports = {
     buildPortalOrderConfirmationEmailHtml,
     buildPortalOrderStockWarnings,
     getPortalInventorySummary,
+    getPortalInventoryPoolSources,
+    aggregatePortalInventoryWarehouseAvailability,
     normalizeAddressCountryCode,
     buildAddressFingerprint,
     validateManualShipToAddressShape,
@@ -44838,7 +46702,9 @@ module.exports = {
     savePickConfirmation,
     saveMobileExecutionConfirmation,
     approvePortalOrderShortPick,
+    correctPortalOrderPickedQuantities,
     filterMobilePickOrdersForAppUser,
+    buildPortalOrderInternalTransferSummary,
     getAssignedMobilePickOrderIds,
     MOBILE_WORKER_ACTION_TASK_STATUSES,
     MOBILE_PICK_WORKER_QUEUE_TASK_STATUSES,
@@ -44882,12 +46748,14 @@ module.exports = {
     decodePartnerApiCursor,
     buildPartnerApiPage,
     makeWarehouseShipmentCode,
+    buildPortalOrderSplitFulfillmentGroups,
     buildWarehouseShipmentQuantityAllocator,
     getWarehouseShipmentDetail,
     updateWarehouseShipmentDetail,
     preparePortalOrderBillOfLading,
     backfillWarehouseShipments,
     syncWarehouseShipmentsForOrder,
+    getPortalFulfillmentLocationsForAccount,
     getAccessibleFulfillmentLocationIdsForAppUser,
     getExplicitFulfillmentLocationIdsForAppUser,
     getPortalOrderFulfillmentLocationIds,

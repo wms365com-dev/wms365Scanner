@@ -5150,6 +5150,92 @@
                 align-items: start;
             }
 
+            .dashboard-aging-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }
+
+            .dashboard-aging-table th,
+            .dashboard-aging-table td {
+                padding: 0.58rem 0.68rem;
+                border-bottom: 1px solid #e3e9ee;
+                color: #42586b;
+                font-size: 0.74rem;
+                text-align: right;
+                vertical-align: middle;
+            }
+
+            .dashboard-aging-table th {
+                background: #f8fafb;
+                color: #617589;
+                font-size: 0.65rem;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .dashboard-aging-table th:first-child,
+            .dashboard-aging-table td:first-child {
+                width: 30%;
+                text-align: left;
+            }
+
+            .dashboard-aging-table tbody tr {
+                cursor: pointer;
+            }
+
+            .dashboard-aging-table tbody tr:hover,
+            .dashboard-aging-table tbody tr:focus-within {
+                background: #f2f8fa;
+            }
+
+            .dashboard-aging-company {
+                display: grid;
+                gap: 0.28rem;
+                min-width: 0;
+            }
+
+            .dashboard-aging-company button {
+                overflow: hidden;
+                padding: 0;
+                background: transparent;
+                color: #006d7f;
+                font-size: 0.78rem;
+                font-weight: 800;
+                text-align: left;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .dashboard-aging-bar {
+                display: flex;
+                width: min(210px, 100%);
+                height: 6px;
+                overflow: hidden;
+                border-radius: 3px;
+                background: #e5ebef;
+            }
+
+            .dashboard-aging-bar span:nth-child(1) { background: #4d8b6d; }
+            .dashboard-aging-bar span:nth-child(2) { background: #c18a32; }
+            .dashboard-aging-bar span:nth-child(3) { background: #b75656; }
+
+            .dashboard-aging-oldest.warn {
+                color: #a15c00;
+                font-weight: 800;
+            }
+
+            .dashboard-aging-oldest.late {
+                color: #b42318;
+                font-weight: 800;
+            }
+
+            @media (max-width: 820px) {
+                .dashboard-aging-wrap { overflow-x: auto; }
+                .dashboard-aging-table { min-width: 720px; }
+            }
+
             .dashboard-task-panel {
                 overflow: hidden;
             }
@@ -7118,6 +7204,20 @@
                     </button>
                 </div>
 
+                <article class="dashboard-panel">
+                    <div class="dashboard-panel-head">
+                        <div>
+                            <h3>Open Orders by Company</h3>
+                            <p>Live released, picked, and staged sales orders grouped by company and age.</p>
+                        </div>
+                        <div class="dashboard-panel-actions">
+                            <span id="dashboardCompanyAgingMeta">0 companies</span>
+                            <button class="dashboard-drill-btn" type="button" data-dashboard-popout="outbound">View All Orders</button>
+                        </div>
+                    </div>
+                    <div class="dashboard-aging-wrap" id="dashboardCompanyAging"></div>
+                </article>
+
                 <article class="dashboard-panel dashboard-task-panel">
                     <div class="dashboard-panel-head">
                         <div>
@@ -8660,6 +8760,8 @@
                                         <option value="EVERY_15_MINUTES">Every 15 Minutes</option>
                                         <option value="EVERY_30_MINUTES">Every 30 Minutes</option>
                                         <option value="HOURLY">Hourly</option>
+                                        <option value="WEEKDAYS_5X_0600_1600">Weekdays 5x (6:00 AM-4:00 PM ET)</option>
+                                        <option value="DAILY_3X_0730_1430">Daily 3x (7:30 AM, 11:30 AM, 2:30 PM ET)</option>
                                         <option value="DAILY_0900">Daily at 9:00 AM</option>
                                         <option value="DAILY_1200">Daily at 12:00 PM</option>
                                         <option value="DAILY_1500">Daily at 3:00 PM</option>
@@ -10893,7 +10995,7 @@
                     </div>
                     <div class="button-row" style="margin-bottom: 1rem;">
                         <button class="btn secondary" id="loadWarehousePrintersBtn" type="button">Load Setup</button>
-                        <span class="meta">Agent setup file: print-agent/README.md</span>
+                        <span class="meta">WMS365 Print Connector</span>
                     </div>
                     <div class="status" id="warehousePrintSetupMessage"></div>
                     <div class="helper" style="margin-top: 1rem;">
@@ -11656,6 +11758,8 @@
             dashboardOpenTasks: document.getElementById("dashboardOpenTasks"),
             dashboardTaskMetric: document.getElementById("dashboardTaskMetric"),
             dashboardCustomerCount: document.getElementById("dashboardCustomerCount"),
+            dashboardCompanyAgingMeta: document.getElementById("dashboardCompanyAgingMeta"),
+            dashboardCompanyAging: document.getElementById("dashboardCompanyAging"),
             dashboardTaskMeta: document.getElementById("dashboardTaskMeta"),
             dashboardInboundMeta: document.getElementById("dashboardInboundMeta"),
             dashboardOutboundMeta: document.getElementById("dashboardOutboundMeta"),
@@ -12768,6 +12872,14 @@
             document.addEventListener("change", (event) => {
                 const shipmentMethodSelect = event.target.closest("[data-portal-ship-method]");
                 if (shipmentMethodSelect) updatePortalShipmentMethodPanel(shipmentMethodSelect);
+                const shipmentCarrierInput = event.target.closest("[data-portal-ship-carrier]");
+                if (shipmentCarrierInput) updatePortalShipmentCarrierMethod(shipmentCarrierInput);
+                const shipmentProofInput = event.target.closest("[data-portal-ship-documents], [data-portal-ship-photos]");
+                if (shipmentProofInput?.files?.length) {
+                    uploadPortalShipmentProofInput(shipmentProofInput).catch((error) => {
+                        showMessage(ui.warehouseOrderMessage, error.message || "The shipment document could not be saved.", "error");
+                    });
+                }
             });
             ui.quickSectionButtons.forEach((button) => button.addEventListener("click", () => {
                 if (button === ui.desktopCommandNewBtn && handleDesktopNewCommand()) return;
@@ -12991,10 +13103,15 @@
             ui.warehouseDashboardTaskList?.addEventListener("click", onWarehouseDashboardListClick);
             ui.warehouseDashboardInboundList?.addEventListener("click", onWarehouseDashboardListClick);
             ui.warehouseDashboardOutboundList?.addEventListener("click", onWarehouseDashboardListClick);
+            ui.dashboardCompanyAging?.addEventListener("click", onWarehouseDashboardListClick);
             ui.dashboardPopoutList?.addEventListener("click", onWarehouseDashboardListClick);
             ui.portalInboundsList?.addEventListener("click", onPortalInboundsListClick);
             ui.portalOrdersList.addEventListener("click", onPortalOrdersListClick);
-            ui.portalOrderStatusFilter?.addEventListener("change", () => renderPortalOrdersList());
+            ui.portalOrderStatusFilter?.addEventListener("change", () => {
+                renderPortalOrdersList();
+                refreshPortalOrdersList(false, { showLoading: true })
+                    .catch((error) => showMessage(ui.portalOrdersMessage, error.message, "error"));
+            });
             ui.portalOrderSearch?.addEventListener("input", debouncedRenderPortalOrders);
             ui.portalOrderSearch?.addEventListener("keydown", async (event) => {
                 if (event.key !== "Enter") return;
@@ -13079,6 +13196,8 @@
                 if (ui.portalOrderStatusFilter) ui.portalOrderStatusFilter.value = getPortalOrderDefaultStatusFilter();
                 if (ui.portalOrderSearch) ui.portalOrderSearch.value = "";
                 renderPortalOrdersList();
+                refreshPortalOrdersList(false, { showLoading: true })
+                    .catch((error) => showMessage(ui.portalOrdersMessage, error.message, "error"));
             });
             ui.masterItemImagePickBtn.addEventListener("click", () => ui.masterItemImageInput.click());
             ui.masterItemImageClearBtn.addEventListener("click", () => clearImageField({
@@ -17155,9 +17274,9 @@
         function getDashboardOpenOrders() {
             const now = new Date();
             return getCompanyScopedPortalOrders()
-                .filter((order) => ["RELEASED", "PICKED", "STAGED"].includes(norm(order.status)))
+                .filter((order) => ["RELEASED", "PICKING", "PICKED", "STAGED"].includes(norm(order.status)))
                 .sort((a, b) => {
-                    const statusRank = { RELEASED: 1, PICKED: 2, STAGED: 3 };
+                    const statusRank = { RELEASED: 1, PICKING: 2, PICKED: 3, STAGED: 4 };
                     return portalOrderDashboardRank(a, now) - portalOrderDashboardRank(b, now)
                         || (statusRank[norm(a.status)] || 9) - (statusRank[norm(b.status)] || 9)
                         || dashboardDateSort(a.requestedShipDate).localeCompare(dashboardDateSort(b.requestedShipDate))
@@ -17456,6 +17575,14 @@
                 openDashboardListPopout(popoutButton.dataset.dashboardPopout);
                 return;
             }
+            const companyButton = event.target.closest("[data-dashboard-company]");
+            if (companyButton) {
+                const company = normalizeCompanyContextValue(companyButton.dataset.dashboardCompany || "");
+                if (!company) return;
+                setActiveCompany(company, { force: true });
+                setSection("orders", { focusAnchorId: "portalOrdersQueueCard" });
+                return;
+            }
             const taskButton = event.target.closest("[data-open-warehouse-task]");
             if (taskButton) {
                 void openWarehouseTaskSource(taskButton.dataset.openWarehouseTask).catch(() => {});
@@ -17476,6 +17603,106 @@
             }
         }
 
+        function openOrderDays(order, today = todayInputValue()) {
+            const createdKey = dashboardDateKey(order?.createdAt || order?.created_at);
+            if (!createdKey || !today) return 0;
+            const createdTime = Date.parse(`${createdKey}T00:00:00`);
+            const todayTime = Date.parse(`${today}T00:00:00`);
+            if (!Number.isFinite(createdTime) || !Number.isFinite(todayTime)) return 0;
+            return Math.max(0, Math.floor((todayTime - createdTime) / 86400000));
+        }
+
+        function summarizeOpenOrdersByCompany(orders, today = todayInputValue()) {
+            const companies = new Map();
+            (orders || []).forEach((order) => {
+                const company = normalizeCompanyContextValue(order?.accountName || "") || "Unassigned";
+                if (!companies.has(company)) {
+                    companies.set(company, {
+                        company,
+                        total: 0,
+                        released: 0,
+                        picked: 0,
+                        staged: 0,
+                        fresh: 0,
+                        watch: 0,
+                        late: 0,
+                        oldest: 0
+                    });
+                }
+                const summary = companies.get(company);
+                const status = norm(order?.status);
+                const days = openOrderDays(order, today);
+                summary.total += 1;
+                if (status === "RELEASED") summary.released += 1;
+                if (status === "PICKED") summary.picked += 1;
+                if (status === "STAGED") summary.staged += 1;
+                if (days <= 2) summary.fresh += 1;
+                else if (days <= 7) summary.watch += 1;
+                else summary.late += 1;
+                summary.oldest = Math.max(summary.oldest, days);
+            });
+            return [...companies.values()].sort((a, b) => b.oldest - a.oldest || b.total - a.total || a.company.localeCompare(b.company));
+        }
+
+        function renderCompanyOpenOrderAging(rows) {
+            if (!ui.dashboardCompanyAging) return;
+            if (ui.dashboardCompanyAgingMeta) {
+                const total = rows.reduce((sum, row) => sum + row.total, 0);
+                ui.dashboardCompanyAgingMeta.textContent = `${num(rows.length)} compan${rows.length === 1 ? "y" : "ies"} | ${num(total)} open`;
+            }
+            if (!rows.length) {
+                ui.dashboardCompanyAging.innerHTML = '<p class="empty">No released, picked, or staged sales orders are currently open.</p>';
+                return;
+            }
+            ui.dashboardCompanyAging.innerHTML = `
+                <table class="dashboard-aging-table">
+                    <thead>
+                        <tr>
+                            <th>Company</th>
+                            <th>Open</th>
+                            <th>Released</th>
+                            <th>Picked</th>
+                            <th>Staged</th>
+                            <th>0-2 days</th>
+                            <th>3-7 days</th>
+                            <th>8+ days</th>
+                            <th>Oldest</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => {
+                            const freshWidth = (row.fresh / row.total) * 100;
+                            const watchWidth = (row.watch / row.total) * 100;
+                            const lateWidth = (row.late / row.total) * 100;
+                            const oldestTone = row.oldest >= 8 ? "late" : (row.oldest >= 3 ? "warn" : "");
+                            return `
+                                <tr>
+                                    <td>
+                                        <div class="dashboard-aging-company">
+                                            <button type="button" data-dashboard-company="${attr(row.company)}">${esc(row.company)}</button>
+                                            <div class="dashboard-aging-bar" aria-label="${num(row.fresh)} fresh, ${num(row.watch)} aging, ${num(row.late)} over 7 days">
+                                                <span style="width:${freshWidth}%"></span>
+                                                <span style="width:${watchWidth}%"></span>
+                                                <span style="width:${lateWidth}%"></span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><strong>${num(row.total)}</strong></td>
+                                    <td>${num(row.released)}</td>
+                                    <td>${num(row.picked)}</td>
+                                    <td>${num(row.staged)}</td>
+                                    <td>${num(row.fresh)}</td>
+                                    <td>${num(row.watch)}</td>
+                                    <td>${num(row.late)}</td>
+                                    <td class="dashboard-aging-oldest ${oldestTone}">${num(row.oldest)}d</td>
+                                </tr>
+                            `;
+                        }).join("")}
+                    </tbody>
+                </table>
+            `;
+        }
+
         function renderWarehouseDashboard() {
             if (!ui.warehouseDashboardLead) return;
             const company = getActiveCompany();
@@ -17484,6 +17711,7 @@
             const scopedOrders = getCompanyScopedPortalOrders();
             const openInbounds = getDashboardOpenInbounds();
             const openOrders = getDashboardOpenOrders();
+            const companyAging = summarizeOpenOrdersByCompany(openOrders);
             const activeTasks = getDashboardActiveTasks();
             const releasedOrders = openOrders.filter((order) => norm(order.status) === "RELEASED");
             const pickedOrders = openOrders.filter((order) => norm(order.status) === "PICKED");
@@ -17540,6 +17768,7 @@
                 ].filter(Boolean).join(" | ") || "warehouse queue";
             }
             if (ui.dashboardCustomerCount) ui.dashboardCustomerCount.textContent = num(dashboardCompanies.size);
+            renderCompanyOpenOrderAging(companyAging);
             if (ui.dashboardTaskMeta) {
                 ui.dashboardTaskMeta.textContent = [
                     `${num(activeTasks.length)} active`,
@@ -21503,6 +21732,7 @@
                         </div>
                         <div class="quick-row-actions">
                             <button class="btn ghost mini" type="button" data-edit-integration="${attr(entry.id)}">Load</button>
+                            ${entry.provider === "SHOPIFY" && ["ADMIN", "SUPER_ADMIN"].includes(norm(currentAppUser?.role)) ? `<button class="btn ghost mini" type="button" data-delivery-settings="${attr(entry.id)}">Delivery Notifications</button>` : ""}
                             <button class="btn ghost mini" type="button" data-sync-integration="${attr(entry.id)}"${integrationSupportsSync(entry.provider) ? "" : " disabled"}>Run Sync</button>
                         </div>
                     </div>
@@ -21944,7 +22174,162 @@
             updateIntegrationScheduleMeta();
         }
 
+        function createDeliveryDialog(title) {
+            const dialog = document.createElement("dialog");
+            dialog.style.cssText = "width:min(900px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid #bbcbd6;border-radius:8px;padding:20px;color:#142c3c;background:#fff;";
+            dialog.setAttribute("data-delivery-dialog", "");
+            dialog.innerHTML = `<style>[data-delivery-dialog] .toggle-line{display:flex;align-items:center;gap:10px;margin:8px 0}[data-delivery-dialog] input[type=checkbox]{width:18px;height:18px;min-width:18px;flex:none;margin:0}[data-delivery-dialog] .field span{letter-spacing:0}[data-delivery-dialog] table{font-size:13px}[data-delivery-dialog] h3{font-size:18px;margin:0}[data-delivery-dialog]::backdrop{background:rgba(20,30,35,.3)}</style><form><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;background:#fff;z-index:3;padding:8px 0"><h3>${esc(title)}</h3><button class="btn ghost mini" type="button" data-delivery-close aria-label="Close">Close</button></div><div data-delivery-message role="status" aria-live="polite" tabindex="-1" style="position:sticky;top:50px;z-index:2;background:#fff;"></div><div data-delivery-content></div></form>`;
+            document.body.appendChild(dialog);
+            dialog.querySelector("[data-delivery-close]").addEventListener("click", () => dialog.close());
+            dialog.addEventListener("close", () => dialog.remove(), { once: true });
+            dialog.showModal();
+            return dialog;
+        }
+
+        function deliveryDialogMessage(dialog, text, error = false) {
+            const message = dialog.querySelector("[data-delivery-message]");
+            message.textContent = text;
+            message.style.cssText += `padding:12px;margin:12px 0;border:1px solid ${error ? "#b42318" : "#9cb3c0"};color:${error ? "#8f1711" : "#142c3c"};background:${error ? "#fff0ee" : "#f3f8fa"};font-weight:600;`;
+            message.setAttribute("role", error ? "alert" : "status");
+            message.style.position = "relative";
+            message.style.top = "0";
+            if (error) {
+                message.focus({ preventScroll: true });
+                dialog.scrollTo({ top: 0 });
+            }
+        }
+
+        async function openStoreDeliverySettings(integrationId) {
+            const record = integrationRecords.find((entry) => entry.id === String(integrationId));
+            if (!record || record.accountName !== getActiveCompany()) return;
+            const dialog = createDeliveryDialog(`Delivery Notifications - ${record.integrationName || record.storeIdentifier}`);
+            const content = dialog.querySelector("[data-delivery-content]");
+            deliveryDialogMessage(dialog, "Loading settings...");
+            try {
+                const response = await requestJson(`/api/admin/integrations/${encodeURIComponent(integrationId)}/delivery-settings`);
+                if (!dialog.isConnected) return;
+                const settings = response.settings || {};
+                const eventChoices = [["SHIPPED", "Shipped"], ["PICKED_UP", "Carrier picked up"], ["IN_TRANSIT", "In transit"], ["EXCEPTION", "Delayed / exception"], ["OUT_FOR_DELIVERY", "Out for delivery"], ["DELIVERY_ATTEMPTED", "Delivery attempted"], ["DELIVERED", "Delivered"]];
+                const selected = settings.events || ["SHIPPED", "EXCEPTION", "OUT_FOR_DELIVERY", "DELIVERY_ATTEMPTED", "DELIVERED"];
+                content.innerHTML = `<div class="form-grid">
+                    <label class="toggle-line span-2"><input name="trackingEnabled" type="checkbox" ${settings.trackingEnabled ? "checked" : ""}><span>Enable carrier status updates to Shopify</span></label>
+                    <label class="field"><span>Tracking interval (minutes)</span><input name="pollMinutes" type="number" min="30" max="60" value="${attr(settings.pollMinutes || 45)}" required></label>
+                    <label class="field"><span>Tracking period (days)</span><input name="trackingDays" type="number" min="1" max="180" value="${attr(settings.trackingDays || 45)}" required></label>
+                    <label class="toggle-line span-2"><input name="enabled" type="checkbox" ${settings.enabled ? "checked" : ""}><span>Enable customer delivery notifications</span></label>
+                    <label class="field span-2"><span>Notification provider</span><select name="mode"><option value="SHOPIFY" ${settings.mode === "SHOPIFY" ? "selected" : ""}>Shopify</option><option value="WMS365" ${settings.mode === "WMS365" ? "selected" : ""}>WMS365</option><option value="BOTH" ${settings.mode === "BOTH" ? "selected" : ""}>Both (customers may receive two emails)</option></select></label>
+                    <fieldset class="span-2" style="border:1px solid #bbcbd6;border-radius:4px;padding:12px"><legend>Email events</legend>${eventChoices.map(([value, label]) => `<label class="toggle-line"><input name="events" type="checkbox" value="${attr(value)}" ${selected.includes(value) ? "checked" : ""}><span>${esc(label)}</span></label>`).join("")}</fieldset>
+                    <label class="toggle-line span-2"><input name="smsEnabled" type="checkbox" ${settings.smsEnabled ? "checked" : ""} ${response.capabilities?.smsConfigured === true ? "" : "disabled"}><span>SMS${response.capabilities?.smsConfigured === true ? " for customers with recorded consent" : " (provider not configured)"}</span></label>
+                    <label class="field"><span>Store / brand name</span><input name="brandName" type="text" maxlength="120" value="${attr(settings.brandName || record.integrationName || "")}"></label>
+                    <label class="field"><span>Brand logo URL</span><input name="logoUrl" type="url" value="${attr(settings.logoUrl || "")}" placeholder="https://"></label>
+                    <label class="field span-2"><span>Message</span><textarea name="messageTemplate" rows="3" maxlength="2000">${esc(settings.messageTemplate || "")}</textarea></label>
+                </div><div class="action-row" style="margin-top:16px"><button class="btn" type="submit">Save Settings</button><button class="btn ghost" type="button" data-review-shopify-notifications>Shopify Notification Settings</button></div>`;
+                content.querySelector("[data-review-shopify-notifications]").addEventListener("click", () => openShopifyNotificationReview(integrationId));
+                deliveryDialogMessage(dialog, response.message || "Settings loaded.");
+                dialog.querySelector("form").addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const form = event.currentTarget;
+                    const data = new FormData(form);
+                    const button = form.querySelector("[type=submit]");
+                    button.disabled = true;
+                    deliveryDialogMessage(dialog, "Saving settings...");
+                    try {
+                        await requestJson(`/api/admin/integrations/${encodeURIComponent(integrationId)}/delivery-settings`, { method: "PUT", body: JSON.stringify({
+                            trackingEnabled: data.has("trackingEnabled"), pollMinutes: Number(data.get("pollMinutes")), trackingDays: Number(data.get("trackingDays")),
+                            enabled: data.has("enabled"), mode: data.get("mode"), events: data.getAll("events"), smsEnabled: data.has("smsEnabled"),
+                            brandName: data.get("brandName"), logoUrl: data.get("logoUrl"), messageTemplate: data.get("messageTemplate")
+                        }) });
+                        deliveryDialogMessage(dialog, "Delivery settings saved.");
+                    } catch (error) { deliveryDialogMessage(dialog, error.message, true); }
+                    finally { button.disabled = false; }
+                });
+            } catch (error) { deliveryDialogMessage(dialog, error.message, true); }
+        }
+
+        function openShopifyNotificationReview(integrationId) {
+            const dialog = createDeliveryDialog("Shopify Notification Settings");
+            dialog.querySelector("[data-delivery-content]").innerHTML = `<div class="form-grid"><label class="field"><span>Shopify notification</span><select name="eventType"><option value="SHIPPED">Shipping confirmation</option><option value="OUT_FOR_DELIVERY">Out for delivery</option><option value="DELIVERED">Delivered</option></select></label><label class="field"><span>Verified setting</span><select name="state"><option value="UNKNOWN">Not verified</option><option value="ENABLED">Enabled in Shopify</option><option value="DISABLED">Disabled in Shopify</option></select></label><label class="field span-2"><span>Verification reference / note</span><input name="evidenceRef" maxlength="180" required></label></div><div class="action-row"><a class="btn ghost" href="https://help.shopify.com/en/manual/fulfillment/setup/notifications/customer-notifications" target="_blank" rel="noopener">Shopify Settings</a><button class="btn" type="submit">Record Verification</button></div>`;
+            dialog.querySelector("form").addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const data = new FormData(event.currentTarget);
+                const button = event.currentTarget.querySelector("[type=submit]");
+                button.disabled = true;
+                try {
+                    await requestJson(`/api/admin/integrations/${encodeURIComponent(integrationId)}/delivery-notification-review`, { method: "POST", body: JSON.stringify({ eventType: data.get("eventType"), state: data.get("state"), evidenceRef: data.get("evidenceRef") }) });
+                    deliveryDialogMessage(dialog, "Shopify notification verification recorded.");
+                } catch (error) { deliveryDialogMessage(dialog, error.message, true); }
+                finally { button.disabled = false; }
+            });
+        }
+
+        async function handleShipmentDeliveryAction(event, messageElement) {
+            const button = event.target.closest("[data-tracking-action]");
+            if (!button) return false;
+            event.stopPropagation();
+            const trackerId = button.dataset.trackerId;
+            const action = button.dataset.trackingAction;
+            if (!trackerId) return true;
+            if (action === "notifications") { await openShipmentNotificationLog(trackerId); return true; }
+            if (action === "correct") { openShipmentTrackingCorrection(trackerId); return true; }
+            try {
+                await runButtonTask(button, { busyLabel: "Checking...", messageElement, progressMessage: "Updating shipment tracking..." }, async () => {
+                    const response = await requestJson(`/api/admin/shipment-trackers/${encodeURIComponent(trackerId)}/${action}`, { method: "POST" });
+                    await refreshPortalOrdersList(true);
+                    showMessage(messageElement, response.message || "Tracking update queued.", "success");
+                });
+            } catch (error) { showMessage(messageElement, error.message, "error"); }
+            return true;
+        }
+
+        async function openShipmentNotificationLog(trackerId) {
+            const dialog = createDeliveryDialog("Customer Delivery Notifications");
+            const content = dialog.querySelector("[data-delivery-content]");
+            const load = async () => {
+                const response = await requestJson(`/api/admin/shipment-trackers/${encodeURIComponent(trackerId)}/notifications`);
+                if (!dialog.isConnected) return;
+                const rows = response.notifications || [];
+                content.innerHTML = rows.length ? `<div class="erp-table-wrap"><table><thead><tr><th>Recipient</th><th>Event</th><th>Confirmed sent</th><th>Method / Provider</th><th>Result</th><th>Shopify email evidence</th><th></th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.recipient || row.email || row.phone || "")}</td><td>${esc(row.status || row.eventStatus || "")}</td><td>${row.sentAt ? esc(formatDate(row.sentAt)) : "Not confirmed"}</td><td>${esc(row.method || row.channel || "EMAIL")} / ${esc(row.provider || "WMS365")}</td><td>${esc(row.result || row.deliveryStatus || row.state || "PENDING")}</td><td>${esc(row.shopifySendState || "UNKNOWN")}</td><td><button class="btn ghost mini" type="button" data-resend-notification="${attr(row.id)}" ${row.canResend === true ? "" : "disabled"}>Resend</button></td></tr>`).join("")}</tbody></table></div>` : `<p>No delivery notifications recorded.</p>`;
+            };
+            deliveryDialogMessage(dialog, "Loading notification history...");
+            try { await load(); deliveryDialogMessage(dialog, "Notification history loaded."); }
+            catch (error) { deliveryDialogMessage(dialog, error.message, true); }
+            content.addEventListener("click", async (event) => {
+                const button = event.target.closest("[data-resend-notification]");
+                if (!button) return;
+                button.disabled = true;
+                try {
+                    await requestJson(`/api/admin/shipment-trackers/${encodeURIComponent(trackerId)}/notifications/${encodeURIComponent(button.dataset.resendNotification)}/resend`, { method: "POST" });
+                    await load(); deliveryDialogMessage(dialog, "Notification retry queued.");
+                } catch (error) { deliveryDialogMessage(dialog, error.message, true); button.disabled = false; }
+            });
+        }
+
+        function openShipmentTrackingCorrection(trackerId) {
+            const tracker = portalOrderRecords.flatMap((order) => order.shipmentTracking || []).find((entry) => entry.id === String(trackerId));
+            if (!tracker) return;
+            const dialog = createDeliveryDialog("Correct Shipment Tracking");
+            dialog.querySelector("[data-delivery-content]").innerHTML = `<div class="form-grid"><label class="field"><span>Carrier</span><select name="carrier" required><option value="CANPAR">Canpar</option><option value="ICS_COURIER">ICS Courier</option><option value="GLS">GLS Canada</option></select></label><label class="field"><span>Tracking number</span><input name="trackingNumber" maxlength="120" value="${attr(tracker.trackingNumber)}" required></label><label class="field span-2"><span>Correction reason</span><input name="reason" maxlength="600" required></label></div><div class="action-row"><button class="btn" type="submit">Save Correction</button></div>`;
+            const carrier = norm(tracker.carrierName);
+            dialog.querySelector("[name=carrier]").value = carrier.includes("ICS") ? "ICS_COURIER" : carrier.includes("GLS") || carrier.includes("DICOM") ? "GLS" : "CANPAR";
+            dialog.querySelector("form").addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const data = new FormData(event.currentTarget);
+                const button = event.currentTarget.querySelector("[type=submit]");
+                button.disabled = true;
+                try {
+                    await requestJson(`/api/admin/shipment-trackers/${encodeURIComponent(trackerId)}/correct`, { method: "POST", body: JSON.stringify({ carrier: data.get("carrier"), trackingNumber: data.get("trackingNumber"), reason: data.get("reason") }) });
+                    await refreshPortalOrdersList(true);
+                    deliveryDialogMessage(dialog, "Correction saved. Shopify tracking confirmed.");
+                } catch (error) { deliveryDialogMessage(dialog, error.message, true); }
+                finally { button.disabled = false; }
+            });
+        }
+
         function onIntegrationListClick(event) {
+            const deliveryButton = event.target.closest("[data-delivery-settings]");
+            if (deliveryButton) {
+                openStoreDeliverySettings(deliveryButton.dataset.deliverySettings);
+                return;
+            }
             const editButton = event.target.closest("[data-edit-integration]");
             if (editButton) {
                 const integrationId = editButton.dataset.editIntegration || "";
@@ -22015,6 +22400,8 @@
                 case "EVERY_15_MINUTES":
                 case "EVERY_30_MINUTES":
                 case "HOURLY":
+                case "WEEKDAYS_5X_0600_1600":
+                case "DAILY_3X_0730_1430":
                 case "DAILY_0900":
                 case "DAILY_1200":
                 case "DAILY_1500":
@@ -22035,6 +22422,10 @@
                     return "Every 30 Minutes";
                 case "HOURLY":
                     return "Hourly";
+                case "WEEKDAYS_5X_0600_1600":
+                    return "Weekdays 5x (6:00 AM-4:00 PM ET)";
+                case "DAILY_3X_0730_1430":
+                    return "Daily 3x (7:30 AM, 11:30 AM, 2:30 PM ET)";
                 case "DAILY_0900":
                     return "Daily at 9:00 AM";
                 case "DAILY_1200":
@@ -22085,7 +22476,7 @@
             portalOrderRecords
                 .filter((order) =>
                     order.accountName === accountName &&
-                    ["RELEASED", "PICKED", "STAGED"].includes(order.status) &&
+                    ["RELEASED", "PICKING", "PICKED", "STAGED"].includes(order.status) &&
                     String(order.id) !== String(excludeReservedOrderId || "")
                 )
                 .forEach((order) => {
@@ -22359,7 +22750,7 @@
                     <button class="btn ghost mini" type="button" data-remove-picked-pallet aria-label="Remove pallet">Remove</button>
                 </div>
             `).join("");
-            const pickedPalletPanel = requiresPickedPalletDetails && order.status === "RELEASED" ? `
+            const pickedPalletPanel = requiresPickedPalletDetails && ["RELEASED", "PICKING"].includes(order.status) ? `
                 <div class="portal-order-shipping-box erp-document-shipping-panel" data-picked-pallet-panel="${attr(order.id)}">
                     <div class="header-copy"><h3>Picked Pallets</h3><p class="meta">Record each pallet's actual source bin and scale weight before marking the order picked.</p></div>
                     <datalist id="picked-pallet-locations-${attr(order.id)}">${order.lines.flatMap((line) => line.pickLocations || []).map((entry) => `<option value="${attr(entry.location || "")}"></option>`).join("")}</datalist>
@@ -22377,6 +22768,13 @@
                         <div class="line-card" style="margin-top:0.7rem;">
                             <div class="line-head"><strong>${esc(tracker.carrierName || "Carrier")} | ${esc(tracker.trackingNumber || "Tracking pending")}</strong><span class="pill">${esc(tracker.statusLabel || tracker.status)}</span></div>
                             <div class="line-note">${esc(tracker.statusDetail || "Waiting for the next carrier checkpoint.")}${tracker.estimatedDeliveryAt ? ` | Estimated ${esc(formatDate(tracker.estimatedDeliveryAt))}` : ""}</div>
+                            <div class="quick-meta">Last tracking check: ${tracker.lastCheckedAt ? esc(formatDate(tracker.lastCheckedAt)) : "Not checked"} | Shopify updated: ${tracker.lastShopifyUpdateAt ? esc(formatDate(tracker.lastShopifyUpdateAt)) : "Not yet updated"}</div>
+                            <div class="quick-row-actions">
+                                <button class="btn ghost mini" type="button" data-tracking-action="refresh" data-tracker-id="${attr(tracker.id)}">Refresh Tracking</button>
+                                <button class="btn ghost mini" type="button" data-tracking-action="shopify-resend" data-tracker-id="${attr(tracker.id)}">Resend to Shopify</button>
+                                <button class="btn ghost mini" type="button" data-tracking-action="notifications" data-tracker-id="${attr(tracker.id)}">Notification Log</button>
+                                ${["ADMIN", "SUPER_ADMIN"].includes(norm(currentAppUser?.role)) ? `<button class="btn ghost mini" type="button" data-tracking-action="correct" data-tracker-id="${attr(tracker.id)}">Correct Tracking</button>` : ""}
+                            </div>
                             ${tracker.trackingUrl ? `<div class="quick-row-actions"><a class="btn ghost" href="${attr(tracker.trackingUrl)}" target="_blank" rel="noopener">Open Carrier Tracking</a></div>` : ""}
                             ${tracker.events?.length ? `<div class="quick-meta" style="margin-top:0.55rem;">${tracker.events.slice(0, 5).map((event) => `${esc(event.statusLabel || event.status)}${event.location ? ` | ${esc(event.location)}` : ""}${event.eventAt ? ` | ${esc(formatDate(event.eventAt))}` : ""}`).join("<br>")}</div>` : ""}
                         </div>
@@ -22448,14 +22846,17 @@
                         <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Signed BOL / POD</span>
                             <input data-portal-ship-documents="${attr(order.id)}" data-document-category="SHIPMENT_BOL" type="file" accept="application/pdf,image/*">
+                            <span class="quick-meta" data-portal-proof-status="${attr(order.id)}:SHIPMENT_BOL">${order.documents?.some((document) => norm(document.documentCategory) === "SHIPMENT_BOL") ? "Saved to this order" : "Choose a file to save it now"}</span>
                         </label>
                         <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Checked Packing Slip</span>
                             <input data-portal-ship-documents="${attr(order.id)}" data-document-category="SHIPMENT_PACKING_SLIP" type="file" accept="application/pdf,image/*">
+                            <span class="quick-meta" data-portal-proof-status="${attr(order.id)}:SHIPMENT_PACKING_SLIP">${order.documents?.some((document) => norm(document.documentCategory) === "SHIPMENT_PACKING_SLIP") ? "Saved to this order" : "Choose a file to save it now"}</span>
                         </label>
                         <label class="field span-2" data-portal-freight-proof-fields="${attr(order.id)}" ${isFreightShipment ? "" : "hidden"}>
                             <span>Loaded Freight Photo</span>
                             <input data-portal-ship-photos="${attr(order.id)}" data-document-category="SHIPMENT_LOAD_PHOTO" type="file" accept="image/*" capture="environment">
+                            <span class="quick-meta" data-portal-proof-status="${attr(order.id)}:SHIPMENT_LOAD_PHOTO">${order.documents?.some((document) => norm(document.documentCategory) === "SHIPMENT_LOAD_PHOTO") ? "Saved to this order" : "Choose a photo to save it now"}</span>
                         </label>
                     </div>
                     <div class="erp-table-wrap" style="margin-top:0.8rem;">
@@ -22521,9 +22922,10 @@
                         ${canPrintUcc128Labels ? `<button class="btn ghost mini" type="button" data-print-ucc128-labels="${attr(order.id)}">Print UCC128 Labels${ucc128PrintCount ? ` (${esc(`${ucc128PrintCount}x`)})` : ""}</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-pick-ticket="${attr(order.id)}">Send Pick to Warehouse Printer</button>` : ""}
                         ${canPrintWorkflowDocuments ? `<button class="btn ghost mini" type="button" data-queue-packing-slip="${attr(order.id)}">Send Pack to Warehouse Printer</button>` : ""}
+                        ${canPrintWorkflowDocuments && order.status === "STAGED" ? `<button class="btn ghost mini" type="button" data-queue-bol="${attr(order.id)}">Send BOL to Warehouse Printer</button>` : ""}
                         ${canPrintUcc128Labels ? `<button class="btn ghost mini" type="button" data-queue-ucc128-labels="${attr(order.id)}">Send UCC128 to Label Printer</button>` : ""}
                         ${nextStatus && nextStatus !== "SHIPPED" ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="${attr(nextStatus)}">${esc(portalOrderActionLabel(nextStatus))}</button>` : ""}
-                        ${["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status) ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="CANCELLED">Cancel Order</button>` : ""}
+                        ${["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(order.status) ? `<button class="btn ghost mini" type="button" data-portal-order-status="${attr(order.id)}" data-next-status="CANCELLED">Cancel Order</button>` : ""}
                     </div>
                 </div>
                 <div class="quick-meta">
@@ -22605,7 +23007,7 @@
             if (ui.warehouseOrderStatusChip) {
                 ui.warehouseOrderStatusChip.textContent = order?.status || "Draft";
             }
-            const canCancelOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(order.status);
+            const canCancelOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(order.status);
             const canReopenReleased = !!order?.id && order.status === "RELEASED";
             [ui.deleteWarehouseOrderBtn, ui.salesOrderCommandDeleteBtn].filter(Boolean).forEach((button) => {
                 button.hidden = !canCancelOrder;
@@ -22622,7 +23024,7 @@
                     ? "Clear the released allocation and return this order to draft."
                     : "Only released orders can be reopened before picking.";
             });
-            const canDuplicateOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
+            const canDuplicateOrder = !!order?.id && ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
             [ui.salesOrderCommandDuplicateBtn, ui.duplicateWarehouseOrderBtn].filter(Boolean).forEach((button) => {
                 button.hidden = !canDuplicateOrder;
                 button.disabled = !canDuplicateOrder;
@@ -23292,7 +23694,7 @@
             if (!currentOrder?.id) {
                 return showMessage(ui.warehouseOrderMessage, "Open a saved sales order before cancelling.", "error");
             }
-            if (!["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(currentOrder.status)) {
+            if (!["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(currentOrder.status)) {
                 return showMessage(ui.warehouseOrderMessage, `Only draft, released, picked, or staged orders can be cancelled. This order is ${currentOrder.status}.`, "error");
             }
             const orderLabel = currentOrder.orderCode || editingWarehouseOrderId;
@@ -24892,8 +25294,13 @@
             }
         }
 
-        function getPortalOrdersRequestKey(company) {
-            return norm(company) || "__ALL_COMPANIES__";
+        function getPortalOrdersRequestStatus() {
+            if (isShippedOrdersSection()) return "SHIPPED";
+            return norm(ui.portalOrderStatusFilter?.value || "");
+        }
+
+        function getPortalOrdersRequestKey(company, status = getPortalOrdersRequestStatus()) {
+            return `${norm(company) || "__ALL_COMPANIES__"}::${norm(status) || "ALL"}`;
         }
 
         function renderPortalOrdersWorkspace() {
@@ -24918,15 +25325,20 @@
             }
         }
 
-        function isPortalOrdersRefreshCurrent(refreshSerial, companyKey) {
-            return refreshSerial === portalOrdersRefreshSerial && norm(getActiveCompany()) === companyKey;
+        function isPortalOrdersRefreshCurrent(refreshSerial, companyKey, statusKey) {
+            return refreshSerial === portalOrdersRefreshSerial
+                && norm(getActiveCompany()) === companyKey
+                && getPortalOrdersRequestStatus() === statusKey;
         }
 
-        function requestPortalOrdersForCompany(company) {
-            const key = getPortalOrdersRequestKey(company);
+        function requestPortalOrdersForCompany(company, status = getPortalOrdersRequestStatus()) {
+            const key = getPortalOrdersRequestKey(company, status);
             const existing = portalOrdersInFlight.get(key);
             if (existing) return existing;
-            const query = company ? `?accountName=${encodeURIComponent(company)}` : "";
+            const params = new URLSearchParams();
+            if (company) params.set("accountName", company);
+            if (status) params.set("status", status);
+            const query = params.size ? `?${params.toString()}` : "";
             const request = requestJson(`/api/admin/portal-orders${query}`)
                 .finally(() => {
                     if (portalOrdersInFlight.get(key) === request) portalOrdersInFlight.delete(key);
@@ -24968,7 +25380,8 @@
         async function refreshPortalOrdersList(silent = false, { allowAllCompanies = portalOrdersAllCompaniesRequested, showLoading = !silent } = {}) {
             const company = getActiveCompany();
             const companyKey = norm(company);
-            const cacheKey = getPortalOrdersRequestKey(company);
+            const requestStatus = getPortalOrdersRequestStatus();
+            const cacheKey = getPortalOrdersRequestKey(company, requestStatus);
             const refreshSerial = ++portalOrdersRefreshSerial;
             let renderedCachedOrders = false;
             if (!company && !allowAllCompanies) {
@@ -24992,8 +25405,8 @@
                 } else if (showLoading) {
                     setPortalOrdersLoadingMessage(`Loading ${company || "all company"} sales orders...`, "info", { delay: true });
                 }
-                const payload = await requestPortalOrdersForCompany(company);
-                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
+                const payload = await requestPortalOrdersForCompany(company, requestStatus);
+                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey, requestStatus)) return portalOrderRecords;
                 let orders = Array.isArray(payload?.orders)
                     ? payload.orders.map(sanitizePortalOrderRecord).filter(Boolean)
                     : [];
@@ -25014,7 +25427,7 @@
                 }
                 return portalOrderRecords;
             } catch (error) {
-                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey)) return portalOrderRecords;
+                if (!isPortalOrdersRefreshCurrent(refreshSerial, companyKey, requestStatus)) return portalOrderRecords;
                 if (renderedCachedOrders) return portalOrderRecords;
                 if (showLoading) {
                     setPortalOrdersLoadingMessage(`Could not refresh sales orders: ${error.message}`, "error");
@@ -25125,7 +25538,7 @@
                 const rush = portalOrderIsRush(order);
                 const notReady = portalOrderIsNotYetReady(order);
                 const readyText = formatPortalOrderReadyLabel(order);
-                const canBatchPrintPickTicket = ["RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
+                const canBatchPrintPickTicket = ["RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(order.status);
                 const statusHtml = [
                     `<span class="pill ${portalOrderStatusTone(order.status)}">${esc(order.status)}</span>`,
                     rush ? `<span class="pill warn">RUSH</span>` : "",
@@ -25186,13 +25599,15 @@
         }
 
         function nextPortalOrderStatus(status) {
-            if (status === "RELEASED") return "PICKED";
+            if (status === "RELEASED") return "PICKING";
+            if (status === "PICKING") return "PICKED";
             if (status === "PICKED") return "STAGED";
             if (status === "STAGED") return "SHIPPED";
             return "";
         }
 
         function portalOrderActionLabel(status) {
+            if (status === "PICKING") return "Start Picking";
             if (status === "PICKED") return "Mark Picked";
             if (status === "STAGED") return "Mark Staged";
             if (status === "SHIPPED") return "Mark Shipped";
@@ -25211,6 +25626,7 @@
             if (order.shippedAt) return `Shipped ${formatDate(order.shippedAt)}`;
             if (order.stagedAt) return `Staged ${formatDate(order.stagedAt)}`;
             if (order.pickedAt) return `Picked ${formatDate(order.pickedAt)}`;
+            if (order.pickingAt) return `Picking started ${formatDate(order.pickingAt)}`;
             if (order.releasedAt) return `Released ${formatDate(order.releasedAt)}`;
             return "";
         }
@@ -25532,6 +25948,7 @@
             const lineRows = order.lines.map((line) => `
                 <tr>
                     <td>${esc(line.sku)}</td>
+                    <td>${esc(String(line.upc || "").trim().replace(/^(\d+)\.0+$/, "$1") || "Not recorded")}</td>
                     <td>${esc(line.description || "")}</td>
                     <td>${esc(formatTrackedQuantity(line.quantity, line.trackingLevel, line.uomLabel))}</td>
                     <td>${line.pickLocations?.length
@@ -25554,7 +25971,7 @@
                     <div class="box"><strong>Ship To</strong><br>${formatPortalOrderShipTo(order)}</div>
                     <div class="box"><strong>Order Notes</strong><br>${esc(order.orderNotes || "") || "None"}</div>
                 </div>
-                <table><thead><tr><th>SKU</th><th>Description</th><th>Qty</th><th>Pick Locations</th></tr></thead><tbody>${lineRows}</tbody></table>
+                <table><thead><tr><th>SKU</th><th>UPC</th><th>Description</th><th>Qty</th><th>Pick Locations</th></tr></thead><tbody>${lineRows}</tbody></table>
                 <div class="signoff">
                     <div class="signoff-title">Warehouse Pick Verification - Print name and date clearly</div>
                     <div class="signoff-grid">
@@ -25565,6 +25982,25 @@
                     </div>
                 </div>
             </body></html>`;
+        }
+
+        function buildBatchPickTicketHtml(orders = []) {
+            const documents = (Array.isArray(orders) ? orders : []).map((order) => buildPickTicketHtml(order));
+            if (!documents.length) throw new Error("Select at least one order to print pick tickets.");
+            const styleMatch = documents[0].match(/<style>([\s\S]*?)<\/style>/i);
+            const sharedStyles = styleMatch?.[1] || "";
+            const pages = documents.map((documentHtml) => {
+                const bodyMatch = documentHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                if (!bodyMatch) throw new Error("Unable to prepare the batch pick-ticket layout.");
+                return `<section class="batch-pick-ticket">${bodyMatch[1]}</section>`;
+            }).join("");
+            return `<!doctype html><html><head><meta charset="utf-8"><title>WMS365 Batch Pick Tickets</title><style>
+                ${sharedStyles}
+                @page{size:letter;margin:0}
+                html,body{margin:0;padding:0;background:#fff}
+                .batch-pick-ticket{box-sizing:border-box;width:8.5in;min-height:11in;padding:24px;break-after:page;page-break-after:always}
+                .batch-pick-ticket:last-child{break-after:auto;page-break-after:auto}
+            </style></head><body>${pages}</body></html>`;
         }
 
         function buildPackingSlipHtml(order) {
@@ -25669,7 +26105,7 @@
             });
             const printerName = response?.printer?.printerName || "warehouse printer";
             const jobId = response?.job?.id ? ` Job #${response.job.id}.` : "";
-            showMessage(messageElement, `${label.charAt(0).toUpperCase()}${label.slice(1)} queued for ${printerName}.${jobId}`, "success");
+            showMessage(messageElement, `${label.charAt(0).toUpperCase()}${label.slice(1)} ${response?.alreadyQueued ? "is already queued" : "queued"} for ${printerName}.${jobId}`, "success");
             return response?.job || null;
         }
 
@@ -25773,6 +26209,12 @@
             return method === "LTL_FREIGHT" || method === "FTL_FREIGHT";
         }
 
+        function isKnownParcelCarrier(value = "") {
+            const carrier = norm(value).replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+            if (/(?:^|_)(?:FREIGHT|LTL|TRUCKLOAD|CARGO)(?:_|$)/.test(carrier)) return false;
+            return /^(?:UPS(?:_|$)|PUROLATOR|CANPAR|FEDEX|FED_EX|CANADA_POST|POSTES_CANADA|DHL(?:_|$)|USPS|US_POSTAL|LOOMIS|GLS(?:_|$)|DICOM|ICS(?:_|$)|DRAGONFLY|INTELCOM|UNIUNI|UNI_UNI)/.test(carrier);
+        }
+
         const TRACKABLE_CARRIER_OPTIONS = [
             "Canada Post", "Purolator", "UPS", "FedEx", "Canpar", "DHL Express", "GLS Canada",
             "Loomis Express", "ICS Courier", "Dragonfly (Intelcom)", "UniUni", "Day & Ross",
@@ -25798,7 +26240,7 @@
             const encoded = encodeURIComponent(tracking.replace(/\s+/g, ""));
             const rules = [
                 [/PUROLATOR/, `https://www.purolator.com/en/shipping/tracker?pins=${encoded}`],
-                [/^UPS$|UNITED PARCEL/, `https://www.ups.com/track?tracknum=${encoded}`],
+                [/^UPS(?:\s|$)|UNITED PARCEL/, `https://www.ups.com/track?tracknum=${encoded}`],
                 [/CANPAR/, `https://www.canpar.com/en/tracking/track.htm?barcode=${encoded}`],
                 [/FEDEX|FEDERAL EXPRESS/, `https://www.fedex.com/fedextrack/?trknbr=${encoded}`],
                 [/CANADA POST|POSTES CANADA/, `https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=${encoded}`],
@@ -25815,7 +26257,7 @@
                 [/ROSENAU/, "https://www.rosenau.ca/tracking"],
                 [/ARMOUR/, "https://armour.ca/track-a-shipment/"],
                 [/POLARIS/, "https://polaristransport.com/shipment-tracking/"],
-                [/ICS/, "https://www.icscourier.ca/online-tools/track-a-package/"]
+                [/ICS/, `https://www.icscourier.ca/online-services/parcel-tracking.aspx?trackNums=${encoded}`]
             ];
             return rules.find(([pattern]) => pattern.test(carrier))?.[1] || "";
         }
@@ -25886,6 +26328,18 @@
             }
             const help = panel.querySelector(`[data-portal-ship-help="${escapedOrderId}"]`);
             if (help) help.textContent = shipmentCloseoutHelpText(method);
+        }
+
+        function updatePortalShipmentCarrierMethod(input) {
+            if (!isKnownParcelCarrier(input?.value || "")) return;
+            const panel = input.closest(".erp-document-shipping-panel") || input.closest(".erp-list-shipping-panel") || input.closest(".quick-detail-stack") || input.closest(".quick-row");
+            const orderId = input.dataset.portalShipCarrier || "";
+            const select = panel?.querySelector(`[data-portal-ship-method="${orderId}"]`);
+            if (!select || normalizeShipmentMethod(select.value) === "PARCEL") return;
+            select.value = "PARCEL";
+            updatePortalShipmentMethodPanel(select);
+            const help = panel.querySelector(`[data-portal-ship-help="${orderId}"]`);
+            if (help) help.textContent = `Shipment Type changed to Parcel because ${input.value.trim()} is a parcel carrier. ${shipmentCloseoutHelpText("PARCEL")}`;
         }
 
         function renderWarehouseDocumentActions(documents = [], emptyText = "No documents uploaded yet.") {
@@ -26036,8 +26490,18 @@
                 showMessage(ui.warehouseOrderMessage, "Release an active sales order before printing warehouse documents.", "error");
                 return;
             }
-            await printPortalOrderDocument(order, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
-            event?.currentTarget?.blur?.();
+            try {
+                const currentOrder = await requestPortalOrderDetail(order.id);
+                if (!currentOrder) throw new Error("Unable to load the current sales order for printing.");
+                if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(currentOrder.status)) {
+                    throw new Error("Release an active sales order before printing warehouse documents.");
+                }
+                await printPortalOrderDocument(currentOrder, type === "packing" ? "packing" : "pick", ui.warehouseOrderMessage);
+            } catch (error) {
+                showMessage(ui.warehouseOrderMessage, error.message || "Unable to load the current sales order for printing.", "error");
+            } finally {
+                event?.currentTarget?.blur?.();
+            }
         }
 
         function getSelectedBatchPickTicketOrderIds() {
@@ -26066,19 +26530,51 @@
                 messageElement,
                 progressMessage: `Opening ${num(orderIds.length)} selected pick ticket${orderIds.length === 1 ? "" : "s"}...`
             }, async () => {
-                const url = `/api/admin/portal-orders/batch-pick-tickets.pdf?ids=${encodeURIComponent(orderIds.join(","))}`;
-                const opened = window.open(url, "_blank", "noopener");
-                if (!opened) {
-                    showMessage(messageElement, "Allow pop-ups to open the selected pick tickets.", "error");
+                const printWindow = window.open("", "_blank", "width=900,height=700");
+                if (!printWindow) {
+                    showMessage(messageElement, "Allow pop-ups to print the selected pick tickets.", "error");
                     return;
                 }
-                showMessage(messageElement, `Opened ${num(orderIds.length)} pick ticket${orderIds.length === 1 ? "" : "s"} in one PDF.`, "success");
+                try {
+                    const orders = [];
+                    for (const orderId of orderIds) {
+                        const order = await requestPortalOrderDetail(orderId);
+                        if (!order) throw new Error(`Unable to load order ${orderId} for printing.`);
+                        if (["DRAFT", "CANCELLED", "ARCHIVED"].includes(order.status)) {
+                            throw new Error(`${order.orderCode || "An order"} is ${order.status} and cannot have a pick ticket printed.`);
+                        }
+                        orders.push(order);
+                    }
+                    printWindow.document.open();
+                    printWindow.document.write(buildBatchPickTicketHtml(orders));
+                    printWindow.document.close();
+                    const triggerPrint = () => {
+                        try {
+                            printWindow.focus();
+                            printWindow.print();
+                        } catch (error) {
+                            console.error("Batch print failed", error);
+                        }
+                    };
+                    if (printWindow.document.readyState === "complete") {
+                        setTimeout(triggerPrint, 150);
+                    } else {
+                        printWindow.addEventListener("load", () => setTimeout(triggerPrint, 150), { once: true });
+                        setTimeout(triggerPrint, 600);
+                    }
+                    for (const order of orders) await recordPortalOrderPrintEvent(order, "pick");
+                } catch (error) {
+                    printWindow.close();
+                    throw error;
+                }
+                showMessage(messageElement, `Opened ${num(orderIds.length)} pick ticket${orderIds.length === 1 ? "" : "s"} in the standard WMS print layout.`, "success");
                 setTimeout(() => loadPortalOrders({ background: true }), 700);
             });
         }
 
         async function onPortalOrdersListClick(event) {
             const actionMessageElement = getPortalOrderActionMessageElement(event.target);
+            if (await handleShipmentDeliveryAction(event, actionMessageElement)) return;
             if (await handleWarehouseDocumentPreviewClick(event, actionMessageElement)) {
                 return;
             }
@@ -26228,6 +26724,17 @@
                 return;
             }
 
+            const queueBolButton = event.target.closest("[data-queue-bol]");
+            if (queueBolButton) {
+                try {
+                    await runActionWithFeedback({ button: queueBolButton, busyLabel: "Queueing...", messageElement: actionMessageElement, progressMessage: "Sending the BOL to the warehouse printer..." }, async () => {
+                        const order = await requestPortalOrderDetail(queueBolButton.dataset.queueBol || "");
+                        if (order) await queuePortalOrderWarehousePrintJob(order, "bol", actionMessageElement);
+                    });
+                } catch (error) { showMessage(actionMessageElement, error.message, "error"); }
+                return;
+            }
+
             const queueUcc128LabelsButton = event.target.closest("[data-queue-ucc128-labels]");
             if (queueUcc128LabelsButton) {
                 try {
@@ -26326,16 +26833,10 @@
                                 palletNote: ""
                             };
                         const fileInputs = Array.from(orderCard?.querySelectorAll(`[data-portal-ship-documents="${orderId}"], [data-portal-ship-photos="${orderId}"]`) || []);
-                        const documentGroups = await Promise.all(fileInputs.map(async (input) => {
-                            const category = norm(input.dataset.documentCategory || "GENERAL") || "GENERAL";
-                            const docs = await readPortalShippingDocuments(input.files);
-                            docs.forEach((document) => { document.documentCategory = category; });
-                            return docs;
-                        }));
-                        const documents = documentGroups.flat();
-                        if (documents.length > 5) {
-                            throw new Error("Upload up to 5 shipment proof files at a time.");
+                        if (fileInputs.some((input) => input.dataset.uploadPending === "true" || input.files?.length)) {
+                            throw new Error("Wait for each shipment document to show as saved before marking shipped.");
                         }
+                        const documents = [];
                         const shippedLines = Array.from(orderCard?.querySelectorAll(`[data-portal-ship-line-qty="${orderId}"]`) || []).map((input) => ({
                             orderLineId: input.dataset.orderLineId || "",
                             sku: input.dataset.sku || "",
@@ -26349,7 +26850,7 @@
                                 throw new Error("Enter the parcel tracking number before marking shipped.");
                             } else if (shipmentMethodRequiresFreightProof(shipmentMethod)) {
                                 const requiredCategories = new Set(["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP", "SHIPMENT_LOAD_PHOTO"]);
-                                const uploadedCategories = new Set(documents.map((document) => norm(document.documentCategory || "")));
+                                const uploadedCategories = new Set((currentOrder?.documents || []).map((document) => norm(document.documentCategory || "")));
                                 const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
                                 if (missingCategories.length) {
                                     throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
@@ -30667,6 +31168,9 @@
                 if (!(fileType === "application/pdf" || fileType.startsWith("image/"))) {
                     throw new Error(`${file.name} must be a PDF or image file.`);
                 }
+                if (fileType === "application/pdf" && file.size > 10 * 1024 * 1024) {
+                    throw new Error(`${file.name} is too large. Keep each document up to 10 MB.`);
+                }
                 const dataUrl = fileType.startsWith("image/")
                     ? await compressImageFile(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.76 })
                     : await readFileAsDataUrl(file);
@@ -30677,6 +31181,43 @@
                 });
             }
             return documents;
+        }
+
+        async function uploadPortalShipmentProofInput(input) {
+            const orderId = input?.dataset?.portalShipDocuments || input?.dataset?.portalShipPhotos || "";
+            const category = norm(input?.dataset?.documentCategory || "GENERAL") || "GENERAL";
+            if (!orderId || !input?.files?.length) return null;
+            const panel = input.closest(".erp-document-shipping-panel") || input.closest(".quick-detail-stack");
+            const status = panel?.querySelector(`[data-portal-proof-status="${orderId}:${category}"]`);
+            const shipButton = panel?.querySelector(`[data-portal-ship-confirmation="${orderId}"]`);
+            input.dataset.uploadPending = "true";
+            input.disabled = true;
+            if (shipButton) shipButton.disabled = true;
+            if (status) status.textContent = "Saving...";
+            try {
+                const documents = await readPortalShippingDocuments(input.files);
+                documents.forEach((document) => { document.documentCategory = category; });
+                const response = await requestJson(`/api/admin/portal-orders/${orderId}/documents`, {
+                    method: "POST",
+                    body: JSON.stringify({ documents })
+                });
+                input.value = "";
+                delete input.dataset.uploadPending;
+                if (status) status.textContent = "Saved to this order";
+                const savedOrder = applyPortalOrderUpdate(
+                    response?.order,
+                    `Saved ${documents.length} shipment document${documents.length === 1 ? "" : "s"} to ${response?.order?.orderCode || orderId}.`,
+                    ui.warehouseOrderMessage
+                );
+                queuePortalOrderRefresh();
+                return savedOrder;
+            } catch (error) {
+                delete input.dataset.uploadPending;
+                input.disabled = false;
+                if (shipButton) shipButton.disabled = false;
+                if (status) status.textContent = "Not saved - choose the file again";
+                throw error;
+            }
         }
 
         function readFileAsDataUrl(file) {
@@ -31592,6 +32133,7 @@
                 statusDetail: String(item.statusDetail || item.status_detail || "").trim(),
                 estimatedDeliveryAt: item.estimatedDeliveryAt || item.estimated_delivery_at || null,
                 lastCheckedAt: item.lastCheckedAt || item.last_checked_at || null,
+                lastShopifyUpdateAt: item.lastShopifyUpdateAt || item.last_shopify_update_at || (Array.isArray(item.shopifyTracking) ? item.shopifyTracking.map((state) => state.lastSuccessfulAt).filter((value) => value && Number.isFinite(Date.parse(value))).sort((a, b) => Date.parse(b) - Date.parse(a))[0] : null) || null,
                 warehouse: item.warehouse && typeof item.warehouse === "object" ? item.warehouse : {},
                 events: Array.isArray(item.events) ? item.events.map((event) => ({
                     status: norm(event.status || "UNKNOWN"),
@@ -31675,6 +32217,7 @@
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : (typeof item.created_at === "string" ? item.created_at : new Date().toISOString()),
                 updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.updated_at === "string" ? item.updated_at : new Date().toISOString()),
                 releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : (typeof item.released_at === "string" ? item.released_at : null),
+                pickingAt: typeof item.pickingAt === "string" ? item.pickingAt : (typeof item.picking_at === "string" ? item.picking_at : null),
                 pickedAt: typeof item.pickedAt === "string" ? item.pickedAt : (typeof item.picked_at === "string" ? item.picked_at : null),
                 stagedAt: typeof item.stagedAt === "string" ? item.stagedAt : (typeof item.staged_at === "string" ? item.staged_at : null),
                 shippedAt: typeof item.shippedAt === "string" ? item.shippedAt : (typeof item.shipped_at === "string" ? item.shipped_at : null),

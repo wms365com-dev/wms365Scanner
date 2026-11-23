@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Warehouse Actions | WMS365</title>
+<link rel="icon" href="/marketing-logo.svg">
+<style>
+:root{color-scheme:light;--ink:#142b3a;--muted:#5d707c;--line:#c9d5dc;--navy:#17324d;--blue:#2479a5;--green:#24734c;--paper:#fff;--bg:#eef3f5}*{box-sizing:border-box}html,body{min-height:100%;margin:0}body{font-family:Arial,sans-serif;background:var(--bg);color:var(--ink);letter-spacing:0}.app{width:min(620px,100%);min-height:100dvh;margin:auto;background:var(--paper);padding:calc(18px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))}.brand{display:flex;align-items:center;gap:11px;padding-bottom:18px;border-bottom:1px solid var(--line)}.brand img{width:42px;height:42px}.brand strong{display:block;font-size:21px}.brand span{color:var(--muted);font-size:13px}.content{display:grid;gap:18px;padding-top:24px}label{display:grid;gap:8px;font-size:13px;font-weight:800;text-transform:uppercase;color:var(--muted)}select{width:100%;min-height:56px;padding:0 14px;border:2px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:700 18px Arial,sans-serif}.actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}.action{display:grid;place-items:center;min-height:170px;padding:18px;border:0;border-radius:8px;color:#fff;font:800 26px Arial,sans-serif;cursor:pointer}.action:disabled{opacity:.45;cursor:not-allowed}.receive{background:var(--blue)}.ship{background:var(--green)}.pdf{background:var(--navy);grid-column:1/-1;min-height:92px;font-size:22px}.status{min-height:22px;color:var(--muted);font-size:14px;font-weight:700}.status.bad{color:#9a3030}@media(max-width:410px){.actions{grid-template-columns:1fr}.action{min-height:124px}.pdf{grid-column:auto}}
+</style>
+<style>body{color:var(--ink);letter-spacing:0}</style>
+</head>
+<body>
+<main class="app">
+  <header class="brand"><img src="/marketing-logo.svg" alt=""><div><strong>Warehouse Actions</strong><span>WMS365</span></div></header>
+  <section class="content">
+    <label>Company<select id="company"><option value="">Select company</option></select></label>
+    <div class="actions">
+      <button class="action receive" id="receive" type="button" disabled>Receive</button>
+      <button class="action ship" id="ship" type="button" disabled>Ship</button>
+      <button class="action pdf" id="shipPdf" type="button" disabled>Ship from PDF</button>
+    </div>
+    <div class="status" id="status" role="status"></div>
+  </section>
+</main>
+<script src="/mobile-bridge.js"></script>
+<script>
+const company=document.getElementById('company');const statusEl=document.getElementById('status');
+const normalize=v=>String(v||'').trim();const esc=s=>String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+async function json(url){const response=await fetch(url,{cache:'no-store'});if(response.status===401){location.href='/login?next='+encodeURIComponent('/warehouse-actions');throw new Error('Sign in required.')}const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load warehouse access.');return data}
+function setCompany(){const value=normalize(company.value);document.getElementById('receive').disabled=!value;document.getElementById('ship').disabled=!value;document.getElementById('shipPdf').disabled=!value;if(value)window.WMS365Mobile?.setCompanyContext?.(value)}
+async function start(){try{const payload=await json('/api/state');const names=new Set();(payload.masters?.owners||[]).forEach(v=>names.add(normalize(v)));(payload.session?.appUser?.assignedCompanies||[]).forEach(v=>names.add(normalize(v)));(payload.session?.appUser?.inheritedCompanies||[]).forEach(v=>names.add(normalize(v)));const values=[...names].filter(Boolean).sort();company.innerHTML='<option value="">Select company</option>'+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');const saved=window.WMS365Mobile?.getCompanyContext?.()||'';const match=values.find(v=>v.toUpperCase()===String(saved).toUpperCase());if(match)company.value=match;else if(values.length===1)company.value=values[0];setCompany()}catch(error){statusEl.className='status bad';statusEl.textContent=error.message}}
+company.addEventListener('change',setCompany);document.getElementById('receive').addEventListener('click',()=>location.href='/mobile-receive?accountName='+encodeURIComponent(company.value));document.getElementById('ship').addEventListener('click',()=>location.href='/mobile-pick?mode=ship&accountName='+encodeURIComponent(company.value));document.getElementById('shipPdf').addEventListener('click',()=>location.href='/mobile/ship-pdf?accountName='+encodeURIComponent(company.value));start();
+</script>
+</body>
+</html>

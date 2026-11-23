@@ -18,6 +18,8 @@ When researching, planning, or reviewing a WMS365 feature:
 2. All transaction tests must use the designated WMS365 test company. If no test company is available, stop without creating data and report the blocker.
 3. Live-company verification must be read-only unless the user explicitly requests a real business transaction for that company.
 4. Test records must use test-company ownership in addition to a clear `TEST-` reference; a test-looking reference is not permission to place it in a live company.
+5. The designated company is `CODEX PORTAL SYSTEM TEST`, owner account ID `1510` (verified read-only on 2026-09-17). Use `scripts/designated-test-company.js` to verify its exact ID, exact name and active status before transaction tests. Never select a company by a fuzzy `TEST`/`CODEX` name match, environment override, or fallback. Stop if the pinned company is unavailable.
+6. Browser and Android transaction tests must confirm the selected company matches this identity before writing. Test-company ownership does not authorize emails to real contacts, carrier purchases, Shopify writes, or billing sends; use isolated fixtures and explicit approval for external effects.
 
 ## Global Product Impact
 
@@ -27,3 +29,10 @@ When researching, planning, or reviewing a WMS365 feature:
 4. Validate both the requested workflow and adjacent global workflows. Include negative tests proving other companies, warehouses, users, and transaction types are unaffected.
 5. Treat database migrations, defaults, scheduled jobs, shared templates, and common UI components as global changes requiring broader regression coverage and a rollback-aware deployment plan.
 6. A feature is not complete until shared-system tests pass in addition to its company-specific acceptance tests.
+
+## Alcona BOL Weight Rule
+
+1. For exact account `ALCONA TRADING LTD`, every bill of lading must store and display shipment and pallet weights in kilograms (`KG`).
+2. When physical scale weights are supplied in pounds, convert them with `1 lb = 0.45359237 kg`; retain the source-pound values only as audit metadata.
+3. Before generating or sending an Alcona BOL, verify the order, shipment, pallet details, routing appointment, shipment total, and document all resolve to kilograms. Stop if any BOL-facing weight remains in pounds.
+4. This rule is account-scoped. Do not change another company's configured BOL weight unit.

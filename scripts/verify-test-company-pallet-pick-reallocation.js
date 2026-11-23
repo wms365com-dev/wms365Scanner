@@ -1,4 +1,5 @@
 const { Client } = require("pg");
+const { requireDesignatedTestCompany } = require("./designated-test-company");
 const { reallocatePortalOrderToActualPalletLocations } = require("../server");
 
 async function main() {
@@ -10,15 +11,7 @@ async function main() {
     await client.query("begin");
 
     try {
-        const companyResult = await client.query(`
-            select name
-            from owner_accounts
-            where upper(name) like '%TEST%COMPANY%'
-            order by case when upper(name) = 'WMS365 TEST COMPANY' then 0 else 1 end, name
-            limit 1
-        `);
-        const accountName = companyResult.rows[0]?.name;
-        if (!accountName) throw new Error("No WMS365 test company is configured.");
+        const { name: accountName } = await requireDesignatedTestCompany(client);
 
         const suffix = Date.now().toString(36).toUpperCase().slice(-7);
         const primaryWarehouseCode = `TPA${suffix}`;

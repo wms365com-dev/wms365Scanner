@@ -2,6 +2,7 @@ package com.wms365.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -16,6 +17,7 @@ import android.media.ToneGenerator
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -40,6 +42,9 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -60,6 +65,13 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.InstallStateUpdatedListener
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.InstallStatus
+import com.google.android.play.core.install.model.UpdateAvailability
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -70,6 +82,7 @@ class MainActivity : Activity() {
     private val cameraPermissionRequest = 7
     private val fileChooserRequest = 8
     private val documentScannerRequest = 9
+    private val appUpdateRequest = 10
 
     private lateinit var root: FrameLayout
     private lateinit var webView: WebView
@@ -88,6 +101,7 @@ class MainActivity : Activity() {
     private val hardwareScanFlushRunnable = Runnable { flushHardwareScanBuffer() }
     private var pageLoadToken = 0
     private var blankWebViewRecoveryAttempted = false
+    private var pageLoadFailed = false
     private val sonimSideKeyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action.orEmpty()
@@ -97,13 +111,19 @@ class MainActivity : Activity() {
         }
     }
     private var sonimSideKeyReceiverRegistered = false
+    private lateinit var appUpdateManager: AppUpdateManager
+    private var updatePromptVisible = false
+    private var updateErrorPromptVisible = false
+    private var updateGatePassed = BuildConfig.DEBUG
+    private val updateStateListener = InstallStateUpdatedListener { state ->
+        when (state.installStatus()) {
+            InstallStatus.DOWNLOADED -> showCompleteUpdatePrompt()
+            InstallStatus.FAILED -> showRequiredUpdateError("The required app update could not be downloaded.")
+            else -> Unit
+        }
+    }
 
-    private val baseUri: Uri = Uri.parse(BuildConfig.WMS365_BASE_URL)
-    private val allowedHosts: Set<String> = setOfNotNull(
-        baseUri.host?.lowercase(),
-        "app.wms365.co",
-        "wms365.co"
-    )
+    private val urlPolicy = AppUrlPolicy(BuildConfig.WMS365_BASE_URL, BuildConfig.WMS365_APP_MODE)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,6 +133,7 @@ class MainActivity : Activity() {
         configureFullscreen()
         buildLayout()
         configureWebView()
+        configureAppUpdates()
         loadStartUrl(intent)
     }
 
@@ -125,6 +146,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         registerSonimSideKeyReceiver()
+        resumeDownloadedUpdate()
         if (::webView.isInitialized) {
             hardwareScanHandler.postDelayed({
                 webView.evaluateJavascript(
@@ -133,6 +155,104 @@ class MainActivity : Activity() {
                 )
             }, 1000)
         }
+    }
+
+    private fun configureAppUpdates() {
+        appUpdateManager = AppUpdateManagerFactory.create(this)
+        appUpdateManager.registerListener(updateStateListener)
+        checkForAppUpdate(false)
+    }
+
+    private fun checkForAppUpdate(userRequested: Boolean) {
+        if (!::appUpdateManager.isInitialized) return
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                when {
+                    info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS ->
+                        startPlayUpdate(info, AppUpdateType.IMMEDIATE)
+                    info.installStatus() == InstallStatus.DOWNLOADED -> showCompleteUpdatePrompt()
+                    info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                        info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE) ->
+                        startPlayUpdate(info, AppUpdateType.IMMEDIATE)
+                    info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                        info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE) -> {
+                        startPlayUpdate(info, AppUpdateType.FLEXIBLE)
+                    }
+                    else -> {
+                        passUpdateGate()
+                        if (userRequested) Toast.makeText(this, "WMS365 is up to date.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .addOnFailureListener {
+                if (BuildConfig.DEBUG) {
+                    passUpdateGate()
+                } else {
+                    showRequiredUpdateError("WMS365 could not verify the required app version with Google Play.")
+                }
+                if (userRequested && BuildConfig.DEBUG) {
+                    Toast.makeText(this, "Update checks require an install from the Google Play test track.", Toast.LENGTH_LONG).show()
+                }
+            }
+    }
+
+    private fun startPlayUpdate(info: com.google.android.play.core.appupdate.AppUpdateInfo, updateType: Int) {
+        try {
+            appUpdateManager.startUpdateFlowForResult(
+                info,
+                this,
+                AppUpdateOptions.newBuilder(updateType).build(),
+                appUpdateRequest
+            )
+        } catch (_: IntentSender.SendIntentException) {
+            showRequiredUpdateError("Unable to open the required Google Play update.")
+        }
+    }
+
+    private fun resumeDownloadedUpdate() {
+        if (!::appUpdateManager.isInitialized) return
+        appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
+            when {
+                info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS ->
+                    startPlayUpdate(info, AppUpdateType.IMMEDIATE)
+                info.installStatus() == InstallStatus.DOWNLOADED -> showCompleteUpdatePrompt()
+            }
+        }
+    }
+
+    private fun showCompleteUpdatePrompt() {
+        if (updatePromptVisible || isFinishing || isDestroyed) return
+        updatePromptVisible = true
+        AlertDialog.Builder(this)
+            .setTitle("WMS365 update ready")
+            .setMessage("The required update has downloaded. Restart the app now to continue.")
+            .setPositiveButton("Restart") { _, _ -> appUpdateManager.completeUpdate() }
+            .setCancelable(false)
+            .setOnDismissListener { updatePromptVisible = false }
+            .show()
+    }
+
+    private fun passUpdateGate() {
+        updateGatePassed = true
+        if (::webView.isInitialized) webView.visibility = View.VISIBLE
+    }
+
+    private fun showRequiredUpdateError(message: String) {
+        if (BuildConfig.DEBUG) {
+            passUpdateGate()
+            return
+        }
+        updateGatePassed = false
+        if (::webView.isInitialized) webView.visibility = View.INVISIBLE
+        if (updateErrorPromptVisible || isFinishing || isDestroyed) return
+        updateErrorPromptVisible = true
+        AlertDialog.Builder(this)
+            .setTitle("Update required")
+            .setMessage("$message Check your connection and try again.")
+            .setPositiveButton("Retry") { _, _ -> checkForAppUpdate(false) }
+            .setCancelable(false)
+            .setOnDismissListener { updateErrorPromptVisible = false }
+            .show()
     }
 
     override fun onPause() {
@@ -157,12 +277,17 @@ class MainActivity : Activity() {
     private fun buildLayout() {
         root = FrameLayout(this)
         webView = WebView(this)
+        webView.visibility = if (updateGatePassed) View.VISIBLE else View.INVISIBLE
         root.addView(webView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        loadingOverlay = buildOverlay("WMS365 Scanner", "Loading mobile workspace...")
+        val isCustomerPortal = BuildConfig.WMS365_APP_MODE == "customer_portal"
+        loadingOverlay = buildOverlay(
+            if (isCustomerPortal) "WMS365 Customer Portal" else "WMS365 Warehouse",
+            if (isCustomerPortal) "Loading customer portal..." else "Loading mobile workspace..."
+        )
         root.addView(loadingOverlay)
 
         errorOverlay = buildOverlay("Connection Issue", "WMS365 could not load.")
@@ -172,13 +297,20 @@ class MainActivity : Activity() {
             setOnClickListener {
                 showError(false)
                 showLoading(true)
-                webView.reload()
+                val retryUrl = webView.url.orEmpty()
+                if (urlPolicy.allows(retryUrl)) webView.reload() else webView.loadUrl(resolveStartUrl(null))
                 schedulePageLoadTimeout()
             }
         }
         errorOverlay.addView(retryButton)
+        errorOverlay.addView(Button(this).apply {
+            text = if (isCustomerPortal) "Open portal" else "Open workspace"
+            setOnClickListener { loadStartUrl(null) }
+        })
+        errorOverlay.getChildAt(2).visibility = View.GONE
         errorOverlay.visibility = View.GONE
         root.addView(errorOverlay)
+        errorText.setTextColor(Color.rgb(153, 27, 27))
 
         setContentView(root)
     }
@@ -226,6 +358,8 @@ class MainActivity : Activity() {
 
         webView.settings.apply {
             javaScriptEnabled = true
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
@@ -247,20 +381,34 @@ class MainActivity : Activity() {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                if (view !== webView) return
+                if (url == null || !urlPolicy.allows(url)) {
+                    view.stopLoading()
+                    pageLoadFailed = true
+                    pageLoadToken++
+                    showLoading(false)
+                    showError(true, "This page is not trusted by WMS365. Tap Open workspace to return safely.")
+                    return
+                }
+                pageLoadFailed = false
                 schedulePageLoadTimeout()
                 showLoading(true)
                 showError(false)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                if (view !== webView) return
                 pageLoadToken++
+                if (pageLoadFailed || url == null || !urlPolicy.allows(url)) return
                 injectAndroidWebViewFixes()
                 scheduleBlankWebViewRecovery(url)
                 showLoading(false)
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (view !== webView) return
                 if (request.isForMainFrame) {
+                    pageLoadFailed = true
                     pageLoadToken++
                     showLoading(false)
                     showError(true, if (isOnline()) "WMS365 could not load. Check the connection and retry." else "Offline. Reconnect and retry, or continue with cached web data if the page was already loaded.")
@@ -269,20 +417,74 @@ class MainActivity : Activity() {
 
             @Suppress("DEPRECATION")
             override fun onReceivedError(view: WebView, errorCode: Int, description: String?, failingUrl: String?) {
+                if (view !== webView) return
+                pageLoadFailed = true
                 pageLoadToken++
                 showLoading(false)
                 showError(true, if (isOnline()) "WMS365 could not load. Check the connection and retry." else "Offline. Reconnect and retry, or continue with cached web data if the page was already loaded.")
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                if (view !== webView) return
+                if (!request.isForMainFrame) return
+                pageLoadFailed = true
+                pageLoadToken++
+                showLoading(false)
+                val message = when (response.statusCode) {
+                    401 -> "Your session has ended. Tap Open workspace to sign in again."
+                    403 -> "Access restricted. Your account does not have access to this page."
+                    429 -> "Too many requests. Please wait a moment, then tap Retry."
+                    in 500..599 -> "WMS365 is temporarily unavailable. Please wait a moment, then tap Retry."
+                    else -> "This page could not be opened. Tap Retry or Open workspace."
+                }
+                showError(true, message)
+            }
+
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                handler.cancel()
+                if (view !== webView) return
+                pageLoadFailed = true
+                pageLoadToken++
+                showLoading(false)
+                showError(true, "The secure connection could not be verified. Do not enter your password. Check the device date and time, or contact support@wms365.co.")
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                if (view !== webView) return true
+                pageLoadToken++
+                pageLoadFailed = true
+                pendingPermissionRequest?.deny()
+                pendingPermissionRequest = null
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = null
+                root.removeView(view)
+                view.destroy()
+                webView = WebView(this@MainActivity)
+                root.addView(webView, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                configureWebView()
+                showLoading(false)
+                showError(true, "The mobile screen stopped unexpectedly. Tap Open workspace to reopen it. Check the order status before repeating any action.")
+                return true
             }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
-                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                    request.grant(request.resources)
-                } else {
-                    pendingPermissionRequest = request
-                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
+                runOnUiThread {
+                    if (!isApprovedUri(request.origin) || !request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                        request.deny()
+                    } else if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+                    } else {
+                        pendingPermissionRequest?.deny()
+                        pendingPermissionRequest = request
+                        ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequest)
+                    }
                 }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                if (pendingPermissionRequest === request) pendingPermissionRequest = null
             }
 
             override fun onShowFileChooser(
@@ -300,7 +502,7 @@ class MainActivity : Activity() {
 
     private fun resolveStartUrl(intent: Intent?): String {
         val deepLink = intent?.data
-        if (deepLink != null && isApprovedUri(deepLink)) {
+        if (deepLink != null && urlPolicy.allowsDeepLink(deepLink.toString())) {
             val builder = deepLink.buildUpon()
             if (deepLink.getQueryParameter("mode").isNullOrBlank()) builder.appendQueryParameter("mode", "mobile")
             return builder.build().toString()
@@ -411,9 +613,7 @@ class MainActivity : Activity() {
     }
 
     private fun isApprovedUri(uri: Uri): Boolean {
-        val scheme = uri.scheme?.lowercase() ?: return false
-        val host = uri.host?.lowercase() ?: return false
-        return scheme == "https" && host in allowedHosts
+        return urlPolicy.allows(uri.toString())
     }
 
     private fun showLoading(show: Boolean) {
@@ -1391,8 +1591,8 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         val request = pendingPermissionRequest
         if (requestCode == cameraPermissionRequest && request != null) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                request.grant(request.resources)
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED && isApprovedUri(request.origin) && urlPolicy.allows(webView.url.orEmpty())) {
+                request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
             } else {
                 request.deny()
             }
@@ -1412,6 +1612,13 @@ class MainActivity : Activity() {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == appUpdateRequest) {
+            if (resultCode != RESULT_OK) {
+                Toast.makeText(this, "The WMS365 update is required. Reopening Google Play update...", Toast.LENGTH_LONG).show()
+                Handler(Looper.getMainLooper()).postDelayed({ checkForAppUpdate(false) }, 1200)
+            }
+            return
+        }
         if (requestCode == documentScannerRequest) {
             handleDocumentScannerResult(resultCode, data)
             return
@@ -1528,29 +1735,47 @@ class MainActivity : Activity() {
     }
 
     private fun deliverDocumentScanSuccess(callbackId: String, documents: JSONArray) {
-        val safeCallback = callbackId.replace("\\", "\\\\").replace("'", "\\'")
+        val safeCallback = JSONObject.quote(callbackId)
         val payload = JSONObject().apply {
             put("success", true)
             put("documents", documents)
         }
         runOnUiThread {
-            webView.evaluateJavascript("window.wms365ReceiveAndroidDocumentScan && window.wms365ReceiveAndroidDocumentScan('$safeCallback', ${payload});", null)
+            webView.evaluateJavascript("window.wms365ReceiveAndroidDocumentScan && window.wms365ReceiveAndroidDocumentScan($safeCallback, ${payload});", null)
             vibrate(45)
             beep("success")
         }
     }
 
     private fun deliverDocumentScanError(callbackId: String, message: String) {
-        val safeCallback = callbackId.replace("\\", "\\\\").replace("'", "\\'")
+        val safeCallback = JSONObject.quote(callbackId)
         val payload = JSONObject().apply {
             put("success", false)
             put("message", message)
             put("error", message)
         }
         runOnUiThread {
-            webView.evaluateJavascript("window.wms365ReceiveAndroidDocumentScan && window.wms365ReceiveAndroidDocumentScan('$safeCallback', ${payload});", null)
+            webView.evaluateJavascript("window.wms365ReceiveAndroidDocumentScan && window.wms365ReceiveAndroidDocumentScan($safeCallback, ${payload});", null)
             if (!message.contains("cancel", ignoreCase = true)) beep("error")
         }
+    }
+
+    override fun onDestroy() {
+        pageLoadToken++
+        pageLoadTimeoutHandler.removeCallbacksAndMessages(null)
+        hardwareScanHandler.removeCallbacksAndMessages(null)
+        unregisterSonimSideKeyReceiver()
+        if (::appUpdateManager.isInitialized) appUpdateManager.unregisterListener(updateStateListener)
+        pendingPermissionRequest?.deny()
+        pendingPermissionRequest = null
+        filePathCallback?.onReceiveValue(null)
+        filePathCallback = null
+        if (::webView.isInitialized) {
+            root.removeView(webView)
+            webView.removeJavascriptInterface("WMS365Android")
+            webView.destroy()
+        }
+        super.onDestroy()
     }
 
     override fun onBackPressed() {
@@ -1689,8 +1914,8 @@ class MainActivity : Activity() {
 
     private fun handleHardwareScanTrigger(source: String) {
         if (!::webView.isInitialized) return
-        val safeSource = source.replace("\\", "\\\\").replace("'", "\\'")
-        webView.evaluateJavascript("(window.__wms365AndroidSideScanTrigger && window.__wms365AndroidSideScanTrigger('$safeSource')) === true;") { result ->
+        val safeSource = JSONObject.quote(source)
+        webView.evaluateJavascript("(window.__wms365AndroidSideScanTrigger && window.__wms365AndroidSideScanTrigger($safeSource)) === true;") { result ->
             if (result != "true" && pendingScanTargetId.isBlank()) {
                 Toast.makeText(this, "Open a scan field, then press the scanner trigger.", Toast.LENGTH_SHORT).show()
             }
@@ -1699,11 +1924,11 @@ class MainActivity : Activity() {
 
     private fun focusDomScanTarget(targetId: String) {
         if (targetId.isBlank() || !::webView.isInitialized) return
-        val safeTarget = targetId.replace("\\", "\\\\").replace("'", "\\'")
+        val safeTarget = JSONObject.quote(targetId)
         webView.evaluateJavascript(
             """
             (function(){
-              var el=document.getElementById('$safeTarget');
+              var el=document.getElementById($safeTarget);
               if(!el)return false;
               el.removeAttribute('readonly');
               el.setAttribute('inputmode','text');
@@ -1725,9 +1950,9 @@ class MainActivity : Activity() {
     }
 
     private fun deliverScanToWeb(targetId: String, value: String) {
-        val safeTarget = targetId.replace("\\", "\\\\").replace("'", "\\'")
-        val safeValue = value.replace("\\", "\\\\").replace("'", "\\'")
-        webView.evaluateJavascript("window.wms365ReceiveAndroidScan && window.wms365ReceiveAndroidScan('$safeTarget','$safeValue');", null)
+        val safeTarget = JSONObject.quote(targetId)
+        val safeValue = JSONObject.quote(value)
+        webView.evaluateJavascript("window.wms365ReceiveAndroidScan && window.wms365ReceiveAndroidScan($safeTarget,$safeValue);", null)
         vibrate(45)
         beep("success")
     }
@@ -1791,6 +2016,11 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun getAppVersion(): String = BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
+        fun checkForUpdates() {
+            runOnUiThread { this@MainActivity.checkForAppUpdate(true) }
+        }
 
         @JavascriptInterface
         fun getPlatform(): String = "android"

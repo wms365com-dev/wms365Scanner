@@ -14,6 +14,7 @@ const {
     sanitizeTrackingEvent,
     verifyWebhookHmac
 } = require("./carrier-tracking");
+const { buildCarrierTrackingUrl } = require("./server");
 
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
 const portal = fs.readFileSync(path.join(__dirname, "portal.html"), "utf8");
@@ -30,8 +31,24 @@ test("normalizes common carrier status vocabulary into the WMS365 timeline", () 
 test("maps Canadian parcel and freight carriers to a broad tracking provider", () => {
     assert.equal(normalizeTrackingCarrier("ICS Courier"), "ICS_COURIER");
     assert.equal(afterShipCarrierSlug("ICS Courier"), "icscourier");
+    assert.equal(afterShipCarrierSlug("GLS Canada"), "dicom");
+    assert.equal(normalizeTrackingStatus("Delayed"), "EXCEPTION");
+    assert.equal(normalizeTrackingStatus("CARRIER_PICKED_UP"), "PICKED_UP");
+    assert.equal(normalizeTrackingStatus("ATTEMPTED_DELIVERY"), "DELIVERY_ATTEMPTED");
     assert.equal(afterShipCarrierSlug("Day & Ross"), "dayross");
     assert.equal(afterShipCarrierSlug("Canada Post"), "canada-post");
+});
+
+test("ICS Courier opens the exact parcel directly", () => {
+    assert.equal(
+        buildCarrierTrackingUrl("ICS Courier", "ND6C2BV3PNHFR5N7L2X8"),
+        "https://www.icscourier.ca/online-services/parcel-tracking.aspx?trackNums=ND6C2BV3PNHFR5N7L2X8"
+    );
+    assert.match(
+        server,
+        /parcel-tracking\.aspx\?trackNums=\$\{tracking\}/
+    );
+    assert.doesNotMatch(server, /online-tools\/track-a-package/);
 });
 
 test("converts provider checkpoints without retaining the full provider payload", () => {

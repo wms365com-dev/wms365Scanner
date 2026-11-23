@@ -231,56 +231,60 @@
             margin: 0.85rem 0 0;
             box-shadow: 0 6px 16px rgba(35, 45, 55, 0.12);
         }
-        .auth-wrap { min-height: calc(100dvh - 3rem); display: grid; place-items: center; }
+        .auth-wrap { min-height: calc(100dvh - 2rem); display: grid; place-items: center; padding-block: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-bottom)); }
         .auth-shell {
-            width: min(980px, 100%);
+            width: min(460px, 100%);
             display: grid;
-            grid-template-columns: minmax(0, 1.05fr) minmax(380px, 0.95fr);
-            gap: 0.9rem;
-            align-items: stretch;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 1rem;
+            align-items: start;
             margin: 0 auto;
         }
-        .auth-intro,
         .auth-panel {
             border: 1px solid var(--line);
-            border-radius: 18px;
+            border-radius: 8px;
             background: #ffffff;
-            box-shadow: var(--shadow);
-        }
-        .auth-intro {
-            padding: 1.4rem;
-            display: grid;
-            gap: 0.85rem;
-            background: var(--panel-2);
-        }
-        .auth-feature-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.65rem;
-        }
-        .auth-feature {
-            padding: 0.85rem;
-            border-radius: 12px;
-            border: 1px solid #dce4ea;
-            background: #ffffff;
-        }
-        .auth-feature strong {
-            display: block;
-            font-size: 0.9rem;
-            color: #23394b;
-        }
-        .auth-feature span {
-            display: block;
-            margin-top: 0.35rem;
-            color: #67798b;
-            font-size: 0.8rem;
-            line-height: 1.45;
+            box-shadow: 0 8px 28px rgba(32, 48, 58, 0.08);
         }
         .auth-panel {
             width: 100%;
-            padding: 1.35rem;
+            padding: 1.5rem;
             display: grid;
-            gap: 0.85rem;
+            gap: 1rem;
+        }
+        .auth-app-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding-bottom: 0.25rem;
+        }
+        .auth-app-brand img {
+            width: 44px;
+            height: 44px;
+            object-fit: contain;
+        }
+        .auth-app-brand-copy {
+            display: grid;
+            gap: 0.15rem;
+        }
+        .auth-app-brand-copy strong {
+            color: #1f3446;
+            font-size: 1.3rem;
+            line-height: 1;
+        }
+        .auth-app-brand-copy span {
+            color: var(--muted);
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+        .auth-panel #loginForm input {
+            min-height: 56px;
+            border-radius: 6px;
+        }
+        .auth-panel #loginForm .button-row,
+        .auth-panel #loginForm .btn {
+            width: 100%;
         }
         .auth-links {
             display: flex;
@@ -293,7 +297,7 @@
             justify-content: center;
             min-height: 42px;
             padding: 0.7rem 0.95rem;
-            border-radius: 999px;
+            border-radius: 6px;
             border: 1px solid var(--line);
             background: #fff;
             color: #30475a;
@@ -309,7 +313,7 @@
             gap: 0.65rem;
             padding: 0.85rem;
             border: 1px solid #dce4ea;
-            border-radius: 14px;
+            border-radius: 6px;
             background: #f8fafc;
         }
         .recovery-box p {
@@ -371,7 +375,7 @@
             gap: 0.65rem;
         }
         body.portal-auth-only .shell {
-            width: min(980px, 100%);
+            width: min(460px, 100%);
         }
         body.portal-auth-only .topbar {
             display: none;
@@ -1151,9 +1155,7 @@
             body { padding: 0.75rem; }
             .auth-wrap { min-height: calc(100dvh - 1.5rem); }
             .auth-shell { grid-template-columns: 1fr; }
-            .auth-intro { order: 2; padding: 1.25rem; }
-            .auth-panel { order: 1; padding: 1.25rem; }
-            .auth-feature-grid { grid-template-columns: 1fr; }
+            .auth-panel { padding: 1.25rem; }
             .portal-brand img {
                 width: 46px;
                 height: 46px;
@@ -1846,40 +1848,29 @@
 
         <main id="loginView" class="auth-wrap">
             <div class="auth-shell">
-                <section class="auth-intro" aria-label="Customer portal overview">
-                    <div class="portal-brand">
-                        <img src="/marketing-logo.svg" alt="WMS365 logo" width="52" height="52">
-                        <div class="portal-brand-copy">
-                            <span>Warehouse Software</span>
+                <article class="auth-panel">
+                    <div class="auth-app-brand">
+                        <img src="/marketing-logo.svg" alt="WMS365 logo" width="44" height="44">
+                        <div class="auth-app-brand-copy">
                             <strong>WMS365</strong>
+                            <span>Customer Portal</span>
                         </div>
                     </div>
-                    <div class="eyebrow">Customer Access</div>
-                    <h2 style="font-size:clamp(1.9rem,3vw,2.7rem);line-height:1;margin:0;color:#1f3446;">Customer teams sign in here to review stock and release work.</h2>
-                    <p class="lead">Use your account-scoped WMS365 portal to review inventory, create sales orders, submit purchase orders, and export reports without seeing any other customer's data.</p>
-                    <div class="auth-feature-grid">
-                        <div class="auth-feature"><strong>Inventory Visibility</strong><span>Review only the stock assigned to your account with exports and filters built into the portal.</span></div>
-                        <div class="auth-feature"><strong>Order Entry</strong><span>Create draft orders, release them to the warehouse, and track released, picked, staged, and shipped counts.</span></div>
-                        <div class="auth-feature"><strong>Purchase Orders</strong><span>Submit expected receipts with item and shipment details before the warehouse receives the freight.</span></div>
-                        <div class="auth-feature"><strong>Build Visibility</strong><span>Every portal page shows the live deployment label so your team can confirm the active environment.</span></div>
-                    </div>
-                </section>
-                <article class="auth-panel">
                     <div class="auth-panel-head">
                         <div class="card-head">
                             <h2>Customer Login</h2>
-                            <p>Customer users sign in here to access the account-scoped WMS365 portal.</p>
+                            <p>Sign in to manage your inventory and orders.</p>
                         </div>
                         <div data-language-control-host aria-label="Login preferences"></div>
                     </div>
-                    <form id="loginForm" class="form-grid" autocomplete="off">
+                    <form id="loginForm" class="form-grid" autocomplete="on">
                         <label class="field span-2">
                             <span>Email Address</span>
-                            <input id="loginEmail" type="email" placeholder="Enter your email address">
+                            <input id="loginEmail" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="Enter your email address">
                         </label>
                         <label class="field span-2">
                             <span>Password</span>
-                            <input id="loginPassword" type="password" placeholder="Enter your portal password">
+                            <input id="loginPassword" type="password" autocomplete="current-password" enterkeyhint="go" placeholder="Enter your portal password">
                         </label>
                         <div class="button-row span-2">
                             <button class="btn" type="submit">Sign in</button>
@@ -2700,7 +2691,7 @@
                             <input id="portalReleaseRushApproved" type="checkbox">
                             <span class="toggle-copy">
                                 <strong>Approve RUSH processing</strong>
-                                <span class="meta" id="portalReleaseRushApprovalText">Standard non-parcel processing requires a minimum of 48 hours / 2 business days, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. Leave unchecked for Standard processing. For rush charge questions, contact info@greywolf3pl.com.</span>
+                                <span class="meta" id="portalReleaseRushApprovalText">Standard non-parcel processing requires a minimum of 4 business days, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. Leave unchecked for Standard processing. For rush charge questions, contact info@greywolf3pl.com.</span>
                             </span>
                         </label>
                         <label class="field span-2">
@@ -2840,7 +2831,7 @@
         const PORTAL_ONLINE_SAME_DAY_CUTOFF_HOUR_EASTERN = 9;
         const PORTAL_BUSINESS_START_HOUR_EASTERN = 8;
         const PORTAL_BUSINESS_END_HOUR_EASTERN = 16;
-        const PORTAL_B2B_MINIMUM_BUSINESS_DAYS = 2;
+        const PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS = 4;
         const portalState = {
             account: null,
             billingHold: null,
@@ -3984,7 +3975,7 @@
                 ? fulfillmentPayload.locations.map(sanitizeFulfillmentLocation).filter(Boolean)
                 : [];
             renderPortalWarehouseSwitcher();
-            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, inboundsPayload, deliveriesPayload, shipToPayload, jobsPayload] = await Promise.all([
+            const [inventoryPayload, itemsPayload, kittingPayload, invoicesPayload, ordersPayload, shippedOrdersPayload, inboundsPayload, deliveriesPayload, shipToPayload, jobsPayload] = await Promise.all([
                 canInventory && portalState.activeFulfillmentLocationId
                     ? requestJson(portalWarehouseScopedUrl("/api/portal/inventory"))
                     : Promise.resolve({ inventory: [] }),
@@ -3993,6 +3984,9 @@
                 canBilling ? requestJson("/api/portal/invoices").catch(() => ({ invoices: [], summary: {} })) : Promise.resolve({ invoices: [], summary: {} }),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY) && canOrders
                     ? requestJson("/api/portal/orders")
+                    : Promise.resolve({ orders: [] }),
+                portalFeatureEnabled(PORTAL_FEATURE_KEYS.ORDER_ENTRY) && canOrders
+                    ? requestJson("/api/portal/orders?status=SHIPPED")
                     : Promise.resolve({ orders: [] }),
                 portalFeatureEnabled(PORTAL_FEATURE_KEYS.INBOUND_NOTICES) && canInbounds
                     ? requestJson("/api/portal/inbounds")
@@ -4011,7 +4005,14 @@
             portalState.kittingRequests = Array.isArray(kittingPayload?.requests) ? kittingPayload.requests.map(sanitizeKittingRequest).filter(Boolean) : [];
             portalState.invoices = Array.isArray(invoicesPayload?.invoices) ? invoicesPayload.invoices : [];
             portalState.invoiceSummary = invoicesPayload?.summary || { totalBilled: 0, unpaidBalance: 0, invoiceCount: portalState.invoices.length };
-            portalState.orders = Array.isArray(ordersPayload?.orders) ? ordersPayload.orders.map(sanitizeOrder).filter(Boolean) : [];
+            const ordersById = new Map();
+            [ordersPayload, shippedOrdersPayload].forEach((payload) => {
+                (Array.isArray(payload?.orders) ? payload.orders : [])
+                    .map(sanitizeOrder)
+                    .filter(Boolean)
+                    .forEach((order) => ordersById.set(String(order.id), order));
+            });
+            portalState.orders = [...ordersById.values()];
             portalState.inbounds = Array.isArray(inboundsPayload?.inbounds) ? inboundsPayload.inbounds.map(sanitizeInbound).filter(Boolean) : [];
             portalState.deliveryAppointments = Array.isArray(deliveriesPayload?.appointments) ? deliveriesPayload.appointments.map(sanitizeDeliveryAppointment).filter(Boolean) : [];
             portalState.shipToAddresses = Array.isArray(shipToPayload?.addresses) ? shipToPayload.addresses.map(sanitizeShipToAddress).filter(Boolean) : [];
@@ -4058,7 +4059,7 @@
 
         function applyOrderStatusFilter(status) {
             const normalizedStatus = String(status || "").trim().toUpperCase();
-            if (!["DRAFT", "RELEASED", "PICKED", "STAGED", "SHIPPED"].includes(normalizedStatus)) return;
+            if (!["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED", "SHIPPED"].includes(normalizedStatus)) return;
             portalState.orderStatusFilter = normalizedStatus;
             setView("orders");
             setMessage(`Showing ${normalizedStatus.toLowerCase()} sales orders.`, "info");
@@ -5621,7 +5622,7 @@
         }
 
         function canCustomerUploadOrderDocuments(order) {
-            return ["DRAFT", "RELEASED", "PICKED", "STAGED"].includes(String(order?.status || "").toUpperCase());
+            return ["DRAFT", "RELEASED", "PICKING", "PICKED", "STAGED"].includes(String(order?.status || "").toUpperCase());
         }
 
         function orderDocumentLockMessage(order) {
@@ -7186,7 +7187,7 @@
                 };
             }
             const start = normalizePortalBusinessStart(now, calendar);
-            const ready = addPortalBusinessDaysFrom(start, PORTAL_B2B_MINIMUM_BUSINESS_DAYS, calendar);
+            const ready = addPortalBusinessDaysFrom(start, PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS, calendar);
             const requestedBeforeReady = Boolean(requestedShipDate && requestedShipDate < ready.dateKey);
             const holidayNote = ready.holidayClosures.length
                 ? ` Holiday closure affects this order; earliest ready date has been pushed. Closure included: ${ready.holidayClosures.map((holiday) => `${holiday.name} (${holiday.date})`).join(", ")}.`
@@ -7198,7 +7199,7 @@
                 expectedReadyLabel,
                 rushRequired: requestedBeforeReady,
                 holidayClosures: ready.holidayClosures,
-                summary: `${expectedReadyLabel}. Non-online, truck, LTL/FTL, and customer pickup orders require a minimum of 48 hours / 2 business days to process, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays.${requestedBeforeReady ? " The requested ship/pickup date is earlier than the earliest ready date. Choose RUSH processing only if expedited handling is approved; otherwise choose Standard processing." : " Please schedule pickup or expect shipment after this point."}${holidayNote}`
+                summary: `${expectedReadyLabel}. Standard non-parcel orders require a minimum of ${PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS} business days to process, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays.${requestedBeforeReady ? " The requested ship/pickup date is earlier than the earliest ready date. Choose RUSH processing only if expedited handling is approved; otherwise choose Standard processing." : " Please schedule pickup or expect shipment after this point."}${holidayNote}`
             };
         }
 
@@ -7213,7 +7214,7 @@
             if (orderType !== PORTAL_ORDER_TYPES.B2C_ONLINE) reasons.push(`${portalOrderTypeLabel(orderType)} order`);
             if (shipmentMethod !== PORTAL_ORDER_SHIPMENT_METHODS.PARCEL) reasons.push(`${portalShipmentMethodLabel(shipmentMethod)} request`);
             const reasonText = reasons.length ? reasons.join(" and ") : "this order";
-            return `${portalExpectedReadyInfo(payload).expectedReadyLabel}. Standard processing requires a minimum of 48 hours / 2 business days for ${reasonText}, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. This requested ship/pickup date is before the earliest ready date. Choose RUSH processing only if expedited handling is approved; otherwise continue with Standard processing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`;
+            return `${portalExpectedReadyInfo(payload).expectedReadyLabel}. Standard processing requires a minimum of ${PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS} business days for ${reasonText}, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. This requested ship/pickup date is before the earliest ready date. Choose RUSH processing only if expedited handling is approved; otherwise continue with Standard processing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`;
         }
 
         function portalRushApprovedBy() {
@@ -8252,7 +8253,7 @@
                 ui.portalReleaseRushApproved.checked = rushApproved === true;
             }
             if (ui.portalReleaseRushApprovalText) {
-                ui.portalReleaseRushApprovalText.textContent = rushApprovalMessage || `Standard non-parcel processing requires a minimum of 48 hours / 2 business days, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. Leave unchecked for Standard processing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`;
+                ui.portalReleaseRushApprovalText.textContent = rushApprovalMessage || `Standard non-parcel processing requires a minimum of ${PORTAL_STANDARD_MINIMUM_BUSINESS_DAYS} business days, Monday-Friday 8:00 AM-4:00 PM Eastern, excluding weekends and holidays. Leave unchecked for Standard processing. For rush charge questions, contact ${PORTAL_RUSH_FEE_CONTACT_EMAIL}.`;
             }
             ui.portalReleaseCcEmails.value = "";
             syncPortalReleaseFields();
@@ -8738,8 +8739,8 @@
                 if (!(inferredType === "application/pdf" || inferredType.startsWith("image/"))) {
                     throw new Error(`${fileName} must be a PDF or image file.`);
                 }
-                if (file.size > 4 * 1024 * 1024) {
-                    throw new Error(`${fileName} is too large. Keep each file under 4 MB.`);
+                if (file.size > 10 * 1024 * 1024) {
+                    throw new Error(`${fileName} is too large. Keep each file up to 10 MB.`);
                 }
                 documents.push({
                     fileName,

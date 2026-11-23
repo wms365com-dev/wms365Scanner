@@ -1,4 +1,5 @@
 const { Client } = require("pg");
+const { requireDesignatedTestCompany } = require("./scripts/designated-test-company");
 const {
     APP_USER_ROLES,
     getPortalInventorySummary,
@@ -12,23 +13,27 @@ async function main() {
     await client.connect();
     await client.query("begin");
     try {
+        const { name: accountName } = await requireDesignatedTestCompany(client);
         const companyResult = await client.query(
-            `select oa.name, min(fl.id)::integer as sole_warehouse_id
-             from owner_accounts oa
-             join company_fulfillment_locations cfl on cfl.account_name=oa.name
+            `select fl.id::integer as sole_warehouse_id
+             from company_fulfillment_locations cfl
              join fulfillment_locations fl on fl.id=cfl.fulfillment_location_id
-             where upper(oa.name) like '%TEST%COMPANY%'
+             where cfl.account_name = $1
                and coalesce(fl.is_active, true)=true
-             group by oa.name
-             having count(distinct fl.id)=1
-             order by case when upper(oa.name)='WMS365 TEST COMPANY' then 0 else 1 end, oa.name
-             limit 1`
+             order by cfl.is_primary desc, fl.id limit 1`,
+            [accountName]
         );
-        const accountName = companyResult.rows[0]?.name;
         const fulfillmentLocationId = Number(companyResult.rows[0]?.sole_warehouse_id || 0);
-        if (!accountName || !fulfillmentLocationId) {
-            throw new Error("No single-warehouse test company is configured.");
+        if (!fulfillmentLocationId) {
+            throw new Error("The designated test company needs an active warehouse for this check. No fallback is allowed.");
         }
+
+        // Simulate a sole-warehouse tenant only inside this rolled-back test transaction.
+        await client.query(
+            `delete from company_fulfillment_locations
+             where account_name = $1 and fulfillment_location_id <> $2`,
+            [accountName, fulfillmentLocationId]
+        );
 
         const suffix = Date.now().toString(36).toUpperCase();
         const sku = `LEGACY-${suffix}`;

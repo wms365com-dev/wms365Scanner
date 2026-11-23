@@ -4,6 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { buildCarrierTrackingUrl } = require("./server");
 
+test("Canadian GLS links open Canadian results while GLS US remains unchanged", () => {
+    for (const name of ["GLS", "GLS Ground", "GLS Canada", "DICOM", "DICOM Express"]) {
+        assert.equal(buildCarrierTrackingUrl(name, "P61323964"), "https://ship.gls-canada.com/tracking/P61323964");
+    }
+    assert.equal(buildCarrierTrackingUrl("GLS US", "12345"), "https://gls-group.com/GROUP/en/parcel-tracking?match=12345");
+});
+
 const desktop = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 
 test("builds tracking links for major Canadian parcel carriers", () => {

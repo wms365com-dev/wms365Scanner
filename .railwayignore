@@ -12,6 +12,7 @@ backups/
 docs/*
 !docs/wms365-partner-api-v1.yaml
 !docs/WMS365_API_CHANGELOG.md
+!docs/WMS365_BACKUP_POLICY.md
 android-app/
 bluehost-site/
 *.spec.js

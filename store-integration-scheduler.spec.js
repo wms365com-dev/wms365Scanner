@@ -19,12 +19,124 @@ const {
     buildIntegrationCredentialRequestUrl,
     renderIntegrationCredentialRequestPage,
     normalizeSubmittedIntegrationCredential,
+    testSubmittedShopifyCredential,
+    normalizeSecureShopifyConfiguration,
+    SHOPIFY_APP_SCOPES,
     normalizeShopifyShopDomain,
     buildShopifyHmacMessage,
     verifyShopifyRequestHmac,
     signShopifyOAuthState,
-    verifyShopifyOAuthState
+    verifyShopifyOAuthState,
+    normalizeShopifyTrackingCompany,
+    buildShopifyFulfillmentTrackingInfo,
+    buildShopifyFulfillmentRequestBody,
+    buildShopifyFulfillmentExportPayload,
+    selectShopifyFulfillmentForTrackingUpdate
 } = require("./server");
+
+test("Shopify fulfillment sends an explicit ICS Courier tracking link", () => {
+    const order = {
+        orderCode: "TEST-ORDER",
+        shippedCarrierName: "ICS",
+        shippedTrackingReference: "GR6C2B123456789V9M1M1"
+    };
+    assert.equal(normalizeShopifyTrackingCompany("ICS"), "ICS Courier");
+    assert.deepEqual(buildShopifyFulfillmentTrackingInfo(order), {
+        number: "GR6C2B123456789V9M1M1",
+        company: "ICS Courier",
+        url: "https://www.icscourier.ca/online-services/parcel-tracking.aspx?trackNums=GR6C2B123456789V9M1M1"
+    });
+    assert.deepEqual(buildShopifyFulfillmentRequestBody(order, [{ id: 42 }], { notifyCustomer: true }), {
+        fulfillment: {
+            line_items_by_fulfillment_order: [{ fulfillment_order_id: 42 }],
+            notify_customer: true,
+            message: "Shipped from WMS365 for TEST-ORDER",
+            tracking_info: {
+                number: "GR6C2B123456789V9M1M1",
+                company: "ICS Courier",
+                url: "https://www.icscourier.ca/online-services/parcel-tracking.aspx?trackNums=GR6C2B123456789V9M1M1"
+            }
+        }
+    });
+    assert.equal(
+        buildShopifyFulfillmentExportPayload(order, "shopify-order-1").shippedTrackingUrl,
+        "https://www.icscourier.ca/online-services/parcel-tracking.aspx?trackNums=GR6C2B123456789V9M1M1"
+    );
+});
+
+test("Shopify fulfillment sends every package tracking number for one carrier", () => {
+    const order = {
+        orderCode: "TEST-MULTI-CANPAR",
+        shippedCarrierName: "Canpar Ground",
+        shippedTrackingReference: "D420352470002689994001\nD420352470002690578001",
+        shipmentTracking: [
+            {
+                carrierName: "Canpar",
+                trackingNumber: "D420352470002689994001",
+                trackingUrl: "https://www.canpar.com/en/tracking/track.htm?barcode=D420352470002689994001"
+            },
+            {
+                carrierName: "Canpar",
+                trackingNumber: "D420352470002690578001",
+                trackingUrl: "https://www.canpar.com/en/tracking/track.htm?barcode=D420352470002690578001"
+            }
+        ]
+    };
+
+    assert.deepEqual(buildShopifyFulfillmentTrackingInfo(order), {
+        numbers: ["D420352470002689994001", "D420352470002690578001"],
+        urls: [
+            "https://www.canpar.com/en/tracking/track.htm?barcode=D420352470002689994001",
+            "https://www.canpar.com/en/tracking/track.htm?barcode=D420352470002690578001"
+        ],
+        company: "Canpar"
+    });
+});
+
+test("Shopify fulfillment keeps mixed-carrier package links without applying the wrong company", () => {
+    const order = {
+        orderCode: "TEST-MULTI-MIXED",
+        shippedCarrierName: "GLS",
+        shippedTrackingReference: "P61569126\nD556276790000149108001",
+        shipmentTracking: [
+            {
+                carrierName: "GLS",
+                trackingNumber: "P61569126",
+                trackingUrl: "https://ship.gls-canada.com/tracking/P61569126"
+            },
+            {
+                carrierName: "Canpar",
+                trackingNumber: "D556276790000149108001",
+                trackingUrl: "https://www.canpar.com/en/tracking/track.htm?barcode=D556276790000149108001"
+            }
+        ]
+    };
+
+    assert.deepEqual(buildShopifyFulfillmentTrackingInfo(order), {
+        numbers: ["P61569126", "D556276790000149108001"],
+        urls: [
+            "https://ship.gls-canada.com/tracking/P61569126",
+            "https://www.canpar.com/en/tracking/track.htm?barcode=D556276790000149108001"
+        ]
+    });
+});
+
+test("Shopify fulfillment tracking updates select only an unambiguous fulfillment", () => {
+    assert.equal(selectShopifyFulfillmentForTrackingUpdate([
+        { id: 10, status: "success", tracking_number: "OLD" },
+        { id: 11, status: "success", tracking_number: "GR6C2B123456789V9M1M1" }
+    ], "GR6C2B123456789V9M1M1").id, 11);
+    assert.equal(selectShopifyFulfillmentForTrackingUpdate([
+        { id: 10, status: "success", tracking_number: "OLD-A" },
+        { id: 11, status: "success", tracking_number: "OLD-B" }
+    ], "NEW"), null);
+    assert.equal(selectShopifyFulfillmentForTrackingUpdate([
+        { id: 12, status: "success", tracking_number: "OLD" }
+    ], "NEW"), null);
+    assert.equal(selectShopifyFulfillmentForTrackingUpdate([
+        { id: 13, status: "success", tracking_number: null, tracking_numbers: [] }
+    ], "NEW").id, 13);
+});
 
 test("store SKU mappings convert Shopify pack quantities into WMS base units", () => {
     const mapped = applyStoreSkuMappingsToPortalOrderPayload({
@@ -125,6 +237,49 @@ test("daily store integration sync respects standard time offset", () => {
     assert.equal(
         computeNextStoreIntegrationSyncAt("DAILY_0900", { now: new Date("2026-01-10T13:30:00.000Z") }),
         "2026-01-10T14:00:00.000Z"
+    );
+});
+
+test("weekday five-times schedule advances through all Eastern business-day slots", () => {
+    const cases = [
+        ["2026-06-15T09:00:00.000Z", "2026-06-15T10:00:00.000Z"],
+        ["2026-06-15T10:01:00.000Z", "2026-06-15T12:30:00.000Z"],
+        ["2026-06-15T12:31:00.000Z", "2026-06-15T15:00:00.000Z"],
+        ["2026-06-15T15:01:00.000Z", "2026-06-15T17:30:00.000Z"],
+        ["2026-06-15T17:31:00.000Z", "2026-06-15T20:00:00.000Z"]
+    ];
+    for (const [now, expected] of cases) {
+        assert.equal(computeNextStoreIntegrationSyncAt("WEEKDAYS_5X_0600_1600", { now: new Date(now) }), expected);
+    }
+});
+
+test("weekday five-times schedule skips weekends and respects standard time", () => {
+    assert.equal(
+        computeNextStoreIntegrationSyncAt("WEEKDAYS_5X_0600_1600", { now: new Date("2026-06-19T20:01:00.000Z") }),
+        "2026-06-22T10:00:00.000Z"
+    );
+    assert.equal(
+        computeNextStoreIntegrationSyncAt("WEEKDAYS_5X_0600_1600", { now: new Date("2026-01-05T10:00:00.000Z") }),
+        "2026-01-05T11:00:00.000Z"
+    );
+});
+
+test("daily three-times schedule advances through all Eastern slots including weekends", () => {
+    const cases = [
+        ["2026-10-25T10:00:00.000Z", "2026-10-25T11:30:00.000Z"],
+        ["2026-10-25T11:31:00.000Z", "2026-10-25T15:30:00.000Z"],
+        ["2026-10-25T15:31:00.000Z", "2026-10-25T18:30:00.000Z"],
+        ["2026-10-25T18:31:00.000Z", "2026-10-26T11:30:00.000Z"]
+    ];
+    for (const [now, expected] of cases) {
+        assert.equal(computeNextStoreIntegrationSyncAt("DAILY_3X_0730_1430", { now: new Date(now) }), expected);
+    }
+});
+
+test("daily three-times schedule respects Eastern standard time", () => {
+    assert.equal(
+        computeNextStoreIntegrationSyncAt("DAILY_3X_0730_1430", { now: new Date("2026-12-12T11:00:00.000Z") }),
+        "2026-12-12T12:30:00.000Z"
     );
 });
 
@@ -508,6 +663,33 @@ test("secure integration credential request renders one-time noindex form", () =
     assert.match(html, /Shopify Admin API access token/);
     assert.match(html, /TRAVEONE LTD\./);
     assert.match(html, /Justeefy Canada/);
+    assert.match(html, /Test connection/);
+    assert.match(html, /id="submit-button" type="submit" disabled/);
+});
+
+test("new secure Shopify connection asks the customer for the permanent store domain", () => {
+    const html = renderIntegrationCredentialRequestPage({
+        token: "preview-token",
+        request: {
+            accountName: "NOMMM CANADA INC.",
+            provider: "SHOPIFY",
+            integrationName: "NOMMM Shopify",
+            storeIdentifier: "",
+            expiresAt: "2026-11-08T12:00:00.000Z",
+            settings: {}
+        }
+    });
+    assert.match(html, /Permanent Shopify domain/);
+    assert.match(html, /name="shopDomain"/);
+    assert.match(html, /placeholder="store-name\.myshopify\.com"/);
+    assert.doesNotMatch(html, /name="shopDomain"[^>]+readonly/);
+    assert.match(html, /name="syncOrders"/);
+    assert.match(html, /name="syncInventory"/);
+    assert.match(html, /name="syncShipmentConfirmations"/);
+    assert.match(html, /name="shopifyLocationId"/);
+    assert.match(html, /name="syncSchedule"/);
+    assert.match(html, /name="importStatus"/);
+    assert.match(html, /name="allowedShipCountries"/);
 });
 
 test("secure integration credential input extracts a Shopify token from pasted JSON", () => {
@@ -519,6 +701,106 @@ test("secure integration credential input extracts a Shopify token from pasted J
         normalizeSubmittedIntegrationCredential("shpat_direct_token"),
         "shpat_direct_token"
     );
+});
+
+test("secure Shopify credential test verifies exact store and required scopes", async () => {
+    const requiredScopes = String(SHOPIFY_APP_SCOPES).split(",").map((scope) => scope.trim()).filter(Boolean);
+    const result = await testSubmittedShopifyCredential({
+        provider: "SHOPIFY",
+        storeIdentifier: "nommm-test.myshopify.com"
+    }, "shpat_example_token_123456789", {
+        fetchImpl: async (url, options) => {
+            assert.match(String(url), /nommm-test\.myshopify\.com\/admin\/api\/.+\/graphql\.json/);
+            assert.equal(options.headers["X-Shopify-Access-Token"], "shpat_example_token_123456789");
+            return new Response(JSON.stringify({
+                data: {
+                    shop: { name: "NOMMM Test", myshopifyDomain: "nommm-test.myshopify.com" },
+                    currentAppInstallation: { accessScopes: requiredScopes.map((handle) => ({ handle })) }
+                }
+            }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+    });
+    assert.equal(result.shopDomain, "nommm-test.myshopify.com");
+    assert.deepEqual(result.verifiedPermissions, requiredScopes);
+});
+
+test("secure Shopify credential test rejects a token for another store", async () => {
+    await assert.rejects(
+        testSubmittedShopifyCredential({
+            provider: "SHOPIFY",
+            storeIdentifier: "nommm-test.myshopify.com"
+        }, "shpat_example_token_123456789", {
+            fetchImpl: async () => new Response(JSON.stringify({
+                data: {
+                    shop: { name: "Wrong Store", myshopifyDomain: "wrong-store.myshopify.com" },
+                    currentAppInstallation: { accessScopes: [] }
+                }
+            }), { status: 200, headers: { "content-type": "application/json" } })
+        }),
+        /token belongs to wrong-store\.myshopify\.com/
+    );
+});
+
+test("secure Shopify credential test rejects changing a preconfigured store", async () => {
+    await assert.rejects(
+        testSubmittedShopifyCredential({
+            provider: "SHOPIFY",
+            storeIdentifier: "locked-store.myshopify.com"
+        }, "shpat_example_token_123456789", {
+            shopDomain: "another-store.myshopify.com",
+            fetchImpl: async () => {
+                throw new Error("Shopify should not be called for a mismatched locked store.");
+            }
+        }),
+        /secure link is locked to locked-store\.myshopify\.com/
+    );
+});
+
+test("secure Shopify credential test reports missing required permissions", async () => {
+    await assert.rejects(
+        testSubmittedShopifyCredential({
+            provider: "SHOPIFY",
+            storeIdentifier: "nommm-test.myshopify.com"
+        }, "shpat_example_token_123456789", {
+            fetchImpl: async () => new Response(JSON.stringify({
+                data: {
+                    shop: { name: "NOMMM Test", myshopifyDomain: "nommm-test.myshopify.com" },
+                    currentAppInstallation: { accessScopes: [{ handle: "read_products" }] }
+                }
+            }), { status: 200, headers: { "content-type": "application/json" } })
+        }),
+        /missing required permissions:.*read_orders/
+    );
+});
+
+test("secure Shopify self-service configuration saves verified sync choices", () => {
+    const configuration = normalizeSecureShopifyConfiguration({
+        syncOrders: "on",
+        syncInventory: "on",
+        syncShipmentConfirmations: "on",
+        notifyCustomerOnFulfillment: "on",
+        shopifyLocationId: "12345",
+        allowedShipCountries: "CA,US",
+        syncSchedule: "EVERY_15_MINUTES",
+        importStatus: "DRAFT"
+    }, { settings: {}, syncSchedule: "MANUAL", importStatus: "DRAFT" }, {
+        locations: [{ id: "12345", name: "Grey Wolf Fulfillment", active: true }]
+    });
+    assert.equal(configuration.syncSchedule, "EVERY_15_MINUTES");
+    assert.equal(configuration.importStatus, "DRAFT");
+    assert.equal(configuration.settings.syncOrders, true);
+    assert.equal(configuration.settings.syncInventory, true);
+    assert.equal(configuration.settings.syncShipmentConfirmations, true);
+    assert.equal(configuration.settings.shopifyLocationId, "12345");
+    assert.equal(configuration.settings.primaryLocationName, "Grey Wolf Fulfillment");
+    assert.deepEqual(configuration.settings.allowedShipCountries, ["CA", "US"]);
+});
+
+test("secure Shopify self-service blocks stock sync without a verified location", () => {
+    assert.throws(() => normalizeSecureShopifyConfiguration({
+        syncInventory: "on",
+        shopifyLocationId: "unverified"
+    }, { settings: {}, syncSchedule: "MANUAL", importStatus: "DRAFT" }, { locations: [] }), /verified Shopify location/);
 });
 
 test("Shopify OAuth HMAC verification sorts query parameters and ignores hmac", () => {

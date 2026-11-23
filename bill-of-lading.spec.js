@@ -148,6 +148,38 @@ test("split orders preserve separate warehouse shipment weights and BOL pages", 
     assert.equal((attachment.content.toString("utf8").match(/STRAIGHT BILL OF LADING/g) || []).length, 2);
 });
 
+test("Alcona BOLs always render shipment weights in kilograms", () => {
+    const order = stagedFreightOrder({
+        accountName: "ALCONA TRADING LTD",
+        routingTotalWeight: 9290,
+        routingWeightUom: "LB",
+        pickedPalletDetails: [
+            { palletNumber: 1, location: "TEST-A", weight: 2324, weightUom: "LB" },
+            { palletNumber: 2, location: "TEST-B", weight: 2325, weightUom: "LB" },
+            { palletNumber: 3, location: "TEST-C", weight: 2321, weightUom: "LB" },
+            { palletNumber: 4, location: "TEST-D", weight: 2320, weightUom: "LB" }
+        ]
+    });
+    order.warehouseShipments[0] = {
+        ...order.warehouseShipments[0],
+        pallets: { total: 4 },
+        totalWeight: 9290,
+        weightUom: "LB"
+    };
+    const [shipment] = getPortalOrderBolShipmentEntries(order);
+    assert.equal(shipment.weightUom, "KG");
+    assert.equal(shipment.totalWeight, 4213.873);
+    const pdfText = buildPortalOrderBillOfLadingPdfAttachment(order).content.toString("utf8");
+    assert.match(pdfText, /4,213\.9 KG/);
+    assert.doesNotMatch(pdfText, /9,290\.0 LB/);
+});
+
+test("non-Alcona BOLs preserve their configured pound unit", () => {
+    const [shipment] = getPortalOrderBolShipmentEntries(stagedFreightOrder());
+    assert.equal(shipment.weightUom, "LB");
+    assert.equal(shipment.totalWeight, 1200);
+});
+
 test("BOL routes and UI preserve warehouse access controls and staged-only visibility", () => {
     const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
     const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");

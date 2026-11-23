@@ -35,6 +35,36 @@ GET /health
 
 Returns API/database readiness for the HEALTEA API.
 
+### Month-End Activity
+
+```http
+GET /month-end/activity?month=2026-09
+```
+
+Returns a downloadable JSON report scoped to `HEALTEA` for one calendar month. The response includes:
+
+- reconciled summary totals
+- shipped order lines
+- received inbound lines
+- append-only inventory transactions
+- non-void billing events, summarized by currency
+
+The month must use `YYYY-MM`. Warehouse dates are evaluated in `America/Toronto`. The response excludes ship-to names, addresses, phone numbers, email addresses, documents, and credentials. It is read-only and sends no emails.
+
+Example:
+
+```bash
+curl -fsS "https://app.wms365.co/api/healtea/v1/month-end/activity?month=2026-09" \
+  -H "Authorization: Bearer $HEALTEA_API_TOKEN" \
+  -o healtea-month-end-2026-09.json
+```
+
+The checked-in downloader also validates the returned tenant and period before saving:
+
+```bash
+node scripts/download-healtea-month-end-report.js 2026-09
+```
+
 ### List Orders
 
 ```http

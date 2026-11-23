@@ -1,6 +1,7 @@
 node_modules/
 .npm-cache/
 .android-build-tools/
+.gradle-android/
 .chrome-headless/
 .edge-headless/
 .env
