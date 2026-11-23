@@ -12769,7 +12769,13 @@
                 }, async () => {
                     const response = await requestJson("/api/admin/product-intelligence");
                     renderProductRecommendations(response?.report || null);
-                    showMessage(ui.productRecommendationsMessage, "Latest product recommendation audit loaded.", "success");
+                    showMessage(
+                        ui.productRecommendationsMessage,
+                        productRecommendationRecords.length
+                            ? `Loaded ${productRecommendationRecords.length} product recommendation${productRecommendationRecords.length === 1 ? "" : "s"}.`
+                            : "The latest product recommendation audit is available, but it contains no recommendations.",
+                        productRecommendationRecords.length ? "success" : "info"
+                    );
                 });
             } catch (error) {
                 renderProductRecommendations(null);
@@ -13619,7 +13625,7 @@
             ui.feedbackStatusFilter?.addEventListener("change", renderFeedbackQueue);
             ui.feedbackSourceFilter?.addEventListener("change", renderFeedbackQueue);
             ui.feedbackSearch?.addEventListener("input", debouncedRenderFeedbackQueue);
-            ui.refreshFeedbackQueueBtn?.addEventListener("click", () => refreshFeedbackQueue());
+            ui.refreshFeedbackQueueBtn?.addEventListener("click", refreshFeedbackQueueWithFeedback);
             ui.feedbackQueueList?.addEventListener("click", onFeedbackQueueClick);
             document.getElementById("addSingleLabelBtn").addEventListener("click", addSingleLocationLabel);
             document.getElementById("addLabelPairBtn").addEventListener("click", addLocationLabelPair);
@@ -15563,6 +15569,28 @@
                     showMessage(ui.feedbackQueueMessage, error.message, "error");
                 }
                 throw error;
+            }
+        }
+
+        async function refreshFeedbackQueueWithFeedback() {
+            try {
+                await runActionWithFeedback({
+                    button: ui.refreshFeedbackQueueBtn,
+                    busyLabel: "Refreshing...",
+                    messageElement: ui.feedbackQueueMessage,
+                    progressMessage: "Loading the latest feedback requests..."
+                }, async () => {
+                    await refreshFeedbackQueue(true);
+                    showMessage(
+                        ui.feedbackQueueMessage,
+                        feedbackRecords.length
+                            ? `Loaded ${feedbackRecords.length} feedback request${feedbackRecords.length === 1 ? "" : "s"}.`
+                            : "No feedback requests have been submitted yet.",
+                        feedbackRecords.length ? "success" : "info"
+                    );
+                });
+            } catch (error) {
+                showMessage(ui.feedbackQueueMessage, error.message || "The feedback queue could not be loaded.", "error");
             }
         }
 
