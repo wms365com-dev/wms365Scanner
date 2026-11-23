@@ -48,6 +48,17 @@ This board is the release order. Only one focused repair is promoted at a time; 
 
 ## November 20 Full QA Report Rebaseline
 
+### November 22 sales-order allocation preview parity repair
+
+- Priority: `high`.
+- Status: `FIXED - SANDBOX VERIFIED / PRODUCTION PENDING`.
+- Trigger and root cause: the unsaved sales-order form could show `Short 1 / Allocatable 0` while the saved and released order allocated the requested unit. `/api/state` already returns authoritative on-hand, reserved, and available quantities after active allocations, but the browser subtracted every active order's full requested quantity a second time and did not consistently scope that fallback subtraction to the active warehouse or its configured inventory pool.
+- Repair: the preview now consumes the server's authoritative quantities once, includes only the active warehouse and explicitly configured inventory-pool source assignments, and deducts only the unallocated remainder for legacy orders. Unrelated warehouses, companies, transaction types, allocation writes, inventory quantities, documents, emails, billing, integrations, and background jobs are unchanged.
+- Local evidence: focused positive and negative coverage passed `6/6`; access-control coverage passed `12/12` across `292` routes; and `npm run check:deploy` passed `973/973`. The final implementation is commit `8fd4042fea371d77d2ea993ce200fb33736119f4`. An earlier candidate emitted a PostgreSQL client concurrency deprecation warning in its sandbox verifier and was rejected; the final verifier uses one sequential aggregate query and exposes no test-only server API.
+- Sandbox evidence: exact final commit `8fd4042fea371d77d2ea993ce200fb33736119f4` deployed only to `customer-sandbox` as `719672f1-38cc-4f56-99e5-afeaacdb44b2`; prior successful deployment `06e7839b-4f65-442e-90d0-c9cb05283d3b` is the named sandbox rollback. The isolated fresh-database verifier passed all seven controls. A transactionally rolled-back workflow pinned to `CODEX PORTAL SYSTEM TEST`, owner account ID `1510`, proved `2` on hand, `1` committed, `1` allocatable, a second allocation of exactly `1`, and an isolated other-warehouse balance of `20`, with no warning or persisted fixture.
+- Isolation and soak: authenticated verification retained `321` allowed tasks, excluded `19` denied-warehouse and `11` denied-company tasks, enforced HTTP `403` across company scope, preserved inbound company/warehouse isolation, and measured the sales-order queue at `46.7 ms` median / `72.4 ms` maximum. Eleven read-only health probes from `2026-11-23T04:18:19Z` through `2026-11-23T04:28:20Z` returned HTTP `200`; an independent payload check confirmed application, database, schema, desktop, and mobile readiness with a `3 ms` database probe. The deployment stayed successful in one region; `38` bounded runtime entries and `22` proxy entries contained no warning, error, restart, connection-pool issue, upstream error, or HTTP `5xx`.
+- Production gate: production remains unchanged on deployment `1c1c45a1-4cfb-40c9-8afb-11f636256c8a` at commit `6720375b671fdc9185911c0ca8fe0d504c71da2a`. Promotion remains blocked by Railway's unresolved active production PostgreSQL warning. No production source change was staged, and no production order, inventory, allocation, shipment, document, email, billing, integration, or customer data was changed.
+
 ### November 22 sales-order draft pallet persistence repair
 
 - Priority: `high`.
