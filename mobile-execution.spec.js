@@ -16,7 +16,7 @@ function clone(row) {
 
 class MobileExecutionClient {
     constructor() {
-        this.orders = new Map([["31", { id: 31, account_name: "HEALTEA", status: "PICKING", order_code: "ORD-000031" }]]);
+        this.orders = new Map([["31", { id: 31, account_name: "HEALTEA", status: "RELEASED", order_code: "ORD-000031" }]]);
         this.lines = new Map([["101", { id: 101, order_id: 31, sku: "30627843973325", item_upc: "900000000125", requested_quantity: 36, item_lot_tracked: false, item_expiration_tracked: false }]]);
         this.allocations = [
             { id: 1, order_id: 31, order_line_id: 101, inventory_line_id: 1, sku: "30627843973325", location: "A-01", lot_number: "", expiration_date: "", tracking_level: "CASE", allocated_quantity: 36 }

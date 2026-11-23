@@ -14,11 +14,7 @@ $EnvironmentId = "e1f5b77e-b935-4f41-9cc5-fccb28edbc57"
 $ServiceId = "2b47f53a-a3a2-49e2-8e43-d6eabf89b2b0"
 $AppUrl = "https://app.wms365.co"
 
-$RailwayCli = (Get-Command railway -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
-if (-not $RailwayCli) {
-    $RailwayCli = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'npm\railway.cmd'
-}
-if (-not (Test-Path -LiteralPath $RailwayCli)) {
+if (-not (Get-Command railway -ErrorAction SilentlyContinue)) {
     throw "Railway CLI is not installed. Install it with: npm i -g @railway/cli"
 }
 
@@ -29,7 +25,7 @@ if (-not $env:RAILWAY_AGENT_SESSION) {
 
 function Invoke-RailwayJson {
     param([string[]] $RailwayArgs)
-    & $RailwayCli @RailwayArgs
+    & railway @RailwayArgs
 }
 
 switch ($Action) {

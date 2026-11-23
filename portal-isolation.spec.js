@@ -226,45 +226,6 @@ test("released orders do not report their own allocations as stock shortages", (
     assert.deepEqual(warnings, []);
 });
 
-test("an active temporary SKU oversell approval makes only the approved shortage non-blocking", () => {
-    const warnings = buildPortalOrderStockWarnings([
-        {
-            sku: "20628693486143",
-            quantity: 13,
-            availableQuantity: 4,
-            trackingLevel: "CASE",
-            temporaryOversellExpiresAt: "2026-09-15T04:00:00.000Z",
-            temporaryOversellRemainingQuantity: 61,
-            temporaryOversellReason: "Short-term approved exception"
-        }
-    ]);
-
-    assert.equal(warnings.length, 1);
-    assert.equal(warnings[0].shortQuantity, 9);
-    assert.equal(warnings[0].blocking, false);
-    assert.equal(warnings[0].temporaryOversellAllowed, true);
-    assert.match(warnings[0].message, /warehouse must confirm physical stock before shipping/i);
-});
-
-test("a temporary SKU oversell approval remains blocking when its remaining cap is exceeded", () => {
-    const warnings = buildPortalOrderStockWarnings([
-        {
-            sku: "20628693486143",
-            quantity: 13,
-            availableQuantity: 4,
-            trackingLevel: "CASE",
-            temporaryOversellExpiresAt: "2026-09-15T04:00:00.000Z",
-            temporaryOversellRemainingQuantity: 8
-        }
-    ]);
-
-    assert.equal(warnings.length, 1);
-    assert.equal(warnings[0].shortQuantity, 9);
-    assert.equal(warnings[0].blocking, true);
-    assert.equal(warnings[0].temporaryOversellAllowed, false);
-    assert.match(warnings[0].message, /release is blocked/i);
-});
-
 test("company billing hold payload disables portal actions and recovery", () => {
     const hold = buildCompanyBillingHoldPayload({
         accountName: "ACME FOODS",
@@ -315,17 +276,17 @@ test("customer portal cannot upload order documents after shipment", () => {
     );
 });
 
-test("portal rush approval is required when requested date is before the four-business-day ready date", () => {
+test("portal rush approval is required when requested date is before the 48-hour ready date", () => {
     const now = new Date("2026-07-15T14:00:00.000Z");
     assert.equal(portalOrderRequiresRushApproval({
         orderType: "RETAIL_WHOLESALE",
         shipmentMethod: "PARCEL",
-        requestedShipDate: "2026-07-20"
+        requestedShipDate: "2026-07-16"
     }, now), true);
     assert.equal(portalOrderRequiresRushApproval({
         orderType: "RETAIL_WHOLESALE",
         shipmentMethod: "PARCEL",
-        requestedShipDate: "2026-07-21"
+        requestedShipDate: "2026-07-17"
     }, now), false);
 });
 
@@ -460,9 +421,8 @@ test("portal expected ready date skips weekends and Canadian holiday closures", 
         requestedShipDate: "2026-07-02",
         fulfillmentCountry: "Canada"
     });
-    assert.equal(timing.expectedReadyDate, "2026-07-06");
-    assert.match(timing.expectedReadyLabel, /Mon, Jul 6, 2026/);
-    assert.match(timing.summary, /minimum of 4 business days/i);
+    assert.equal(timing.expectedReadyDate, "2026-07-02");
+    assert.match(timing.expectedReadyLabel, /Thu, Jul 2, 2026/);
     assert.deepEqual(timing.holidayClosures.map((holiday) => holiday.name), ["Canada Day"]);
 });
 
@@ -475,8 +435,8 @@ test("portal expected ready date starts next business morning after hours", () =
         requestedShipDate: "2026-07-08",
         fulfillmentCountry: "Canada"
     });
-    assert.equal(timing.expectedReadyDate, "2026-07-10");
-    assert.match(timing.expectedReadyLabel, /Fri, Jul 10, 2026, 8:00 AM/);
+    assert.equal(timing.expectedReadyDate, "2026-07-08");
+    assert.match(timing.expectedReadyLabel, /Wed, Jul 8, 2026, 8:00 AM/);
 });
 
 test("portal ready date uses the fulfillment warehouse holiday calendar", () => {
@@ -496,8 +456,8 @@ test("portal ready date uses the fulfillment warehouse holiday calendar", () => 
         location: { country: "Canada", state: "British Columbia", publicName: "Grey Wolf BC Warehouse" }
     });
 
-    assert.equal(ontarioTiming.expectedReadyDate, "2026-10-05");
-    assert.equal(bcTiming.expectedReadyDate, "2026-10-06");
+    assert.equal(ontarioTiming.expectedReadyDate, "2026-10-01");
+    assert.equal(bcTiming.expectedReadyDate, "2026-10-02");
     assert.deepEqual(ontarioTiming.holidayClosures.map((holiday) => holiday.name), []);
     assert.deepEqual(bcTiming.holidayClosures.map((holiday) => holiday.name), ["National Day for Truth and Reconciliation"]);
     assert.match(bcTiming.holidayWarning, /Holiday closure affects this order/);
@@ -542,8 +502,8 @@ test("portal split-location confirmation email shows each warehouse ready date a
     ];
 
     const text = buildPortalOrderConfirmationEmailText(order, groups, { reason: "Customer portal order release" });
-    assert.match(text, /Grey Wolf ON Warehouse:.*Mon, Oct 5, 2026/s);
-    assert.match(text, /Grey Wolf BC Warehouse:.*Tue, Oct 6, 2026/s);
+    assert.match(text, /Grey Wolf ON Warehouse:.*Thu, Oct 1, 2026/s);
+    assert.match(text, /Grey Wolf BC Warehouse:.*Fri, Oct 2, 2026/s);
     assert.match(text, /National Day for Truth and Reconciliation/);
 });
 

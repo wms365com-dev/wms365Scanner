@@ -1,10 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 
 const {
-    APP_USER_ROLES,
     PORTAL_ORDER_DOCUMENT_CATEGORIES,
     sanitizePortalShippingConfirmationInput,
     assertPortalShipmentCloseoutReviewConfirmed,
@@ -41,29 +38,6 @@ test("shipment closeout requires BOL, checked packing slip, and load photo", () 
         ),
         /checked packing slip/i
     );
-});
-
-test("shipment closeout accepts shipment proof saved before the final status transaction", () => {
-    assert.doesNotThrow(() => assertPortalShipmentProofRequirements(
-        { documents: [] },
-        {
-            shipmentMethod: "LTL_FREIGHT",
-            existingDocuments: [
-                { documentCategory: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL },
-                { document_category: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP },
-                { documentCategory: PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO }
-            ]
-        }
-    ));
-});
-
-test("warehouse UI saves shipment proof independently before final closeout", () => {
-    const warehouseUi = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
-
-    assert.match(warehouseUi, /async function uploadPortalShipmentProofInput\(input\)/);
-    assert.match(warehouseUi, /requestJson\(`\/api\/admin\/portal-orders\/\$\{orderId\}\/documents`/);
-    assert.match(warehouseUi, /Wait for each shipment document to show as saved before marking shipped/);
-    assert.match(warehouseUi, /const documents = \[\];/);
 });
 
 test("shipment closeout requires packing slip quantity confirmation", () => {
@@ -110,34 +84,6 @@ test("ltl shipment closeout still requires freight proof", () => {
         ),
         /signed BOL|checked packing slip|loaded freight/i
     );
-});
-
-test("missing freight proof override requires a super admin and an explicit reason", () => {
-    const confirmation = {
-        documents: [],
-        missingShipmentProofOverride: true,
-        missingShipmentProofOverrideReason: "Owner approved exception."
-    };
-    assert.throws(
-        () => assertPortalShipmentProofRequirements(confirmation, {
-            shipmentMethod: "LTL_FREIGHT",
-            appUser: { role: APP_USER_ROLES.ADMIN }
-        }),
-        /super admin/i
-    );
-    assert.doesNotThrow(() => assertPortalShipmentProofRequirements(confirmation, {
-        shipmentMethod: "LTL_FREIGHT",
-        appUser: { role: APP_USER_ROLES.SUPER_ADMIN }
-    }));
-});
-
-test("shipment proof override payload aliases are sanitized", () => {
-    const confirmation = sanitizePortalShippingConfirmationInput({
-        missing_shipment_proof_override: "yes",
-        missing_shipment_proof_override_reason: "Owner approved exception."
-    });
-    assert.equal(confirmation.missingShipmentProofOverride, true);
-    assert.equal(confirmation.missingShipmentProofOverrideReason, "Owner approved exception.");
 });
 
 test("ftl shipment closeout accepts freight proof without carrier or tracking", () => {
@@ -319,7 +265,7 @@ test("carrier tracking URLs are generated for recognized parcel and freight carr
     );
     assert.equal(
         buildCarrierTrackingUrl("GLS Canada", "GLS123456789"),
-        "https://ship.gls-canada.com/tracking/GLS123456789"
+        "https://gls-group.com/GROUP/en/parcel-tracking?match=GLS123456789"
     );
     assert.equal(
         buildCarrierTrackingUrl("TForce Freight", "123456789"),

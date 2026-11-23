@@ -1,5 +1,4 @@
 const { Client } = require("pg");
-const { requireDesignatedTestCompany } = require("./designated-test-company");
 const {
     APP_USER_ROLES,
     upsertInventoryLine,
@@ -18,7 +17,12 @@ async function main() {
     await client.connect();
     await client.query("begin");
     try {
-        const { name: accountName } = await requireDesignatedTestCompany(client);
+        const companyResult = await client.query(
+            `select name from owner_accounts where upper(name) like '%TEST%COMPANY%'
+             order by case when upper(name)='WMS365 TEST COMPANY' then 0 else 1 end, name limit 1`
+        );
+        const accountName = companyResult.rows[0]?.name;
+        if (!accountName) throw new Error("No WMS365 test company is configured.");
         const warehouseResult = await client.query(
             `select fl.* from fulfillment_locations fl
              join company_fulfillment_locations cfl on cfl.fulfillment_location_id=fl.id

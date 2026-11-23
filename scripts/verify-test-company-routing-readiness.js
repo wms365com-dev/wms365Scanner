@@ -1,6 +1,5 @@
 const assert = require("node:assert/strict");
 const { Pool } = require("pg");
-const { requireDesignatedTestCompany } = require("./designated-test-company");
 const {
     getOrderRoutingReadinessSchedule,
     buildOrderRoutingReadinessDeliveryKey,
@@ -12,7 +11,14 @@ async function main() {
     if (!connectionString) throw new Error("Database connection is not configured.");
     const pool = new Pool({ connectionString, ssl: false });
     try {
-        const { name: accountName } = await requireDesignatedTestCompany(pool);
+        const companyResult = await pool.query(
+            `select name from owner_accounts
+             where upper(name) like '%TEST%COMPANY%' or upper(name) = 'WMS365 TEST COMPANY'
+             order by case when upper(name) = 'WMS365 TEST COMPANY' then 0 else 1 end, name
+             limit 1`
+        );
+        assert.equal(companyResult.rowCount, 1, "The designated WMS365 test company is missing.");
+        const accountName = companyResult.rows[0].name;
         const locationResult = await pool.query(
             `select fl.id, fl.code, fl.name, fl.state, fl.country, fl.contact_email
              from company_fulfillment_locations cfl

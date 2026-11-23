@@ -27,7 +27,6 @@ const STATUS_ALIASES = Object.freeze({
     PICKED_UP: "PICKED_UP",
     PICKUP: "PICKED_UP",
     ACCEPTED: "PICKED_UP",
-    CARRIER_PICKED_UP: "PICKED_UP",
     IN_TRANSIT: "IN_TRANSIT",
     TRANSIT: "IN_TRANSIT",
     DEPARTED: "IN_TRANSIT",
@@ -39,10 +38,8 @@ const STATUS_ALIASES = Object.freeze({
     DELIVERED: "DELIVERED",
     ATTEMPT_FAIL: "DELIVERY_ATTEMPTED",
     DELIVERY_ATTEMPTED: "DELIVERY_ATTEMPTED",
-    ATTEMPTED_DELIVERY: "DELIVERY_ATTEMPTED",
     FAILED_ATTEMPT: "DELIVERY_ATTEMPTED",
     EXCEPTION: "EXCEPTION",
-    DELAYED: "EXCEPTION",
     FAILURE: "EXCEPTION",
     FAILED: "EXCEPTION",
     ALERT: "EXCEPTION",
@@ -63,7 +60,7 @@ const AFTERSHIP_CARRIER_SLUGS = Object.freeze({
     DHL: "dhl",
     USPS: "usps",
     LOOMIS: "loomis-express",
-    GLS: "dicom",
+    GLS: "gls",
     DAY_ROSS: "dayross",
     ICS_COURIER: "icscourier",
     DRAGONFLY: "intelcom-ca",
@@ -100,9 +97,9 @@ function normalizeTrackingCarrier(value) {
     if (code.startsWith("DHL")) return "DHL";
     if (code.includes("USPS") || code.includes("US_POSTAL")) return "USPS";
     if (code.includes("LOOMIS")) return "LOOMIS";
-    if (code === "GLS" || code.startsWith("GLS_") || code.includes("GLS_CANADA") || code.includes("DICOM")) return "GLS";
+    if (code === "GLS" || code.includes("GLS_CANADA") || code.includes("DICOM")) return "GLS";
     if (code.includes("DAY_ROSS") || code.includes("DAYROSS")) return "DAY_ROSS";
-    if (code === "ICS" || code.startsWith("ICS_") || code.includes("ICS_COURIER")) return "ICS_COURIER";
+    if (code === "ICS" || code.includes("ICS_COURIER")) return "ICS_COURIER";
     if (code.includes("DRAGONFLY") || code.includes("INTELCOM")) return "DRAGONFLY";
     if (code.includes("UNIUNI") || code.includes("UNI_UNI")) return "UNIUNI";
     if (code.includes("TFORCE") || code.includes("T_FORCE")) return "TFORCE_FREIGHT";

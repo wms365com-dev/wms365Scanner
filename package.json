@@ -19,9 +19,6 @@
     "test:portal-navigation": "node --test portal-navigation.spec.js",
     "test:portal-navigation-visual": "playwright test --config=playwright.portal.config.js",
     "test:warehouse-errors-visual": "playwright test --config=playwright.warehouse-errors.config.js",
-    "test:print-agent": "node --test print-agent/wms365-print-agent.spec.js print-agent/connector-updater.spec.js print-connector-security.spec.js warehouse-print-queue.spec.js",
-    "test:print-agent-visual": "playwright test --config=playwright.print-connector.config.js",
-    "build:print-agent": "powershell.exe -NoProfile -File print-agent/build-windows-package.ps1",
     "test:user-errors": "node --test user-facing-errors.spec.js",
     "test:platform-architecture": "node --test platform-architecture.spec.js",
     "audit:access-control": "node scripts/audit-access-control-coverage.js",
@@ -37,23 +34,13 @@
     "check:database": "node scripts/verify-platform-controls.js && node verify-portal-inventory-database.js && node scripts/verify-test-company-platform-flow.js && node scripts/verify-test-company-bol-flow.js && node scripts/verify-test-company-inventory-move-flow.js",
     "check:fresh-database": "node verify-fresh-database-boot.js",
     "test:guides": "node scripts/validate-guide-screenshots.js",
-    "research:wms": "node scripts/audit-wms-feature-competitiveness.js",
-    "test:backup": "npm --prefix ops/backup test",
-    "report:ranchers-labels:generate": "node scripts/generate-ranchers-new-order-label-report.mjs",
-    "report:ranchers-labels:confirm-upload": "node scripts/confirm-ranchers-label-report-upload.mjs",
-    "sync:ranchers-label-sheet": "node scripts/sync-ranchers-label-sheet.js",
-    "sync:ranchers-label-sheet:watch": "node scripts/sync-ranchers-label-sheet.js --watch",
-    "report:healtea:month-end": "node scripts/download-healtea-month-end-report.js"
+    "research:wms": "node scripts/audit-wms-feature-competitiveness.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "cheerio": "^1.2.0",
-    "devalue": "^5.9.2",
     "express": "^4.22.2",
-    "google-auth-library": "^11.1.0",
-    "jose": "6.2.12",
     "nodemailer": "^9.1.0",
     "pg": "^8.13.1",
     "ssh2-sftp-client": "^12.0.1",

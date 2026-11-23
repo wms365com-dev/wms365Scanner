@@ -1,5 +1,4 @@
 const { Client } = require("pg");
-const { requireDesignatedTestCompany } = require("./designated-test-company");
 const {
     APP_USER_ROLES,
     upsertInventoryLine,
@@ -22,7 +21,12 @@ async function main() {
     await client.connect();
     await client.query("begin");
     try {
-        const { name: accountName } = await requireDesignatedTestCompany(client);
+        const companyResult = await client.query(
+            `select name from owner_accounts where upper(name) like '%TEST%COMPANY%'
+             order by case when upper(name)='WMS365 TEST COMPANY' then 0 else 1 end, name limit 1`
+        );
+        const accountName = companyResult.rows[0]?.name;
+        if (!accountName) throw new Error("No test company is configured.");
         const suffix = Date.now().toString(36).toUpperCase();
         const warehouseCodes = [`TFA${suffix.slice(-5)}`, `TFB${suffix.slice(-5)}`];
         const warehouseIds = [];
@@ -92,7 +96,6 @@ async function main() {
         order = await releasePortalOrderForAccount(client, accountName, order.id, { splitFulfillmentApproved: true, splitFulfillmentApprovedBy: actor.email, activityActor: actor.email });
         const shipmentCount = await client.query("select count(*)::integer count from warehouse_shipments where order_id=$1", [order.id]);
         if (Number(shipmentCount.rows[0]?.count) !== 2) throw new Error("Split order did not create two warehouse shipments.");
-        order = await updateAdminPortalOrderStatus(client, order.id, "PICKING", { idempotencyKey: `${suffix}-picking` }, actor);
         order = await updateAdminPortalOrderStatus(client, order.id, "PICKED", { idempotencyKey: `${suffix}-picked` }, actor);
         order = await updateAdminPortalOrderStatus(client, order.id, "STAGED", { idempotencyKey: `${suffix}-staged` }, actor);
         order = await updateAdminPortalOrderStatus(client, order.id, "SHIPPED", {

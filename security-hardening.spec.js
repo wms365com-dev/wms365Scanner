@@ -20,40 +20,9 @@ const {
     detectSafeUploadMimeType,
     encryptSecret,
     decryptSecret,
-    isStateChangingRequestOriginAllowed,
     assertDestructiveImportAllowed,
     runDatabaseHealthProbe
 } = require("./server.js");
-
-test("public marketing APIs accept the configured www origin without weakening protected writes", () => {
-    const allowedOrigins = new Set(["https://wms365.co", "https://www.wms365.co"]);
-    const shared = {
-        requestHost: "app.wms365.co",
-        publicAppUrl: "https://app.wms365.co",
-        publicSiteUrl: "https://wms365.co",
-        publicApiAllowedOrigins: allowedOrigins
-    };
-    assert.equal(isStateChangingRequestOriginAllowed({
-        ...shared,
-        origin: "https://www.wms365.co",
-        pathName: "/api/site/traffic"
-    }), true);
-    assert.equal(isStateChangingRequestOriginAllowed({
-        ...shared,
-        origin: "https://www.wms365.co",
-        pathName: "/api/portal/orders"
-    }), false);
-    assert.equal(isStateChangingRequestOriginAllowed({
-        ...shared,
-        origin: "https://attacker.example",
-        pathName: "/api/site/traffic"
-    }), false);
-    assert.equal(isStateChangingRequestOriginAllowed({
-        ...shared,
-        origin: "https://app.wms365.co",
-        pathName: "/api/portal/orders"
-    }), true);
-});
 
 function dataUrl(mimeType, buffer) {
     return `data:${mimeType};base64,${Buffer.from(buffer).toString("base64")}`;

@@ -468,7 +468,6 @@ function getGlobalCompany(){return normalize(window.WMS365Mobile?.getCompanyCont
 function setGlobalCompany(company){const normalized=normalize(company);if(window.WMS365Mobile?.setCompanyContext)window.WMS365Mobile.setCompanyContext(normalized);else{try{if(normalized)localStorage.setItem(GLOBAL_COMPANY_KEY,normalized);else localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}return normalized}
 function clearGlobalCompany(){if(window.WMS365Mobile?.clearCompanyContext)window.WMS365Mobile.clearCompanyContext();else{try{localStorage.removeItem(GLOBAL_COMPANY_KEY)}catch{}}}
 function requestedCompany(){return normalize(getSearchParam('accountName')||getSearchParam('account'))}
-function requestedMode(){return normalize(getSearchParam('mode'))}
 function stripCompanyFromUrl(){try{const url=new URL(location.href);url.searchParams.delete('accountName');url.searchParams.delete('account');history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`)}catch{}}
 function provisionalCompany(){return requestedCompany()||getGlobalCompany()}
 function isAndroidShell(){return window.WMS365Mobile?.isAndroidApp?.()||!!window.WMS365Android}
@@ -771,8 +770,7 @@ async function refreshOrdersFromNetwork(q,cacheKey){
 }
 
 function applyOrdersPayload(payload){
-  const allowedStatuses=requestedMode()==='SHIP'?['STAGED']:['RELEASED','PICKING','PICKED','STAGED'];
-  state.orders=(payload.orders||[]).filter(o=>allowedStatuses.includes(String(o.status||'').toUpperCase()));
+  state.orders=(payload.orders||[]).filter(o=>['RELEASED','PICKED','STAGED'].includes(String(o.status||'').toUpperCase()));
   const sel=$('orderSelect');
   state.orders.sort((a,b)=>orderPriority(a)-orderPriority(b)||ageTime(a.createdAt)-ageTime(b.createdAt)||(a.orderCode||'').localeCompare(b.orderCode||''));
   sel.innerHTML='<option value="">Choose order</option>'+state.orders.map(o=>`<option value="${esc(o.id)}">${esc(o.orderCode)} | ${esc(o.status)} | ${esc(o.shippingReference||o.poNumber||'')}</option>`).join('');
@@ -791,16 +789,14 @@ function resumeActivePickFromOrders(){
 function orderPriority(order){
   const status=normalize(order?.status);
   if(status==='RELEASED')return 0;
-  if(status==='PICKING')return 1;
-  if(status==='PICKED')return 2;
-  if(status==='STAGED')return 3;
+  if(status==='PICKED')return 1;
+  if(status==='STAGED')return 2;
   return 9;
 }
 
 function orderAction(order){
   const status=normalize(order?.status);
-  if(status==='RELEASED')return {key:'start-picking',label:'Start Picking'};
-  if(status==='PICKING')return {key:'pick',label:'Continue Picking'};
+  if(status==='RELEASED')return {key:'pick',label:'Pick'};
   if(status==='PICKED')return {key:'stage',label:'Stage'};
   if(status==='STAGED')return {key:'ship',label:'Ship'};
   return {key:'open',label:'Open'};
@@ -848,18 +844,16 @@ function renderPendingOrders(){
   const query=$('orderSearch')?.value||'';
   const visible=state.orders.filter(order=>orderMatchesSearch(order,query));
   const released=state.orders.filter(order=>normalize(order.status)==='RELEASED').length;
-  const picking=state.orders.filter(order=>normalize(order.status)==='PICKING').length;
   const picked=state.orders.filter(order=>normalize(order.status)==='PICKED').length;
   const staged=state.orders.filter(order=>normalize(order.status)==='STAGED').length;
   $('orderCounts').innerHTML=[
     released?`<span class="pill">Pick ${released}</span>`:'',
-    picking?`<span class="pill">Picking ${picking}</span>`:'',
     picked?`<span class="pill">Stage ${picked}</span>`:'',
     staged?`<span class="pill">Ship ${staged}</span>`:''
   ].filter(Boolean).join('');
   list.innerHTML=visible.length
     ? visible.slice(0,12).map(orderRowMarkup).join('')
-    : `<p class="muted">${requestedMode()==='SHIP'?'No staged orders ready to ship for this company.':'No released, picking, picked, or staged orders for this company.'}</p>`;
+    : '<p class="muted">No released, picked, or staged orders for this company.</p>';
 }
 
 function currentPick(){return state.picks[state.index]||null}
@@ -1057,25 +1051,12 @@ function renderPickupProof(){
   $('pickupProofMessage').textContent='Capture signed BOL, checked packing slip, loaded freight photo, and confirm shipped quantities.';
 }
 
-async function startOrder(order){
-  if(!['RELEASED','PICKING','PICKED','STAGED'].includes(normalize(order?.status))){
+function startOrder(order){
+  if(!['RELEASED','PICKED','STAGED'].includes(normalize(order?.status))){
     state.selectedOrder=null;
     $('pickMessage').className='status bad';
     $('pickMessage').textContent='This order is not available for mobile picking.';
     return;
-  }
-  if(normalize(order.status)==='RELEASED'){
-    try{
-      const body=envelopeStatusAction({status:'PICKING'},'MOBILE_PICK_START_PICKING');
-      const response=await requestJson(`/api/admin/portal-orders/${order.id}/status`,{method:'POST',body:JSON.stringify(body)});
-      order=response.order||{...order,status:'PICKING'};
-      state.orders=state.orders.map(candidate=>String(candidate.id)===String(order.id)?order:candidate);
-      renderPendingOrders();
-    }catch(error){
-      $('pickMessage').className='status bad';
-      $('pickMessage').textContent=error.message||'Unable to start picking this order.';
-      return;
-    }
   }
   state.selectedOrder=order;
   setActivePickOrder(order);
@@ -1890,13 +1871,6 @@ $('resetFlowBtn').addEventListener('click',()=>{
 
 (async()=>{
   try{
-    if(requestedMode()==='SHIP'){
-      document.title='WMS365 Shipping';
-      const badge=document.querySelector('.module-badge');
-      if(badge)badge.textContent='Shipping';
-      const subtitle=document.querySelector('.sub');
-      if(subtitle)subtitle.textContent='Shipping';
-    }
     state.requestedOrderId=String(getSearchParam('orderId')||'').trim();
     state.requestedTaskId=String(getSearchParam('taskId')||'').trim();
     await loadBuildLabel();

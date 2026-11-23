@@ -1,5 +1,4 @@
 const { Client } = require("pg");
-const { requireDesignatedTestCompany } = require("./designated-test-company");
 
 async function main() {
     const connectionString = process.env.DATABASE_URL || process.env.DATABASE_PRIVATE_URL;
@@ -7,7 +6,14 @@ async function main() {
     const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
     await client.connect();
     try {
-        const { name: testCompany } = await requireDesignatedTestCompany(client);
+        const testCompanyResult = await client.query(
+            `select name from owner_accounts
+             where upper(name) like '%TEST%COMPANY%' or upper(name) = 'WMS365 TEST COMPANY'
+             order by case when upper(name) = 'WMS365 TEST COMPANY' then 0 else 1 end, name
+             limit 1`
+        );
+        const testCompany = testCompanyResult.rows[0]?.name || "";
+        if (!testCompany) throw new Error("No WMS365 test company is configured.");
         const [warehouseAccess, records, schema, billing] = await Promise.all([
             client.query(
                 `select count(*)::integer as warehouses
