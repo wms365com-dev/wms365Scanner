@@ -40862,6 +40862,12 @@ async function saveBulkInventoryWorksheet(client, accountName, rawRows, appUser 
                 continue;
             }
 
+            const savedRow = row.id ? mapInventoryRow(existingById.get(String(row.id))) : null;
+            if (savedRow && ["location", "sku", "upc", "lotNumber", "expirationDate", "trackingLevel", "quantity"]
+                .every((field) => savedRow[field] === row[field])) {
+                continue;
+            }
+
             await assertLocationCompatibleForOwner(client, normalizedAccount, row.location);
             await upsertLocationMaster(client, row.location);
             await upsertItemMaster(client, {
@@ -47234,6 +47240,7 @@ function delay(ms) {
 }
 
 module.exports = {
+    saveBulkInventoryWorksheet,
     DATABASE_SCHEMA_VERSION,
     DATABASE_SCHEMA_REQUIRED_TABLES,
     DATABASE_SCHEMA_REQUIRED_COLUMNS,

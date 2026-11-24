@@ -13603,6 +13603,7 @@
             ui.addInventoryWorksheetRowBtn?.addEventListener("click", addInventoryWorksheetRow);
             ui.resetInventoryWorksheetBtn?.addEventListener("click", resetInventoryWorksheet);
             ui.saveInventoryWorksheetBtn?.addEventListener("click", saveInventoryWorksheet);
+            ui.inventoryWorksheetBody?.addEventListener("input", onInventoryWorksheetTableChange);
             ui.inventoryWorksheetBody?.addEventListener("change", onInventoryWorksheetTableChange);
             ui.reportFilter.addEventListener("input", debouncedRenderReports);
             ui.reportOwner.addEventListener("input", debouncedRenderReports);
@@ -16213,7 +16214,7 @@
                 }
             });
             registerMobileAutocomplete(ui.adjustLocation, {
-                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.adjustAccount.value, { mode: "source" }),
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, getScopedCompanyValue(ui.adjustAccount.value), { mode: "source" }),
                 onSelect: () => {
                     syncActionItemSelectors();
                     return true;
@@ -16261,7 +16262,7 @@
                 }
             });
             registerMobileAutocomplete(ui.convertFrom, {
-                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.convertAccount.value, { mode: "source" }),
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, getScopedCompanyValue(ui.convertAccount.value), { mode: "source" }),
                 onSelect: () => {
                     if (!norm(ui.convertTo.value) && norm(ui.convertFrom.value)) {
                         ui.convertTo.value = norm(ui.convertFrom.value);
@@ -16271,7 +16272,7 @@
                 }
             });
             registerMobileAutocomplete(ui.convertTo, {
-                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, ui.convertAccount.value, { mode: "destination" }),
+                getSuggestions: (query) => getOwnerScopedLocationSuggestions(query, getScopedCompanyValue(ui.convertAccount.value), { mode: "destination" }),
                 onSelect: () => {
                     syncActionItemSelectors();
                     return true;
@@ -31060,9 +31061,14 @@
         }
 
         function onInventoryWorksheetTableChange(event) {
-            const checkbox = event.target.closest("[data-worksheet-field='remove']");
-            if (!checkbox) return;
-            checkbox.closest("tr")?.classList.toggle("marked-delete", checkbox.checked);
+            const field = event.target.closest("[data-worksheet-field]");
+            const company = getActiveCompany();
+            if (!field || !company) return;
+            if (field.dataset.worksheetField === "remove") {
+                field.closest("tr")?.classList.toggle("marked-delete", field.checked);
+            }
+            inventoryWorksheetDraftCompany = company;
+            inventoryWorksheetDraftRows = collectInventoryWorksheetRows({ includeBlankRows: true });
         }
 
         function renderSummary() {
