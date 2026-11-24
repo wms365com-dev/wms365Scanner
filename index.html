@@ -23936,6 +23936,7 @@
             const modal = document.createElement("div");
             modal.id = "warehouseActionConfirmModal";
             modal.className = "feedback-modal";
+            modal.style.zIndex = "2147483647";
             modal.setAttribute("aria-hidden", "false");
             modal.innerHTML = `
                 <div class="feedback-modal-backdrop" data-action-confirm-cancel></div>
@@ -28207,9 +28208,11 @@
                                 if (shortShippedLines.length > 5) {
                                     warningLines.push(`${shortShippedLines.length - 5} more line${shortShippedLines.length - 5 === 1 ? "" : "s"}`);
                                 }
-                                const confirmed = window.confirm(
-                                    `Shipped quantity is less than ordered:\n\n${warningLines.join("\n")}\n\nMark this order shipped anyway? Inventory will be deducted using the shipped quantities entered.`
-                                );
+                                const confirmed = await confirmWarehouseAction({
+                                    title: "Short shipment",
+                                    message: `Shipped quantity is less than ordered:\n\n${warningLines.join("\n")}\n\nMark this order shipped anyway? Inventory will be deducted using the shipped quantities entered.`,
+                                    confirmLabel: "Continue with short shipment"
+                                });
                                 if (!confirmed) {
                                     showMessage(actionMessageElement, "Shipment was not marked shipped. Review the shipped quantities and try again when ready.", "info");
                                     return;
@@ -28220,9 +28223,11 @@
                                 if (shortShippedLines.length > 5) {
                                     holdLines.push(`${shortShippedLines.length - 5} more line${shortShippedLines.length - 5 === 1 ? "" : "s"}`);
                                 }
-                                moveShortageToInvestigation = window.confirm(
-                                    `Move the shorted quantity to Investigation Hold now?\n\n${holdLines.join("\n")}\n\nOK keeps that stock out of available inventory while the warehouse investigates. Cancel leaves the remaining stock available.`
-                                );
+                                moveShortageToInvestigation = await confirmWarehouseAction({
+                                    title: "Investigation Hold",
+                                    message: `${holdLines.join("\n")}\n\nMove to Hold keeps the shorted stock unavailable during investigation. Cancel leaves it available and continues to the final shipping check.`,
+                                    confirmLabel: "Move to Hold"
+                                });
                             }
                             packingSlipQuantityConfirmed = await confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
                             if (!packingSlipQuantityConfirmed) {

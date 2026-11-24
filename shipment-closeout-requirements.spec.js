@@ -192,6 +192,18 @@ test("warehouse shipment UI preserves editable shipped quantities and short-ship
     assert.match(warehouseUi, /shipmentQuantityWarnings/);
 });
 
+test("shipping confirmations use the warehouse overlay and cancellation stops closeout", () => {
+    const warehouseUi = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+    const flow = warehouseUi.slice(warehouseUi.indexOf('title: "Short shipment"') - 100);
+    const closeout = flow.slice(0, flow.indexOf('status: "SHIPPED"'));
+
+    assert.match(closeout, /await confirmWarehouseAction\(\{\s+title: "Short shipment"/);
+    assert.match(closeout, /if \(!confirmed\) \{[^}]*return;/);
+    assert.match(closeout, /await confirmWarehouseAction\(\{\s+title: "Investigation Hold"/);
+    assert.match(closeout, /if \(!packingSlipQuantityConfirmed\) \{[^}]*return;/);
+    assert.doesNotMatch(closeout, /window\.confirm\(/);
+});
+
 test("shipment inventory deductions combine duplicate allocations on one inventory line", () => {
     const order = {
         id: "101",
