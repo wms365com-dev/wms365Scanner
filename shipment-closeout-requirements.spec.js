@@ -11,6 +11,7 @@ const {
     assertPortalShipmentProofRequirements,
     validatePortalShipmentLineConfirmations,
     buildPortalShipmentQuantityWarnings,
+    buildPortalAllocatedInventoryDeductions,
     splitShipmentTrackingReferences,
     buildCarrierTrackingUrl,
     extractPortalParcelTrackingFromText,
@@ -178,6 +179,64 @@ test("shipment closeout allows lower shipped quantity and records a warning", ()
             message: "SKU-B shipped 1 of 2."
         }
     ]);
+});
+
+test("warehouse shipment UI preserves editable shipped quantities and short-shipment warnings", () => {
+    const warehouseUi = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+
+    assert.match(warehouseUi, /<th>Qty Shipped<\/th>/);
+    assert.match(warehouseUi, /data-portal-ship-line-qty="\$\{attr\(order\.id\)\}"/);
+    assert.match(warehouseUi, /shippedQuantity: Number\(input\.value\)/);
+    assert.match(warehouseUi, /Shipped quantity is less than ordered:/);
+    assert.match(warehouseUi, /Inventory will be deducted using the shipped quantities entered/);
+    assert.match(warehouseUi, /shipmentQuantityWarnings/);
+});
+
+test("shipment inventory deductions combine duplicate allocations on one inventory line", () => {
+    const order = {
+        id: "101",
+        lines: [
+            { id: "11", sku: "SKU-A", quantity: 3 },
+            { id: "12", sku: "SKU-B", quantity: 1 }
+        ]
+    };
+    const shipmentLines = [
+        { orderLineId: "11", sku: "SKU-A", shippedQuantity: 3 },
+        { orderLineId: "12", sku: "SKU-B", shippedQuantity: 1 }
+    ];
+    const allocations = [
+        { id: "1", order_line_id: "11", inventory_line_id: "500", sku: "SKU-A", allocated_quantity: 1 },
+        { id: "2", order_line_id: "11", inventory_line_id: "500", sku: "SKU-A", allocated_quantity: 1 },
+        { id: "3", order_line_id: "11", inventory_line_id: "500", sku: "SKU-A", allocated_quantity: 1 },
+        { id: "4", order_line_id: "12", inventory_line_id: "600", sku: "SKU-B", allocated_quantity: 1 }
+    ];
+
+    const result = buildPortalAllocatedInventoryDeductions(order, shipmentLines, allocations);
+
+    assert.deepEqual(result.deductions.map((entry) => ({
+        inventoryLineId: entry.inventoryLineId,
+        sku: entry.allocation.sku,
+        requiredQuantity: entry.requiredQuantity
+    })), [
+        { inventoryLineId: "500", sku: "SKU-A", requiredQuantity: 3 },
+        { inventoryLineId: "600", sku: "SKU-B", requiredQuantity: 1 }
+    ]);
+    assert.deepEqual([...result.remainingByLineId.entries()], [["11", 0], ["12", 0]]);
+});
+
+test("shipment inventory deductions preserve short-shipped allocation remainder", () => {
+    const order = { id: "101", lines: [{ id: "11", sku: "SKU-A", quantity: 3 }] };
+    const result = buildPortalAllocatedInventoryDeductions(order, [
+        { orderLineId: "11", sku: "SKU-A", shippedQuantity: 2 }
+    ], [
+        { id: "1", order_line_id: "11", inventory_line_id: "500", sku: "SKU-A", allocated_quantity: 1 },
+        { id: "2", order_line_id: "11", inventory_line_id: "500", sku: "SKU-A", allocated_quantity: 1 },
+        { id: "3", order_line_id: "11", inventory_line_id: "500", sku: "SKU-A", allocated_quantity: 1 }
+    ]);
+
+    assert.equal(result.deductions.length, 1);
+    assert.equal(result.deductions[0].requiredQuantity, 2);
+    assert.equal(result.remainingByLineId.get("11"), 0);
 });
 
 test("shipment email highlights short shipped lines", () => {

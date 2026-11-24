@@ -363,6 +363,9 @@ How to use:
 - Desktop section: `shipped`
 - Customer portal section: `orders` shipment history
 - Related touchpoints:
+  - editable actual shipped quantity for every order line during staged-order closeout
+  - explicit short-shipment warning and confirmation before inventory deduction
+  - inventory deduction, shipment email, and audit warning use the confirmed shipped quantity rather than the ordered quantity
   - shipment confirmation
   - carrier and tracking data
   - POD and attachments

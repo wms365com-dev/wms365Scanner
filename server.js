@@ -38257,6 +38257,34 @@ async function movePortalShortPickShortagesToInvestigationHold(client, order, al
     });
 }
 
+function buildPortalAllocatedInventoryDeductions(order, shipmentLines = [], allocations = []) {
+    const shipmentQuantityByLineId = buildPortalShipmentQuantityByLineId(order, shipmentLines);
+    const remainingByLineId = new Map(shipmentQuantityByLineId);
+    const deductionsByInventoryLineId = new Map();
+    for (const allocation of allocations) {
+        const inventoryLineId = allocation.inventory_line_id ? String(allocation.inventory_line_id) : "";
+        const lineId = String(allocation.order_line_id || "");
+        const remainingForLine = remainingByLineId.has(lineId)
+            ? Number(remainingByLineId.get(lineId)) || 0
+            : Number(allocation.allocated_quantity) || 0;
+        const requiredQuantity = Math.min(Number(allocation.allocated_quantity) || 0, Math.max(remainingForLine, 0));
+        remainingByLineId.set(lineId, Math.max(remainingForLine - requiredQuantity, 0));
+        if (!inventoryLineId || requiredQuantity <= 0) continue;
+
+        const existing = deductionsByInventoryLineId.get(inventoryLineId);
+        if (existing) {
+            existing.requiredQuantity += requiredQuantity;
+        } else {
+            deductionsByInventoryLineId.set(inventoryLineId, {
+                inventoryLineId,
+                allocation,
+                requiredQuantity
+            });
+        }
+    }
+    return { deductions: [...deductionsByInventoryLineId.values()], remainingByLineId };
+}
+
 async function consumePortalOrderInventory(client, order, { shipmentLines = [], ...ledgerOptions } = {}) {
     const shipmentQuantityByLineId = buildPortalShipmentQuantityByLineId(order, shipmentLines);
     const orderLineById = new Map((Array.isArray(order?.lines) ? order.lines : []).map((line) => [String(line.id), line]));
@@ -38272,17 +38300,9 @@ async function consumePortalOrderInventory(client, order, { shipmentLines = [], 
     );
 
     if (allocationResult.rowCount > 0) {
-        const remainingByLineId = new Map(shipmentQuantityByLineId);
-        for (const allocation of allocationResult.rows) {
-            const inventoryLineId = allocation.inventory_line_id ? String(allocation.inventory_line_id) : "";
-            const lineId = String(allocation.order_line_id || "");
-            const remainingForLine = remainingByLineId.has(lineId)
-                ? Number(remainingByLineId.get(lineId)) || 0
-                : Number(allocation.allocated_quantity) || 0;
-            const requiredQuantity = Math.min(Number(allocation.allocated_quantity) || 0, Math.max(remainingForLine, 0));
-            remainingByLineId.set(lineId, Math.max(remainingForLine - requiredQuantity, 0));
-            if (!inventoryLineId || requiredQuantity <= 0) continue;
-
+        const { deductions, remainingByLineId } = buildPortalAllocatedInventoryDeductions(order, shipmentLines, allocationResult.rows);
+        for (const deduction of deductions) {
+            const { allocation, inventoryLineId, requiredQuantity } = deduction;
             const inventoryResult = await client.query("select * from inventory_lines where id = $1 limit 1 for update", [inventoryLineId]);
             if (inventoryResult.rowCount !== 1) {
                 throw httpError(
@@ -47507,6 +47527,7 @@ module.exports = {
     filterInventoryRowsForFulfillmentLocationIds,
     filterLocationMasterRowsForAppUser,
     upsertInventoryLine,
+    buildPortalAllocatedInventoryDeductions,
     consumePortalOrderInventory,
     allocatePortalOrderInventory,
     savePortalOrderDraftForAccount,
