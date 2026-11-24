@@ -6,6 +6,32 @@ const source = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const style = source.match(/<style>[\s\S]*?<\/style>/)?.[0] || "";
 const alertMarkup = source.match(/<div class="warehouse-viewport-alert" id="warehouseViewportAlert" hidden>[\s\S]*?<\/section>\s*<\/div>/)?.[0] || "";
 
+test("shipping confirmation is clickable above the warehouse order overlay", async ({ page }) => {
+    const start = source.indexOf("        function confirmWarehouseAction(");
+    const end = source.indexOf("\n        function ", start + 1);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    await page.setContent(`<!doctype html><html><head>${style}</head><body>
+        <main style="position:fixed;inset:0;z-index:4100;background:white"></main>
+        <script>const esc = String;${source.slice(start, end)}</script>
+        </body></html>`);
+
+    for (const [button, expected] of [["Cancel", false], ["Confirm and Mark Shipped", true]]) {
+        await page.evaluate(() => {
+            window.confirmationResult = confirmWarehouseAction({
+                title: "Final shipping check",
+                message: "Check quantities",
+                confirmLabel: "Confirm and Mark Shipped"
+            });
+        });
+        const dialog = page.getByRole("dialog", { name: "Final shipping check" });
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole("button", { name: button, exact: true }).click();
+        expect(await page.evaluate(() => window.confirmationResult)).toBe(expected);
+        await expect(dialog).toHaveCount(0);
+    }
+});
+
 async function renderWarehouseError(page, viewport) {
     await page.setViewportSize(viewport);
     await page.setContent(`<!doctype html><html><head>${style}</head><body>${alertMarkup}<main style="min-height:1600px;background:#fff"></main></body></html>`);
