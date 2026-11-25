@@ -13043,9 +13043,6 @@
             });
             ui.warehouseViewportAlertClose?.addEventListener("click", dismissWarehouseViewportAlert);
             ui.warehouseViewportAlertReview?.addEventListener("click", reviewWarehouseViewportAlertTarget);
-            ui.warehouseViewportAlertPanel?.addEventListener("keydown", (event) => {
-                if (event.key === "Escape") dismissWarehouseViewportAlert();
-            });
             ui.accountSettingsMenu?.addEventListener("toggle", () => {
                 if (ui.accountSettingsMenu.open) {
                     if (ui.desktopCompanySwitcher) ui.desktopCompanySwitcher.open = false;
@@ -13802,6 +13799,11 @@
                     .catch((error) => showMessage(ui.portalOrdersMessage, error.message, "error"));
             });
             window.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && ui.warehouseViewportAlert && !ui.warehouseViewportAlert.hidden) {
+                    event.preventDefault();
+                    dismissWarehouseViewportAlert();
+                    return;
+                }
                 if (event.key === "Escape" && !ui.companySwitcherAddPopout?.classList.contains("hidden")) {
                     closeCompanySwitcherAddPopout();
                     return;

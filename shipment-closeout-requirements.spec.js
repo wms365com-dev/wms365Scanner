@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const {
     APP_USER_ROLES,
@@ -202,6 +203,27 @@ test("shipping confirmations use the warehouse overlay and cancellation stops cl
     assert.match(closeout, /await confirmWarehouseAction\(\{\s+title: "Investigation Hold"/);
     assert.match(closeout, /if \(!packingSlipQuantityConfirmed\) \{[^}]*return;/);
     assert.doesNotMatch(closeout, /window\.confirm\(/);
+});
+
+test("Escape dismisses the visible warehouse error before closing the sales order", () => {
+    const source = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+    const start = source.indexOf('if (event.key === "Escape" && ui.warehouseViewportAlert');
+    const end = source.indexOf('if (event.key === "Escape" && document.body.classList.contains("purchase-order-popout-open"))', start);
+    assert.ok(start >= 0 && end > start);
+    const handle = vm.runInNewContext(`(ui, event, dismissWarehouseViewportAlert, closeSalesOrderDocument, isWarehouseSalesOrderDocumentOpen) => { ${source.slice(start, end)} }`);
+    const hidden = { classList: { contains: () => true } };
+    const alert = { hidden: false };
+    const ui = { warehouseViewportAlert: alert, companySwitcherAddPopout: hidden,
+        dashboardListPopout: hidden, feedbackModal: hidden, warehouseDocumentPreviewModal: hidden };
+    const calls = [];
+    const press = (key) => handle(ui, { key, preventDefault: () => calls.push("prevent") },
+        () => { alert.hidden = true; calls.push("dismiss"); }, () => calls.push("close"), () => true);
+    press("Enter");
+    assert.deepEqual(calls, []);
+    press("Escape");
+    assert.deepEqual(calls, ["prevent", "dismiss"]);
+    press("Escape");
+    assert.deepEqual(calls, ["prevent", "dismiss", "close"]);
 });
 
 test("shipment inventory deductions combine duplicate allocations on one inventory line", () => {
