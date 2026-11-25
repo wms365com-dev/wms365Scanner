@@ -8164,6 +8164,8 @@
                                     <select id="companyFulfillmentLocation"></select>
                                 </label>
                                 <label class="field span-2"><span>Assignment Note</span><input id="companyFulfillmentNote" type="text" placeholder="Optional handling, billing, or routing note" enterkeyhint="done"></label>
+                                <label class="field"><span>Default receiving bin</span><input id="companyDefaultReceivingBin" type="text"></label>
+                                <label class="field"><span>Default pickable bin</span><input id="companyDefaultPickableBin" type="text"></label>
                                 <div class="button-row span-2">
                                     <button class="btn secondary" type="submit">Assign as Primary</button>
                                 </div>
@@ -13302,6 +13304,8 @@
             document.getElementById("masterLocationForm").addEventListener("submit", saveMasterLocation);
             document.getElementById("fulfillmentLocationForm")?.addEventListener("submit", saveFulfillmentLocation);
             document.getElementById("companyFulfillmentForm")?.addEventListener("submit", saveCompanyFulfillmentLocation);
+            ui.companyFulfillmentAccount?.addEventListener("change", loadCompanyFulfillmentBinDefaults);
+            ui.companyFulfillmentLocation?.addEventListener("change", loadCompanyFulfillmentBinDefaults);
             document.getElementById("masterItemForm").addEventListener("submit", saveMasterItem);
             document.getElementById("portalAccessForm").addEventListener("submit", savePortalAccess);
             ui.companySetupForm?.addEventListener("submit", saveCompanySetup);
@@ -24807,6 +24811,8 @@
         }
 
         function getInboundReceivingStageLocation(inbound = {}) {
+            const assignment = getInboundBinAssignment(inbound);
+            if (assignment?.defaultReceivingBin) return assignment.defaultReceivingBin;
             const fulfillmentCode = norm(
                 inbound.fulfillmentLocationCode
                 || inbound.fulfillment_location_code
@@ -24815,6 +24821,24 @@
                 || ""
             );
             return fulfillmentCode ? `${fulfillmentCode}-REC` : "RECEIVING-STAGE";
+        }
+
+        function getInboundBinAssignment(inbound) {
+            return (state.masters.companyFulfillmentLocations || []).find((assignment) =>
+                norm(assignment.accountName) === norm(inbound.accountName)
+                && String(assignment.fulfillmentLocationId) === String(inbound.fulfillmentLocationId)
+            );
+        }
+
+        function getInboundDirectPutawayBins(inbound = {}) {
+            if (!inbound.accountName || !inbound.fulfillmentLocationId) return [];
+            const bins = (state.masters.locations || []).filter((bin) =>
+                norm(bin.accountName) === norm(inbound.accountName)
+                && String(bin.fulfillmentLocationId) === String(inbound.fulfillmentLocationId)
+                && bin.locationType === "STORAGE" && bin.isPickable === true
+            ).map((bin) => bin.code).sort();
+            const preferred = getInboundBinAssignment(inbound)?.defaultPickableBin;
+            return bins.includes(preferred) ? [preferred, ...bins.filter((bin) => bin !== preferred)] : bins;
         }
 
         function normalizeInboundPalletSizeType(value) {
@@ -24975,6 +24999,15 @@
                 </table>
                 <section class="erp-document-process-section">
                     <h3>Receiving Entry</h3>
+                    ${(isSubmitted || isArrived) && getInboundDirectPutawayBins(inbound).length ? `
+                        <label class="field">
+                            <span>Receive and put away</span>
+                            <select data-inbound-direct-putaway>
+                                <option value="">Receive to staging</option>
+                                ${getInboundDirectPutawayBins(inbound).map((bin) => `<option value="${attr(bin)}">${esc(bin)}</option>`).join("")}
+                            </select>
+                        </label>
+                    ` : ""}
                     <p class="meta">Split a SKU across locations or pallets by duplicating its row. Each row records quantity, destination, pallet, size, optional pallet weight, lot, and expiry. Split quantities are added together as the confirmed received quantity.</p>
                     <p class="meta"><strong>Pallet tracking:</strong> use the same pallet name on multiple rows when SKUs share one mixed pallet. Leave pallet blank only for loose freight. Distinct pallet names become the actual pallet count for putaway and billing.</p>
                     <table class="erp-document-process-table">
@@ -25002,6 +25035,10 @@
         function collectWarehouseInboundReceivingPayload(inbound, { validate = true } = {}) {
             const lines = Array.isArray(inbound?.lines) ? inbound.lines : [];
             const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
+            const directBin = validate ? norm(ui.warehouseInboundWorkflowPanel?.querySelector("[data-inbound-direct-putaway]")?.value || "") : "";
+            if (directBin && !getInboundDirectPutawayBins(inbound).includes(directBin)) {
+                return fail(ui.warehouseInboundMessage, "Choose a pickable bin assigned to this company and warehouse.");
+            }
             const rows = ui.warehouseInboundWorkflowPanel
                 ? [...ui.warehouseInboundWorkflowPanel.querySelectorAll("[data-inbound-receive-line]")]
                 : [];
@@ -25036,7 +25073,7 @@
                 const palletWeightInput = row.querySelector("[data-inbound-receive-pallet-weight]");
                 const palletWeightUomInput = row.querySelector("[data-inbound-receive-pallet-weight-uom]");
                 const receivedQuantity = Number.parseInt(String(quantityInput?.value || ""), 10);
-                const receivedLocation = String(locationInput?.value || "").trim();
+                const receivedLocation = directBin || String(locationInput?.value || "").trim();
                 const lotNumber = String(lotInput?.value || "").trim();
                 const expirationDate = String(expirationInput?.value || "").trim();
                 const palletReference = String(palletInput?.value || "").trim();
@@ -25109,7 +25146,10 @@
                 }
             }
 
-            return { receivingLines: payloadLines };
+            if (directBin && !window.confirm(`Confirm all entered stock is physically in ${directBin} and ready to pick.`)) return null;
+            return directBin
+                ? { receivingLines: payloadLines, receivingLocation: directBin, confirmDirectPutaway: true }
+                : { receivingLines: payloadLines, receivingLocation: defaultReceivingLocation };
         }
 
         function buildPortalInboundReceivingDocumentHtml(inbound, receivingPayload = null) {
@@ -28540,6 +28580,16 @@
             }
         }
 
+        function loadCompanyFulfillmentBinDefaults() {
+            const company = norm(ui.companyFulfillmentAccount?.value || getActiveCompany());
+            const warehouse = norm(ui.companyFulfillmentLocation?.value || "");
+            const assignment = (state.masters.companyFulfillmentLocations || []).find((entry) =>
+                norm(entry.accountName) === company && norm(entry.locationCode) === warehouse
+            );
+            document.getElementById("companyDefaultReceivingBin").value = assignment?.defaultReceivingBin || "";
+            document.getElementById("companyDefaultPickableBin").value = assignment?.defaultPickableBin || "";
+        }
+
         async function saveCompanyFulfillmentLocation(event) {
             event.preventDefault();
             const accountName = norm(ui.companyFulfillmentAccount?.value || getActiveCompany());
@@ -28561,7 +28611,9 @@
                             accountName,
                             locationCode,
                             isPrimary: true,
-                            note: ui.companyFulfillmentNote?.value || ""
+                            note: ui.companyFulfillmentNote?.value || "",
+                            defaultReceivingBin: document.getElementById("companyDefaultReceivingBin")?.value || "",
+                            defaultPickableBin: document.getElementById("companyDefaultPickableBin")?.value || ""
                         })
                     });
                     await syncServerState(true);
@@ -29462,6 +29514,7 @@
                 ui.companyFulfillmentLocation.value = primary?.locationCode || getDefaultFulfillmentLocationCode();
             }
             if (ui.companyFulfillmentNote) ui.companyFulfillmentNote.value = primary?.note || "";
+            loadCompanyFulfillmentBinDefaults();
             renderCompanyFulfillmentAssignments();
         }
 
@@ -33050,6 +33103,8 @@
             const fulfillmentLocationId = String(item?.fulfillmentLocationId || item?.fulfillment_location_id || item?.locationId || item?.location_id || "");
             if (!accountName || (!locationCode && !fulfillmentLocationId)) return null;
             return {
+                defaultReceivingBin: norm(item?.defaultReceivingBin || ""),
+                defaultPickableBin: norm(item?.defaultPickableBin || ""),
                 id: String(item?.id || makeId("company-fulfillment")),
                 accountName,
                 fulfillmentLocationId,

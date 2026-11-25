@@ -401,7 +401,7 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
-const DATABASE_SCHEMA_VERSION = "2026-11-21-wms22-shopify-kits";
+const DATABASE_SCHEMA_VERSION = "2026-11-25-company-warehouse-receiving-bins";
 const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "inventory_lines",
     "inventory_transactions",
@@ -9511,6 +9511,7 @@ async function initializeDatabase() {
     `);
     await pool.query("alter table company_fulfillment_locations add column if not exists customer_portal_visible boolean not null default true;");
     await pool.query("alter table company_fulfillment_locations add column if not exists portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null;");
+    await pool.query("alter table company_fulfillment_locations add column if not exists default_receiving_bin text not null default '', add column if not exists default_pickable_bin text not null default '';");
 
     await pool.query(`
         create table if not exists company_partner_accounts (
@@ -35810,7 +35811,7 @@ async function updateWarehousePortalInbound(client, inboundId, accountName, rawI
 
 async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, appUser = null, details = {}) {
     nextStatus = normalizePortalInboundStatus(nextStatus);
-    const inboundResult = await client.query("select * from portal_inbounds where id = $1 limit 1", [inboundId]);
+    const inboundResult = await client.query("select * from portal_inbounds where id = $1 for update", [inboundId]);
     if (inboundResult.rowCount !== 1) {
         throw httpError(404, "That purchase order could not be found.");
     }
@@ -35845,10 +35846,35 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
 
     let storedStatus = nextStatus;
     if (nextStatus === "RECEIVED") {
-        storedStatus = "RECEIVED_PENDING_PUTAWAY";
+        const confirmDirectPutaway = details?.confirmDirectPutaway === true;
+        storedStatus = confirmDirectPutaway ? "PUTAWAY_COMPLETE" : "RECEIVED_PENDING_PUTAWAY";
         const defaultReceivingLocation = getWarehouseReceivingStageLocationCode(currentInbound);
-        await ensureReceivingDestinationLocation(client, details?.receivingLocation || details?.location || defaultReceivingLocation);
         const receivedLines = sanitizePortalInboundReceivingInput(details, currentInbound);
+        if (confirmDirectPutaway) {
+            const location = normalizeText(details?.receivingLocation);
+            if (!location || !receivedLines.length || receivedLines.some((line) => line.receivedLocation !== location)) {
+                throw httpError(400, "Confirm a single pickable location for all received stock.");
+            }
+            const destination = await client.query(
+                `select code from bin_locations
+                 where code = $1 and account_name = $2 and fulfillment_location_id = $3
+                   and is_pickable = true and location_type = 'STORAGE'
+                 for update`,
+                [location, currentInbound.accountName, currentInbound.fulfillmentLocationId]
+            );
+            if (destination.rowCount !== 1) {
+                throw httpError(409, "Direct putaway requires a pickable storage bin assigned to this company and warehouse.");
+            }
+            await assertWarehouseLocationIsolation(client, {
+                accountName: currentInbound.accountName,
+                fulfillmentLocation: currentInbound,
+                location,
+                direction: "INBOUND",
+                purpose: "Direct putaway location"
+            });
+        } else {
+            await ensureReceivingDestinationLocation(client, details?.receivingLocation || details?.location || defaultReceivingLocation);
+        }
         const palletDetailsByReference = new Map();
         for (const line of receivedLines) {
             if (!line.palletReference) continue;
@@ -39196,6 +39222,8 @@ function isReceivingStageLocationCode(code) {
 
 async function ensureReceivingDestinationLocation(client, code = DEFAULT_RECEIVING_STAGE_LOCATION) {
     const normalizedCode = normalizeText(code) || DEFAULT_RECEIVING_STAGE_LOCATION;
+    const existing = await client.query("select location_type, is_pickable from bin_locations where code=$1", [normalizedCode]);
+    if (existing.rows[0]?.location_type === "RECEIVING_STAGE" && existing.rows[0]?.is_pickable === false) return;
     if (isReceivingStageLocationCode(normalizedCode)) {
         await ensureReceivingStageLocation(client, normalizedCode);
         return;
@@ -39511,6 +39539,20 @@ async function upsertCompanyFulfillmentLocation(client, assignmentInput) {
         throw httpError(400, "Choose a saved fulfillment location.");
     }
 
+    for (const [bin, pickable, type] of [
+        [entry.defaultReceivingBin, false, "RECEIVING_STAGE"],
+        [entry.defaultPickableBin, true, "STORAGE"]
+    ]) {
+        if (!bin) continue;
+        const match = await client.query(
+            `select code from bin_locations b where b.code=$1 and b.account_name=$2
+             and b.fulfillment_location_id=$3 and b.is_pickable=$4 and b.location_type=$5
+             and not exists (select 1 from inventory_lines i where i.location=b.code and i.quantity>0 and i.account_name<>$2)`,
+            [bin, entry.accountName, location.id, pickable, type]
+        );
+        if (match.rowCount !== 1) throw httpError(409, "Choose a compatible bin assigned to this company and warehouse.");
+    }
+
     if (entry.isPrimary) {
         await client.query(
             "update company_fulfillment_locations set is_primary = false, updated_at = now() where account_name = $1",
@@ -39522,9 +39564,9 @@ async function upsertCompanyFulfillmentLocation(client, assignmentInput) {
         `
             insert into company_fulfillment_locations (
                 account_name, fulfillment_location_id, is_primary,
-                allow_inbound, allow_outbound, allow_storage, allow_returns, note
+                allow_inbound, allow_outbound, allow_storage, allow_returns, note, default_receiving_bin, default_pickable_bin
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, coalesce($9, ''), coalesce($10, ''))
             on conflict (account_name, fulfillment_location_id)
             do update set
                 is_primary = excluded.is_primary,
@@ -39533,6 +39575,8 @@ async function upsertCompanyFulfillmentLocation(client, assignmentInput) {
                 allow_storage = excluded.allow_storage,
                 allow_returns = excluded.allow_returns,
                 note = excluded.note,
+                default_receiving_bin = coalesce($9, company_fulfillment_locations.default_receiving_bin),
+                default_pickable_bin = coalesce($10, company_fulfillment_locations.default_pickable_bin),
                 updated_at = now()
             returning *
         `,
@@ -39544,7 +39588,9 @@ async function upsertCompanyFulfillmentLocation(client, assignmentInput) {
             entry.allowOutbound,
             entry.allowStorage,
             entry.allowReturns,
-            entry.note
+            entry.note,
+            entry.defaultReceivingBin,
+            entry.defaultPickableBin
         ]
     );
     return mapCompanyFulfillmentLocationRow({
@@ -42318,6 +42364,8 @@ function sanitizeCompanyFulfillmentLocationInput(item) {
         allowOutbound: toBooleanFlag(item?.allowOutbound ?? item?.allow_outbound, true),
         allowStorage: toBooleanFlag(item?.allowStorage ?? item?.allow_storage, true),
         allowReturns: toBooleanFlag(item?.allowReturns ?? item?.allow_returns, true),
+        defaultReceivingBin: item?.defaultReceivingBin == null ? null : normalizeText(item.defaultReceivingBin),
+        defaultPickableBin: item?.defaultPickableBin == null ? null : normalizeText(item.defaultPickableBin),
         note: normalizeFreeText(item?.note),
         createdAt: typeof item?.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         updatedAt: typeof item?.updatedAt === "string" ? item.updatedAt : new Date().toISOString()
@@ -42752,6 +42800,8 @@ function mapCompanyFulfillmentLocationRow(row) {
     return {
         id: String(row.id ?? row.assignment_id ?? ""),
         accountName: row.account_name,
+        defaultReceivingBin: row.default_receiving_bin || "",
+        defaultPickableBin: row.default_pickable_bin || "",
         fulfillmentLocationId: String(row.fulfillment_location_id),
         portalInventoryRollupLocationId: row.portal_inventory_rollup_location_id == null ? "" : String(row.portal_inventory_rollup_location_id),
         locationCode: row.location_code || row.code || "",
