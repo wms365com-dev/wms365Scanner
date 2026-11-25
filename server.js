@@ -7620,7 +7620,7 @@ app.post("/api/admin/portal-orders/:id/status", requireMobileWorkerAction(), asy
 
         const shipmentEmailQueued = nextStatus === "SHIPPED"
             && ["SCHEDULED", "SENDING"].includes(normalizeText(order.shipmentEmailStatus || ""));
-        const storeShipmentConfirmationQueued = nextStatus === "SHIPPED";
+        const storeShipmentConfirmationQueued = nextStatus === "SHIPPED" && !isSandboxExternalSideEffectsDisabled();
         const billingEventsCreated = Array.isArray(order.billingEventsCreated) ? order.billingEventsCreated : [];
         delete order.billingEventsCreated;
         res.json({
@@ -14078,6 +14078,7 @@ async function sendWarehouseBillingActivityEmail(activity = {}) {
 }
 
 function queueWarehouseBillingActivityEmail(activity = {}) {
+    if (isSandboxExternalSideEffectsDisabled()) return;
     setImmediate(() => {
         sendWarehouseBillingActivityEmail(activity).catch((error) => {
             console.error(`Warehouse billing activity email failed for ${activity.sourceRef || activity.activityType || "activity"}:`, error);
@@ -24331,6 +24332,9 @@ async function sendEmailViaSendGrid(mailOptions) {
 }
 
 async function sendSystemEmail(mailOptions, configErrorMessage = "System email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings first.") {
+    if (isSandboxExternalSideEffectsDisabled()) {
+        throw httpError(503, "Outbound email is disabled in sandbox.");
+    }
     const safeMailOptions = normalizeSystemEmailMailOptions(mailOptions);
     assertOutboundEmailSenderAllowed(safeMailOptions);
     const provider = getConfiguredEmailProvider() || (hasSmtpEmailConfig() ? "SMTP" : (EMAIL_PROVIDER || "NOT_CONFIGURED"));
@@ -31715,6 +31719,7 @@ function armPortalShipmentEmailTimer(orderId, scheduledAt) {
 }
 
 async function processScheduledPortalShipmentConfirmationEmail(orderId) {
+    if (isSandboxExternalSideEffectsDisabled()) return;
     const normalizedOrderId = toPositiveInt(orderId);
     if (!normalizedOrderId) return { sent: false, reason: "invalid-order" };
     const lockKey = String(normalizedOrderId);
@@ -31870,6 +31875,7 @@ function ensurePortalOrderShipmentEmailSchedulerStarted() {
 }
 
 async function runDuePortalShipmentConfirmationEmails() {
+    if (isSandboxExternalSideEffectsDisabled()) return;
     if (!databaseReady || portalOrderShipmentEmailSchedulerRunning) {
         return;
     }
@@ -31966,6 +31972,7 @@ async function assertIntegratedStoreShipmentRequirements(client, order, shipment
 }
 
 async function assertPortalShipmentEmailReady(client, order) {
+    if (isSandboxExternalSideEffectsDisabled()) return [];
     if (!hasSystemEmailConfig()) {
         throw httpError(500, "Shipment email is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or SMTP settings before marking an order shipped.");
     }
@@ -31977,6 +31984,7 @@ async function assertPortalShipmentEmailReady(client, order) {
 }
 
 function queueStoreShipmentConfirmation(order, rawConfirmation, { isUpdate = false } = {}) {
+    if (isSandboxExternalSideEffectsDisabled()) return;
     if (!order?.id || !order?.accountName) return;
     const orderLabel = order.orderCode || String(order.id);
 
@@ -32003,6 +32011,7 @@ function queueStoreShipmentConfirmation(order, rawConfirmation, { isUpdate = fal
 }
 
 async function sendStoreShipmentConfirmationsForPortalOrder(order, rawConfirmation = {}, { isUpdate = false } = {}) {
+    if (isSandboxExternalSideEffectsDisabled()) return [];
     const normalizedAccount = normalizeText(order?.accountName);
     const latestOrder = await getPortalOrderById(pool, order?.id, normalizedAccount);
     if (!latestOrder || latestOrder.status !== "SHIPPED") return;
@@ -32255,8 +32264,8 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
                 outbound_labour_hours = $14,
                 outbound_special_labour_note = $15,
                 shipped_at = case when $16::boolean then coalesce(shipped_at, now()) else shipped_at end,
-                shipment_email_status = 'SCHEDULED',
-                shipment_email_scheduled_at = now(),
+                shipment_email_status = case when $17::boolean then 'SKIPPED' else 'SCHEDULED' end,
+                shipment_email_scheduled_at = case when $17::boolean then null else now() end,
                 shipment_email_sent_at = null,
                 shipment_email_last_error = '',
                 shipment_email_attempts = 0,
@@ -32280,7 +32289,8 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             confirmation.outboundFreightCost,
             confirmation.outboundLabourHours,
             confirmation.outboundSpecialLabourNote,
-            transitionToShipped
+            transitionToShipped,
+            isSandboxExternalSideEffectsDisabled()
         ]
     );
 

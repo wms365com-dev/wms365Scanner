@@ -23,6 +23,12 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Active Execution Board
 
+### November 24 short-shipment confirmation retest
+
+- Status: `BLOCKED` for production promotion. Shipping dialog candidate `3642b98cc3a3a4f6ce3bc4472224b3481ef718bc` passed 23 focused tests, the access-control audit, 1,000 deploy tests, and a local Chromium pointer-interaction check against a simulated order overlay.
+- Sandbox deployment `7ab7ca5f-d380-4a67-b7b1-004ef2a066f3` succeeded. Eleven readiness probes between 21:32:05Z and 21:42:07Z stayed healthy with the same startup timestamp. Railway reported no active sandbox warnings or criticals at the end of the soak.
+- No authenticated shipment was submitted. The sandbox flag does not guard the shared mail sender on this candidate, and shipment closeout also queues billing and store notifications. Verify isolated notification delivery or enforce fail-closed suppression before the designated-company workflow, isolation checks, and fresh-database gate. Production was unchanged and remained healthy on `e9a622da-725c-4a0c-a927-f9b2cfc1a239`, the rollback candidate for a subsequent promotion.
+
 This board is the release order. Only one focused repair is promoted at a time; a failed independent retest is reopened and repaired before the next item begins.
 
 ### November 24 shipment quantity closeout integrity
