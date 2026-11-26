@@ -36239,7 +36239,13 @@ async function reallocatePortalOrderToActualPalletLocations(client, order, picke
     if (!allocations.length) {
         throw httpError(409, `Order ${order.orderCode || makePortalOrderCode(orderId)} has no active inventory allocation. Reopen and release the order before marking it picked.`);
     }
-    if (allocations.length !== requestedPallets.length || allocations.some((allocation) => Number(allocation.allocated_quantity) !== 1)) {
+    const requestedLocations = requestedPallets.map((pallet) => normalizeText(pallet.location).toUpperCase());
+    // A bulk bin can hold several already-allocated pallets on one inventory line.
+    const grouped = allocations.length === 1 && requestedPallets.length > 1
+        && Number(allocations[0].allocated_quantity) === requestedPallets.length
+        && normalizeText(allocations[0].inventory_tracking_level).toUpperCase() === "PALLET"
+        && requestedLocations.every((location) => location && location === normalizeText(allocations[0].location).toUpperCase());
+    if (!grouped && (allocations.length !== requestedPallets.length || allocations.some((allocation) => Number(allocation.allocated_quantity) !== 1))) {
         throw httpError(409, "The saved pallet count does not match this order's one-pallet-per-location allocation. Reopen and release the order before recording actual pallet bins.");
     }
 
@@ -36248,7 +36254,6 @@ async function reallocatePortalOrderToActualPalletLocations(client, order, picke
         throw httpError(409, "Actual pallet-bin substitution currently requires one SKU per order. Split the order by SKU or ask a lead to correct the allocations.");
     }
 
-    const requestedLocations = requestedPallets.map((pallet) => normalizeText(pallet.location).toUpperCase());
     const fulfillmentLocation = await resolveFulfillmentLocationForWarehouseRule(client, order);
     for (const location of requestedLocations) {
         await assertWarehouseLocationIsolation(client, {
@@ -36312,6 +36317,7 @@ async function reallocatePortalOrderToActualPalletLocations(client, order, picke
         const location = requestedLocations[index];
         const candidates = rowsByLocation.get(location) || [];
         const validCandidates = candidates.filter((row) => {
+            if (grouped && String(row.id) !== String(allocations[0].inventory_line_id)) return false;
             if (row.bin_is_pickable !== true) return false;
             if (NON_PICKABLE_LOCATION_TYPES.has(normalizeText(row.bin_location_type || "STORAGE"))) return false;
             if (normalizeText(row.bin_account_name) && normalizeText(row.bin_account_name) !== accountName) return false;
@@ -36336,6 +36342,7 @@ async function reallocatePortalOrderToActualPalletLocations(client, order, picke
         targetRows.push(targetRow);
     }
 
+    if (grouped) return [];
     const changedAllocations = [];
     for (let index = 0; index < allocations.length; index += 1) {
         const allocation = allocations[index];
