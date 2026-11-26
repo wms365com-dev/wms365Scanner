@@ -8323,8 +8323,18 @@ app.get("/order-routing-appointment", async (req, res, next) => {
 
 app.post("/api/order-routing-appointment", async (req, res, next) => {
     try {
-        const result = await withTransaction((client) => confirmOrderRoutingAppointment(client, req.body || {}));
-        res.json({ success: true, appointment: result });
+        const { notificationRequestId, ...appointment } = await withTransaction((client) => confirmOrderRoutingAppointment(client, req.body || {}));
+        res.json({ success: true, appointment });
+        if (notificationRequestId && !isSandboxExternalSideEffectsDisabled()) {
+            void sendNutemBookedNotification(pool, notificationRequestId).catch(async () => {
+                console.error("Nutem appointment booked notification failed", { requestId: notificationRequestId });
+                try {
+                    await insertActivity(pool, "email", `Appointment booked notification failed for ${appointment.orderCode}`, "The booking remains confirmed. Check the email delivery log before retrying.");
+                } catch {
+                    console.error("Could not record the Nutem booked notification failure", { requestId: notificationRequestId });
+                }
+            });
+        }
     } catch (error) { next(error); }
 });
 
@@ -23621,7 +23631,53 @@ async function confirmOrderRoutingAppointment(client, input = {}) {
         [row.id, appointmentDate, start, end, responderName, normalizeFreeText(input.note)]);
     if (!result.rowCount) throw httpError(409, "This delivery appointment has already been submitted.");
     await insertActivity(client, "order", `Delivery appointment confirmed for ${row.order_code}`, `${row.account_name} | ${appointmentDate} ${start}-${end} | ${responderName}`);
-    return { orderCode: row.order_code, appointmentDate, windowStart: start, windowEnd: end, responderName };
+    return { orderCode: row.order_code, appointmentDate, windowStart: start, windowEnd: end, responderName,
+        notificationRequestId: isAlconaNutemAppointment(row) ? row.id : null };
+}
+
+function isAlconaNutemAppointment(row) {
+    return normalizeText(row?.account_name) === "ALCONA TRADING LTD"
+        && normalizeText(row?.ship_to_name) === "NUTEM CUSTOM MANUFACTURING"
+        && /^1105 CLAY (?:AVE|AVENUE)\.?$/.test(normalizeText(row?.ship_to_address1))
+        && normalizeText(row?.ship_to_postal_code).replace(/\s+/g, "") === "L7L0A1";
+}
+
+function buildNutemBookedNotification(row) {
+    if (!isAlconaNutemAppointment(row) || row.status !== "CONFIRMED" || !row.po_number || !row.order_code) return null;
+    const to = normalizeEmailList(row.to_addresses);
+    const cc = normalizeEmailList(row.cc_addresses).filter((email) => !to.includes(email));
+    if (!to.length || !to.includes(normalizeEmail(row.recipient_email))) return null;
+    const date = normalizeDateOnly(row.appointment_date);
+    const start = String(row.window_start || "").slice(0, 5);
+    const end = String(row.window_end || "").slice(0, 5);
+    if (!date || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end) || start >= end) return null;
+    return {
+        to,
+        cc,
+        subject: `Appointment booked - PO ${row.po_number} - ${row.order_code} - ${date} ${start}-${end} ET`,
+        text: `Nutem has booked the delivery appointment.\n\nPO: ${row.po_number}\nWMS order: ${row.order_code}\nBooked date: ${date}\nDelivery window: ${start} to ${end} Eastern time`,
+        deliveryKey: `order-routing-booked:${row.id}`,
+        emailContext: { accountName: row.account_name, sourceType: "ORDER_ROUTING_BOOKED", sourceRef: row.order_code }
+    };
+}
+
+async function sendNutemBookedNotification(client, requestId, send = sendSystemEmail) {
+    if (isSandboxExternalSideEffectsDisabled()) return { skipped: true };
+    const result = await client.query(
+        `select r.id, r.status, r.recipient_email, r.appointment_date::text, r.window_start, r.window_end,
+                o.account_name, o.order_code, o.po_number, o.ship_to_name, o.ship_to_address1, o.ship_to_postal_code,
+                e.to_addresses, e.cc_addresses
+         from order_routing_requests r join portal_orders o on o.id=r.order_id
+         join email_delivery_log e on e.delivery_key=concat('order-routing:', o.id)
+           and e.account_name=o.account_name and e.source_type='ORDER_ROUTING'
+           and e.source_ref=o.order_code and e.status='SENT'
+           and (e.metadata->>'routingRequestId' is null or e.metadata->>'routingRequestId'=r.id::text)
+         where r.id=$1`,
+        [requestId]
+    );
+    const message = result.rowCount === 1 ? buildNutemBookedNotification(result.rows[0]) : null;
+    if (!message) throw new Error("The original appointment request could not be verified.");
+    return send(message);
 }
 
 function renderOrderRoutingAppointmentPage(request, token = "", errorMessage = "") {
@@ -47303,6 +47359,8 @@ function delay(ms) {
 }
 
 module.exports = {
+    buildNutemBookedNotification,
+    sendNutemBookedNotification,
     saveBulkInventoryWorksheet,
     DATABASE_SCHEMA_VERSION,
     DATABASE_SCHEMA_REQUIRED_TABLES,
