@@ -23,6 +23,13 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Active Execution Board
 
+### Same-bin bulk pallet picks
+
+- Candidate `fbe13c043bee11cce499a8f8fd14fdd9338623e7` accepts one grouped pallet allocation only when every reported pallet is from that exact allocated bin. Pickability, company and warehouse scope, inventory identity, and available quantity remain enforced.
+- Local evidence: 8 focused tests, 12 access-control checks across 292 routes, and 1,018 deployment-suite tests passed.
+- Sandbox deployment `3d74cfcf-1165-484d-a733-e118428562b0` reached SUCCESS. Isolated Postgres-XihR fresh boot passed all seven schema controls. A rollback-only fixture in designated company 1510 accepted four pallets from one bin without an allocation rewrite; wrong count, different bin, cross-warehouse substitution and non-pickable stock were rejected. The existing single-pallet substitution also passed.
+- Remaining gates: authenticated staging workflow, 10-minute healthy soak, and resolution of the production Postgres warning. Named production rollback: `beef8ba`, deployment `b2e4cb76-4685-4db5-9b25-8e0b33dba176`. No production promotion, order staging, shipping, or BOL resend was performed.
+
 ### Freight packing slip waiver
 
 - Candidate `078bf68709fc241ddd2f12a00693da1dde285d58` requires super-admin approval, signed BOL and load photo; it records the waiver without accepting a simultaneous packing-slip confirmation or general proof override. All 25 focused checks, access audit and 1,017 local deploy checks passed.
