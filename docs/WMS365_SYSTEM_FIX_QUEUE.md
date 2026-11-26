@@ -23,6 +23,15 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Active Execution Board
 
+### November 25 company warehouse bin defaults and direct receiving
+
+- Final sandbox shipping retest on `fdb6240`: restricted warehouse user edited Qty Shipped to 1 of 2 in the real browser, Cancel preserved STAGED, and confirmation returned SHIPPED with the short-quantity warning, 1 pickable unit remaining, and email `SKIPPED`. Audit-preserving cleanup reversed the fixture stock and disabled the test login. The browser also separately passed Escape dismissal after a simulated rejection. Named production rollback: `e9a622da-725c-4a0c-a927-f9b2cfc1a239` (`0f5ef98`).
+
+- Follow-up: the authenticated warehouse worker completed the real receiving screen on the exact sandbox candidate, received 3 of 5, and reached `PUTAWAY_COMPLETE` with exactly 3 pickable units. The corrected cleanup verifier exited successfully: zero remaining test stock, zero sessions, a disabled test user, two retained task-history entries, one compensating ledger entry, and no billing event. The earlier failed harness fixture was also retired with a verified stock reversal and disabled login. Full browser shipment closeout for the shipping changes bundled in this candidate remains unverified.
+
+- Status: `BLOCKED` for promotion. Candidate `fdb62406e5cc95ed13d2f202c5d94b5f38dc2dc0` passed 1,009 local deploy tests and deployed to sandbox as `3f559a42-acd0-4629-bcfb-ab87845f746f`. Fresh-schema and authenticated tenant/warehouse scope passed. Eleven readiness samples from 20:02:18Z to 20:12:19Z returned ready without restart.
+- The rollback-only worker-role server test posted 3 of 5 to pickable stock, reached `PUTAWAY_COMPLETE`, and rejected a wrong-warehouse bin. The authenticated browser test using an intercepted receipt showed only eligible bin choices and posted the entered quantity of 3. The real browser run selected a hidden duplicate Open control and stopped before submission. Cleanup hit the append-only task-history guard; the sandbox fixture user's sessions were revoked, the user disabled, and the fixture confirmed `ARRIVED` and unreceived. No task-history guard was bypassed. A complete authenticated receipt and safe fixture disposition still need verification before promotion. Production remains unchanged, including the Pure Foods bin default.
+
 ### November 24 short-shipment confirmation retest
 
 - Follow-up candidate `d532dcb` deployed only to sandbox as `47acb8f5-c8cc-4cb9-9d15-a2458d60fe6a`. Local deploy checks passed 1,006 tests. Fresh schema and authenticated tenant/warehouse isolation passed. The designated-company rollback-only test shipped 1 of 2, reduced stock from 12 to 11, recorded the shortage warning, and marked shipment email `SKIPPED`. Authenticated browser clicks exercised the final confirmation dialog without submitting a shipment. Eleven readiness probes from 02:20:23Z to 02:30:26Z on November 25 passed with no restart or runtime warning. Production promotion remains blocked pending complete staged-order browser and inventory worksheet/picker retests; production health remains ready.
