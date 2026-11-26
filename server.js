@@ -401,7 +401,7 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
-const DATABASE_SCHEMA_VERSION = "2026-11-25-company-warehouse-receiving-bins-v2";
+const DATABASE_SCHEMA_VERSION = "2026-11-26-inbound-receiving-draft-v1";
 const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "inventory_lines",
     "inventory_transactions",
@@ -443,6 +443,7 @@ const DATABASE_SCHEMA_REQUIRED_COLUMNS = Object.freeze([
     ["company_fulfillment_locations", "portal_inventory_rollup_location_id"],
     ["company_fulfillment_locations", "default_receiving_bin"],
     ["company_fulfillment_locations", "default_pickable_bin"],
+    ["portal_inbounds", "receiving_draft"],
     ["portal_orders", "shipment_method"],
     ["portal_orders", "planned_carrier_name"],
     ["portal_orders", "planned_service_level"],
@@ -5986,6 +5987,13 @@ app.put("/api/admin/portal-inbounds/:id", async (req, res, next) => {
             }
             await assertAppUserCompanyAccess(client, req.appUser, currentInbound.accountName);
             await assertCompanyFeatureEnabled(client, currentInbound.accountName, COMPANY_FEATURE_KEYS.INBOUND_NOTICES);
+            if (req.body?.receivingDraft) {
+                await assertAssignedMobileTaskForWorker(client, req, {
+                    sourceType: "PORTAL_INBOUND", sourceId: inboundId,
+                    taskTypes: ["RECEIVING", "PUT_AWAY"], permission: RBAC_PERMISSIONS.INBOUND_STATUS_UPDATE
+                });
+                return saveWarehouseReceivingDraft(client, inboundId, accountName, currentInbound, req.body.receivingDraft, req.appUser);
+            }
             return updateWarehousePortalInbound(client, inboundId, accountName, req.body, req.appUser);
         });
         res.json({ success: true, inbound });
@@ -9058,6 +9066,7 @@ async function applyPendingAdditiveMigrations(databasePool = pool) {
     await databasePool.query("alter table company_fulfillment_locations add column if not exists default_receiving_bin text not null default '', add column if not exists default_pickable_bin text not null default ''");
     await databasePool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
     await databasePool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
+    await databasePool.query("alter table if exists portal_inbounds add column if not exists receiving_draft jsonb");
     await databasePool.query(`
         create table if not exists item_kit_components (
             id bigserial primary key,
@@ -10461,6 +10470,7 @@ async function initializeDatabase() {
         );
     `);
     await pool.query("create index if not exists idx_portal_inbound_followups_status on portal_inbound_followup_notifications (status, updated_at)");
+    await pool.query("alter table portal_inbounds add column if not exists receiving_draft jsonb");
 
     await pool.query(`
         create table if not exists portal_inbound_lines (
@@ -35376,7 +35386,7 @@ async function transitionPortalInboundCorrectionStatus(client, accountName, inbo
         if (evidence.has_appointment) throw httpError(409, "Cancel the active delivery appointment before returning this purchase order to draft.");
     }
     const correctionReason = normalizeFreeText(reason || "");
-    await client.query(`update portal_inbounds set status=$2,
+    await client.query(`update portal_inbounds set status=$2, receiving_draft=null,
         submitted_at=case when $2='SUBMITTED' then coalesce(submitted_at,now()) else submitted_at end,
         cancelled_at=case when $2='CANCELLED' then now() else null end,
         correction_reason=case when $2='DRAFT' then $3 else correction_reason end,
@@ -35792,6 +35802,42 @@ async function saveWarehousePortalInbound(client, accountName, rawInbound, appUs
     });
 }
 
+async function saveWarehouseReceivingDraft(client, inboundId, accountName, inbound, draft, appUser) {
+    if (normalizeText(inbound.accountName) !== accountName) throw httpError(400, "Purchase order company cannot be changed.");
+    await assertAppUserFulfillmentLocationAccess(client, appUser, inbound.fulfillmentLocationId);
+    if (!Array.isArray(draft.receivingLines) || !draft.receivingLines.length) throw httpError(400, "Enter receiving lines before saving.");
+    const receivingLines = sanitizePortalInboundReceivingInput(draft, inbound).map((line) => ({
+        id: line.id, receivedQuantity: line.receivedQuantity, receivedLocation: line.receivedLocation,
+        lotNumber: line.lotNumber, expirationDate: line.expirationDate, palletReference: line.palletReference,
+        palletSizeType: line.palletSizeType, palletWeight: line.palletWeight, palletWeightUom: line.palletWeightUom
+    }));
+    const directBin = normalizeText(draft.directBin);
+    for (const location of new Set(receivingLines.map((line) => line.receivedLocation))) {
+        await assertWarehouseLocationIsolation(client, { accountName, fulfillmentLocation: inbound, location, direction: "INBOUND", purpose: "Receiving location" });
+        const conflict = await client.query(
+            `select 1 from inventory_lines where location=$1 and account_name<>$2
+             union all select 1 from bin_locations where code=$1 and account_name not in ('',$2) limit 1`,
+            [location, accountName]
+        );
+        if (conflict.rowCount) throw httpError(409, `BIN ${location} is in use by another company.`);
+    }
+    if (directBin) {
+        const eligible = await client.query(
+            "select 1 from bin_locations where code=$1 and account_name=$2 and fulfillment_location_id=$3 and is_pickable and location_type='STORAGE'",
+            [directBin, accountName, inbound.fulfillmentLocationId]
+        );
+        if (eligible.rowCount !== 1 || receivingLines.some((line) => line.receivedLocation !== directBin)) {
+            throw httpError(409, "Choose a pickable bin assigned to this company and warehouse.");
+        }
+    }
+    const saved = await client.query(
+        "update portal_inbounds set receiving_draft=$2::jsonb, updated_at=now() where id=$1 and status in ('SUBMITTED','ARRIVED')",
+        [inboundId, JSON.stringify({ directBin, receivingLines })]
+    );
+    if (saved.rowCount !== 1) throw httpError(409, "This purchase order is no longer open for receiving.");
+    return getPortalInboundById(client, inboundId);
+}
+
 async function updateWarehousePortalInbound(client, inboundId, accountName, rawInbound, appUser = null) {
     const normalizedAccount = normalizeText(accountName);
     const currentInbound = await getPortalInboundById(client, inboundId);
@@ -36028,6 +36074,7 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
             update portal_inbounds
             set
                 status = $2,
+                receiving_draft = case when $2 = 'ARRIVED' then receiving_draft else null end,
                 arrived_at = case when $2 in ('ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE') then coalesce(arrived_at, now()) else arrived_at end,
                 arrived_by = case when $2 in ('ARRIVED', 'RECEIVED', 'RECEIVED_PENDING_PUTAWAY', 'PARTIALLY_PUTAWAY', 'PUTAWAY_COMPLETE') and btrim(coalesce(arrived_by, '')) = '' then $3 else arrived_by end,
                 arrival_note = case when $2 = 'ARRIVED' and btrim($4) <> '' then $4 else arrival_note end,
@@ -43798,6 +43845,8 @@ function mapPortalInboundRow(row, lines = [], documents = [], downloadPathPrefix
         documents: documents.map((document) => mapPortalInboundDocumentRow(document, downloadPathPrefix)),
         palletLabels: mappedPalletLabels,
         receiptAllocations: mappedReceiptAllocations,
+        ...(downloadPathPrefix === "/api/admin/portal-inbound-documents" && ["SUBMITTED", "ARRIVED"].includes(row.status)
+            ? { receivingDraft: row.receiving_draft || null } : {}),
         receiptPalletSummary: {
             totalPallets: new Set(mappedReceiptAllocations.map((entry) => normalizeText(entry.palletReference)).filter(Boolean)).size,
             standardPallets: new Set(mappedReceiptAllocations.filter((entry) => entry.palletReference && entry.palletSizeType === PORTAL_PALLET_SIZE_TYPES.STANDARD_40_48_55).map((entry) => normalizeText(entry.palletReference))).size,

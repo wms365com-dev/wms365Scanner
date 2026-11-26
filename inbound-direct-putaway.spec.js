@@ -66,6 +66,35 @@ test("receiving checks the actual allocation bins, not an unused shared fallback
     assert.deepEqual(prepared, ["TEST-BULK"]);
 });
 
+test("warehouse receiving draft persists the selected bin without posting inventory", async () => {
+    const start = server.indexOf("async function saveWarehouseReceivingDraft(");
+    const end = server.indexOf("async function updateWarehousePortalInbound(", start);
+    const save = vm.runInNewContext(server.slice(start, end) + "saveWarehouseReceivingDraft", {
+        normalizeText: String,
+        assertAppUserFulfillmentLocationAccess: async () => {},
+        assertWarehouseLocationIsolation: async () => {},
+        sanitizePortalInboundReceivingInput: (draft) => draft.receivingLines,
+        getPortalInboundById: async () => ({ status: "ARRIVED" }),
+        httpError: (_status, message) => new Error(message)
+    });
+    const writes = [];
+    let conflict = false;
+    const client = { query: async (sql, params) => {
+        if (sql.includes("union all")) return { rowCount: conflict ? 1 : 0 };
+        if (sql.startsWith("update")) writes.push([sql, JSON.parse(params[1])]);
+        return { rowCount: 1 };
+    } };
+    const inbound = { accountName: "TEST", fulfillmentLocationId: 1 };
+    const draft = { directBin: "TEST-BULK", receivingLines: [{ id: 1, receivedLocation: "TEST-BULK", receivedQuantity: 3 }] };
+    assert.equal((await save(client, 1, "TEST", inbound, draft)).status, "ARRIVED");
+    assert.match(writes[0][0], /^update portal_inbounds set receiving_draft/);
+    assert.deepEqual(writes[0][1], draft);
+    conflict = true;
+    await assert.rejects(save(client, 1, "TEST", inbound, draft), /another company/);
+    assert.equal(writes.length, 1);
+    assert.match(ui, /bin === inbound\.receivingDraft\?\.directBin \? "selected"/);
+});
+
 test("rolling upgrade adds receiving defaults before an existing schema is ready", async () => {
     const binFields = new Set(["default_receiving_bin", "default_pickable_bin"]);
     const installed = new Set();

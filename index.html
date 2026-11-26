@@ -24892,7 +24892,9 @@
                 </tr>
             `).join("");
             const receivingRows = inbound.lines.flatMap((line) => {
-                const savedAllocations = Array.isArray(line.receiptAllocations) && line.receiptAllocations.length
+                const draftAllocations = (inbound.receivingDraft?.receivingLines || []).filter((entry) => String(entry.id) === String(line.id))
+                    .map((entry) => ({ ...entry, quantity: entry.receivedQuantity, location: entry.receivedLocation }));
+                const savedAllocations = draftAllocations.length ? draftAllocations : Array.isArray(line.receiptAllocations) && line.receiptAllocations.length
                     ? line.receiptAllocations
                     : [{
                         quantity: line.receivedQuantity || line.quantity || 1,
@@ -25004,7 +25006,7 @@
                             <span>Receive and put away</span>
                             <select data-inbound-direct-putaway>
                                 <option value="">Receive to staging</option>
-                                ${getInboundDirectPutawayBins(inbound).map((bin) => `<option value="${attr(bin)}">${esc(bin)}</option>`).join("")}
+                                ${getInboundDirectPutawayBins(inbound).map((bin) => `<option value="${attr(bin)}" ${bin === inbound.receivingDraft?.directBin ? "selected" : ""}>${esc(bin)}</option>`).join("")}
                             </select>
                         </label>
                     ` : ""}
@@ -25032,7 +25034,7 @@
             `;
         }
 
-        function collectWarehouseInboundReceivingPayload(inbound, { validate = true } = {}) {
+        function collectWarehouseInboundReceivingPayload(inbound, { validate = true, draft = false } = {}) {
             const lines = Array.isArray(inbound?.lines) ? inbound.lines : [];
             const defaultReceivingLocation = getInboundReceivingStageLocation(inbound);
             const directBin = validate ? norm(ui.warehouseInboundWorkflowPanel?.querySelector("[data-inbound-direct-putaway]")?.value || "") : "";
@@ -25045,6 +25047,7 @@
             const payloadLines = [];
 
             if (!rows.length) {
+                if (draft) return fail(ui.warehouseInboundMessage, "Open the receiving entry before saving.");
                 return {
                     receivingLines: lines.flatMap((line) => (Array.isArray(line.receiptAllocations) && line.receiptAllocations.length ? line.receiptAllocations : [{}]).map((allocation) => ({
                         id: line.id || "",
@@ -25146,6 +25149,7 @@
                 }
             }
 
+            if (draft) return { receivingLines: payloadLines, receivingLocation: directBin || defaultReceivingLocation, directBin };
             if (directBin && !window.confirm(`Confirm all entered stock is physically in ${directBin} and ready to pick.`)) return null;
             return directBin
                 ? { receivingLines: payloadLines, receivingLocation: directBin, confirmDirectPutaway: true }
@@ -25446,7 +25450,12 @@
                     messageElement: ui.warehouseInboundMessage,
                     progressMessage: `Submitting purchase order for ${company}...`
                 }, async () => {
-                    const payload = validateWarehouseInboundPayload(collectWarehouseInboundPayload());
+                    const inbound = getPortalInboundRecordById(editingWarehouseInboundId);
+                    const receiving = ["SUBMITTED", "ARRIVED"].includes(inbound?.status);
+                    const receivingDraft = receiving ? collectWarehouseInboundReceivingPayload(inbound, { draft: true }) : null;
+                    const payload = receiving
+                        ? (receivingDraft && { accountName: inbound.accountName, receivingDraft })
+                        : validateWarehouseInboundPayload(collectWarehouseInboundPayload());
                     if (!payload) return null;
                     const wasEditing = !!editingWarehouseInboundId;
                     const response = await requestJson(editingWarehouseInboundId ? `/api/admin/portal-inbounds/${editingWarehouseInboundId}` : "/api/admin/portal-inbounds", {
@@ -33407,6 +33416,7 @@
                 inboundCode: String(item.inboundCode || item.inbound_code || "").trim(),
                 accountName,
                 status: String(item.status || "SUBMITTED").trim().toUpperCase(),
+                    receivingDraft: Array.isArray(item.receivingDraft?.receivingLines) ? item.receivingDraft : null,
                 referenceNumber: String(item.referenceNumber || item.reference_number || item.poNumber || "").trim(),
                 carrierName: String(item.carrierName || item.carrier_name || "").trim(),
                 fulfillmentLocationId: String(item.fulfillmentLocationId || item.fulfillment_location_id || "").trim(),

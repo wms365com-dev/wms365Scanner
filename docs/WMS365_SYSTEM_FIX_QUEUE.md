@@ -23,6 +23,13 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Active Execution Board
 
+### Receiving destination override (#22)
+
+- `FIXED - NEEDS RETEST`: candidate `ebf31824991270c2961b16d10c5889f888fdd0ec` stops preparing the unused header fallback bin when the receipt allocations specify another destination. Each actual destination still goes through warehouse and company isolation before stock is posted. Direct putaway still requires explicit confirmation and a company-owned pickable bin.
+- Seven focused tests, 12 access-control checks, and 1,014 deployment checks passed. Railway config plans had zero destructive changes and were not applied. Sandbox deployment `aefe9eb5-4b25-4b70-9bad-df9f42b15319` succeeded; health and all seven isolated fresh-schema checks passed with external effects disabled.
+- Restricted warehouse-user API retest passed inside the pinned sandbox on the exact candidate: a dedicated bin saved 3 of 5 units and moved the receipt to `RECEIVED_PENDING_PUTAWAY`; the shared bin returned HTTP 409 and left it `ARRIVED`. The disposable verification schema was removed. The adjacent authenticated task and inbound scope verifier also passed, including cross-company HTTP 403 and wrong-warehouse exclusion.
+- `BLOCKED` for promotion: review of the actual desktop Save Purchase Order path found that it still excludes the Receiving Entry fields and resets the form after saving. Posting with Mark Received passes, but saving first can still lose the selected bin. The ten-minute soak was stopped after finding this gap. Production was not changed; deployment `d5956d54-94d7-405b-ad9e-d4175bdaf800` remains the rollback candidate.
+
 ### November 25 company warehouse bin defaults and direct receiving
 
 - Final status: `VERIFIED`. Corrected commit `d0ea446600dd94eb8f219c5c73de49b9ff4844b3` passed 1,010 local deploy tests. Sandbox deployment `0983da79-db3b-4d10-807a-5e7a8f3e95dc` passed fresh boot, missing-column legacy rejection and additive upgrade, authenticated company/warehouse isolation, actual worker direct receiving (3 of 5), actual short shipment (1 of 2; Cancel preserved STAGED), and audit-preserving fixture retirement. Eleven probes from 01:04:46Z through 01:14:48Z on November 26 remained ready without restart or warning. Exact production deployment `3f8c5f8c-27a8-4687-a58d-7121a06b15ab` succeeded, with live health and both physical columns independently verified. Named rollback: `a1494fd4-e426-4fc8-a829-4b69b0df3090`. The Pure Foods pickable default at GW3PL-MISS was saved and verified. No production test shipment or receipt was posted.
