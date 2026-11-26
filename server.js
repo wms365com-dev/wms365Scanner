@@ -35907,7 +35907,6 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
     if (nextStatus === "RECEIVED") {
         const confirmDirectPutaway = details?.confirmDirectPutaway === true;
         storedStatus = confirmDirectPutaway ? "PUTAWAY_COMPLETE" : "RECEIVED_PENDING_PUTAWAY";
-        const defaultReceivingLocation = getWarehouseReceivingStageLocationCode(currentInbound);
         const receivedLines = sanitizePortalInboundReceivingInput(details, currentInbound);
         if (confirmDirectPutaway) {
             const location = normalizeText(details?.receivingLocation);
@@ -35931,8 +35930,6 @@ async function updateAdminPortalInboundStatus(client, inboundId, nextStatus, app
                 direction: "INBOUND",
                 purpose: "Direct putaway location"
             });
-        } else {
-            await ensureReceivingDestinationLocation(client, details?.receivingLocation || details?.location || defaultReceivingLocation);
         }
         const palletDetailsByReference = new Map();
         for (const line of receivedLines) {

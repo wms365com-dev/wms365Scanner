@@ -34,6 +34,38 @@ test("posting direct putaway requires explicit confirmation and a locked compati
     assert.match(server, /where code = \$1 and account_name = \$2 and fulfillment_location_id = \$3\s+and is_pickable = true and location_type = 'STORAGE'\s+for update/);
 });
 
+test("receiving checks the actual allocation bins, not an unused shared fallback", async () => {
+    const start = server.indexOf('    if (nextStatus === "RECEIVED") {', server.indexOf('let storedStatus = nextStatus;'));
+    const prepare = 'await ensureReceivingDestinationLocation(client, line.receivedLocation);';
+    const end = server.indexOf(prepare, start) + prepare.length;
+    assert.ok(start >= 0 && end > start);
+    const checked = [];
+    const prepared = [];
+    const receive = vm.runInNewContext(`(async () => {
+        const nextStatus = "RECEIVED", details = { receivingLocation: "SHARED-REC" };
+        const currentInbound = { accountName: "TEST" }, inboundId = 1;
+        let storedStatus;
+        ${server.slice(start, end)}
+        }
+        }
+    })`, {
+        client: { query: async () => {} },
+        sanitizePortalInboundReceivingInput: () => [{ receivedLocation: destination }],
+        assertWarehouseLocationIsolation: async (_client, { location }) => {
+            checked.push(location);
+            if (location === "SHARED-REC") throw new Error("Bin belongs to another company");
+        },
+        ensureReceivingDestinationLocation: async (_client, location) => prepared.push(location)
+    });
+    let destination = "TEST-BULK";
+    await receive();
+    assert.deepEqual(checked, ["TEST-BULK"]);
+    assert.deepEqual(prepared, ["TEST-BULK"]);
+    destination = "SHARED-REC";
+    await assert.rejects(receive(), /another company/);
+    assert.deepEqual(prepared, ["TEST-BULK"]);
+});
+
 test("rolling upgrade adds receiving defaults before an existing schema is ready", async () => {
     const binFields = new Set(["default_receiving_bin", "default_pickable_bin"]);
     const installed = new Set();
