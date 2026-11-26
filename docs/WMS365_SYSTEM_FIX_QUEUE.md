@@ -23,6 +23,12 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Active Execution Board
 
+### Save and reopen warehouse receiving entries (#22)
+
+- Candidate `c29bd23e6c68f44f43f1c526c80f19b7b92784aa` saves unposted receiving entries without changing PO quantities or inventory. The warehouse list restores the entry, and the customer portal does not expose it. Posting revalidates the actual destination.
+- All 1,015 local deploy checks and the access-control audit passed. The exact sandbox deployment `f2b78985-417b-4a8c-aef0-8ef95731c76d` passed fresh boot, authenticated scope, and the restricted-worker API workflow: save, reopen, post 3 of 5 to pickable stock, and reject the shared bin on both save and receipt. The disposable verification schema was removed. Twelve ready probes from 03:33:47Z through 03:44:00Z shared the same startup timestamp, without Railway warnings or restarts.
+- `BLOCKED`: production candidate deployment `186cee06-4a77-4632-a17a-60c3d5c9e01a` hit repeated PostgreSQL lock timeouts (`55P03`) in an existing `company_fulfillment_locations` additive DDL statement before the receiving draft migration. Known-good deployment `d5956d54-94d7-405b-ad9e-d4175bdaf800` continued serving healthy production traffic. Do not restart PostgreSQL or retry the candidate blindly; make the upgrade skip already-applied DDL and verify on an existing populated schema before another promotion.
+
 ### Receiving destination override (#22)
 
 - `FIXED - NEEDS RETEST`: candidate `ebf31824991270c2961b16d10c5889f888fdd0ec` stops preparing the unused header fallback bin when the receipt allocations specify another destination. Each actual destination still goes through warehouse and company isolation before stock is posted. Direct putaway still requires explicit confirmation and a company-owned pickable bin.
