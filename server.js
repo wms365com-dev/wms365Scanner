@@ -5089,7 +5089,7 @@ app.get("/api/admin/portal-inbounds", async (req, res, next) => {
             await assertAppUserFulfillmentLocationAccess(pool, req.appUser, requestedLocationId);
         }
         const inbounds = requestedAccount
-            ? await getPortalInboundsForAccount(requestedAccount)
+            ? await getPortalInboundsForAccount(requestedAccount, pool, "/api/admin/portal-inbound-documents")
             : await getAdminPortalInbounds();
         const allowedCompanies = await getAccessibleCompanyNamesForAppUser(pool, req.appUser);
         const allowedLocationIds = await getAccessibleFulfillmentLocationIdsForAppUser(pool, req.appUser);
@@ -35107,7 +35107,7 @@ async function respondToDeliveryAppointment(client, token, input = {}) {
     return { appointment, changed: true };
 }
 
-async function getPortalInboundsForAccount(accountName, client = pool) {
+async function getPortalInboundsForAccount(accountName, client = pool, downloadPathPrefix = "/api/portal/inbound-documents") {
     const normalizedAccount = normalizeText(accountName);
     const inboundResult = await client.query(
         `
@@ -35199,7 +35199,7 @@ async function getPortalInboundsForAccount(accountName, client = pool) {
         inboundResult.rows,
         linesResult.rows,
         documentsResult.rows,
-        "/api/portal/inbound-documents",
+        downloadPathPrefix,
         attachPortalInboundPalletLabelContents(palletLabelsResult.rows, palletLabelContentsResult.rows)
     );
 }
