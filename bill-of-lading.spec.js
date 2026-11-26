@@ -117,6 +117,18 @@ test("valid staged freight order is ready and produces a branded PDF", () => {
     assert.match(pdfText, /ORD-TEST-BOL-001/);
 });
 
+test("only Alcona BOLs omit the instructions section without changing order notes", () => {
+    const orderNotes = "TEST INTERNAL ORDER NOTES";
+    for (const [accountName, omit] of [["ALCONA TRADING LTD", true], ["ALCONA TRADING LTD EAST", false]]) {
+        const order = stagedFreightOrder({ accountName, orderNotes });
+        const pdf = buildPortalOrderBillOfLadingPdfAttachment(order).content.toString("utf8");
+        assert.equal(pdf.includes("SPECIAL INSTRUCTIONS"), !omit);
+        assert.equal(pdf.includes(orderNotes), !omit);
+        assert.match(pdf, /PICKUP CERTIFICATION AND DELIVERY RECEIPT/);
+        assert.equal(order.orderNotes, orderNotes);
+    }
+});
+
 test("split orders preserve separate warehouse shipment weights and BOL pages", () => {
     const order = stagedFreightOrder();
     order.lines = [

@@ -34039,13 +34039,15 @@ function buildPortalOrderBillOfLadingPage(order, shipment, rows, { pageNumber = 
     ops.push(pdfText("[  ] PREPAID     [  ] COLLECT     [  ] THIRD PARTY", margin + 6, 189, 8, "F2"));
     ops.push(pdfText("Third-party freight charges bill to: __________________________________________________________", margin + 6, 174, 7));
 
-    pdfBolSectionBar(ops, margin, 146, contentWidth, "SPECIAL INSTRUCTIONS");
-    const notes = [
-        order.orderNotes,
-        appointment.status === "CONFIRMED" && appointment.responderName ? `Appointment confirmed by ${appointment.responderName}.` : "",
-        "Inspect freight for visible damage before unloading. Record driver arrival and departure time."
-    ].filter(Boolean).join(" ");
-    wrapPdfText(notes, 104).slice(0, 3).forEach((line, index) => ops.push(pdfText(line, margin + 6, 132 - (index * 11), 7)));
+    if (normalizeText(order.accountName || order.account_name) !== "ALCONA TRADING LTD") {
+        pdfBolSectionBar(ops, margin, 146, contentWidth, "SPECIAL INSTRUCTIONS");
+        const notes = [
+            order.orderNotes,
+            appointment.status === "CONFIRMED" && appointment.responderName ? `Appointment confirmed by ${appointment.responderName}.` : "",
+            "Inspect freight for visible damage before unloading. Record driver arrival and departure time."
+        ].filter(Boolean).join(" ");
+        wrapPdfText(notes, 104).slice(0, 3).forEach((line, index) => ops.push(pdfText(line, margin + 6, 132 - (index * 11), 7)));
+    }
 
     pdfBolSectionBar(ops, margin, 86, contentWidth, "PICKUP CERTIFICATION AND DELIVERY RECEIPT");
     const signatureWidth = contentWidth / 3;
