@@ -23,6 +23,18 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 
 ## Active Execution Board
 
+### Freight packing slip waiver
+
+- Candidate `078bf68709fc241ddd2f12a00693da1dde285d58` requires super-admin approval, signed BOL and load photo; it records the waiver without accepting a simultaneous packing-slip confirmation or general proof override. All 25 focused checks, access audit and 1,017 local deploy checks passed.
+- Sandbox `6be84ac7-9c55-4064-8cb9-20a8cbc3472e`: fresh schema, restricted-role scope and rollback-only four-unit freight closeout passed. The persisted record said waived, not checked; both proof categories were saved and shipment email was skipped. Eleven ready probes between 15:12:43Z and 15:22:53Z held the same boot timestamp; deployment logs had no warnings or errors.
+- Production promotion is blocked by the unidentified Postgres warning. Rollback baseline is production `beef8ba`, deployment `b2e4cb76-4685-4db5-9b25-8e0b33dba176`. No live shipment, attachment upload or database restart was performed.
+
+### Alcona BOL PDF instructions
+
+- Candidate `07920b08b13d2335a27616a28d80182a63854803` omits the Special Instructions section only for Alcona PDFs and leaves stored order notes unchanged. Nine focused tests, 1,016 local deploy checks, and the access-control audit passed.
+- Exact sandbox deployment `39b5b3f8-59ee-4ce1-bf4b-b1b3c843cdc0` passed PDF render tests, fresh schema, and authenticated company/warehouse isolation. The rollback-only designated-company BOL workflow passed after moving its test date 21 days ahead in the harness; the deployed candidate was unchanged. Eleven health probes from 14:13:13Z through 14:23:23Z shared the same boot timestamp; deployment logs showed no runtime warnings or errors.
+- Not promoted: production Postgres still has one unresolved Railway warning. Keep production on `beef8ba`, deployment `b2e4cb76-4685-4db5-9b25-8e0b33dba176`, as the named rollback artifact for the next promotion. PostgreSQL was not restarted and no BOL was resent.
+
 ### Save and reopen warehouse receiving entries (#22)
 
 - Final production verification: Railway reports deployment `b2e4cb76-4685-4db5-9b25-8e0b33dba176` successful on `beef8ba`. Live readiness, the receiving draft column, and the deployed save-and-reopen code were verified read-only, including after an authorized app-only restart. No production receipt was posted. The app has no active warning; the separate Postgres warning remains unidentified, with no critical alerts. PostgreSQL was not restarted. This supersedes the staging status below.
