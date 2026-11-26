@@ -9061,13 +9061,32 @@ async function applyPendingAdditiveMigrations(databasePool = pool) {
     const companyLocationsResult = await databasePool.query("select to_regclass('company_fulfillment_locations') is not null as ready");
     if (portalOrdersResult.rows[0]?.ready !== true || companyLocationsResult.rows[0]?.ready !== true) return false;
 
-    await databasePool.query("alter table company_fulfillment_locations add column if not exists customer_portal_visible boolean not null default true");
-    await databasePool.query("alter table company_fulfillment_locations add column if not exists portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null");
-    await databasePool.query("alter table company_fulfillment_locations add column if not exists default_receiving_bin text not null default '', add column if not exists default_pickable_bin text not null default ''");
-    await databasePool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
-    await databasePool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
-    await databasePool.query("alter table if exists portal_inbounds add column if not exists receiving_draft jsonb");
-    await databasePool.query(`
+    const { rows } = await databasePool.query(`
+        select objects.name, a.attname as column_name
+        from unnest($1::text[]) as objects(name)
+        join pg_class c on c.oid = to_regclass(objects.name)
+        left join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+    `, [
+        ["company_fulfillment_locations", "portal_orders", "portal_inbounds", "item_kit_components",
+            "idx_item_kit_components_parent", "idx_item_kit_components_component"]
+    ]);
+    const existing = new Set(rows.map(({ name }) => name));
+    const columns = new Set(rows.map(({ name, column_name }) => `${name}.${column_name}`));
+    const additions = [
+        ["company_fulfillment_locations", "customer_portal_visible", "boolean not null default true"],
+        ["company_fulfillment_locations", "portal_inventory_rollup_location_id", "bigint references fulfillment_locations(id) on delete set null"],
+        ["company_fulfillment_locations", "default_receiving_bin", "text not null default ''"],
+        ["company_fulfillment_locations", "default_pickable_bin", "text not null default ''"],
+        ["portal_orders", "planned_carrier_name", "text not null default ''"],
+        ["portal_orders", "planned_service_level", "text not null default ''"],
+        ["portal_inbounds", "receiving_draft", "jsonb"]
+    ];
+    for (const [table, column, definition] of additions) {
+        if (existing.has(table) && !columns.has(`${table}.${column}`)) {
+            await databasePool.query(`alter table ${table} add column if not exists ${column} ${definition}`);
+        }
+    }
+    if (!existing.has("item_kit_components")) await databasePool.query(`
         create table if not exists item_kit_components (
             id bigserial primary key,
             account_name text not null,
@@ -9082,8 +9101,12 @@ async function applyPendingAdditiveMigrations(databasePool = pool) {
             constraint item_kit_components_not_recursive_check check (parent_sku <> component_sku)
         )
     `);
-    await databasePool.query("create index if not exists idx_item_kit_components_parent on item_kit_components (account_name, parent_sku)");
-    await databasePool.query("create index if not exists idx_item_kit_components_component on item_kit_components (account_name, component_sku)");
+    if (!existing.has("idx_item_kit_components_parent")) {
+        await databasePool.query("create index if not exists idx_item_kit_components_parent on item_kit_components (account_name, parent_sku)");
+    }
+    if (!existing.has("idx_item_kit_components_component")) {
+        await databasePool.query("create index if not exists idx_item_kit_components_component on item_kit_components (account_name, component_sku)");
+    }
     return true;
 }
 

@@ -101,6 +101,7 @@ test("rolling upgrade adds receiving defaults before an existing schema is ready
     const db = {
         async query(sql, params) {
             if (sql.startsWith("select to_regclass")) return { rows: [{ ready: true }] };
+            if (sql.includes("join pg_attribute")) return { rows: [{ name: "company_fulfillment_locations", column_name: "id" }] };
             if (sql.includes("from wms365_schema_versions")) return { rows: [{ current: false }] };
             if (sql.startsWith("with required_tables")) {
                 const required = JSON.parse(params[1]).filter(([table, column]) =>

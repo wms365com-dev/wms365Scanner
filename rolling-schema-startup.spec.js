@@ -77,32 +77,22 @@ test("schema version recording is idempotent and isolated to migration metadata"
     assert.deepEqual(pool.calls[1].params, [DATABASE_SCHEMA_VERSION]);
 });
 
-test("additive warehouse and Shopify kit migrations are idempotent and change schema only", async () => {
-    const pool = fakePool([
-        { rows: [{ ready: true }] },
-        { rows: [{ ready: true }] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] },
-        { rows: [] }
-    ]);
+test("rolling startup applies only missing objects and is read-only on repeat", async () => {
+    const ready = { rows: [{ ready: true }] };
+    const installed = [
+        ...["customer_portal_visible", "portal_inventory_rollup_location_id", "default_receiving_bin", "default_pickable_bin"]
+            .map((column_name) => ({ name: "company_fulfillment_locations", column_name })),
+        ...["planned_carrier_name", "planned_service_level"].map((column_name) => ({ name: "portal_orders", column_name })),
+        ...["item_kit_components", "idx_item_kit_components_parent", "idx_item_kit_components_component"].map((name) => ({ name }))
+    ];
+    const pool = fakePool([ready, ready, { rows: [...installed, { name: "portal_inbounds", column_name: "id" }] }, { rows: [] }]);
     assert.equal(await applyPendingAdditiveMigrations(pool), true);
-    assert.equal(pool.calls.length, 11);
-    assert.match(pool.calls[2].sql, /add column if not exists customer_portal_visible/i);
-    assert.match(pool.calls[3].sql, /add column if not exists portal_inventory_rollup_location_id/i);
-    assert.match(pool.calls[4].sql, /add column if not exists default_receiving_bin.*add column if not exists default_pickable_bin/i);
-    assert.match(pool.calls[5].sql, /add column if not exists planned_carrier_name/i);
-    assert.match(pool.calls[6].sql, /add column if not exists planned_service_level/i);
-    assert.match(pool.calls[7].sql, /add column if not exists receiving_draft jsonb/i);
-    assert.match(pool.calls[8].sql, /create table if not exists item_kit_components/i);
-    assert.match(pool.calls[9].sql, /idx_item_kit_components_parent/i);
-    assert.match(pool.calls[10].sql, /idx_item_kit_components_component/i);
-    assert.equal(pool.calls.some((call) => /^\s*(update|delete|insert)\b/i.test(call.sql)), false);
+    assert.equal(pool.calls.length, 4);
+    assert.match(pool.calls[3].sql, /^alter table portal_inbounds add column if not exists receiving_draft jsonb$/i);
+    const current = fakePool([ready, ready, { rows: [...installed, { name: "portal_inbounds", column_name: "receiving_draft" }] }]);
+    assert.equal(await applyPendingAdditiveMigrations(current), true);
+    assert.equal(current.calls.length, 3);
+    assert.ok(current.calls.every((call) => /^\s*select\b/i.test(call.sql)));
 });
 
 test("additive fulfillment migration defers fresh databases to the full initializer", async () => {
