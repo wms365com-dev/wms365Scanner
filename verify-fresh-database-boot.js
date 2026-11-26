@@ -23,6 +23,13 @@ async function stopChild(child) {
 async function main() {
     const connectionString = process.env.DATABASE_URL || process.env.DATABASE_PRIVATE_URL;
     if (!connectionString) throw new Error("DATABASE_URL is required.");
+    const verifyReceivingUpgrade = process.argv.includes("--verify-receiving-upgrade");
+    if (verifyReceivingUpgrade && (process.env.RAILWAY_ENVIRONMENT_NAME !== "customer-sandbox"
+        || process.env.RAILWAY_SERVICE_NAME !== "wms365-sandbox"
+        || new URL(connectionString).hostname !== "postgres-xihr.railway.internal"
+        || process.env.WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED !== "true")) {
+        throw new Error("Receiving upgrade verification requires the isolated sandbox with notifications disabled.");
+    }
     const schema = `wms365_boot_${crypto.randomBytes(6).toString("hex")}`;
     const admin = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
     await admin.connect();
@@ -101,6 +108,27 @@ async function main() {
         );
         const failed = Object.entries(checks.rows[0]).filter(([, value]) => value !== true);
         if (failed.length) throw new Error(`Fresh boot missing: ${failed.map(([name]) => name).join(", ")}`);
+        if (verifyReceivingUpgrade) {
+            await stopChild(child);
+            const {
+                DATABASE_SCHEMA_VERSION, databaseSchemaContractIsCurrent, applyPendingAdditiveMigrations
+            } = require("./server");
+            const isolated = new Client({ connectionString: isolatedUrl.toString(), ssl: { rejectUnauthorized: false } });
+            await isolated.connect();
+            try {
+                if ((await isolated.query("select current_schema() as name")).rows[0]?.name !== schema) {
+                    throw new Error("Temporary schema identity mismatch.");
+                }
+                await isolated.query("alter table company_fulfillment_locations drop column default_receiving_bin, drop column default_pickable_bin");
+                await isolated.query("delete from wms365_schema_versions where version = $1", [DATABASE_SCHEMA_VERSION]);
+                if (await databaseSchemaContractIsCurrent(isolated)) throw new Error("Legacy schema incorrectly marked ready.");
+                if (!await applyPendingAdditiveMigrations(isolated)) throw new Error("Receiving upgrade migration did not run.");
+                if (!await databaseSchemaContractIsCurrent(isolated)) throw new Error("Upgraded schema is not ready.");
+                console.log(JSON.stringify({ receivingUpgrade: true, legacyRejected: true, upgradedReady: true }));
+            } finally {
+                await isolated.end();
+            }
+        }
         console.log(JSON.stringify({ freshBoot: true, schemaControls: checks.rows[0] }));
     } finally {
         await stopChild(child);

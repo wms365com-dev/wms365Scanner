@@ -401,7 +401,7 @@ const DATABASE_HEALTH_TIMEOUT_MS = Math.max(1000, Number.parseInt(readEnv("DATAB
 const DATABASE_HEALTH_WATCHDOG_INTERVAL_MS = Math.max(10000, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_INTERVAL_MS", "30000") || "30000", 10) || 30000);
 const DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT = Math.max(2, Number.parseInt(readEnv("DATABASE_HEALTH_WATCHDOG_FAILURE_LIMIT", "3") || "3", 10) || 3);
 const DATABASE_INITIALIZATION_LOCK_KEY = "wms365:database-initialization:v1";
-const DATABASE_SCHEMA_VERSION = "2026-11-25-company-warehouse-receiving-bins";
+const DATABASE_SCHEMA_VERSION = "2026-11-25-company-warehouse-receiving-bins-v2";
 const DATABASE_SCHEMA_REQUIRED_TABLES = Object.freeze([
     "inventory_lines",
     "inventory_transactions",
@@ -441,6 +441,8 @@ const DATABASE_SCHEMA_REQUIRED_COLUMNS = Object.freeze([
     ["owner_accounts", "feature_flags"],
     ["company_fulfillment_locations", "customer_portal_visible"],
     ["company_fulfillment_locations", "portal_inventory_rollup_location_id"],
+    ["company_fulfillment_locations", "default_receiving_bin"],
+    ["company_fulfillment_locations", "default_pickable_bin"],
     ["portal_orders", "shipment_method"],
     ["portal_orders", "planned_carrier_name"],
     ["portal_orders", "planned_service_level"],
@@ -9043,6 +9045,7 @@ async function applyPendingAdditiveMigrations(databasePool = pool) {
 
     await databasePool.query("alter table company_fulfillment_locations add column if not exists customer_portal_visible boolean not null default true");
     await databasePool.query("alter table company_fulfillment_locations add column if not exists portal_inventory_rollup_location_id bigint references fulfillment_locations(id) on delete set null");
+    await databasePool.query("alter table company_fulfillment_locations add column if not exists default_receiving_bin text not null default '', add column if not exists default_pickable_bin text not null default ''");
     await databasePool.query("alter table portal_orders add column if not exists planned_carrier_name text not null default ''");
     await databasePool.query("alter table portal_orders add column if not exists planned_service_level text not null default ''");
     await databasePool.query(`

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { databaseSchemaContractIsCurrent, applyPendingAdditiveMigrations } = require("./server");
 
 const ui = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
@@ -31,4 +32,29 @@ test("posting direct putaway requires explicit confirmation and a locked compati
     assert.match(server, /details\?\.confirmDirectPutaway === true/);
     assert.match(server, /confirmDirectPutaway \? "PUTAWAY_COMPLETE" : "RECEIVED_PENDING_PUTAWAY"/);
     assert.match(server, /where code = \$1 and account_name = \$2 and fulfillment_location_id = \$3\s+and is_pickable = true and location_type = 'STORAGE'\s+for update/);
+});
+
+test("rolling upgrade adds receiving defaults before an existing schema is ready", async () => {
+    const binFields = new Set(["default_receiving_bin", "default_pickable_bin"]);
+    const installed = new Set();
+    const db = {
+        async query(sql, params) {
+            if (sql.startsWith("select to_regclass")) return { rows: [{ ready: true }] };
+            if (sql.includes("from wms365_schema_versions")) return { rows: [{ current: false }] };
+            if (sql.startsWith("with required_tables")) {
+                const required = JSON.parse(params[1]).filter(([table, column]) =>
+                    table === "company_fulfillment_locations" && binFields.has(column)
+                );
+                assert.equal(required.length, 2);
+                return { rows: [{ tables_ready: true, columns_ready: required.every(([, column]) => installed.has(column)) }] };
+            }
+            if (sql.startsWith("alter table company_fulfillment_locations")) {
+                for (const field of binFields) if (sql.includes("add column if not exists " + field)) installed.add(field);
+            }
+            return { rows: [] };
+        }
+    };
+    assert.equal(await databaseSchemaContractIsCurrent(db), false);
+    assert.equal(await applyPendingAdditiveMigrations(db), true);
+    assert.equal(await databaseSchemaContractIsCurrent(db), true);
 });
