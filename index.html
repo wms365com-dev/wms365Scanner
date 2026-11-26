@@ -28199,6 +28199,8 @@
                         }));
                         const requiresShipmentCloseout = currentOrder?.status === "STAGED";
                         let packingSlipQuantityConfirmed = false;
+                        let packingSlipWaiverReason = "";
+                        let needsPackingSlipWaiver = false;
                         let moveShortageToInvestigation = false;
                         if (requiresShipmentCloseout) {
                             if (shipmentMethod === "PARCEL" && !trackingNumber.trim()) {
@@ -28207,7 +28209,9 @@
                                 const requiredCategories = new Set(["SHIPMENT_BOL", "SHIPMENT_PACKING_SLIP", "SHIPMENT_LOAD_PHOTO"]);
                                 const uploadedCategories = new Set((currentOrder?.documents || []).map((document) => norm(document.documentCategory || "")));
                                 const missingCategories = [...requiredCategories].filter((category) => !uploadedCategories.has(category));
-                                if (missingCategories.length) {
+                                needsPackingSlipWaiver = currentUserIsSuperAdmin() && shipmentMethod === "LTL_FREIGHT"
+                                    && missingCategories.length === 1 && missingCategories[0] === "SHIPMENT_PACKING_SLIP";
+                                if (missingCategories.length && !needsPackingSlipWaiver) {
                                     throw new Error("Upload the signed BOL/POD, checked packing slip, and loaded freight photo before marking shipped.");
                                 }
                             }
@@ -28281,8 +28285,15 @@
                                     confirmLabel: "Move to Hold"
                                 });
                             }
-                            packingSlipQuantityConfirmed = await confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
-                            if (!packingSlipQuantityConfirmed) {
+                            if (needsPackingSlipWaiver) {
+                                packingSlipWaiverReason = String(window.prompt(
+                                    "Optional packing slip waiver: enter the owner-approved reason only after verifying the entered quantities against the signed BOL. A signed BOL and load photo are required.",
+                                    ""
+                                ) || "").trim().slice(0, 1000);
+                            } else {
+                                packingSlipQuantityConfirmed = await confirmPortalShipmentCloseoutReview(currentOrder, shippedLines);
+                            }
+                            if (!packingSlipQuantityConfirmed && !packingSlipWaiverReason) {
                                 showMessage(actionMessageElement, "Shipment was not marked shipped. Confirm the checked packing slip quantity matches the system shipped quantity before trying again.", "info");
                                 return;
                             }
@@ -28306,6 +28317,7 @@
                                 outboundLabourHours,
                                 outboundSpecialLabourNote,
                                 packingSlipQuantityConfirmed,
+                                packingSlipWaiverReason,
                                 moveShortageToInvestigation
                             })
                         });

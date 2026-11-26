@@ -32285,7 +32285,7 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
     const shipmentMethod = confirmation.shipmentMethod || order.shipmentMethod || "LTL_FREIGHT";
     const shippedCarrierName = confirmation.shippedCarrierName || order.shippedCarrierName || "";
     const shippedTrackingReference = confirmation.shippedTrackingReference || order.shippedTrackingReference || "";
-    const shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
+    let shippedConfirmationNote = confirmation.shippedConfirmationNote || order.shippedConfirmationNote || "";
     const outboundPallets = sanitizePortalOutboundPalletInput(confirmation.outboundPallets, shipmentMethod);
     const shipmentLineConfirmations = validatePortalShipmentLineConfirmations(order, confirmation.shippedLines, { required: transitionToShipped });
     const shipmentQuantityWarnings = buildPortalShipmentQuantityWarnings(shipmentLineConfirmations);
@@ -32295,14 +32295,21 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
         trackingReference: shippedTrackingReference
     });
     if (transitionToShipped) {
-        assertPortalShipmentCloseoutReviewConfirmed(confirmation);
-        assertPortalShipmentProofRequirements(confirmation, {
+        const proofContext = {
             shipmentMethod,
             shippedCarrierName,
             shippedTrackingReference,
             appUser,
             existingDocuments: order.documents || []
-        });
+        };
+        assertPortalShipmentCloseoutReviewConfirmed(confirmation, proofContext);
+        assertPortalShipmentProofRequirements(confirmation, proofContext);
+        if (confirmation.packingSlipWaiverReason) {
+            shippedConfirmationNote = [
+                shippedConfirmationNote,
+                `Packing slip waived (not checked); quantity verified against signed BOL. Approved by ${actor}. Reason: ${confirmation.packingSlipWaiverReason}`
+            ].filter(Boolean).join(" | ");
+        }
         assertPortalOutboundPalletCounts(outboundPallets, { shipmentMethod });
     }
     const shippingConfirmationUnchanged = !confirmation.documents.length
@@ -32412,6 +32419,8 @@ async function savePortalShippingConfirmation(client, order, rawConfirmation, ap
             shortageInvestigationResult.moves.length ? `Investigation hold moved ${shortageInvestigationResult.moves.map((move) => `${move.sku} ${move.quantity}`).join(", ")}` : "",
             shortageInvestigationResult.skipped.length ? `Investigation hold skipped ${shortageInvestigationResult.skipped.length}` : "",
             confirmation.documents.length ? `${formatCount(confirmation.documents.length, "document")} uploaded` : "",
+            transitionToShipped && confirmation.packingSlipWaiverReason
+                ? `Packing slip waived (not checked); signed BOL used: ${confirmation.packingSlipWaiverReason}` : "",
             "Shipment email scheduled",
             actor
         ].filter(Boolean).join(" | ")
@@ -33017,7 +33026,8 @@ function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = 
         [...(existingDocuments || []), ...(confirmation.documents || [])]
             .map((document) => normalizePortalOrderDocumentCategory(document.documentCategory || document.document_category || ""))
     );
-    const missingCategories = REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES.filter((category) => !uploadedCategories.has(category));
+    const missingCategories = REQUIRED_SHIPMENT_DOCUMENT_CATEGORIES.filter((category) => !uploadedCategories.has(category)
+        && !(confirmation.packingSlipWaiverReason && category === PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_PACKING_SLIP));
     if (missingCategories.length) {
         if (confirmation.missingShipmentProofOverride === true) {
             if (normalizeAppUserRole(appUser?.role) !== APP_USER_ROLES.SUPER_ADMIN) {
@@ -33033,7 +33043,23 @@ function assertPortalShipmentProofRequirements(confirmation, { shipmentMethod = 
     }
 }
 
-function assertPortalShipmentCloseoutReviewConfirmed(confirmation) {
+function assertPortalShipmentCloseoutReviewConfirmed(confirmation, { shipmentMethod, appUser, existingDocuments = [] } = {}) {
+    if (confirmation?.packingSlipWaiverReason) {
+        if (normalizeAppUserRole(appUser?.role) !== APP_USER_ROLES.SUPER_ADMIN) {
+            throw httpError(403, "Only a super admin can approve a packing slip waiver.");
+        }
+        if (!shipmentMethodRequiresFreightProof(shipmentMethod)
+            || confirmation.packingSlipQuantityConfirmed || confirmation.missingShipmentProofOverride) {
+            throw httpError(400, "A packing slip waiver is for freight and cannot be combined with packing slip confirmation or a general proof override.");
+        }
+        const categories = new Set([...existingDocuments, ...(confirmation.documents || [])]
+            .map((doc) => normalizePortalOrderDocumentCategory(doc.documentCategory || doc.document_category)));
+        if (!categories.has(PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_BOL)
+            || !categories.has(PORTAL_ORDER_DOCUMENT_CATEGORIES.SHIPMENT_LOAD_PHOTO)) {
+            throw httpError(400, "A packing slip waiver requires the signed BOL and loaded freight photo.");
+        }
+        return;
+    }
     if (confirmation?.packingSlipQuantityConfirmed === true) return;
     throw httpError(400, "Confirm the checked packing slip quantity matches the system shipped quantity before marking shipped.");
 }
@@ -44081,6 +44107,7 @@ function sanitizePortalShippingConfirmationInput(payload) {
         outboundLabourHours: Math.max(0, roundBillingNumber(payload?.outboundLabourHours ?? payload?.labourHours ?? payload?.laborHours ?? 0, 2)),
         outboundSpecialLabourNote: normalizeFreeText(payload?.outboundSpecialLabourNote || payload?.specialLabourNote || payload?.laborNote || ""),
         packingSlipQuantityConfirmed,
+        packingSlipWaiverReason: normalizeFreeText(payload?.packingSlipWaiverReason || "").slice(0, 1000),
         moveShortageToInvestigation,
         missingShipmentProofOverride: toBooleanFlag(
             payload?.missingShipmentProofOverride ?? payload?.missing_shipment_proof_override,

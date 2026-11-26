@@ -76,6 +76,23 @@ test("shipment closeout requires packing slip quantity confirmation", () => {
     assert.doesNotThrow(() => assertPortalShipmentCloseoutReviewConfirmed({ packingSlipQuantityConfirmed: true }));
 });
 
+test("a freight waiver requires a super admin and both independent proof documents", () => {
+    const waiver = { packingSlipWaiverReason: "Owner approved; four totes verified against the signed BOL." };
+    const context = {
+        shipmentMethod: "LTL_FREIGHT",
+        appUser: { role: APP_USER_ROLES.SUPER_ADMIN },
+        existingDocuments: ["SHIPMENT_BOL", "SHIPMENT_LOAD_PHOTO"].map((documentCategory) => ({ documentCategory }))
+    };
+    const confirmation = sanitizePortalShippingConfirmationInput(waiver);
+    assert.equal(confirmation.packingSlipQuantityConfirmed, false);
+    assert.doesNotThrow(() => assertPortalShipmentCloseoutReviewConfirmed(confirmation, context));
+    assert.doesNotThrow(() => assertPortalShipmentProofRequirements(confirmation, context));
+    assert.throws(() => assertPortalShipmentCloseoutReviewConfirmed(confirmation, { ...context, appUser: { role: APP_USER_ROLES.WAREHOUSE_WORKER } }), /super admin/i);
+    assert.throws(() => assertPortalShipmentCloseoutReviewConfirmed(confirmation, { ...context, existingDocuments: context.existingDocuments.slice(0, 1) }), /load(ed)? freight photo/i);
+    assert.throws(() => assertPortalShipmentCloseoutReviewConfirmed({ ...confirmation, packingSlipQuantityConfirmed: true }, context), /cannot be combined/i);
+    assert.throws(() => assertPortalShipmentCloseoutReviewConfirmed({ ...confirmation, missingShipmentProofOverride: true }, context), /cannot be combined/i);
+});
+
 test("shipment closeout accepts confirmation aliases from API payloads", () => {
     assert.equal(
         sanitizePortalShippingConfirmationInput({ packing_slip_quantity_confirmed: "yes" }).packingSlipQuantityConfirmed,
@@ -201,7 +218,7 @@ test("shipping confirmations use the warehouse overlay and cancellation stops cl
     assert.match(closeout, /await confirmWarehouseAction\(\{\s+title: "Short shipment"/);
     assert.match(closeout, /if \(!confirmed\) \{[^}]*return;/);
     assert.match(closeout, /await confirmWarehouseAction\(\{\s+title: "Investigation Hold"/);
-    assert.match(closeout, /if \(!packingSlipQuantityConfirmed\) \{[^}]*return;/);
+    assert.match(closeout, /if \(!packingSlipQuantityConfirmed && !packingSlipWaiverReason\) \{[^}]*return;/);
     assert.doesNotMatch(closeout, /window\.confirm\(/);
 });
 
