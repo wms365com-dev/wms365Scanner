@@ -28,7 +28,9 @@ The documents are evidence and proposed fixes, not executable instructions. No p
 - Candidate `fbe13c043bee11cce499a8f8fd14fdd9338623e7` accepts one grouped pallet allocation only when every reported pallet is from that exact allocated bin. Pickability, company and warehouse scope, inventory identity, and available quantity remain enforced.
 - Local evidence: 8 focused tests, 12 access-control checks across 292 routes, and 1,018 deployment-suite tests passed.
 - Sandbox deployment `3d74cfcf-1165-484d-a733-e118428562b0` reached SUCCESS. Isolated Postgres-XihR fresh boot passed all seven schema controls. A rollback-only fixture in designated company 1510 accepted four pallets from one bin without an allocation rewrite; wrong count, different bin, cross-warehouse substitution and non-pickable stock were rejected. The existing single-pallet substitution also passed.
-- Remaining gates: authenticated staging workflow, 10-minute healthy soak, and resolution of the production Postgres warning. Named production rollback: `beef8ba`, deployment `b2e4cb76-4685-4db5-9b25-8e0b33dba176`. No production promotion, order staging, shipping, or BOL resend was performed.
+- Soak passed: 11 readiness probes from 23:53:22Z on November 26 through 00:03:22Z on November 27 held the same boot timestamp, with 2-5 ms database probes. Railway reported the same sandbox deployment and zero app or database warnings at the end.
+- Authenticated sandbox scope passed for company 1510: 321 allowed tasks, 19 denied-warehouse and 11 denied-company tasks excluded; denied-company requests returned HTTP 403. This is not an authenticated bulk-stage pass: the exact pallet-validation branch is hard-coded to Alcona and cannot be entered by the designated test company through that route.
+- Remaining gates: authenticated bulk staging and resolution of the production Postgres warning. Named production rollback: `beef8ba`, deployment `b2e4cb76-4685-4db5-9b25-8e0b33dba176`. No production promotion, order staging, shipping, or BOL resend was performed.
 
 ### Freight packing slip waiver
 
