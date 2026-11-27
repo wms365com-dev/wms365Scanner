@@ -36429,6 +36429,22 @@ async function reallocatePortalOrderToActualPalletLocations(client, order, picke
     return changedAllocations;
 }
 
+async function allowSandboxDesignatedPalletPick(client, accountName, env = process.env) {
+    if (accountName !== "CODEX PORTAL SYSTEM TEST"
+        || env.RAILWAY_ENVIRONMENT_ID !== "ba0e38d2-cf0c-440b-aace-f8eb0f03b5a6"
+        || env.RAILWAY_SERVICE_ID !== "98c3a0c6-d0bb-4a7b-b392-d0baf509ad8b"
+        || env.WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED !== "true") return false;
+    const databaseUrls = [env.DATABASE_URL, env.DATABASE_PRIVATE_URL].filter(Boolean);
+    try {
+        if (!databaseUrls.length || databaseUrls.some((value) => new URL(value).hostname !== "postgres-xihr.railway.internal")) return false;
+    } catch {
+        return false;
+    }
+    const { requireDesignatedTestCompany } = require("./scripts/designated-test-company");
+    await requireDesignatedTestCompany(client);
+    return true;
+}
+
 async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details = {}, appUser = null) {
     const orderResult = await client.query("select * from portal_orders where id = $1 limit 1 for update", [orderId]);
     if (orderResult.rowCount !== 1) {
@@ -36529,7 +36545,9 @@ async function updateAdminPortalOrderStatus(client, orderId, nextStatus, details
 
     const timestampColumn = nextStatus === "PICKING" ? "picking_at" : nextStatus === "PICKED" ? "picked_at" : "staged_at";
     let pickedPalletDetails = Array.isArray(currentOrder.pickedPalletDetails) ? currentOrder.pickedPalletDetails : [];
-    if (nextStatus === "PICKED" && normalizeText(currentOrder.accountName).toUpperCase().includes("ALCONA TRADING")) {
+    if (nextStatus === "PICKED" && (normalizeText(currentOrder.accountName).toUpperCase().includes("ALCONA TRADING")
+        || (Array.isArray(details?.pickedPalletDetails) && details.pickedPalletDetails.length > 0
+            && await allowSandboxDesignatedPalletPick(client, currentOrder.accountName)))) {
         const rawPallets = Array.isArray(details?.pickedPalletDetails) ? details.pickedPalletDetails : [];
         if (!rawPallets.length) {
             throw httpError(400, "Enter every picked pallet's actual bin and weight before marking this Alcona order picked.");

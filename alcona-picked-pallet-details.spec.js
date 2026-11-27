@@ -11,7 +11,7 @@ const mobileSource = fs.readFileSync(path.join(root, "mobile-pick.html"), "utf8"
 
 test("grouped pallet allocations only accept matching, pickable, uncommitted stock", async () => {
     const start = serverSource.indexOf("async function reallocatePortalOrderToActualPalletLocations(");
-    const end = serverSource.indexOf("async function updateAdminPortalOrderStatus(", start);
+    const end = serverSource.indexOf("async function allowSandboxDesignatedPalletPick(", start);
     const normalizeText = (value) => String(value ?? "").trim().toUpperCase();
     const pick = vm.runInNewContext(`(${serverSource.slice(start, end).trim()})`, {
         normalizeText, toPositiveInt: Number, httpError: (_, message) => Error(message),
@@ -46,6 +46,30 @@ test("grouped pallet allocations only accept matching, pickable, uncommitted sto
     await assert.rejects(pick(client({ pickable: false }), order, pallets), /not pickable/);
     await assert.rejects(pick(client({ committed: 1 }), order, pallets), /uncommitted pallet/);
     await assert.rejects(pick(client({ inventoryId: 43 }), order, pallets), /uncommitted pallet/);
+});
+
+test("designated pallet staging is enabled only in the isolated sandbox", async () => {
+    const start = serverSource.indexOf("async function allowSandboxDesignatedPalletPick(");
+    const end = serverSource.indexOf("async function updateAdminPortalOrderStatus(", start);
+    let verified = 0;
+    const allow = vm.runInNewContext(`(${serverSource.slice(start, end).trim()})`, {
+        URL,
+        require: () => ({ requireDesignatedTestCompany: async () => { verified++; } })
+    });
+    const company = "CODEX PORTAL SYSTEM TEST";
+    const env = {
+        RAILWAY_ENVIRONMENT_ID: "ba0e38d2-cf0c-440b-aace-f8eb0f03b5a6",
+        RAILWAY_SERVICE_ID: "98c3a0c6-d0bb-4a7b-b392-d0baf509ad8b",
+        WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED: "true",
+        DATABASE_URL: "postgres://postgres-xihr.railway.internal/test"
+    };
+    assert.equal(await allow({}, company, env), true);
+    assert.equal(await allow({}, "OTHER COMPANY", env), false);
+    assert.equal(await allow({}, company, { ...env, RAILWAY_ENVIRONMENT_ID: "production" }), false);
+    assert.equal(await allow({}, company, { ...env, RAILWAY_SERVICE_ID: "other-service" }), false);
+    assert.equal(await allow({}, company, { ...env, WMS365_SANDBOX_EXTERNAL_SIDE_EFFECTS_DISABLED: "false" }), false);
+    assert.equal(await allow({}, company, { ...env, DATABASE_PRIVATE_URL: "postgres://production.invalid/test" }), false);
+    assert.equal(verified, 1);
 });
 
 test("Alcona picked status requires pallet-level location and weight", () => {
